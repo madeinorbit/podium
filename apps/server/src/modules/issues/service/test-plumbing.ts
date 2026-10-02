@@ -35,7 +35,7 @@ export function issueTestPlumbing(
    * open, and it is the only way to open one today.
    */
   opts: { transact?: LedgerDeps['transact'] } = {},
-): Pick<IssueDeps, 'funnel' | 'ledger' | 'publishSpecs'> {
+): Pick<IssueDeps, 'funnel' | 'ledger'> {
   const ledger = new Ledger({
     repo: memoryChangeLogStore(),
     now: Date.now,
@@ -52,14 +52,6 @@ export function issueTestPlumbing(
       },
     },
     ledger,
-    publishSpecs: {
-      issueUpdated: (issue) => ({
-        rows: [{ id: issue.id, value: issue }],
-      }),
-      issuesChanged: (issues) => ({
-        rows: issues.map((i) => ({ id: i.id, value: i })),
-      }),
-    },
   }
 }
 

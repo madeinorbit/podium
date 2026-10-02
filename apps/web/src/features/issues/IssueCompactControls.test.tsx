@@ -1,6 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 
-import type { SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -27,14 +27,14 @@ const setPlacement = vi.fn(async () => ({}))
 const updateIssue = vi.fn(async () => {})
 const closeIssue = vi.fn(async () => {})
 
-/** Ids are branded on `SessionMeta`; fixtures are built from string literals,
+/** Ids are branded on `SessionView`; fixtures are built from string literals,
  *  so the override side is the unbranded spelling. */
-type SessionOverride = Partial<Omit<SessionMeta, 'sessionId' | 'issueId'>> & {
+type SessionOverride = Partial<Omit<SessionView, 'sessionId' | 'issueId'>> & {
   sessionId?: string
   issueId?: string
 }
 
-const session = (over: SessionOverride = {}): SessionMeta =>
+const session = (over: SessionOverride = {}): SessionView =>
   ({
     sessionId: 's1',
     issueId: 'i',
@@ -43,9 +43,9 @@ const session = (over: SessionOverride = {}): SessionMeta =>
     status: 'live',
     lastActiveAt: '2026-08-06T00:00:00.000Z',
     ...over,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
-let mockSessions: SessionMeta[] = []
+let mockSessions: SessionView[] = []
 /** The replica the controls resolve an origin ref against. */
 let mockIssues: ReturnType<typeof makeIssue>[] = []
 
@@ -169,7 +169,9 @@ const unstarted = (over: Parameters<typeof makeIssue>[0] = {}) =>
 describe('IssueCompactControls', () => {
   it('keeps a narrative close reason out of the status trigger', () => {
     const reason = 'Delivered to the team after 36 tasks and many agent sessions.'
-    render(<IssueCompactControls issue={makeIssue({ id: 'i', stage: 'done', closedReason: reason })} />)
+    render(
+      <IssueCompactControls issue={makeIssue({ id: 'i', stage: 'done', closedReason: reason })} />,
+    )
 
     const status = screen.getByRole('button', { name: 'Status' })
     expect(status.textContent).toContain('Done')

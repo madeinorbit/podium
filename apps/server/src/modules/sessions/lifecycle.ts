@@ -1,24 +1,13 @@
 import { createLogger } from '@podium/logger'
 import type {
-  AccountId,
-  Attribution,
-  Geometry,
   IssueId,
   MachineId,
   ResumeRef,
   SessionId,
   SessionMeta,
   TranscriptItem,
-  WorkState,
 } from '@podium/model'
-import {
-  type AgentKind,
-  asMachineId,
-  asSessionId,
-  asUserId,
-  spawnedByParentSessionId,
-  type UserId,
-} from '@podium/model'
+import { type AgentKind, spawnedByParentSessionId, type UserId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -38,113 +27,56 @@ export type SessionWirePrincipal = SessionStatePrincipal
 
 const log = createLogger('server:sessions')
 
-import { randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
-import { computePriorities, isIssueClosed } from '@podium/model'
+import { isIssueClosed } from '@podium/model'
 import type {
   DaemonPtyInputBatch,
   DaemonPtyOutputBatch,
   InteractionEvent,
+  LiveServerMessage,
   MachinePrincipal,
+  MetadataChange,
   PendingInteraction,
   Principal,
+  SessionBindingAdoptLaunchInstruction,
+  SyncChangesSinceResult,
 } from '@podium/protocol'
-import type { TurnEvent } from '@podium/protocol/daemon'
-import {
-  type AgentInstruction,
-  AUTO_ARCHIVE_READ_WINDOW_MS,
-  asDelegationRef,
-  type LiveServerMessage,
-  MAX_AGENT_TITLE_LENGTH,
-  type MetadataChange,
-  type RoomRef,
-  type ServerMessage,
-  type SessionBindingAdoptLaunchInstruction,
-  type SessionBindingSpawnInstruction,
-  type SessionOpenUrlMessage,
-  type SubscriptionRegistry,
-  type SyncChangesSinceResult,
-} from '@podium/protocol'
-import type { ControlMessage, DaemonMessage, TurnReceipt } from '@podium/protocol/daemon'
-import { resolveRole } from '@podium/runtime'
+import type { ControlMessage, TurnEvent, TurnReceipt } from '@podium/protocol/daemon'
 import {
   DEVICE_GRADE_PRINCIPAL,
   type EntityChangeSpec,
-  type MutationLedger,
   type MutationLedgerPort,
 } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
-import {
-  type CommandPrincipal,
-  resolvePrincipal,
-  resolvePrincipalAsync,
-  systemPrincipal,
-  userCommandPrincipal,
-} from '../../command-principal'
-import { isFeatureEnabled } from '../../features'
+import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
-import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn, ClientRegistry } from '../../gateway/client-registry'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
-import {
-  harnessCapabilitiesFor,
-  harnessNeedsSubmitVerification,
-  harnessObservationProvider,
-  harnessSupportsEffort,
-  harnessSupportsInitialPrompt,
-} from '../../harness-manifest'
 import type { Capability } from '../../issue-authz'
-import type { MachineListing } from '../machines/service'
-import { SessionFactsReader, type SessionFacts } from './facts'
-import type { SessionOwnerMemo } from './session-state/service'
-import {
-  liveSessionsUsingWorktree,
-  sessionsForIssue,
-} from '../../issue-util'
-import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
-import { assertModelSelectionValid } from '../../model-validation'
-import type {
-  ObservationLeaseRecord,
-  SessionRow,
-  SessionStore,
-  TerminalCandidateFacts,
-} from '../../store'
+import { ownershipSnapshotFromMachines } from '../../machine-access'
+import type { SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { WriteFunnel } from '../funnel'
-import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
-import type { MachinesService, MachineUseResolver } from '../machines/service'
-import type { MemoryService } from '../memory/service'
+import type { MachineListing, MachinesService, MachineUseResolver } from '../machines/service'
+import { resolveShellOwningIssue } from '../shells/service'
 import type { HeadlessService } from '../superagent/headless'
-import { resolveAccountEnv } from './account-env'
 import type { SessionClientControl } from './client-control'
-import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import type { SessionDaemonLifecycle } from './daemon-lifecycle'
 import type { SessionDaemonProjection } from './daemon-projection'
-import type { RuntimeEventGate } from './runtime-event-gate'
+import { type SessionFacts, SessionFactsReader } from './facts'
 import { machineUseGateFor } from './handoff/access'
 import type { AssertMachineUse, HandoffCaller } from './handoff/ports'
-import {
-  type AnswerChoice,
-  type InboxPrincipalReference,
-  inboxActorColumns,
-  inboxActorFromColumns,
-  inboxPrincipalFromCommand,
-  type SessionInbox,
-  SYSTEM_INBOX_PRINCIPAL,
-} from './inbox'
-// Still used by the lazy workspace-fetch path (POD-658), which shares the
-// source-side bundle-base handshake and the chunked transfer with handoff.
-import type { PreparedSessionInstructions } from './instructions'
+import type { AnswerChoice, InboxPrincipalReference, SessionInbox } from './inbox'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { ReceiptSender, ReceiptSendInput, ReceiptSendVia } from './receipt-send'
+import type { RuntimeEventGate } from './runtime-event-gate'
 import type { SessionRuntimeGateway } from './runtime-gateway'
-import type { TurnPreviewAccumulator } from './turn-preview'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionSpawnResult } from './session-start'
+import type { SessionOwnerMemo } from './session-state/service'
 import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs } from './terminal-lifetime'
-import { resolveShellOwningIssue } from '../shells/service'
+import type { TurnPreviewAccumulator } from './turn-preview'
 
 export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 export type { SessionSpawnResult }
@@ -160,12 +92,10 @@ import type { AgentConcurrencyHistory, AgentConcurrencyHistoryResult } from './c
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { SessionNaming } from './naming'
-import { normalizeAgentName } from './naming'
 import { SessionObservationLeases } from './observation-leases'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
 import type { SessionProjectionEvent, SessionRepository } from './repository'
 import type { Session } from './session'
-import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { SessionAuthz } from './session-authz'
 import type { SessionBindingReceipts } from './session-binding'
 import type { SessionClientPlane } from './session-client-plane'
@@ -173,7 +103,7 @@ import type { SessionKill } from './session-kill'
 import type { SessionMetaOps } from './session-meta-ops'
 import type { SessionRevival } from './session-revival'
 import type { SessionStart } from './session-start'
-import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
+import { SessionStateRegistry } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionTeardown } from './session-teardown'
 import { wireSessionLifecycle } from './session-wiring'
@@ -316,7 +246,9 @@ export class SessionLifecycle {
    * does, because nothing can spawn one until the server is serving.
    */
   interactionAnswer?: NonNullable<import('./inbox').SessionInboxDeps['contractAnswer']>
-  pendingQuestion?: (sessionId: SessionId) => Promise<import('@podium/protocol').PendingInteractionWire | null>
+  pendingQuestion?: (
+    sessionId: SessionId,
+  ) => Promise<import('@podium/protocol').PendingInteractionWire | null>
   interactionAsk?: (msg: { sessionId: SessionId; interaction: PendingInteraction }) => void
   /**
    * THE FAILURE SINK (POD-2414), late-bound for the same reason and on the same
@@ -330,11 +262,7 @@ export class SessionLifecycle {
    * The returned promise is awaited by the gate's projector before its durable
    * cursor advances, so this must be safe to repeat.
    */
-  interactionTurn?: (msg: {
-    sessionId: SessionId
-    ev: TurnEvent
-    at: string
-  }) => Promise<void>
+  interactionTurn?: (msg: { sessionId: SessionId; ev: TurnEvent; at: string }) => Promise<void>
   /**
    * THE RESOLUTION SINK (POD-2414), late-bound like its two siblings.
    *
@@ -343,10 +271,7 @@ export class SessionLifecycle {
    * stream's `interaction` events carry `answered` and `expired` too, and this
    * is where they reach the aggregate.
    */
-  interactionResolved?: (msg: {
-    sessionId: SessionId
-    ev: InteractionEvent
-  }) => Promise<void>
+  interactionResolved?: (msg: { sessionId: SessionId; ev: InteractionEvent }) => Promise<void>
   private readonly daemonLifecycle!: SessionDaemonLifecycle
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView
@@ -418,12 +343,14 @@ export class SessionLifecycle {
   async flushActivity(): Promise<void> {
     await this.repository.flushActivity()
   }
+  async captureReferenceChanges(issueIds: readonly IssueId[]): Promise<void> {
+    await this.repository.captureReferenceChanges(issueIds)
+  }
+
   async loadFromStore(): Promise<void> {
     await this.repository.loadFromStore()
   }
-  sessionsChangedForMachine(...args: any[]): void {
-    ;(this.sessionClientPlane as any).sessionsChangedForMachine(...args)
-  }
+
   onMachineAttached(principal: MachinePrincipal): Promise<void> {
     return this.sessionClientPlane.onMachineAttached(principal)
   }
@@ -639,14 +566,19 @@ export class SessionLifecycle {
   private readonly mutations!: MutationLedgerPort
   /** Idempotency is MutationLedger's (POD-382); not re-exposed here. */
   /** The write funnel's session-metadata face: apply the field write, persist the */
-  private mutateSessionMeta(...args: Parameters<SessionMetaOps['mutateSessionMeta']>): Promise<void> {
+  private mutateSessionMeta(
+    ...args: Parameters<SessionMetaOps['mutateSessionMeta']>
+  ): Promise<void> {
     return this.sessionMetaOps.mutateSessionMeta(...args)
   }
   renameSession(input: { sessionId: SessionId; name: string }): Promise<void> {
     return this.naming.rename(input)
   }
   /** The AGENT names its own session; refused against a user-set name. */
-  setAgentName(input: { sessionId: SessionId; name: string }): ReturnType<SessionNaming['setAgentName']> {
+  setAgentName(input: {
+    sessionId: SessionId
+    name: string
+  }): ReturnType<SessionNaming['setAgentName']> {
     return this.naming.setAgentName(input)
   }
   setArchived(...args: Parameters<SessionMetaOps['setArchived']>): Promise<void> {
@@ -841,7 +773,9 @@ export class SessionLifecycle {
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
     return this.sessionKill.sessionRemovalSpecs(sessionId)
   }
-  prepareIssueSessionDelete(...args: Parameters<SessionMetaOps['prepareIssueSessionDelete']>): ReturnType<SessionMetaOps['prepareIssueSessionDelete']> {
+  prepareIssueSessionDelete(
+    ...args: Parameters<SessionMetaOps['prepareIssueSessionDelete']>
+  ): ReturnType<SessionMetaOps['prepareIssueSessionDelete']> {
     return this.sessionMetaOps.prepareIssueSessionDelete(...args)
   }
   prepareIssueSessionRestore(issueId: IssueId): Promise<SessionRestorePlan> {
@@ -889,10 +823,14 @@ export class SessionLifecycle {
   onOpenUrl(...args: any[]): void {
     ;(this.sessionClientPlane as any).onOpenUrl(...args)
   }
-  onSessionClientFrame(...args: Parameters<SessionClientPlane['onSessionClientFrame']>): Promise<void> {
+  onSessionClientFrame(
+    ...args: Parameters<SessionClientPlane['onSessionClientFrame']>
+  ): Promise<void> {
     return this.sessionClientPlane.onSessionClientFrame(...args)
   }
-  onSessionClientInput(...args: Parameters<SessionClientPlane['onSessionClientInput']>): Promise<void> {
+  onSessionClientInput(
+    ...args: Parameters<SessionClientPlane['onSessionClientInput']>
+  ): Promise<void> {
     return this.sessionClientPlane.onSessionClientInput(...args)
   }
   async onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): Promise<void> {
@@ -931,14 +869,17 @@ export class SessionLifecycle {
     return {
       kind: 'snapshot',
       sessions: values('session'),
-      // THE LAST SERVER READ OF THE OLD ISSUE RECORD (POD-4971). It answers
-      // released clients, which read only `issues`, and is registered residue
-      // (`scripts/rearch-audit.ts`) until step 7 of POD-4949 answers `[]`.
-      issues: values('issue'),
+      sessionUserStates: values('sessionUserState'),
+      machines: values('machine'),
+      // Required empty compatibility field; supported clients read normalized kinds.
+      issues: [],
       issueProjections: values('issueProjection'),
+      issueUserStates: values('issueUserState'),
+      issueGitStates: values('issueGitState'),
       issueDeps: values('issueDep'),
       repos: values('repo'),
       shipOrders: values('shipOrder'),
+      shipLanes: values('shipLane'),
       conversations: values('conversation'),
       automations: values('automation'),
       automationRuns: values('automationRun'),

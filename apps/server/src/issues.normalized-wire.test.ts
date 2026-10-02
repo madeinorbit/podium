@@ -1,14 +1,8 @@
-import { feedPrincipalOf } from './gateway/client-principal'
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
-import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { normalizeSettings } from '@podium/runtime'
+import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
-import {
-  issueMembershipScanCount,
-  issueWireBuildCount,
-  resetIssueWireBuildCount,
-} from './modules/issues/instrumentation'
+import { feedPrincipalOf } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
 import type { IssueRow, SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
@@ -230,7 +224,7 @@ async function client(registry: SessionRegistry, caps: string[] | undefined): Pr
  * standing behind its relevance.
  *
  * The window opens only AFTER every client has said hello: `attachClient` paints
- * a bootstrap `issuesChanged` built fresh (a legitimate O(issues) build, but not
+ * a fresh normalized bootstrap (a legitimate O(issues) build, but not
  * the one under test), and a client that has not yet negotiated caps counts as
  * legacy — so creating a client inside the window measured the bootstrap AND
  * suppressed the very bypass under test.
@@ -238,18 +232,20 @@ async function client(registry: SessionRegistry, caps: string[] | undefined): Pr
 async function issueWorkForOneFieldSessionChange(
   registry: SessionRegistry,
   sessionId: string,
-): Promise<{ builds: number; scans: number }> {
+): Promise<number> {
   await registry.modules.sessions.flushBroadcasts()
-  resetIssueWireBuildCount()
+  const before = await registry.modules.sessions.syncChangesSince(null)
   await registry.modules.sessions.setWorkState({
     sessionId: asSessionId(sessionId),
     workState: 'testing',
   })
   await registry.modules.sessions.flushBroadcasts()
-  return { builds: issueWireBuildCount(), scans: issueMembershipScanCount() }
+  const after = await registry.modules.sessions.syncChangesSince(before.cursor)
+  if (after.kind !== 'delta') throw new Error('fresh fixture unexpectedly required a snapshot')
+  return after.changes.filter((change) => change.entity === 'issueProjection').length
 }
 
-describe('issueProjection emission is unconditional with transitional legacy residue [POD-797]', () => {
+describe('issueProjection is the only issue record', () => {
   const changesOf = async (registry: SessionRegistry, entity: string) => {
     const boot = await registry.modules.sessions.syncChangesSince(null)
     // A null cursor bootstraps to a snapshot; take a cursor from 0 to read the
@@ -260,7 +256,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
       : (boot.kind === 'delta' ? boot.changes : []).filter((c) => c.entity === entity)
   }
 
-  it('issueProjection rows and session-free legacy issue rows are both appended', async () => {
+  it('only normalized issue rows are appended', async () => {
     const { registry } = await world({ issues: 3, sessions: 2 })
     await registry.modules.issues.update('iss_1', { title: 'edited' })
     await registry.modules.sessions.flushBroadcasts()
@@ -270,7 +266,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
     // ADDITIVE: both kinds carry the edit. An old client reads 'issue' exactly as
     // before; a cap client reads 'issueProjection'.
     expect(projections.some((c) => c.id === 'iss_1')).toBe(true)
-    expect(legacy.some((c) => c.id === 'iss_1')).toBe(true)
+    expect(legacy).toEqual([])
 
     const edited = projections.filter((c) => c.id === 'iss_1').at(-1)
     const value = edited?.op === 'upsert' ? (edited.value as Record<string, unknown>) : undefined
@@ -348,7 +344,12 @@ describe('issueProjection emission is unconditional with transitional legacy res
     const { registry } = await world({ issues: 1, sessions: 0 })
     const before = (await registry.modules.issues.get('iss_0'))?.updatedAt
 
-    await registry.modules.issues.addComment('iss_0', 'agent', 'projection revision premise', AS_OPERATOR)
+    await registry.modules.issues.addComment(
+      'iss_0',
+      'agent',
+      'projection revision premise',
+      AS_OPERATOR,
+    )
 
     const projections = await changesOf(registry, 'issueProjection')
     const appended = projections.filter((change) => change.id === 'iss_0').at(-1)
@@ -359,14 +360,14 @@ describe('issueProjection emission is unconditional with transitional legacy res
   })
 })
 
-describe('D7.2: every session change performs zero issue membership scans [POD-797]', () => {
-  it('workState change touches zero issue wire memberships', {
+describe('session updates do not republish issue rows', () => {
+  it('workState changes append no issue projections', {
     timeout: SCALE_GUARD_TIMEOUT_MS,
   }, async () => {
     const { registry, sessionIds } = await world()
     await client(registry, undefined)
-    const { scans } = await issueWorkForOneFieldSessionChange(registry, sessionIds[0] as string)
-    expect(scans).toBe(0)
+    const appended = await issueWorkForOneFieldSessionChange(registry, sessionIds[0] as string)
+    expect(appended).toBe(0)
   })
 })
 
@@ -385,15 +386,23 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
     await registry.modules.sessions.flushBroadcasts()
     // Feed admission is independent of the hello handler; observe its delivered outcome.
     await expect.poll(() => inbox.some((message) => message.type === 'feedResume')).toBe(true)
-    expect(inbox.filter(message => ['feedBootstrap', 'issuesChanged'].includes(message.type))).toEqual([])
+    expect(
+      inbox.filter((message) => ['feedBootstrap', 'issuesChanged'].includes(message.type)),
+    ).toEqual([])
     const principal = registry.clientGateway.principalOf(id)
     if (!principal) throw new Error('missing authenticated principal')
     const authority = registry.syncDelta.authority
     const rows = new Map<string, Record<string, unknown>>()
-    for await (const page of authority.changesRange(feedPrincipalOf(principal), 0, await authority.captureHead(), 100)) {
+    for await (const page of authority.changesRange(
+      feedPrincipalOf(principal),
+      0,
+      await authority.captureHead(),
+      100,
+    )) {
       if (page.kind !== 'batch') throw new Error('fresh fixture unexpectedly requires recovery')
       for (const change of page.changes) {
-        if (change.entity === 'issue' && change.op === 'upsert') rows.set(change.entityId, change.value as Record<string, unknown>)
+        if (change.entity === 'issueProjection' && change.op === 'upsert')
+          rows.set(change.entityId, change.value as Record<string, unknown>)
       }
     }
     const issues = [...rows.values()]
@@ -405,7 +414,7 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
 })
 
 describe('normalized dep emission [POD-797]', () => {
-  it('one dep write emits one edge and performs zero membership scans', {
+  it('one dep write emits one edge', {
     timeout: SCALE_GUARD_TIMEOUT_MS,
   }, async () => {
     const { registry } = await world()
@@ -415,10 +424,8 @@ describe('normalized dep emission [POD-797]', () => {
       before.kind === 'delta'
         ? before.changes.filter((change) => change.entity === 'issueDep').length
         : 0
-    resetIssueWireBuildCount()
     await registry.modules.issues.addDep('iss_1', 'iss_2')
     await registry.modules.sessions.flushBroadcasts()
-    expect(issueMembershipScanCount()).toBe(0)
     const after = await registry.modules.sessions.syncChangesSince(0)
     const edges =
       after.kind === 'delta' ? after.changes.filter((change) => change.entity === 'issueDep') : []

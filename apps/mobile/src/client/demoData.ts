@@ -1,11 +1,12 @@
-import type { SessionId } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionId, UnbrandIds } from '@podium/model'
 import {
+  actorUser,
   asIssueId,
   asMachineId,
   asSessionId,
+  asUserId,
   type HostMetricsWire,
-  type IssueWire,
-  type IssueWireInput,
   type MachineQuotaWire,
   type MachineWire,
   type QuotaWindowHistoryWire,
@@ -204,8 +205,9 @@ export const DEMO_SESSIONS: SessionMeta[] = [
 
 /** Shared scaffolding for the demo proposals (POD-277's screening deck). */
 function proposal(
-  partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
-): IssueWire {
+  partial: Partial<UnbrandIds<IssueViewModel>> &
+    Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
+): IssueViewModel {
   return {
     repoPath: '/home/dev/src/podium',
     displayRef: `POD-${partial.seq}`,
@@ -225,7 +227,7 @@ function proposal(
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -234,12 +236,12 @@ function proposal(
     createdAt: min(300),
     updatedAt: min(300),
     archived: false,
-    origin: 'agent',
+    intentOrigin: 'agent',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     readAt: null,
     ...partial,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 /**
@@ -253,19 +255,23 @@ function proposal(
  * proposal nobody has accepted, and one done.
  */
 function missionTask(
-  partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
-): IssueWire {
+  partial: Partial<UnbrandIds<IssueViewModel>> &
+    Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
+): IssueViewModel {
   return {
     ...proposal(partial),
     stage: 'backlog',
-    origin: 'agent',
+    intentOrigin: 'agent',
     ...partial,
-  } as IssueWire
+  } as IssueViewModel
 }
 
-const DEMO_MISSION: IssueWire[] = [
+const DEMO_MISSION: IssueViewModel[] = [
   missionTask({
     id: asIssueId('demo-mission-root'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 554,
     title: 'Host resource lifecycle policy',
     description:
@@ -293,6 +299,9 @@ const DEMO_MISSION: IssueWire[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-readout'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 563,
     parentId: asIssueId('demo-mission-root'),
     title: 'Host pressure readout in top bar',
@@ -309,6 +318,9 @@ const DEMO_MISSION: IssueWire[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-gc'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 564,
     parentId: asIssueId('demo-mission-root'),
     title: 'Worktree GC janitor sweep',
@@ -341,6 +353,9 @@ const DEMO_MISSION: IssueWire[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-unobserved'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 565,
     parentId: asIssueId('demo-mission-root'),
     title: 'Unobserved sessions in idle policy',
@@ -352,6 +367,9 @@ const DEMO_MISSION: IssueWire[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-hibernate'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 566,
     parentId: asIssueId('demo-mission-root'),
     title: 'Load pressure hibernation trigger',
@@ -365,6 +383,9 @@ const DEMO_MISSION: IssueWire[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-archive'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 567,
     parentId: asIssueId('demo-mission-root'),
     title: 'Archive frees the worktree',
@@ -377,10 +398,13 @@ const DEMO_MISSION: IssueWire[] = [
   }),
 ]
 
-export const DEMO_ISSUES: IssueWire[] = [
+export const DEMO_ISSUES: IssueViewModel[] = [
   ...DEMO_MISSION,
   proposal({
     id: asIssueId('demo-proposal-retry'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 301,
     priority: 1,
     type: 'bug',
@@ -395,6 +419,9 @@ export const DEMO_ISSUES: IssueWire[] = [
   }),
   proposal({
     id: asIssueId('demo-proposal-quota'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 298,
     type: 'feature',
     color: 'lime',
@@ -408,6 +435,9 @@ export const DEMO_ISSUES: IssueWire[] = [
   }),
   proposal({
     id: asIssueId('demo-proposal-cleanup'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 294,
     priority: 3,
     type: 'chore',
@@ -422,7 +452,14 @@ export const DEMO_ISSUES: IssueWire[] = [
   }),
   {
     id: asIssueId('demo-issue-auth'),
+    displayRef: 'POD-87',
+    childIds: [],
+    memberSessionIds: [asSessionId('demo-auth')],
+    tuckedAt: null,
     repoPath: '/home/dev/src/podium',
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 87,
     title: 'OAuth refresh loop logs users out',
     description:
@@ -439,20 +476,14 @@ export const DEMO_ISSUES: IssueWire[] = [
     type: 'bug',
     pinned: false,
     needsHuman: true,
-    humanQuestion: 'Should refresh tokens rotate on every use, or only on expiry?',
-    humanQuestionOptions: ['Rotate every use', 'Rotate on expiry only'],
+    asked: {
+      question: 'Should refresh tokens rotate on every use, or only on expiry?',
+      options: ['Rotate every use', 'Rotate on expiry only'],
+    },
     color: 'teal',
     labels: [],
     deps: [],
     dependents: [],
-    comments: [
-      {
-        id: asIssueId('c1'),
-        author: 'till',
-        body: 'Repros on Safari with two tabs open. Backend logs show 401 storms.',
-        createdAt: min(180),
-      },
-    ],
     panel: {
       todos: [
         { text: 'Reproduce the rotation race', done: true },
@@ -470,14 +501,21 @@ export const DEMO_ISSUES: IssueWire[] = [
     createdAt: min(600),
     updatedAt: min(20),
     archived: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     readAt: null,
-  } as IssueWire,
+  } as IssueViewModel,
   {
     id: asIssueId('demo-issue-header'),
+    displayRef: 'POD-121',
+    childIds: [],
+    memberSessionIds: [],
+    tuckedAt: null,
     repoPath: '/home/dev/src/podium',
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 121,
     title: 'Session header redesign',
     description: 'Segmented mode switch, model token, overflow menu.',
@@ -497,7 +535,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -506,14 +544,21 @@ export const DEMO_ISSUES: IssueWire[] = [
     createdAt: min(900),
     updatedAt: min(4),
     archived: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     readAt: null,
-  } as IssueWire,
+  } as IssueViewModel,
   {
     id: asIssueId('demo-issue-ci'),
+    displayRef: 'POD-118',
+    childIds: [],
+    memberSessionIds: [],
+    tuckedAt: null,
     repoPath: '/home/dev/src/podium',
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 118,
     title: 'CI runner migration',
     description: 'Move CI to blacksmith runners.',
@@ -533,7 +578,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -544,11 +589,11 @@ export const DEMO_ISSUES: IssueWire[] = [
     closedAt: min(30),
     closedReason: 'merged to main · 52769669',
     archived: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     readAt: null,
-  } as IssueWire,
+  } as IssueViewModel,
 ]
 
 export const DEMO_TRANSCRIPTS: Record<string, TranscriptItem[]> = {

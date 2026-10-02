@@ -1,25 +1,23 @@
-import { readIssue } from '../../world-index/issue-reader'
 import { randomUUID } from 'node:crypto'
-import { afterCommit } from '../../../store/executor/executor'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import {
   type ArtifactId,
+  type Attribution,
   asIssueId,
   asRepoId,
   asSessionId,
   asUserId,
-  firstAdminMemberId,
   canonicalIssueCloseReason,
+  firstAdminMemberId,
   type GrantVerb,
   type IssueId,
-  type IssueWire,
+  type IssueProjection,
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
   normalizeClosedPatch,
   type RepoId,
   type SessionId,
-  type SessionMeta,
   SORT_KEY_COMPACT_LEN,
   sortKeyBetween,
   spreadSortKeys,
@@ -28,10 +26,11 @@ import {
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
-import { followUpAfterCommit } from '../../../store/executor/executor'
+import { afterCommit, followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
-import type { IssueStore } from './core'
 import type { SessionFacts } from '../../sessions/facts'
+import { readIssue } from '../../world-index/issue-reader'
+import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
@@ -127,7 +126,7 @@ export interface IssueLifecyclePlan {
    *  handed. A field could hold that stale value silently; a call that throws
    *  cannot. The ordering rule generalizes past revision — any
    *  authority-assigned field has it. */
-  wire(): IssueWire
+  wire(): IssueProjection
   write(): Promise<void>
   changes(): EntityChangeSpec[]
   /** In-memory install, run from the ledger's SYNCHRONOUS commit-application
@@ -155,7 +154,9 @@ export interface ShippingIssueMutation {
     | ((result: unknown) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
   event?:
     | { kind: string; payload: Record<string, unknown> }
-    | ((result: unknown) =>
+    | ((
+        result: unknown,
+      ) =>
         | { kind: string; payload: Record<string, unknown> }
         | undefined
         | Promise<{ kind: string; payload: Record<string, unknown> } | undefined>)
@@ -168,7 +169,7 @@ export interface ShippingIssueMutation {
  * update() detects. Every mutation ends in persist()/broadcastList() (core).
  */
 interface IssueCrudHierarchyPort {
-  reparent(id: string, parentId: string | null): Promise<IssueWire>
+  reparent(id: string, parentId: string | null): Promise<IssueProjection>
   setParentForUpdate(row: IssueRow, parentId: import('@podium/model').IssueId | null): Promise<void>
 }
 
@@ -195,7 +196,7 @@ export class IssueCrudModule {
     id: IssueId,
     mutation: ShippingIssueMutation,
     write: () => T | Promise<T>,
-  ): Promise<{ issue: IssueWire; result: T }> {
+  ): Promise<{ issue: IssueProjection; result: T }> {
     const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
     const expectedStages = Array.isArray(mutation.expectedStage)
       ? mutation.expectedStage
@@ -229,6 +230,7 @@ export class IssueCrudModule {
           row.humanQuestionOptions = null
           row.humanQuestionAskedBy = null
           row.humanQuestionAskedAt = null
+          row.humanQuestionAttribution = null
         }
       },
       {
@@ -255,7 +257,7 @@ export class IssueCrudModule {
   async shippingCommitMany<T>(
     entries: readonly { id: IssueId; mutation: ShippingIssueMutation }[],
     write: () => T | Promise<T>,
-  ): Promise<{ issues: IssueWire[]; result: T }> {
+  ): Promise<{ issues: IssueProjection[]; result: T }> {
     if (entries.length === 0) throw new Error('shipping batch requires an affected issue')
     const rows = await Promise.all(
       entries.map(async ({ id }) => await this.store.draftOrThrow(await this.store.resolveRef(id))),
@@ -294,6 +296,7 @@ export class IssueCrudModule {
       row.humanQuestionOptions = null
       row.humanQuestionAskedBy = null
       row.humanQuestionAskedAt = null
+      row.humanQuestionAttribution = null
     }
     const committed = await this.store.persistManyWith(
       rows,
@@ -312,29 +315,33 @@ export class IssueCrudModule {
         ]
       },
       async (result) =>
-        (await Promise.all(entries.map(async ({ mutation }, index) => {
-          const row = rows[index]!
-          const event =
-            typeof mutation.event === 'function' ? await mutation.event(result) : mutation.event
-          const attention =
-            !needsHumanBefore.get(row.id) && mutation.needsHuman === true
-              ? {
-                  kind: 'issue.needs_human',
-                  subject: row.id,
-                  payload: { seq: row.seq, kind: 'ship-hold' },
-                }
-              : needsHumanBefore.get(row.id) && mutation.needsHuman === false
-                ? {
-                    kind: 'issue.needs_human_cleared',
-                    subject: row.id,
-                    payload: { seq: row.seq, kind: 'ship-hold' },
-                  }
-                : undefined
-          return [
-            ...(event ? [{ ...event, subject: row.id }] : []),
-            ...(attention ? [attention] : []),
-          ]
-        }))).flat(),
+        (
+          await Promise.all(
+            entries.map(async ({ mutation }, index) => {
+              const row = rows[index]!
+              const event =
+                typeof mutation.event === 'function' ? await mutation.event(result) : mutation.event
+              const attention =
+                !needsHumanBefore.get(row.id) && mutation.needsHuman === true
+                  ? {
+                      kind: 'issue.needs_human',
+                      subject: row.id,
+                      payload: { seq: row.seq, kind: 'ship-hold' },
+                    }
+                  : needsHumanBefore.get(row.id) && mutation.needsHuman === false
+                    ? {
+                        kind: 'issue.needs_human_cleared',
+                        subject: row.id,
+                        payload: { seq: row.seq, kind: 'ship-hold' },
+                      }
+                    : undefined
+              return [
+                ...(event ? [{ ...event, subject: row.id }] : []),
+                ...(attention ? [attention] : []),
+              ]
+            }),
+          )
+        ).flat(),
     )
     return committed
   }
@@ -342,7 +349,7 @@ export class IssueCrudModule {
   /** Agent-posted "where things stand" — writes activityNotes directly (the same
    *  field the assistant digest maintains; an explicit agent post is fresher truth
    *  and simply overwrites, and vice versa). Shown in the issue sidebar header. */
-  async setState(id: string, text: string): Promise<IssueWire> {
+  async setState(id: string, text: string): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(id)
     row.activityNotes = text
     row.notesUpdatedAt = this.store.now()
@@ -355,7 +362,7 @@ export class IssueCrudModule {
    *  "Issue" tab): human-facing todos, artifacts (files the user should look at),
    *  and deferred-work items awaiting a user decision. Indexes are 1-based (what
    *  the CLI prints). Persists + broadcasts like any other issue update. */
-  async panelApply(id: string, op: IssuePanelOp): Promise<IssueWire> {
+  async panelApply(id: string, op: IssuePanelOp): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(id)
     const panel = this.store.parsePanel(row)
     const at = <T>(list: T[], index: number): T => {
@@ -435,7 +442,7 @@ export class IssueCrudModule {
       sourceRoot?: string
     },
     opts?: { actorSessionId?: SessionId },
-  ): Promise<IssueWire> {
+  ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const store = this.store.deps.artifacts
     const terminalEvidence = input.terminalEvidence === true
@@ -563,7 +570,7 @@ export class IssueCrudModule {
   async panelArtifactUpload(
     id: string,
     input: { id: string; filename: string; dataBase64: string },
-  ): Promise<IssueWire> {
+  ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const store = this.store.deps.artifacts
     if (!store) throw new Error('permanent issue artifact storage is unavailable')
@@ -594,7 +601,7 @@ export class IssueCrudModule {
 
   /** artifact-remove that also deletes the snapshot's store dir ([spec:SP-0fc9]).
    *  The dir delete is best-effort AFTER the committed panel update. */
-  async panelArtifactRemove(id: string, index: number): Promise<IssueWire> {
+  async panelArtifactRemove(id: string, index: number): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const removed = this.store.parsePanel(row).artifacts[index - 1]
     const wire = await this.panelApply(row.id, { op: 'artifact-remove', index })
@@ -693,23 +700,13 @@ export class IssueCrudModule {
    *  committed, while the caller is told that its ready fanout did not land. */
   private async emitReadyAfterClose(closed: IssueRow, actorSessionId?: SessionId): Promise<void> {
     await followUpAfterCommit(async () => {
-      const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
-      // One read of the deps and labels for the WHOLE repo, before the fanout.
-      // This walks every open row in the repo and used to pay a `listIssueDeps`
-      // plus a batch-less `toWire` — five queries per row — for a scan that
-      // usually emits nothing (POD-3257). Built after the close persisted, so
-      // `ready` is still computed against post-close state.
-      const batch = await this.store.wireBatch()
       const inScope = await this.store.repoScopeFilter(closed.repoPath)
       const ready: IssueRow[] = []
-      for (const r of this.store.rows.values()) {
-        if (r.id === closed.id || !inScope(r) || this.store.isClosed(r)) continue
-        const blocksClosed = (batch.depsByFrom.get(r.id) ?? []).some(
-          (d) => d.type === 'blocks' && d.toId === closed.id,
-        )
-        if (blocksClosed && (await this.store.toWire(r, commentCounts, batch)).ready) {
-          ready.push(r)
-        }
+      const dependents = await this.store.deps.store.issues.listDependents(closed.id)
+      for (const dep of dependents) {
+        if (dep.type !== 'blocks') continue
+        const row = this.store.rows.get(dep.fromId)
+        if (row && inScope(row) && (await this.store.isReady(row))) ready.push(row)
       }
       if (ready.length === 0) return
 
@@ -737,7 +734,10 @@ export class IssueCrudModule {
    *  work, unread results, and running agents are skipped (and surfaced via a
    *  single issue.cascade_skipped event on the parent) instead of vanishing
    *  from the live views out from under the operator. */
-  private async archiveClosedSubtree(parentId: string, sessionList?: SessionFacts[]): Promise<void> {
+  private async archiveClosedSubtree(
+    parentId: string,
+    sessionList?: SessionFacts[],
+  ): Promise<void> {
     sessionList ??= this.store.deps.sessionFacts()
     const skipped: Array<{ seq: number; why: string }> = []
     for (const child of this.store.rows.values()) {
@@ -909,7 +909,11 @@ export class IssueCrudModule {
    *  head-insert would push it toward the wire cap (POD-1102) — see
    *  {@link compactSortKeys} for why an ever-growing key breaks the DRAG rather
    *  than the create that grew it. */
-  private async mintSortKey(repoId: RepoId, repoPath: string, parentId: string | null): Promise<string> {
+  private async mintSortKey(
+    repoId: RepoId,
+    repoPath: string,
+    parentId: string | null,
+  ): Promise<string> {
     // Measured over the unpinned rows, renumbered over the whole key space —
     // see `sortScopeRows` for why those two sets differ.
     let min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
@@ -920,7 +924,7 @@ export class IssueCrudModule {
     return sortKeyBetween(null, min)
   }
 
-  async create(input: CreateIssueInput): Promise<IssueWire> {
+  async create(input: CreateIssueInput): Promise<IssueProjection> {
     if ((input as { stage?: string }).stage === 'shipping') {
       throw new Error('shipping stage is system-owned and requires a ship order')
     }
@@ -933,12 +937,15 @@ export class IssueCrudModule {
     // insert is not. Refuse it before allocating a sequence or touching storage:
     // IssuesRepository upserts by id for ordinary updates, so allowing create to
     // reach that seam would turn an additive command into an overwrite.
-    if (input.id && await readIssue(this.store.deps.store.issues, input.id) !== null) {
+    if (input.id && (await readIssue(this.store.deps.store.issues, input.id)) !== null) {
       throw new Error(`refusing to reuse an existing issue id: ${input.id}`)
     }
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
-    const repoId = await this.store.deps.store.repos.resolveIssueRepoId(input.repoPath, input.machineId)
+    const repoId = await this.store.deps.store.repos.resolveIssueRepoId(
+      input.repoPath,
+      input.machineId,
+    )
     const seq = await this.store.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.store.now()
     const settings = await this.store.deps.getSettings()
@@ -1018,7 +1025,9 @@ export class IssueCrudModule {
     // A CREATE IS A DRAFT WITH NO PREDECESSOR [POD-3259]: pinning it to `null`
     // makes `upsertIssue` refuse rather than overwrite if a row with this id
     // somehow already exists by the time the write reaches the database.
-    const row: IssueRow = this.store.registerNewDraft(toStorage(issue, { repoPath: input.repoPath }))
+    const row: IssueRow = this.store.registerNewDraft(
+      toStorage(issue, { repoPath: input.repoPath }),
+    )
     // THE OWNER, WHEN THE CALLER DID NOT NAME ONE. It spelled the raw literal
     // `'user:sole'` until A2 — a string this build compiled in, which after the
     // migration names no member, so a row created without an owner would be
@@ -1033,7 +1042,7 @@ export class IssueCrudModule {
     let wire = await this.store.persist(row)
     // New list MEMBERSHIP: single-issue deltas only patch known ids on legacy
     // clients, so a create still fans out the full list once (#22).
-    await this.store.broadcastList()
+
     await this.store.emitEvent('issue.created', row.id, { seq: row.seq, title: row.title })
     // Best-effort, isolated: an observer must never fail a create.
     try {
@@ -1086,7 +1095,7 @@ export class IssueCrudModule {
       repoPath?: string
       clearSuggestion?: boolean
     },
-  ): Promise<IssueWire> {
+  ): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     // `shipping` is lifecycle custody, not an ordinary board value. The
@@ -1155,9 +1164,9 @@ export class IssueCrudModule {
     }
     if (
       rowPatch.worktreePath &&
-      (await this.store.d.store.repos
-        .listRepos(rowPatch.machineId ?? row.machineId ?? undefined))
-        .some((repo) => sameWorktreePath(repo.path, rowPatch.worktreePath as string))
+      (
+        await this.store.d.store.repos.listRepos(rowPatch.machineId ?? row.machineId ?? undefined)
+      ).some((repo) => sameWorktreePath(repo.path, rowPatch.worktreePath as string))
     ) {
       throw new Error(
         `refusing worktree path ${rowPatch.worktreePath}: a repository root cannot be recorded as an issue worktree`,
@@ -1185,7 +1194,7 @@ export class IssueCrudModule {
     // supplied by an operator. Only a patch that actually supplies a worktree can
     // establish placement; unrelated updates must not guess for historical NULL rows.
     if ('worktreePath' in rowPatch && row.worktreePath !== null && row.machineId === null) {
-      row.machineId = (await this.store.resolveWorktreeMachine(undefined, row.worktreePath))
+      row.machineId = await this.store.resolveWorktreeMachine(undefined, row.worktreePath)
     }
     // parentBranch is an INPUT to derived gitState. Mutating it without
     // re-probing leaves the old snapshot (computed against the old base)
@@ -1242,10 +1251,6 @@ export class IssueCrudModule {
     // out mid-gesture, to fix a board whose drags already worked. The keys stay
     // long in such a repo until its next create, which is a storage wart nobody
     // can see, and the right trade against latency on the gesture itself.
-    // Cross-issue derived effects (#22): a closed-predicate flip changes the
-    // dependents' blocked/ready and the parent's childDoneCount; a reparent
-    // changes both parents' childCount. Those rows' wires must reach clients too.
-    if (wasClosed !== this.store.isClosed(row) || 'parentId' in patch) await this.store.broadcastList()
     // Transitions into done log as issue.closed below, not stage_changed.
     if (patch.stage != null && patch.stage !== prevStage && patch.stage !== 'done') {
       await this.store.emitEvent('issue.stage_changed', row.id, {
@@ -1370,7 +1375,7 @@ export class IssueCrudModule {
    *  `now` cannot flip derived unread back on the same click (POD-912). PER-USER
    *  STATE (POD-1076): the marker is written to the actor's `(userId, issueId)`
    *  row, not to the issue. */
-  async markIssueRead(id: string): Promise<IssueWire> {
+  async markIssueRead(id: string): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     await this.store.writeIssueUserState(row.id, { readAt: await this.coveringReadAt(row) })
@@ -1396,7 +1401,7 @@ export class IssueCrudModule {
     for (const other of this.store.rows.values()) {
       if (!ids.has(other.id)) continue
       if (other.updatedAt > latest) latest = other.updatedAt
-      for (const session of (await this.store.sessionsFor(other))) {
+      for (const session of await this.store.sessionsFor(other)) {
         if (session.lastActiveAt > latest) latest = session.lastActiveAt
       }
     }
@@ -1408,7 +1413,7 @@ export class IssueCrudModule {
    *  flips back to true, persist + broadcast, and log issue.unread. Mirrors
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
    *  marking MY copy unread never touches yours. */
-  async markIssueUnread(id: string): Promise<IssueWire> {
+  async markIssueUnread(id: string): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     await this.store.writeIssueUserState(row.id, { readAt: null })
@@ -1427,7 +1432,7 @@ export class IssueCrudModule {
    *  completion decay and re-mark the issue unread). Tucking an OPEN issue is
    *  rejected rather than stored: the fold is for finished work, and a stamp
    *  parked on an open row would fire the moment it later closed. */
-  async setIssueTucked(id: string, tucked: boolean): Promise<IssueWire> {
+  async setIssueTucked(id: string, tucked: boolean): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     if (tucked && !this.store.isClosed(row)) throw new Error(`issue ${id} is not finished`)
@@ -1435,7 +1440,9 @@ export class IssueCrudModule {
     // client pressing the same control) must not move the dismissal moment.
     // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
     const prev = this.store.issueOverlay(row.id).tuckedAt
-    await this.store.writeIssueUserState(row.id, { tuckedAt: tucked ? (prev ?? this.store.now()) : null })
+    await this.store.writeIssueUserState(row.id, {
+      tuckedAt: tucked ? (prev ?? this.store.now()) : null,
+    })
     return await this.store.persist(row, { touch: false })
   }
 
@@ -1452,9 +1459,9 @@ export class IssueCrudModule {
     const row: IssueRow = { ...current, deletedAt, updatedAt: deletedAt }
     // Projected INSIDE write(), after upsertIssue has stamped row.revision —
     // see IssueLifecyclePlan.wire for why taking it here would be a bug.
-    let committed: IssueWire | null = null
+    let committed: IssueProjection | null = null
     let companions: EntityChangeSpec[] = []
-    const wire = (): IssueWire => {
+    const wire = (): IssueProjection => {
       if (!committed) {
         throw new Error(`prepareSoftDelete(${row.id}): wire() read before write() committed it`)
       }
@@ -1493,14 +1500,14 @@ export class IssueCrudModule {
           repoPath: row.repoPath ?? null,
           payload: { seq: row.seq, deletedAt },
         })
-        committed = await this.store.toWire(row)
+        committed = await this.store.projection(row)
         companions = await this.store.companionChanges(row)
       },
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }, ...companions],
+      changes: () => companions,
       apply: () => {
         this.store.installRow(row.id, row)
       },
-      publish: async () => await this.store.broadcastList(),
+      publish: async () => {},
     }
   }
 
@@ -1521,7 +1528,7 @@ export class IssueCrudModule {
         await this.store.deps.store.sessions.detachTombstonesFromIssue(id)
         await this.store.deps.store.issues.deleteIssue(id)
       },
-      changes: () => [{ entity: 'issue', id, op: 'remove' }],
+      changes: () => [{ entity: 'issueProjection', id, op: 'remove' }],
     })
     // THE INSTALL IS A TARGETED REMOVAL, NOT A WHOLE-MAP RE-READ [POD-3366].
     //
@@ -1572,10 +1579,10 @@ export class IssueCrudModule {
     // `ledger.reconcile`. That is a durable write, and it belongs where it rolls
     // back with the transaction. Moving it to a commit application would put a
     // durable write after the outermost commit, outside any transaction at all.
-    // It reads `allWire()` off the map, which is why the removal above has to be
+    // It reads the normalized rows from the map, which is why the removal above has to be
     // visible in-window rather than merely deferred — otherwise the full-truth
     // diff would declare the purged issue still present.
-    await this.store.reconcileAndPublish(this.store.deps.publishSpecs.issuesChanged(await this.store.allWire()))
+    await this.store.reconcileAndPublish()
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
     void this.store.deps.artifacts?.removeIssue(id).catch(() => {})
   }
@@ -1590,9 +1597,9 @@ export class IssueCrudModule {
     const restoredAt = this.store.now()
     const row: IssueRow = { ...current, deletedAt: null, updatedAt: restoredAt }
     // Projected INSIDE write() — see prepareSoftDelete / IssueLifecyclePlan.wire.
-    let committed: IssueWire | null = null
+    let committed: IssueProjection | null = null
     let companions: EntityChangeSpec[] = []
-    const wire = (): IssueWire => {
+    const wire = (): IssueProjection => {
       if (!committed) {
         throw new Error(`prepareRestore(${row.id}): wire() read before write() committed it`)
       }
@@ -1618,22 +1625,23 @@ export class IssueCrudModule {
           repoPath: row.repoPath ?? null,
           payload: { seq: row.seq, restoredAt },
         })
-        committed = await this.store.toWire(row)
+        committed = await this.store.projection(row)
         companions = await this.store.companionChanges(row)
       },
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }, ...companions],
+      changes: () => companions,
       apply: () => {
         this.store.installRow(row.id, row)
       },
-      publish: async () => await this.store.broadcastList(),
+      publish: async () => {},
     }
   }
 
-  async setLabels(id: string, labels: string[]): Promise<IssueWire> {
+  async setLabels(id: string, labels: string[]): Promise<IssueProjection> {
     id = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(id)
-    return await this.store.persistWith(row, async () =>
-      await this.store.deps.store.issues.setIssueLabels(asIssueId(id), labels),
+    return await this.store.persistWith(
+      row,
+      async () => await this.store.deps.store.issues.setIssueLabels(asIssueId(id), labels),
     )
   }
 
@@ -1642,7 +1650,7 @@ export class IssueCrudModule {
     grantee: UserId,
     verb: GrantVerb,
     attribution: { actor: string; onBehalfOf: UserId },
-  ): Promise<IssueWire> {
+  ): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
     if (!row.ownerUserId) throw new Error('issue has no accountable owner')
     const owner = row.ownerUserId
@@ -1654,35 +1662,38 @@ export class IssueCrudModule {
     const actorId = attribution.actor.includes(':')
       ? attribution.actor.slice(attribution.actor.indexOf(':') + 1)
       : attribution.actor
-    const wire = await this.store.persistWith(row, async () =>
-      await this.store.deps.store.grants.upsert({
-        resourceKind: 'issue',
-        resourceId: row.id,
-        grantee,
-        verb,
-        owner,
-        visibility: 'personal',
-        createdAt: this.store.now(),
-        ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
-        actorKind,
-        actorId,
-        onBehalfOf: attribution.onBehalfOf,
-      }),
+    const wire = await this.store.persistWith(
+      row,
+      async () =>
+        await this.store.deps.store.grants.upsert({
+          resourceKind: 'issue',
+          resourceId: row.id,
+          grantee,
+          verb,
+          owner,
+          visibility: 'personal',
+          createdAt: this.store.now(),
+          ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
+          actorKind,
+          actorId,
+          onBehalfOf: attribution.onBehalfOf,
+        }),
     )
     await this.store.emitEvent('issue.shared', row.id, { grantee, verb, actor: attribution.actor })
     return wire
   }
 
-  async unshare(id: string, grantee: UserId, verb: GrantVerb): Promise<IssueWire> {
+  async unshare(id: string, grantee: UserId, verb: GrantVerb): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
-    const wire = await this.store.persistWith(row, async () =>
-      await this.store.deps.store.grants.remove('issue', row.id, grantee, verb),
+    const wire = await this.store.persistWith(
+      row,
+      async () => await this.store.deps.store.grants.remove('issue', row.id, grantee, verb),
     )
     await this.store.emitEvent('issue.unshared', row.id, { grantee, verb })
     return wire
   }
 
-  async defer(id: string, until: string | null): Promise<IssueWire> {
+  async defer(id: string, until: string | null): Promise<IssueProjection> {
     return await this.update(id, { deferUntil: until })
   }
 
@@ -1694,10 +1705,10 @@ export class IssueCrudModule {
    *  with the "Unsnoozed" tag until the operator next opens it (the sidebar clears the
    *  stale defer on open). Emits issue.unsnoozed directly — routing a past deferUntil
    *  through update() would misfire issue.snoozed. No-op when the issue isn't deferred. */
-  async undefer(id: string): Promise<IssueWire> {
+  async undefer(id: string): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
-    if (row.deferUntil == null) return await this.store.toWire(row)
+    if (row.deferUntil == null) return await this.store.projection(row)
     row.deferUntil = new Date(Date.parse(this.store.now()) - UNSNOOZE_BACKDATE_MS).toISOString()
     const wire = await this.store.persist(row)
     await this.store.emitEvent('issue.unsnoozed', row.id, { seq: row.seq })
@@ -1710,8 +1721,8 @@ export class IssueCrudModule {
     /** Structured question metadata (issue #53): suggested answers for the Tray's
      *  answer chips + the asking session. askedAt is stamped here (now()) — a
      *  re-flag replaces the WHOLE pending question, metadata included. */
-    meta?: { options?: string[]; askedBy?: SessionId },
-  ): Promise<IssueWire> {
+    meta?: { options?: string[]; askedBy?: SessionId; attribution?: Attribution },
+  ): Promise<IssueProjection> {
     const wasFlagged = this.store.rows.get(await this.store.resolveRef(id))?.needsHuman === true
     const options = meta?.options?.map((o) => o.trim()).filter(Boolean) ?? []
     const wire = await this.update(id, {
@@ -1720,6 +1731,7 @@ export class IssueCrudModule {
       humanQuestionOptions: options.length > 0 ? options : null,
       humanQuestionAskedBy: meta?.askedBy ?? null,
       humanQuestionAskedAt: this.store.now(),
+      humanQuestionAttribution: meta?.attribution ?? null,
     })
     // Emit only on the false→true flip — a re-flag must not duplicate the event.
     if (!wasFlagged) {
@@ -1736,7 +1748,7 @@ export class IssueCrudModule {
     return wire
   }
 
-  async clearNeedsHuman(id: string): Promise<IssueWire> {
+  async clearNeedsHuman(id: string): Promise<IssueProjection> {
     const wasFlagged = this.store.rows.get(await this.store.resolveRef(id))?.needsHuman === true
     const wire = await this.update(id, {
       needsHuman: false,
@@ -1744,8 +1756,10 @@ export class IssueCrudModule {
       humanQuestionOptions: null,
       humanQuestionAskedBy: null,
       humanQuestionAskedAt: null,
+      humanQuestionAttribution: null,
     })
-    if (wasFlagged) await this.store.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
+    if (wasFlagged)
+      await this.store.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
     return wire
   }
 
@@ -1754,34 +1768,48 @@ export class IssueCrudModule {
    * among an existing team; an explicit issue claim may name its bound caller.
    * Existing values — including intentional handoffs and dangling historical
    * ids — are never replaced here. */
-  async ensureCoordinator(id: string, sessionId: SessionId, opts?: { onlyMember?: boolean }): Promise<IssueWire> {
+  async ensureCoordinator(
+    id: string,
+    sessionId: SessionId,
+    opts?: { onlyMember?: boolean },
+  ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
-    if (row.coordinatorSessionId) return await this.store.toWire(row)
+    if (row.coordinatorSessionId) return await this.store.projection(row)
     const eligible = (await this.store.sessionsFor(row)).filter(
-        (session) =>
-          session.agentKind !== 'shell' && !session.archived && session.status !== 'exited',
-      )
+      (session) =>
+        session.agentKind !== 'shell' && !session.archived && session.status !== 'exited',
+    )
     const candidate = eligible.find((session) => session.sessionId === sessionId)
     if (!candidate || (opts?.onlyMember && eligible.length !== 1)) {
-      return await this.store.toWire(row)
+      return await this.store.projection(row)
     }
     return await this.update(row.id, { coordinatorSessionId: candidate.sessionId })
   }
 
-  async claim(id: string, assignee: UserId, opts?: { actorSessionId?: SessionId }): Promise<IssueWire> {
+  async claim(
+    id: string,
+    assignee: UserId,
+    opts?: { actorSessionId?: SessionId },
+  ): Promise<IssueProjection> {
     const claimed = await this.update(id, { assignee, stage: 'in_progress' }, opts)
-    return opts?.actorSessionId ? await this.ensureCoordinator(claimed.id, opts.actorSessionId) : claimed
+    return opts?.actorSessionId
+      ? await this.ensureCoordinator(claimed.id, opts.actorSessionId)
+      : claimed
   }
 
   /** Claim / set / clear the issue's designated coordinator session
    *  (docs/agent-comms-target.html §05 q1). Bare session id; null clears.
    *  Dangling-tolerant: we do not validate the session still exists — if it is
    *  later deleted, actionable mail falls back to selectMailNudgeSession. */
-  async setCoordinator(id: string, sessionId: SessionId | null): Promise<IssueWire> {
+  async setCoordinator(id: string, sessionId: SessionId | null): Promise<IssueProjection> {
     return await this.update(id, { coordinatorSessionId: sessionId })
   }
 
-  async close(id: string, reason = 'done', opts?: { actorSessionId?: SessionId }): Promise<IssueWire> {
+  async close(
+    id: string,
+    reason = 'done',
+    opts?: { actorSessionId?: SessionId },
+  ): Promise<IssueProjection> {
     // update() emits issue.closed; actorSessionId rides through so the steward
     // can skip nudging the session that requested the close.
     //
@@ -1794,7 +1822,7 @@ export class IssueCrudModule {
     return await this.update(id, { stage: 'done', closedReason: canonical }, opts)
   }
 
-  async applySuggestion(id: string): Promise<IssueWire> {
+  async applySuggestion(id: string): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot apply an issue suggestion')
@@ -1817,7 +1845,7 @@ export class IssueCrudModule {
     row.suggestedReason = null
     return await this.store.persistRow(row)
   }
-  async dismissSuggestion(id: string): Promise<IssueWire> {
+  async dismissSuggestion(id: string): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot dismiss an issue suggestion')

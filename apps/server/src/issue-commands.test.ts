@@ -314,7 +314,7 @@ describe('ISSUE_COMMANDS registry', () => {
     })
   })
 
-  // #175: comment bodies left IssueWire — show fetches the thread via the lazy
+  // #175: comment bodies left IssueProjection — show fetches the thread via the lazy
   // issues.comments proc and renders it; data embeds it for --json consumers.
   it('show fetches comments via issues.comments and renders the thread', async () => {
     const { client, calls } = mockClient({

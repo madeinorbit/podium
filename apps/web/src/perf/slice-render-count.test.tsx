@@ -1,3 +1,5 @@
+import '@/test-support/mock-core-store-handle'
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 import { Profiler, act, type JSX } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -169,7 +171,7 @@ function storeSnapshot() {
 }
 
 function buildSnapshot() {
-  return {
+  return normalizedFixtureStore({
     // The coarse clock (POD-331) is part of the snapshot, so a time-dependent
     // slice re-derives when time moves. Pinned here: this probe measures
     // derivations per PUBLISH, and a wall clock would add unrelated ticks.
@@ -224,7 +226,7 @@ function buildSnapshot() {
     hibernateSession: vi.fn(async () => {}),
     resurrectSession: vi.fn(async () => {}),
     startBtw: vi.fn(async () => {}),
-  }
+  })
 }
 
 vi.mock('@/app/store', async () => {
@@ -242,7 +244,7 @@ vi.mock('@/app/store', async () => {
   const useStore = () => storeSnapshot()
   return {
     useStore,
-    useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
+    useReplicaIssues: () => normalizedFixtureIssues({ issues: storeSnapshot().issueProjections, sessions: storeSnapshot().sessions }),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useSlice: (def: Parameters<typeof publisher.read>[0]) => publisher.read(def),
   }

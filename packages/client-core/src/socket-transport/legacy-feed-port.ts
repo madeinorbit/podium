@@ -4,9 +4,9 @@ import type {
   ConversationSummaryWire,
   IssueDepProjection,
   IssueProjection,
-  IssueWire,
   RepoProjection,
   SessionMeta,
+  ShipLaneProjection,
   ShipOrderProjection,
 } from '@podium/model'
 import type { MetadataChangeLenient, MetadataDeltaMessageLenient } from '@podium/protocol'
@@ -14,11 +14,11 @@ import type { MetadataChangeLenient, MetadataDeltaMessageLenient } from '@podium
 /** Entity projection exchanged with the retired wire-v1 Replica adapter. */
 export interface LegacyMetadataProjection {
   sessions: SessionMeta[]
-  issues: IssueWire[]
   issueProjections: IssueProjection[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
   shipOrders?: ShipOrderProjection[]
+  shipLanes?: ShipLaneProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]

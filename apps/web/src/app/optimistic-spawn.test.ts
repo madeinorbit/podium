@@ -4,13 +4,14 @@ import {
   optimisticDraftSortKey,
   optimisticStartingSession,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, asRepoId, asSessionId, IssueWire, SessionMeta } from '@podium/model'
+import { asIssueId, asRepoId, asSessionId, asUserId, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 describe('optimisticStartingSession', () => {
   const base = {
     sessionId: asSessionId('sess-1'),
     issueId: asIssueId('iss_1'),
+    userId: asUserId('user-1'),
     agentKind: 'claude-code' as const,
     cwd: '/home/u/my-proj',
     nowIso: '2026-07-07T00:00:00.000Z',
@@ -45,6 +46,7 @@ describe('optimisticStartingSession', () => {
 describe('optimisticDraftIssue', () => {
   const base = {
     issueId: asIssueId('iss_1'),
+    userId: asUserId('user-1'),
     repoPath: '/home/u/my-proj',
     repoId: asRepoId('repo-1'),
     sortKey: 'c',
@@ -52,14 +54,21 @@ describe('optimisticDraftIssue', () => {
     nowIso: '2026-07-07T00:00:00.000Z',
   }
 
-  it('is a schema-valid IssueWire', () => {
-    expect(() => IssueWire.parse(optimisticDraftIssue(base))).not.toThrow()
+  it('carries the canonical issue fields for optimistic rendering', () => {
+    expect(optimisticDraftIssue(base)).toMatchObject({
+      intentOrigin: 'human',
+      isDraftVessel: true,
+      description: '',
+      tuckedAt: null,
+      memberSessionIds: [],
+      childIds: [],
+    })
   })
 
   it('is a draft vessel with no worktree, carrying the caller id and repo', () => {
     const i = optimisticDraftIssue(base)
     expect(i.id).toBe('iss_1')
-    expect(i.draft).toBe(true)
+    expect(i.isDraftVessel).toBe(true)
     expect(i.worktreePath).toBeNull()
     expect(i.repoPath).toBe('/home/u/my-proj')
     expect(i.repoId).toBe('repo-1')

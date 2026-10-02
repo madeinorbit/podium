@@ -1,3 +1,4 @@
+import type { SessionView } from '../../session-values'
 import { sessionById } from '../../session-index'
 /**
  * THE CHAT SLICE (POD-405, completing POD-330's per-feature split).
@@ -54,10 +55,8 @@ import {
   agentErrorRecoveryInstruction,
   formatAgentError,
   type SessionId,
-  type SessionMeta,
   type ThreadId,
-  type TranscriptItem,
-} from '@podium/model'
+  type TranscriptItem} from '@podium/model'
 import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE } from '../chat'
 import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
 import { type ChatActivity, chatActivity, sessionWaking } from '../session-status'
@@ -116,7 +115,7 @@ export const CHAT_DRAFT_CLASSIFICATION = {
  * this" (a system act); `onBehalfOf: undefined` means "this deployment does not
  * carry the field yet". Collapsing those two is how a UI starts telling people
  * that an unattributed row was a system act. The on-behalf-of half lands on
- * `SessionMeta` with POD-1075; until it does, `undefined` is the honest answer
+ * `SessionView` with POD-1075; until it does, `undefined` is the honest answer
  * and `delegated` is likewise undefined rather than false.
  */
 export interface TranscriptAttribution {
@@ -144,7 +143,7 @@ export interface TranscriptAttribution {
  */
 export function transcriptAttribution(
   item: TranscriptItem,
-  session: SessionMeta | undefined,
+  session: SessionView | undefined,
 ): TranscriptAttribution {
   const actorKind: TranscriptAttribution['actorKind'] =
     item.role === 'user' ? 'human' : item.role === 'system' ? 'system' : 'agent'
@@ -173,7 +172,7 @@ export interface TranscriptAttributionTable {
 }
 
 export function transcriptAttributionTable(
-  session: SessionMeta | undefined,
+  session: SessionView | undefined,
 ): TranscriptAttributionTable {
   const pair = (role: TranscriptItem['role']): TranscriptAttribution =>
     transcriptAttribution({ role, id: '', text: '' } as TranscriptItem, session)
@@ -191,7 +190,7 @@ export function attributionForRole(
 /** The agent half of the pair, from server-stamped session fields only. The
  *  curated `name` is preferred because a human may have set it (`nameSource`),
  *  and the harness kind is the fallback identity the server always carries. */
-function agentActorId(session: SessionMeta | undefined): string | undefined {
+function agentActorId(session: SessionView | undefined): string | undefined {
   if (!session) return undefined
   return session.name ?? session.agentKind ?? undefined
 }
@@ -199,12 +198,12 @@ function agentActorId(session: SessionMeta | undefined): string | undefined {
 /**
  * The on-behalf-of half, read from whatever the server stamps.
  *
- * `SessionMeta` does not carry it yet — POD-1075 owns adding it, and
+ * `SessionView` does not carry it yet — POD-1075 owns adding it, and
  * `entities/session.ts` records the gap in its own header. Reading through this
  * one function means the field arrives in exactly one place, and until it does
  * every consumer gets `undefined` (unknown) rather than a fabricated value.
  */
-function sessionOnBehalfOf(session: SessionMeta | undefined): string | null | undefined {
+function sessionOnBehalfOf(session: SessionView | undefined): string | null | undefined {
   if (!session) return undefined
   const carried = (session as { onBehalfOf?: string | null }).onBehalfOf
   return carried === undefined ? undefined : carried
@@ -225,12 +224,12 @@ function sessionOnBehalfOf(session: SessionMeta | undefined): string | null | un
 export interface ChatSessionReference {
   readonly state: ReferentState
   readonly id: string
-  readonly value?: SessionMeta
+  readonly value?: SessionView
 }
 
 export function chatSessionReference(
   sessionId: SessionId,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   exitOf: (id: string) => ReferentExit | undefined = () => undefined,
 ): ChatSessionReference {
   const resolved = resolveReferent(
@@ -448,7 +447,7 @@ export function transcriptSearchState(input: {
  */
 export function livePendingAskIndex(
   blocks: readonly ChatBlock[],
-  status: SessionMeta['status'] | undefined,
+  status: SessionView['status'] | undefined,
 ): number {
   if (status !== 'live' && status !== 'starting') return -1
   let last = -1
@@ -499,7 +498,7 @@ export interface ComposerState {
 }
 
 export function composerState(input: {
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   headless: boolean
   turnRunning: boolean
   compact: boolean
@@ -632,10 +631,10 @@ export function chatSendRoute(input: {
  *  (optimistic hide until the server's cleared meta arrives). Headless superagent
  *  threads never show one. */
 export function visibleOffer(input: {
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   headless: boolean
   dismissedOfferAt: string | null
-}): SessionMeta['offer'] | null {
+}): SessionView['offer'] | null {
   const { session, headless, dismissedOfferAt } = input
   if (headless || !session?.offer) return null
   return session.offer.createdAt === dismissedOfferAt ? null : session.offer
@@ -649,7 +648,7 @@ export function visibleOffer(input: {
  * the one-line badge above the composer.
  */
 export function chatActivityState(input: {
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   headless: boolean
   turnRunning: boolean
   justSent: boolean

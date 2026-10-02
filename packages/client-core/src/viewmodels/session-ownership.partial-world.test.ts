@@ -1,12 +1,14 @@
-import { asIssueId, asSessionId, type IssueWire, type SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView } from '../session-values'
 import {
   indexSessionOwnership,
   issueIdOwningSession,
+  type ReferentExit,
   referentSettled,
   resolveReferent,
   sessionsForIssueNav,
-  type ReferentExit,
 } from './session-ownership'
 
 // ---------------------------------------------------------------------------
@@ -25,7 +27,7 @@ import {
 //      tombstone and no heal loop.
 // ---------------------------------------------------------------------------
 
-function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -44,10 +46,10 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
-function issue(id: string, over: Partial<IssueWire> = {}): IssueWire {
+function issue(id: string, over: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id: asIssueId(id),
     repoPath: '/repo',
@@ -62,13 +64,13 @@ function issue(id: string, over: Partial<IssueWire> = {}): IssueWire {
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
     audience: 'human',
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     deps: [],
     ...over,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 describe('resolveReferent — the three absences are distinguishable', () => {
@@ -123,7 +125,10 @@ describe('eviction leaves the ownership derivations clean', () => {
 
   it('an evicted session simply leaves membership — no tombstone, no residue', () => {
     const before = indexSessionOwnership(
-      [session('s-1', { issueId: asIssueId('i-1') }), session('s-2', { issueId: asIssueId('i-1') })],
+      [
+        session('s-1', { issueId: asIssueId('i-1') }),
+        session('s-2', { issueId: asIssueId('i-1') }),
+      ],
       issues,
       worktrees,
     )
@@ -160,9 +165,7 @@ describe('eviction leaves the ownership derivations clean', () => {
     // The session is visible; its issue is not. Today this is indistinguishable
     // from "no owner" — issueIdOwningSession returns null for both.
     const orphan = session('s-9', { issueId: asIssueId('i-invisible') })
-    expect(
-      issueIdOwningSession(asSessionId('s-9'), [orphan], issues, worktrees),
-    ).toBeNull()
+    expect(issueIdOwningSession(asSessionId('s-9'), [orphan], issues, worktrees)).toBeNull()
 
     // resolveReferent is what recovers the distinction for the consumer.
     const byId = new Map(issues.map((i) => [String(i.id), i]))

@@ -19,26 +19,41 @@
  */
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
-import { createReplica, memoryStorage } from '@podium/client-core/replica'
+import { createReplica, type IssueViewModel, memoryStorage } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import {
   asUserId,
   type GitRepositoryWire,
-  type IssueWire,
+  type IssueDepProjection,
+  type IssueGitStateProjection,
+  type IssueProjection,
+  type IssueUserStateWire,
+  type MachineProjection,
   type MachineWire,
   type MessageRecordWire,
+  type RepoProjection,
   type SessionMeta,
+  type SessionUserStateWire,
 } from '@podium/model'
 import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
+import { seedIssueFixtures } from './issue-fixtures'
 import { MobileShellProvider } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 import type { MobileTrpc } from './trpc'
 
 export interface MobileStoreFixture {
   sessions?: SessionMeta[]
-  issues?: IssueWire[]
+  sessionUserStates?: SessionUserStateWire[]
+  machineProjections?: MachineProjection[]
+  issues?: IssueViewModel[]
+  /** Explicit feed homes bypass the compatibility fixture adapter. */
+  issueProjections?: IssueProjection[]
+  issueUserStates?: IssueUserStateWire[]
+  issueGitStates?: IssueGitStateProjection[]
+  repoProjections?: RepoProjection[]
+  issueDeps?: IssueDepProjection[]
   /** Synced chat message records (POD-4764), as the feed would carry them. */
   messageRecords?: MessageRecordWire[]
   repos?: GitRepositoryWire[]
@@ -144,7 +159,15 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   // attribution gate here, and this one must never quietly become that.
   const replica = createReplica({ storage: memoryStorage() })
   replica.applySnapshot('sessions', fixture.sessions ?? [])
-  replica.applySnapshot('issues', fixture.issues ?? [])
+  if (fixture.sessionUserStates)
+    replica.applySnapshot('sessionUserStates', fixture.sessionUserStates)
+  if (fixture.machineProjections) replica.applySnapshot('machines', fixture.machineProjections)
+  seedIssueFixtures(replica, fixture.issues ?? [], asUserId(fixture.principal ?? 'user:test'))
+  if (fixture.issueProjections) replica.applySnapshot('issueProjections', fixture.issueProjections)
+  if (fixture.issueUserStates) replica.applySnapshot('issueUserStates', fixture.issueUserStates)
+  if (fixture.issueGitStates) replica.applySnapshot('issueGitStates', fixture.issueGitStates)
+  if (fixture.repoProjections) replica.applySnapshot('repos', fixture.repoProjections)
+  if (fixture.issueDeps) replica.applySnapshot('issueDeps', fixture.issueDeps)
   replica.applySnapshot('messageRecords', fixture.messageRecords ?? [])
   const api = stubApi(fixture)
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null

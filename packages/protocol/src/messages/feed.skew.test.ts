@@ -17,7 +17,7 @@
  *     refusing a frame the new one accepts.
  *
  *  2. A KNOWN KIND WITH A CHANGED PAYLOAD. The stale bundle required
- *     `IssueWire.blockedBy` where the server had moved to `blockedByNotes`, so
+ *     `IssueProjection.blockedBy` where the server had moved to `blockedByNotes`, so
  *     every issue row failed its arm. No catch-all can save that one — the kind
  *     IS known — so the frame must survive by QUARANTINING the row, which is
  *     what `parseServerMessageLenient` now does for the feed family.
@@ -28,7 +28,7 @@ import { z } from 'zod'
 import { ScopedChangeOp } from '../planes/scoped-feed'
 import { changeRowArm } from './change-row'
 import { parseServerMessageLenient } from './codec'
-import { FEED_ENTITY_KINDS, FeedDeltaMessageLenient, FeedChange } from './feed'
+import { FEED_ENTITY_KINDS, FeedChange, FeedDeltaMessageLenient } from './feed'
 import { ServerMessage } from './server'
 import { MetadataEntityKind } from './sync'
 
@@ -100,7 +100,7 @@ describe('a kind the union has no arm for', () => {
   it('still refuses a kind that HAS an arm but a bad row — no sneaking through', () => {
     // The property the exclusion exists for: `issue` has an arm, so an issue row
     // with a nonsense op must fail rather than fall to the catch-all untyped.
-    const bad = { seq: 8, entity: 'issue', entityId: 'iss_1', op: 'nonsense' }
+    const bad = { seq: 8, entity: 'issueProjection', entityId: 'iss_1', op: 'nonsense' }
     const parsed = parseServerMessageLenient(JSON.stringify(frame([bad])))
     expect(parsed.dropped).toBe(1)
     expect(FeedDeltaMessageLenient.parse(parsed.message).changes).toHaveLength(0)
@@ -109,9 +109,15 @@ describe('a kind the union has no arm for', () => {
 
 describe('a known kind whose payload this build cannot read', () => {
   // The `blockedBy` → `blockedByNotes` half. An `issue` row whose value fails
-  // `IssueWire` is unparseable by construction on the old build; what must not
+  // `IssueProjection` is unparseable by construction on the old build; what must not
   // happen is the other rows going down with it.
-  const unreadable = { seq: 9, entity: 'issue', entityId: 'iss_2', op: 'upsert', value: { no: 1 } }
+  const unreadable = {
+    seq: 9,
+    entity: 'issueProjection',
+    entityId: 'iss_2',
+    op: 'upsert',
+    value: { no: 1 },
+  }
 
   it('REPRODUCES the outage under the old rule: the strict envelope takes it all', () => {
     // What the codec used to do with a feed frame — `ServerMessage.parse`, no

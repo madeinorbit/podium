@@ -1,11 +1,13 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { motionPhase, sessionTitle } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
-import { ChevronRight } from '../icons'
+import type { SessionId } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
 import { AgentMark, kindTone, markSize } from '../AgentMark'
 import { Icon } from '../Icon'
+import { ChevronRight } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { WorkingMark } from '../WorkingMark'
 import { GitStampLine } from '../WorkRowParts'
@@ -50,8 +52,8 @@ export function IssueNow({
   sessions,
   onOpenSession,
 }: {
-  issue: IssueWire
-  sessions: SessionMeta[]
+  issue: IssueViewModel
+  sessions: SessionView[]
   onOpenSession: (sessionId: SessionId) => void
 }) {
   const ranked = [...sessions]

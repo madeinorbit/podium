@@ -1,3 +1,5 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
+
 // @vitest-environment happy-dom
 /**
  * POD-4584 (Hb3) — the row roll-ups on the live engine, 1x live-shaped
@@ -46,8 +48,14 @@
  * lands, then the oracle's withdrawn ask.
  */
 
+import type { RowView } from '@podium/client-graph/shared/row-view'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
+import {
+  drainPoolLoads,
+  type HarnessHandPoolHandle,
+  harnessHandPoolArm,
+} from '../../../../harness/src/adapters/hand-pool'
 import {
   assertCommits,
   assertReads,
@@ -56,9 +64,9 @@ import {
   phaseChangeReadBudget,
 } from '../../../../harness/src/count-harness'
 import {
+  engineLocals,
   FENCE_SCENARIOS,
   type FenceScenario,
-  engineLocals,
   openFenceFeeds,
   parityLocals,
   runFenceStep,
@@ -67,9 +75,7 @@ import { rowViewsFromStore, snapshotFromStore } from '../../../../harness/src/or
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { diffSnapshots, diffViews } from '../../../../shared/src/gen/check'
-import type { RowView } from '@podium/client-graph/shared/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
-import { drainPoolLoads, harnessHandPoolArm, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 import type { HandPool } from '../pool'
 import { issueAbandoned } from '../views'
 import { burstFamilyReads } from './known-gaps'
@@ -131,7 +137,11 @@ function settle(pool: HandPool): number {
 }
 
 /** The settled snapshot against the oracle and the rebuild (no exception). */
-function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: string): string | null {
+function checkParity(
+  ctx: ScenarioEngine,
+  handle: HarnessHandPoolHandle,
+  at: string,
+): string | null {
   const snapshot = handle.snapshot()
   const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
@@ -382,16 +392,18 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
     const unsub = pool.subscribe(parent, () => {})
     try {
       const oracleOf = () =>
-        rowViewsFromStore(ctx.engine.getSnapshot(), { ...parityLocals(ctx), selectedIssueId: null })[
-          parent
-        ] as RowView
+        rowViewsFromStore(ctx.engine.getSnapshot(), {
+          ...parityLocals(ctx),
+          selectedIssueId: null,
+        })[parent] as RowView
       // The first read, and every load it and its landings ask for (the row's
       // own seats and origin), settled: the cold child is never among them.
       pool.view(parent)!
       let childAsked = false
       for (let round = 0; residency.hasQueued() && round < 16; round += 1) {
         const batch = residency.take()
-        if (batch.some(([entity, rowId]) => entity === 'issue' && rowId === child)) childAsked = true
+        if (batch.some(([entity, rowId]) => entity === 'issue' && rowId === child))
+          childAsked = true
         for (const [entity, rowId] of batch) residency.request(entity, rowId)
         act(() => {
           pool.hydrate()
@@ -401,11 +413,10 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
       const first = pool.view(parent)!
       const oracleBefore = oracleOf()
       const readsBefore = feeds.rowReads()
-      const wire = ctx.cache.read('issue', child)?.value as object
+      const wire = ctx.cache.read('issueProjection', child)?.value as object
       const projection = ctx.cache.read('issueProjection', child)?.value as object | undefined
       ctx.replica.batch(() => {
-        upsert(ctx, 'issue', child, { ...wire, closedReason: 'cancelled' })
-        upsert(ctx, 'issueProjection', child, { ...(projection ?? {}), closedReason: 'cancelled' })
+        upsertIssue(ctx, child, { ...wire, closedReason: 'cancelled' })
       })
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()
@@ -452,9 +463,7 @@ describe('row roll-ups (Hb3)', () => {
         // sessions. That family term, counted before the step, is the only
         // allowance, named.
         const family =
-          entry.methodology === '#10'
-            ? burstFamilyReads(handle.pool, ctx.targets.burstIssueIds)
-            : 0
+          entry.methodology === '#10' ? burstFamilyReads(handle.pool, ctx.targets.burstIssueIds) : 0
         mounted.log.reset()
         handle.stats.reset()
         mounted.reads.reset()
@@ -710,16 +719,10 @@ describe('row roll-ups (Hb3)', () => {
       expect(found, 'a visible row with a cold, started spin-off').not.toBeNull()
       const { id, spinOff } = found!
       unsub = pool.subscribe(id, () => {})
-      const wire = ctx.cache.read('issue', id)?.value as object
+      const wire = ctx.cache.read('issueProjection', id)?.value as object
       const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
       ctx.replica.batch(() => {
-        upsert(ctx, 'issue', id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
-        upsert(ctx, 'issueProjection', id, {
-          ...(projection ?? {}),
-          stage: 'review',
-          closedReason: null,
-          closedAt: null,
-        })
+        upsertIssue(ctx, id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
       })
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()

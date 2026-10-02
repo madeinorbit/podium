@@ -451,7 +451,7 @@ export class SessionMetaOps {
 
   async prepareIssueSessionDelete(issueId: IssueId, worktreePath: string | null): Promise<SessionDeletePlan> {
     const localMetas = await Promise.all([...this.ports.sessions.values()].map(async (s) =>
-      s.toMeta(await this.ports.view.overlay(s.sessionId)),
+      s.toMeta(),
     ))
     const sessionIds = sessionsForIssue(worktreePath, localMetas, issueId).map((s) => s.sessionId)
     const deletedAt = new Date(this.ports.now()).toISOString()

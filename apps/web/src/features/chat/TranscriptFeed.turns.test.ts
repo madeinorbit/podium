@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import type { ChatRow } from '@podium/client-core/viewmodels'
-import type { AgentError, SessionMeta, TranscriptItem } from '@podium/model'
+import type { AgentError, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { processClass, turnClass } from './ChatBlockView'
 import { isProcessRow, processPosition, queuedDeliveryLabel, turnPosition } from './TranscriptFeed'
@@ -82,8 +83,8 @@ describe('turnClass', () => {
 })
 
 describe('queuedDeliveryLabel', () => {
-  const blocked = (error: AgentError): SessionMeta =>
-    ({ agentState: { phase: 'errored', error } }) as SessionMeta
+  const blocked = (error: AgentError): SessionView =>
+    ({ agentState: { phase: 'errored', error } }) as SessionView
 
   it('says a quota-held message waits for an explicit resume', () => {
     const label = queuedDeliveryLabel(

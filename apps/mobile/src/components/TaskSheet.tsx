@@ -1,4 +1,6 @@
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   groupRelations,
   operationalState,
@@ -10,12 +12,10 @@ import {
 import {
   type IssueCloseReason,
   type IssuePanelArtifact,
-  type IssueWire,
   issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
-  type SessionMeta,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
@@ -86,13 +86,13 @@ export function TaskSheet({
   onOpenSession,
   onOpenIssue,
 }: {
-  issue: IssueWire | null
-  issues: readonly IssueWire[]
-  sessions: readonly SessionMeta[]
+  issue: IssueViewModel | null
+  issues: readonly IssueViewModel[]
+  sessions: readonly SessionView[]
   onClose: () => void
-  onOpenSession: (session: SessionMeta) => void
+  onOpenSession: (session: SessionView) => void
   /** Retarget the sheet at another task (a subtask row). Absent = navigate. */
-  onOpenIssue?: (issue: IssueWire) => void
+  onOpenIssue?: (issue: IssueViewModel) => void
 }) {
   const trpc = useTrpc()
   const router = useRouter()
@@ -183,11 +183,11 @@ function SheetHead({
   hex,
   onOpenSession,
 }: {
-  issue: IssueWire
-  sessions: readonly SessionMeta[]
-  issues: readonly IssueWire[]
+  issue: IssueViewModel
+  sessions: readonly SessionView[]
+  issues: readonly IssueViewModel[]
   hex: string
-  onOpenSession: (session: SessionMeta) => void
+  onOpenSession: (session: SessionView) => void
 }) {
   const trpc = useTrpc()
   const { updateIssue, closeIssue } = useStoreActions()
@@ -330,13 +330,13 @@ function SheetBody({
   onOpenSession,
   onOpenIssue,
 }: {
-  issue: IssueWire
-  issues: readonly IssueWire[]
-  sessions: readonly SessionMeta[]
+  issue: IssueViewModel
+  issues: readonly IssueViewModel[]
+  sessions: readonly SessionView[]
   /** Hands the artifact up: the viewer must present ABOVE this sheet's modal. */
   onOpenArtifact: (artifact: IssuePanelArtifact, url: string) => void
-  onOpenSession: (s: SessionMeta) => void
-  onOpenIssue: (issue: IssueWire) => void
+  onOpenSession: (s: SessionView) => void
+  onOpenIssue: (issue: IssueViewModel) => void
 }) {
   const children = useMemo(() => subIssuesOf(issues, issue.id), [issues, issue.id])
   const relations = useMemo(() => groupRelations(issue), [issue])

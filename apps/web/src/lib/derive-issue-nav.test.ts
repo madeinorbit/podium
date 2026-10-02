@@ -1,22 +1,19 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import {
   draftIssueLabel,
   pickPaneSession,
   resolveDefaultAgent,
   sessionsForIssueNav,
 } from '@podium/client-core/viewmodels'
-import {
-  asSessionId,
-  type IssueWire,
-  type IssueWireInput,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { filterBoardScope } from '@/features/issues/issues-display'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
-function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(id: string, cwd: string, over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: id,
     cwd,
@@ -27,10 +24,10 @@ function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): Se
     archived: false,
     title: 'some live title',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
   return {
     id: 'i1',
     repoPath: '/r/acme',
@@ -47,12 +44,12 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
     needsHuman: false,
-    origin: 'human' as const,
-    draft: false,
+    intentOrigin: 'human' as const,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     ...over,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 const WT = '/r/acme/.worktrees/issue-1'
@@ -112,25 +109,31 @@ describe('sessionsForIssueNav', () => {
 describe('draftIssueLabel', () => {
   it('uses the attached session display name (user name beats title)', () => {
     const sessions = [sess('a', WT, { issueId: 'i1', name: 'My run', title: 'live title' })]
-    expect(draftIssueLabel(issue({ draft: true }), sessions, ROOTS)).toBe('My run')
+    expect(draftIssueLabel(issue({ isDraftVessel: true }), sessions, ROOTS)).toBe('My run')
   })
 
   it('never borrows the live OSC title — waits for a real name', () => {
     // Claude Code seeds its terminal title from its GLOBAL history, so an
     // un-summarized session can advertise an unrelated older conversation.
     const sessions = [sess('a', WT, { issueId: 'i1', title: '✻ Fixing the bug' })]
-    expect(draftIssueLabel(issue({ draft: true }), sessions, ROOTS)).toBe('New Claude session')
+    expect(draftIssueLabel(issue({ isDraftVessel: true }), sessions, ROOTS)).toBe(
+      'New Claude session',
+    )
   })
 
   it("falls back to 'New agent' when there is no session at all", () => {
-    expect(draftIssueLabel(issue({ draft: true }), [], ROOTS)).toBe('New agent')
+    expect(draftIssueLabel(issue({ isDraftVessel: true }), [], ROOTS)).toBe('New agent')
   })
 
   it('labels a still-unstarted session (boot-noise or empty title) by its kind', () => {
     const untitled = [sess('a', WT, { issueId: 'i1', title: '' })]
-    expect(draftIssueLabel(issue({ draft: true }), untitled, ROOTS)).toBe('New Claude session')
+    expect(draftIssueLabel(issue({ isDraftVessel: true }), untitled, ROOTS)).toBe(
+      'New Claude session',
+    )
     const bootTitle = [sess('a', WT, { issueId: 'i1', title: '✳ Claude Code' })]
-    expect(draftIssueLabel(issue({ draft: true }), bootTitle, ROOTS)).toBe('New Claude session')
+    expect(draftIssueLabel(issue({ isDraftVessel: true }), bootTitle, ROOTS)).toBe(
+      'New Claude session',
+    )
   })
 })
 
@@ -156,7 +159,7 @@ describe('resolveDefaultAgent', () => {
 
 describe('filterBoardScope', () => {
   it('always drops draft issues from the board', () => {
-    const list = [issue({ id: 'd', draft: true }), issue({ id: 'k' })]
+    const list = [issue({ id: 'd', isDraftVessel: true }), issue({ id: 'k' })]
     expect(filterBoardScope(list, true).map((i) => i.id)).toEqual(['k'])
     expect(filterBoardScope(list, false).map((i) => i.id)).toEqual(['k'])
   })

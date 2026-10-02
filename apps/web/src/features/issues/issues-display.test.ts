@@ -1,12 +1,13 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import { readSharedIssuesDisplay, writeSharedIssuesDisplay } from '@podium/client-core/viewmodels'
-import { asIssueId, asSessionId, type SessionMeta } from '@podium/model/browser'
+import { asIssueId, asSessionId } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
 import { makeIssue as issue } from '@/lib/test-issue'
 import {
-  confirmedWorkingAgentCount,
   computeEpicProgress,
   computeEpicProgressMap,
+  confirmedWorkingAgentCount,
   DEFAULT_DISPLAY,
   DISPLAY_KEY,
   filterBoardScope,
@@ -17,7 +18,7 @@ import {
 const NOW = Date.parse('2026-08-28T12:00:00.000Z')
 const ACTIVE_AT = new Date(NOW).toISOString()
 
-function session(id: string, issueId: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, issueId: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     issueId: asIssueId(issueId),
@@ -37,7 +38,7 @@ function session(id: string, issueId: string, over: Partial<SessionMeta> = {}): 
     unread: false,
     archived: false,
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
 describe('readIssuesDisplay', () => {

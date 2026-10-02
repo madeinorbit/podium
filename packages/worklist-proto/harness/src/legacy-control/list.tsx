@@ -16,9 +16,8 @@
  * the current store, adapted to the `Arm` interface for measurement.
  */
 
-import { useMemo, useState, useSyncExternalStore, type ReactElement } from 'react'
-import type { SessionMeta } from '@podium/model'
-import { asIssueId } from '@podium/model'
+import type { PodiumClientApi } from '@podium/client-core/api'
+import type { Store } from '@podium/client-core/engine'
 import {
   createSlicePublisher,
   type SliceDefinition,
@@ -26,8 +25,9 @@ import {
   type UnifiedWorkRow,
   type WorklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { Store } from '@podium/client-core/engine'
-import type { PodiumClientApi } from '@podium/client-core/api'
+import type { SessionMeta } from '@podium/model'
+import { asIssueId } from '@podium/model'
+import { type ReactElement, useMemo, useState, useSyncExternalStore } from 'react'
 import { CommitBoundary } from '../../../shared/src/row-shell'
 import type { LegacyControlEngine } from './arm'
 
@@ -124,7 +124,7 @@ export function LegacyControlList({ engine, sliceDef }: LegacyControlListProps):
   )
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const store = engine.getSnapshot()
-  const issues = store.issues as unknown as readonly { id: string; title: string }[]
+  const issues = store.issueProjections
   const sessions = store.sessions as readonly SessionMeta[]
   const select = (id: string): void => {
     engine.getSnapshot().setSelectedIssueId(asIssueId(id))

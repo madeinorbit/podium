@@ -1,8 +1,8 @@
-import { shallowEqual } from '@podium/client-core/store'
 import type { HarnessAgent } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsTrpc, useSettingsClient } from '../stable-access'
+import { useSettingsSessionPresent } from '../readers'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { type AccountView, harnessAgentLabel, providerLabel, Row, Section } from './shared'
@@ -68,18 +68,12 @@ function NativeAccountRow({
   account: AccountView
   onChanged: () => void
 }): JSX.Element {
-  const { trpc, navigateToSession, sessions } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      navigateToSession: s.navigateToSession,
-      sessions: s.sessions,
-    }),
-    shallowEqual,
-  )
+  const { trpc, navigateToSession } = useSettingsClient()
   const [machineId, setMachineId] = useState(account.loginMachines?.[0]?.id ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null)
+  const sessionPresent = useSettingsSessionPresent(pendingSessionId)
   const attempt = account.loginAttempt
 
   useEffect(() => {
@@ -89,10 +83,10 @@ function NativeAccountRow({
   }, [attempt, onChanged])
 
   useEffect(() => {
-    if (!pendingSessionId || !sessions.some((session) => session.sessionId === pendingSessionId))
+    if (!pendingSessionId || !sessionPresent)
       return
     navigateToSession(pendingSessionId)
-  }, [navigateToSession, pendingSessionId, sessions])
+  }, [navigateToSession, pendingSessionId, sessionPresent])
 
   const login = async (): Promise<void> => {
     if (!account.harness || busy) return
@@ -217,7 +211,7 @@ function ManagedAccountRow({
   account: AccountView
   onChanged: () => void
 }): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const [editing, setEditing] = useState(false)
   const [secret, setSecret] = useState('')
   const [busy, setBusy] = useState(false)
@@ -375,7 +369,7 @@ function ManagedAccountRow({
  *  a `claude setup-token` subscription token. The credential goes straight to the
  *  server's accounts table; the hub only ever reads back a masked identity. */
 export function AccountsSection(): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const [accounts, setAccounts] = useState<AccountView[] | null>(null)
 
   // The one loader: connect/disconnect refetch through this, so a row flips state

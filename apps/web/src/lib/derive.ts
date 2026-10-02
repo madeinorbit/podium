@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The web-side status-dot classname helper.
  *
@@ -15,7 +16,7 @@
  */
 
 import { type DotTone, sessionDotTone } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { cn } from './utils'
 
 // Tone → hue via the activity tokens (--live/--info) plus semantic --warning.
@@ -38,7 +39,7 @@ const DOT_TONE_CLASS: Record<DotTone, string> = {
  * are deliberately still: ongoing agent motion is represented only by the
  * shared braille spinner + timer primitive.
  */
-export function sessionDotClass(s: SessionMeta): string {
+export function sessionDotClass(s: SessionView): string {
   const tone = sessionDotTone(s)
   const parked = s.status === 'hibernated'
   return cn(

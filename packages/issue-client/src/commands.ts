@@ -5,10 +5,10 @@ import {
   HOST_REPOS,
   IssueColor,
   type IssueId,
+  type IssueReport,
   type IssueShowWire,
   type IssueTreeNode,
   type IssueTreeSession,
-  type IssueWire,
   machineByRef,
   machineRejectionMessage,
   machinesFor,
@@ -331,7 +331,7 @@ interface ShowComment {
 }
 
 /** Fetch an issue's comment thread via the lazy issues.comments proc (#175 —
- *  bodies no longer ride IssueWire). Best-effort: a server without the proc
+ *  bodies no longer ride IssueReport). Best-effort: a server without the proc
  *  (pre-#175) or a fetch error just renders the issue without its thread. */
 async function fetchComments(c: IssueTrpc, id: string): Promise<ShowComment[]> {
   try {
@@ -1719,7 +1719,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     async run(c, a) {
       // The seam is structural, so this reads `unknown` and casts at the use site
       // like every other body here — but the cast PICKS its four members off
-      // `IssueWire` instead of respelling their types. Both procedures answer with
+      // `IssueReport` instead of respelling their types. Both procedures answer with
       // the wire issue, so a hand-written copy would be a second declaration of
       // the same four fields, free to drift from the wire without anything saying
       // so (`scripts/representation-audit.ts`). The optionality is unchanged: all
@@ -1728,7 +1728,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         a.set != null
           ? await c.issues.setState.mutate({ id: a.id as string, text: a.set as string })
           : await c.issues.get.query({ id: a.id as string })
-      ) as Pick<IssueWire, 'seq' | 'displayRef' | 'activityNotes' | 'notesUpdatedAt'> | null
+      ) as Pick<IssueReport, 'seq' | 'displayRef' | 'activityNotes' | 'notesUpdatedAt'> | null
       if (!i) throw new Error(`unknown issue ${a.id}`)
       // Self-reference nudge (POD-389): the state paragraph is read inside this
       // issue's own sidebar panel, so naming the issue in it is pure redundancy.

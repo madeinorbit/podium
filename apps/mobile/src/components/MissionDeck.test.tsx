@@ -1,12 +1,9 @@
-import {
-  asIssueId,
-  asSessionId,
-  type IssueWire,
-  type IssueWireInput,
-  type SessionMeta,
-} from '@podium/model'
-import { cleanup, fireEvent, screen } from '@testing-library/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
+import { asIssueId, asRepoId, asSessionId } from '@podium/model'
+import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useSessions } from '../client/hooks'
 import { renderWithMobileStore } from '../client/test-support'
 
 afterEach(cleanup)
@@ -34,7 +31,7 @@ vi.mock('react-native-svg', () => ({
 
 const { MissionDeck } = await import('./MissionDeck')
 
-const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
+const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
   ({
     id: asIssueId('root'),
     repoPath: '/src/podium',
@@ -52,7 +49,7 @@ const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
     parentBranch: 'main',
     archived: false,
     ...partial,
-  }) as IssueWire
+  }) as IssueViewModel
 
 const root = issue({ id: asIssueId('root'), seq: 1, title: 'The mission' })
 const quiet = issue({
@@ -145,15 +142,15 @@ describe('MissionDeck view bar', () => {
       readAt: null,
       unread: false,
       agentState: { phase: 'idle', since: '2026-08-04T20:15:44.230Z' },
-    } as unknown as SessionMeta
+    } as unknown as SessionView
 
     /** The same agent, mid-turn — the one thing `Working` is about (POD-1452). */
     const busy = {
       ...idle,
       agentState: { phase: 'working', since: '2026-08-04T20:15:44.230Z' },
-    } as unknown as SessionMeta
+    } as unknown as SessionView
 
-    const mountSolo = async (session: SessionMeta = idle) =>
+    const mountSolo = async (session: SessionView = idle) =>
       renderWithMobileStore(
         <MissionDeck
           root={solo}
@@ -204,5 +201,86 @@ describe('MissionDeck view bar', () => {
       fireEvent.click(screen.getByText('Working'))
       expect(screen.getByText('Agent menu entry semantics')).toBeTruthy()
     })
+  })
+})
+
+describe('MissionDeck session homes', () => {
+  const authorId = asSessionId('deck-author')
+  const proposal = issue({
+    id: asIssueId('proposal'),
+    parentId: root.id,
+    stage: 'proposed',
+    title: 'Agent proposal',
+    startedBySession: authorId,
+  })
+  const raw = {
+    sessionId: authorId,
+    issueId: root.id,
+    agentKind: 'claude-code',
+    title: 'Author agent',
+    cwd: '/repo',
+    status: 'live',
+    archived: false,
+    lastActiveAt: '2026-10-01T12:00:00.000Z',
+    refRepoId: 'repo-birth',
+    refSeq: 42,
+    refLetter: 'B',
+    displayRef: 'STALE-42-B',
+  } as SessionView
+
+  function LiveDeck() {
+    const sessions = useSessions()
+    return (
+      <MissionDeck
+        root={root}
+        issues={[root, proposal]}
+        sessions={sessions}
+        allWorktreePaths={[]}
+        accent="#8b5cf6"
+        currentSessionId={undefined}
+        onOpenSession={() => {}}
+        onOpenTask={() => {}}
+        onLaunchAgent={() => {}}
+        onTuckRoot={() => {}}
+        onFileRoot={() => {}}
+        onOpenDeparture={() => {}}
+        onContentHeight={() => {}}
+      />
+    )
+  }
+
+  it.each([false, true])('joins band and proposal-author refs, stripped=%s', async (stripped) => {
+    const row = { ...raw }
+    if (stripped) Reflect.deleteProperty(row, 'displayRef')
+    const { replica } = await renderWithMobileStore(<LiveDeck />, {
+      sessions: [row],
+      issues: [root, proposal],
+      repoProjections: [{ id: asRepoId('repo-birth'), prefix: 'POD' }],
+    })
+    const stored = replica.rows('sessions')[0]
+    // The session band and proposal author are separate mobile readers.
+    expect(screen.getByText('POD-42-B')).toBeTruthy()
+    expect(screen.getByText('by POD-42-B')).toBeTruthy()
+    expect(screen.queryByText(/STALE-42-B/)).toBeNull()
+    await act(async () => {
+      replica.applyChanges('repos', [{ id: asRepoId('repo-birth'), prefix: 'NEW' }], [])
+    })
+    expect(screen.getByText('NEW-42-B')).toBeTruthy()
+    expect(screen.getByText('by NEW-42-B')).toBeTruthy()
+    expect(replica.rows('sessions')[0]).toBe(stored)
+  })
+
+  it('keeps the legacy ref before the repo arrives, then respects a cleared prefix', async () => {
+    const { replica } = await renderWithMobileStore(<LiveDeck />, {
+      sessions: [raw],
+      issues: [root, proposal],
+    })
+    expect(screen.getByText('STALE-42-B')).toBeTruthy()
+    expect(screen.getByText('by STALE-42-B')).toBeTruthy()
+    await act(async () => {
+      replica.applyChanges('repos', [{ id: asRepoId('repo-birth'), prefix: '' }], [])
+    })
+    expect(screen.queryByText(/STALE-42-B/)).toBeNull()
+    expect(screen.getByText('Author agent')).toBeTruthy()
   })
 })

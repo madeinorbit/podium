@@ -21,9 +21,10 @@ import {
 import { describe, expect, it } from 'vitest'
 import {
   type DelegationScopePort,
-  entityKey,
   type EntityRef,
+  entityKey,
   GrantEdgeVisibilityPolicy,
+  kernelVisibilityResolver,
   type VisibilityStatePort,
 } from './visibility'
 
@@ -157,5 +158,30 @@ describe('a principal with no human is outside the grant model', () => {
     // ADR 3 Am1 D14.2/D21: no user, never assigned one. ADR 9 D8 S5 forbids
     // defaulting it to an operator — so the answer is NO, not a borrowed yes.
     expect(policy.decide(system, REF).visible).toBe(false)
+  })
+})
+
+describe('issue room authorization after record retirement', () => {
+  it('uses normalized issue grants and observes revocation without changing the room address', () => {
+    let granted = true
+    const refs: EntityRef[] = []
+    const policy = new GrantEdgeVisibilityPolicy(
+      {
+        classOf: (entity) => (entity === 'issueProjection' ? 'personal' : null),
+        mayRead: (_principal, ref) => {
+          refs.push(ref)
+          return granted
+        },
+        keyedUserOf: () => null,
+      },
+      { scopeOf: () => ({ kind: 'entities', keys: new Set() }) },
+    )
+    const resolver = kernelVisibilityResolver(policy)
+    const room = { kind: 'issue', id: 'issue-room' }
+    expect(resolver.canSee(human, room)).toBe(true)
+    expect(refs).toEqual([{ entity: 'issueProjection', entityId: 'issue-room' }])
+    granted = false
+    expect(resolver.canSee(human, room)).toBe(false)
+    expect(resolver.canSee(human, { kind: 'unknown', id: 'issue-room' })).toBe(false)
   })
 })

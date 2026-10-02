@@ -24,8 +24,7 @@ import type { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
-import { sessionReadPorts } from './test-support/session-facts'
-import { metasAsFacts } from './test-support/session-facts'
+import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -59,7 +58,10 @@ async function harness(
     store,
     ...sessionReadPorts(() => sessions),
     getSettings: async () => settings,
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     now,
@@ -102,7 +104,7 @@ const fakeSession = (s: Partial<SessionMetaInput>): SessionMeta =>
     ...s,
   }) as never
 
-// #175: comment bodies left IssueWire — read the thread via IssueService.comments.
+// #175: comment bodies left IssueProjection — read the thread via IssueService.comments.
 const stewardComments = async (issues: IssueService, id: string) =>
   (await issues.comments(id)).filter((c) => c.author === 'steward')
 
@@ -407,12 +409,14 @@ describe('StewardService cursor', () => {
     await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
     const ids: number[] = []
     for (let index = 0; index < JANITOR_STEWARD_EVENT_LIMIT + 2; index++) {
-      ids.push(await store.events.appendEvent({
-        ts: 't',
-        kind: 'test.unmatched',
-        subject: 'subject-' + index,
-        repoPath: '/r',
-      }))
+      ids.push(
+        await store.events.appendEvent({
+          ts: 't',
+          kind: 'test.unmatched',
+          subject: 'subject-' + index,
+          repoPath: '/r',
+        }),
+      )
     }
     const listSpy = vi.spyOn(store.events, 'listEventsSince')
 
@@ -559,7 +563,11 @@ describe('StewardService unblock handler', () => {
 
   it('falls back to the closed issue title when it has no completion note', async () => {
     const { issues, steward } = await harness()
-    const a = await issues.create({ repoPath: '/r', title: 'Fix the flux capacitor', startNow: false })
+    const a = await issues.create({
+      repoPath: '/r',
+      title: 'Fix the flux capacitor',
+      startNow: false,
+    })
     const b = await issues.create({ repoPath: '/r', title: 'B', startNow: false })
     await issues.addDep(b.id, a.id, 'blocks')
     await issues.close(a.id)
@@ -933,7 +941,12 @@ describe('StewardService child→review parent nudge', () => {
       parentId: parent.id,
       startNow: false,
     })
-    await issues.addComment(c1.id, 'agent', '[completion-note] widget ready for review', AS_OPERATOR)
+    await issues.addComment(
+      c1.id,
+      'agent',
+      '[completion-note] widget ready for review',
+      AS_OPERATOR,
+    )
     await issues.update(c1.id, { stage: 'in_progress' }) // backlog→in_progress: NOT a review transition
     await issues.update(c1.id, { stage: 'review' }) // in_progress→review: fires
     await steward.tick()
@@ -1584,7 +1597,12 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
       parentId: parent.id,
       startNow: false,
     })
-    await issues.addComment(c1.id, 'agent', '[completion-note] widget ready for review', AS_OPERATOR)
+    await issues.addComment(
+      c1.id,
+      'agent',
+      '[completion-note] widget ready for review',
+      AS_OPERATOR,
+    )
 
     // Enter review → first parentnudge.
     await issues.update(c1.id, { stage: 'review' })
@@ -1751,58 +1769,83 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
  * ISSUE parentnudge (needs_human/closed/review), which stays live-only.
  */
 describe('StewardService session-parent wake (POD-904 / §07b)', () => {
-  it.each(['hibernated', 'exited'] as const)(
-    'POD-4992: ignores fresh terminal phase events for an already %s child across every notice route',
-    async (status) => {
-      const child = fakeSession({
-        sessionId: asSessionId('child'), status, spawnedBy: 'session:parent',
-        stoppedAt: '2026-07-02T01:40:00.000Z',
-      })
-      const h = await harness({ sessions: [
-        fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated' }), child,
-      ] })
-      const ackFallback = vi.fn()
-      h.deps.messaging = { ackFallback }
-      const steward = new StewardService(h.deps)
-      await h.store.events.addSubscription({
-        id: 'stopped-child-finished', subscriberKind: 'session', subscriberId: 'parent',
-        sourceKind: 'session', sourceRef: 'child', event: 'session.finished',
-        deliverNudge: true, deliverNotify: true, origin: 'custom', enabled: true,
-        createdAt: '2026-07-02T00:00:00.000Z',
-      })
-      await h.store.events.appendEvent({
-        ts: '2026-07-02T15:14:56.000Z', kind: 'session.phase', subject: 'child',
-        payload: { phase: 'idle', verdict: 'done' },
-      })
-      await steward.tick()
-      expect(h.sendNotice).not.toHaveBeenCalled()
-      expect(h.notify).not.toHaveBeenCalled()
-      expect(ackFallback).not.toHaveBeenCalled()
-      expect(await h.arbiter.isClaimed('sessionparentnudge:phase-reported:child', asSessionId('parent'))).toBe(false)
-      expect(await h.arbiter.isClaimed('settle:child', asSessionId('child'))).toBe(false)
-      expect(await h.store.events.getStewardState('cursor')).toBe(String(await h.store.events.maxEventId()))
-      await steward.tick()
-      expect(h.sendNotice).not.toHaveBeenCalled()
-    },
-  )
+  it.each([
+    'hibernated',
+    'exited',
+  ] as const)('POD-4992: ignores fresh terminal phase events for an already %s child across every notice route', async (status) => {
+    const child = fakeSession({
+      sessionId: asSessionId('child'),
+      status,
+      spawnedBy: 'session:parent',
+      stoppedAt: '2026-07-02T01:40:00.000Z',
+    })
+    const h = await harness({
+      sessions: [fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated' }), child],
+    })
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+    await h.store.events.addSubscription({
+      id: 'stopped-child-finished',
+      subscriberKind: 'session',
+      subscriberId: 'parent',
+      sourceKind: 'session',
+      sourceRef: 'child',
+      event: 'session.finished',
+      deliverNudge: true,
+      deliverNotify: true,
+      origin: 'custom',
+      enabled: true,
+      createdAt: '2026-07-02T00:00:00.000Z',
+    })
+    await h.store.events.appendEvent({
+      ts: '2026-07-02T15:14:56.000Z',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(h.sendNotice).not.toHaveBeenCalled()
+    expect(h.notify).not.toHaveBeenCalled()
+    expect(ackFallback).not.toHaveBeenCalled()
+    expect(
+      await h.arbiter.isClaimed('sessionparentnudge:phase-reported:child', asSessionId('parent')),
+    ).toBe(false)
+    expect(await h.arbiter.isClaimed('settle:child', asSessionId('child'))).toBe(false)
+    expect(await h.store.events.getStewardState('cursor')).toBe(
+      String(await h.store.events.maxEventId()),
+    )
+    await steward.tick()
+    expect(h.sendNotice).not.toHaveBeenCalled()
+  })
 
-  it.each([undefined, '2026-07-02T15:14:56.000Z'])(
-    'POD-4992: ignores an errored phase for a parked child with stop time %s',
-    async (stoppedAt) => {
-      const h = await harness({ sessions: [
+  it.each([
+    undefined,
+    '2026-07-02T15:14:56.000Z',
+  ])('POD-4992: ignores an errored phase for a parked child with stop time %s', async (stoppedAt) => {
+    const h = await harness({
+      sessions: [
         fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated' }),
-        fakeSession({ sessionId: asSessionId('child'), status: 'hibernated', spawnedBy: 'session:parent', stoppedAt }),
-      ] })
-      const ackFallback = vi.fn()
-      h.deps.messaging = { ackFallback }
-      await h.store.events.appendEvent({
-        ts: '2026-07-02T15:14:56.000Z', kind: 'session.phase', subject: 'child', payload: { phase: 'errored' },
-      })
-      await new StewardService(h.deps).tick()
-      expect(h.sendNotice).not.toHaveBeenCalled()
-      expect(ackFallback).not.toHaveBeenCalled()
-    },
-  )
+        fakeSession({
+          sessionId: asSessionId('child'),
+          status: 'hibernated',
+          spawnedBy: 'session:parent',
+          stoppedAt,
+        }),
+      ],
+    })
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    await h.store.events.appendEvent({
+      ts: '2026-07-02T15:14:56.000Z',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'errored' },
+    })
+    await new StewardService(h.deps).tick()
+    expect(h.sendNotice).not.toHaveBeenCalled()
+    expect(ackFallback).not.toHaveBeenCalled()
+  })
 
   it.each((['hibernated', 'exited'] as const).flatMap((status) =>
     (['legacy', 'causal'] as const).flatMap((source) =>
@@ -1954,7 +1997,11 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     // it was WOKEN. Suppressing here could strand a parked parent forever.
     const sessions: SessionMeta[] = []
     const { issues, steward, sendNotice, store } = await harness({ sessions })
-    const childIssue = await issues.create({ repoPath: '/r', title: 'Child issue', startNow: false })
+    const childIssue = await issues.create({
+      repoPath: '/r',
+      title: 'Child issue',
+      startNow: false,
+    })
     sessions.push(
       fakeSession({
         sessionId: asSessionId('parent'),

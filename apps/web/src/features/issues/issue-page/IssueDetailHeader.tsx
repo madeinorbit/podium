@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The issue page's header: repo breadcrumb, the copyable display ref, prev/next
  * navigation, and the `…` overflow menu. Split out of IssuePage.tsx (POD-646).
@@ -10,7 +11,7 @@
  * predicate and its ownership note.
  */
 import { motionPhase } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueWire, SessionMeta } from '@podium/model/browser'
+import type { IssueId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { Fragment, type JSX } from 'react'
@@ -56,7 +57,7 @@ export function IssueDetailHeader({
   /** Repo-mates — supersede/duplicate targets, from the page model. */
   targets: IssueViewModel[]
   /** Member sessions — the header's live-state readout (POD-591). */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   prev?: IssueId
   next?: IssueId
   onBack: () => void
@@ -64,7 +65,7 @@ export function IssueDetailHeader({
 }): JSX.Element {
   const issues = useReplicaIssues()
   const parent = issue.parentId ? issues.find((i) => i.id === issue.parentId) : undefined
-  const phases = sessions.map((s) => motionPhase(s, issue as unknown as IssueWire))
+  const phases = sessions.map((s) => motionPhase(s, issue as unknown as IssueViewModel))
   const working = phases.filter((p) => p === 'working').length
   // "Needs you" is the ISSUE's own flag or any session waiting on a human. Both
   // mean the same thing to the operator, and the header is where they look

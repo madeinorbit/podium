@@ -1,4 +1,3 @@
-import { shallowEqual } from '@podium/client-core/store'
 import { GITHUB_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { MachineWire } from '@podium/model'
 import type { GitHubCliStatusWire, GitHubRepositoryWire } from '@podium/protocol'
@@ -6,7 +5,8 @@ import { Check, Copy, Download, ExternalLink, GitFork, RefreshCw, Search } from 
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsClient } from '@/features/settings/stable-access'
+import { useSettingsDraft } from '@/features/settings/readers'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SetupBusyOverlay, SetupError } from './SetupFeedback'
@@ -14,6 +14,7 @@ import { SetupBusyOverlay, SetupError } from './SetupFeedback'
 type IntakeMachine = Pick<MachineWire, 'id' | 'name' | 'online' | 'inventory'>
 type Draft = { query: string; repository: string; destination: string }
 
+const serializeDraft = (draft: Draft): string => JSON.stringify(draft)
 const emptyDraft: Draft = { query: '', repository: '', destination: '' }
 
 function readDraft(raw: string | null): Draft {
@@ -43,13 +44,8 @@ export function GitHubProjectIntake({
   homePath: string | undefined
   onClone: (repository: string, destination: string) => Promise<void>
 }): JSX.Element {
-  const { trpc, uiState } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, uiState: s.uiState }),
-    shallowEqual,
-  )
-  const [draft, setDraftState] = useState<Draft>(() =>
-    readDraft(uiState?.get(GITHUB_PROJECT_INTAKE_DRAFT_KEY) ?? null),
-  )
+  const { trpc, uiState } = useSettingsClient()
+  const [draft, setDraft] = useSettingsDraft(GITHUB_PROJECT_INTAKE_DRAFT_KEY, readDraft, serializeDraft)
   const [status, setStatus] = useState<GitHubCliStatusWire | null>(null)
   const [repositories, setRepositories] = useState<GitHubRepositoryWire[]>([])
   const [checking, setChecking] = useState(false)
@@ -61,14 +57,6 @@ export function GitHubProjectIntake({
   const machineOnline = machine?.online === true
   const ghInventory = machine?.inventory?.tools.find((tool) => tool.name === 'gh')
   const knownMissing = ghInventory?.installed === false
-
-  const setDraft = useCallback(
-    (next: Draft) => {
-      setDraftState(next)
-      uiState?.set(GITHUB_PROJECT_INTAKE_DRAFT_KEY, JSON.stringify(next))
-    },
-    [uiState],
-  )
 
   const refresh = useCallback(
     async (force = false) => {

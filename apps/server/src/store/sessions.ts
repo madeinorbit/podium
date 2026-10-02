@@ -14,6 +14,7 @@ import {
   type MachineId,
   type SessionId,
   type UserId,
+  type SessionUserStateWire,
 } from '@podium/model'
 import { and, asc, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm'
 import {
@@ -681,6 +682,63 @@ export class SessionsRepository {
    * Returns only sessions this user has opened. An absent key is "never opened",
    * which is the ONLY spelling — see {@link markSessionUnread}.
    */
+  /** Capture the two source tables without lazy housekeeping. Sparse source rows
+   * still emit an explicit cleared value after a mutation, rather than a remove. */
+  async listSessionUserStateRows(
+    sessionId?: SessionId,
+    now: number = Date.now(),
+  ): Promise<SessionUserStateWire[]> {
+    const reads = await this.db
+      .select()
+      .from(sessionUserState)
+      .where(sessionId === undefined ? undefined : eq(sessionUserState.sessionId, sessionId))
+      .all()
+    const snoozes = await this.db
+      .select()
+      .from(snoozesTable)
+      .where(sessionId === undefined ? undefined : eq(snoozesTable.sessionId, sessionId))
+      .all()
+    const byUser = new Map<UserId, Map<SessionId, SessionUserStateWire>>()
+    const rowFor = (userId: UserId, id: SessionId): SessionUserStateWire => {
+      const userRows = byUser.get(userId) ?? new Map<SessionId, SessionUserStateWire>()
+      byUser.set(userId, userRows)
+      let row = userRows.get(id)
+      if (!row) {
+        row = { userId, sessionId: id, readAt: null }
+        userRows.set(id, row)
+      }
+      return row
+    }
+    for (const r of reads) rowFor(r.userId, r.sessionId).readAt = r.readAt
+    for (const r of snoozes) {
+      const row = rowFor(r.userId, r.sessionId)
+      if (r.snoozedUntil === null || Date.parse(r.snoozedUntil) > now)
+        row.snoozedUntil = r.snoozedUntil
+    }
+    return [...byUser.values()].flatMap((rows) => [...rows.values()])
+  }
+
+  async sessionUserStateFor(
+    userId: UserId,
+    sessionId: SessionId,
+    now: number = Date.now(),
+  ): Promise<SessionUserStateWire> {
+    const readAt = await this.getReadAt(userId, sessionId)
+    const snooze = await this.db
+      .select({ until: snoozesTable.snoozedUntil })
+      .from(snoozesTable)
+      .where(and(eq(snoozesTable.userId, userId), eq(snoozesTable.sessionId, sessionId)))
+      .get()
+    return {
+      userId,
+      sessionId,
+      readAt,
+      ...(snooze && (snooze.until === null || Date.parse(snooze.until) > now)
+        ? { snoozedUntil: snooze.until }
+        : {}),
+    }
+  }
+
   async listReadAt(userId: UserId): Promise<Record<string, string | null>> {
     requireUserId(userId)
     const rows = await this.db
@@ -747,11 +805,13 @@ export class SessionsRepository {
    * is true for everybody. It is not a widening — it removes rows, so no reader
    * ever sees another reader's state.
    */
-  async clearAllReadAt(sessionId: SessionId): Promise<void> {
-    await this.db
+  async clearAllReadAt(sessionId: SessionId): Promise<UserId[]> {
+    const cleared = await this.db
       .delete(sessionUserState)
       .where(eq(sessionUserState.sessionId, asSessionId(sessionId.trim())))
-      .run()
+      .returning({ userId: sessionUserState.userId })
+      .all()
+    return cleared.map((row) => row.userId)
   }
 
   // ---- snoozes ----
@@ -830,11 +890,13 @@ export class SessionsRepository {
   }
 
   /** Clear every viewer's independent snooze after a shared session event. */
-  async clearAllSnoozes(sessionId: SessionId): Promise<void> {
-    await this.db
+  async clearAllSnoozes(sessionId: SessionId): Promise<UserId[]> {
+    const cleared = await this.db
       .delete(snoozesTable)
       .where(eq(snoozesTable.sessionId, asSessionId(sessionId.trim())))
-      .run()
+      .returning({ userId: snoozesTable.userId })
+      .all()
+    return cleared.map((row) => row.userId)
   }
 
   // ---- agent action offers [spec:SP-c7f1] ----

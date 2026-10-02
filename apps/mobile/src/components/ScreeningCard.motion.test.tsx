@@ -1,4 +1,5 @@
-import { asIssueId, type IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asIssueId } from '@podium/model'
 import { act, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,11 +10,7 @@ const motion = vi.hoisted(() => ({
     | {
         onActivate: () => void
         onUpdate: (event: { translationX: number; translationY: number }) => void
-        onDeactivate: (event: {
-          canceled: boolean
-          velocityX: number
-          velocityY: number
-        }) => void
+        onDeactivate: (event: { canceled: boolean; velocityX: number; velocityY: number }) => void
       }
     | undefined,
   springs: vi.fn(),
@@ -113,7 +110,7 @@ const issue = {
   title: 'Motion preference test',
   type: 'task',
   archived: false,
-  draft: false,
+  isDraftVessel: false,
   audience: 'human',
   color: null,
   blockedByNotes: [],
@@ -126,9 +123,9 @@ const issue = {
   defaultEffort: 'auto',
   parentBranch: 'main',
   createdAt: '2026-08-23T00:00:00.000Z',
-  origin: 'human',
+  intentOrigin: 'human',
   dependencyNote: null,
-} as unknown as IssueWire
+} as unknown as IssueViewModel
 
 describe('ScreeningCard motion', () => {
   beforeEach(() => {
@@ -143,12 +140,7 @@ describe('ScreeningCard motion', () => {
   it('uses the live preference for snap-back policy and preserves the fade callback', () => {
     const onDecide = vi.fn()
     const card = () => (
-      <ScreeningCard
-        issue={issue}
-        repoName="podium"
-        onDecide={onDecide}
-        onOpen={vi.fn()}
-      />
+      <ScreeningCard issue={issue} repoName="podium" onDecide={onDecide} onOpen={vi.fn()} />
     )
     const view = render(card())
 
@@ -198,33 +190,27 @@ describe('ScreeningCard motion', () => {
   it.each([
     { distance: 120, releaseVelocity: -1_200, verdict: 'accepted' },
     { distance: -120, releaseVelocity: 1_200, verdict: 'declined' },
-  ] as const)(
-    'clamps opposing exit velocity for a $verdict distance commit',
-    ({ distance, releaseVelocity, verdict }) => {
-      const onDecide = vi.fn()
-      render(
-        <ScreeningCard
-          issue={issue}
-          repoName="podium"
-          onDecide={onDecide}
-          onOpen={vi.fn()}
-        />,
-      )
+  ] as const)('clamps opposing exit velocity for a $verdict distance commit', ({
+    distance,
+    releaseVelocity,
+    verdict,
+  }) => {
+    const onDecide = vi.fn()
+    render(<ScreeningCard issue={issue} repoName="podium" onDecide={onDecide} onOpen={vi.fn()} />)
 
-      act(() => {
-        motion.gesture?.onActivate()
-        motion.gesture?.onUpdate({ translationX: distance, translationY: 0 })
-        motion.gesture?.onDeactivate({
-          canceled: false,
-          velocityX: releaseVelocity,
-          velocityY: 0,
-        })
+    act(() => {
+      motion.gesture?.onActivate()
+      motion.gesture?.onUpdate({ translationX: distance, translationY: 0 })
+      motion.gesture?.onDeactivate({
+        canceled: false,
+        velocityX: releaseVelocity,
+        velocityY: 0,
       })
+    })
 
-      expect(motion.springs).toHaveBeenCalledTimes(2)
-      const [, config] = motion.springs.mock.calls[1] ?? []
-      expect(config).toMatchObject({ velocity: 0 })
-      expect(onDecide).toHaveBeenCalledWith(verdict)
-    },
-  )
+    expect(motion.springs).toHaveBeenCalledTimes(2)
+    const [, config] = motion.springs.mock.calls[1] ?? []
+    expect(config).toMatchObject({ velocity: 0 })
+    expect(onDecide).toHaveBeenCalledWith(verdict)
+  })
 })

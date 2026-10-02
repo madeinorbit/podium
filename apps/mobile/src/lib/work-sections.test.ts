@@ -1,11 +1,12 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import type {
   IssueNavigationModel,
   UnifiedIssueRow,
   UnifiedWorkGroup,
   UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
-import type { IssueWireInput, SessionMeta } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildWorkSections,
@@ -22,9 +23,9 @@ import {
  * — a session blocked on the human — so the banding is exercised through the
  * genuine predicate rather than a stand-in.
  */
-function issue(over: Partial<IssueWireInput> = {}): IssueNavigationModel {
+function issue(over: Partial<IssueViewModel> = {}): IssueNavigationModel {
   return {
-    id: 'i',
+    id: asIssueId('i'),
     repoPath: '/r',
     seq: 1,
     title: 't',
@@ -33,8 +34,8 @@ function issue(over: Partial<IssueWireInput> = {}): IssueNavigationModel {
     priority: 2,
     type: 'task',
     audience: 'human',
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
     archived: false,
     labels: [],
     deps: [],
@@ -55,7 +56,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueNavigationModel {
 }
 
 /** An agent blocked on the human — the state that makes a row an ask. */
-const waitingSession = (id: string): SessionMeta =>
+const waitingSession = (id: string): SessionView =>
   ({
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -64,12 +65,12 @@ const waitingSession = (id: string): SessionMeta =>
     cwd: '/r',
     lastActiveAt: '2026-08-27T00:00:00.000Z',
     agentState: { phase: 'needs_user', since: '2026-08-27T00:00:00.000Z' },
-  }) as SessionMeta
+  }) as SessionView
 
 function row(id: string, over: { pinned?: boolean; waiting?: boolean } = {}): UnifiedIssueRow {
   return {
     kind: 'issue',
-    issue: issue({ id, pinned: over.pinned ?? false }),
+    issue: issue({ id: asIssueId(id), pinned: over.pinned ?? false }),
     sessions: over.waiting ? [waitingSession(`${id}-s`)] : [],
     activityAt: 0,
   }

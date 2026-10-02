@@ -7,8 +7,6 @@
 
 import { type Instant, toInstant } from '../clock'
 
-/** The minimal row shape the closed predicate reads. Structural on purpose —
- *  it matches IssueRow, IssueWire and hub-mirrored shapes alike. */
 export interface IssueClosedFields {
   stage: string
   closedReason?: string | null

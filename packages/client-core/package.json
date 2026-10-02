@@ -139,6 +139,11 @@
       "@podium/source": "./src/react/use-dom-transcript-scroll.ts",
       "types": "./src/react/use-dom-transcript-scroll.ts",
       "import": "./src/react/use-dom-transcript-scroll.ts"
+    },
+    "./session-values": {
+      "@podium/source": "./src/session-values.ts",
+      "types": "./src/session-values.ts",
+      "import": "./src/session-values.ts"
     }
   },
   "scripts": {

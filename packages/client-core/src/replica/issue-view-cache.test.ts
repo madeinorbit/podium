@@ -17,7 +17,7 @@
  * `deriveIssueViews` retains the `IssueView` of an issue whose derived value did
  * not move, so a write costs the rows it actually touched.
  */
-import type { IssueProjection, IssueWire } from '@podium/model'
+import type { IssueProjection, IssueUserStateWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { allIssueViewModels, issueViewModelProjectionStats } from './issue-view-cache'
 import { createReplica, memoryStorage, type Replica } from './replica'
@@ -42,42 +42,15 @@ function projectionAt(index: number): IssueProjection {
   } as unknown as IssueProjection
 }
 
-function legacyAt(index: number, over: Partial<IssueWire> = {}): IssueWire {
+function markerAt(index: number, over: Partial<IssueUserStateWire> = {}): IssueUserStateWire {
   return {
-    id: `iss_${index}`,
-    repoPath: '/repo',
-    seq: index + 1,
-    title: `Issue ${index}`,
-    description: '',
-    stage: 'in_progress',
-    worktreePath: '/repo',
-    branch: `issue/${index}`,
-    parentBranch: 'main',
-    defaultAgent: 'claude-code',
-    blockedByNotes: [],
-    createdAt: '2026-08-14T09:00:00.000Z',
-    updatedAt: '2026-08-14T10:00:00.000Z',
-    archived: false,
-    needsHuman: false,
-    origin: 'human',
-    audience: 'human',
-    draft: false,
-    childCount: 0,
-    childDoneCount: 0,
-    priority: 2,
-    type: 'task',
-    pinned: false,
-    labels: [],
-    deps: [],
-    dependents: [],
-    comments: [],
-    ready: true,
-    blocked: false,
-    deferred: false,
+    userId: 'u-test',
+    entityId: `iss_${index}`,
     readAt: null,
     tuckedAt: null,
+    pinned: false,
     ...over,
-  } as unknown as IssueWire
+  } as IssueUserStateWire
 }
 
 function sessionAt(index: number, issueId: string): Record<string, unknown> {
@@ -105,7 +78,7 @@ function sessionAt(index: number, issueId: string): Record<string, unknown> {
 function world(): {
   replica: Replica
   projections: readonly IssueProjection[]
-  legacy: readonly IssueWire[]
+  legacy: readonly IssueUserStateWire[]
 } {
   const replica = createReplica({ storage: memoryStorage() })
   replica.applySnapshot(
@@ -113,10 +86,10 @@ function world(): {
     Array.from({ length: COUNT }, (_, index) => projectionAt(index)),
   )
   replica.applySnapshot(
-    'issues',
-    Array.from({ length: COUNT }, (_, index) => legacyAt(index)),
+    'issueUserStates',
+    Array.from({ length: COUNT }, (_, index) => markerAt(index)),
   )
-  replica.applySnapshot('repos', [{ id: 'repo', path: '/repo', prefix: 'POD' } as never])
+  replica.applySnapshot('repos', [{ id: 'repo', repoPath: '/repo', prefix: 'POD' } as never])
   // Two issues carry a session, so the rollup inputs a retained view does NOT
   // stand for (`phase`, `lastActiveAt`) are actually exercised.
   replica.applySnapshot('sessions', [
@@ -126,17 +99,17 @@ function world(): {
   return {
     replica,
     projections: replica.rows('issueProjections'),
-    legacy: replica.rows('issues'),
+    legacy: replica.rows('issueUserStates'),
   }
 }
 
 /** What the optimistic fold produces: one new row object, every other identity kept. */
 function foldedLike(
-  rows: readonly IssueWire[],
+  rows: readonly IssueUserStateWire[],
   index: number,
-  patch: Partial<IssueWire>,
-): IssueWire[] {
-  return rows.map((row, at) => (at === index ? ({ ...row, ...patch } as IssueWire) : row))
+  patch: Partial<IssueUserStateWire>,
+): IssueUserStateWire[] {
+  return rows.map((row, at) => (at === index ? ({ ...row, ...patch } as IssueUserStateWire) : row))
 }
 
 describe('shared issue view-model cache — incremental rebuild', () => {
@@ -148,7 +121,7 @@ describe('shared issue view-model cache — incremental rebuild', () => {
 
     const tucked = foldedLike(legacy, 7, {
       tuckedAt: '2026-08-14T11:00:00.000Z',
-    } as Partial<IssueWire>)
+    } as Partial<IssueUserStateWire>)
     allIssueViewModels(replica, projections, tucked)
 
     const after = issueViewModelProjectionStats(replica)
@@ -161,7 +134,7 @@ describe('shared issue view-model cache — incremental rebuild', () => {
 
     const tucked = foldedLike(legacy, 7, {
       tuckedAt: '2026-08-14T11:00:00.000Z',
-    } as Partial<IssueWire>)
+    } as Partial<IssueUserStateWire>)
     const second = allIssueViewModels(replica, projections, tucked)
 
     expect(second).toHaveLength(first.length)
@@ -181,12 +154,19 @@ describe('shared issue view-model cache — incremental rebuild', () => {
     allIssueViewModels(replica, projections, legacy)
     const before = issueViewModelProjectionStats(replica)
 
-    replica.applySnapshot('issues', foldedLike(legacy, 3, { title: 'Renamed by the server' }))
-    const rows = replica.rows('issues')
+    replica.applySnapshot(
+      'issueProjections',
+      projections.map((row, index) =>
+        index === 3 ? { ...row, title: 'Renamed by the server' } : row,
+      ),
+    )
+    const rows = replica.rows('issueUserStates')
     allIssueViewModels(replica, replica.rows('issueProjections'), rows)
 
     expect(issueViewModelProjectionStats(replica).rowBuilds - before.rowBuilds).toBe(1)
-    expect(rows.find((row) => row.id === legacy[3]?.id)?.title).toBe('Renamed by the server')
+    expect(
+      replica.rows('issueProjections').find((row) => row.id === legacy[3]?.entityId)?.title,
+    ).toBe('Renamed by the server')
   })
 
   it('rebuilds the models of an issue whose member session changed, and no others', () => {
@@ -204,7 +184,7 @@ describe('shared issue view-model cache — incremental rebuild', () => {
       { ...moved, lastActiveAt: '2026-08-14T12:00:00.000Z' },
       ...sessions.slice(1),
     ])
-    allIssueViewModels(replica, replica.rows('issueProjections'), replica.rows('issues'))
+    allIssueViewModels(replica, replica.rows('issueProjections'), replica.rows('issueUserStates'))
 
     expect(issueViewModelProjectionStats(replica).rowBuilds - before.rowBuilds).toBe(1)
   })
@@ -219,11 +199,11 @@ describe('shared issue view-model cache — incremental rebuild', () => {
     const evicted = projections[3]
     if (!evicted) throw new Error('fixture has no fourth issue')
     replica.applyChanges('issueProjections', [], [evicted.id])
-    replica.applyChanges('issues', [], [evicted.id])
+    replica.applyChanges('issueUserStates', [], [evicted.id])
     const after = allIssueViewModels(
       replica,
       replica.rows('issueProjections'),
-      replica.rows('issues'),
+      replica.rows('issueUserStates'),
     )
 
     expect(after).toHaveLength(COUNT - 1)
@@ -238,14 +218,14 @@ describe('shared issue view-model cache — incremental rebuild', () => {
     const { replica, projections, legacy } = world()
     const painted = foldedLike(legacy, 7, {
       tuckedAt: '2026-08-14T11:00:00.000Z',
-    } as Partial<IssueWire>)
+    } as Partial<IssueUserStateWire>)
     const optimistic = allIssueViewModels(replica, projections, painted)
 
-    replica.applySnapshot('issues', painted)
+    replica.applySnapshot('issueUserStates', painted)
     const echoed = allIssueViewModels(
       replica,
       replica.rows('issueProjections'),
-      replica.rows('issues'),
+      replica.rows('issueUserStates'),
     )
 
     expect(echoed).toBe(optimistic)
@@ -269,13 +249,13 @@ describe('shared issue view-model cache — incremental rebuild', () => {
     allIssueViewModels(replica, projections, legacy)
 
     const keptProjections = [...projections].filter((row) => row.id !== 'iss_7')
-    const keptLegacy = [...legacy].filter((row) => row.id !== 'iss_7')
+    const keptLegacy = [...legacy].filter((row) => row.entityId !== 'iss_7')
     replica.applySnapshot('issueProjections', keptProjections)
-    replica.applySnapshot('issues', keptLegacy)
+    replica.applySnapshot('issueUserStates', keptLegacy)
     const models = allIssueViewModels(
       replica,
       replica.rows('issueProjections'),
-      replica.rows('issues'),
+      replica.rows('issueUserStates'),
     )
 
     expect(models.some((model) => model.id === 'iss_7')).toBe(false)
@@ -296,7 +276,9 @@ it('reports actual row builds through the opt-in runtime counter, including cach
     allIssueViewModels(
       replica,
       projections,
-      foldedLike(legacy, 7, { tuckedAt: '2026-08-14T11:00:00.000Z' } as Partial<IssueWire>),
+      foldedLike(legacy, 7, {
+        tuckedAt: '2026-08-14T11:00:00.000Z',
+      } as Partial<IssueUserStateWire>),
     )
     expect(readStoreStats().runtimes[0]?.rowBuilds).toBe(COUNT + 1)
     expect(readStoreStats().runtimes[0]?.rowBuilds).toBe(
@@ -306,4 +288,55 @@ it('reports actual row builds through the opt-in runtime counter, including cach
     storeStats.enable(false)
     storeStats.reset()
   }
+})
+
+it('paints a provisional projection and structural edits, then rolls them back without retaining a row', () => {
+  const { replica, projections, legacy: markers } = world()
+  const truth = allIssueViewModels(replica, projections, markers)
+  const draft = { ...projectionAt(COUNT), parentId: projections[0]!.id }
+  const pending = [
+    ...projections.map((row, index) =>
+      index === 1 ? ({ ...row, stage: 'done' } as IssueProjection) : row,
+    ),
+    draft,
+  ]
+  const painted = allIssueViewModels(replica, pending, markers)
+  expect(painted.find((row) => row.id === draft.id)).toMatchObject({ parentId: projections[0]!.id })
+  expect(painted.find((row) => row.id === projections[0]!.id)?.childCount).toBe(1)
+  expect(painted.find((row) => row.id === projections[1]!.id)?.stage).toBe('done')
+  expect(allIssueViewModels(replica, pending, markers)).toBe(painted)
+  const rolledBack = allIssueViewModels(replica, projections, markers)
+  expect(rolledBack).toEqual(truth)
+  expect(rolledBack.some((row) => row.id === draft.id)).toBe(false)
+})
+
+it('keeps dependency blocking on server truth while an optimistic stage paints its own row', () => {
+  const { replica, projections, legacy: markers } = world()
+  replica.applySnapshot('issueDeps', [
+    { id: 'edge', fromId: 'iss_0', toId: 'iss_1', type: 'blocks' } as never,
+  ])
+  const pending = projections.map((row) =>
+    row.id === 'iss_1' ? { ...row, stage: 'done' as const } : row,
+  )
+  const beforeEcho = allIssueViewModels(replica, pending, markers)
+  expect(beforeEcho.find((row) => row.id === 'iss_1')?.stage).toBe('done')
+  expect(beforeEcho.find((row) => row.id === 'iss_0')).toMatchObject({
+    blocked: true,
+    ready: false,
+  })
+  replica.applySnapshot('issueProjections', pending)
+  const echoed = allIssueViewModels(replica, replica.rows('issueProjections'), markers)
+  expect(echoed.find((row) => row.id === 'iss_0')).toMatchObject({ blocked: false, ready: true })
+  const reopening = pending.map((row) =>
+    row.id === 'iss_1' ? { ...row, stage: 'review' as const } : row,
+  )
+  expect(
+    allIssueViewModels(replica, reopening, markers).find((row) => row.id === 'iss_0')?.blocked,
+  ).toBe(false)
+  replica.applySnapshot('issueProjections', reopening)
+  expect(
+    allIssueViewModels(replica, replica.rows('issueProjections'), markers).find(
+      (row) => row.id === 'iss_0',
+    )?.blocked,
+  ).toBe(true)
 })

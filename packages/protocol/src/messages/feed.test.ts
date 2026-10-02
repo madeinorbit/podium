@@ -28,9 +28,11 @@ import {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  IssueWire,
+  MachineProjection,
   RepoProjection,
   SessionMeta,
+  SessionUserStateWire,
+  ShipLaneProjection,
   ShipOrderProjection,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -59,7 +61,8 @@ const arms = FeedChange.options as unknown as Arm[]
  *  entity kind cannot arrive unchecked. */
 const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   session: SessionMeta,
-  issue: IssueWire,
+  sessionUserState: SessionUserStateWire,
+  machine: MachineProjection,
   issueProjection: IssueProjection,
   issueUserState: IssueUserStateWire,
   issueGitState: IssueGitStateProjection,
@@ -69,6 +72,7 @@ const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   automation: AutomationWire,
   automationRun: AutomationRunWire,
   shipOrder: ShipOrderProjection,
+  shipLane: ShipLaneProjection,
 }
 
 const kindOf = (arm: Arm): string =>
@@ -89,10 +93,10 @@ const delta = (over: Partial<z.input<typeof FeedDeltaMessage>> = {}) => ({
 })
 
 describe('the v2 change row composes the shared vocabulary', () => {
-  it('has all eleven entity arms, so the per-arm loops below are not vacuous', () => {
+  it('has all thirteen entity arms, so the per-arm loops below are not vacuous', () => {
     // The counterfactual guard POD-305 named: if `.options` stopped resolving,
     // every loop here would iterate nothing and pass silently.
-    expect(arms).toHaveLength(11)
+    expect(arms).toHaveLength(13)
     expect(arms.map(kindOf).sort()).toEqual(Object.keys(PAYLOAD_OF_KIND).sort())
   })
 
@@ -136,7 +140,7 @@ describe('the v2 change row composes the shared vocabulary', () => {
   it('makes `evict` expressible, which the v1 wire could not', () => {
     const evicted = FeedChange.parse({
       seq: 5,
-      entity: 'issue',
+      entity: 'issueProjection',
       entityId: 'iss_1',
       op: 'evict',
     })
@@ -148,14 +152,40 @@ describe('the v2 change row composes the shared vocabulary', () => {
 
   it('accepts a structurally valid ship-order upsert and rejects malformed projections', () => {
     const value = {
-      id: 'ship_01J', issueId: 'issue_01J', repoId: 'repo_01J', targetBranch: 'main',
-      destination: 'origin/main', state: 'queued', humanState: 'waiting', activity: 'waiting',
-      queuedAt: '2026-08-13T00:00:00.000Z', stateChangedAt: '2026-08-13T00:00:00.000Z',
+      id: 'ship_01J',
+      issueId: 'issue_01J',
+      repoId: 'repo_01J',
+      targetBranch: 'main',
+      destination: 'origin/main',
+      state: 'queued',
+      humanState: 'waiting',
+      activity: 'waiting',
+      queuedAt: '2026-08-13T00:00:00.000Z',
+      stateChangedAt: '2026-08-13T00:00:00.000Z',
     }
-    expect(FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value }).success).toBe(true)
-    expect(FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value: { ...value, state: 'cancelled' } }).success).toBe(false)
+    expect(
+      FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value })
+        .success,
+    ).toBe(true)
+    expect(
+      FeedChange.safeParse({
+        seq: 1,
+        entity: 'shipOrder',
+        entityId: value.id,
+        op: 'upsert',
+        value: { ...value, state: 'cancelled' },
+      }).success,
+    ).toBe(false)
     const { issueId: _issueId, ...missingIssue } = value
-    expect(FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value: missingIssue }).success).toBe(false)
+    expect(
+      FeedChange.safeParse({
+        seq: 1,
+        entity: 'shipOrder',
+        entityId: value.id,
+        op: 'upsert',
+        value: missingIssue,
+      }).success,
+    ).toBe(false)
   })
 })
 
@@ -217,7 +247,7 @@ describe('the certified range travels with the payload', () => {
 
 const row = (seq: number, over: Record<string, unknown> = {}) => ({
   seq,
-  entity: 'issue' as const,
+  entity: 'issueProjection' as const,
   entityId: 'iss_1',
   op: 'remove' as const,
   ...over,

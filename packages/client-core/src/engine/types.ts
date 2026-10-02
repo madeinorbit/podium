@@ -1,3 +1,4 @@
+import type { SessionView } from '../session-values'
 import type { NavigationIntent } from './navigation'
 /**
  * Engine-facing shared types (#262 [spec:SP-3fe2]): the server-config, notice,
@@ -19,12 +20,10 @@ import type {
   IssueEventWire,
   IssueId,
   IssueProjection,
-  IssueWire,
   MachineId,
   MachineWire,
   MutationId,
   SessionId,
-  SessionMeta,
   ThreadId,
   WorkState,
 } from '@podium/model'
@@ -146,20 +145,23 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  memory — `replica.persistent` is false and a reload cold-starts. */
   replica: Replica
   repos: GitRepositoryWire[]
+  /** Normalized replica repo facts, including path and issue prefix. */
+  repoProjections: import('@podium/model').RepoProjection[]
   reposLoading: boolean
   /** True once the first repo refresh has resolved — lets the UI distinguish
    *  "still loading" from "registry is genuinely empty" (first-run onboarding). */
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
-  issues: IssueWire[]
   /** Normalized durable issue rows. Per-user markers live on `issueUserStates`. */
   issueProjections: IssueProjection[]
   /** This principal's per-user issue markers (`readAt`, `tuckedAt`, `pinned`):
    *  one row per issue they touched, absent = none set. Optimistic edits are
    *  folded in (POD-4969). */
   issueUserStates: import('@podium/model').IssueUserStateWire[]
+  issueGitStates: import('@podium/model').IssueGitStateProjection[]
+  issueDeps: import('@podium/model').IssueDepProjection[]
   /** The cross-project issue-event window, replicated (POD-1772). A bounded,
    *  server-curated tail — the superagent feed reads THESE rows rather than
    *  re-asking `issues.events` on a timer. */
@@ -171,6 +173,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   messageRecords: import('@podium/model').MessageRecordWire[]
   /** Compact order rows; Shipping views join these to issues by issueId. */
   shipOrders: import('@podium/model').ShipOrderProjection[]
+  shipLanes: import('@podium/model').ShipLaneProjection[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
   conversations: ConversationSummaryWire[]
   /** Scheduled definitions and honest run history mirrored live from the replica. */

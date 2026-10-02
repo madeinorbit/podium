@@ -29,15 +29,10 @@ import type {
 } from '@podium/sync'
 import { FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
-import { runAtRoot, createFrameFlusher, withReadScope } from '../publication-scope'
 import { perf } from '../modules/perf/registry'
+import { createFrameFlusher, runAtRoot, withReadScope } from '../publication-scope'
 import { traceFeedPeer } from './feed-peer-trace'
-import {
-  type EdgePeer,
-  type FeedFrame,
-  type LegacyAdvisoryKind,
-  WireFeedEdge,
-} from './wire-feed-edge'
+import { type EdgePeer, type FeedFrame, WireFeedEdge } from './wire-feed-edge'
 
 /**
  * The bound D9 holds the authority's memory to, per connection.
@@ -51,7 +46,6 @@ import {
 export const FEED_SEND_QUEUE_MAX_BYTES = 8 * 1024 * 1024
 
 const log = createLogger('server:gateway')
-
 
 /**
  * The minimum wire version a resume grant may be given at (POD-2061).
@@ -139,12 +133,7 @@ export interface FeedServingDeps {
   readonly retention: FeedRetentionPort
   /** The gateway's ONE routing table, shared with room presence. */
   readonly subscriptions: SubscriptionRegistry
-  /**
-   * Conversation scan diagnostics — advisory, connection-scoped, never an entity
-   * and never a change row. The v1 `conversationsChanged` message carries it as a
-   * required field, so the v1 adapter is injected with it; v2 does not carry it
-   * at all. See `legacy-wire-v1-adapter.ts`.
-   */
+
   diagnostics(): ConversationDiagnosticWire[]
   /** Rights moved: revalidate ephemeral rooms held by these same subscribers. */
   onVisibilityChanged?(subscriberIds: readonly SubscriberId[]): void | Promise<void>
@@ -200,7 +189,6 @@ export class FeedServing {
       },
     })
     this.edge = new WireFeedEdge({
-      diagnostics: () => deps.diagnostics(),
       // Straight through to the Authority, which delegates to the policy object
       // it was constructed with. No value is stored anywhere on this path, so
       // there is nothing that can go stale (POD-376).
@@ -350,7 +338,7 @@ export class FeedServing {
   ): Promise<void> {
     // Capture the resume decision and install publication position in one read scope.
     return withReadScope(async () => {
-      if (resumeFrom !== undefined && await this.canResume(peer, resumeFrom)) {
+      if (resumeFrom !== undefined && (await this.canResume(peer, resumeFrom))) {
         await this.serveResume(peer, principal, routingPrincipal, resumeFrom)
         return
       }
@@ -380,7 +368,7 @@ export class FeedServing {
     // A cursor from the FUTURE is not resumable either: the replica claims to hold
     // rows this authority has not written, which on a restored/reset database is
     // exactly what happens.
-    if (cursor.seq > await this.deps.authority.cursor()) return false
+    if (cursor.seq > (await this.deps.authority.cursor())) return false
     // RETENTION, in `change-log.ts`'s exact spelling: the log can serve a cursor
     // iff every change in `(cursor, max]` is retained, i.e. iff
     // `cursor + 1 >= minAvailableSeq`. ADR 2 D7 rung 2's shorthand
@@ -426,13 +414,18 @@ export class FeedServing {
       epoch: identity.epoch,
       seq: cursor.seq,
     }
-    this.edge.publishTo(peer, resyncRequired ? {
-      type: 'feedResyncRequired',
-      feedId: identity.feedId,
-      epoch: identity.epoch,
-      cause: 'authority-shed-load',
-      reason: 'cursor-rejected',
-    } : resume)
+    this.edge.publishTo(
+      peer,
+      resyncRequired
+        ? {
+            type: 'feedResyncRequired',
+            feedId: identity.feedId,
+            epoch: identity.epoch,
+            cause: 'authority-shed-load',
+            reason: 'cursor-rejected',
+          }
+        : resume,
+    )
     this.servedVersion.set(peer.id, peer.wireVersion)
     this.connections.set(peer.id, this.publisher.connect(peer.id, cursor.seq, principal))
     this.retainPrincipal(peer.id, principal, routingPrincipal)
@@ -562,13 +555,15 @@ export class FeedServing {
     this.pendingByPrincipal.clear()
     // An earlier flush may still be framing asynchronously. Preserve batch order
     // and give advisories a barrier that includes work already taken off the queue.
-    const flush = this.pendingFlush.then(() => withReadScope(async () => {
-      for (const { principal, deliveries } of pending) {
-        for (const delivery of coalesceScopedDeliveries(deliveries)) {
-          await this.publish(principal, delivery)
+    const flush = this.pendingFlush.then(() =>
+      withReadScope(async () => {
+        for (const { principal, deliveries } of pending) {
+          for (const delivery of coalesceScopedDeliveries(deliveries)) {
+            await this.publish(principal, delivery)
+          }
         }
-      }
-    }))
+      }),
+    )
     this.pendingFlush = flush.catch((err) => {
       log.warn('coalesced feed publication failed', { err })
     })
@@ -618,21 +613,6 @@ export class FeedServing {
     await this.flush(await this.deps.authority.cursor())
   }
 
-  /**
-   * Re-serve an advisory that is not feed content, to the wire versions that
-   * still carry it inside an entity message. See `WireFeedEdge.publishAdvisory`;
-   * on the current wire this is a no-op, which is the resting state a mechanism
-   * for expiring debt is supposed to have.
-   */
-  publishAdvisory(kind: LegacyAdvisoryKind): void {
-    // Advisory snapshots must follow the entity deliveries buffered before them.
-    // A microtask would now overtake the scheduler-idle publication boundary.
-    scheduleFeedFlush(async () => {
-      await this.flushPending()
-      await this.edge.publishAdvisory(kind)
-    }, this.deps.onPublicationIdle)
-  }
-
   /** Connected-peer version telemetry — the rollout's "may I raise the floor". */
   versions() {
     return this.edge.versions()
@@ -674,13 +654,16 @@ export class FeedServing {
     return this.connections.size
   }
 
-  private async flush(atSeq: number, targetIds: Iterable<string> = this.connections.keys()): Promise<void> {
+  private async flush(
+    atSeq: number,
+    targetIds: Iterable<string> = this.connections.keys(),
+  ): Promise<void> {
     for (const id of targetIds) {
       const connection = this.connections.get(id)
       if (!connection) continue
       const peer = this.peers.get(id)
       if (peer === undefined) continue
-      for (const frame of await connection.drain() as readonly ServerFrame[]) {
+      for (const frame of (await connection.drain()) as readonly ServerFrame[]) {
         this.edge.publishTo(peer, toWireFrame(frame, atSeq))
         // HTTP recovery keeps this socket. Resume bounded live framing from the
         // shed range; the in-flight snapshot covers it or heals the gap at install.

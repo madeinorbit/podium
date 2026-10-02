@@ -44,7 +44,7 @@ import {
   type Replica,
   type StorageApi,
 } from '@podium/client-core/replica'
-import { asMutationId, asSessionId, IssueWire } from '@podium/model'
+import { asMutationId, asSessionId, IssueProjection } from '@podium/model'
 import {
   LEGACY_STANDALONE_OUTBOX_KEY,
   type LegacyIdentityEvidence,
@@ -394,7 +394,7 @@ function seedIssue(
     operations: [
       {
         kind: 'upsert',
-        entity: 'issue',
+        entity: 'issueProjection',
         entityId: issue.id,
         value: { id: issue.id, title: issue.title, status: 'open' },
         provenance: {
@@ -559,7 +559,9 @@ describe('the mobile replica composition root', () => {
     // and entity rows must NOT land on AsyncStorage (ADR 6 D1).
     expect(device.keys()).toContain('podium.replica.principal.default.namespace.v1')
     expect(device.keys().some((k) => k.includes('outbox'))).toBe(false)
-    expect(device.keys().some((k) => k.includes('sessions') || k.includes('issues'))).toBe(false)
+    expect(
+      device.keys().some((k) => k.includes('sessions') || k.includes('issueProjections')),
+    ).toBe(false)
   })
 
   for (const arm of UNATTRIBUTABLE) {
@@ -621,7 +623,7 @@ describe('the mobile replica composition root', () => {
     const seeded = await open({ file, storage: legacyDevice({}) })
     seedIssue(seeded.store, seeded.principal, { id: 'i-seed', title: 'should not survive' })
     await seeded.store.settled()
-    expect(seeded.replica.rows('issues').map((r) => r.id)).toEqual(['i-seed'])
+    expect(seeded.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-seed'])
     seeded.store.close()
 
     const { replica, outcome, degradations } = await open({
@@ -645,7 +647,7 @@ describe('the mobile replica composition root', () => {
 
     const hydrated = await replica.hydrate()
     expect(hydrated.sessions).toEqual([])
-    expect(hydrated.issues).toEqual([])
+    expect(hydrated.issueProjections).toEqual([])
     expect(hydrated.cursor).toBeNull()
   })
 
@@ -733,7 +735,7 @@ describe('cold-start paint from the durable store (POD-1241)', () => {
     const first = await open({ file, storage: legacyDevice({}) })
     seedIssue(first.store, first.principal, { id: 'i-cold', title: 'from disk' })
     await first.store.settled()
-    expect(first.replica.rows('issues').map((r) => r.id)).toEqual(['i-cold'])
+    expect(first.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-cold'])
     // Do NOT erase — we want the file to survive for the second open. Close the
     // store so the second open is a true process-boundary re-read.
     first.store.close()
@@ -746,8 +748,8 @@ describe('cold-start paint from the durable store (POD-1241)', () => {
       storage: legacyDevice({}),
     })
     const hydrated = await cold.replica.hydrate()
-    expect(hydrated.issues).toMatchObject([{ id: 'i-cold', title: 'from disk' }])
-    expect(cold.replica.rows('issues').map((r) => r.id)).toEqual(['i-cold'])
+    expect(hydrated.issueProjections).toMatchObject([{ id: 'i-cold', title: 'from disk' }])
+    expect(cold.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-cold'])
     // Cursor survived too — a cold start that forgot the watermark would look
     // caught up forever or force a needless full bootstrap.
     expect(hydrated.cursor).toBe(1)
@@ -763,8 +765,8 @@ describe('cold-start paint from the durable store (POD-1241)', () => {
       storage: legacyDevice({}),
     })
     const hydrated = await cold.replica.hydrate()
-    expect(hydrated.issues).toEqual([])
-    expect(cold.replica.rows('issues')).toEqual([])
+    expect(hydrated.issueProjections).toEqual([])
+    expect(cold.replica.rows('issueProjections')).toEqual([])
     expect(hydrated.cursor).toBeNull()
   })
 })
@@ -810,11 +812,17 @@ function bootstrapFrame(args: {
       entityId: c.entityId,
       op: 'upsert' as const,
       value:
-        c.entity === 'issue'
-          ? IssueWire.parse({
+        c.entity === 'issueProjection'
+          ? IssueProjection.parse({
               repoPath: '/fixture',
               seq: c.seq,
-              description: '',
+              description: { value: '' },
+              intentOrigin: 'human',
+              isDraftVessel: false,
+              owner: 'viewer',
+              visibility: 'personal',
+              createdBy: { actor: { kind: 'user', id: 'viewer' }, onBehalfOf: 'viewer' },
+              blockedByNotes: [],
               stage: 'backlog',
               worktreePath: '',
               branch: '',
@@ -858,12 +866,12 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
     const file = freshDatabaseFile()
     const opened = await open({ file, storage: legacyDevice({}) })
     const paintedSizes: number[] = []
-    opened.replica.subscribeRows('issues', () => {
-      paintedSizes.push(opened.replica.rows('issues').length)
+    opened.replica.subscribeRows('issueProjections', () => {
+      paintedSizes.push(opened.replica.rows('issueProjections').length)
     })
     const changes = Array.from({ length: 1_000 }, (_, index) => ({
       seq: index + 1,
-      entity: 'issue',
+      entity: 'issueProjection',
       entityId: `i-batch-${index}`,
       value: { id: `i-batch-${index}`, title: `Issue ${index}`, status: 'open' },
     }))
@@ -871,7 +879,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
     onlineWithBootstrap(opened, bootstrapFrame({ seq: changes.length, changes }))
 
     await waitUntil('large bootstrap install', () => opened.replica.getCursor() === changes.length)
-    expect(opened.replica.rows('issues')).toHaveLength(changes.length)
+    expect(opened.replica.rows('issueProjections')).toHaveLength(changes.length)
     // Without the mobile composition root's batchEvents hook this is 1,001
     // synchronous drains (one per row plus bootstrap-installed), which is the
     // measured multi-second input freeze this regression guards.
@@ -886,7 +894,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
     // the facade caches the empty projection, and only onKernelEvent clears it.
     // Without that wiring, the store would hold the row and rows() would still
     // answer empty — the empty-handler failure mode, one layer down.
-    expect(opened.replica.rows('issues')).toEqual([])
+    expect(opened.replica.rows('issueProjections')).toEqual([])
 
     onlineWithBootstrap(
       opened,
@@ -895,7 +903,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
         changes: [
           {
             seq: 1,
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'i-feed',
             value: { id: 'i-feed', title: 'from feed', status: 'open' },
           },
@@ -905,11 +913,11 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
 
     await waitUntil(
       'feed bootstrap to paint i-feed (got: ' +
-        JSON.stringify(opened.replica.rows('issues').map((r) => r.id)) +
+        JSON.stringify(opened.replica.rows('issueProjections').map((r) => r.id)) +
         ')',
-      () => opened.replica.rows('issues').some((r) => r.id === 'i-feed'),
+      () => opened.replica.rows('issueProjections').some((r) => r.id === 'i-feed'),
     )
-    expect(opened.replica.rows('issues').map((r) => r.id)).toEqual(['i-feed'])
+    expect(opened.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-feed'])
     expect(opened.replica.getCursor()).toBe(1)
   })
 
@@ -918,7 +926,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
     // sink works; together with "carries rows", empty is "correctly empty".
     const file = freshDatabaseFile()
     const opened = await open({ file, storage: legacyDevice({}) })
-    expect(opened.replica.rows('issues')).toEqual([])
+    expect(opened.replica.rows('issueProjections')).toEqual([])
 
     onlineWithBootstrap(opened, bootstrapFrame({ seq: 3, changes: [] }))
 
@@ -926,14 +934,14 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
       'empty bootstrap to establish cursor=3 (got: ' + String(opened.replica.getCursor()) + ')',
       () => opened.replica.getCursor() === 3,
     )
-    expect(opened.replica.rows('issues')).toEqual([])
+    expect(opened.replica.rows('issueProjections')).toEqual([])
     expect(opened.replica.getCursor()).toBe(3)
   })
 
   it('a delta after bootstrap adds the row the empty case cannot see', async () => {
     const file = freshDatabaseFile()
     const opened = await open({ file, storage: legacyDevice({}) })
-    expect(opened.replica.rows('issues')).toEqual([])
+    expect(opened.replica.rows('issueProjections')).toEqual([])
 
     onlineWithBootstrap(opened, bootstrapFrame({ seq: 1, changes: [] }))
     await waitUntil('cursor after empty bootstrap', () => opened.replica.getCursor() === 1)
@@ -948,7 +956,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
       changes: [
         {
           seq: 2,
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'i-delta',
           op: 'upsert',
           value: { id: 'i-delta', title: 'from delta', status: 'open' },
@@ -958,11 +966,11 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
 
     await waitUntil(
       'delta to paint i-delta (got: ' +
-        JSON.stringify(opened.replica.rows('issues').map((r) => r.id)) +
+        JSON.stringify(opened.replica.rows('issueProjections').map((r) => r.id)) +
         ')',
-      () => opened.replica.rows('issues').some((r) => r.id === 'i-delta'),
+      () => opened.replica.rows('issueProjections').some((r) => r.id === 'i-delta'),
     )
-    expect(opened.replica.rows('issues').map((r) => r.id)).toEqual(['i-delta'])
+    expect(opened.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-delta'])
     expect(opened.replica.getCursor()).toBe(2)
   })
 
@@ -993,7 +1001,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
       changes: [
         {
           seq: 2,
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'i-offline',
           op: 'upsert',
           value: { id: 'i-offline', title: 'must survive reload', status: 'open' },
@@ -1001,7 +1009,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
       ],
     } as never)
     await waitUntil('delta paint before close', () =>
-      first.replica.rows('issues').some((r) => r.id === 'i-offline'),
+      first.replica.rows('issueProjections').some((r) => r.id === 'i-offline'),
     )
     // No await of a flush API: SQLite commits inside applyAtomic, so the file
     // must already hold the row before we tear the process down.
@@ -1013,8 +1021,10 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
       storage: legacyDevice({}),
     })
     const hydrated = await cold.replica.hydrate()
-    expect(hydrated.issues).toMatchObject([{ id: 'i-offline', title: 'must survive reload' }])
-    expect(cold.replica.rows('issues').map((r) => r.id)).toEqual(['i-offline'])
+    expect(hydrated.issueProjections).toMatchObject([
+      { id: 'i-offline', title: 'must survive reload' },
+    ])
+    expect(cold.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-offline'])
     expect(hydrated.cursor).toBe(2)
   })
 })
@@ -1042,7 +1052,7 @@ describe('local persistence is per-principal on mobile (doc §3.2)', () => {
     const alice = await open({ file, storage: device, principal: 'alice' })
     seedIssue(alice.store, 'alice', { id: 'i-alice', title: 'alice private work' })
     await alice.store.settled()
-    expect(alice.replica.rows('issues').map((r) => r.id)).toEqual(['i-alice'])
+    expect(alice.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-alice'])
     expect(alice.replica.getCursor()).toBe(1)
 
     // BACKGROUND → FOREGROUND ACROSS A SWITCH. The process survives, so Alice's
@@ -1052,17 +1062,17 @@ describe('local persistence is per-principal on mobile (doc §3.2)', () => {
     const bob = await open({ file, storage: device, principal: 'bob' })
 
     expect(bob.principal).toBe('bob')
-    expect(bob.replica.rows('issues')).toEqual([])
+    expect(bob.replica.rows('issueProjections')).toEqual([])
     // THE SILENT ONE. A cursor is what makes an empty slice look caught up.
     expect(bob.replica.getCursor()).toBeNull()
     const hydrated = await bob.replica.hydrate()
-    expect(hydrated.issues).toEqual([])
+    expect(hydrated.issueProjections).toEqual([])
     expect(hydrated.cursor).toBeNull()
 
     // And Alice's rows are not merely hidden from Bob's projection — they are
     // under her own namespace, which is what makes the isolation structural
     // rather than a filter someone could forget to apply.
-    expect(alice.replica.rows('issues').map((r) => r.id)).toEqual(['i-alice'])
+    expect(alice.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-alice'])
   })
 
   it('and the same assertion PASSES for the same principal — so the case above is about identity, not emptiness', async () => {
@@ -1077,7 +1087,7 @@ describe('local persistence is per-principal on mobile (doc §3.2)', () => {
     await first.store.settled()
 
     const again = await open({ file, storage: device, principal: 'alice' })
-    expect(again.replica.rows('issues').map((r) => r.id)).toEqual(['i-alice'])
+    expect(again.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-alice'])
     expect(again.replica.getCursor()).toBe(1)
   })
 
@@ -1142,9 +1152,14 @@ describe('HTTP sync through the mobile assembly', () => {
         changes: [
           {
             seq: 1,
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'http-issue',
-            value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'HTTP world' },
+            value: {
+              ...DEMO_ISSUES[0]!,
+              description: { value: DEMO_ISSUES[0]!.description },
+              id: 'http-issue',
+              title: 'HTTP world',
+            },
           },
         ],
       }),
@@ -1158,14 +1173,14 @@ describe('HTTP sync through the mobile assembly', () => {
       phase: 'downloading',
       totalRows: 1,
     })
-    expect(opened.replica.rows('issues')).toHaveLength(0)
+    expect(opened.replica.rows('issueProjections')).toHaveLength(0)
     send({ type: 'syncComplete', transferId: 'mobile', seq: 1, records: 1, rows: 1 })
     controller.close()
     await waitUntil(
       'HTTP durable install',
       () => opened.syncProgress.getSnapshot().phase === 'ready',
     )
-    expect(opened.replica.rows('issues')).toHaveLength(1)
+    expect(opened.replica.rows('issueProjections')).toHaveLength(1)
     expect(opened.feed.helloFields()?.feedCursor.seq).toBe(1)
     expect(fetch.mock.calls[0]![0]).toBe('https://server/sync/bootstrap')
 
@@ -1193,10 +1208,15 @@ describe('HTTP sync through the mobile assembly', () => {
       changes: [
         {
           seq: 2,
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'http-issue',
           op: 'upsert',
-          value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'Healed over HTTP' },
+          value: {
+            ...DEMO_ISSUES[0]!,
+            description: { value: DEMO_ISSUES[0]!.description },
+            id: 'http-issue',
+            title: 'Healed over HTTP',
+          },
         },
       ],
     })
@@ -1207,7 +1227,7 @@ describe('HTTP sync through the mobile assembly', () => {
       rowsSeen: 1,
       totalRows: null,
     })
-    expect(opened.replica.rows('issues')[0]).toMatchObject({ title: 'Healed over HTTP' })
+    expect(opened.replica.rows('issueProjections')[0]).toMatchObject({ title: 'Healed over HTTP' })
     send({ type: 'syncComplete', transferId: 'mobile', seq: 2, records: 1, rows: 1 })
     controller.close()
     await waitUntil(

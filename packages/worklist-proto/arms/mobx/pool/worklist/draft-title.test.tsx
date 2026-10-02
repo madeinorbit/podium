@@ -29,7 +29,7 @@ describe('a draft wears its first non-shell member (4x)', () => {
       const want = oracleSnapshot(ctx.engine.getSnapshot())
       const { pool } = handle
       const drafts = tracked(() =>
-        Object.keys(want.rowsById).filter((id) => pool.visibleInputs.issueRow(id)?.draft === true),
+        Object.keys(want.rowsById).filter((id) => pool.visibleInputs.issueRow(id)?.isDraftVessel === true),
       )
       expect(drafts.length, 'visible drafts at 4x').toBeGreaterThan(0)
       const shellFirst = tracked(() =>

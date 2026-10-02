@@ -3,9 +3,9 @@ import {
   asThreadId,
   asUserId,
   firstAdminMemberId,
-  type IssueWire,
-  type IssueWireInput,
+  type IssueReport,
   type SessionId,
+  type UnbrandIds,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { Hono } from 'hono'
@@ -199,7 +199,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   return { registry, repos, sa, turnReqs, settle }
 }
 
-const wire = (o: Partial<IssueWireInput>): IssueWire =>
+const wire = (o: Partial<UnbrandIds<IssueReport>>): IssueReport =>
   ({
     id: 'iss_x',
     repoPath: '/r',
@@ -209,7 +209,7 @@ const wire = (o: Partial<IssueWireInput>): IssueWire =>
     blockedByNotes: [],
     needsHuman: false,
     ...o,
-  }) as IssueWire
+  }) as IssueReport
 
 describe('conciergeThreadId', () => {
   it('is deterministic and reversible', () => {
@@ -306,15 +306,25 @@ describe('concierge threads (issue #64)', () => {
     expect(a.threadId).toBe(b.threadId)
     expect(a.isNew).toBe(false)
     expect(b.isNew).toBe(false)
-    const threads = (await sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge')
+    const threads = (await sa.listThreads(firstAdminMemberId())).filter(
+      (t) => t.kind === 'concierge',
+    )
     expect(threads).toHaveLength(1)
     expect(threads[0]).toMatchObject({ id: conciergeThreadId('/r'), repoPath: '/r' })
   })
 
   it('seeds a new thread with ready/needs-human/session lines from the tracker', async () => {
     const { registry, sa, turnReqs } = await harness()
-    const ready = await registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
-    const asking = await registry.issues.create({ repoPath: '/r', title: 'Deploy', startNow: false })
+    const ready = await registry.issues.create({
+      repoPath: '/r',
+      title: 'Fix login',
+      startNow: false,
+    })
+    const asking = await registry.issues.create({
+      repoPath: '/r',
+      title: 'Deploy',
+      startNow: false,
+    })
     await registry.issues.setNeedsHuman(asking.id, 'Which region?')
     await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -360,7 +370,9 @@ describe('concierge threads (issue #64)', () => {
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, asThreadId('btw_s1')),
     ) as { sessionId: SessionId }
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId),
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === out.sessionId,
+      ),
     ).toBeDefined()
   })
 
@@ -369,9 +381,9 @@ describe('concierge threads (issue #64)', () => {
     await expect(
       sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/typo', text: 'hi' }),
     ).rejects.toThrow(/unknown repo/)
-    expect((await sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge')).toHaveLength(
-      1,
-    )
+    expect(
+      (await sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge'),
+    ).toHaveLength(1)
   })
 
   it('gates issue_create --start behind confirmed, refusing BEFORE any mutation', async () => {
@@ -394,7 +406,9 @@ describe('concierge threads (issue #64)', () => {
     )
     expect(out).toMatch(/created (?:[A-Z]{2,5}-|#)2 Big/)
     expect(out).toContain('started in')
-    expect((await registry.issues.list('/r')).find((i) => i.title === 'Big')?.stage).toBe('in_progress')
+    expect((await registry.issues.list('/r')).find((i) => i.title === 'Big')?.stage).toBe(
+      'in_progress',
+    )
   })
 
   // Issue #67: the harness backend reaches these tools over the HTTP MCP route,
@@ -499,8 +513,9 @@ describe('concierge threads (issue #64)', () => {
         await call('start_agent', { agentKind: 'shell', cwd: '/r', confirmed: true }, tok),
       ) as { sessionId: SessionId }
       expect(
-        (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId)
-          ?.spawnedBy,
+        (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (s) => s.sessionId === out.sessionId,
+        )?.spawnedBy,
       ).toBe(`superagent:${tid}`)
     })
 
@@ -635,7 +650,7 @@ describe('list_sessions boundIssue', () => {
       cwd: issue?.worktreePath ?? '/x',
     })
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
-    const rows = JSON.parse(await sa.callMcpTool('list_sessions', {})) as {
+    const rows = JSON.parse(await sa.callMcpTool('list_sessions', {}, asThreadId('global'))) as {
       cwd: string
       boundIssue?: { seq: number; title: string }
     }[]
@@ -650,24 +665,38 @@ describe('list_sessions boundIssue', () => {
   })
 })
 
-
 describe('thread ownership after administrator removal', () => {
   it('keeps legacy threads with their owner and reuses the next admin’s own threads', async () => {
     const { registry, sa } = await harness()
     const store = registry.sessionStore
     const original = await firstAdminMemberId(store)
     const replacement = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
-    await store.users.create({ id: replacement, displayName: 'Next admin', role: 'admin',
-      createdAt: '2099-01-01T00:00:00.000Z', disabledAt: null }, 'scrypt:hash')
+    await store.users.create(
+      {
+        id: replacement,
+        displayName: 'Next admin',
+        role: 'admin',
+        createdAt: '2099-01-01T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'scrypt:hash',
+    )
     await sa.history(replacement)
     const before = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
     await store.users.removeMember(original, replacement)
     await sa.history(replacement)
     const after = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
     expect(after).toEqual({ threadId: before.threadId, isNew: false })
-    expect((await store.superagent.getSuperagentThread(asThreadId('global')))?.ownerUserId).toBe(original)
-    expect((await store.superagent.getSuperagentThread(conciergeThreadId('/r')))?.ownerUserId).toBe(original)
-    expect((await store.superagent.getSuperagentThread(asThreadId(`global:${replacement}`)))?.ownerUserId).toBe(replacement)
+    expect((await store.superagent.getSuperagentThread(asThreadId('global')))?.ownerUserId).toBe(
+      original,
+    )
+    expect((await store.superagent.getSuperagentThread(conciergeThreadId('/r')))?.ownerUserId).toBe(
+      original,
+    )
+    expect(
+      (await store.superagent.getSuperagentThread(asThreadId(`global:${replacement}`)))
+        ?.ownerUserId,
+    ).toBe(replacement)
     sa.dispose()
   })
 })

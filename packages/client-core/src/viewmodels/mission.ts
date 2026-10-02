@@ -1,12 +1,12 @@
+import type { SessionView } from '../session-values'
+import type { IssueProjection } from '@podium/model'
 import {
   type AgentKind,
   asIssueId,
   asSessionId,
   type IssueId,
   type SessionId,
-  type SessionMeta,
-  spawnedByParentSessionId,
-} from '@podium/model'
+  spawnedByParentSessionId} from '@podium/model'
 import { type HarnessDescriptorWire, issueDisplayRef } from '@podium/protocol'
 import { sessionParked, sessionPresentOnTask } from './fleet'
 import { agentLabel } from './quota'
@@ -55,14 +55,14 @@ export interface CollapsedSummary {
    * Covers the row's OWN sessions as well as its descendants': folding hides
    * both, and the icons stand for everything behind the chevron.
    */
-  crew: SessionMeta[]
+  crew: SessionView[]
   needsYou: boolean
 }
 
 export interface FlightDeckRow {
   issue: IssueNavigationModel
   depth: number
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   descendantIds: string[]
   actionableCount: number
   /** Sessions PRESENT in the subtree: open, not archived, not exited. */
@@ -211,7 +211,7 @@ const openSession = sessionPresentOnTask
  * not a fold. One predicate so the dimmed agent row, the dimmed census icon and
  * the ordering below can never disagree about which agents are still in play.
  */
-export function sessionSettled(session: SessionMeta): boolean {
+export function sessionSettled(session: SessionView): boolean {
   return !openSession(session) || motionPhase(session) === 'done'
 }
 
@@ -233,7 +233,7 @@ export function sessionSettled(session: SessionMeta): boolean {
  * answer yes here. Deliberately the same predicate as `workingAgentCount` below:
  * the row's own spinner and this filter must never disagree about who is busy.
  */
-function sessionWorking(session: SessionMeta): boolean {
+function sessionWorking(session: SessionView): boolean {
   return openSession(session) && motionPhase(session) === 'working'
 }
 
@@ -265,7 +265,7 @@ function sessionWorking(session: SessionMeta): boolean {
  * `workingAgentCount` and the row's own spinner, and a spawning agent has
  * nothing to spin yet. Same core question, one extra beat at the start.
  */
-export function sessionAtWork(session: SessionMeta): boolean {
+export function sessionAtWork(session: SessionView): boolean {
   if (!openSession(session)) return false
   if (session.status === 'starting' || session.status === 'reconnecting') return true
   return sessionWorking(session)
@@ -276,15 +276,15 @@ export function sessionAtWork(session: SessionMeta): boolean {
  *  the `+N` that goes with it. */
 const CREW_CAP = 12
 
-function deckCrew(sessions: readonly SessionMeta[]): SessionMeta[] {
+function deckCrew(sessions: readonly SessionView[]): SessionView[] {
   const seen = new Set<string>()
-  const unique: SessionMeta[] = []
+  const unique: SessionView[] = []
   for (const session of sessions) {
     if (seen.has(session.sessionId)) continue
     seen.add(session.sessionId)
     unique.push(session)
   }
-  const rank = (session: SessionMeta): number =>
+  const rank = (session: SessionView): number =>
     openSession(session) && motionPhase(session) === 'working' ? 0 : sessionSettled(session) ? 2 : 1
   return unique.sort((a, b) => rank(a) - rank(b)).slice(0, CREW_CAP)
 }
@@ -303,7 +303,7 @@ function deckCrew(sessions: readonly SessionMeta[]): SessionMeta[] {
  * has always called any `errored` phase `needsYou`; the two disagreeing is how a
  * session could read amber on its own row and contribute nothing to its task.
  */
-export function sessionNeedsHuman(session: SessionMeta): boolean {
+export function sessionNeedsHuman(session: SessionView): boolean {
   return (
     session.agentState?.phase === 'needs_user' || sessionErrored(session) || Boolean(session.offer)
   )
@@ -328,8 +328,8 @@ export function sessionNeedsHuman(session: SessionMeta): boolean {
  */
 export function issueErroredSession(
   issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>,
-  sessions: readonly SessionMeta[],
-): SessionMeta | null {
+  sessions: readonly SessionView[],
+): SessionView | null {
   if (issueClosed(issue)) return null
   return sessions.find((session) => openSession(session) && sessionErrored(session)) ?? null
 }
@@ -337,7 +337,7 @@ export function issueErroredSession(
 /** The words for {@link issueErroredSession}, or null when nothing errored. */
 export function issueErrorLabel(
   issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): string | null {
   const session = issueErroredSession(issue, sessions)
   return session ? sessionErrorLabel(session) : null
@@ -360,14 +360,14 @@ export function issueClosed(issue: Pick<IssueNavigationModel, 'stage' | 'closedR
  */
 export function sessionAsksOnIssue(
   issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>,
-  session: SessionMeta,
+  session: SessionView,
 ): boolean {
   return !issueClosed(issue) && !session.archived && sessionNeedsHuman(session)
 }
 
 export function issueNeedsHuman(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): boolean {
   // A CLOSED TASK NEVER NEEDS YOU (POD-1072). Closing is the operator's own
@@ -385,10 +385,10 @@ export function issueNeedsHuman(
   return issue.stage === 'review'
 }
 
-export function missionRootFor(
-  issues: readonly IssueNavigationModel[],
+export function missionRootFor<T extends MissionIssueTopology>(
+  issues: readonly T[],
   selectedIssueId: IssueId | null,
-): IssueNavigationModel | undefined {
+): T | undefined {
   if (!selectedIssueId) return undefined
   // Shared per-snapshot index (POD-4419 S1): the per-call
   // `new Map(issues.map(...))` rebuilt the whole corpus on every call, and this
@@ -434,7 +434,7 @@ export function missionRootFor(
  */
 export function selectedMissionRoot(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   selectedIssueId: IssueId | null,
 ): IssueNavigationModel | undefined {
   const root = missionRootFor(issues, selectedIssueId)
@@ -456,7 +456,7 @@ export function selectedMissionRoot(
  */
 export function deckDestinationFor(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   targetId: IssueId | null,
 ): IssueNavigationModel | undefined {
   if (!targetId) return undefined
@@ -520,7 +520,7 @@ const UNDERWAY = new Set(['planning', 'in_progress', 'shipping'])
  * by a mission agent was dragged back onto the origin's spine for good, counted
  * in its progress, and the origin could never read as finished (POD-679).
  */
-export function hasLeftMission(issue: IssueNavigationModel): boolean {
+export function hasLeftMission(issue: Pick<MissionIssueTopology, 'stage' | 'deps'>): boolean {
   return !UNSTARTED.has(issue.stage) && spinOffOriginId(issue) !== null
 }
 
@@ -551,7 +551,7 @@ export interface MissionSessionIndex {
    * that is what the callers were reading and some of them pass the result on
    * to helpers that draw their own archived/open lines.
    */
-  byIssue: Map<string, SessionMeta[]>
+  byIssue: Map<string, SessionView[]>
   /** Issue ids carrying at least one {@link openSession} — the `some(...)`
    *  presence test the staffing rules ask, precomputed. */
   openIssues: Set<string>
@@ -562,12 +562,12 @@ export interface MissionSessionIndex {
 
 /** A stable empty slice, so the `sessions = []` defaults below do not hand the
  *  memos a fresh array identity on every call and miss every time. */
-const NO_SESSIONS: readonly SessionMeta[] = Object.freeze([])
+const NO_SESSIONS: readonly SessionView[] = Object.freeze([])
 
-const sessionIndexes = new WeakMap<readonly SessionMeta[], MissionSessionIndex>()
+const sessionIndexes = new WeakMap<readonly SessionView[], MissionSessionIndex>()
 let sessionIndexBuilds = 0
 
-function missionSessionIndex(sessions: readonly SessionMeta[]): MissionSessionIndex {
+function missionSessionIndex(sessions: readonly SessionView[]): MissionSessionIndex {
   const cached = sessionIndexes.get(sessions)
   if (cached) return cached
   const index = indexMissionSessions(sessions)
@@ -576,9 +576,9 @@ function missionSessionIndex(sessions: readonly SessionMeta[]): MissionSessionIn
 }
 
 /** Fresh, derivation-local membership; never retained across snapshots. */
-export function indexMissionSessions(sessions: readonly SessionMeta[]): MissionSessionIndex {
+export function indexMissionSessions(sessions: readonly SessionView[]): MissionSessionIndex {
   sessionIndexBuilds += 1
-  const byIssue = new Map<string, SessionMeta[]>()
+  const byIssue = new Map<string, SessionView[]>()
   const openIssues = new Set<string>()
   const lastActive = new Map<string, string>()
   for (const session of sessions) {
@@ -603,15 +603,15 @@ export function indexMissionSessions(sessions: readonly SessionMeta[]): MissionS
  *  and must not be mutated; every caller in this file either reads it or copies
  *  it before sorting. */
 function sessionsOnIssue(
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   issueId: string,
-): readonly SessionMeta[] {
+): readonly SessionView[] {
   return missionSessionIndex(sessions).byIssue.get(issueId) ?? NO_SESSIONS
 }
 
 /** Is anybody {@link openSession} on this issue? */
 function issueStaffed(
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   issueId: string,
   sessionIndex?: MissionSessionIndex,
 ): boolean {
@@ -638,7 +638,7 @@ function issueStaffed(
  */
 function staffedSpinOff(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   sessionIndex?: MissionSessionIndex,
 ): boolean {
   return spinOffOriginId(issue) !== null && issueStaffed(sessions, issue.id, sessionIndex)
@@ -701,7 +701,7 @@ function spinOffDescendants(
 
 function lastActiveAt(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   sessionIndex?: MissionSessionIndex,
 ): string {
   const latest = issue.updatedAt ?? ''
@@ -713,7 +713,7 @@ function lastActiveAt(
 
 function preferredSpinOffTip(
   candidates: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   sessionIndex?: MissionSessionIndex,
 ): IssueNavigationModel | null {
   if (candidates.length === 0) return null
@@ -740,7 +740,7 @@ function preferredSpinOffTip(
 function liveSpinOffTips(
   origin: Pick<IssueNavigationModel, 'id'>,
   byId: ReadonlyMap<string, IssueNavigationModel> | undefined,
-  sessions: readonly SessionMeta[] = NO_SESSIONS,
+  sessions: readonly SessionView[] = NO_SESSIONS,
   sessionIndex?: MissionSessionIndex,
 ): IssueNavigationModel[] {
   if (!byId) return []
@@ -780,7 +780,7 @@ function liveSpinOffTips(
 export function liveSpinOffTip(
   origin: Pick<IssueNavigationModel, 'id'>,
   byId: ReadonlyMap<string, IssueNavigationModel> | undefined,
-  sessions: readonly SessionMeta[] = NO_SESSIONS,
+  sessions: readonly SessionView[] = NO_SESSIONS,
   sessionIndex?: MissionSessionIndex,
 ): IssueNavigationModel | null {
   return preferredSpinOffTip(
@@ -793,7 +793,7 @@ export function liveSpinOffTip(
 /** Sessionless, and the work continued on a started spin-off. A signpost, not a task. */
 export function isVacatedOrigin(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): boolean {
   // A PLAIN SCAN, DELIBERATELY. This is exported, and its `sessions` argument is
@@ -811,9 +811,14 @@ export function isVacatedOrigin(
  * The halves of {@link missionIssueIds} that depend on the ISSUE SLICE ALONE —
  * not on the root, not on the sessions — so they can be built once and reused.
  */
-interface MissionIssueIndex {
+/** Facts needed for workspace membership, without a render-model dependency. */
+export type MissionIssueTopology = Pick<IssueProjection, 'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'startedBySession'> & {
+  deps?: readonly { id: string; type: string }[]
+}
+
+interface MissionIssueIndex<T extends MissionIssueTopology = MissionIssueTopology> {
   /** Live issues by `parentId`: the formal subtree walk's adjacency list. */
-  children: Map<string, IssueNavigationModel[]>
+  children: Map<string, T[]>
   /**
    * The only issues the provenance fallback can ever claim, in `issues` order.
    *
@@ -846,7 +851,7 @@ interface MissionIssueIndex {
    * on, so sharing one map is what lets the `discovered-from` adjacency survive
    * from one caller to the next within a publish.
    */
-  byId: Map<string, IssueNavigationModel>
+  byId: Map<string, T>
 }
 
 let missionIndexBuilds = 0
@@ -897,8 +902,8 @@ let missionIndexComparisons = 0
  * reference is replaced on the next miss and never returned for a corpus it
  * was not compared against.
  */
-const missionIndexes = new WeakMap<readonly IssueNavigationModel[], MissionIssueIndex>()
-let lastMissionIndexIssues: readonly IssueNavigationModel[] | undefined
+const missionIndexes = new WeakMap<readonly MissionIssueTopology[], MissionIssueIndex>()
+let lastMissionIndexIssues: readonly MissionIssueTopology[] | undefined
 let lastMissionIndex: MissionIssueIndex | undefined
 
 /** Formal-tree eligibility, shared with the incremental relationship index. */
@@ -906,9 +911,9 @@ export function missionParentId(issue: { parentId?: string | null; archived?: bo
   return issue.archived || issue.deletedAt ? null : issue.parentId || null
 }
 
-function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssueIndex {
+function missionIssueIndex<T extends MissionIssueTopology>(issues: readonly T[]): MissionIssueIndex<T> {
   const cached = missionIndexes.get(issues)
-  if (cached) return cached
+  if (cached) return cached as MissionIssueIndex<T>
   // Same rows, new array: `[...issues]`, a fresh fold, a fresh view-model `all`
   // array around reused models. Nothing the index is built from moved, so hand
   // back the previous build rather than rescanning the corpus. Element-wise
@@ -929,13 +934,13 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
     if (same) {
       missionIndexes.set(issues, prior)
       lastMissionIndexIssues = issues
-      return prior
+      return prior as MissionIssueIndex<T>
     }
   }
   missionIndexBuilds += 1
-  const children = new Map<string, IssueNavigationModel[]>()
+  const children = new Map<string, T[]>()
   const parents = new Map<string, string>()
-  const byId = new Map<string, IssueNavigationModel>()
+  const byId = new Map<string, T>()
   const startedCandidates: Array<{ id: string; startedBySession: SessionId }> = []
   for (const issue of issues) {
     byId.set(issue.id, issue)
@@ -949,7 +954,7 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
     children.set(parent, siblings)
     parents.set(issue.id, parent)
   }
-  const index: MissionIssueIndex = { children, parents, byId, startedCandidates }
+  const index: MissionIssueIndex<T> = { children, parents, byId, startedCandidates }
   missionIndexes.set(issues, index)
   lastMissionIndexIssues = issues
   lastMissionIndex = index
@@ -1004,9 +1009,9 @@ export function missionIndexStats(): {
  * the whole derivation; with it the first one computes and the rest read.
  */
 function memoBySlices<T>(
-  table: WeakMap<readonly IssueNavigationModel[], WeakMap<readonly SessionMeta[], Map<string, T>>>,
-  issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  table: WeakMap<readonly MissionIssueTopology[], WeakMap<readonly SessionView[], Map<string, T>>>,
+  issues: readonly MissionIssueTopology[],
+  sessions: readonly SessionView[],
   key: string,
   compute: () => T,
 ): T {
@@ -1076,7 +1081,7 @@ function formalMemberIds(issues: readonly IssueNavigationModel[], rootId: string
 
 const missionMemberSets = new WeakMap<
   readonly IssueNavigationModel[],
-  WeakMap<readonly SessionMeta[], Map<string, Set<string>>>
+  WeakMap<readonly SessionView[], Map<string, Set<string>>>
 >()
 let missionMemberComputes = 0
 
@@ -1091,9 +1096,9 @@ let missionMemberComputes = 0
  * asking about the same mission in the same publish.
  */
 export function missionIssueIds(
-  issues: readonly IssueNavigationModel[],
+  issues: readonly MissionIssueTopology[],
   rootId: string,
-  sessions: readonly SessionMeta[] = NO_SESSIONS,
+  sessions: readonly SessionView[] = NO_SESSIONS,
 ): Set<string> {
   return memoBySlices(missionMemberSets, issues, sessions, rootId, () =>
     computeMissionIssueIds(issues, rootId, sessions),
@@ -1101,9 +1106,9 @@ export function missionIssueIds(
 }
 
 function computeMissionIssueIds(
-  issues: readonly IssueNavigationModel[],
+  issues: readonly MissionIssueTopology[],
   rootId: string,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): Set<string> {
   missionMemberComputes += 1
   const { children, startedCandidates } = missionIssueIndex(issues)
@@ -1158,10 +1163,10 @@ function computeMissionIssueIds(
 
 export function missionSessions(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   rootId: string,
   includeArchived = false,
-): SessionMeta[] {
+): SessionView[] {
   const ids = missionIssueIds(issues, rootId, sessions)
   const memberIds = new Set<string>()
   for (const issue of issues) {
@@ -1180,9 +1185,9 @@ export function missionSessions(
  *  cold index — on every build. */
 function sessionsForIssue(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   allWorktreePaths: readonly string[],
-): SessionMeta[] {
+): SessionView[] {
   return sessionsForIssueNav(issue, sessions, allWorktreePaths, { includeShells: true })
 }
 
@@ -1207,9 +1212,9 @@ function sessionsForIssue(
  */
 export function deckSessionOrder(
   issue: Pick<IssueNavigationModel, 'coordinatorSessionId'>,
-  sessions: readonly SessionMeta[],
-): SessionMeta[] {
-  const lead = (session: SessionMeta): number =>
+  sessions: readonly SessionView[],
+): SessionView[] {
+  const lead = (session: SessionView): number =>
     isCoordinatorSession(issue, session.sessionId) ? 0 : 1
   return [...sessions].sort((a, b) => {
     const byLead = lead(a) - lead(b)
@@ -1236,7 +1241,7 @@ const EMPTY_ROLLUP: MissionRollup = Object.freeze({
 
 const missionProgressCache = new WeakMap<
   readonly IssueNavigationModel[],
-  WeakMap<readonly SessionMeta[], Map<string, MissionRollup>>
+  WeakMap<readonly SessionView[], Map<string, MissionRollup>>
 >()
 let missionProgressComputes = 0
 
@@ -1319,7 +1324,7 @@ let missionProgressComputes = 0
  */
 export function missionProgress(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   rootId: string | null | undefined,
 ): MissionProgress {
   return missionRollup(issues, sessions, rootId).progress
@@ -1328,7 +1333,7 @@ export function missionProgress(
 /** The task-status companion to {@link missionProgress}. */
 export function missionRollup(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   rootId: string | null | undefined,
   sessionIndex?: MissionSessionIndex,
 ): MissionRollup {
@@ -1344,7 +1349,7 @@ export function missionRollup(
 
 function computeMissionRollup(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   rootId: string,
   sessionIndex?: MissionSessionIndex,
 ): MissionRollup {
@@ -1419,7 +1424,7 @@ function computeMissionRollup(
 
 const staffedSubtrees = new WeakMap<
   readonly IssueNavigationModel[],
-  WeakMap<readonly SessionMeta[], Map<string, Set<string>>>
+  WeakMap<readonly SessionView[], Map<string, Set<string>>>
 >()
 let staffedSubtreeComputes = 0
 
@@ -1437,7 +1442,7 @@ let staffedSubtreeComputes = 0
  */
 function staffedSubtreeIds(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): Set<string> {
   // Root-independent: one set per pair of slices serves every mission asking.
   return memoBySlices(staffedSubtrees, issues, sessions, '', () =>
@@ -1447,7 +1452,7 @@ function staffedSubtreeIds(
 
 function computeStaffedSubtreeIds(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): Set<string> {
   staffedSubtreeComputes += 1
   const { parents } = missionIssueIndex(issues)
@@ -1504,7 +1509,7 @@ export interface MissionDeparture {
  */
 export function missionDepartures(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   rootId: string | null | undefined,
   allWorktreePaths: readonly string[] = [],
 ): MissionDeparture[] {
@@ -1538,7 +1543,7 @@ export function missionDepartures(
  */
 export function buildFlightDeckRows(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   rootId: string,
   mode: FlightDeckMode = 'full',
   allWorktreePaths: readonly string[] = [],
@@ -1610,7 +1615,7 @@ export function buildFlightDeckRows(
     descendantMemo.set(id, out)
     return out
   }
-  const sessionsByIssue = new Map<string, SessionMeta[]>(
+  const sessionsByIssue = new Map<string, SessionView[]>(
     visibleIssues.map((issue) => [
       issue.id,
       deckSessionOrder(issue, sessionsForIssue(issue, sessions, allWorktreePaths)),
@@ -1774,7 +1779,7 @@ export function blockedNote(
 
 export function operationalState(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): { state: OperationalState; label: string } {
   // "Active" means the process is still there: an exited-but-unarchived session
@@ -1891,7 +1896,7 @@ const DECK_LABEL: Record<DeckState, string> = {
  */
 export function deckIssueState(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): DeckIssueState {
   const active = sessions.filter(openSession)
@@ -1949,7 +1954,7 @@ export function deckIssueState(
 export function deckSessions(
   row: Pick<FlightDeckRow, 'issue' | 'sessions' | 'matched'>,
   mode: FlightDeckMode,
-): SessionMeta[] {
+): SessionView[] {
   if (mode === 'full') return row.sessions
   if (!row.matched) return []
   return row.sessions.filter((session) =>
@@ -2018,13 +2023,13 @@ export type SessionRole =
 
 export function sessionRole(
   issue: IssueNavigationModel,
-  session: SessionMeta,
+  session: SessionView,
   ctx: {
     /** The mission root, so its coordinator reads `coordinator` and a child's
      *  reads `phase lead` — the same fact at two altitudes. */
     rootId: string | null | undefined
     /** Every session rendered on this task, including this one. */
-    siblings: readonly SessionMeta[]
+    siblings: readonly SessionView[]
     /** Session ids present anywhere in the mission: a spawn parent outside it
      *  cannot be named, so the row must not claim it. */
     inMission: ReadonlySet<string>
@@ -2069,7 +2074,7 @@ export interface NativeSubagentRow {
   anonymous: boolean
 }
 
-export function nativeSubagentRows(session: SessionMeta): NativeSubagentRow[] {
+export function nativeSubagentRows(session: SessionView): NativeSubagentRow[] {
   const state = session.agentState
   const named = state?.nativeSubagents ?? []
   const missing = Math.max(0, (state?.nativeSubagentCount ?? 0) - named.length)
@@ -2207,7 +2212,7 @@ export interface IssueContinuation {
 export function issueContinuation(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
-  sessions: readonly SessionMeta[] = [],
+  sessions: readonly SessionView[] = [],
   sessionIndex?: MissionSessionIndex,
 ): IssueContinuation | null {
   const targetId = issue.supersededBy ?? issue.duplicateOf
@@ -2255,7 +2260,7 @@ export function issueContinuation(
  * renders the bundled fallback. */
 export function continuationPresenceLine(
   kind: IssueContinuation['kind'],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   served?: readonly HarnessDescriptorWire[],
 ): string {
   const present = sessions.filter(sessionPresentOnTask)
@@ -2265,7 +2270,7 @@ export function continuationPresenceLine(
       : 'No session remains on this closed task.'
   }
   if (present.length > 1) return `${present.length} sessions are still on this task.`
-  const only = present[0] as SessionMeta
+  const only = present[0] as SessionView
   const who = agentLabel(only.agentKind, served)
   return sessionParked(only) ? `${who} is parked on this task.` : `${who} is still on this task.`
 }
@@ -2289,7 +2294,7 @@ export function continuationPresenceLine(
  */
 export function presenceNote(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
   /**
    * Sessions ANYWHERE, for reading where the work went — `sessions` is this
@@ -2298,7 +2303,7 @@ export function presenceNote(
    * stage-based answer; pass the slice to also catch a spin-off that has an
    * agent on it but no stage yet ({@link staffedSpinOff}).
    */
-  allSessions: readonly SessionMeta[] = sessions,
+  allSessions: readonly SessionView[] = sessions,
   sessionIndex?: MissionSessionIndex,
 ): PresenceNote | null {
   if (sessions.some(openSession)) return null
@@ -2476,7 +2481,7 @@ export interface IssueNote {
 export function issueNote(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
-  sessions: readonly SessionMeta[] = [],
+  sessions: readonly SessionView[] = [],
   sessionIndex?: MissionSessionIndex,
 ): IssueNote | null {
   const continuation = issueContinuation(issue, byId, sessions, sessionIndex)
@@ -2554,10 +2559,10 @@ export function issueNote(
  */
 export function portfolioActionableCount(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): number {
-  const byIssue = new Map<string, SessionMeta[]>()
-  const add = (issueId: IssueId, session: SessionMeta): void => {
+  const byIssue = new Map<string, SessionView[]>()
+  const add = (issueId: IssueId, session: SessionView): void => {
     const list = byIssue.get(issueId) ?? []
     list.push(session)
     byIssue.set(issueId, list)
@@ -2587,7 +2592,7 @@ export function portfolioActionableCount(
  */
 export function issueIsActionable(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): boolean {
   return (
     !issue.archived &&
@@ -2602,7 +2607,7 @@ export function issueIsActionable(
  *  leading both an epic and one of its sub-issues is one lead, not two. */
 export function coordinatorCount(
   rows: readonly FlightDeckRow[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): number {
   const leads = new Set<string>()
   for (const row of rows) {

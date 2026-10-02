@@ -57,6 +57,7 @@ import {
   observable,
   Reaction,
 } from 'mobx'
+import { enableDebugNames } from '@podium/client-graph/debug-name'
 
 export type CensusKind =
   | 'computed'
@@ -193,6 +194,7 @@ let active: Census | null = null
  */
 export function startCensus(options: { sample?: () => Record<string, number> } = {}): Census {
   if (active !== null) throw new Error('[census] a census is already running')
+  enableDebugNames()
   const built: { kind: CensusKind; phase: string; object: object }[] = []
   const phases = new Map<string, PhaseWork>()
   const stack: string[] = [OUTSIDE_PHASES]

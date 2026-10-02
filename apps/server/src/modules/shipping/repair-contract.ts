@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type {
-  IssueWire,
+  IssueReport,
   MachineId,
   ShipAttempt,
   ShipHoldAction,
@@ -20,7 +20,7 @@ export interface ShippingRepairFailure {
 export interface ShippingRepairContext {
   order: ShipOrder
   attempt: ShipAttempt
-  issue: IssueWire
+  issue: IssueReport
   failure: ShippingRepairFailure
   custody: {
     attemptId: ShipAttempt['id']

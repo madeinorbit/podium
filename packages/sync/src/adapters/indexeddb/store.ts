@@ -131,6 +131,10 @@ export class IndexedDbOpenTimeoutError extends Error {
 }
 
 export interface IndexedDbStoreOptions {
+  /** Optional cache retention policy. Defaults to keeping every entity kind.
+   * Excluded kinds are ignored on ingest and retired from older disk caches;
+   * cursor and authored outbox rows are independent of this policy. */
+  readonly retainEntity?: (entity: string) => boolean
   readonly factory: IdbFactoryLike
   readonly databaseName?: string
   /**
@@ -782,11 +786,23 @@ export class IndexedDbSyncStore {
     const outbox = (await requestAsPromise(
       tx.objectStore(OUTBOX_STORE).getAll(),
     )) as StoredOutboxRecord[]
+    // Old caches remain readable without a schema reset. Retire excluded cache
+    // rows before opening the mirror, so sign-out also leaves no hidden rows.
+    const excluded = entities.filter((row) => !this.retainsEntity(row.entity))
+    if (excluded.length > 0) {
+      const retire = this.db.transaction([ENTITY_STORE], 'readwrite')
+      const completion = transactionCompletion(retire)
+      for (const row of excluded) {
+        retire.objectStore(ENTITY_STORE).delete([row.principal, row.entity, row.entityId])
+      }
+      await completion
+    }
     this.entities.clear()
     this.cursors.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
     for (const row of entities) {
+      if (!this.retainsEntity(row.entity)) continue
       const slice = this.entities.get(row.principal) ?? new Map<string, EntityRecord>()
       slice.set(rowKey(row.entity, row.entityId), {
         entity: row.entity,
@@ -942,6 +958,10 @@ export class IndexedDbSyncStore {
     if (this.corrupt) throw new ReplicaStoreCorruptError()
   }
 
+  retainsEntity(entity: string): boolean {
+    return this.options.retainEntity?.(entity) ?? true
+  }
+
   entitiesOf(principal: string): Map<string, EntityRecord> {
     return this.entities.get(principal) ?? new Map()
   }
@@ -1053,6 +1073,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
       draft.entities.set(this.principal, next)
       draft.touchedCache = true
       for (const row of rows) {
+        if (!this.store.retainsEntity(row.entity)) continue
         next.set(rowKey(row.entity, row.entityId), row)
         draft.ops.push({ kind: 'put', store: ENTITY_STORE, value: entityRow(this.principal, row) })
       }
@@ -1113,6 +1134,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
   ): void {
     draft.touchedCache = true
     for (const op of mutation.operations) {
+      if (!this.store.retainsEntity(op.entity)) continue
       if (op.kind === 'upsert') {
         const row: EntityRecord = {
           entity: op.entity,

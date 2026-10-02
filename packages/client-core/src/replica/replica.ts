@@ -64,16 +64,19 @@ import {
   type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
-  type IssueWire,
   interactionRowId,
   issueUserStateRowId,
   type LayoutWire,
   layoutRowId,
+  type MachineProjection,
   type MessageRecordWire,
   messageRecordRowId,
   type RepoProjection,
   type SessionMeta,
+  type SessionUserStateWire,
+  type ShipLaneProjection,
   type ShipOrderProjection,
+  sessionUserStateRowId,
   type TranscriptItem,
 } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
@@ -301,7 +304,8 @@ const NOOP_STORAGE_EVENTS: StorageEventApi = {
 /** Entity collection kinds + transcripts — everything the quota guard covers. */
 const ENTITY_STORE_KINDS = [
   'sessions',
-  'issues',
+  'sessionUserStates',
+  'machines',
   'issueProjections',
   'issueUserStates',
   'issueGitStates',
@@ -311,6 +315,7 @@ const ENTITY_STORE_KINDS = [
   'pendingInteractions',
   'messageRecords',
   'shipOrders',
+  'shipLanes',
   'conversations',
   'automations',
   'automationRuns',
@@ -457,7 +462,18 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
-      issues: this.makeCollection<IssueWire>('issues', (i) => i.id, guarded, guardedEvents),
+      sessionUserStates: this.makeCollection<SessionUserStateWire>(
+        'sessionUserStates',
+        (row) => sessionUserStateRowId(row.userId, row.sessionId),
+        guarded,
+        guardedEvents,
+      ),
+      machines: this.makeCollection<MachineProjection>(
+        'machines',
+        (row) => row.id,
+        guarded,
+        guardedEvents,
+      ),
       issueUserStates: this.makeCollection<IssueUserStateWire>(
         'issueUserStates',
         (row) => issueUserStateRowId(row.userId, row.entityId),
@@ -503,13 +519,23 @@ class TanstackReplica implements Replica {
       messageRecords: this.makeCollection<MessageRecordWire>(
         'messageRecords',
         (r) =>
-          messageRecordRowId({ sessionId: r.sessionId, senderUserId: r.senderUserId, messageId: r.id }),
+          messageRecordRowId({
+            sessionId: r.sessionId,
+            senderUserId: r.senderUserId,
+            messageId: r.id,
+          }),
         guarded,
         guardedEvents,
       ),
       shipOrders: this.makeCollection<ShipOrderProjection>(
         'shipOrders',
         (order) => order.id,
+        guarded,
+        guardedEvents,
+      ),
+      shipLanes: this.makeCollection<ShipLaneProjection>(
+        'shipLanes',
+        (lane) => lane.id,
         guarded,
         guardedEvents,
       ),
@@ -572,9 +598,10 @@ class TanstackReplica implements Replica {
   async hydrate(): Promise<ReplicaHydrateResult> {
     const empty: ReplicaHydrateResult = {
       sessions: [],
-      issues: [],
       issueProjections: [],
       issueUserStates: [],
+      sessionUserStates: [],
+      machines: [],
       issueGitStates: [],
       issueDeps: [],
       repos: [],
@@ -582,6 +609,7 @@ class TanstackReplica implements Replica {
       pendingInteractions: [],
       messageRecords: [],
       shipOrders: [],
+      shipLanes: [],
       conversations: [],
       automations: [],
       automationRuns: [],
@@ -624,17 +652,18 @@ class TanstackReplica implements Replica {
       if (schemaReset) this.resetCache()
       return {
         sessions: this.cols.sessions.toArray as SessionMeta[],
-        issues: this.cols.issues.toArray as IssueWire[],
         issueProjections: this.cols.issueProjections.toArray as IssueProjection[],
         issueUserStates: this.cols.issueUserStates.toArray as IssueUserStateWire[],
+        sessionUserStates: this.cols.sessionUserStates.toArray as SessionUserStateWire[],
+        machines: this.cols.machines.toArray as MachineProjection[],
         issueGitStates: this.cols.issueGitStates.toArray as IssueGitStateProjection[],
         issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
         repos: this.cols.repos.toArray as RepoProjection[],
         issueEvents: this.cols.issueEvents.toArray as IssueEventWire[],
-        pendingInteractions: this.cols.pendingInteractions
-          .toArray as PendingInteractionWire[],
+        pendingInteractions: this.cols.pendingInteractions.toArray as PendingInteractionWire[],
         messageRecords: this.cols.messageRecords.toArray as MessageRecordWire[],
         shipOrders: this.cols.shipOrders.toArray as ShipOrderProjection[],
+        shipLanes: this.cols.shipLanes.toArray as ShipLaneProjection[],
         conversations: this.cols.conversations.toArray as ConversationSummaryWire[],
         automations: this.cols.automations.toArray as AutomationWire[],
         automationRuns: this.cols.automationRuns.toArray as AutomationRunWire[],
@@ -1605,6 +1634,12 @@ class TanstackReplica implements Replica {
 
   private keyFor<K extends ReplicaKind>(kind: K): (row: ReplicaRows[K]) => string {
     if (kind === 'sessions') return (row) => (row as SessionMeta).sessionId
+    if (kind === 'sessionUserStates') {
+      return (row) => {
+        const state = row as SessionUserStateWire
+        return sessionUserStateRowId(state.userId, state.sessionId)
+      }
+    }
     if (kind === 'issueUserStates') {
       return (row) => {
         const state = row as IssueUserStateWire
@@ -1622,7 +1657,7 @@ class TanstackReplica implements Replica {
     return (row) =>
       (
         row as
-          | IssueWire
+          | IssueProjection
           | ConversationSummaryWire
           | AutomationWire
           | AutomationRunWire

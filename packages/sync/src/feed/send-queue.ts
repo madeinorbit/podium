@@ -1,56 +1,4 @@
-/**
- * THE BOUNDED OUTBOUND QUEUE, and the `resync-required` demotion (ADR 2 D9).
- *
- * RE-HOMED ONTO POD-306 BY POD-305, and built here. Same reason as feed identity:
- * until this exists, `resync-required` is a frame only a fixture can produce, so
- * the conformance gate `adr/slow-consumer-demoted-converges` certifies that the
- * Replica tolerates a frame nothing in the system emits.
- *
- * ---------------------------------------------------------------------------
- * THE THREE OPTIONS, AND WHY ONLY THE THIRD IS ON THE LIST
- * ---------------------------------------------------------------------------
- *
- * D9 enumerates them: buffer forever (one slow phone on a train OOMs the server
- * for everyone), drop frames silently (permanent divergence — "the worst
- * outcome"), or deliberately invalidate the cursor. Only the third is both safe
- * and bounded.
- *
- * "Just skip a frame" is not a fourth option and the reason is worth keeping in
- * front of whoever next edits this file. A dropped frame is not a lost update; it
- * is a permanent LIE, because the replica's next cursor advance certifies a range
- * containing data it never received. Order is the correctness property, and the
- * covered-range certificate (Amendment 1 D13) makes a skipped frame
- * unrecoverable rather than merely stale — the replica has no way left to notice.
- *
- * So overflow here does exactly one thing: it discards the queue AND the
- * connection's right to receive deltas, and says so. Demotion is cheap precisely
- * because re-bootstrap is the most-travelled path in the protocol (every cold
- * start, every quota clear, every epoch bump), which is D9's own argument for why
- * this is a shrug rather than an emergency.
- *
- * ---------------------------------------------------------------------------
- * BYTES, NOT FRAMES
- * ---------------------------------------------------------------------------
- *
- * D9's consequences say bytes, "since one `IssueWire` batch dwarfs one
- * `SessionMeta`". A frame bound would let a hundred fat frames through while
- * refusing a hundred thin ones, so the authority's memory would still be bounded
- * by the widest payload rather than by a number anyone chose.
- *
- * The SIZER IS INJECTED, because the kernel cannot know the wire encoding — that
- * is POD-308's, and `JSON.stringify().length` here would be a second, wrong
- * definition of a frame's size that happened to compile. An injected sizer also
- * lets a test drive the bound with exact arithmetic instead of guessing how big a
- * fixture serialises to, which is the difference between a test that asserts the
- * bound and a test that asserts a number it discovered by running the code.
- */
-
-import type {
-  DeltaFrame,
-  RescopeFrame,
-  ResyncRequiredFrame,
-  ServerFrame,
-} from '../replica/types'
+import type { DeltaFrame, RescopeFrame, ResyncRequiredFrame, ServerFrame } from '../replica/types'
 
 /** How big is this frame on the wire? Injected — see the file header. */
 export type FrameSizer = (frame: ServerFrame) => number
@@ -132,7 +80,10 @@ export class BoundedSendQueue {
     const size = this.config.sizeOf(frame)
     if (this.bytes + size > this.config.maxBytes) {
       this.overflows += 1
-      return { kind: 'demoted', frame: this.demote(frame.feedId, frame.epoch, 'send-queue-overflow') }
+      return {
+        kind: 'demoted',
+        frame: this.demote(frame.feedId, frame.epoch, 'send-queue-overflow'),
+      }
     }
 
     this.frames.push(frame)

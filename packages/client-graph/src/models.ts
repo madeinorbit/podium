@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The pool's models: ONE object per row, one class per schema entity, built
  * by the pool the first time anything asks for it (Linear's "observable on
@@ -87,6 +88,8 @@ import {
   type RowView,
   type RowViewField,
 } from './shared/row-view'
+import { headerWorkingSession, headerHostSession, headerDockSession } from './header-session'
+
 import { type EntityName, SCHEMA } from './shared/schema'
 import type {
   SliceIssue,
@@ -159,6 +162,7 @@ import {
   type Members,
   membersOf,
   type Nesting,
+  nestCandidatePartOf,
   nestBelowPartOf,
   nestedPartOf,
   nestingOf,
@@ -477,10 +481,15 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
         ? presenceOf(issue.host.visibleInputs, issue.id, issue)
         : hiddenPresenceOf(issue.host.visibleInputs, issue.id, hidden as HiddenIssue)
     }),
+    /** Independent of nesting: cycle rejection can follow candidates without recursion. */
+    nestCandidate: cachedGroup('nestCandidate', (issue: IssueModel) => {
+      const present = issue.present
+      return nestCandidatePartOf(issue.host.visibleInputs, issue.id, present ? issue.standing : undefined, present)
+    }),
     /** Presence first: a row that is not present (a hidden one among them) reads no standing. */
     nesting: cachedGroup('nesting', (issue: IssueModel) => {
       const present = issue.present
-      return nestingOf(issue.host.visibleInputs, issue.id, present ? issue.standing : undefined, present)
+      return nestingOf(issue.host.visibleInputs, issue.id, present ? issue.standing : undefined, present, issue.nestCandidate)
     }),
     /** The nest candidates down the raw parent edge (read by the parent's `nestBelow` and `nested`). */
     nestBelow: cachedGroup('nestBelow', (issue: IssueModel) =>
@@ -625,10 +634,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       errorClass: facts.finished ? null : sessionFacts.errorClass,
       internal: own.audience === 'agent',
       ...sidebarLifecycle(issue, this.asking, this.host.inputs.passed, this.host.inputs.reached),
-      draftAgentOnly: own.draft === true && !own.worktreePath && sessions.length > 0,
-      firstSessionId: sessions[0]?.sessionId ?? null, continuation,
+      draftAgentOnly: own.isDraftVessel === true && !own.worktreePath && sessions.length > 0,
+      firstSessionId: this.ownAttention.firstSessionId ?? null, continuation,
       fleet: sessionFacts.fleet, issue, sessions, aggregateSessions,
-      awaitingFirstPrompt: own.draft === true && this.phase === 'queued' && aggregateSessions.length > 0 && sessionFacts.allUnstarted,
+      awaitingFirstPrompt: own.isDraftVessel === true && this.phase === 'queued' && aggregateSessions.length > 0 && sessionFacts.allUnstarted,
     }
   }
 
@@ -826,6 +835,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.presence.present
   }
 
+  get nestCandidate(): string | null {
+    return IssueModel.groups.nestCandidate(this)
+  }
+
   get nestParent(): string | null {
     return this.nesting.nestParent
   }
@@ -957,6 +970,15 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel implements SessionVisibility {
+  private static readonly headerWorking = cachedGroup('headerWorking', (session: SessionModel) =>
+    headerWorkingSession(session.row as SessionView | undefined, session.host.inputs.passed))
+  private static readonly headerHost = cachedGroup('headerHost', (session: SessionModel) =>
+    headerHostSession(session.row as SessionView | undefined))
+  get headerWorking() { return SessionModel.headerWorking(this) }
+  get headerHost() { return SessionModel.headerHost(this) }
+  private static readonly headerDock = cachedGroup('headerDock', (session: SessionModel) =>
+    headerDockSession(session.row as SessionView | undefined))
+  get headerDock() { return SessionModel.headerDock(this) }
   private static readonly groups = {
     retention: cachedGroup('retention', (session: SessionModel) =>
       retentionOf(session.host.visibleInputs.sessionRow(session.id)),

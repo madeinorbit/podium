@@ -1,12 +1,12 @@
 import { createLogger } from '@podium/logger'
-import { isIssueClosed, type IssueId, type IssueWire } from '@podium/model'
+import { type IssueId, type IssueProjection, type IssueReport, isIssueClosed } from '@podium/model'
 import type { Ledger } from '@podium/sync'
+import { systemPrincipal } from '../command-principal'
+import { afterCommit } from '../store/executor/executor'
 import type { IssueService } from './issues/service'
 import { IssueNotFound } from './issues/service/not-found'
 import type { HandoffCaller } from './sessions/handoff/ports'
 import type { SessionLifecycle } from './sessions/lifecycle'
-import { systemPrincipal } from '../command-principal'
-import { afterCommit } from '../store/executor/executor'
 
 const log = createLogger('server:closed-issue-reaper')
 
@@ -16,12 +16,12 @@ export const CLOSED_ISSUE_SWEEP_INTERVAL_MS = 15 * 60_000
 type ClosedIssueSweepReason = 'close' | 'startup' | 'periodic'
 
 export interface DeleteIssueResult {
-  issue: IssueWire
+  issue: IssueProjection
   deletedSessionIds: string[]
 }
 
 export interface RestoreIssueResult {
-  issue: IssueWire
+  issue: IssueProjection
   restoredSessionIds: string[]
 }
 
@@ -136,9 +136,7 @@ export class IssueSessionLifecycle {
         // re-sent. Rare, and POD-4132 covers it by corroborated identity rather
         // than by blind re-killing.
         reapParked: input.reason === 'close',
-        principal: systemPrincipal(
-          input.reason === 'close' ? 'issue-close' : 'closed-issue-sweep',
-        ),
+        principal: systemPrincipal(input.reason === 'close' ? 'issue-close' : 'closed-issue-sweep'),
       })
       if (!result.ok) {
         log.warn('closed issue cleanup refused', {
@@ -150,9 +148,11 @@ export class IssueSessionLifecycle {
       }
     })()
     this.closedIssueStops.set(issueId, task)
-    void task.finally(() => {
-      if (this.closedIssueStops.get(issueId) === task) this.closedIssueStops.delete(issueId)
-    }).catch(() => {})
+    void task
+      .finally(() => {
+        if (this.closedIssueStops.get(issueId) === task) this.closedIssueStops.delete(issueId)
+      })
+      .catch(() => {})
     return task
   }
 
@@ -168,7 +168,7 @@ export class IssueSessionLifecycle {
     if (this.sweepingClosedIssues) return
     this.sweepingClosedIssues = true
     try {
-      let issues: IssueWire[]
+      let issues: IssueReport[]
       try {
         issues = await this.deps.issues.reports.list()
       } catch (error) {
@@ -209,7 +209,7 @@ export class IssueSessionLifecycle {
    * the live registry map, no I/O at all — so the set is built once and the
    * issue loop is then a lookup.
    */
-  private closedIssueSweepCandidates(issues: readonly IssueWire[]): IssueId[] {
+  private closedIssueSweepCandidates(issues: readonly IssueReport[]): IssueId[] {
     const unparked = new Set<string>()
     for (const facts of this.deps.sessions.sessionFacts()) {
       if (!facts.issueId) continue
@@ -267,18 +267,21 @@ export class IssueSessionLifecycle {
   }
 
   /** Carry the transport-derived caller through every handoff apply point. */
-  async handoffSession(input: Parameters<SessionLifecycle['handoffSession']>[0], caller: HandoffCaller) {
+  async handoffSession(
+    input: Parameters<SessionLifecycle['handoffSession']>[0],
+    caller: HandoffCaller,
+  ) {
     return await this.deps.sessions.handoffSession(input, caller, this.deps.issues)
   }
   /** Soft-delete an issue and tombstone all of its local member sessions.
    *  Both durable entity changes land in one ledger transaction; PTY teardown and
    *  broadcasts happen only after the commit succeeds. */
   async deleteIssue(id: string): Promise<DeleteIssueResult> {
-    // Full wire is intentional: no-op deletes return the public IssueWire, and
-    // projected membership is the cascade boundary this lifecycle owns.
-    const current = await this.deps.issues.get(id)
+    // Membership and no-op results use durable facts, without report joins.
+    const current = await this.deps.issues.getMeta(id)
     if (!current) throw new IssueNotFound(id)
-    if (current.deletedAt) return { issue: current, deletedSessionIds: [] }
+    if (current.deletedAt)
+      return { issue: await this.deps.issues.projection(current), deletedSessionIds: [] }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionDelete(
       current.id,
@@ -327,10 +330,11 @@ export class IssueSessionLifecycle {
    *  metadata returns as exited because the deletion deliberately killed the PTY;
    *  resumable sessions can then be started through the normal resurrection path. */
   async restoreIssue(id: string): Promise<RestoreIssueResult> {
-    // Full wire is intentional for the symmetric public/no-op return contract.
-    const current = await this.deps.issues.get(id)
+    // No-op restores return the same normalized shape as committed ones.
+    const current = await this.deps.issues.getMeta(id)
     if (!current) throw new IssueNotFound(id)
-    if (!current.deletedAt) return { issue: current, restoredSessionIds: [] }
+    if (!current.deletedAt)
+      return { issue: await this.deps.issues.projection(current), restoredSessionIds: [] }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionRestore(current.id)
     const issuePlan = await this.deps.issues.prepareRestore(current.id)

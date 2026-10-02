@@ -1,3 +1,5 @@
+import type { SessionView } from '@podium/client-core/session-values'
+import { useStoreHandle } from '@podium/client-core/react'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import {
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
@@ -13,7 +15,7 @@ import {
   sessionSettled,
   sessionUnreadEmphasized,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionMeta } from '@podium/model/browser'
+import type { IssueId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ChevronDown,
@@ -69,6 +71,7 @@ import {
 } from './flight-deck-waterfall'
 import { clearHoveredSession, setHoveredSession, useSessionHovered } from './session-hover'
 import { useStoreSelector } from './store'
+import type { Trpc } from './trpc'
 
 const WATERFALL_ROW_ZOOM_MIN = 0.72
 const WATERFALL_ROW_ZOOM_MAX = 1.55
@@ -173,7 +176,7 @@ export function defaultWaterfallTaskWidth(
 interface WaterfallIssueRow {
   row: FlightDeckRow
   displayTitle: string
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   root: boolean
 }
 
@@ -206,7 +209,7 @@ interface FlightDeckWaterfallProps {
   onSelectIssue: (row: FlightDeckRow, permanent: boolean) => void
   onSelectSession: (
     issueId: IssueId,
-    session: SessionMeta,
+    session: SessionView,
     options: { permanent: boolean; native?: boolean },
   ) => void
   onIssueMenu: (issueId: IssueId, anchor: ContextMenuAnchor) => void
@@ -217,7 +220,7 @@ interface FlightDeckWaterfallProps {
 
 function issueFuture(row: FlightDeckRow): WaterfallFuture | null {
   const issue = row.issue
-  const question = issue.humanQuestion?.trim()
+  const question = issue.asked?.question?.trim()
   if (question) return { label: 'Needs you', detail: question, state: 'attention' }
   const blocked = issue.blockedByNotes?.map((note) => note.trim()).find(Boolean)
   if (blocked) return { label: 'Blocked', detail: blocked, state: 'blocked' }
@@ -230,11 +233,11 @@ function issueFuture(row: FlightDeckRow): WaterfallFuture | null {
   return null
 }
 
-function sessionReason(row: FlightDeckRow, session: SessionMeta): string | null {
+function sessionReason(row: FlightDeckRow, session: SessionView): string | null {
   const runtime = session.agentState?.need?.summary?.trim()
   if (runtime) return runtime
   if (!sessionAsksOnIssue(row.issue, session)) return null
-  return row.issue.humanQuestion?.trim() || 'Waiting for operator'
+  return row.issue.asked?.question?.trim() || 'Waiting for operator'
 }
 
 /**
@@ -244,10 +247,10 @@ function sessionReason(row: FlightDeckRow, session: SessionMeta): string | null 
  * bar's shape could have changed. Absence — old servers, unreadable ids,
  * pruned history — degrades to the solid single-color bar.
  */
-function useWaterfallActivity(
-  sessions: readonly SessionMeta[],
+export function useWaterfallActivity(
+  sessions: readonly SessionView[],
 ): ReadonlyMap<string, WaterfallActivitySample[]> {
-  const trpc = useStoreSelector((store) => store.trpc) as {
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc as {
     sessions?: {
       activityHistory?: {
         query: (input: {
@@ -518,7 +521,7 @@ function WaterfallHoverCard({
   coordinator,
   unread,
 }: {
-  session: SessionMeta
+  session: SessionView
   state: WaterfallSessionState
   startMs: number
   endMs: number
@@ -594,7 +597,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
   onLocalPick,
 }: {
   row: FlightDeckRow
-  session: SessionMeta
+  session: SessionView
   frame: WaterfallFrame
   samples: readonly WaterfallActivitySample[] | undefined
   selected: boolean
@@ -879,7 +882,7 @@ const WaterfallHistorySummary = memo(function WaterfallHistorySummary({
   expanded,
   onToggle,
 }: {
-  sessions: readonly SessionMeta[]
+  sessions: readonly SessionView[]
   frame: WaterfallFrame
   expanded: boolean
   onToggle: () => void
@@ -961,8 +964,8 @@ const WaterfallIssue = memo(function WaterfallIssue({
   folded: boolean
   onToggle: () => void
   onSelectIssue: (permanent: boolean) => void
-  onSelectSession: (session: SessionMeta, permanent: boolean) => void
-  onSelectNative: (session: SessionMeta) => void
+  onSelectSession: (session: SessionView, permanent: boolean) => void
+  onSelectNative: (session: SessionView) => void
   onIssueMenu: (anchor: ContextMenuAnchor) => void
   onStatusPick: (value: string) => void
   onRenameIssue: (title: string) => void

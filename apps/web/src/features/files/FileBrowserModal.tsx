@@ -1,10 +1,10 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
 import { ChevronUp, Folder, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
-import { useStoreSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
@@ -29,10 +29,7 @@ export function FileBrowserModal({
   title: string
   onClose: () => void
 }): JSX.Element {
-  const { listDir, openFileInWorktree } = useStoreSelector(
-    (s) => ({ listDir: s.listDir, openFileInWorktree: s.openFileInWorktree }),
-    shallowEqual,
-  )
+  const { listDir, openFileInWorktree } = useStoreHandle<Trpc>().getSnapshot()
   const isMobile = useIsMobile()
   const [path, setPath] = useState(root)
   const [entries, setEntries] = useState<Entry[]>([])

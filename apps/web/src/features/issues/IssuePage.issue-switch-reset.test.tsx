@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 /**
  * TRANSIENT STATE DOES NOT SURVIVE AN ISSUE SWITCH (POD-646).
  *

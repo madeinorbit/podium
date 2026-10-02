@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE AGENT PANEL'S ARBITRATION, AS A STATE MACHINE (POD-408).
  *
@@ -39,7 +40,7 @@
 import type { PanelMode } from '@podium/client-core/ui-state'
 import type { TerminalOutlook } from '@podium/client-core/viewmodels'
 import { isMachineOfflineForLiveTerminal } from '@podium/model'
-import type { MachineWire, SessionMeta, SessionStatus } from '@podium/model/browser'
+import type { MachineWire, SessionStatus } from '@podium/model/browser'
 
 /** The two live views. Identical to the persisted `PanelMode` — a live panel's
  *  view IS the panel mode; the read-only surfaces have no mode. */
@@ -249,8 +250,8 @@ export function panelGates(
  *  back to the known transcript harnesses so chat is offered immediately, before
  *  the first transcript frame arrives. */
 export function panelChatCapable(
-  session: SessionMeta | undefined,
-  defaultForKind: (kind: SessionMeta['agentKind']) => boolean,
+  session: SessionView | undefined,
+  defaultForKind: (kind: SessionView['agentKind']) => boolean,
 ): boolean {
   if (!session) return false
   return session.transcriptAvailable ?? defaultForKind(session.agentKind)
@@ -277,11 +278,11 @@ export function panelChatCapable(
  * than guess — the phone's rule too.
  */
 export function panelOfflineMachine(
-  session: Pick<SessionMeta, 'machineId' | 'machineName'> | undefined,
+  session: Pick<SessionView, 'machineId' | 'machineName'> | undefined,
   machines: readonly Pick<MachineWire, 'id' | 'name' | 'online' | 'availability'>[],
 ): string | null {
   if (!session?.machineId) return null
   const machine = machines.find((m) => m.id === session.machineId)
   if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
-  return machine.name || session.machineName || 'This machine'
+  return session.machineName || 'This machine'
 }

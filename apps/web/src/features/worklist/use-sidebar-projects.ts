@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import type { Store } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -8,7 +9,7 @@ import {
 import type { LOADING, MobxPool } from '@podium/client-graph'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { useCallback } from 'react'
 import { useSlice, useStoreSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -75,7 +76,7 @@ function usePoolSections(): SidebarSections {
         sessions: [...pool.graph.many('worktree', String(lane['path']), 'sessions')].flatMap(
           (id) => {
             const row = pool.row('session', id)
-            return row && typeof row === 'object' ? [row as unknown as SessionMeta] : []
+            return row && typeof row === 'object' ? [row as unknown as SessionView] : []
           },
         ),
       })) as SidebarSections['pinnedWorktrees']

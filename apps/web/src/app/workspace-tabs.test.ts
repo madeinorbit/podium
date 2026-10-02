@@ -1,10 +1,12 @@
-import { asArtifactId, asIssueId, asSessionId, type IssueWire, type IssueWireInput } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { UnbrandIds } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab } from './store'
 import { fileTabsForWorkspace } from './workspace-tabs'
 
-const issue = (over: Partial<IssueWireInput>): IssueWire =>
-  ({ id: 'i1', seq: 1, worktreePath: undefined, ...over }) as IssueWire
+const issue = (over: Partial<UnbrandIds<IssueViewModel>>): IssueViewModel =>
+  ({ id: 'i1', seq: 1, worktreePath: undefined, ...over }) as IssueViewModel
 
 const tab = (over: Partial<FileTab>): FileTab =>
   ({

@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { sessionById } from '@podium/client-core/store'
 /**
  * Web binding for the shared client store (arch-v2 P3, issue #192): the
@@ -23,7 +24,7 @@ import {
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId} from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
@@ -138,7 +139,7 @@ export function useStoreSelector<T>(
 
 /** One replica-backed session row. The replica preserves unchanged row
  * identities, so Object.is keeps this reader asleep when another session moves. */
-export function useSession(sessionId: SessionId | undefined): SessionMeta | undefined {
+export function useSession(sessionId: SessionId | undefined): SessionView | undefined {
   return useStoreSelector((s) =>
     sessionId === undefined
       ? undefined
@@ -170,21 +171,21 @@ export function useSlice<T>(def: SliceDefinition<Store, T>): T {
 }
 
 function useReplicaIssueSources(): Pick<Store, 'replica' | 'issueProjections'> & {
-  legacyIssues: Store['issues']
+  issueUserStates: Store['issueUserStates']
 } {
   return useStoreSelector(
-    (s) => ({ replica: s.replica, issueProjections: s.issueProjections, legacyIssues: s.issues }),
+    (s) => ({ replica: s.replica, issueProjections: s.issueProjections, issueUserStates: s.issueUserStates }),
     (a, b) =>
       a.replica === b.replica &&
       a.issueProjections === b.issueProjections &&
-      a.legacyIssues === b.legacyIssues,
+      a.issueUserStates === b.issueUserStates,
   )
 }
 
 /** Issues rendered from normalized replica projections plus local D7.3 views. */
 export function useReplicaIssues(): IssueViewModel[] {
-  const { replica, issueProjections, legacyIssues } = useReplicaIssueSources()
-  return useAllIssueViewModels(replica, issueProjections, legacyIssues)
+  const { replica, issueProjections, issueUserStates } = useReplicaIssueSources()
+  return useAllIssueViewModels(replica, issueProjections, issueUserStates)
 }
 
 export { useHostMetrics } from '@podium/client-core/react'

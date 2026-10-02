@@ -1,0 +1,18 @@
+import { afterEach, expect, it, vi } from 'vitest'
+afterEach(() => { history.replaceState(null, '', '/'); vi.resetModules() })
+it('defaults off and latches the startup preference switch across later navigation', async () => {
+  history.replaceState(null, '', '/')
+  vi.resetModules()
+  const off = await import('./preferences-data-layer')
+  expect(off.preferencesDataLayer()).toBe('legacy')
+  history.replaceState(null, '', '/?mobxPreferences=1&mobxPreferencesCheck=1')
+  off.initializePreferencesDataLayer()
+  expect(off.preferencesDataLayer()).toBe('legacy')
+  vi.resetModules()
+  const on = await import('./preferences-data-layer')
+  expect(on.preferencesDataLayer()).toBe('pool')
+  expect(on.preferencesCheckRequested()).toBe(true)
+  history.replaceState(null, '', '/?mobxPreferences=0')
+  on.initializePreferencesDataLayer()
+  expect(on.preferencesDataLayer()).toBe('pool')
+})

@@ -1,9 +1,11 @@
+import type { SessionId, UnbrandIds } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import type { IssueWire, IssueWireInput, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView, SessionViewInput } from '../session-values'
 import { sessionCardModel, sessionTitle } from './session-card'
 
-function session(overrides: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
+function session(overrides: Partial<SessionViewInput> & { sessionId: SessionId }): SessionView {
   const { sessionId, ...rest } = overrides
   return {
     agentKind: 'claude-code',
@@ -22,12 +24,12 @@ function session(overrides: Partial<SessionMetaInput> & { sessionId: SessionId }
     unread: false,
     ...rest,
     sessionId,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function issue(
-  overrides: Partial<IssueWireInput> & { id: string; seq: number; title: string },
-): IssueWire {
+  overrides: Partial<UnbrandIds<IssueViewModel>> & { id: string; seq: number; title: string },
+): IssueViewModel {
   const { id, seq, title, ...rest } = overrides
   return {
     repoPath: '/repo/podium',
@@ -47,7 +49,7 @@ function issue(
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -56,15 +58,15 @@ function issue(
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     readAt: null,
     ...rest,
     id,
     seq,
     title,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 describe('session card view model', () => {
@@ -101,10 +103,14 @@ describe('session card view model', () => {
   })
 
   it('prefers the user-set name, then title, then the cwd basename', () => {
-    expect(sessionTitle(session({ sessionId: asSessionId('a'), name: 'My rename', title: 'live title' }))).toBe(
-      'My rename',
+    expect(
+      sessionTitle(
+        session({ sessionId: asSessionId('a'), name: 'My rename', title: 'live title' }),
+      ),
+    ).toBe('My rename')
+    expect(sessionTitle(session({ sessionId: asSessionId('b'), title: 'live title' }))).toBe(
+      'live title',
     )
-    expect(sessionTitle(session({ sessionId: asSessionId('b'), title: 'live title' }))).toBe('live title')
     expect(sessionTitle(session({ sessionId: asSessionId('c'), title: '  ' }))).toBe('podium')
   })
 })

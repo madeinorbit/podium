@@ -1,12 +1,11 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { panelLabel } from '@podium/client-core/viewmodels'
 import {
   agentProbeTimeoutDescription,
   type AgentKind,
   type HandoffBlocker,
   type HandoffRejection,
-  type MachineWire,
-  type SessionMeta,
-} from '@podium/model/browser'
+  type MachineWire} from '@podium/model/browser'
 
 /**
  * The session-menu VOCABULARY — eligibility rules and blocker/rejection copy —
@@ -39,7 +38,7 @@ export interface ContextMenuAnchor {
  *    session is exactly the one you want to be able to clear away — the old
  *    `canClose` gate hid the action on the sessions it suited best.
  */
-export function sessionMenuEligibility(session: SessionMeta): {
+export function sessionMenuEligibility(session: SessionView): {
   canHibernate: boolean
   canResume: boolean
   canEnd: boolean

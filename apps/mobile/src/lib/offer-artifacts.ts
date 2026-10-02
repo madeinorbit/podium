@@ -1,4 +1,5 @@
-import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssuePanelArtifact, SessionOffer } from '@podium/model'
 import {
   type IssueArtifactPreview,
   issueArtifactHref,
@@ -21,7 +22,7 @@ import {
  */
 export function resolveOfferArtifacts(args: {
   offer: SessionOffer
-  issue: IssueWire | undefined
+  issue: IssueViewModel | undefined
   /** ISO time of the session's last human input (SessionMeta.lastInputAt). */
   lastInputAt?: string
 }): IssuePanelArtifact[] {
@@ -80,7 +81,7 @@ export type OfferArtifactRow = {
  */
 export function offerArtifactRows(args: {
   offer: SessionOffer
-  issue: IssueWire | undefined
+  issue: IssueViewModel | undefined
   /** ISO time of the session's last human input (SessionMeta.lastInputAt). */
   lastInputAt?: string
   httpOrigin: string

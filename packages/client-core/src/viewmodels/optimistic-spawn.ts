@@ -1,15 +1,19 @@
-import { DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
 import {
-  isSortKey,
-  sortKeyBetween,
   type AgentKind,
+  actorUser,
+  DRAFT_ISSUE_TITLE,
   type IssueId,
-  type IssueWire,
+  isSortKey,
   type MachineId,
   type RepoId,
   type SessionId,
-  type SessionMeta,
+  type SessionUserStateWire,
+  sortKeyBetween,
+  spawnedByTag,
+  type UserId,
 } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionValues, SessionView } from '../session-values'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).
@@ -56,8 +60,13 @@ export interface OptimisticSpawnArgs {
   nowIso: string
 }
 
+/** The placeholder session's own facts. Its per-user cells are not among them:
+ *  they are {@link optimisticSessionUserState}, joined in by the reader
+ *  (POD-4974 S3c). */
+export type StartingSessionRow = Omit<SessionView, keyof Pick<SessionValues, 'readAt' | 'unread'>>
+
 /** A just-clicked, not-yet-booted session: `status: 'starting'`, no controller. */
-export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMeta {
+export function optimisticStartingSession(args: OptimisticSpawnArgs): StartingSessionRow {
   return {
     sessionId: args.sessionId,
     agentKind: args.agentKind,
@@ -73,18 +82,25 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMet
     lastActiveAt: args.nowIso,
     origin: { kind: 'spawn' },
     archived: false,
-    // Just spawned by this user → they're looking at it: read, not unread.
-    readAt: args.nowIso,
-    unread: false,
     issueId: args.issueId,
     spawnedBy: spawnedByTag({ kind: 'user' }),
   }
 }
 
+/** The spawning user's own row for the placeholder session: just spawned by
+ *  them, so they are looking at it — read at its first activity, not unread. */
+export function optimisticSessionUserState(args: {
+  userId: UserId
+  sessionId: SessionId
+  nowIso: string
+}): SessionUserStateWire {
+  return { userId: args.userId, sessionId: args.sessionId, readAt: args.nowIso }
+}
+
 /** The draft-issue vessel the server auto-creates for a low-friction start —
  *  mirrors `issues.createDraftFor` → `issues.create` defaults. */
 export function optimisticDraftSortKey(
-  issues: readonly IssueWire[],
+  issues: readonly IssueViewModel[],
   repoPath: string,
   repoId?: RepoId,
 ): string {
@@ -98,17 +114,19 @@ export function optimisticDraftSortKey(
   return sortKeyBetween(null, min)
 }
 
-export function optimisticDraftIssue(args: {
-  issueId: IssueId
-  repoPath: string
-  repoId?: RepoId
-  machineId?: MachineId
-  sortKey: string
-  agentKind: AgentKind
-  nowIso: string
-}): IssueWire {
+export function optimisticDraftIssue(
+  args: Pick<OptimisticSpawnArgs, 'issueId' | 'machineId' | 'agentKind' | 'nowIso'> & {
+    userId: UserId
+    repoPath: string
+    repoId?: RepoId
+    sortKey: string
+  },
+): IssueViewModel {
   return {
     id: args.issueId,
+    owner: args.userId,
+    visibility: 'personal',
+    createdBy: { actor: actorUser(args.userId), onBehalfOf: args.userId },
     repoPath: args.repoPath,
     ...(args.repoId !== undefined ? { repoId: args.repoId } : {}),
     // Placeholders reconciled by the broadcast: the real row carries a server seq
@@ -134,10 +152,13 @@ export function optimisticDraftIssue(args: {
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
     ready: false,
     blocked: false,
     deferred: false,
+    childIds: [],
+    memberSessionIds: [],
+    tuckedAt: null,
+    displayRef: args.issueId,
     childCount: 0,
     childDoneCount: 0,
     createdAt: args.nowIso,
@@ -147,9 +168,9 @@ export function optimisticDraftIssue(args: {
     // with the session embed (POD-797) and the reader derives it from `readAt`
     // against the sessions it holds.
     readAt: args.nowIso,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: true,
+    isDraftVessel: true,
     // No `sessions` / `sessionSummary`: the embed left the wire (POD-797). The
     // sidebar already read membership from the global session list by issueId,
     // which is why nothing here needs a replacement.
@@ -160,6 +181,7 @@ export function optimisticDraftIssue(args: {
  * provisional sequence, sort key, worktree and timestamps with the same-id row;
  * everything the operator is reading is already final. */
 export function optimisticStartedIssue(args: {
+  userId: UserId
   issueId: IssueId
   repoPath: string
   repoId?: RepoId
@@ -173,9 +195,10 @@ export function optimisticStartedIssue(args: {
   model?: string
   effort?: string
   nowIso: string
-}): IssueWire {
+}): IssueViewModel {
   return {
     ...optimisticDraftIssue({
+      userId: args.userId,
       issueId: args.issueId,
       repoPath: args.repoPath,
       repoId: args.repoId,
@@ -191,6 +214,6 @@ export function optimisticStartedIssue(args: {
     defaultModel: args.model ?? 'auto',
     defaultEffort: args.effort ?? 'auto',
     stage: 'in_progress',
-    draft: false,
+    isDraftVessel: false,
   }
 }

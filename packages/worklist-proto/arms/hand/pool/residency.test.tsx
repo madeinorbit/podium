@@ -609,7 +609,7 @@ describe('lazy relations', () => {
     const r = rig()
     const { pool } = r
     const origin = corpus.sliceIssues.find(isCold)!
-    const spinOff = hotIssues.find((issue) => (issue.deps ?? []).length === 0 && !issue.draft)!
+    const spinOff = hotIssues.find((issue) => (issue.deps ?? []).length === 0 && !issue.isDraftVessel)!
     const row = listen(pool, spinOff.id)
     r.push({
       type: 'update',

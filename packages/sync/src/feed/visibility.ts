@@ -61,13 +61,13 @@
  */
 
 import type { VisibilityClass } from '@podium/model'
-import { asCapabilityRef, asDeviceId, asUserId } from '@podium/protocol'
 import type {
   DelegationRef,
   MetadataEntityKind,
   Principal,
   VisibilityResolver,
 } from '@podium/protocol'
+import { asCapabilityRef, asDeviceId, asUserId } from '@podium/protocol'
 import type { UserRef } from '../outbox/records'
 
 /**
@@ -288,11 +288,10 @@ export interface VisibilityAnchorPort {
    * unaffected principal sees that seq as a watermark, which is D14.3's own
    * prescription.
    */
-  visibilityEdge(
-    ref: EntityRef,
-  ): Promise<
-    { readonly audience: readonly UserRef[]; readonly subjects: readonly EntityRef[] } | null
-  >
+  visibilityEdge(ref: EntityRef): Promise<{
+    readonly audience: readonly UserRef[]
+    readonly subjects: readonly EntityRef[]
+  } | null>
   /**
    * The entity's CURRENT wire value, for a re-admitting `upsert` (D14.2), or
    * `undefined` when the entity no longer exists — in which case nothing is
@@ -362,7 +361,7 @@ export const kernelVisibilityResolver = (policy: FeedVisibilityPolicy): Visibili
       // kind as a bare `string` (it must, being L0) while the kernel narrows it.
       // A kind the kernel cannot classify reaches `classOf`, which returns null,
       // and is refused as `unclassified` — the default-closed path.
-      entity: entity.kind as MetadataEntityKind,
+      entity: entity.kind === 'issue' ? 'issueProjection' : (entity.kind as MetadataEntityKind),
       entityId: entity.id,
     }).visible === true,
 })

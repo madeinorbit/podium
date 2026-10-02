@@ -27,9 +27,10 @@
 // `issueDurableShape` on main; here the durable shape is the aggregate's own
 // (`aggregates/issue.ts` — this tree derives the wire from R1 rather than keeping
 // a second hand-written shape), so the seam under test is `IssueAggregate.shape`.
-import { IssueAggregate, type IssueWire, restoreNullValues } from '@podium/model'
+import { IssueAggregate, type IssueProjection, restoreNullValues } from '@podium/model'
 
 const issueDurableShape = IssueAggregate.shape
+
 import { describe, expect, it } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
 
@@ -41,24 +42,24 @@ const unsnoozed = { id: 'i1', title: 'Snoozed' }
 describe('POD-170 present-to-absent, on the new apply path', () => {
   it('a field that goes present → absent is CLEARED, not left stale', () => {
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [snoozed as unknown as IssueWire])
-    expect((replica.rows('issues')[0] as Record<string, unknown>).deferUntil).toBe(
+    replica.applySnapshot('issueProjections', [snoozed as unknown as IssueProjection])
+    expect((replica.rows('issueProjections')[0] as Record<string, unknown>).deferUntil).toBe(
       '2026-08-01T00:00:00.000Z',
     )
 
     // The unsnooze. The old value must not survive: #170 was exactly this,
     // where an issue's cleared snooze kept rendering its "Unsnoozed" tag.
-    replica.applySnapshot('issues', [unsnoozed as unknown as IssueWire])
-    const row = replica.rows('issues')[0] as Record<string, unknown>
+    replica.applySnapshot('issueProjections', [unsnoozed as unknown as IssueProjection])
+    const row = replica.rows('issueProjections')[0] as Record<string, unknown>
     expect(row.deferUntil ?? null).toBeNull()
     expect(row.title).toBe('Snoozed')
   })
 
   it('the same clearing through the DELTA path (applyChanges), not just snapshots', () => {
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applyChanges('issues', [snoozed as unknown as IssueWire], [])
-    replica.applyChanges('issues', [unsnoozed as unknown as IssueWire], [])
-    const row = replica.rows('issues')[0] as Record<string, unknown>
+    replica.applyChanges('issueProjections', [snoozed as unknown as IssueProjection], [])
+    replica.applyChanges('issueProjections', [unsnoozed as unknown as IssueProjection], [])
+    const row = replica.rows('issueProjections')[0] as Record<string, unknown>
     expect(row.deferUntil ?? null).toBeNull()
   })
 
@@ -69,13 +70,13 @@ describe('POD-170 present-to-absent, on the new apply path', () => {
     // the pin covers both forms.
     const storage = memoryStorage()
     const first = createReplica({ storage })
-    first.applySnapshot('issues', [snoozed as unknown as IssueWire])
-    first.applySnapshot('issues', [unsnoozed as unknown as IssueWire])
+    first.applySnapshot('issueProjections', [snoozed as unknown as IssueProjection])
+    first.applySnapshot('issueProjections', [unsnoozed as unknown as IssueProjection])
     await first.hydrate()
 
     const second = createReplica({ storage })
     const result = await second.hydrate()
-    const row = result.issues[0] as unknown as Record<string, unknown>
+    const row = result.issueProjections[0] as unknown as Record<string, unknown>
     expect(row.deferUntil ?? null).toBeNull()
   })
 })
@@ -147,9 +148,9 @@ describe('the replica row → model aggregate seam (the POD-796 cutover path)', 
     const withPath = { ...snoozed, [NULLABLE_FIELD]: '/repo/.worktrees/x' }
     const withoutPath = { ...snoozed }
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [withPath as unknown as IssueWire])
-    replica.applySnapshot('issues', [withoutPath as unknown as IssueWire])
-    const row = replica.rows('issues')[0] as unknown as Record<string, unknown>
+    replica.applySnapshot('issueProjections', [withPath as unknown as IssueProjection])
+    replica.applySnapshot('issueProjections', [withoutPath as unknown as IssueProjection])
+    const row = replica.rows('issueProjections')[0] as unknown as Record<string, unknown>
 
     // The row really is in the hard-to-see form: the key is THERE, holding
     // undefined. If this ever stops being true the pin below is testing nothing.

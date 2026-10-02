@@ -8,114 +8,26 @@ import {
   IssueDep,
   type IssueDepId,
   type IssueDepProjection,
+  type IssueId,
   type IssueProjection,
   issueDepId,
   issueDepToWire,
   Repo,
+  type RepoId,
   type RepoProjection,
   repoToWire,
   toWire,
-  type IssueId,
-  type RepoId,
 } from '@podium/model'
-import type { IssueRow } from '../../store'
 import { fromStorage } from '../../store/issue-storage'
+import type { IssueRow } from '../../store/types'
 
 const log = createLogger('server:issues')
 
-/**
- * `IssueRow` → `IssueProjection` — the server's one adapter onto THE model
- * mapping pair [POD-796, ADR 4 D3.4].
- *
- * This file deliberately contains NO field logic. It reaches the projection by
- * calling the two mappings that already exist, in the order they compose:
- *
- *     IssueRow ──fromStorage──► StoredIssue ──(+ §"what storage cannot carry")──►
- *     IssueAggregate ──toWire──► IssueProjection
- *
- * BOTH ARROWS THAT CARRY MEANING ARE SOMEONE ELSE'S. `fromStorage` is
- * `store/issue-storage.ts`'s hand-written per-key R3→R1 mapper (POD-1151); `toWire`
- * is the model's R1→R4 (`projections/issue-projection.ts`). ADR 4 D3.4 rejects
- * "multiple ad-hoc mappers per hop | Guarantees drift", so the temptation this
- * file exists to resist is writing a direct `IssueRow → IssueProjection`
- * serializer: it would be shorter, and it would be a second definition of every
- * field's encoding, free to drift one field at a time.
- *
- * MAIN CALLED `fromStorage` FROM `@podium/model`, AND THAT IMPORT DOES NOT SURVIVE
- * THE CATCH-UP. Main derived its R1↔R3 pair from a schema (`issue/storage.ts`'s
- * `IssueStorageRow` = the durable shape plus five encoding overrides). This branch
- * had already measured that a schema derivation cannot work against ITS aggregate
- * — the divergence is not a uniform transform (stored TEXT vs enums, raw JSON vs
- * objects, three renames on composition, historical optionality), and a
- * structurally-checked derivation cannot notice that `intentOrigin` and
- * `audience` are type-identical members naming DIFFERENT FACTS. So the pair lives
- * in `store/issue-storage.ts` as a mapper checked per key, and porting main's
- * schema pair beside it would have installed exactly the second-mapper-per-hop
- * that D3.4 names. One pair, and it is that one.
- *
- * ## What storage cannot carry, and why this file names it rather than fills it
- *
- * `StoredIssue` is `IssueAggregate` minus the five members the `issues` table has
- * no column for — `owner`, `visibility`, `createdBy`, `lastLifecycleActor` and
- * `labels` (`ISSUE_R1_MEMBERS_STORAGE_CANNOT_CARRY`). Three of them are REQUIRED on
- * R1 and therefore on R4, so the projection cannot be built without an answer.
- *
- * `fromStorage` deliberately refuses to invent one — ADR 9 D8 S5 forbids
- * defaulting `onBehalfOf` to the operator, and a mapper is the last place anyone
- * would look for the multi-user model's defaults. The answer instead is stated
- * ONCE, here, as {@link SINGLE_USER_ISSUE_OWNERSHIP}: this instance has one human,
- * `firstAdminMemberId()`, and issues are `personal` on ADR 1's matrix. That is the
- * same shape the rest of the tree already uses for the single-operator assumption
- * (`SINGLE_USER_CEILING`, `SINGLE_USER_HUMAN`, `SINGLE_USER_WORKFLOW_OWNERSHIP`) —
- * a named constant with a successor issue, not a literal at a call site. POD-1075
- * replaces it with the columns; grep for the constant to find every place that has
- * to change.
- *
- * `labels` is different in kind and is NOT part of that constant: it is real data,
- * stored in the `issue_labels` join table, and it is passed IN. A default of `[]`
- * would publish "this issue has no labels" for every issue on the feed, which is a
- * wrong answer rather than a missing one.
- *
- * ## Why `revision` is refused rather than defaulted
- *
- * `IssueRow.revision` is optional and `IssueConcurrency.revision` is optional, both
- * because a row LITERAL that has never been written has none. A STORED row always
- * has one, by two independent guarantees: `upsertIssue` is the issues table's only
- * SQL writer and assigns `revision = (current ?? 0) + 1` on every accepted write,
- * and POD-792's migration backfilled 1 into every row that predates the column. So
- * `revision === undefined` here does not mean "an old row" — it means the value
- * never came out of the store at all: a row literal, i.e. a programming error at
- * the call site.
- *
- * Fabricating one (say `1`) would be the actively dangerous choice. `revision` is
- * the token `expectedRevision` compares against for conflict detection (ADR 1 /
- * POD-793): a made-up `1` is not a neutral placeholder, it is a CLAIM that this row
- * is at its first write. Publish that and a client can echo it back as an
- * `expectedRevision` precondition that the authority then accepts against a row at
- * revision 47 — a stale write applied as if it were current, which is precisely the
- * failure the token exists to prevent. A throw is loud, local, and cannot corrupt
- * anything downstream; {@link issueProjectionRows} turns it into a skipped publish.
- */
-
-/**
- * THE SINGLE-OPERATOR ANSWER to the three R1 members `issues` has no column for.
- *
- * Not a default and not a fallback — a stated assumption with a successor
- * (POD-1075), in one place, so that adding the columns is a compile-time sweep of
- * this constant's references rather than an audit of every mapper. `visibility` is
- * read from ADR 1's matrix rather than written as a literal, so a matrix change
- * reaches the wire instead of two files disagreeing about what an issue is.
- *
- * `lastLifecycleActor` is deliberately absent: it is OPTIONAL on R1, and "we do not
- * know who last closed this" is honestly spelled by omitting it. Only the required
- * members need an answer here.
- */
-/**
- * One stored row → its wire projection.
- *
- * `labels` is required because it is real data this row does not carry; see the
- * file docstring on why `[]` is a wrong answer rather than a missing one.
- */
+/** Map one stored issue through the R3 → R1 → R4 mapping pair. Ownership
+ * comes from the stored attribution columns; labels come from their relation.
+ * A stored question survives even when its historical asker is unknown.
+ * Unwritten rows are refused because an invented revision could authorize a
+ * stale edit. No session, child, dependency or comment read belongs here. */
 export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProjection {
   if (row.revision === undefined) {
     throw new Error(
@@ -138,17 +50,16 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
     visibility: row.visibility ?? 'personal',
     createdBy: { actor, onBehalfOf: row.createdByOnBehalfOf },
   }
-  const { askedLegacy: _askedLegacy, asked, ...issue } = stored
+  const { askedLegacy, asked, ...issue } = stored
+  const question =
+    asked ??
+    (askedLegacy?.question ? { ...askedLegacy, question: askedLegacy.question } : undefined)
   return toWire({
     ...issue,
     ...ownership,
     labels,
-    // `StoredAsked` is `NeedsHuman.asked` MINUS its attribution half, for the
-    // same reason `createdBy` is absent: no column, and ADR 9 D8 S5 forbids a
-    // mapper defaulting `onBehalfOf`. Re-attached from the same named constant
-    // so the pair stays all-or-nothing on the wire (POD-365) instead of shipping
-    // a "when" with no "who".
-    ...(asked ? { asked: { ...asked, attribution: ownership.createdBy } } : {}),
+    // Unknown historical askers stay unknown; a stored question is never dropped.
+    ...(question ? { asked: question } : {}),
   })
 }
 
@@ -169,11 +80,6 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
  * clients keep their last-known-good projection (stale by one publish) and the
  * next successful publish heals it. Stale-but-present beats confidently-deleted,
  * and staleness here is self-correcting where a durable phantom remove is not.
- *
- * The legacy path is unaffected either way — `reconcile('issue', …)` and the
- * snapshot fan-out run regardless, so a poison row costs the NEW feed a publish
- * and costs old clients nothing. That is what "additive" has to mean under a
- * flag: the new path may degrade, but it may never damage the old one.
  *
  * In practice this is close to unreachable: `listIssueRows` already quarantines
  * structurally corrupt rows at hydration, `upsertIssue` rejects an invalid

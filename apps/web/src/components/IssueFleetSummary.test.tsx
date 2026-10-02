@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The fleet stack's grammar, tested once for both surfaces that draw it.
  *
@@ -9,7 +10,7 @@
  * sidebar's rendering is covered end-to-end in `SidebarUnified.*`; these tests
  * exist so the board card cannot drift away from the row again.
  */
-import type { AgentKind, SessionMeta, SessionStatus } from '@podium/model'
+import type { AgentKind, SessionStatus } from '@podium/model'
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { IssueFleetSummary } from './IssueFleetSummary'
@@ -17,7 +18,7 @@ import { IssueFleetSummary } from './IssueFleetSummary'
 function sess(
   id: string,
   over: { agentKind?: AgentKind; status?: SessionStatus; archived?: boolean; native?: number } = {},
-): SessionMeta {
+): SessionView {
   return {
     sessionId: id,
     agentKind: over.agentKind ?? 'claude-code',
@@ -41,10 +42,10 @@ function sess(
       since: '2026-07-06T12:00:00.000Z',
       nativeSubagentCount: over.native ?? 0,
     },
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
-function fleet(sessions: SessionMeta[], props: { size?: number } = {}) {
+function fleet(sessions: SessionView[], props: { size?: number } = {}) {
   const { container } = render(<IssueFleetSummary sessions={sessions} {...props} />)
   return container.querySelector('[data-testid="issue-fleet-summary"]')
 }

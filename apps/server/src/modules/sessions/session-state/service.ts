@@ -32,6 +32,7 @@
 import { createLogger } from '@podium/logger'
 import {
   applyDraftEdit,
+  sessionUserStateRowId,
   type Capability,
   computePriorities,
   DEFAULT_LEASE_MS,
@@ -45,6 +46,7 @@ import {
 } from '@podium/model'
 import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
 import type { RuntimeDraftResultMessage, RuntimeSnapshotResultMessage, ControlMessage } from '@podium/protocol/daemon'
+import type { EntityChangeSpec } from '@podium/sync'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
 import type { IssueRow } from '../../../store/types'
@@ -147,7 +149,11 @@ export interface SessionStatePorts {
   /** Persist one session and an optional satellite-row write atomically. The
    *  session's own durable fields are UNCHANGED by this write — one that changes
    *  them goes through {@link writeSession} or {@link mutateSession}. */
-  readonly persistSession: (sessionId: SessionId, additionalWrite?: () => void | Promise<void>) => Promise<void>
+  readonly persistSession: (
+    sessionId: SessionId,
+    additionalWrite?: () => void | Promise<void>,
+    additionalChanges?: () => Promise<EntityChangeSpec[]>,
+  ) => Promise<void>
   /** {@link persistSession} with a durable-field write applied to the draft the
    *  commit persists [POD-3330]. Persist-only, like the method it sits beside:
    *  no funnel span and no broadcast of its own. */
@@ -423,10 +429,14 @@ export class SessionStateService {
   private async persistPerUser(userId: UserId, sessionId: SessionId, write: () => void | Promise<void>): Promise<boolean> {
     if (!this.ports.getSession(sessionId)) return false
     try {
-      await this.ports.persistSession(sessionId, async () => {
-        await write()
-        this.invalidateOverlay(userId)
-      })
+      await this.ports.persistSession(
+        sessionId,
+        async () => {
+          await write()
+          this.invalidateOverlay(userId)
+        },
+        () => this.userStateChanges(sessionId, [userId]),
+      )
     } finally {
       // The projection read inside persist may cache a value whose transaction
       // later rolls back. A second invalidation prevents serving that ghost row.
@@ -434,6 +444,24 @@ export class SessionStateService {
     }
     this.ports.broadcastSessions()
     return true
+  }
+
+  private async userStateChanges(
+    sessionId: SessionId,
+    users: readonly UserId[],
+  ): Promise<EntityChangeSpec[]> {
+    return Promise.all(
+      users.map(async (userId) => ({
+        entity: 'sessionUserState' as const,
+        id: sessionUserStateRowId(userId, sessionId),
+        op: 'upsert' as const,
+        value: await this.ports.store.sessions.sessionUserStateFor(
+          userId,
+          sessionId,
+          this.ports.now(),
+        ),
+      })),
+    )
   }
 
   async markRead(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
@@ -455,8 +483,21 @@ export class SessionStateService {
   }
 
   async rearmUnreadForAll(sessionId: SessionId): Promise<void> {
-    await this.ports.store.sessions.clearAllReadAt(sessionId)
-    this.invalidateAllOverlays()
+    if (!this.ports.getSession(sessionId)) return
+    let users: UserId[] = []
+    try {
+      await this.ports.persistSession(
+        sessionId,
+        async () => {
+          users = await this.ports.store.sessions.clearAllReadAt(sessionId)
+          this.invalidateAllOverlays()
+        },
+        () => this.userStateChanges(sessionId, users),
+      )
+    } finally {
+      this.invalidateAllOverlays()
+    }
+    this.ports.broadcastSessions()
   }
 
   async setSnooze(
@@ -480,9 +521,20 @@ export class SessionStateService {
   /** Shared session activity invalidates every viewer's snooze independently. */
   async clearAllSnoozes(sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
-    if (!await this.ports.store.sessions.hasAnySnooze(sessionId)) return
-    await this.ports.persistSession(sessionId, async () => await this.ports.store.sessions.clearAllSnoozes(sessionId))
-    this.invalidateAllOverlays()
+    if (!(await this.ports.store.sessions.hasAnySnooze(sessionId))) return
+    let users: UserId[] = []
+    try {
+      await this.ports.persistSession(
+        sessionId,
+        async () => {
+          users = await this.ports.store.sessions.clearAllSnoozes(sessionId)
+          this.invalidateAllOverlays()
+        },
+        () => this.userStateChanges(sessionId, users),
+      )
+    } finally {
+      this.invalidateAllOverlays()
+    }
     this.ports.broadcastSessions()
   }
 

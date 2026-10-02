@@ -127,7 +127,7 @@ export function pendingTitleEditsOn(
   }
   const ids = pendingTitleTargets(
     order,
-    (id) => !excluded(id) && rows.has(id) && rows.get(id)?.draft !== true,
+    (id) => !excluded(id) && rows.has(id) && rows.get(id)?.isDraftVessel !== true,
     window,
   )
   return queuedTitleEdits(ids, (id) => rows.get(id)?.title ?? '', queuedAt)

@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * NOW — what is true about this task at this second (POD-591).
  *
@@ -27,7 +28,7 @@
  * that is waiting on the human is still and amber — stillness is the signal.
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model/browser'
+
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
@@ -46,13 +47,13 @@ export function IssueNow({
   onOpenSession,
 }: {
   issue: IssueViewModel
-  sessions: SessionMeta[]
-  onOpenSession: (sessionId: SessionMeta['sessionId']) => void
+  sessions: SessionView[]
+  onOpenSession: (sessionId: SessionView['sessionId']) => void
 }): JSX.Element | null {
   if (sessions.length === 0) return null
 
   const ranked = [...sessions]
-    .map((session) => ({ session, phase: motionPhase(session, issue as unknown as IssueWire) }))
+    .map((session) => ({ session, phase: motionPhase(session, issue as unknown as IssueViewModel) }))
     .sort((a, b) => (PHASE_RANK[a.phase] ?? 9) - (PHASE_RANK[b.phase] ?? 9))
   const working = ranked.filter((r) => r.phase === 'working').length
   const waiting = ranked.filter((r) => r.phase === 'waiting').length

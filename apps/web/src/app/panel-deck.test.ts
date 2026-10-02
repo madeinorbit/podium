@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import type { SplitNode, WorkspaceLayout } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+
 import { describe, expect, it } from 'vitest'
 import {
   composeDeck,
@@ -13,12 +14,12 @@ import {
 } from './panel-deck'
 import type { FileTab } from './store'
 
-// A minimal session tab — composeDeck only reads `id`/`kind`, so the SessionMeta
+// A minimal session tab — composeDeck only reads `id`/`kind`, so the SessionView
 // body is a cast stub.
 const sessionTab = (id: string): DeckTab => ({
   id,
   kind: 'session',
-  session: { sessionId: id } as SessionMeta,
+  session: { sessionId: id } as SessionView,
 })
 const fileTab = (id: string): DeckTab => ({
   id,

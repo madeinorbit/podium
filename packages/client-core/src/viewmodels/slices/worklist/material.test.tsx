@@ -1,14 +1,8 @@
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 // @vitest-environment happy-dom
 import { act, cleanup, render } from '@testing-library/react'
 import { Profiler, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  asIssueId,
-  asMachineId,
-  asSessionId,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model'
 import type { Store } from '../../../engine/types'
 import {
   readRuntimeStoreStats,
@@ -18,9 +12,11 @@ import {
   storeStats,
 } from '../../../perf/store-stats'
 import { useSlice } from '../../../react/use-slice'
+import type { IssueViewModel } from '../../../replica'
+import { allIssueViewModels } from '../../../replica'
+import type { SessionView } from '../../../session-values'
+import { normalizedIssueFixture } from '../../../test-support/normalized-issue-fixture'
 import { createSlicePublisher } from '../publish'
-import { worklistSlice, type WorklistSlice } from './published'
-import { rowMotionPhase, rowMotionTiming, rowStatusLine } from './row-attention'
 import {
   worklistIssuesEqual,
   worklistMachinesEqual,
@@ -29,12 +25,14 @@ import {
   worklistSessionSignature,
   worklistSessionsEqual,
 } from './material'
+import { type WorklistSlice, worklistSlice } from './published'
+import { rowMotionPhase, rowMotionTiming, rowStatusLine } from './row-attention'
 
 const context = vi.hoisted(() => ({ handle: undefined as unknown }))
 vi.mock('../../../react/provider', () => ({ useStoreHandle: () => context.handle }))
 const NOW = Date.parse('2026-09-18T12:00:00Z')
 const AT = new Date(NOW).toISOString()
-function session(id = 's1', patch: Partial<SessionMeta> = {}): SessionMeta {
+function session(id = 's1', patch: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'codex',
@@ -56,7 +54,7 @@ function session(id = 's1', patch: Partial<SessionMeta> = {}): SessionMeta {
     ...patch,
   }
 }
-function issue(id = 'i1', patch: Partial<IssueWire> = {}): IssueWire {
+function issue(id = 'i1', patch: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id,
     seq: 1,
@@ -71,8 +69,8 @@ function issue(id = 'i1', patch: Partial<IssueWire> = {}): IssueWire {
     updatedAt: AT,
     archived: false,
     audience: 'human',
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
     pinned: false,
     needsHuman: false,
     blocked: false,
@@ -80,16 +78,14 @@ function issue(id = 'i1', patch: Partial<IssueWire> = {}): IssueWire {
     deps: [],
     dependents: [],
     labels: [],
-    comments: [],
     blockedByNotes: [],
     ...patch,
-  } as IssueWire
+  } as IssueViewModel
 }
 function world(): Store {
   return {
     sessions: [session(), session('s2')],
-    issues: [issue(), issue('i2')],
-    issueProjections: [],
+    ...normalizedIssueFixture([issue(), issue('i2')], [session(), session('s2')]),
     repos: [{ path: '/repo', branch: 'main', machineId: asMachineId('m1'), worktrees: [] }],
     machines: [
       { id: asMachineId('m1'), name: 'one' },
@@ -113,6 +109,11 @@ function handleFor(initial: Store) {
     },
     publish: (patch: Partial<Store>) => {
       snapshot = { ...snapshot, ...patch }
+      if (patch.sessions) snapshot.replica.applySnapshot('sessions', patch.sessions)
+      if (patch.issueProjections)
+        snapshot.replica.applySnapshot('issueProjections', patch.issueProjections)
+      if (patch.issueUserStates)
+        snapshot.replica.applySnapshot('issueUserStates', patch.issueUserStates)
       const publication = recordStorePublish(handle, new Set(Object.keys(patch)))
       for (const listener of listeners) {
         recordStoreSubscriber(handle, publication)
@@ -160,7 +161,8 @@ const legacySlice = {
     a.machines === b.machines &&
     a.sessions === b.sessions &&
     a.pins === b.pins &&
-    a.issues === b.issues &&
+    a.issueProjections === b.issueProjections &&
+    a.issueUserStates === b.issueUserStates &&
     a.coarseNow === b.coarseNow &&
     a.selectedIssueId === b.selectedIssueId,
 }
@@ -200,8 +202,8 @@ describe('worklist material inputs', () => {
       }
       const root = render(
         <>
-          {commits.map((_, index) => (
-            <Reader key={index} index={index} />
+          {[0, 1, 2, 3, 4, 5, 6].map((id) => (
+            <Reader key={id} index={id} />
           ))}
           <Control />
         </>,
@@ -271,9 +273,9 @@ describe('worklist material inputs', () => {
             agentState: { ...s.agentState!, phase: 'needs_user' },
           })),
         },
-        { issues: original.issues.map((i) => ({ ...i, stage: 'review' })) },
+        { issueProjections: original.issueProjections.map((i) => ({ ...i, stage: 'review' })) },
         {
-          issues: original.issues.map((i) => ({
+          issueProjections: original.issueProjections.map((i) => ({
             ...i,
             deferUntil: new Date(NOW + 60_000).toISOString(),
           })),
@@ -282,8 +284,8 @@ describe('worklist material inputs', () => {
         { sessions: [original.sessions[0]!] },
         { sessions: original.sessions },
         { sessions: [...original.sessions].reverse() },
-        { issues: [original.issues[0]!] },
-        { issues: original.issues },
+        { issueProjections: [original.issueProjections[0]!] },
+        { issueProjections: original.issueProjections },
         { machines: [original.machines[1]!] },
         { machines: original.machines },
         { coarseNow: NOW + 60_000 },
@@ -355,7 +357,7 @@ describe('worklist material inputs', () => {
     ['displayRef', { displayRef: 'POD-1-A' }],
     ['agentColor', { agentColor: 'red' }],
     ['handoffTarget', { handoffTarget: 'other' }],
-  ] satisfies [string, Partial<SessionMeta>][])('keeps %s material', (_name, patch) => {
+  ] satisfies [string, Partial<SessionView>][])('keeps %s material', (_name, patch) => {
     const before = session()
     expect(worklistSessionsEqual([before], [{ ...before, ...patch }])).toBe(false)
   })
@@ -386,16 +388,21 @@ describe('worklist material inputs', () => {
       ),
     ).toBe(true)
     expect(
-      worklistSessionSignature({ ...before, futureVisibleField: 'new' } as SessionMeta),
+      worklistSessionSignature({ ...before, futureVisibleField: 'new' } as SessionView),
     ).not.toBe(worklistSessionSignature(before))
   })
 
   it('compares ordered membership for every collection and retains no evicted rows', () => {
     const store = world()
+    const issueModels = allIssueViewModels(
+      store.replica,
+      store.issueProjections,
+      store.issueUserStates,
+    )
     expect(worklistSessionsEqual(store.sessions, [...store.sessions].reverse())).toBe(false)
     expect(worklistSessionsEqual(store.sessions, store.sessions.slice(1))).toBe(false)
-    expect(worklistIssuesEqual(store.issues, [...store.issues].reverse())).toBe(false)
-    expect(worklistIssuesEqual(store.issues, store.issues.slice(1))).toBe(false)
+    expect(worklistIssuesEqual(issueModels, [...issueModels].reverse())).toBe(false)
+    expect(worklistIssuesEqual(issueModels, issueModels.slice(1))).toBe(false)
     expect(worklistMachinesEqual(store.machines, [...store.machines].reverse())).toBe(false)
     expect(worklistMachinesEqual(store.machines, store.machines.slice(1))).toBe(false)
     expect(worklistMachinesEqual(store.machines, [])).toBe(false)
@@ -426,14 +433,14 @@ describe('worklist material inputs', () => {
     ).toBe(true)
     expect(
       worklistIssuesEqual(
-        store.issues,
-        store.issues.map((i) => ({ ...i })),
+        issueModels,
+        issueModels.map((i) => ({ ...i })),
       ),
     ).toBe(true)
     expect(
       worklistIssuesEqual(
-        store.issues,
-        store.issues.map((i) => ({ ...i, title: 'new' })),
+        issueModels,
+        issueModels.map((i) => ({ ...i, title: 'new' })),
       ),
     ).toBe(false)
     expect(worklistPinsEqual(store.pins, { ...store.pins, panels: [asSessionId('s1')] })).toBe(true)

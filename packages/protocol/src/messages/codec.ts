@@ -3,17 +3,12 @@ import {
   AutomationWire,
   ConversationSummaryWire,
   HostMetricsWire,
-  IssueWire,
   SessionMeta,
 } from '@podium/model'
 import type { z } from 'zod'
 import { ApprovalWire } from './approvals'
 import { ClientMessage } from './client'
-import {
-  FeedChangeLenient,
-  type FeedDeltaMessage,
-  FeedDeltaMessageLenient,
-} from './feed'
+import { FeedChangeLenient, type FeedDeltaMessage, FeedDeltaMessageLenient } from './feed'
 import { ServerMessage } from './server'
 import {
   MetadataChangeLenient,
@@ -59,7 +54,6 @@ const QUARANTINABLE: Record<
   { key: string; element: z.ZodTypeAny; envelope?: z.ZodTypeAny }
 > = {
   sessionsChanged: { key: 'sessions', element: SessionMeta },
-  issuesChanged: { key: 'issues', element: IssueWire },
   conversationsChanged: { key: 'conversations', element: ConversationSummaryWire },
   automationsChanged: { key: 'automations', element: AutomationWire },
   automationRunsChanged: { key: 'automationRuns', element: AutomationRunWire },
@@ -84,7 +78,6 @@ const QUARANTINABLE: Record<
     envelope: MetadataDeltaMessageLenient,
   },
   feedDelta: { key: 'changes', element: FeedChangeLenient, envelope: FeedDeltaMessageLenient },
-
 }
 
 /** What {@link parseServerMessageLenient} yields: the strict union, except the

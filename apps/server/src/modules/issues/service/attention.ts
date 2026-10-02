@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
-import type { IssueId, IssueWire, MachineId, SessionId, UserId } from '@podium/model'
+import type { IssueId, IssueProjection, MachineId, SessionId, UserId } from '@podium/model'
 import { DRAFT_ISSUE_TITLE } from '@podium/model'
 import {
   attributionOf,
@@ -53,17 +53,21 @@ export class IssueAttentionModule {
       | 'ensureCoordinator'
     >,
     private readonly hierarchy: () => {
-      addDep(fromRef: string, toRef: string, type?: string): Promise<IssueWire>
+      addDep(fromRef: string, toRef: string, type?: string): Promise<IssueProjection>
     },
     private readonly reports: () => Pick<IssueReportsModule, 'niceRef'>,
     private readonly gitWorkflow: () => IssueAttentionWorktreePort,
   ) {}
 
-  async defer(...args: Parameters<IssueCrudModule['defer']>): Promise<Awaited<ReturnType<IssueCrudModule['defer']>>> {
+  async defer(
+    ...args: Parameters<IssueCrudModule['defer']>
+  ): Promise<Awaited<ReturnType<IssueCrudModule['defer']>>> {
     return await this.crud().defer(...args)
   }
 
-  async undefer(...args: Parameters<IssueCrudModule['undefer']>): Promise<Awaited<ReturnType<IssueCrudModule['undefer']>>> {
+  async undefer(
+    ...args: Parameters<IssueCrudModule['undefer']>
+  ): Promise<Awaited<ReturnType<IssueCrudModule['undefer']>>> {
     return await this.crud().undefer(...args)
   }
 
@@ -113,7 +117,7 @@ export class IssueAttentionModule {
     newSpinoff?: { title: string; origin: 'human' | 'agent' }
     confirmRehome?: boolean
     principal?: Exclude<CommandPrincipal, { kind: 'system' }>
-  }): Promise<IssueWire> {
+  }): Promise<IssueProjection> {
     const { getSessionIssueId, setSessionIssueId } = this.store.deps
     if (!getSessionIssueId || !setSessionIssueId) {
       throw new Error('attachSession unavailable: session registry hooks not injected')
@@ -141,13 +145,13 @@ export class IssueAttentionModule {
         // maybeTakeOriginWorktree will take a pending checkout. 878's
         // replacement-coordinator rule applies only when someone stays.
         const others = (await this.store.sessionsFor(prev)).filter(
-            (session) =>
-              session.sessionId !== opts.sessionId &&
-              !session.archived &&
-              (session.status === 'live' ||
-                session.status === 'starting' ||
-                session.status === 'reconnecting'),
-          )
+          (session) =>
+            session.sessionId !== opts.sessionId &&
+            !session.archived &&
+            (session.status === 'live' ||
+              session.status === 'starting' ||
+              session.status === 'reconnecting'),
+        )
         if (others.length > 0) await this.assertReplacementCoordination(prev, opts.sessionId)
       }
       const title = newIssue.title.trim()
@@ -209,7 +213,7 @@ export class IssueAttentionModule {
         )
       }
     }
-    if (prevId === target.id) return await this.store.toWire(target) // self-attach: no-op
+    if (prevId === target.id) return await this.store.projection(target) // self-attach: no-op
     await setSessionIssueId(opts.sessionId, target.id)
     await this.crud().ensureCoordinator(target.id, opts.sessionId, { onlyMember: true })
     await this.store.emitEvent('issue.session_attached', target.id, {
@@ -220,7 +224,7 @@ export class IssueAttentionModule {
     })
     // Clean up the abandoned draft vessel it came from, if now completely empty.
     if (prevId) await this.deleteIfEmptyDraft(prevId)
-    await this.store.broadcastList()
+
     if (prevId && (opts.newSpinoff || opts.newSubissue)) {
       // AN EXTERNAL EFFECT, and the only asynchronous one in this method
       // [POD-3260, spec §3.3 mechanism 3]. `IssueAttachOrchestrator` wraps this
@@ -238,7 +242,7 @@ export class IssueAttentionModule {
         })
       }, 'hopscotch-worktree-take-over')
     }
-    return await this.store.toWire(await this.store.rowOrThrow(target.id))
+    return await this.store.projection(await this.store.rowOrThrow(target.id))
   }
 
   /**
@@ -249,21 +253,24 @@ export class IssueAttentionModule {
    * while running in its own checkout, but that does not keep the parent's
    * integration checkout operated or testable.
    */
-  private async assertReplacementCoordination(row: IssueRow, movingSessionId: SessionId): Promise<void> {
+  private async assertReplacementCoordination(
+    row: IssueRow,
+    movingSessionId: SessionId,
+  ): Promise<void> {
     if (row.draft || row.archived || this.store.isClosed(row)) return
     const coordinatorId = row.coordinatorSessionId
     const replacement =
       coordinatorId && coordinatorId !== movingSessionId
         ? (await this.store.sessionsFor(row)).find(
-              (session) =>
-                session.sessionId === coordinatorId &&
-                !session.archived &&
-                (session.status === 'live' ||
-                  session.status === 'starting' ||
-                  session.status === 'reconnecting') &&
-                row.worktreePath != null &&
-                isMemberCwd(row.worktreePath, session.cwd),
-            )
+            (session) =>
+              session.sessionId === coordinatorId &&
+              !session.archived &&
+              (session.status === 'live' ||
+                session.status === 'starting' ||
+                session.status === 'reconnecting') &&
+              row.worktreePath != null &&
+              isMemberCwd(row.worktreePath, session.cwd),
+          )
         : undefined
     if (replacement) return
 
@@ -293,13 +300,21 @@ export class IssueAttentionModule {
     const candidates = [...this.store.rows.values()].filter(eligible)
     // Provenance can be removed, so retaining a positive across attaches would
     // permit unrelated reuse. Resolve anew for this attach; missing evidence denies.
-    const dependencies = new Map(await Promise.all(candidates.map(async (row) =>
-      [row.id, await this.store.deps.store.issues.listIssueDeps(row.id)] as const,
-    )))
+    const dependencies = new Map(
+      await Promise.all(
+        candidates.map(
+          async (row) =>
+            [row.id, await this.store.deps.store.issues.listIssueDeps(row.id)] as const,
+        ),
+      ),
+    )
     return [...this.store.rows.values()]
-      .filter((row) =>
-        eligible(row) &&
-        dependencies.get(row.id)?.some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from') === true,
+      .filter(
+        (row) =>
+          eligible(row) &&
+          dependencies
+            .get(row.id)
+            ?.some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from') === true,
       )
       .sort((a, b) => a.seq - b.seq)[0]
   }
@@ -321,10 +336,10 @@ export class IssueAttentionModule {
       (session) => !session.archived && session.status !== 'exited',
     )
     if (remaining.length > 0) return
-    const worktreeMachineId = (await this.store.resolveWorktreeMachine(
+    const worktreeMachineId = await this.store.resolveWorktreeMachine(
       origin.machineId,
       origin.worktreePath,
-    ))
+    )
     const pending = await this.originWorktreeIsPending(origin, worktreeMachineId)
     if (!pending) return
     /**
@@ -359,7 +374,7 @@ export class IssueAttentionModule {
     origin.branch = null
     await this.store.persistRow(origin)
     await this.store.persistRow(target)
-    await this.store.broadcastList()
+
     if (origin.repoPath)
       this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
   }
@@ -391,7 +406,7 @@ export class IssueAttentionModule {
       'isMergedInto',
       origin.repoPath,
       { branch: origin.branch, parentBranch: origin.parentBranch },
-      (await this.store.resolveWorktreeMachine(origin.machineId, origin.repoPath)),
+      await this.store.resolveWorktreeMachine(origin.machineId, origin.repoPath),
     )
     return !merged.ok
   }
@@ -429,7 +444,7 @@ export class IssueAttentionModule {
     agentKind?: string,
     id?: IssueId,
     ownership?: { ownerUserId: UserId; createdByActor: string; createdByOnBehalfOf: UserId },
-  ): Promise<IssueWire> {
+  ): Promise<IssueProjection> {
     return await this.crud().create({
       repoPath,
       title: DRAFT_ISSUE_TITLE,
@@ -466,20 +481,28 @@ export class IssueAttentionModule {
       event: input.event,
       sourceKind: input.sourceKind,
       sourceRef:
-        input.sourceKind === 'issue' ? await this.store.resolveRef(input.sourceRef) : input.sourceRef,
+        input.sourceKind === 'issue'
+          ? await this.store.resolveRef(input.sourceRef)
+          : input.sourceRef,
       deliverNudge: input.deliverNudge ?? true,
       deliverNotify: input.deliverNotify ?? false,
       origin: input.origin ?? 'custom',
       enabled: true,
       createdAt: this.store.now(),
     }
-    await this.store.deps.funnel.run({ write: async () => await this.store.deps.store.events.addSubscription(sub) })
+    await this.store.deps.funnel.run({
+      write: async () => await this.store.deps.store.events.addSubscription(sub),
+    })
     return sub
   }
 
   async subscriptionRemove(id: string): Promise<{ removed: boolean }> {
-    const existed = (await this.store.deps.store.events.listSubscriptions()).some((s) => s.id === id)
-    await this.store.deps.funnel.run({ write: async () => await this.store.deps.store.events.removeSubscription(id) })
+    const existed = (await this.store.deps.store.events.listSubscriptions()).some(
+      (s) => s.id === id,
+    )
+    await this.store.deps.funnel.run({
+      write: async () => await this.store.deps.store.events.removeSubscription(id),
+    })
     return { removed: existed }
   }
 
@@ -492,7 +515,9 @@ export class IssueAttentionModule {
    *  handlers — it is safe and reversible. */
   async subscriptionSetEnabled(id: string, enabled: boolean): Promise<{ updated: boolean }> {
     return await this.store.deps.funnel.run({
-      write: async () => ({ updated: await this.store.deps.store.events.setSubscriptionEnabled(id, enabled) }),
+      write: async () => ({
+        updated: await this.store.deps.store.events.setSubscriptionEnabled(id, enabled),
+      }),
     })
   }
 
@@ -500,7 +525,7 @@ export class IssueAttentionModule {
     return await this.store.deps.store.events.getSubscription(id)
   }
 
-  async archive(id: string): Promise<IssueWire> {
+  async archive(id: string): Promise<IssueProjection> {
     return await this.crud().update(id, { archived: true })
   }
 
@@ -525,9 +550,9 @@ export class IssueAttentionModule {
   async sweepAutoArchive(
     nowMs: number = Date.parse(this.store.now()),
     principal?: SystemCommandPrincipal,
-  ): Promise<IssueWire[]> {
+  ): Promise<IssueProjection[]> {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
-    const out: IssueWire[] = []
+    const out: IssueProjection[] = []
     let sessionList: SessionFacts[] | undefined // taken lazily — only if a row clears the cheap gates
     for (const row of this.store.rows.values()) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
@@ -536,7 +561,12 @@ export class IssueAttentionModule {
       // viewer (POD-1076). Behaviour is unchanged on a one-person instance; the
       // open question "auto-archived because WHO read it?" is POD-1136's, and it
       // is now askable because the value has an owner.
-      const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(await this.store.broadcastViewer(), row.id))?.readAt
+      const viewerReadAt = (
+        await this.store.deps.store.issues.getIssueUserState(
+          await this.store.broadcastViewer(),
+          row.id,
+        )
+      )?.readAt
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
@@ -582,7 +612,9 @@ export class IssueAttentionModule {
     // comparison becomes "the principal whose flag you are setting" and the
     // observation already carries it.
     if (observed.readerUserId !== (await this.store.broadcastViewer())) return 'precondition'
-    const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(observed.readerUserId, row.id))?.readAt
+    const viewerReadAt = (
+      await this.store.deps.store.issues.getIssueUserState(observed.readerUserId, row.id)
+    )?.readAt
     // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
     // and deliberately no `viewerReadAt == null` guard here either: the two
     // cases the CAS caught are both already refused BELOW, and a second guard
@@ -595,18 +627,21 @@ export class IssueAttentionModule {
     const readMs = Date.parse(viewerReadAt ?? '')
     if (!Number.isFinite(readMs)) return 'precondition'
     if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
-    const sessions = (await this.store.sessionsFor(row))
+    const sessions = await this.store.sessionsFor(row)
     if (this.store.computeUnread(row, sessions, viewerReadAt)) return 'precondition'
     await this.autoArchive(row, principal)
     return 'applied'
   }
 
   /** Archive `row` as the passive auto-archive sweep (issue #127). Reuses the same
-   *  persist machinery `archive()` funnels through (sets archived + broadcasts
-   *  issueUpdated & issuesChanged) but logs a DISTINCT `issue.auto_archived` event
+   *  persist machinery `archive()` funnels through (sets archived and publishes
+   *  its issue projection) but logs a DISTINCT `issue.auto_archived` event
    *  instead of the manual `issue.archived` — the activity log (S3) renders it as
    *  its own line, and nothing downstream mistakes a sweep for a user action. */
-  private async autoArchive(row: IssueRow, principal?: SystemCommandPrincipal): Promise<IssueWire> {
+  private async autoArchive(
+    row: IssueRow,
+    principal?: SystemCommandPrincipal,
+  ): Promise<IssueProjection> {
     // Drafted HERE rather than by the two callers: both reach this with a row
     // they read for a precondition check, and the sweep walks the map while it
     // archives, so the row it hands over is the map's own object [POD-3259].
@@ -684,7 +719,7 @@ export class IssueAttentionModule {
   public async cascadeArchiveSessions(row: IssueRow): Promise<void> {
     const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
-    for (const s of (await this.store.sessionsFor(row))) {
+    for (const s of await this.store.sessionsFor(row)) {
       if (s.archived) continue
       await setArchived(s.sessionId, true)
     }
@@ -700,7 +735,7 @@ export class IssueAttentionModule {
   public async retireIssueOffers(row: IssueRow): Promise<void> {
     const clearOffer = this.store.deps.clearSessionOffer
     if (!clearOffer) return
-    for (const s of (await this.store.sessionsFor(row))) {
+    for (const s of await this.store.sessionsFor(row)) {
       if (!s.offer) continue
       await clearOffer(s.sessionId)
     }

@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model/browser'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -45,7 +45,7 @@ export type HandoverView = {
  * once (its error toast does the explaining) and only a real arrival earns the
  * arrival beat.
  */
-export function useHandoverView(session: SessionMeta | undefined): HandoverView | null {
+export function useHandoverView(session: SessionView | undefined): HandoverView | null {
   const target = session?.handoffTarget
   const [view, setView] = useState<HandoverView | null>(null)
   // Read through refs: the effect must fire on the TRANSITIONS of handoffTarget

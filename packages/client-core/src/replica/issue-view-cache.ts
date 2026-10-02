@@ -1,78 +1,14 @@
+/** Incremental normalized issue models. Reuse is keyed by current projection,
+ * user markers, git observation, repo row, derived view and member sessions.
+ * Every pass visits only current projections, so evict and rescope cannot
+ * resurrect a cached row. */
+import type {
+  IssueGitStateProjection,
+  IssueProjection,
+  IssueUserStateWire,
+  RepoProjection,
+} from '@podium/model'
 import { recordIssueRowBuild } from '../perf/store-stats'
-/**
- * THE SHARED ISSUE VIEW-MODEL CACHE [ADR 4 D7.3] — one projection of the issue
- * world per replica notification, read by every surface and by the published
- * worklist slice.
- *
- * It lives here, and not in `use-issue-views.ts`, for one reason: the published
- * worklist (`viewmodels/slices/worklist/published.ts`) must read the SAME models
- * the React surfaces read, and it is platform-neutral — importing the hook
- * module would pull React into a slice mobile also derives. `use-issue-views.ts`
- * is now purely the React binding over this file.
- *
- * ---------------------------------------------------------------------------
- * WHY THE REBUILD IS INCREMENTAL (POD-1053)
- * ---------------------------------------------------------------------------
- *
- * A one-field mutation on one issue does not change the replica at all — it is
- * an OVERLAY folded over server truth (`engine/overlay.ts`), and the fold hands
- * the store a new `issues` ARRAY whose rows are all the previous objects but
- * one. `modelsFor` used to key on that array identity alone, so a single tuck
- * rebuilt every issue view model in the project (1026 at the cardinalities
- * POD-1052 measured) and then deep-compared each one against the previous
- * generation to recover row identity. Measured ~9ms per press, paid at least
- * twice — once for the optimistic paint, once for the server echo.
- *
- * The dependency of ONE model is exactly three things, and `buildIssueViewModel`
- * takes precisely those: the snapshot (the replica-derived world), the row's
- * projection, and the row's retained legacy row. So when the snapshot is
- * unchanged, a row whose two input objects are identity-unchanged CANNOT have a
- * different model, and the previous one is reused without being rebuilt or
- * compared. The array that changed identity for one patched row costs one model.
- *
- * WHY THIS IS SAFE UNDER EVICT AND RESCOPE, which is the bar
- * `viewmodels/slices/publish.ts` sets for every cache in the client. The reuse
- * decision is keyed on OBJECT IDENTITY of inputs the CURRENT pass is holding,
- * and the pass iterates the CURRENT `projectionRows`. A row that left the
- * principal's slice is not in that iteration, so no amount of remembering can
- * put it back: this cache cannot hold a row past its visibility, only skip
- * rebuilding a row it was handed again unchanged. The per-id memory is discarded
- * and rewritten on every pass rather than accumulated.
- *
- * ---------------------------------------------------------------------------
- * AND WHY IT SURVIVES A REPLICA WRITE (POD-1055)
- * ---------------------------------------------------------------------------
- *
- * The paragraph above used to end here, with a note that a new snapshot meant
- * every view object was new and so every model had to be rebuilt and then
- * `sameVisibleValue`-compared back to the object it already was. That is the
- * server echo — our own mutation landing as truth — and it was ~27ms per press
- * at POD-1052's cardinalities, all of it spent proving nothing had changed.
- *
- * `deriveIssueViews` now preserves per-issue `IssueView` identity across passes,
- * so the reuse key is no longer "the same snapshot" but the three inputs of ONE
- * model, each compared by identity:
- *
- *   - the row's `IssueProjection` and its retained `IssueWire`, which the
- *     replica leaves untouched when a re-applied snapshot is byte-identical, and
- *   - the row's `IssueView`, now stable when its derived value did not move.
- *
- * Plus the one input `buildIssueViewModel` reads THROUGH the snapshot rather
- * than off the view: `deriveIssueRollups` walks the member sessions' rows for
- * `phase` and `lastActiveAt`. A stable view proves the member ID LIST is the
- * same, never that the sessions behind it are — so those rows are compared too.
- *
- * The evict/rescope argument is unchanged, and this does not weaken it: reuse is
- * still decided from objects the CURRENT pass is holding, and the pass still
- * iterates the CURRENT `projectionRows`. A view that survived is one whose every
- * field was re-derived from current rows and matched.
- *
- * `sameVisibleValue` still earns its keep for the rows that DO rebuild: it hands
- * back the previous model wherever nothing visible moved, which is what lets the
- * worklist slice skip its own derivation.
- */
-
-import type { IssueProjection, IssueWire } from '@podium/model'
 import {
   buildIssueViewModel,
   deriveIssueViewsSnapshot,
@@ -84,7 +20,7 @@ import type { Replica } from './replica'
 
 export type CachedIssueViewsSnapshot = IssueViewsSnapshot & {
   projectionRows: readonly IssueProjection[]
-  legacyRows: readonly IssueWire[]
+  userStateRows: readonly IssueUserStateWire[]
 }
 
 /** What one model was built from — the whole reuse key (see the note). The
@@ -93,14 +29,18 @@ export type CachedIssueViewsSnapshot = IssueViewsSnapshot & {
  *  model, which the projection already holds. */
 interface ModelInputs {
   projection: IssueProjection
-  legacy: IssueWire | undefined
+  userState: IssueUserStateWire | undefined
+  gitState: IssueGitStateProjection | undefined
+  repo: RepoProjection | undefined
   view: IssueView
+  deps: IssueViewsSnapshot['issues'][number]['deps']
 }
 
 export interface IssueModelsProjection {
+  sourceSnapshot: CachedIssueViewsSnapshot
   snapshot: CachedIssueViewsSnapshot
   projectionRows: readonly IssueProjection[]
-  legacyRows: readonly IssueWire[]
+  userStateRows: readonly IssueUserStateWire[]
   index: Map<string, IssueViewModel>
   all: IssueViewModel[]
   /** Per-id build inputs, rewritten each pass. Never a row store — see the note
@@ -144,7 +84,14 @@ function storeFor(replica: Replica): IssueViewsStore {
   // The view joins all of these kinds. Prefer the kernel's one batch seam so a
   // multi-kind delta wakes the projection once; older replicas fall back to
   // their already-coalesced per-kind subscriptions.
-  const relevantKinds = new Set(['issues', 'issueProjections', 'issueDeps', 'repos', 'sessions'])
+  const relevantKinds = new Set([
+    'issueUserStates',
+    'issueGitStates',
+    'issueProjections',
+    'issueDeps',
+    'repos',
+    'sessions',
+  ])
   if (replica.subscribeRowBatch) {
     replica.subscribeRowBatch((changed) => {
       for (const kind of changed) {
@@ -155,7 +102,8 @@ function storeFor(replica: Replica): IssueViewsStore {
       }
     })
   } else {
-    replica.subscribeRows('issues', invalidate)
+    replica.subscribeRows('issueUserStates', invalidate)
+    replica.subscribeRows('issueGitStates', invalidate)
     replica.subscribeRows('issueProjections', invalidate)
     replica.subscribeRows('issueDeps', invalidate)
     replica.subscribeRows('repos', invalidate)
@@ -178,7 +126,7 @@ function deriveSnapshot(
   return {
     ...snapshot,
     projectionRows: replica.rows('issueProjections'),
-    legacyRows: replica.rows('issues'),
+    userStateRows: replica.rows('issueUserStates'),
   }
 }
 
@@ -255,36 +203,59 @@ function sameIndex(
 export function modelsFor(
   replica: Replica,
   suppliedProjectionRows?: readonly IssueProjection[],
-  suppliedLegacyRows?: readonly IssueWire[],
+  suppliedUserStateRows?: readonly IssueUserStateWire[],
 ): IssueModelsProjection {
   const store = storeFor(replica)
-  const snapshot = snapshotFor(replica)
-  const projectionRows = suppliedProjectionRows ?? snapshot.projectionRows
-  const legacyRows = suppliedLegacyRows ?? snapshot.legacyRows
+  const sourceSnapshot = snapshotFor(replica)
+  const projectionRows = suppliedProjectionRows ?? sourceSnapshot.projectionRows
+  const userStateRows = suppliedUserStateRows ?? sourceSnapshot.userStateRows
   const current = store.models
   if (
-    current?.snapshot === snapshot &&
+    current?.sourceSnapshot === sourceSnapshot &&
     current.projectionRows === projectionRows &&
-    current.legacyRows === legacyRows
+    current.userStateRows === userStateRows
   ) {
     return current
   }
 
+  // Derive structural state from the optimistic projections too: a new draft
+  // has no truth row yet, and a close/reparent must paint before its echo.
+  const snapshot: CachedIssueViewsSnapshot =
+    projectionRows === sourceSnapshot.projectionRows &&
+    userStateRows === sourceSnapshot.userStateRows
+      ? sourceSnapshot
+      : {
+          ...deriveIssueViewsSnapshot(
+            replica,
+            current?.snapshot,
+            projectionRows,
+            userStateRows,
+            (id) => sourceSnapshot.issueInputById.get(id)?.stage,
+          ),
+          projectionRows,
+          userStateRows,
+        }
   store.modelBuilds++
-  const legacyById = new Map(legacyRows.map((issue) => [issue.id, issue]))
+  const userStateById = new Map(userStateRows.map((row) => [row.entityId, row]))
   const models = new Map<string, IssueViewModel>()
   const inputs = new Map<string, ModelInputs>()
   for (const projection of projectionRows) {
-    const legacy = legacyById.get(projection.id)
+    const userState = userStateById.get(projection.id)
+    const gitState = snapshot.gitStateByIssueId.get(projection.id)
+    const repo = projection.repoId ? snapshot.repoById.get(projection.repoId) : undefined
     const view = snapshot.views.get(projection.id)
+    const deps = snapshot.issueInputById.get(projection.id)?.deps ?? []
     const prior = current === null ? undefined : current.inputs.get(projection.id)
     if (
       current !== null &&
       prior !== undefined &&
       view !== undefined &&
       prior.projection === projection &&
-      prior.legacy === legacy &&
+      prior.userState === userState &&
+      prior.gitState === gitState &&
+      prior.repo === repo &&
       prior.view === view &&
+      sameVisibleValue(prior.deps, deps) &&
       sameMemberSessions(view, current.snapshot, snapshot)
     ) {
       const reused = current.index.get(projection.id)
@@ -297,18 +268,19 @@ export function modelsFor(
     store.modelRowBuilds++
     recordIssueRowBuild(replica)
     if (view === undefined) continue
-    const next = buildIssueViewModel(snapshot, projection, legacy)
+    const next = buildIssueViewModel(snapshot, projection, userState)
     if (next === undefined) continue
     const previous = current?.index.get(projection.id)
     models.set(projection.id, previous && sameVisibleValue(previous, next) ? previous : next)
-    inputs.set(projection.id, { projection, legacy, view })
+    inputs.set(projection.id, { projection, userState, gitState, repo, view, deps })
   }
 
   const unchanged = current !== null && sameIndex(current.index, models)
   const projection: IssueModelsProjection = {
+    sourceSnapshot,
     snapshot,
     projectionRows,
-    legacyRows,
+    userStateRows,
     index: unchanged ? current.index : models,
     all: unchanged ? current.all : [...models.values()],
     inputs,
@@ -321,26 +293,26 @@ export function modelsFor(
 export function issueViewModelIndex(
   replica: Replica,
   projectionRows?: readonly IssueProjection[],
-  legacyRows?: readonly IssueWire[],
+  userStateRows?: readonly IssueUserStateWire[],
 ): Map<string, IssueViewModel> {
-  return modelsFor(replica, projectionRows, legacyRows).index
+  return modelsFor(replica, projectionRows, userStateRows).index
 }
 
 export function allIssueViewModels(
   replica: Replica,
   projectionRows?: readonly IssueProjection[],
-  legacyRows?: readonly IssueWire[],
+  userStateRows?: readonly IssueUserStateWire[],
 ): IssueViewModel[] {
-  return modelsFor(replica, projectionRows, legacyRows).all
+  return modelsFor(replica, projectionRows, userStateRows).all
 }
 
 export function issueViewModelById(
   replica: Replica,
   issueId: string,
   projectionRows?: readonly IssueProjection[],
-  legacyRows?: readonly IssueWire[],
+  userStateRows?: readonly IssueUserStateWire[],
 ): IssueViewModel | undefined {
-  return modelsFor(replica, projectionRows, legacyRows).index.get(issueId)
+  return modelsFor(replica, projectionRows, userStateRows).index.get(issueId)
 }
 
 /**

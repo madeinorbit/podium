@@ -1,3 +1,5 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
+
 // @vitest-environment happy-dom
 /**
  * POD-4743 — one row reader with pending edits (`MobxPool.row`).
@@ -14,11 +16,8 @@
  *   while it paints, and after it is disposed.
  */
 
-import { act } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mountArmForCounts } from '../../../../harness/src/count-harness'
-import { openFenceFeeds } from '../../../../harness/src/fence-scenarios'
-import { startScenarioEngine, type ScenarioEngine, upsert } from '../../../../shared/src/scenarios'
+import { rowViewOf } from '@podium/client-graph/models'
+import type { MobxPool } from '@podium/client-graph/pool'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type {
   EditableStage,
@@ -27,14 +26,22 @@ import type {
   WriteEvent,
   WriteTransport,
 } from '@podium/client-graph/shared/write-contract'
-import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, visibleOrderOf, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import type { MobxPool } from '@podium/client-graph/pool'
 import { createMobxWriteApi } from '@podium/client-graph/write/edit'
 import { PendingOverlay } from '@podium/client-graph/write/overlay'
 import { ECHO_TTL_MS } from '@podium/client-graph/write/pending'
-import { rowViewOf } from '@podium/client-graph/models'
-
+import { act } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  type HarnessWritableMobxPoolHandle,
+  harnessMobxPoolArm,
+  harnessWritableMobxPoolArm,
+  tracked,
+  visibleOrderOf,
+} from '../../../../harness/src/adapters/mobx-pool'
+import { mountArmForCounts } from '../../../../harness/src/count-harness'
+import { openFenceFeeds } from '../../../../harness/src/fence-scenarios'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
+import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const trap = installMobxWarnTrap()
@@ -76,13 +83,16 @@ function fakeTransport(): FakeTransport {
 const NEVER_AUTO = { schedule: () => () => {} } as const
 
 /** Server truth for one issue's editable fields, through the replica facade (an echo). */
-function serverWrite(ctx: ScenarioEngine, id: string, patch: { title?: string; stage?: string }): void {
-  const wire = ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+function serverWrite(
+  ctx: ScenarioEngine,
+  id: string,
+  patch: { title?: string; stage?: string },
+): void {
+  const wire = ctx.cache.read('issueProjection', id)?.value as Record<string, unknown> | undefined
   if (!wire) throw new Error(`issue ${id} missing from the server cache`)
   const projection = (ctx.cache.read('issueProjection', id)?.value ?? {}) as Record<string, unknown>
   ctx.replica.batch(() => {
-    upsert(ctx, 'issue', id, { ...wire, ...patch })
-    upsert(ctx, 'issueProjection', id, { ...projection, ...patch })
+    upsertIssue(ctx, id, { ...wire, ...patch })
   })
 }
 
@@ -98,7 +108,7 @@ function stageKeptIssue(pool: MobxPool): string {
       const row = pool.row('issue', candidate, 'peek') as SliceIssue | undefined
       return (
         node !== undefined &&
-        row?.draft !== true &&
+        row?.isDraftVessel !== true &&
         node.standing?.sessionless === 'keep' &&
         !node.retained &&
         !node.keptBelow
@@ -169,12 +179,20 @@ function expectAgreement(
 }
 
 async function withArm(
-  run: (ctx: ScenarioEngine, handle: HarnessWritableMobxPoolHandle, transport: FakeTransport) => Promise<void>,
+  run: (
+    ctx: ScenarioEngine,
+    handle: HarnessWritableMobxPoolHandle,
+    transport: FakeTransport,
+  ) => Promise<void>,
 ): Promise<void> {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'truth')
   const transport = fakeTransport()
-  const mounted = mountArmForCounts(harnessWritableMobxPoolArm(transport, NEVER_AUTO), feeds.rows.source, feeds.locals)
+  const mounted = mountArmForCounts(
+    harnessWritableMobxPoolArm(transport, NEVER_AUTO),
+    feeds.rows.source,
+    feeds.locals,
+  )
   try {
     await run(ctx, mounted.handle as HarnessWritableMobxPoolHandle, transport)
   } finally {
@@ -204,7 +222,13 @@ describe('POD-4743 one row reader with pending edits', () => {
       await act(async () => {
         tx = write.edit('issue', id, { title: 'Pending rename', stage: pendingStage })
       })
-      expectAgreement(handle, id, { title: 'Pending rename', stage: pendingStage, visible: false }, 'pending', false)
+      expectAgreement(
+        handle,
+        id,
+        { title: 'Pending rename', stage: pendingStage, visible: false },
+        'pending',
+        false,
+      )
       await act(async () => {
         transport.fire({ type: 'rejected', txId: tx, error: { message: 'refused', parked: false } })
       })
@@ -214,15 +238,33 @@ describe('POD-4743 one row reader with pending edits', () => {
       await act(async () => {
         tx = write.edit('issue', id, { title: 'Echoed rename', stage: pendingStage })
       })
-      expectAgreement(handle, id, { title: 'Echoed rename', stage: pendingStage, visible: false }, 'pending (echo)', false)
+      expectAgreement(
+        handle,
+        id,
+        { title: 'Echoed rename', stage: pendingStage, visible: false },
+        'pending (echo)',
+        false,
+      )
       await act(async () => {
         transport.fire({ type: 'accepted', txId: tx })
       })
-      expectAgreement(handle, id, { title: 'Echoed rename', stage: pendingStage, visible: false }, 'receipted', false)
+      expectAgreement(
+        handle,
+        id,
+        { title: 'Echoed rename', stage: pendingStage, visible: false },
+        'receipted',
+        false,
+      )
       await act(async () => {
         serverWrite(ctx, id, { title: 'Echoed rename', stage: pendingStage })
       })
-      expectAgreement(handle, id, { title: 'Echoed rename', stage: pendingStage, visible: false }, 'after echo', true)
+      expectAgreement(
+        handle,
+        id,
+        { title: 'Echoed rename', stage: pendingStage, visible: false },
+        'after echo',
+        true,
+      )
 
       // Back to the original server values (a server change, nothing pending).
       await act(async () => {
@@ -237,7 +279,13 @@ describe('POD-4743 one row reader with pending edits', () => {
       await act(async () => {
         transport.fire({ type: 'accepted', txId: tx })
       })
-      expectAgreement(handle, id, { title: 'Expiring rename', stage: pendingStage, visible: false }, 'receipted (ttl)', false)
+      expectAgreement(
+        handle,
+        id,
+        { title: 'Expiring rename', stage: pendingStage, visible: false },
+        'receipted (ttl)',
+        false,
+      )
       vi.setSystemTime(vi.getMockedSystemTime()!.getTime() + ECHO_TTL_MS + 1)
       await act(async () => {
         write.expire()
@@ -250,11 +298,20 @@ describe('POD-4743 one row reader with pending edits', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const overlay = new PendingOverlay()
-    const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, NEVER_AUTO, overlay)
+    const handle = harnessMobxPoolArm.create(
+      feeds.rows.source,
+      feeds.locals.source,
+      undefined,
+      NEVER_AUTO,
+      overlay,
+    )
     const { pool } = handle
     const members = (): Map<string, unknown> =>
       new Map([
-        ...Object.entries(pool.inputs).map(([key, value]): [string, unknown] => [`inputs.${key}`, value]),
+        ...Object.entries(pool.inputs).map(([key, value]): [string, unknown] => [
+          `inputs.${key}`,
+          value,
+        ]),
         ...Object.entries(pool.visibleInputs).map(([key, value]): [string, unknown] => [
           `visibleInputs.${key}`,
           value,
@@ -263,7 +320,8 @@ describe('POD-4743 one row reader with pending edits', () => {
     const expectSame = (moment: string, before: Map<string, unknown>): void => {
       const now = members()
       expect([...now.keys()], moment).toEqual([...before.keys()])
-      for (const [key, value] of before) expect(now.get(key) === value, `${moment}: ${key}`).toBe(true)
+      for (const [key, value] of before)
+        expect(now.get(key) === value, `${moment}: ${key}`).toBe(true)
     }
     try {
       const before = members()

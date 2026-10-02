@@ -1,4 +1,3 @@
-import { shallowEqual } from '@podium/client-core/store'
 import { createLogger } from '@podium/logger'
 import {
   BarChart3,
@@ -20,7 +19,8 @@ import type { SidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { HostedWorkspaceSwitcher } from './HostedWorkspaceSwitcher'
-import { type MainView, useStoreSelector } from './store'
+import type { MainView } from './store'
+import { useHeaderView, useHeaderActions } from './header-data'
 import { ToolbarSlotTarget, useToolbarSlotFilled } from './ToolbarSlot'
 
 const log = createLogger('web:desktop-window')
@@ -63,10 +63,8 @@ export function TopBar({
   /** Fixed startup request; the pool-backed sidebar lands in the next pilot step. */
   sidebarLayer?: SidebarDataLayer
 } = {}): JSX.Element {
-  const { view, setView } = useStoreSelector(
-    (s) => ({ view: s.view, setView: s.setView }),
-    shallowEqual,
-  )
+  const view = useHeaderView()
+  const { setView } = useHeaderActions()
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')

@@ -1,10 +1,11 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
+import { useHarnessDescriptors } from '@podium/client-core/react'
+import { sessionValues } from '@podium/client-core/session-values'
 import { isDraftAgentVessel, sessionTitle } from '@podium/client-core/viewmodels'
 import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
-import { issueDisplayRef, isShortSessionIdentifier } from '@podium/protocol'
+import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { MoreVertical, SquareTerminal } from '../components/icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   useBooting,
@@ -16,17 +17,17 @@ import {
   useSpawnPrompt,
   useStoreActions,
 } from '../client/hooks'
+import type { MobileTrpc } from '../client/trpc'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
 import { Icon } from '../components/Icon'
+import { MoreVertical, SquareTerminal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
-import { useHarnessDescriptors } from '@podium/client-core/react'
 import { issueAgentKind, issueAgentLabel, modelLabel } from '../lib/agent-models'
-import type { MobileTrpc } from '../client/trpc'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { color } from '../theme/theme'
@@ -138,8 +139,7 @@ export function SessionScreen() {
   // the vessel can hold more than the one session this sheet opened from, and
   // the sentence must say so before anything is removed.
   const draftAgentCount = useMemo(
-    () =>
-      issue ? allSessions.filter((s) => s.issueId === issue.id && !s.archived).length : 0,
+    () => (issue ? allSessions.filter((s) => s.issueId === issue.id && !s.archived).length : 0),
     [allSessions, issue],
   )
 
@@ -196,7 +196,7 @@ export function SessionScreen() {
         onPress: () => void store.setSnooze(session.sessionId, snoozeUntilTomorrow5am(Date.now())),
       },
     ]
-    if (session.snoozedUntil !== undefined) {
+    if (sessionValues(session).snoozedUntil !== undefined) {
       actions.push({
         label: 'Clear snooze',
         onPress: () => void store.clearSnooze(session.sessionId),

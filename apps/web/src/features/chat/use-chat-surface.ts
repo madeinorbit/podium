@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { useStoreHandle } from '@podium/client-core/react'
 import {
   headlessConversationCanInterrupt,
@@ -31,7 +32,7 @@ import {
   transcriptAttributionTable,
   transcriptPhase,
 } from '@podium/client-core/viewmodels'
-import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId, type SessionMeta } from '@podium/model/browser'
+import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId} from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
@@ -81,7 +82,7 @@ export interface UseChatSurfaceOptions {
 
 export interface ChatSurface {
   // -- identity and the partial world ----------------------------------------
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   /** The chat's own referent. `not-visible` is an eviction, not a deletion. */
   reference: ChatSessionReference
   /** True when the session left the principal's view and the shell must leave
@@ -155,7 +156,7 @@ export interface ChatSurface {
   submitDraft: (draft: string) => void
   pending: readonly PendingItem[]
   ctxSeq: number | null
-  offer: SessionMeta['offer'] | null
+  offer: SessionView['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
   /** Decline the offer without answering it — see `useChatSend`. */
   dismissOffer: (offerAt: string) => Promise<void>
@@ -267,7 +268,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const storeHandle = useStoreHandle()
   const getIssueSeq = useCallback(
     (issueId: string): number | null =>
-      storeHandle.getSnapshot().issues?.find((issue) => issue.id === issueId)?.seq ?? null,
+      storeHandle.getSnapshot().issueProjections?.find((issue) => issue.id === issueId)?.seq ?? null,
     [storeHandle],
   )
 
@@ -296,7 +297,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     return (machines ?? []).find((m) => m.id === id)
   }, [machines, session?.machineId])
   const presenceOfflineMachineName = machineWire && isMachineOfflineForLiveTerminal(machineWire)
-    ? (machineWire.name ?? session?.machineName ?? session?.machineId ?? null)
+    ? (session?.machineName ?? machineWire.name ?? session?.machineId ?? null)
     : null
   const machineOnline = machineWire ? !isMachineOfflineForLiveTerminal(machineWire) : undefined
 

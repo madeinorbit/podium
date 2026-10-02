@@ -1,13 +1,15 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+
 import { issueDisplayRef } from '@podium/protocol'
-import { Plus } from '../icons'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
+import { Plus } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { StageGlyph } from '../StageGlyph'
 import { SectionHeading } from './chrome'
@@ -42,14 +44,14 @@ export function IssueSubIssues({
   onOpen,
   onStatus,
 }: {
-  issue: IssueWire
-  subIssues: IssueWire[]
+  issue: IssueViewModel
+  subIssues: IssueViewModel[]
   busy: boolean
   commands: IssueCommands
-  sessions: readonly SessionMeta[]
+  sessions: readonly SessionView[]
   now: number
   onOpen: (id: string) => void
-  onStatus: (issue: IssueWire) => void
+  onStatus: (issue: IssueViewModel) => void
 }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
@@ -58,7 +60,7 @@ export function IssueSubIssues({
     [now, sessions, subIssues],
   )
 
-  const finished = (c: IssueWire) => c.stage === 'done' || c.closedReason != null
+  const finished = (c: IssueViewModel) => c.stage === 'done' || c.closedReason != null
 
   const create = () => {
     const next = title.trim()
@@ -140,10 +142,10 @@ function SubTaskRow({
   onStatus,
   muted,
 }: {
-  child: IssueWire
+  child: IssueViewModel
   workingAgents: number
   onOpen: (id: string) => void
-  onStatus: (issue: IssueWire) => void
+  onStatus: (issue: IssueViewModel) => void
   muted?: boolean
 }) {
   const state = taskStateWord(child, workingAgents)

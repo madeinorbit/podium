@@ -11,7 +11,7 @@ const trpc = { models: { catalog: { query: catalog }, refresh: { mutate: refresh
 let activeTrpc: unknown = trpc
 
 vi.mock('./provider', () => ({
-  useStoreSelector: (select: (store: { trpc: unknown }) => unknown) => select({ trpc: activeTrpc }),
+  useStoreHandle: () => ({ getSnapshot: () => ({ trpc: activeTrpc }) }),
 }))
 
 const { useModelCatalog, useModelCatalogState } = await import('./use-model-catalog')
@@ -257,6 +257,8 @@ describe('useModelCatalog', () => {
     view.rerender(<StatusProbe machineId={machineId} />)
     expect(screen.getByText('loading')).toBeTruthy()
     expect(screen.queryByText('Old server')).toBeNull()
+    // The request yields once so its in-flight entry precedes publication.
+    await act(async () => {})
     expect(secondCatalog).toHaveBeenCalledOnce()
 
     await act(async () => {

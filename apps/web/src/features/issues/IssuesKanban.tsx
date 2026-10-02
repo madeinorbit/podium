@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE BOARD (rebuilt, POD-591).
  *
@@ -26,7 +27,7 @@
  *    are pinned through their boundary render, and no trip down a long column
  *    grows the component tree for the rest of the board's lifetime.
  */
-import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
+import type { IssueId, IssueStage} from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type {
   CSSProperties,
@@ -51,7 +52,7 @@ import { useBoundedVirtualList } from './use-bounded-virtual-list'
 export interface IssuesKanbanProps {
   columns: { stage: IssueStage; issues: IssueViewModel[] }[]
   allIssues: IssueViewModel[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   now: number
   badges: IssuesDisplay['badges']
   ordering: IssuesOrdering
@@ -96,10 +97,10 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
     [props.sessions],
   )
   const sessionsFor = useCallback(
-    (issue: IssueViewModel): SessionMeta[] =>
+    (issue: IssueViewModel): SessionView[] =>
       (issue.memberSessionIds ?? [])
         .map((id) => sessionById.get(id))
-        .filter((s): s is SessionMeta => s !== undefined),
+        .filter((s): s is SessionView => s !== undefined),
     [sessionById],
   )
   // A card's session array must be referentially stable while the board handles
@@ -370,7 +371,7 @@ function DragProxy({
   drag: DragState
   point: DragPoint
   proxyRef: RefObject<HTMLDivElement | null>
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   badges: IssuesDisplay['badges']
   now: number
 }): JSX.Element {
@@ -442,7 +443,7 @@ const IssueColumn = memo(function IssueColumn({
   badges: IssuesDisplay['badges']
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
   epicProgress: Map<string, EpicProgress | null>
-  sessionsByIssueId: Map<IssueId, SessionMeta[]>
+  sessionsByIssueId: Map<IssueId, SessionView[]>
   now: number
   drop: DragState['over']
   draggedIssueId: IssueId | null

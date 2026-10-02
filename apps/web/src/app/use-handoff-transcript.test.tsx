@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
-import { asSessionId, type SessionMeta, type TranscriptItem } from '@podium/model'
+import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useHandoffTranscript } from './use-handoff-transcript'
@@ -27,11 +28,11 @@ const harness = vi.hoisted(() => {
   }
 })
 
-vi.mock('./store', () => ({
-  useStoreSelector: (select: (store: Record<string, unknown>) => unknown) => select(harness.store),
+vi.mock('@podium/client-core/react', () => ({
+  useStoreHandle: () => ({ getSnapshot: () => harness.store }),
 }))
 
-const session = (id: string, stamp = '2026-09-01T10:00:00.000Z'): SessionMeta =>
+const session = (id: string, stamp = '2026-09-01T10:00:00.000Z'): SessionView =>
   ({
     sessionId: asSessionId(id),
     agentKind: 'codex',
@@ -42,7 +43,7 @@ const session = (id: string, stamp = '2026-09-01T10:00:00.000Z'): SessionMeta =>
     lastInputAt: stamp,
     lastActiveAt: stamp,
     transcriptAvailable: true,
-  }) as SessionMeta
+  }) as SessionView
 
 const item = (id: string, role: TranscriptItem['role'], text: string): TranscriptItem => ({
   id,

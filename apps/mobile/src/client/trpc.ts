@@ -1,18 +1,18 @@
 import type { PodiumClientApi, SuperagentTurnFailure } from '@podium/client-core/api'
 import {
   parseServer,
-  workspaceRequestInit,
-  type WorkspaceSelector,
   parseServerOrigin,
   resolveServerConfig,
   type ServerConfig,
+  type WorkspaceSelector,
+  workspaceRequestInit,
 } from '@podium/client-core/transport'
 import type { AskAnswerChoice } from '@podium/client-core/viewmodels'
 import type {
   IssueColorSlot,
+  IssueReport,
   IssueStage,
   IssueType,
-  IssueWire,
   MachineId,
   MessageRecordWire,
   MutationId,
@@ -143,7 +143,7 @@ interface MobileTrpcExtras {
     clear: MutationProcedure<{ threadId: ThreadId }>
   }
   issues: {
-    get: QueryProcedure<{ id: string }, IssueWire | undefined>
+    get: QueryProcedure<{ id: string }, IssueReport | undefined>
     create: MutationProcedure<
       {
         repoPath: string
@@ -158,10 +158,10 @@ interface MobileTrpcExtras {
         startNow: boolean
         mutationId?: MutationId
       },
-      IssueWire
+      IssueReport
     >
     /** Spawn the issue's default agent on it (issue-as-workspace). */
-    start: MutationProcedure<{ id: string; agentKind?: string }, IssueWire>
+    start: MutationProcedure<{ id: string; agentKind?: string }, IssueReport>
     /**
      * Put ANOTHER agent into an already-started issue's worktree [POD-724].
      *
@@ -171,11 +171,11 @@ interface MobileTrpcExtras {
      * needs both because the mission screen can now launch an agent from inside
      * the conversation, where the task is usually already running.
      */
-    addSession: MutationProcedure<{ id: string; agentKind?: string }, IssueWire>
+    addSession: MutationProcedure<{ id: string; agentKind?: string }, IssueReport>
     /** Operator-only: accept an agent proposal into the backlog [spec:SP-6144]. */
-    promote: MutationProcedure<{ id: string }, IssueWire>
+    promote: MutationProcedure<{ id: string }, IssueReport>
     /** Close an issue — the server writes stage `done` + the closure reason. */
-    close: MutationProcedure<{ id: string; reason?: string; mutationId?: MutationId }, IssueWire>
+    close: MutationProcedure<{ id: string; reason?: string; mutationId?: MutationId }, IssueReport>
     update: MutationProcedure<{
       id: string
       patch: {
@@ -210,7 +210,7 @@ interface MobileTrpcExtras {
     /** Toggle one agent-published todo; the positional API is 1-based. */
     panelApply: MutationProcedure<
       { id: string; op: 'todo-done' | 'todo-undone'; index: number },
-      IssueWire
+      IssueReport
     >
     /** Mark a task-owned human question resolved. */
     clearNeedsHuman: MutationProcedure<{ id: string }>

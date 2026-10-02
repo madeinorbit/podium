@@ -1,22 +1,15 @@
-// POD-4420 S2 — selection out of the worklist derive.
-//
-// A/B evidence: a warm rotation of selection-only publishes. The legacy arm
-// (selection as a declared derive input, placement inside derive) derives once
-// per click and hands every read a fresh slice object; the fixed arm (baseline
-// derive + memoized `placeWorklistSelection` post-pass) derives zero times and
-// keeps one slice identity, while group contents and the selected row's
-// placement stay identical in both arms. Counts, not milliseconds.
-import { type IssueWire } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Store } from '../../../engine/types'
 import { readRuntimeStoreStats, storeStats } from '../../../perf/store-stats'
+import type { IssueViewModel } from '../../../replica/issue-view-models'
+import { normalizedIssueFixture } from '../../../test-support/normalized-issue-fixture'
 import { createSlicePublisher } from '../publish'
 import { groupUnifiedWorkRows, splitPinnedWork } from './folds'
 import {
   placeWorklistSelection,
-  worklistSlice,
   type WorklistSelection,
   type WorklistSlice,
+  worklistSlice,
 } from './published'
 import type { UnifiedWorkRow } from './row-types'
 
@@ -28,7 +21,7 @@ const OLD = new Date(NOW - 10 * 24 * 3_600_000).toISOString()
 const FRESH = new Date(NOW - 1_000).toISOString()
 const SOON = new Date(NOW + 3_600_000).toISOString()
 
-function issue(id: string, repo: string, over: Partial<IssueWire> = {}): IssueWire {
+function issue(id: string, repo: string, over: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id,
     seq: 1,
@@ -43,8 +36,8 @@ function issue(id: string, repo: string, over: Partial<IssueWire> = {}): IssueWi
     updatedAt: AT,
     archived: false,
     audience: 'human',
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
     pinned: false,
     needsHuman: false,
     blocked: false,
@@ -52,10 +45,10 @@ function issue(id: string, repo: string, over: Partial<IssueWire> = {}): IssueWi
     deps: [],
     dependents: [],
     labels: [],
-    comments: [],
+
     blockedByNotes: [],
     ...over,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 function world(selectedIssueId: string | null): Store {
@@ -67,7 +60,7 @@ function world(selectedIssueId: string | null): Store {
     machines: [],
     sessions: [],
     pins: { panels: [], worktrees: [], repos: [] },
-    issues: [
+    ...normalizedIssueFixture([
       issue('a-live', 'a'),
       issue('b-live', 'b'),
       issue('a-old', 'a', {
@@ -76,7 +69,12 @@ function world(selectedIssueId: string | null): Store {
         closedAt: OLD,
         updatedAt: OLD,
       }),
-      issue('b-fresh', 'b', { stage: 'done', closedReason: 'done', closedAt: FRESH, updatedAt: FRESH }),
+      issue('b-fresh', 'b', {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: FRESH,
+        updatedAt: FRESH,
+      }),
       issue('a-tucked', 'a', {
         stage: 'done',
         closedReason: 'done',
@@ -92,8 +90,7 @@ function world(selectedIssueId: string | null): Store {
       }),
       issue('a-pinned', 'a', { pinned: true }),
       issue('s-snoozed', 'a', { deferUntil: SOON }),
-    ],
-    issueProjections: [],
+    ]),
     coarseNow: NOW,
     selectedIssueId,
   } as unknown as Store
@@ -141,7 +138,8 @@ const legacySlice = {
     a.machines === b.machines &&
     a.sessions === b.sessions &&
     a.pins === b.pins &&
-    a.issues === b.issues,
+    a.issueProjections === b.issueProjections &&
+    a.issueUserStates === b.issueUserStates,
   derive: (store: Store) => {
     const base = worklistSlice.derive(store)
     const { rest } = splitPinnedWork(base.work)
@@ -212,7 +210,7 @@ describe('POD-4420 S2 selection costs zero derivations', () => {
       })
       storeStats.enable(false)
     }
-    const [before, after] = perArm as [typeof perArm[number], typeof perArm[number]]
+    const [before, after] = perArm as [(typeof perArm)[number], (typeof perArm)[number]]
 
     // BEFORE: one derive for the initial read plus one per click.
     expect(before.derives).toBe(1 + CLICKS.length)
@@ -264,10 +262,11 @@ describe('POD-4420 S2 selection costs zero derivations', () => {
       // the fixed arm must derive exactly like the legacy arm.
       store = {
         ...store,
-        issues: store.issues.map((row) =>
-          row.id === 'b-fresh' ? { ...row, tuckedAt: AT } : row,
+        issueUserStates: store.issueUserStates.map((row) =>
+          row.entityId === 'b-fresh' ? { ...row, tuckedAt: AT } : row,
         ),
       }
+      store.replica.applySnapshot('issueUserStates', store.issueUserStates)
       const second = publisher.read(definition)
       expect(readRuntimeStoreStats(owner)?.slices.worklist).toBe(2)
       const placed = legacy ? second : placeWorklistSelection(second, sel('a-live'))
@@ -339,7 +338,11 @@ describe('POD-4420 S2 post-pass placement oracle', () => {
     // First-row order is a, b; the saved custom order puts b first.
     const custom = worklistSlice.derive({
       ...world(null),
-      sidebarSettings: { repoSort: 'custom', repoOrder: ['/repo-b', '/repo-a'], groupByRepo: false },
+      sidebarSettings: {
+        repoSort: 'custom',
+        repoOrder: ['/repo-b', '/repo-a'],
+        groupByRepo: false,
+      },
     } as Store)
     expect(custom.groups.map((group) => group.key)).toEqual(['/repo-b', '/repo-a'])
     const placed = placeWorklistSelection(custom, sel('a-old'))

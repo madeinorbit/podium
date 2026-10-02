@@ -1,3 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
+import { fixtureGitStates, fixtureMarkers, fixtureProjection } from './normalized-issues'
 /**
  * POD-4443 / POD-4635 — deterministic live-shaped corpus at 1x, 2x and 4x.
  *
@@ -35,16 +38,18 @@
 import { deriveIssueRollups, indexSessionsByIssue } from '@podium/client-core/replica'
 import type { PinState } from '@podium/client-core/viewmodels'
 import type {
+  SliceIssue,
+  SliceSession,
+  SliceWorktree,
+} from '@podium/client-graph/shared/slice-types'
+import type {
   GitRepositoryWire,
   IssueDepProjection,
   IssueProjection,
-  IssueWire,
   MachineWire,
   RepoProjection,
-  SessionMeta,
 } from '@podium/model'
 import { spreadSortKeys } from '@podium/model'
-import type { SliceIssue, SliceSession, SliceWorktree } from '@podium/client-graph/shared/slice-types'
 
 /** The corpus clock. Sits inside the defer band thresholds (spec §3 R-ORDER):
  *  `deferUntil` values are minted ±45 d around it, so bands 0/1/2 are all live.
@@ -213,12 +218,14 @@ export interface FixtureCorpus {
   /** POD-4747: every unit, in minting order. */
   units: UnitSpan[]
   fixedNow: number
-  /** Legacy wire rows (`store.issues`, replica `issues` kind for `readAt`). */
-  issues: IssueWire[]
+  /** Derived render models for oracle inputs; never replicated as a kind. */
+  issues: IssueViewModel[]
   /** Normalized durable rows (replica `issueProjections` kind). */
   issueProjections: IssueProjection[]
+  issueUserStates?: import('@podium/model').IssueUserStateWire[]
+  issueGitStates?: import('@podium/model').IssueGitStateProjection[]
   /** Session rows (`store.sessions`, replica `sessions` kind). */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** Logical repos (replica `repos` kind, `displayRef` prefix join). */
   repoProjections: RepoProjection[]
   /** Dependency edges (replica `issueDeps` kind). */
@@ -2245,7 +2252,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
         .slice(0, 2),
     ),
   )
-  const issues: IssueWire[] = []
+  const issues: IssueViewModel[] = []
   const issueProjections: IssueProjection[] = []
   mints.forEach((m, i) => {
     enter(m.unit)
@@ -2272,9 +2279,9 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       archived: m.archived,
       pinned: false,
       readAt: null,
-      origin: 'human',
+      intentOrigin: 'human',
       audience: m.audience,
-      draft: drafts.has(i),
+      isDraftVessel: drafts.has(i),
       repoPath: m.repoPath,
       repoId: m.repo,
       parentId: m.parent === null ? undefined : idOf(m.parent),
@@ -2286,6 +2293,16 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       worktreePath: m.worktree,
       branch: null,
       needsHuman: needsHuman.has(i),
+      ...(needsHuman.has(i)
+        ? {
+            asked: {
+              question: `Question ${i}`,
+              options: ['Ship', 'Hold'],
+              at: iso(FIXED_NOW),
+              by: `s-asker-${i}`,
+            },
+          }
+        : {}),
       priority: 2,
       type: 'task',
       labels: [],
@@ -2325,10 +2342,10 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       deletedAt: m.deletedAt,
       audience: m.audience,
     } as unknown as Record<string, unknown>
-    if (drafts.has(i)) projection['draft'] = true
+    if (drafts.has(i)) projection['isDraftVessel'] = true
     if (startedBy.has(i)) projection['startedBySession'] = startedBy.get(i)
     if (coordinator.has(i)) projection['coordinatorSessionId'] = coordinator.get(i)
-    issues.push(wire as unknown as IssueWire)
+    issues.push(wire as unknown as IssueViewModel)
     issueProjections.push(projection as unknown as IssueProjection)
   })
   const setWire = (i: number, key: string, value: unknown): void => {
@@ -2446,7 +2463,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
   })
 
   // -- unread rollups (same derivation the replica runs) -------------------------
-  const typedSessions = sessions as unknown as SessionMeta[]
+  const typedSessions = sessions as unknown as SessionView[]
   const sessionInputs = typedSessions.map((s) => ({
     sessionId: s.sessionId,
     issueId: s.issueId,
@@ -2497,7 +2514,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       stage: wire.stage,
       closedReason: (w['closedReason'] as string | null) ?? null,
       audience: wire.audience,
-      draft: (w['draft'] as boolean) ?? false,
+      isDraftVessel: (w['isDraftVessel'] as boolean) ?? false,
       pinned: (w['pinned'] as boolean) ?? false,
       sortKey: (w['sortKey'] as string | null) ?? null,
       deferUntil: (w['deferUntil'] as string | null) ?? null,
@@ -2588,14 +2605,26 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
     units: spans,
     fixedNow: FIXED_NOW,
     issues,
-    issueProjections,
+    issueProjections: issueProjections.map((projection, index) =>
+      fixtureProjection(issues[index]!, projection),
+    ),
+    issueUserStates: fixtureMarkers(issues),
+    issueGitStates: fixtureGitStates(issues),
     sessions: typedSessions,
-    repoProjections,
+    repoProjections: repoProjections.map((repo) => ({
+      ...repo,
+      repoPath: units[0]!.primaryRoot.get(repo.id) ?? '',
+    })),
     issueDeps,
     repos,
     machines,
     pins: { panels: [], worktrees: [], repos: [] },
-    sliceIssues,
+    sliceIssues: sliceIssues.map((issue, index) => ({
+      ...issue,
+      isDraftVessel: issues[index]?.isDraftVessel ?? false,
+      intentOrigin: issues[index]?.intentOrigin,
+      asked: issueProjections[index]?.asked,
+    })),
     sliceSessions,
     sliceWorktrees,
     unscannedWorktree: {

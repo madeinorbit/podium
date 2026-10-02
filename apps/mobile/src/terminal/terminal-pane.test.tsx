@@ -1,3 +1,5 @@
+import { seedIssueFixtures } from '../client/issue-fixtures'
+import { asUserId } from '@podium/model'
 // @vitest-environment happy-dom
 /**
  * The mobile pane's two contracts that are not xterm's: WHEN it attaches, and
@@ -34,13 +36,8 @@
  * against the defect.
  */
 import { useStore } from '@podium/client-core/react'
-import {
-  asIssueId,
-  asSessionId,
-  type IssueWire,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asIssueId, asSessionId, type SessionId, type SessionMeta } from '@podium/model'
 import type { MountSessionOptions } from '@podium/terminal-client/session-mount'
 import { cleanup } from '@testing-library/react'
 import { act, useState } from 'react'
@@ -59,12 +56,7 @@ import type { TerminalControlState } from './terminal-control'
 type MountRole = 'controller' | 'spectator'
 type MountCallbacks = {
   onReady?: () => void
-  onState?: (state: {
-    outputSeen: boolean
-    role: MountRole
-    cols: number
-    rows: number
-  }) => void
+  onState?: (state: { outputSeen: boolean; role: MountRole; cols: number; rows: number }) => void
   onMounted?: (mounted: unknown) => void
   crop?: MountSessionOptions['crop']
 }
@@ -125,7 +117,9 @@ vi.mock('@podium/terminal-client/session-mount', () => ({
 // The mobile keyboard accessory reaches for real DOM measurement the pane's
 // mount would own; nothing here tests it and it renders on every pane.
 type TerminalClientReactModule = typeof import('@podium/terminal-client-react')
-type ImportOriginal = <T extends TerminalClientReactModule = TerminalClientReactModule>() => Promise<T>
+type ImportOriginal = <
+  T extends TerminalClientReactModule = TerminalClientReactModule,
+>() => Promise<T>
 
 vi.mock('@podium/terminal-client-react', async (orig: ImportOriginal) => {
   const real = await orig()
@@ -170,8 +164,8 @@ function confirmedRow(sessionId: SessionId): SessionMeta {
 
 /** A visible task row, as the replica holds one. */
 function issueRow(
-  overrides: Omit<Partial<IssueWire>, 'id'> & { id: string; seq: number },
-): IssueWire {
+  overrides: Omit<Partial<IssueViewModel>, 'id'> & { id: string; seq: number },
+): IssueViewModel {
   return {
     title: 'Some work',
     stage: 'in_progress',
@@ -182,7 +176,7 @@ function issueRow(
     updatedAt: new Date(0).toISOString(),
     ...overrides,
     id: asIssueId(overrides.id),
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 beforeEach(() => {
@@ -379,7 +373,10 @@ describe('TerminalPane take control (POD-724)', () => {
     expect(pane.view.queryByText(SPECTATING)).not.toBeNull()
 
     act(() => pane.latest()?.takeControl())
-    expect(pane.view.queryByText(SPECTATING), 'a claim changes nothing until the server answers').not.toBeNull()
+    expect(
+      pane.view.queryByText(SPECTATING),
+      'a claim changes nothing until the server answers',
+    ).not.toBeNull()
 
     await report('controller')
     expect(pane.view.queryByText(SPECTATING)).toBeNull()
@@ -430,7 +427,7 @@ describe('TerminalPane ref underlines (POD-724)', () => {
     // moving to review must re-arm the overlay, or it keeps yesterday's colour.
     setRefLinksMock.mockClear()
     await act(async () => {
-      replica.applySnapshot('issues', [issueRow({ id: 'iss-7', seq: 7, stage: 'review' })])
+      seedIssueFixtures(replica, [issueRow({ id: 'iss-7', seq: 7, stage: 'review' })], asUserId('user:test'))
       await Promise.resolve()
     })
     expect(setRefLinksMock).toHaveBeenCalled()

@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * POD-4563 (L6a) — the ROW VIEW oracle: every field of every visible row's
  * `RowView` (`shared/src/row-view.ts`), projected from the legacy derivation.
@@ -26,7 +27,7 @@ import {
   issueClosedFoldAt,
   issueDisplayTitle,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+
 import { isRowSeat, type RowOriginTick, type RowView } from '@podium/client-graph/shared/row-view'
 import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
@@ -44,7 +45,7 @@ export type RowViews = Record<string, RowView>
  * which this package cannot import): the earliest `agentState.since` (else
  * `lastActiveAt`) among the row's own working seats, or null.
  */
-function workingSinceOf(sessions: readonly SessionMeta[]): number | null {
+function workingSinceOf(sessions: readonly SessionView[]): number | null {
   let earliest: number | null = null
   for (const session of sessions) {
     if (!isRowSeat(session) || !isSessionWorking(session)) continue

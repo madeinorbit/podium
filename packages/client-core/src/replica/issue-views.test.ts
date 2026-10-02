@@ -477,9 +477,9 @@ describe('reading straight off the replica', () => {
       { id: 'i1', seq: 13, repoId: 'repo_a', stage: 'in_progress' } as never,
       { id: 'i2', seq: 14, repoId: 'repo_a', stage: 'done', parentId: 'i1' } as never,
     ])
-    replica.applySnapshot('issues', [
-      { id: 'i1', readAt: '2026-07-17T10:00:00.000Z' } as never,
-      { id: 'i2', readAt: null } as never,
+    replica.applySnapshot('issueUserStates', [
+      { userId: 'u-test', entityId: 'i1', readAt: '2026-07-17T10:00:00.000Z' } as never,
+      { userId: 'u-test', entityId: 'i2', readAt: null } as never,
     ])
     replica.applySnapshot('repos', [{ id: 'repo_a', prefix: 'POD' } as never])
     replica.applySnapshot('sessions', [
@@ -591,7 +591,7 @@ describe('phase rollup follows current agent state [POD-4382]', () => {
     replica.applySnapshot('issueProjections', [
       { id: 'i1', seq: 1, stage: 'in_progress' } as never,
     ])
-    replica.applySnapshot('issues', [{ id: 'i1', readAt: null } as never])
+    replica.applySnapshot('issueUserStates', [{ userId: 'u-test', entityId: 'i1', readAt: null } as never])
     replica.applySnapshot('sessions', sessionRows)
     return readViewInputs(replica)
   }

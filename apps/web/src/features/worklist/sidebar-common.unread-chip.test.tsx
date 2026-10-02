@@ -1,5 +1,7 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
@@ -15,7 +17,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 afterEach(cleanup)
 
-function sess(over: Partial<SessionMetaInput>): SessionMeta {
+function sess(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('sess'),
     agentKind: 'claude-code',
@@ -34,14 +36,14 @@ function sess(over: Partial<SessionMetaInput>): SessionMeta {
     archived: false,
     busy: false,
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
-function renderRow(session: SessionMeta, active = false): void {
+function renderRow(session: SessionView, active = false): void {
   render(<PanelRow session={session} active={active} onSelect={vi.fn()} />)
 }
 
-const doneTurn = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
+const doneTurn = (over: Partial<SessionViewInput> = {}): SessionView =>
   sess({
     unread: true,
     agentState: {

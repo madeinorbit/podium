@@ -1,9 +1,9 @@
-import { IssueWire } from '@podium/model/browser'
-import { makeIssue } from './test-issue'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { type KernelAssembly, openKernelAssembly } from './kernelReplica'
+import { makeIssue } from './test-issue'
 
 let assembly: KernelAssembly | undefined
 const postMessage = vi.fn()
@@ -30,10 +30,12 @@ const meta = {
 }
 const row = {
   seq: 1,
-  entity: 'issue',
+  entity: 'issueProjection',
   entityId: 'i',
   op: 'upsert',
-  value: IssueWire.parse(makeIssue({ id: 'i', title: 'HTTP' })),
+  value: normalizedFixtureStore({ issues: [makeIssue({ id: 'i', title: 'HTTP' })] }).replica.rows(
+    'issueProjections',
+  )[0],
 }
 const chunk = {
   type: 'feedBootstrap',

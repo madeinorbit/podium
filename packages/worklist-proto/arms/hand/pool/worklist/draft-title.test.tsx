@@ -26,7 +26,7 @@ describe('a draft wears its first nameable member (4x)', () => {
       const want = oracleSnapshot(ctx.engine.getSnapshot())
       const { pool } = handle
       const drafts = Object.keys(want.rowsById).filter(
-        (id) => pool.visibleInputs.issueRow(id)?.draft === true,
+        (id) => pool.visibleInputs.issueRow(id)?.isDraftVessel === true,
       )
       expect(drafts.length, 'visible drafts at 4x').toBeGreaterThan(0)
       const shellFirst = drafts.filter((id) => {

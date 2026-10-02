@@ -1,9 +1,10 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
   partitionStaleSessions,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model/browser'
+import type { SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, ReactNode } from 'react'
 import { AgentRosterBand, PanelRow, StaleSection } from './sidebar-common'
@@ -13,7 +14,7 @@ import { AgentRosterBand, PanelRow, StaleSection } from './sidebar-common'
  *  silently pooling into an anonymous branch row. Presentation only; the
  *  data-layer orphan fix is POD-135. */
 function orphanProvenance(
-  session: SessionMeta,
+  session: SessionView,
   issues: IssueNavigationModel[],
 ): { text: string; hint: string } | null {
   if (!session.issueId) return null
@@ -51,9 +52,9 @@ export function UnifiedWorktreeRow({
   now: number
   onSelect: () => void
   onSelectPanel: (sessionId: SessionId) => void
-  partition?: { visible: SessionMeta[]; stale: SessionMeta[] }
+  partition?: { visible: SessionView[]; stale: SessionView[] }
   renderSession?: (
-    session: SessionMeta,
+    session: SessionView,
     active: boolean,
     issueDisplayRef: string | undefined,
     trailingMeta: ReactNode,
@@ -62,7 +63,7 @@ export function UnifiedWorktreeRow({
   const { worktree } = row
   const { visible, stale } = partition ?? partitionStaleSessions(worktree.sessions, now)
   const branch = worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path
-  const renderRow = (session: SessionMeta) => {
+  const renderRow = (session: SessionView) => {
     const orphan = orphanProvenance(session, issues)
     const attachedIssueDisplayRef = session.issueId
       ? issues.find((issue) => issue.id === session.issueId)?.displayRef

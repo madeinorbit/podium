@@ -2,8 +2,10 @@
 // keyed rows sort ascending by key within their band; unkeyed legacy rows keep
 // newest-first creation order below keyed rows; snoozed still sinks and nothing
 // else (urgency/activity) sorts; a parent's children sort by their own keys.
-import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView, SessionViewInput } from '../session-values'
 import {
   partitionUnifiedWork,
   type SidebarSections,
@@ -15,7 +17,7 @@ const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
 // Rows need a live member session to surface in the unified list.
-function sess(id: string, issueId: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(id: string, issueId: string, over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: id,
     issueId,
@@ -28,10 +30,10 @@ function sess(id: string, issueId: string, over: Partial<SessionMetaInput> = {})
     archived: false,
     title: id,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
   return {
     id: 'i1',
     repoPath: '/r/a',
@@ -48,13 +50,13 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
     needsHuman: false,
-    origin: 'human' as const,
+    intentOrigin: 'human' as const,
     audience: 'human' as const,
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     ...over,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 const emptySections = (): SidebarSections => ({
@@ -174,7 +176,7 @@ describe('sortKey manual order (POD-168)', () => {
         ({
           ...session,
           agentState: { phase: 'working', since: session.lastActiveAt },
-        }) as SessionMeta,
+        }) as SessionView,
     )
     const { working } = partitionUnifiedWork(emptySections(), issues, afterStart, [], NOW)
     expect(

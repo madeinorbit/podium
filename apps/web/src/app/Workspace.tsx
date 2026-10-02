@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
@@ -14,7 +15,7 @@ import {
   type SplitAxis,
   selectedMissionRoot,
 } from '@podium/client-core/viewmodels'
-import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
+import { asSessionId, type IssueId, type SessionId} from '@podium/model/browser'
 import {
   Columns2,
   Crosshair,
@@ -832,7 +833,7 @@ export function Workspace({
 
   // Dock-owned shells (#23) live in the right dock's Shell panel, never as tabs.
   const dockShellIds = new Set<string>(Object.values(dockShells))
-  const sessionById = new Map<string, SessionMeta>(sessions.map((s) => [s.sessionId, s]))
+  const sessionById = new Map<string, SessionView>(sessions.map((s) => [s.sessionId, s]))
   const fileById = new Map<string, FileTab>(fileTabs.map((f) => [f.id, f]))
   const resolveTab = (id: string): WTab | undefined => {
     const session = sessionById.get(id)

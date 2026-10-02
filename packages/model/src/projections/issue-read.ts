@@ -30,8 +30,53 @@
  * into it, or derives from it, so no call site has to change when it goes.
  */
 
+import type { IssueDepWire, IssueGitState } from '../entities/issue-vocabulary'
 import type { MachineId, SessionId } from '../ids/brands'
+import type { IssueUserOverlay } from '../user-state/issue-state'
+import type { IssueProjection } from './issue-projection'
 import type { IssueTreeSession } from './session-read'
+
+/** An on-demand tracker report. The feed carries only IssueProjection and its
+ * independently keyed companions; a CLI without a replica requests these joins.
+ * This report is never stored, cached, or published on the entity feed. */
+export type IssueReport = Omit<
+  IssueProjection,
+  | 'description'
+  | 'notes'
+  | 'asked'
+  | 'intentOrigin'
+  | 'isDraftVessel'
+  | 'worktreePath'
+  | 'branch'
+  | 'owner'
+  | 'visibility'
+  | 'createdBy'
+  | 'lastLifecycleActor'
+> &
+  IssueUserOverlay & {
+    description: string
+    humanQuestion?: string
+    humanQuestionOptions?: string[]
+    humanQuestionAskedBy?: SessionId
+    humanQuestionAskedAt?: string
+    origin: IssueProjection['intentOrigin']
+    draft: boolean
+    worktreePath: string | null
+    branch: string | null
+    commentCount: number
+    notes?: string
+    repoPath: string
+    prefix?: string
+    displayRef: string
+    deps: IssueDepWire[]
+    dependents: IssueDepWire[]
+    ready: boolean
+    blocked: boolean
+    deferred: boolean
+    childCount: number
+    childDoneCount: number
+    gitState?: IssueGitState
+  }
 
 /**
  * One node of an epic subtree payload (issue #82).
@@ -77,20 +122,6 @@ export interface IssueTree<S = IssueTreeSession> {
   maxNodes: number
 }
 
-/**
- * The issue as the `show` renderer reads it — inventory §3 #8.
- *
- * A TOLERANT READ, not a `Pick` of `IssueWire`, and the difference is the point.
- * This client also talks to a REMOTE relay, so it can meet a server that sends
- * `null` where the current one omits the key; every optional member is therefore
- * `| null` as well. A straight `Pick<IssueWire, …>` would declare a contract this
- * client cannot actually rely on, and tightening the read here would be a
- * behaviour change dressed as a refactor.
- *
- * What it is NOT is a restatement: the key SET is the projection, spelled once.
- *
- * Generic in its session element for the same reason {@link IssueTreeNode} is.
- */
 export interface IssueShowWire<S = IssueTreeSession> {
   id: string
   seq: number

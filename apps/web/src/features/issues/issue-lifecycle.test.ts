@@ -1,4 +1,5 @@
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { issueBulkCloseSummary } from './issue-lifecycle'
@@ -10,7 +11,7 @@ import { issueBulkCloseSummary } from './issue-lifecycle'
  * shape and the desktop's `memberSessionIds` spelling of membership.
  */
 
-const session = (over: Partial<SessionMetaInput>): SessionMeta =>
+const session = (over: Partial<SessionViewInput>): SessionView =>
   ({
     sessionId: asSessionId('s'),
     agentKind: 'codex',
@@ -28,7 +29,7 @@ const session = (over: Partial<SessionMetaInput>): SessionMeta =>
     readAt: null,
     unread: false,
     ...over,
-  }) as SessionMeta
+  }) as SessionView
 
 describe('issue bulk close summary', () => {
   it('counts a batch by what is unresolved in it, keeping selection order', () => {

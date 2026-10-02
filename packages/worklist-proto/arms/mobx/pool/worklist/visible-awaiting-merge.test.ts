@@ -1,3 +1,5 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
+
 /**
  * POD-4940 — a finished row whose private branch holds unlanded work stays in
  * the sidebar without limit (`issueAwaitingMerge`).
@@ -15,13 +17,16 @@
  * row views' phase/asking for the shaped rows.
  */
 
+import { rowViewOf } from '@podium/client-graph/models'
 import { describe, expect, it } from 'vitest'
-import { harnessMobxPoolArm, snapshotPool, tracked, visibleOrderOf } from '../../../../harness/src/adapters/mobx-pool'
 import {
-  engineLocals,
-  openFenceFeeds,
-  parityLocals,
-} from '../../../../harness/src/fence-scenarios'
+  harnessMobxPoolArm,
+  snapshotPool,
+  tracked,
+  visibleOrderOf,
+} from '../../../../harness/src/adapters/mobx-pool'
+import { engineLocals, openFenceFeeds, parityLocals } from '../../../../harness/src/fence-scenarios'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import {
   legacyDerivationFromStore,
   rowViewsFromStore,
@@ -29,13 +34,7 @@ import {
   visibleIssueRows,
 } from '../../../../harness/src/oracle/index'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
-import {
-  type ScenarioEngine,
-  startScenarioEngine,
-  upsert,
-} from '../../../../shared/src/scenarios'
-import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import { rowViewOf } from '@podium/client-graph/models'
+import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
 
 installMobxWarnTrap()
 
@@ -45,7 +44,9 @@ const HOUR_MS = 60 * 60 * 1000
 /** A finished agent child with an unlanded private branch, cloned off a live wire row. */
 function mergeChild(ctx: ScenarioEngine, parentId: string, id: string, closedMsAgo: number) {
   const now = ctx.engine.getSnapshot().coarseNow
-  const wire = { ...(ctx.cache.read('issue', parentId)?.value as Record<string, unknown>) }
+  const wire = {
+    ...(ctx.cache.read('issueProjection', parentId)?.value as Record<string, unknown>),
+  }
   const projection = {
     ...(ctx.cache.read('issueProjection', parentId)?.value as Record<string, unknown>),
   }
@@ -81,14 +82,8 @@ function mergeChild(ctx: ScenarioEngine, parentId: string, id: string, closedMsA
     },
   }
   ctx.replica.batch(() => {
-    upsert(ctx, 'issue', id, {
+    upsertIssue(ctx, id, {
       ...wire,
-      ...common,
-      seq: ctx.corpus.issues.length + 901,
-      title: `Synthetic awaiting-merge child ${id}`,
-    })
-    upsert(ctx, 'issueProjection', id, {
-      ...projection,
       ...common,
       seq: ctx.corpus.issues.length + 901,
       title: `Synthetic awaiting-merge child ${id}`,
@@ -126,12 +121,19 @@ function expectParity(ctx: ScenarioEngine, handle: ReturnType<typeof harnessMobx
   const locals = parityLocals(ctx)
   const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
   const expected = visibleIssueRows(derivation, locals).map((row) => row.issue.id)
-  expect(tracked(() => visibleOrderOf(handle.pool)), 'visible order').toEqual(expected)
+  expect(
+    tracked(() => visibleOrderOf(handle.pool)),
+    'visible order',
+  ).toEqual(expected)
   const diff = diffSnapshots(snapshot, snapshotFromStore(ctx.engine.getSnapshot(), locals))
   expect(diff, 'snapshot rows').toBeNull()
 }
 
-function expectViews(ctx: ScenarioEngine, handle: ReturnType<typeof harnessMobxPoolArm.create>, ids: string[]) {
+function expectViews(
+  ctx: ScenarioEngine,
+  handle: ReturnType<typeof harnessMobxPoolArm.create>,
+  ids: string[],
+) {
   const views = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
   tracked(() => {
     for (const id of ids) {

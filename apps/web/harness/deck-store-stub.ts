@@ -15,9 +15,10 @@
  * The fixture is settable from the page (`window.deck.setMission`) so one browser
  * session can sweep every width and every row shape.
  */
-import type { SessionMeta } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionMeta, UnbrandIds } from '@podium/model'
 
-type Issue = Record<string, unknown>
+type Issue = Partial<UnbrandIds<IssueViewModel>> & Record<string, unknown>
 
 export const issue = (id: string, over: Issue = {}): Issue => ({
   id,

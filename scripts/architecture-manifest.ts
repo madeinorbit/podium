@@ -594,7 +594,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 3,
     platform: 'browser-safe',
     features: ['client-graph'],
-    deps: ['packages/client-core', 'packages/harness', 'packages/model'],
+    deps: ['packages/client-core', 'packages/harness', 'packages/model', 'packages/protocol'],
   },
   // Maintenance/steward jobs (change-log + event prune, auto-archive, message
   // expiry, connect scan) and the worker client that hosts them. node-only:
@@ -661,6 +661,8 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   'packages/terminal-client-react -> packages/client-core',
   // Worklist feeds adapt the caller-owned client runtime and its existing outbox.
   'packages/client-graph -> packages/client-core',
+  // Reference identity uses the shared wire-format parser (POD-5078).
+  'packages/client-graph -> packages/protocol',
   // L1: the CLI's issue client RENDERS the shared command contracts (POD-311)
   // rather than declaring its own command-name universe. Previously invisible to
   // this set because the import is type-only and type-only used to skip the

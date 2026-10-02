@@ -25,7 +25,7 @@ const fixture = vi.hoisted(() => ({
   store: {
     trpc: {
       settings: { get: { query: vi.fn(async () => ({})) } },
-      issues: { search: { query: vi.fn(async () => []) } },
+      issues: { searchNormalized: { query: vi.fn(async () => []) } },
       sessions: { handoff: { mutate: vi.fn() } },
     },
     repos: [],

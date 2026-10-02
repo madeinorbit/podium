@@ -1,3 +1,5 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+
 /**
  * Freeing a worktree removes the dock-shell mapping (POD-4436 step 4), and the
  * stop path answers the policy's owning worktree from the mapping (step 3).
@@ -12,20 +14,26 @@
  * same shell without the mapping is parked.
  */
 
-import { asSessionId, asUserId, firstAdminMemberId, type SessionId, type UserId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
+import {
+  asSessionId,
+  asUserId,
+  firstAdminMemberId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal } from '../../command-principal'
-import { SessionRegistry } from '../../relay'
-import { openTestStore } from '../../test-support/open-test-store'
-import { testClientPrincipal } from '../../test-support/client-principal'
-import type { ControlMessage } from '@podium/protocol/daemon'
-import type { ServerMessage } from '@podium/protocol'
 import type { ClientConn } from '../../gateway/client-registry'
+import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
-import type { Session } from '../sessions/session'
-import type { SessionLifecycle } from '../sessions/lifecycle'
+import { testClientPrincipal } from '../../test-support/client-principal'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { openTestStore } from '../../test-support/open-test-store'
+import type { SessionLifecycle } from '../sessions/lifecycle'
+import type { Session } from '../sessions/session'
 
 const registries: SessionRegistry[] = []
 
@@ -38,7 +46,12 @@ const WT = '/r/.worktrees/a'
 function gitWorktreeList(entries: Array<{ path: string; branch?: string }>): string {
   return entries
     .map((entry) =>
-      [`worktree ${entry.path}`, 'HEAD deadbeef', entry.branch ? `branch refs/heads/${entry.branch}` : null, '']
+      [
+        `worktree ${entry.path}`,
+        'HEAD deadbeef',
+        entry.branch ? `branch refs/heads/${entry.branch}` : null,
+        '',
+      ]
         .filter((field) => field !== null)
         .join('\0'),
     )
@@ -62,7 +75,11 @@ async function makeRegistry(statusImpl: () => Promise<{ ok: boolean; output: str
   registries.push(reg)
   const daemon: ControlMessage[] = []
   await attachHostDaemon(reg, (m) => daemon.push(m))
-  await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId, 'git@github.com:example/r.git')
+  await reg.sessionStore.repos.addRepo(
+    '/r',
+    reg.sessionStore.hostMachineId,
+    'git@github.com:example/r.git',
+  )
   const rpc = (
     reg.modules.sessions as unknown as {
       rpc: {
@@ -95,7 +112,11 @@ async function makeRegistry(statusImpl: () => Promise<{ ok: boolean; output: str
 }
 
 async function makeIssueWithWorktree(reg: SessionRegistry): Promise<string> {
-  const issue = await reg.modules.issues.create({ repoPath: '/r', title: 'Dock shell home', startNow: false })
+  const issue = await reg.modules.issues.create({
+    repoPath: '/r',
+    title: 'Dock shell home',
+    startNow: false,
+  })
   await reg.modules.issues.update(issue.id, { worktreePath: WT, branch: 'issue/a' })
   return issue.id
 }
@@ -168,9 +189,17 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
    */
   async function setupMappedStop(mapped: boolean) {
     const { reg, store } = await makeRegistry(async () => ({ ok: true, output: '## issue/a\n' }))
-    const issueA = await reg.modules.issues.create({ repoPath: '/r', title: 'Owner', startNow: false })
+    const issueA = await reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Owner',
+      startNow: false,
+    })
     await reg.modules.issues.update(issueA.id, { worktreePath: WT, branch: 'issue/a' })
-    const issueB = await reg.modules.issues.create({ repoPath: '/r', title: 'Binding', startNow: false })
+    const issueB = await reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Binding',
+      startNow: false,
+    })
     // A live occupant blocks the free so the verdict can only come from the mapping.
     await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: WT })
     const shell = await reg.modules.sessions.createSession({
@@ -185,7 +214,12 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
     // The close must have kept the worktree (occupied) and therefore the mapping.
     expect((await reg.modules.issues.getMeta(issueA.id))?.worktreePath).toBe(WT)
     if (mapped) {
-      await store.dockShells.set(firstAdminMemberId(), WT, shell.sessionId, new Date().toISOString())
+      await store.dockShells.set(
+        firstAdminMemberId(),
+        WT,
+        shell.sessionId,
+        new Date().toISOString(),
+      )
     }
     return { reg, store, shellId: shell.sessionId }
   }
@@ -222,7 +256,7 @@ describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () 
       viewports: new Map(),
       attached: new Set(),
       caps: new Set(),
-      wireVersion: 1,
+      wireVersion: CLIENT_WIRE_VERSION,
       transcriptSubs: new Set(),
       visible: true,
       viewVisible: new Set(),

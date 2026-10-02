@@ -23,6 +23,7 @@
     "@playwright/test": "^1.60.0",
     "@types/ws": "^8.5.13",
     "fake-indexeddb": "^6.2.5",
+    "react-native-web": "0.21.2",
     "vitest": "5.0.0-beta.6"
   }
 }

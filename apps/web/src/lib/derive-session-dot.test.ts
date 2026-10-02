@@ -1,10 +1,11 @@
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { sessionDotClass } from './derive'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
-function sess(over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: asSessionId('s1'),
     cwd: '/r/acme',
@@ -15,7 +16,7 @@ function sess(over: Partial<SessionMetaInput> = {}): SessionMeta {
     archived: false,
     title: 'some title',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 describe('sessionDotClass — still statuses', () => {

@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /**
  * The server's statement path (POD-3239 B6, reshaped by POD-4771).
  *
@@ -32,7 +33,7 @@ function makeClient(id: string): Sent {
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 1,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

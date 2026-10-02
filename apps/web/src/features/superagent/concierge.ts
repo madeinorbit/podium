@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/viewmodels'
-import { asThreadId, type GitRepositoryWire, type SessionMeta, type ThreadId } from '@podium/model/browser'
+import { asThreadId, type GitRepositoryWire, type ThreadId } from '@podium/model/browser'
 
 /**
  * Client-side mirror of the server's concierge thread identity (issue #64/#65):
@@ -49,7 +50,7 @@ export type ConciergeRepoResolution =
 export function resolveConciergeRepo(opts: {
   repos: GitRepositoryWire[]
   selectedWorktree: string | null
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   paneA: string | null
 }): ConciergeRepoResolution {
   const views = reposToViews(opts.repos)

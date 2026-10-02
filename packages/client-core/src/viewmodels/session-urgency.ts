@@ -9,7 +9,7 @@
  *
  *   SHAPE (checkable): **a collection of sessions in, an order or a rank out.**
  *   No issues, no rows, no repos, no presentation strings. It depends on
- *   `@podium/model` and `../focus` and on nothing else in `viewmodels/`, so it
+ *   `@podium/model`, `../session-values` and `../focus` and on nothing else in `viewmodels/`, so it
  *   cannot participate in a cycle.
  *
  *   QUESTION (not checkable): **what order sessions are presented in** —
@@ -28,7 +28,7 @@
  *
  * A SHAPE PREDICATE IS NECESSARY, NOT SUFFICIENT. It refuses a symbol whose
  * shape is wrong — that is how `isCoordinatorSession` was refused here on sight,
- * for taking an `IssueWire`. It cannot refuse one whose shape is right and whose
+ * for taking an `IssueViewModel`. It cannot refuse one whose shape is right and whose
  * question is foreign, and that is the drift that actually produces god objects,
  * because nobody ever adds a symbol that LOOKS wrong. (POD-330, map §4e.1,
  * b9b39289.)
@@ -44,8 +44,9 @@
  * one presentation value out, with no collections and no ordering. Ranking IS
  * the collection question, and it is a different question from membership (F2).
  */
-import { isSnoozed, type SessionMeta, type SessionId } from '@podium/model'
+import { isSnoozed, type SessionId } from '@podium/model'
 import { attentionGroup, compareRecency } from '../focus'
+import type { SessionView } from '../session-values'
 
 /** How long a session may sit quiet before the unified list calls it stale. */
 export const STALE_INACTIVE_MS = 16 * 60 * 60 * 1000
@@ -56,12 +57,12 @@ export const STALE_INACTIVE_MS = 16 * 60 * 60 * 1000
  * most-recently-active first.
  */
 export function sortSessionsForSidebar(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   now: number = Date.now(),
-): SessionMeta[] {
+): SessionView[] {
   // Rank 0 = needs-you/idle and not snoozed (top); 1 = attention but snoozed
   // (de-emphasised, just above working); 2 = working (bottom).
-  const rank = (s: SessionMeta): number => {
+  const rank = (s: SessionView): number => {
     if (attentionGroup(s) === 'working') return 2
     return isSnoozed(s, now) ? 1 : 0
   }
@@ -81,7 +82,7 @@ export function sortSessionsForSidebar(
  * Built on the same primitives every other surface uses (attentionGroup,
  * isSnoozed, STALE_INACTIVE_MS) so "urgent" means the same thing everywhere.
  */
-export function sessionUrgencyRank(s: SessionMeta, now: number): number {
+export function sessionUrgencyRank(s: SessionView, now: number): number {
   const group = attentionGroup(s)
   if (group === 'working') return 1
   const recent = now - Date.parse(s.lastActiveAt) <= STALE_INACTIVE_MS
@@ -96,10 +97,10 @@ export function sessionUrgencyRank(s: SessionMeta, now: number): number {
 /** The row's most urgent child session (lowest urgency rank, recency tiebreak) —
  *  drives the row's right-side status dot. Undefined for session-less rows. */
 export function mostUrgentSession(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   now: number = Date.now(),
-): SessionMeta | undefined {
-  let best: SessionMeta | undefined
+): SessionView | undefined {
+  let best: SessionView | undefined
   for (const s of sessions) {
     if (!best) {
       best = s
@@ -124,14 +125,14 @@ export function mostUrgentSession(
  * here does not document the `worklist -> terminal` edge; it DELETES it.
  *
  * Its sibling `isCoordinatorSession` deliberately stayed in terminal: it takes
- * an `IssueWire`, and this module's invariant ("no issues") refuses it on
+ * an `IssueViewModel`, and this module's invariant ("no issues") refuses it on
  * sight. That is the invariant doing its job — a module with a stated shape can
  * claim or refuse a symbol without anyone arbitrating.
  */
 export function elevateCoordinatorSession(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   coordinatorSessionId: SessionId | undefined | null,
-): SessionMeta[] {
+): SessionView[] {
   if (!coordinatorSessionId) return sessions
   const i = sessions.findIndex((s) => s.sessionId === coordinatorSessionId)
   if (i <= 0) return sessions

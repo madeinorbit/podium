@@ -2,6 +2,7 @@ import {
   bindSidebarPerf,
   createSidebarPerf,
   readRuntimeStoreStats,
+  requestSidebarCheck,
   type SidebarPerf,
   type SidebarPerfSnapshot,
   storeStats,
@@ -21,7 +22,9 @@ const ms = (value: number | null): string =>
   value === null ? '—' : `${value === 0 ? '0' : value.toFixed(1)} ms`
 const checkWords = {
   off: 'Off',
-  waiting: 'Waiting for checker',
+  ready: 'Ready on demand',
+  queued: 'Queued until input settles',
+  waiting: 'Rows still loading',
   checking: 'Checking',
   match: 'Matches',
   different: 'Difference found',
@@ -35,8 +38,10 @@ export function SidebarPerfReadout({
   heap,
   legacyBuilds,
   onClose,
+  onRunCheck,
 }: {
   report: SidebarPerfSnapshot
+  onRunCheck?: () => void
   mode: 'legacy' | 'pool'
   heap: number | null
   legacyBuilds: number | null
@@ -57,6 +62,7 @@ export function SidebarPerfReadout({
         </strong>
         <button
           type="button"
+          data-pressable
           onClick={onClose}
           aria-label="Close performance panel"
           className="px-1 text-muted-foreground"
@@ -105,10 +111,28 @@ export function SidebarPerfReadout({
           JS heap {heap === null ? 'unavailable' : `${(heap / 1048576).toFixed(1)} MB`} · Pool rows{' '}
           {report.pool.rows ?? (mode === 'legacy' ? 'off' : 'not connected')}
         </div>
-        <div data-testid="perf-check">
-          Side-by-side check (S5) · {checkWords[report.check.state]}
-          {report.check.differences ? ` · ${report.check.differences} differences` : ''}
+        <div className="flex items-center justify-between gap-2">
+          <div data-testid="perf-check">
+            Side-by-side check (S5) · {checkWords[report.check.state]}
+            {report.check.differences ? ` · ${report.check.differences} differences` : ''}
+          </div>
+          {mode === 'pool' && onRunCheck && (
+            <button
+              type="button"
+              data-pressable
+              onClick={onRunCheck}
+              disabled={report.check.state === 'off' || report.check.state === 'queued' || report.check.state === 'checking'}
+              className="shrink-0 rounded border border-border px-2 py-1 disabled:opacity-50"
+            >
+              Run check
+            </button>
+          )}
         </div>
+        {report.check.durationMs !== undefined && (
+          <div data-testid="perf-check-duration">
+            Last check · {ms(report.check.durationMs)} · {report.check.checks ?? 0} completed
+          </div>
+        )}
         {report.check.first && (
           <div data-testid="sidebar-check-first">
             First difference · {report.check.first.section} · row {report.check.first.rowIndex === null ? '—' : report.check.first.rowIndex + 1} · {report.check.first.field}
@@ -117,7 +141,7 @@ export function SidebarPerfReadout({
         {report.checkWork.derivations + report.checkWork.rows + report.checkWork.mainThreadMs >
           0 && (
           <div className="text-muted-foreground">
-            Check work · {report.checkWork.derivations} derivations ·{' '}
+            Check work · last 60 s · {report.checkWork.derivations} derivations ·{' '}
             {ms(report.checkWork.mainThreadMs)}
           </div>
         )}
@@ -125,7 +149,8 @@ export function SidebarPerfReadout({
           <div className="text-muted-foreground">Legacy row builds · {legacyBuilds}</div>
         )}
         <p className="text-muted-foreground">
-          Time counts measured app work. Panel refresh and S5 comparison work are separate.
+          Checks run on request after input settles; the switch requests one startup check.
+          Comparison work is separate from app work and runs on the main thread.
         </p>
       </div>
     </aside>
@@ -161,7 +186,7 @@ export function SidebarPerfSession({
       sidebarCheckRequested() &&
       perf.read().check.state === 'off'
     )
-      perf.check({ state: 'waiting', differences: 0, checkedAt: null })
+      perf.check({ state: 'queued', differences: 0, checkedAt: null })
     const unbindRows = bindSidebarRowMeasurements({ owner, perf, mode })
     storeStats.enable(mode === 'legacy')
     const stopInput = observeSidebarInputs(perf, paint.afterPaint)
@@ -192,6 +217,10 @@ export function SidebarPerfSession({
       heap={heap}
       legacyBuilds={legacyBuilds}
       onClose={onClose}
+      onRunCheck={() => {
+        requestSidebarCheck(owner)
+        setReport(perf.read())
+      }}
     />
   )
 }

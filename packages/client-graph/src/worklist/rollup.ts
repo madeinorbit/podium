@@ -73,7 +73,9 @@ import {
   combineSidebarSessions,
   NO_SIDEBAR_SESSIONS,
   type SidebarSessionFacts,
+  type SidebarSessionOrder,
   sidebarSessionFacts,
+  sidebarSessionOrder,
   sortedSidebarSessions,
 } from './sidebar-row'
 
@@ -218,6 +220,7 @@ export interface SeatVerdict {
   /** Borrowed resident seat; no second row read or per-seat cache. */
   readonly sidebarSession?: SliceSession
   readonly sidebarFacts?: SidebarSessionFacts
+  readonly sidebarOrder?: SidebarSessionOrder
 }
 
 export function seatVerdictOf(session: SliceSession): SeatVerdict {
@@ -230,6 +233,7 @@ export function seatVerdictOf(session: SliceSession): SeatVerdict {
     workingSinceMs: Number.isFinite(at) ? at : null,
     sidebarSession: session,
     sidebarFacts: sidebarSessionFacts(session),
+    sidebarOrder: sidebarSessionOrder(session),
   }
 }
 
@@ -277,6 +281,8 @@ export interface Aggregate {
 
 /** A row's own part: its own seats and decision, plus its own working stamp. */
 export interface OwnAttention extends Aggregate {
+  /** The sorted own roster's head, reused by issue-only sidebar redraws. */
+  readonly firstSessionId?: string | null
   /** The earliest working seat's start on THIS row (not rolled up: the oracle reads own seats). */
   readonly workingSince: number | null
   /** Its row is cold: the part is only a pending marker, and nothing below it is composed yet. */
@@ -769,13 +775,13 @@ export function ownAttentionPartOf(
   if (facts.state === 'unknown') return EMPTY_OWN
   let own = EMPTY_OWN
   let pending = 0
-  const seats = new Map<string, SeatVerdict>()
+  const seats = new Map<SliceSession, SeatVerdict>()
   for (const sessionId of self.rosterIds) {
     const seat = input.seat(sessionId)
     if (seat === LOADING) pending += 1
     else if (seat !== undefined) {
       own = withSeat(own, seat)
-      seats.set(sessionId, seat)
+      if (seat.sidebarSession !== undefined) seats.set(seat.sidebarSession, seat)
     }
   }
   let deciding = false
@@ -791,23 +797,26 @@ export function ownAttentionPartOf(
       }
     }
   }
+  const orderFor = (session: SliceSession): SidebarSessionOrder =>
+    seats.get(session)?.sidebarOrder ?? sidebarSessionOrder(session)
   const sessions = sortedSidebarSessions(
     own.sessions ?? [],
     input.reached ?? (() => false),
     facts.coordinatorSessionId,
+    orderFor,
   )
   const sidebarFacts = sessions.reduce(
     (combined, session) =>
       combineSidebarSessions(
         combined,
-        seats.get(session.sessionId)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
+        seats.get(session)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
       ),
     NO_SIDEBAR_SESSIONS,
   )
   const railWaiting = { open: 0, finished: 0, decisions: deciding ? 1 : 0 }
   for (const session of sessions) {
-    const verdict = seats.get(session.sessionId)
-    if (deciding && session.offer && attentionGroup(session, false) !== 'needsYou') continue
+    const verdict = seats.get(session)
+    if (deciding && orderFor(session).offerOnly) continue
     if (verdict?.open === 'waiting') railWaiting.open += 1
     if (verdict?.finished === 'waiting') railWaiting.finished += 1
   }
@@ -816,6 +825,7 @@ export function ownAttentionPartOf(
     deciding,
     pending: own.pending + pending,
     sessions,
+    firstSessionId: sessions[0] === undefined ? null : orderFor(sessions[0]).id,
     sidebarFacts,
     railWaiting,
     updatedAt: facts.updatedAt,

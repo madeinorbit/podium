@@ -2,33 +2,18 @@ import { createHash } from 'node:crypto'
 import {
   canonicalShippingDestination,
   type DeliveryReceipt,
+  ShipLaneProjection,
   type ShipOrder,
   type ShipOrderId,
+  shipLaneId,
 } from '@podium/model'
 
 export { canonicalShippingDestination } from '@podium/model'
-
-export interface ShippingWaitEstimate {
-  lowerBoundMs: number
-  upperBoundMs: number
-  sampleSize: number
-  basis: 'lane-history'
-}
-
-export interface ShippingTurnSample {
-  orderId: ShipOrderId
-  durationMs: number
-  completedAt: string
-}
 
 export interface ShippingQueueEntry {
   order: ShipOrder
   queueRank?: number
   blockedBy: ShipOrderId[]
-  trainId?: string
-  trainIndex?: number
-  trainSize?: number
-  waitEstimate?: ShippingWaitEstimate
 }
 
 export interface ImmutableShippingPrefix {
@@ -95,53 +80,6 @@ const prefixId = (orders: readonly ShipOrder[]): string =>
       ),
     )
     .digest('hex')}`
-
-const percentile = (sorted: readonly number[], fraction: number): number => {
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1))
-  return sorted[index] ?? 0
-}
-
-const laneDurations = (
-  orders: readonly ShipOrder[],
-  turnSamples: readonly ShippingTurnSample[],
-): Map<string, number[]> => {
-  const byId = new Map(orders.map((order) => [order.id, order]))
-  const result = new Map<string, number[]>()
-  for (const sample of [...turnSamples].sort((a, b) =>
-    a.completedAt.localeCompare(b.completedAt),
-  )) {
-    const order = byId.get(sample.orderId)
-    if (!order) continue
-    if (!Number.isFinite(sample.durationMs) || sample.durationMs < 0) continue
-    const key = laneKey(order)
-    const samples = result.get(key) ?? []
-    samples.push(sample.durationMs)
-    result.set(key, samples)
-  }
-  for (const [key, samples] of result) {
-    result.set(
-      key,
-      samples.slice(-40).sort((a, b) => a - b),
-    )
-  }
-  return result
-}
-
-const estimateWait = (
-  rank: number,
-  samples: readonly number[],
-): ShippingWaitEstimate | undefined => {
-  // Fewer than three same-lane completions is not evidence for a useful range.
-  if (samples.length < 3) return undefined
-  const lowerBoundMs = percentile(samples, 0.25) * rank
-  const upperBoundMs = Math.max(lowerBoundMs, percentile(samples, 0.9) * rank)
-  return {
-    lowerBoundMs,
-    upperBoundMs,
-    sampleSize: samples.length,
-    basis: 'lane-history',
-  }
-}
 
 const directPredecessor = (candidate: ShipOrder, predecessor: ShipOrder): boolean =>
   candidate.deliveryDependsOn.includes(predecessor.id)
@@ -260,14 +198,27 @@ const buildTrains = (ordered: readonly ShipOrder[]): ShippingTrain[] => {
   return trains
 }
 
+/** One lane's plan: dependency order wins, FIFO breaks ties, blocked work is
+ * left out of the trains. `byId` must hold every order a lane member names as a
+ * dependency; `shipped` must hold the shipped ones among them. Shared by the
+ * world-wide {@link shippingSchedule} the tick runs and by the lane-scoped
+ * {@link shipLaneSchedule} a commit publishes, so the two cannot disagree. */
+const scheduleLane = (
+  lane: readonly ShipOrder[],
+  byId: ReadonlyMap<ShipOrderId, ShipOrder>,
+  shipped: ReadonlySet<ShipOrderId>,
+): { trains: ShippingTrain[]; blocked: Map<ShipOrderId, ShipOrderId[]> } => {
+  const planned = topologicalLane(lane, byId, shipped)
+  return { trains: buildTrains(planned.ordered), blocked: planned.blocked }
+}
+
 /** Authoritative scheduling snapshot. Dependency order wins, FIFO breaks ties,
- * blocked work is omitted from train ranks, and every rank/estimate is scoped
+ * blocked work is omitted from train ranks, and every rank is scoped
  * to exactly one repository/destination lane. */
 export function shippingSchedule(
   orders: readonly ShipOrder[],
   receipts: readonly DeliveryReceipt[] = [],
   now = Date.now(),
-  turnSamples: readonly ShippingTurnSample[] = [],
 ): ShippingSchedule {
   void receipts
   void now
@@ -286,28 +237,19 @@ export function shippingSchedule(
 
   const rank = new Map<ShipOrderId, number>()
   const blockers = new Map<ShipOrderId, ShipOrderId[]>()
-  const trainByOrder = new Map<ShipOrderId, { train: ShippingTrain; index: number }>()
   const trains: ShippingTrain[] = []
   for (const lane of lanes.values()) {
-    const planned = topologicalLane(lane, byId, shipped)
+    const planned = scheduleLane(lane, byId, shipped)
     for (const [id, values] of planned.blocked) blockers.set(id, values)
-    const laneTrains = buildTrains(planned.ordered)
-    for (const [trainIndex, train] of laneTrains.entries()) {
+    for (const [trainIndex, train] of planned.trains.entries()) {
       for (const order of train.orders) rank.set(order.id, trainIndex + 1)
       trains.push(train)
-      train.orders.forEach((order, index) => trainByOrder.set(order.id, { train, index }))
     }
   }
 
-  const durations = laneDurations(orders, turnSamples)
   return {
     entries: orders.map((order) => {
       const queueRank = rank.get(order.id)
-      const train = trainByOrder.get(order.id)
-      const waitEstimate =
-        queueRank === undefined
-          ? undefined
-          : estimateWait(queueRank, durations.get(laneKey(order)) ?? [])
       return {
         order,
         ...(queueRank === undefined ? {} : { queueRank }),
@@ -315,27 +257,135 @@ export function shippingSchedule(
           queueRank === undefined
             ? (blockers.get(order.id) ?? order.deliveryDependsOn.filter((id) => !shipped.has(id)))
             : [],
-        ...(train
-          ? {
-              trainId: train.train.id,
-              trainIndex: train.index + 1,
-              trainSize: train.train.orders.length,
-            }
-          : {}),
-        ...(waitEstimate === undefined ? {} : { waitEstimate }),
       }
     }),
     trains,
   }
 }
 
+/** The lane row id of the lane an order belongs to. */
+export const shipLaneIdOf = (order: Pick<ShipOrder, 'repoId' | 'destination' | 'targetBranch'>): string =>
+  shipLaneId(order.repoId, canonicalShippingDestination(order.destination, order.targetBranch))
+
+export interface ShippingStackEdge {
+  upperOrderId: ShipOrderId
+  lowerOrderId: ShipOrderId
+}
+
+/**
+ * The scheduler's native-stack input, rebuilt from the RECORDED edges.
+ *
+ * The tick infers each queued order's nearest compatible queued ancestors from
+ * Git and records every edge it finds before it schedules. Recorded edges are
+ * true ancestry between immutable heads, so among the orders queued now their
+ * transitive reduction is exactly that nearest set: an edge is dropped when its
+ * lower order is already reachable through another kept candidate. Edges to an
+ * order that is no longer queued, or that crosses compatibility, are dropped as
+ * the tick's inference never produces them. The result is merged into
+ * `deliveryDependsOn` the way the tick merges its inferred edges.
+ */
+export function withNativeStackEdges(
+  queued: readonly ShipOrder[],
+  edges: readonly ShippingStackEdge[],
+): ShipOrder[] {
+  const byId = new Map(queued.map((order) => [order.id, order]))
+  const lower = new Map<ShipOrderId, Set<ShipOrderId>>()
+  for (const edge of edges) {
+    const upper = byId.get(edge.upperOrderId)
+    const below = byId.get(edge.lowerOrderId)
+    if (!upper || !below || upper.id === below.id) continue
+    if (upper.state !== 'queued' || below.state !== 'queued') continue
+    if (shippingCompatibilityKey(upper) !== shippingCompatibilityKey(below)) continue
+    const set = lower.get(upper.id) ?? new Set<ShipOrderId>()
+    set.add(below.id)
+    lower.set(upper.id, set)
+  }
+  const reach = new Map<ShipOrderId, Set<ShipOrderId>>()
+  const reachable = (from: ShipOrderId, path: Set<ShipOrderId> = new Set()): Set<ShipOrderId> => {
+    const known = reach.get(from)
+    if (known) return known
+    const out = new Set<ShipOrderId>()
+    if (path.has(from)) return out
+    path.add(from)
+    for (const next of lower.get(from) ?? []) {
+      out.add(next)
+      for (const deeper of reachable(next, path)) out.add(deeper)
+    }
+    path.delete(from)
+    reach.set(from, out)
+    return out
+  }
+  return queued.map((order) => {
+    const candidates = [...(lower.get(order.id) ?? [])]
+    const nearest = candidates.filter(
+      (candidate) => !candidates.some((other) => other !== candidate && reachable(other).has(candidate)),
+    )
+    return nearest.length > 0
+      ? { ...order, deliveryDependsOn: [...new Set([...order.deliveryDependsOn, ...nearest])].sort() }
+      : order
+  })
+}
+
+export interface ShipLaneInput {
+  repoId: ShipOrder['repoId']
+  /** The canonical destination. */
+  destination: string
+  /** Every queued order of the lane, with its native-stack edges merged in. */
+  queued: readonly ShipOrder[]
+  /** Every order a queued member names that is not itself a queued member. */
+  dependencies: readonly ShipOrder[]
+}
+
+/** One lane's row and ranks, from the same per-lane plan the tick runs. */
+export function shipLaneSchedule(input: ShipLaneInput): {
+  lane: ShipLaneProjection
+  ranks: Map<ShipOrderId, number>
+} {
+  const byId = new Map<ShipOrderId, ShipOrder>()
+  for (const order of input.dependencies) byId.set(order.id, order)
+  for (const order of input.queued) byId.set(order.id, order)
+  const shipped = new Set(
+    input.dependencies.filter((order) => order.state === 'shipped').map((order) => order.id),
+  )
+  const planned = scheduleLane(input.queued, byId, shipped)
+  const ranks = new Map<ShipOrderId, number>()
+  for (const [index, train] of planned.trains.entries()) {
+    for (const order of train.orders) ranks.set(order.id, index + 1)
+  }
+  return {
+    lane: ShipLaneProjection.parse({
+      id: shipLaneId(input.repoId, input.destination),
+      repoId: input.repoId,
+      destination: input.destination,
+      trains: planned.trains.map((train) => ({ orderIds: train.orders.map((order) => order.id) })),
+      blockedOrderIds: input.queued.filter((order) => !ranks.has(order.id)).map((order) => order.id),
+    }),
+    ranks,
+  }
+}
+
+/** Group queued orders by lane: the full-truth path (boot and reconcile). */
+export function queuedShippingLanes(
+  orders: readonly ShipOrder[],
+): { repoId: ShipOrder['repoId']; destination: string; queued: ShipOrder[] }[] {
+  const lanes = new Map<string, { repoId: ShipOrder['repoId']; destination: string; queued: ShipOrder[] }>()
+  for (const order of [...orders].sort(byFifo)) {
+    if (order.state !== 'queued') continue
+    const destination = canonicalShippingDestination(order.destination, order.targetBranch)
+    const id = shipLaneId(order.repoId, destination)
+    const lane = lanes.get(id) ?? { repoId: order.repoId, destination, queued: [] }
+    lane.queued.push(order)
+    lanes.set(id, lane)
+  }
+  return [...lanes.values()]
+}
+
 export function shippingQueue(
   orders: readonly ShipOrder[],
   receipts: readonly DeliveryReceipt[] = [],
   now = Date.now(),
-  turnSamples: readonly ShippingTurnSample[] = [],
 ): ShippingQueueEntry[] {
-  return shippingSchedule(orders, receipts, now, turnSamples).entries
+  return shippingSchedule(orders, receipts, now).entries
 }
 
 export interface PrefixValidationResult {

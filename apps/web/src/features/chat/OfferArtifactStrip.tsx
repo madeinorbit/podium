@@ -1,6 +1,7 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
-import type { IssuePanelArtifact, SessionMeta, SessionOffer } from '@podium/model/browser'
+import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -26,7 +27,7 @@ export function OfferArtifactStrip({
   className,
 }: {
   offer: SessionOffer
-  session: SessionMeta
+  session: SessionView
   /** Extra classes on the strip root (spacing differs per host surface). Only
    *  applied when the strip renders — an empty strip must not leave margins. */
   className?: string

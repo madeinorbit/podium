@@ -173,6 +173,22 @@ export interface VisibleInputs {
   sessionActivity(id: string): number | null
   /** The row view's own part of a resident issue (`views.ts` `own`). */
   own(id: string): OwnPart | undefined
+  /**
+   * POD-4708 (plant/old) — the explicit seats (`issue.sessions`) as the
+   * mirror IS the relation: every yielded id counts as a relation read,
+   * exactly as `many()` yields do. `[...seats].sort()` (the first-attempt
+   * shape) re-reads the whole family: over budget (true state). The plant
+   * uses it and must FAIL #10 at 1x and 4x. Optional (the lean arm builds
+   * these inputs without it; only the hand pool provides it).
+   */
+  seats?(id: string): Iterable<string>
+  /**
+   * POD-4708 (O(1) real) — the maintained SORTED seat list itself, returned
+   * without iterating it. A membership change yields the new member only.
+   * `seatIds` reads it, never `seats()` nor `many()`. Optional (the lean arm
+   * builds these inputs without it and falls back to the re-list).
+   */
+  seatList?(id: string): readonly string[]
   /** `coarseNow > t`. */
   passed(t: number): boolean
 }
@@ -260,7 +276,7 @@ export function standingOf(issue: SliceIssue): Standing {
     parentId: issue.parentId || null,
     startedBy:
       !issue.parentId && !spinOff && issue.startedBySession ? issue.startedBySession : null,
-    draftVessel: issue.draft === true && !issue.worktreePath,
+    draftVessel: issue.isDraftVessel === true && !issue.worktreePath,
     finishedMs: parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
     readMs,
     hasReadAt: Boolean(issue.readAt),
@@ -513,7 +529,12 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
   },
   /** R2: the explicit members (`issue.sessions`: headless out, twins collapsed), id order. */
   seatIds(input, id) {
-    return [...input.relations.many('issue', id, 'sessions')].sort()
+    // POD-4708 (O(1) real): the maintained SORTED list itself, returned
+    // without iterating it — a membership change yields the new member only.
+    // Never `seats()` (fenced, plant/old `[...seats].sort()` re-reads the
+    // whole family and must FAIL #10) nor `many()`. The lean arm builds these
+    // inputs without the mirror and falls back to the re-list.
+    return input.seatList?.(id) ?? [...input.relations.many('issue', id, 'sessions')].sort()
   },
   /**
    * R2 then R3: the explicit members, then the lane's issueless sessions

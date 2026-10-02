@@ -1,3 +1,6 @@
+import { measureLegacyHeader } from '@podium/client-core/perf'
+import { headerDataLayer } from '@/lib/header-data-layer'
+import { usePoolShipping } from './header-data'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   cwdInWorktree,
@@ -51,46 +54,8 @@ export function RightRail({
   const messagesPanelEnabled = useFeature('messages-panel')
   const mergeQueueEnabled = useFeature('merge-queue')
   const shippingEnabled = useFeature('shipping')
-  const { paneA, fileTabs, sessions, repos, shipOrders } = useStoreSelector(
-    (state) => ({
-      paneA: state.paneA,
-      fileTabs: state.fileTabs,
-      sessions: state.sessions,
-      repos: state.repos,
-      shipOrders: state.shipOrders,
-    }),
-    shallowEqual,
-  )
-  const issues = useReplicaIssues()
-  const active = useMemo(
-    () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
-    [fileTabs, paneA, sessions],
-  )
-  const repoId = useMemo(() => {
-    if (!active) return null
-    for (const repo of reposToViews(repos)) {
-      const worktree = repo.worktrees
-        .filter(
-          (candidate) =>
-            (!active.machineId ||
-              !candidate.machineId ||
-              candidate.machineId === active.machineId) &&
-            cwdInWorktree(active.cwd, candidate.path),
-        )
-        .sort((a, b) => b.path.length - a.path.length)[0]
-      if (worktree) return repo.repoId ?? worktree.repoId ?? null
-    }
-    const activeIssueId =
-      active.issueId ?? sessions.find((session) => session.sessionId === active.sessionId)?.issueId
-    const issue = activeIssueId
-      ? issues.find((candidate) => candidate.id === activeIssueId)
-      : issueForCwd(issues, active.cwd)
-    return issue?.repoId ?? null
-  }, [active, issues, repos, sessions])
-  const shipping = useMemo(
-    () => shippingPanelModel(shipOrders, issues, repoId),
-    [issues, repoId, shipOrders],
-  )
+  const useRead = headerDataLayer() === 'pool' ? usePoolShipping : useLegacyShipping
+  const shipping = useRead()
   const panelAllowed = (panel: RightPanelTab): boolean =>
     rightPanelAllowed(panel, {
       git: gitPanelEnabled,
@@ -146,4 +111,61 @@ export function RightRail({
       })}
     </nav>
   )
+}
+
+function useLegacyShipping() {
+  const {
+    paneA,
+    fileTabs,
+    sessions,
+    repos,
+    shipOrders,
+    shipLanes,
+    trpc: owner,
+  } = useStoreSelector(
+    (state) => ({
+      paneA: state.paneA,
+      fileTabs: state.fileTabs,
+      sessions: state.sessions,
+      repos: state.repos,
+      shipOrders: state.shipOrders,
+      shipLanes: state.shipLanes,
+      trpc: state.trpc,
+    }),
+    shallowEqual,
+  )
+  const issues = useReplicaIssues()
+  const active = useMemo(
+    () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
+    [fileTabs, paneA, sessions],
+  )
+  const repoId = useMemo(() => {
+    if (!active) return null
+    for (const repo of reposToViews(repos)) {
+      const worktree = repo.worktrees
+        .filter(
+          (candidate) =>
+            (!active.machineId ||
+              !candidate.machineId ||
+              candidate.machineId === active.machineId) &&
+            cwdInWorktree(active.cwd, candidate.path),
+        )
+        .sort((a, b) => b.path.length - a.path.length)[0]
+      if (worktree) return repo.repoId ?? worktree.repoId ?? null
+    }
+    const activeIssueId =
+      active.issueId ?? sessions.find((session) => session.sessionId === active.sessionId)?.issueId
+    const issue = activeIssueId
+      ? issues.find((candidate) => candidate.id === activeIssueId)
+      : issueForCwd(issues, active.cwd)
+    return issue?.repoId ?? null
+  }, [active, issues, repos, sessions])
+  const shipping = useMemo(
+    () =>
+      measureLegacyHeader(owner, 'shipping', () =>
+        shippingPanelModel(shipOrders, issues, repoId, shipLanes),
+      ),
+    [issues, owner, repoId, shipOrders, shipLanes],
+  )
+  return shipping
 }

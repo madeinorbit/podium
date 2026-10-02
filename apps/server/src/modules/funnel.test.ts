@@ -1,10 +1,10 @@
 import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
-import { ChangeRangeBootstrapRequired, DEVICE_GRADE_PRINCIPAL, Ledger } from '@podium/sync'
+import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
+import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
 import { openTestStore } from '../test-support/open-test-store'
-import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import { EventBus } from './bus'
 import { WriteFunnel } from './funnel'
 
@@ -191,7 +191,9 @@ describe('the funnel has ONE output, and it is the feed', () => {
       onPublished: vi.fn(),
       authority: fake.authority,
     })
-    const changes = [{ seq: 1, entity: 'issue', id: 'iss_1', op: 'remove' }] as MetadataChange[]
+    const changes = [
+      { seq: 1, entity: 'issueProjection', id: 'iss_1', op: 'remove' },
+    ] as MetadataChange[]
     fake.emit(changes)
     expect(appended).toHaveBeenCalledWith({ changes })
     funnel.flushDeltas()
@@ -267,14 +269,14 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
 
   const up = (
     seq: number,
-    entity: 'issue' | 'session' | 'conversation',
+    entity: 'issueProjection' | 'session' | 'conversation',
     id: string,
   ): MetadataChange => ({ seq, entity, id, op: 'upsert', value: { id } }) as MetadataChange
 
   it('a synchronous burst of ledger batches — all three entity kinds — emits as ONE batch in append (= seq) order', () => {
     const { funnel, serving, appended } = pipedFunnel()
     appended([up(1, 'session', 's1')])
-    appended([up(2, 'issue', 'i1'), up(3, 'issue', 'i2')])
+    appended([up(2, 'issueProjection', 'i1'), up(3, 'issueProjection', 'i2')])
     appended([up(4, 'conversation', 'c1')]) // conversations ride the same pipe (#257)
     appended([up(5, 'session', 's1')])
     expect(serving.published).toEqual([]) // coalescing: nothing mid-burst
@@ -287,8 +289,8 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     // Strict append order, batches interleaved — the pipe NEVER reorders.
     expect(serving.rows().map((c) => `${c.entity}:${c.entityId}`)).toEqual([
       'session:s1',
-      'issue:i1',
-      'issue:i2',
+      'issueProjection:i1',
+      'issueProjection:i2',
       'conversation:c1',
       'session:s1',
     ])
@@ -318,7 +320,9 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
       const listeners = new Set<() => void>()
       const { serving, appended } = pipedFunnel((listener) => {
         listeners.add(listener)
-        return () => { listeners.delete(listener) }
+        return () => {
+          listeners.delete(listener)
+        }
       })
       appended([up(1, 'session', 's1')])
       await vi.advanceTimersByTimeAsync(1)
@@ -372,7 +376,7 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     // fact about the feed's position. Four appends, one advance, at the head.
     const { funnel, onPublished, appended } = pipedFunnel()
     appended([up(1, 'session', 's1')])
-    appended([up(2, 'issue', 'i1')])
+    appended([up(2, 'issueProjection', 'i1')])
     funnel.flushDeltas()
     expect(onPublished.mock.calls).toEqual([[2]])
   })
@@ -394,12 +398,16 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
       rowsAtBusEmit = serving.rows().map((change) => change.entityId)
       innerCommit = ledger.commit({
         write: async () => {},
-        changes: () => [{ entity: 'issue', id: 'inner', op: 'upsert', value: { id: 'inner' } }],
+        changes: () => [
+          { entity: 'issueProjection', id: 'inner', op: 'upsert', value: { id: 'inner' } },
+        ],
       })
     })
     await ledger.commit({
       write: async () => {},
-      changes: () => [{ entity: 'issue', id: 'outer', op: 'upsert', value: { id: 'outer' } }],
+      changes: () => [
+        { entity: 'issueProjection', id: 'outer', op: 'upsert', value: { id: 'outer' } },
+      ],
     })
     await innerCommit
     funnel.flushDeltas()

@@ -273,7 +273,9 @@ export const sessions = sqliteTable(
     // one (it is the on-behalf-of human even when an AGENT acted, so borrowing
     // it would assert "a human did it" for exactly the rows the pair exists to
     // tell apart). NULL reads as "from before the pair existed".
-    delegation: text('delegation', { mode: 'json' }).$type<import('@podium/model').SessionDelegation>(),
+    delegation: text('delegation', { mode: 'json' }).$type<
+      import('@podium/model').SessionDelegation
+    >(),
     createdByActorKind: text('created_by_actor_kind'),
     /** The actor's id — or, for a `system` actor, its JOB name (ADR 9 D8 S5
      *  gives that arm no id). Decoded through the model's `ActorRef`. */
@@ -745,68 +747,76 @@ export const superagentThreads = sqliteTable('superagent_threads', {
   effort: text(),
 })
 
-export const machines = sqliteTable('machines', {
-  /** Retained audit row; only an explicit replacement clears revocation. */
-  revokedAt: text('revoked_at'),
-  supersededBy: text('superseded_by').$type<MachineId>(),
-  id: text().$type<MachineId>().primaryKey(),
-  name: text().notNull(),
-  hostname: text().notNull(),
-  // Empty token material is required for a keypair; legacy hashes remain until rotation.
-  tokenHash: text('token_hash').notNull(),
-  credentialKind: text('credential_kind').$type<'bearer-hash' | 'ed25519'>().notNull().default('bearer-hash'),
-  publicKey: text('public_key'),
-  createdAt: text('created_at').notNull(),
-  lastSeenAt: text('last_seen_at').notNull(),
-  inventoryJson: text('inventory_json'),
-  harnessVersionsJson: text('harness_versions_json'),
-  /** Pairing mode: managed hosts may receive copied native credentials. */ podiumManaged: integer(
-    'podium_managed',
-    { mode: 'boolean' },
-  )
-    .default(sql`1`)
-    .notNull(),
-  /**
-   * SUPERSEDED by `update_channel_override` (POD-1882) and no longer read.
-   * Kept because migrations here are expand-only; nothing writes it any more.
-   */
-  updateChannel: text('update_channel').default('stable').notNull(),
-  /**
-   * Durable authority choice for this machine's next target. NULLABLE and null is
-   * MEANINGFUL (POD-1882): null = this machine follows the FLEET DEFAULT channel
-   * (config.updateChannel), which is what Settings → Updates sets. A value here is
-   * an operator's explicit per-machine pin, made in Settings → Machines, and it
-   * survives the Podium-development flag being switched back off — the selector
-   * hides, the pin does not move.
-   */
-  updateChannelOverride: text('update_channel_override'),
-  // BUILD REPORT (POD-1670). What the daemon last told us it is running.
-  // ADVISORY: peer-asserted, unverified, never used to grant anything. Additive
-  // and nullable because an existing row has simply not reported yet, and that
-  // is the truthful answer until the daemon reconnects.
-  appVersion: text('app_version'),
-  wireSchemaDigest: text('wire_schema_digest'),
-  installKind: text('install_kind'),
-  deliveryCapsJson: text('delivery_caps_json'),
-  // The daemon says a desktop app supervises its process. Payload delivery is
-  // decided independently from deliveryCapsJson; current Macs are ordinary fleet installs.
-  // NULL is the honest reading for every row written before the field existed
-  // and for a daemon that has not reported since.
-  presenceSource: text('presence_source'),
-  serviceAssignmentJson: text('service_assignment_json')
-    .notNull()
-    .default('{"server":false,"agentExecution":true}'),
-  assignmentEvidenceJson: text('assignment_evidence_json'),
-  availabilityJson: text('availability_json'),
-  serviceReportJson: text('service_report_json'),
-  buildReportedAt: text('build_reported_at'),
-  // Legacy versioned migration evidence only; current readers derive components from assignment.
-  componentsJson: text('components_json'),
-}, (t) => [check('machines_credential_material', sql`(
+export const machines = sqliteTable(
+  'machines',
+  {
+    /** Retained audit row; only an explicit replacement clears revocation. */
+    revokedAt: text('revoked_at'),
+    supersededBy: text('superseded_by').$type<MachineId>(),
+    id: text().$type<MachineId>().primaryKey(),
+    name: text().notNull(),
+    hostname: text().notNull(),
+    // Empty token material is required for a keypair; legacy hashes remain until rotation.
+    tokenHash: text('token_hash').notNull(),
+    credentialKind: text('credential_kind')
+      .$type<'bearer-hash' | 'ed25519'>()
+      .notNull()
+      .default('bearer-hash'),
+    publicKey: text('public_key'),
+    createdAt: text('created_at').notNull(),
+    lastSeenAt: text('last_seen_at').notNull(),
+    inventoryJson: text('inventory_json'),
+    harnessVersionsJson: text('harness_versions_json'),
+    /** Pairing mode: managed hosts may receive copied native credentials. */ podiumManaged:
+      integer('podium_managed', { mode: 'boolean' }).default(sql`1`).notNull(),
+    /**
+     * SUPERSEDED by `update_channel_override` (POD-1882) and no longer read.
+     * Kept because migrations here are expand-only; nothing writes it any more.
+     */
+    updateChannel: text('update_channel').default('stable').notNull(),
+    /**
+     * Durable authority choice for this machine's next target. NULLABLE and null is
+     * MEANINGFUL (POD-1882): null = this machine follows the FLEET DEFAULT channel
+     * (config.updateChannel), which is what Settings → Updates sets. A value here is
+     * an operator's explicit per-machine pin, made in Settings → Machines, and it
+     * survives the Podium-development flag being switched back off — the selector
+     * hides, the pin does not move.
+     */
+    updateChannelOverride: text('update_channel_override'),
+    // BUILD REPORT (POD-1670). What the daemon last told us it is running.
+    // ADVISORY: peer-asserted, unverified, never used to grant anything. Additive
+    // and nullable because an existing row has simply not reported yet, and that
+    // is the truthful answer until the daemon reconnects.
+    appVersion: text('app_version'),
+    wireSchemaDigest: text('wire_schema_digest'),
+    installKind: text('install_kind'),
+    deliveryCapsJson: text('delivery_caps_json'),
+    // The daemon says a desktop app supervises its process. Payload delivery is
+    // decided independently from deliveryCapsJson; current Macs are ordinary fleet installs.
+    // NULL is the honest reading for every row written before the field existed
+    // and for a daemon that has not reported since.
+    presenceSource: text('presence_source'),
+    serviceAssignmentJson: text('service_assignment_json')
+      .notNull()
+      .default('{"server":false,"agentExecution":true}'),
+    assignmentEvidenceJson: text('assignment_evidence_json'),
+    availabilityJson: text('availability_json'),
+    serviceReportJson: text('service_report_json'),
+    buildReportedAt: text('build_reported_at'),
+    // Legacy versioned migration evidence only; current readers derive components from assignment.
+    componentsJson: text('components_json'),
+  },
+  (t) => [
+    check(
+      'machines_credential_material',
+      sql`(
   (${t.credentialKind} = 'bearer-hash' AND ${t.tokenHash} <> '' AND ${t.publicKey} IS NULL)
   OR (${t.credentialKind} = 'ed25519' AND ${t.tokenHash} = '' AND ${t.publicKey} IS NOT NULL
       AND length(${t.publicKey}) = 51 AND substr(${t.publicKey}, 1, 8) = 'ed25519:')
-)`)] )
+)`,
+    ),
+  ],
+)
 
 export const repos = sqliteTable(
   'repos',
@@ -934,7 +944,12 @@ export const grantAudiences = sqliteTable(
     resourceId: text('resource_id').notNull(),
     grantee: text().notNull(),
   },
-  (table) => [primaryKey({ columns: [table.resourceKind, table.resourceId, table.grantee], name: 'grant_audiences_pk' })],
+  (table) => [
+    primaryKey({
+      columns: [table.resourceKind, table.resourceId, table.grantee],
+      name: 'grant_audiences_pk',
+    }),
+  ],
 )
 
 export const grants = sqliteTable(
@@ -954,7 +969,9 @@ export const grants = sqliteTable(
     onBehalfOf: text('on_behalf_of'),
   },
   (table) => [
-    uniqueIndex('grants_machine_custodian').on(table.resourceId).where(sql`${table.resourceKind} = 'machine' AND ${table.custody} = 1`),
+    uniqueIndex('grants_machine_custodian')
+      .on(table.resourceId)
+      .where(sql`${table.resourceKind} = 'machine' AND ${table.custody} = 1`),
     primaryKey({
       columns: [table.resourceKind, table.resourceId, table.grantee, table.verb],
       name: 'grants_pk',
@@ -1447,6 +1464,7 @@ export const issues = sqliteTable(
     humanQuestionOptions: text('human_question_options'),
     humanQuestionAskedBy: text('human_question_asked_by').$type<SessionId>(),
     humanQuestionAskedAt: text('human_question_asked_at'),
+    humanQuestionAttribution: text('human_question_attribution'),
     panel: text(),
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
@@ -2134,7 +2152,10 @@ export const messages = sqliteTable(
     // The delivery lifecycle [POD-4765]: `MessageDelivery` in @podium/model is
     // the table of allowed moves, and every write goes through the store's
     // guarded move. Only moves forward.
-    deliveryStatus: text('delivery_status').$type<MessageDeliveryStatus>().default('stored').notNull(),
+    deliveryStatus: text('delivery_status')
+      .$type<MessageDeliveryStatus>()
+      .default('stored')
+      .notNull(),
     // HOW THE AGENT PROGRAM HOLDS AN `accepted` MESSAGE [POD-4885]: `memory`
     // (lost if the program exits) or `durable` (survives a restart; no timer
     // may move it to `unknown`). Set with the move to `accepted` and kept

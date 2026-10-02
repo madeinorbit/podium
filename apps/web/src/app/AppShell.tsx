@@ -1,3 +1,4 @@
+import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   FLIGHT_DECK_DISPLAY_KEY,
@@ -413,7 +414,7 @@ export function AppShell({
 }
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const uiState = useStoreSelector((s) => s.uiState)
+  const uiState = useStoreHandle().getSnapshot().uiState
   const densityEnabled = useFeature('shell-density')
   return (
     <DensityProvider uiState={uiState} densityEnabled={densityEnabled}>

@@ -1,14 +1,10 @@
 // M6 coordinator elevate + started-by issue nesting (POD-902).
-import {
-  asIssueId,
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-  type UnbrandIds,
-} from '@podium/model'
+import { asIssueId, asSessionId, type UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView, SessionViewInput } from '../session-values'
 import {
   elevateCoordinatorSession,
+  type IssueNavigationModel,
   isCoordinatorSession,
   isDraftAgentVessel,
   issueIdOwningSession,
@@ -18,9 +14,8 @@ import {
   rowMotionPhase,
   rowStatusLine,
   rowWaitingCount,
-  sessionVisibleInLiveRoster,
-  type IssueNavigationModel,
   type SidebarSections,
+  sessionVisibleInLiveRoster,
   type UnifiedIssueRow,
   unifiedWorkList,
 } from './index'
@@ -28,7 +23,7 @@ import {
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
-function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(id: string, over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: id,
     cwd: '/r/a',
@@ -40,7 +35,7 @@ function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
     archived: false,
     title: id,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavigationModel {
@@ -60,13 +55,13 @@ function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavig
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
     needsHuman: false,
-    origin: 'human' as const,
+    intentOrigin: 'human' as const,
     audience: 'human' as const,
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     ...over,
-  } as IssueNavigationModel
+  } as unknown as IssueNavigationModel
 }
 
 const emptySections = (): SidebarSections => ({
@@ -129,8 +124,16 @@ describe('issueIdOwningSession', () => {
 })
 
 describe('isDraftAgentVessel', () => {
+  it('returns false for a newly inserted normalized issue without a draft flag', () => {
+    const fresh = issue()
+    // The new-issue replay inserts a sparse projection before any draft flag
+    // is present. The sidebar predicate must still produce a boolean.
+    Reflect.deleteProperty(fresh, 'isDraftVessel')
+    expect(isDraftAgentVessel(fresh, [sess('w')])).toBe(false)
+  })
+
   it('is a draft with agents and no worktree of its own', () => {
-    const draft = issue({ draft: true })
+    const draft = issue({ isDraftVessel: true })
     const worker = sess('w')
     expect(isDraftAgentVessel(draft, [worker])).toBe(true)
     // A draft that earned a worktree is real work; so is any non-draft; and an
@@ -142,7 +145,7 @@ describe('isDraftAgentVessel', () => {
 })
 
 describe('nestStartedByIssues', () => {
-  const row = (iss: IssueNavigationModel, sessions: SessionMeta[]): UnifiedIssueRow => ({
+  const row = (iss: IssueNavigationModel, sessions: SessionView[]): UnifiedIssueRow => ({
     kind: 'issue',
     issue: iss,
     sessions,
@@ -158,7 +161,7 @@ describe('nestStartedByIssues', () => {
         id: 'child',
         title: 'Child',
         startedBySession: 'starter',
-        origin: 'agent',
+        intentOrigin: 'agent',
         seq: 2,
       }),
       [childSess],
@@ -173,7 +176,7 @@ describe('nestStartedByIssues', () => {
   it('keeps the issue top-level when the starter session is not in view', () => {
     const childSess = sess('worker', { issueId: 'child' })
     const child = row(
-      issue({ id: 'child', startedBySession: 'missing-starter', origin: 'agent' }),
+      issue({ id: 'child', startedBySession: 'missing-starter', intentOrigin: 'agent' }),
       [childSess],
     )
     const nested = nestStartedByIssues([child], [childSess], [])
@@ -186,7 +189,7 @@ describe('nestStartedByIssues', () => {
     // Starter lives on an issue that has no live sessions → not in sidebar rows.
     const starter = sess('starter', { issueId: 'hidden-parent' })
     const childSess = sess('worker', { issueId: 'child' })
-    const child = row(issue({ id: 'child', startedBySession: 'starter', origin: 'agent' }), [
+    const child = row(issue({ id: 'child', startedBySession: 'starter', intentOrigin: 'agent' }), [
       childSess,
     ])
     // Only the child row is in the work list; hidden-parent is not.
@@ -206,7 +209,7 @@ describe('nestStartedByIssues', () => {
         id: 'spin',
         title: 'Spin-off',
         startedBySession: 'starter',
-        origin: 'agent',
+        intentOrigin: 'agent',
         deps: [{ id: 'origin', type: 'discovered-from' }],
         seq: 2,
       }),
@@ -229,7 +232,7 @@ describe('nestStartedByIssues', () => {
         id: 'child',
         parentId: 'parent',
         startedBySession: 'starter',
-        origin: 'agent',
+        intentOrigin: 'agent',
       }),
       [childSess],
     )
@@ -248,13 +251,13 @@ describe('nestStartedByIssues', () => {
       id: 'hidden',
       parentId: 'parent',
       audience: 'agent',
-      origin: 'agent',
+      intentOrigin: 'agent',
     })
     const childIssue = issue({
       id: 'child',
       parentId: 'hidden',
       audience: 'agent',
-      origin: 'agent',
+      intentOrigin: 'agent',
     })
     const nested = nestStartedByIssues(
       [row(parentIssue, [parentSession]), row(childIssue, [childSession])],
@@ -268,8 +271,8 @@ describe('nestStartedByIssues', () => {
   it('does not hide either issue on a started-by cycle', () => {
     const sA = sess('sa', { issueId: 'a' })
     const sB = sess('sb', { issueId: 'b' })
-    const a = row(issue({ id: 'a', startedBySession: 'sb', origin: 'agent' }), [sA])
-    const b = row(issue({ id: 'b', startedBySession: 'sa', origin: 'agent' }), [sB])
+    const a = row(issue({ id: 'a', startedBySession: 'sb', intentOrigin: 'agent' }), [sA])
+    const b = row(issue({ id: 'b', startedBySession: 'sa', intentOrigin: 'agent' }), [sB])
     const nested = nestStartedByIssues([a, b], [sA, sB], [])
     // First edge wins; second is cycle-rejected → one nests, the other stays top
     // OR both stay top. Either way neither is dropped.
@@ -296,7 +299,7 @@ describe('nestStartedByIssues', () => {
     })
     const parent = row(issue({ id: 'parent' }), [parentSess])
     const child = row(
-      issue({ id: 'child', parentId: 'parent', audience: 'agent', origin: 'agent' }),
+      issue({ id: 'child', parentId: 'parent', audience: 'agent', intentOrigin: 'agent' }),
       [childSess],
     )
     const nested = nestStartedByIssues([parent, child], [parentSess, childSess], [])
@@ -314,12 +317,12 @@ describe('nestStartedByIssues', () => {
     // here would erase the child from the sidebar entirely.
     const starter = sess('starter', { issueId: 'vessel' })
     const childSess = sess('worker', { issueId: 'child' })
-    const vessel = row(issue({ id: 'vessel', title: 'Draft', draft: true }), [starter])
+    const vessel = row(issue({ id: 'vessel', title: 'Draft', isDraftVessel: true }), [starter])
     const childIssue = issue({
       id: 'child',
       title: 'Real work',
       startedBySession: 'starter',
-      origin: 'agent',
+      intentOrigin: 'agent',
       seq: 2,
     })
     const nested = nestStartedByIssues(
@@ -331,7 +334,7 @@ describe('nestStartedByIssues', () => {
     expect((nested[0] as UnifiedIssueRow).startedByChildren).toBeUndefined()
 
     // Self-healing: once the vessel becomes real work, nesting resumes.
-    const real = row(issue({ id: 'vessel', title: 'Named work', draft: false }), [starter])
+    const real = row(issue({ id: 'vessel', title: 'Named work', isDraftVessel: false }), [starter])
     const renested = nestStartedByIssues(
       [real, row(childIssue, [childSess])],
       [starter, childSess],
@@ -345,7 +348,9 @@ describe('nestStartedByIssues', () => {
 
   it('never leaves an internal issue at top level', () => {
     const worker = sess('worker', { issueId: 'internal' })
-    const internal = row(issue({ id: 'internal', audience: 'agent', origin: 'agent' }), [worker])
+    const internal = row(issue({ id: 'internal', audience: 'agent', intentOrigin: 'agent' }), [
+      worker,
+    ])
     expect(nestStartedByIssues([internal], [worker], [])).toEqual([])
   })
 })
@@ -420,12 +425,12 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
       unread: true,
       readAt: null,
     }
-    expect(
-      sessionVisibleInLiveRoster(sess('exited', { ...unread, status: 'exited' }), NOW),
-    ).toBe(false)
-    expect(
-      sessionVisibleInLiveRoster(sess('archived', { ...unread, archived: true }), NOW),
-    ).toBe(false)
+    expect(sessionVisibleInLiveRoster(sess('exited', { ...unread, status: 'exited' }), NOW)).toBe(
+      false,
+    )
+    expect(sessionVisibleInLiveRoster(sess('archived', { ...unread, archived: true }), NOW)).toBe(
+      false,
+    )
   })
 
   it('keeps a sessionless completed MILESTONE CHILD until seen plus 24h; top-level stays out', () => {
@@ -462,6 +467,10 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
     const parent: UnifiedIssueRow = {
       kind: 'issue',
       issue: issue({ childCount: 6, childDoneCount: 4 }),
+      missionRollup: {
+        fromChildren: true,
+        progress: { total: 6, done: 4, run: 0, review: 0, stall: 0, block: 0, wait: 2 },
+      },
       sessions: [worker],
       activityAt: NOW,
     }
@@ -499,7 +508,7 @@ describe('unifiedWorkList + coordinator + started-by', () => {
       id: 'child',
       title: 'Started child',
       startedBySession: 'coord',
-      origin: 'agent',
+      intentOrigin: 'agent',
       createdAt: '2026-06-02T00:00:00.000Z',
       seq: 2,
     })

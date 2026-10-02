@@ -1,3 +1,5 @@
+import '@/test-support/mock-core-store-handle'
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -128,10 +130,10 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
-    useReplicaIssues: () => useStore().issues,
+    useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
   }
 })
 

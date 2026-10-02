@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { ROW } from '../annotations/matrix'
 import { asMatrixRowId } from '../annotations/ownership'
 import { visibilityClassOf } from '../annotations/resolution'
-import { ROW } from '../annotations/matrix'
 import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'
 import { ClientSessionAggregate } from '../identity/client-session'
 import { UserAccount } from '../identity/user'
 import { IssueAggregate } from './issue'
-import { SESSION_IMMUTABLE_AFTER_CREATE, SessionAggregate } from './session'
 import {
-  type CanonicalAggregate,
-  CANONICAL_AGGREGATES,
   aggregateVisibilityOf,
+  CANONICAL_AGGREGATES,
+  type CanonicalAggregate,
   classificationViolations,
   PER_USER_STATE_KEYS,
 } from './registry'
+import { SESSION_IMMUTABLE_AFTER_CREATE, SessionAggregate } from './session'
 
 /**
  * The FIXTURE the default-closed rule is proved against.
@@ -146,8 +146,9 @@ describe('default-closed classification: an unclassified aggregate FAILS', () =>
    * and this demonstrates the backstop firing on one that is not.
    */
   it('every registered row id is really on the matrix — with the backstop shown firing', () => {
-    expect(classificationViolations(CANONICAL_AGGREGATES).filter((v) => v.kind === 'no-matrix-row'))
-      .toEqual([])
+    expect(
+      classificationViolations(CANONICAL_AGGREGATES).filter((v) => v.kind === 'no-matrix-row'),
+    ).toEqual([])
 
     // The demonstration: a typo in the row id, with a declaration that AGREES
     // with what the default-closed resolver answers for it. The agreement check
@@ -341,11 +342,38 @@ describe('the aggregates carry ownership and attribution, and not their alternat
  * and not a snapshotted right (ADR 9 D5 A1).
  */
 const SESSION_AGGREGATE_KEYS = [
-  'accountId', 'activityCount', 'agentKind', 'agentState', 'archived', 'createdAt',
-  'createdBy', 'cwd', 'deleted', 'durableLabel', 'effort', 'executionProfileId',
-  'exitCode', 'headless', 'inputCount', 'issueId', 'lastActiveAt', 'lastInputAt',
-  'lastOutputAt', 'lastResumedAt', 'machineId', 'model', 'name', 'nameSource',
-  'namedBy', 'origin', 'outputCount', 'owner', 'refDraft', 'refIssueId', 'refLetter',
+  'accountId',
+  'activityCount',
+  'agentKind',
+  'agentState',
+  'archived',
+  'createdAt',
+  'createdBy',
+  'cwd',
+  'delegation',
+  'deleted',
+  'durableLabel',
+  'effort',
+  'executionProfileId',
+  'exitCode',
+  'headless',
+  'inputCount',
+  'issueId',
+  'lastActiveAt',
+  'lastInputAt',
+  'lastOutputAt',
+  'lastResumedAt',
+  'machineId',
+  'model',
+  'name',
+  'nameSource',
+  'namedBy',
+  'origin',
+  'outputCount',
+  'owner',
+  'refDraft',
+  'refIssueId',
+  'refLetter',
   // POD-3081's durable runtime request. It is durable truth by this list's own
   // test: it has a column (`requested_model` / `requested_effort`), it is not
   // derived (nothing computes it from anything), it is not per-user (a session
@@ -353,26 +381,85 @@ const SESSION_AGGREGATE_KEYS = [
   // specifically NOT live state, which is the classification it was given first
   // and the one it failed: the overlay's members are all RE-LEARNABLE, and a
   // request is not — no harness stamps one anywhere a reattach could read.
-  'requestedEffort', 'requestedModel',
-  'resume', 'sessionId', 'spawnFailure', 'spawnedBy', 'status', 'stopReason',
-  'stoppedAt', 'title', 'visibility', 'workState', 'workflowRunId', 'workflowStepId',
+  'requestedEffort',
+  'requestedModel',
+  'resume',
+  'sessionId',
+  'spawnFailure',
+  'spawnedBy',
+  'status',
+  'stopReason',
+  'stoppedAt',
+  'title',
+  'visibility',
+  'workState',
+  'workflowRunId',
+  'workflowStepId',
 ]
 
 const ISSUE_AGGREGATE_KEYS = [
-  'acceptance', 'activityNotes', 'archived', 'asked', 'assignee', 'audience',
-  'blockedByNotes', 'branch', 'brief', 'closedAt', 'closedReason', 'color',
-  'coordinatorSessionId', 'createdAt', 'createdBy', 'defaultAgent', 'defaultEffort',
-  'defaultModel', 'deferUntil', 'deletedAt', 'dependencyNote', 'description', 'design',
-  'dueAt', 'duplicateOf', 'estimateMin', 'id', 'intentOrigin', 'isDraftVessel', 'labels',
-  'lastLifecycleActor', 'linearId', 'linearIdentifier', 'linearUrl', 'machineId',
-  'needsHuman', 'notes', 'notesUpdatedAt', 'owner', 'panel', 'parentBranch', 'parentId',
-  'prUrl', 'priority', 'repoId', 'revision', 'seq', 'sortKey', 'stage', 'startedBySession',
-  'suggestedReason', 'suggestedStage', 'supersededBy', 'title', 'type', 'updatedAt',
-  'visibility', 'worktreePath',
+  'acceptance',
+  'activityNotes',
+  'archived',
+  'asked',
+  'assignee',
+  'audience',
+  'blockedByNotes',
+  'branch',
+  'brief',
+  'closedAt',
+  'closedReason',
+  'color',
+  'coordinatorSessionId',
+  'createdAt',
+  'createdBy',
+  'defaultAgent',
+  'defaultEffort',
+  'defaultModel',
+  'deferUntil',
+  'deletedAt',
+  'dependencyNote',
+  'description',
+  'design',
+  'dueAt',
+  'duplicateOf',
+  'estimateMin',
+  'id',
+  'intentOrigin',
+  'isDraftVessel',
+  'labels',
+  'lastLifecycleActor',
+  'linearId',
+  'linearIdentifier',
+  'linearUrl',
+  'machineId',
+  'needsHuman',
+  'notes',
+  'notesUpdatedAt',
+  'owner',
+  'panel',
+  'parentBranch',
+  'parentId',
+  'prUrl',
+  'priority',
+  'repoId',
+  'revision',
+  'seq',
+  'sortKey',
+  'stage',
+  'startedBySession',
+  'suggestedReason',
+  'suggestedStage',
+  'supersededBy',
+  'title',
+  'type',
+  'updatedAt',
+  'visibility',
+  'worktreePath',
 ]
 
 describe('the canonical key sets are pinned exactly', () => {
-  it('SessionAggregate carries exactly these 45 keys and no others', () => {
+  it('SessionAggregate carries exactly these 46 keys and no others', () => {
     expect(Object.keys(SessionAggregate.shape).sort()).toEqual(SESSION_AGGREGATE_KEYS)
   })
 
@@ -435,7 +522,7 @@ describe('live-only and derived fields stay OFF the durable aggregate', () => {
     }
   })
 
-  it('excludes IssueWire.sessions — THE entity-in-entity embed (ADR 4 D7.1)', () => {
+  it('excludes IssueProjection.sessions — THE entity-in-entity embed (ADR 4 D7.1)', () => {
     expect(IssueAggregate.shape).not.toHaveProperty('sessions')
     expect(IssueAggregate.shape).not.toHaveProperty('sessionSummary')
   })

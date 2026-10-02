@@ -1,4 +1,3 @@
-import { sessionById } from '../session-index'
 /**
  * F2 — WHICH SESSIONS BELONG TO WHAT, and how to read a reference into a world
  * you can only partially see (POD-330).
@@ -22,12 +21,13 @@ import { sessionById } from '../session-index'
 import {
   buildWorktreeRootIndex,
   type IssueId,
-  type IssueWire,
   isHeadlessSession,
   type SessionId,
-  type SessionMeta,
   worktreeForCwdIndexed,
 } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import { sessionById } from '../session-index'
+import type { SessionView } from '../session-values'
 
 // ---------------------------------------------------------------------------
 // Referent resolution over a partial world.
@@ -104,12 +104,12 @@ export function referentSettled(state: ReferentState): boolean {
 
 /** Precomputed session ownership for one immutable sidebar snapshot. */
 export interface SessionOwnershipIndex {
-  sessionsByWorktree: ReadonlyMap<string, readonly SessionMeta[]>
-  sessionsByIssue: ReadonlyMap<string, readonly SessionMeta[]>
-  sessionById: ReadonlyMap<string, SessionMeta>
+  sessionsByWorktree: ReadonlyMap<string, readonly SessionView[]>
+  sessionsByIssue: ReadonlyMap<string, readonly SessionView[]>
+  sessionById: ReadonlyMap<string, SessionView>
 }
 
-function appendSession(map: Map<string, SessionMeta[]>, key: string, session: SessionMeta): void {
+function appendSession(map: Map<string, SessionView[]>, key: string, session: SessionView): void {
   const existing = map.get(key)
   if (existing) existing.push(session)
   else map.set(key, [session])
@@ -126,8 +126,8 @@ function appendSession(map: Map<string, SessionMeta[]>, key: string, session: Se
  * make a consumer try to heal a gap that is not a gap.
  */
 export function indexSessionOwnership(
-  sessions: readonly SessionMeta[],
-  issues: readonly IssueWire[],
+  sessions: readonly SessionView[],
+  issues: readonly Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[],
   allWorktreePaths: readonly string[],
 ): SessionOwnershipIndex {
   // ONE root index for the whole pass. Building it is O(roots); every session
@@ -139,16 +139,19 @@ export function indexSessionOwnership(
     ...allWorktreePaths,
     ...issues.flatMap((issue) => (issue.worktreePath ? [issue.worktreePath] : [])),
   ])
-  const issuesByWorktree = new Map<string, IssueWire[]>()
+  const issuesByWorktree = new Map<
+    string,
+    Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[]
+  >()
   for (const issue of issues) {
     if (issue.archived || issue.deletedAt || !issue.worktreePath) continue
     const existing = issuesByWorktree.get(issue.worktreePath)
     if (existing) existing.push(issue)
     else issuesByWorktree.set(issue.worktreePath, [issue])
   }
-  const sessionsByWorktree = new Map<string, SessionMeta[]>()
-  const sessionsByIssue = new Map<string, SessionMeta[]>()
-  const sessionById = new Map<string, SessionMeta>()
+  const sessionsByWorktree = new Map<string, SessionView[]>()
+  const sessionsByIssue = new Map<string, SessionView[]>()
+  const sessionById = new Map<string, SessionView>()
   for (const session of sessions) {
     if (session.archived || isHeadlessSession(session)) continue
     sessionById.set(session.sessionId, session)
@@ -171,11 +174,11 @@ export function indexSessionOwnership(
  *  session whose stamped cwd is a subdirectory of the worktree still shows in it
  *  instead of vanishing from every group. Without it, legacy exact-match. */
 export function sessionsForWorktree(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   worktreePath: string,
   allWorktreePaths?: string[],
   ownership?: SessionOwnershipIndex,
-): SessionMeta[] {
+): SessionView[] {
   if (allWorktreePaths && ownership) {
     return [...(ownership.sessionsByWorktree.get(worktreePath) ?? [])]
   }
@@ -191,11 +194,11 @@ export function sessionsForWorktree(
 
 /** Sessions living in an issue's worktree — exact cwd match or nested under it.
  *  Mirrors the server's sessionsForIssue membership so the sidebar count stays
- *  live between issuesChanged broadcasts. */
+ *  live as session rows change. */
 export function sessionsForIssueWorktree(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   worktreePath: string | null,
-): SessionMeta[] {
+): SessionView[] {
   if (!worktreePath) return []
   return sessions.filter(
     (s) =>
@@ -231,21 +234,21 @@ export interface IssueMembershipRef {
  * list back into slice position restores it without touching the slice.
  */
 interface SessionSliceLookup {
-  byId: Map<string, SessionMeta>
+  byId: Map<string, SessionView>
   order: Map<string, number>
 }
 
-const sessionSliceLookups = new WeakMap<readonly SessionMeta[], SessionSliceLookup>()
+const sessionSliceLookups = new WeakMap<readonly SessionView[], SessionSliceLookup>()
 let sessionLookupBuilds = 0
 
-function sessionSliceLookup(sessions: readonly SessionMeta[]): SessionSliceLookup {
+function sessionSliceLookup(sessions: readonly SessionView[]): SessionSliceLookup {
   const cached = sessionSliceLookups.get(sessions)
   if (cached) return cached
   sessionLookupBuilds += 1
-  const byId = new Map<string, SessionMeta>()
+  const byId = new Map<string, SessionView>()
   const order = new Map<string, number>()
   for (let i = 0; i < sessions.length; i += 1) {
-    const session = sessions[i] as SessionMeta
+    const session = sessions[i] as SessionView
     byId.set(session.sessionId, session)
     order.set(session.sessionId, i)
   }
@@ -264,7 +267,7 @@ export function sessionOwnershipStats(): { lookups: number } {
 /** Shared membership predicate after longest-root resolution. Content fields
  * deliberately do not participate. Shell policy belongs to the caller. */
 export function sessionBelongsToIssue(
-  session: Pick<SessionMeta, 'archived' | 'headless' | 'issueId'>,
+  session: Pick<SessionView, 'archived' | 'headless' | 'issueId'>,
   issue: IssueMembershipRef,
   resolvedWorktree: string | null,
 ): boolean {
@@ -281,11 +284,11 @@ export function sessionBelongsToIssue(
  *  (sidebar policy) — the workspace tab strip opts them back in. */
 export function sessionsForIssueNav(
   issue: IssueMembershipRef,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   allWorktreePaths: readonly string[],
   opts: { includeShells?: boolean } = {},
   ownership?: SessionOwnershipIndex,
-): SessionMeta[] {
+): SessionView[] {
   if (ownership) {
     const members = ownership.sessionsByIssue.get(issue.id) ?? []
     return opts.includeShells ? [...members] : members.filter((s) => s.agentKind !== 'shell')
@@ -296,7 +299,7 @@ export function sessionsForIssueNav(
     // Walk the (short) member list against the slice index rather than the slice
     // against the member set — same rows, same slice order, no full scan.
     const { byId, order } = sessionSliceLookup(sessions)
-    const out: SessionMeta[] = []
+    const out: SessionView[] = []
     const taken = new Set<string>()
     for (const id of memberIds) {
       if (taken.has(id)) continue
@@ -315,7 +318,11 @@ export function sessionsForIssueNav(
   const roots = buildWorktreeRootIndex(wt ? [...allWorktreePaths, wt] : allWorktreePaths)
   return sessions.filter((s) => {
     if (!opts.includeShells && s.agentKind === 'shell') return false
-    return sessionBelongsToIssue(s, issue, s.issueId === undefined ? worktreeForCwdIndexed(s.cwd, roots) : null)
+    return sessionBelongsToIssue(
+      s,
+      issue,
+      s.issueId === undefined ? worktreeForCwdIndexed(s.cwd, roots) : null,
+    )
   })
 }
 
@@ -325,9 +332,9 @@ export function sessionsForIssueNav(
  *  hidden-away session stays reopenable. Headless sessions never count. */
 export function archivedSessionsForIssue(
   issue: IssueMembershipRef,
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   allWorktreePaths: string[],
-): SessionMeta[] {
+): SessionView[] {
   const memberIds = issue.memberSessionIds
   if (memberIds !== undefined) {
     const ids = new Set(memberIds)
@@ -346,10 +353,10 @@ export function archivedSessionsForIssue(
 /** The ARCHIVED sessions contained in a worktree path — the inverse of
  *  {@link sessionsForWorktree} on `archived`, for the tab strip's reveal. */
 export function archivedSessionsForWorktreePath(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   worktreePath: string,
   allWorktreePaths?: string[],
-): SessionMeta[] {
+): SessionView[] {
   const roots = allWorktreePaths ? buildWorktreeRootIndex(allWorktreePaths) : null
   return sessions.filter(
     (s) =>
@@ -370,8 +377,8 @@ export function archivedSessionsForWorktreePath(
  */
 export function issueIdOwningSession(
   sessionId: SessionId,
-  sessions: readonly SessionMeta[],
-  issues: readonly IssueWire[],
+  sessions: readonly SessionView[],
+  issues: readonly Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[],
   allWorktreePaths: string[],
   ownership?: SessionOwnershipIndex,
 ): IssueId | null {

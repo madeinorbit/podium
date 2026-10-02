@@ -1,11 +1,11 @@
 import { createLogger } from '@podium/logger'
 import type {
   IssueComment,
-  IssueWire,
+  IssueId,
+  IssueReport,
   SessionId,
   SessionMeta,
   UserId,
-  IssueId,
 } from '@podium/model'
 import { asIssueId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
@@ -203,8 +203,12 @@ interface ChildParentSub {
   marker: (childSeq: number) => string
   /** The excerpt appended to the marker (agent-authored, first line, capped).
    *  `childComments` is the child's thread, fetched by the caller — comment
-   *  bodies no longer ride IssueWire (#175). */
-  excerpt: (e: StewardEvent, child: IssueWire | undefined, childComments: IssueComment[]) => string
+   *  bodies no longer ride IssueReport (#175). */
+  excerpt: (
+    e: StewardEvent,
+    child: IssueReport | undefined,
+    childComments: IssueComment[],
+  ) => string
   /** The single-line nudge; `counts` is meaningful for close, ignored otherwise. */
   nudge: (childSeq: number, counts: { remaining: number; total: number }) => string
 }
@@ -415,8 +419,8 @@ export interface StewardTickOptions {
 
 /** The closed issue's latest completion-note comment body (tag stripped), else its
  *  title. `comments` is the issue's thread, fetched by the caller via
- *  IssueService.comments — bodies no longer ride IssueWire (#175). */
-function completionNote(closed: IssueWire | undefined, comments: IssueComment[]): string {
+ *  IssueService.comments — bodies no longer ride IssueReport (#175). */
+function completionNote(closed: IssueReport | undefined, comments: IssueComment[]): string {
   if (!closed) return ''
   const note = [...comments].reverse().find((c) => c.body.includes(COMPLETION_NOTE_TAG))?.body
   return (note ? note.replace(COMPLETION_NOTE_TAG, '').trim() : closed.title).trim()
@@ -488,21 +492,21 @@ export class StewardService {
     const sinceIso = new Date(changeMs - StewardService.COMMUNICATED_GRACE_MS).toISOString()
     if (
       target.sessionId &&
-      await this.deps.messages.alreadyCommunicated(
+      (await this.deps.messages.alreadyCommunicated(
         subjectIssueId,
         { kind: 'session', id: target.sessionId },
         sinceIso,
-      )
+      ))
     ) {
       return true
     }
     if (
       target.issueId &&
-      await this.deps.messages.alreadyCommunicated(
+      (await this.deps.messages.alreadyCommunicated(
         subjectIssueId,
         { kind: 'issue', id: target.issueId },
         sinceIso,
-      )
+      ))
     ) {
       return true
     }
@@ -645,7 +649,11 @@ export class StewardService {
           // key = sessionparentnudge:<group>:<childSessionId>; ids never contain ':'.
           const rest = key.slice('sessionparentnudge:'.length)
           const sep = rest.indexOf(':')
-          await this.handleSessionParentNudge(asSessionId(rest.slice(sep + 1)), rest.slice(0, sep), batch)
+          await this.handleSessionParentNudge(
+            asSessionId(rest.slice(sep + 1)),
+            rest.slice(0, sep),
+            batch,
+          )
         } else if (key.startsWith('parentnudge:')) {
           // key = parentnudge:<group>:<parentId>; ids never contain ':'.
           // ISSUE-parent edge (payload.parentId) — live/starting only, no wake.
@@ -758,7 +766,10 @@ export class StewardService {
   }
 
   /** Issue left review — free review parentnudge + stage_changed sub facts. */
-  private async retireIssueReviewFacts(issueId: IssueId, p: { parentId?: string; seq?: number }): Promise<void> {
+  private async retireIssueReviewFacts(
+    issueId: IssueId,
+    p: { parentId?: string; seq?: number },
+  ): Promise<void> {
     const at = this.now()
     if (p.parentId != null && p.seq != null) {
       await this.arbiter.retireFactKey(`parentnudge:review:${p.parentId}:${p.seq}`, at)
@@ -798,7 +809,9 @@ export class StewardService {
       for (const sub of subs) {
         if (!kinds.includes(sub.event)) continue
         try {
-          if (await this.sourceMatches(sub, { isSession, subject: e.subject, srcIssueId }, sessions)) {
+          if (
+            await this.sourceMatches(sub, { isSession, subject: e.subject, srcIssueId }, sessions)
+          ) {
             await this.deliverSubscription(sub, e, sessions)
           }
         } catch (err) {
@@ -842,7 +855,10 @@ export class StewardService {
 
   /** The issue a subscription's relationship source is anchored on: the subscriber
    *  issue itself, or (for a session subscriber) that session's bound issue. */
-  private subscriberIssueId(sub: Subscription, sessions: readonly SessionFacts[]): IssueId | undefined {
+  private subscriberIssueId(
+    sub: Subscription,
+    sessions: readonly SessionFacts[],
+  ): IssueId | undefined {
     if (sub.subscriberKind === 'issue') return asIssueId(sub.subscriberId)
     return sessions.find((s) => s.sessionId === sub.subscriberId)?.issueId ?? undefined
   }
@@ -854,9 +870,13 @@ export class StewardService {
    *  dedup and the event log are keyed on; the push is what the switch's label
    *  ("Send an external notification") has always promised.
    *  The nudge stays single-line with no backticks, mirroring the fixed handlers. */
-  private async deliverSubscription(sub: Subscription, e: StewardEvent, sessions: readonly SessionFacts[]): Promise<void> {
+  private async deliverSubscription(
+    sub: Subscription,
+    e: StewardEvent,
+    sessions: readonly SessionFacts[],
+  ): Promise<void> {
     // Idempotent, replay-safe: only a NEWLY-recorded delivery proceeds.
-    if (!await this.deps.store.markDelivered(sub.id, e.id)) return
+    if (!(await this.deps.store.markDelivered(sub.id, e.id))) return
     const factKey = `sub:${sub.event}:${e.subject}`
     const issueId = this.subscriberIssueId(sub, sessions)
     // The event's own issue, for the already-communicated check below — the
@@ -888,14 +908,21 @@ export class StewardService {
         // The external `notify` push below is scoped OUT deliberately: its
         // audience is a human off in the world, not an agent's transcript
         // context, so "already in context" doesn't apply to it.
-        if (await this.alreadyCommunicated(eventIssueId, { sessionId: s.sessionId, issueId }, e.ts)) {
+        if (
+          await this.alreadyCommunicated(eventIssueId, { sessionId: s.sessionId, issueId }, e.ts)
+        ) {
           continue
         }
         if (await this.arbiter.isClaimed(factKey, s.sessionId)) continue
         // Durable delivery before claim [POD-925], awaited (POD-4763): a send
         // that fails throws out of the pass, the fact stays unclaimed and the
         // held cursor re-runs it under the same id.
-        await this.deps.sendNotice(s.sessionId, text, noticeMessageId(factKey, s.sessionId, e.id), 'wait')
+        await this.deps.sendNotice(
+          s.sessionId,
+          text,
+          noticeMessageId(factKey, s.sessionId, e.id),
+          'wait',
+        )
         const claimed = await this.arbiter.claim(factKey, s.sessionId, {
           source: `subscription:${sub.id}`,
           issueId,
@@ -910,10 +937,10 @@ export class StewardService {
     if (
       sub.deliverNotify &&
       (subscriberClaimed ||
-        await this.arbiter.claim(factKey, sub.subscriberId, {
+        (await this.arbiter.claim(factKey, sub.subscriberId, {
           source: `subscription:${sub.id}`,
           issueId,
-        }))
+        })))
     ) {
       await this.deps.store.appendEvent({
         ts: this.now(),
@@ -945,7 +972,10 @@ export class StewardService {
   /** The sessions a subscriber's nudge reaches: the one session for a `session`
    *  subscriber, or the member sessions of an `issue` subscriber's worktree (same
    *  no-resurrect/no-shell filtering the caller applies). */
-  private async subscriberNudgeTargets(sub: Subscription, sessions: readonly SessionFacts[]): Promise<SessionFacts[]> {
+  private async subscriberNudgeTargets(
+    sub: Subscription,
+    sessions: readonly SessionFacts[],
+  ): Promise<SessionFacts[]> {
     if (sub.subscriberKind === 'session') {
       return sessions.filter((s) => s.sessionId === sub.subscriberId)
     }
@@ -970,16 +1000,24 @@ export class StewardService {
       // assumption: this read-then-write dedup is a cross-process race — fine
       // while live is one server; revisit for multi-server.
       const marker = `Unblocked by #${closedSeq}:`
-      // Comment bodies left IssueWire (#175) — dedup reads the thread directly.
-      const already = (await this.deps.issues
-        .comments(dependent.id))
-        .some((c) => c.author === 'steward' && c.body.includes(marker))
-      const closed = (await this.deps.issues
-        .list(e.repoPath ?? dependent.repoPath))
-        .find((w) => w.seq === closedSeq)
+      // Comment bodies left IssueReport (#175) — dedup reads the thread directly.
+      const already = (await this.deps.issues.comments(dependent.id)).some(
+        (c) => c.author === 'steward' && c.body.includes(marker),
+      )
+      const closed = (await this.deps.issues.list(e.repoPath ?? dependent.repoPath)).find(
+        (w) => w.seq === closedSeq,
+      )
       if (!already) {
-        const note = completionNote(closed, closed ? await this.deps.issues.comments(closed.id) : [])
-        await this.deps.issues.addComment(dependent.id, 'steward', marker + ' ' + note, this.principal)
+        const note = completionNote(
+          closed,
+          closed ? await this.deps.issues.comments(closed.id) : [],
+        )
+        await this.deps.issues.addComment(
+          dependent.id,
+          'steward',
+          marker + ' ' + note,
+          this.principal,
+        )
       }
       // Nudge only live/starting agent sessions: the notice is a wait message,
       // which a parked session would only find, stale, on its next run (the
@@ -1147,14 +1185,14 @@ export class StewardService {
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
       // matching note on handleUnblock — same single-server dedup assumption).
       const marker = sub.marker(childSeq)
-      // Comment bodies left IssueWire (#175) — dedup reads the thread directly.
-      const already = (await this.deps.issues
-        .comments(parent.id))
-        .some((c) => c.author === 'steward' && c.body.includes(marker))
+      // Comment bodies left IssueReport (#175) — dedup reads the thread directly.
+      const already = (await this.deps.issues.comments(parent.id)).some(
+        (c) => c.author === 'steward' && c.body.includes(marker),
+      )
       if (already) continue
-      const child = (await this.deps.issues
-        .list(e.repoPath ?? parent.repoPath))
-        .find((w) => w.seq === childSeq)
+      const child = (await this.deps.issues.list(e.repoPath ?? parent.repoPath)).find(
+        (w) => w.seq === childSeq,
+      )
       // Empty excerpt (no note / question) → bare marker, no trailing space.
       // The marker keeps its colon so replay dedup still matches.
       const excerpt = sub.excerpt(e, child, child ? await this.deps.issues.comments(child.id) : [])
@@ -1178,7 +1216,9 @@ export class StewardService {
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))
     // Resolved once for the already-communicated check below — the child whose
     // transition drove this coalesced nudge.
-    const lastChild = (await this.deps.issues.list(parent.repoPath)).find((w) => w.seq === lastChildSeq)
+    const lastChild = (await this.deps.issues.list(parent.repoPath)).find(
+      (w) => w.seq === lastChildSeq,
+    )
     const candidates = sessionsForIssue(
       parent.worktreePath,
       this.deps.sessionFacts(),
@@ -1197,11 +1237,11 @@ export class StewardService {
       // handleSessionParentNudge note on why that path is scoped out).
       if (
         lastChangeTs != null &&
-        await this.alreadyCommunicated(
+        (await this.alreadyCommunicated(
           lastChild?.id,
           { sessionId: s.sessionId, issueId: parent.id },
           lastChangeTs,
-        )
+        ))
       ) {
         continue
       }
@@ -1235,10 +1275,10 @@ export class StewardService {
     const issueId = (await this.deps.sessionById(sessionId))?.issueId
     const factKey = `settle:${sessionId}`
     if (
-      !await this.arbiter.claim(factKey, sessionId, {
+      !(await this.arbiter.claim(factKey, sessionId, {
         source: 'steward.ack-fallback',
         issueId: issueId ?? undefined,
-      })
+      }))
     ) {
       return
     }

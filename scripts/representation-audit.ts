@@ -39,7 +39,7 @@
  *
  * The limit is structural and must be stated, because it is the reason the
  * registry exists and is not derived from this detector: **a composed
- * representation is INVISIBLE here, by construction.** `Pick<IssueWire, …>` and
+ * representation is INVISIBLE here, by construction.** `Pick<IssueReport, …>` and
  * `IssueRefHead.extend(…)` leave no key list behind to count. So this detector
  * can enumerate RESTATEMENTS; it can never enumerate REPRESENTATIONS. Reading a
  * falling count as "more representations are composed" is valid; reading a zero
@@ -79,8 +79,8 @@ import ts from 'typescript'
 import { IssueAggregate } from '../packages/model/src/aggregates/issue'
 import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { SessionAggregate } from '../packages/model/src/aggregates/session'
-import { IssueWire } from '../packages/model/src/entities/issue'
 import { SessionMeta } from '../packages/model/src/entities/session'
+import { IssueProjection } from '../packages/model/src/projections/issue-projection'
 import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
 import type { AuditContext, AuditSite } from './rearch-audit'
 
@@ -97,7 +97,7 @@ export const SESSION_VOCABULARY: ReadonlySet<string> = new Set([
 /** Every key the canonical issue aggregate or its wire projection declares. */
 export const ISSUE_VOCABULARY: ReadonlySet<string> = new Set([
   ...Object.keys(IssueAggregate.shape),
-  ...Object.keys(IssueWire.shape),
+  ...Object.keys(IssueProjection.shape),
 ])
 
 /**
@@ -181,7 +181,7 @@ export interface EntityShapedDecl {
   /**
    * Distinct non-generic vocabulary keys this declaration RESTATES — i.e. writes
    * out as a property with its own type. Composed keys are deliberately absent:
-   * `Pick<IssueWire, 'readAt'>` names a key but restates no type, so it is not a
+   * `Pick<IssueReport, 'readAt'>` names a key but restates no type, so it is not a
    * restatement. These are what the `session-shapes` / `issue-shapes` counts read.
    */
   readonly sessionKeys: readonly string[]
@@ -396,7 +396,7 @@ function declaredKeys(text: string): { properties: string[]; named: string[] } {
  *
  * Both NAME keys; neither RESTATES them, because neither writes the types out.
  * That is not a new judgement invented for this pass: it is the line the named
- * form already draws on `Pick<IssueWire, 'readAt'>`, which names its members and
+ * form already draws on `Pick<IssueReport, 'readAt'>`, which names its members and
  * is counted for the forbidden-key classes but is never counted as a
  * restatement. A component that reads three session fields is coupled to three
  * NAMES; one that hand-writes their types is a second declaration of the shape
@@ -705,12 +705,12 @@ export const NOT_A_REPRESENTATION: readonly {
       'a per-VIEWER projection argument, not a field group on an entity (POD-1076, ADR 9 D3 rule ' +
       '4). The item this detector enforces is "a per-user member surviving as a SINGLETON field ' +
       'on a session or issue representation"; these two exist precisely so `readAt`, `tuckedAt` ' +
-      'and `pinned` are NOT fields of `IssueRow` or `IssueWire` — they are assembled per reader ' +
+      'and `pinned` are NOT fields of `IssueRow` or `IssueReport` — they are assembled per reader ' +
       'from `issue_user_state` and passed to `toWire`. The detector reads key NAMES in a ' +
       'declaration and cannot tell a shared row from a viewer-scoped argument, which is the same ' +
       'blind spot recorded on `HANDOFF_BUNDLE_CORE` (reported to POD-368, which owns the ' +
       'detector). The exclusion is keyed on the exact (file, symbol) pair, so re-adding any of ' +
-      'the three to `IssueRow`, `SessionRow`, `IssueWire` or the live `Session` is still counted.',
+      'the three to `IssueRow`, `SessionRow`, `IssueReport` or the live `Session` is still counted.',
   })),
 
   // --- The two composition BASES the provenance split created (POD-304).
@@ -728,21 +728,13 @@ export const NOT_A_REPRESENTATION: readonly {
     reason:
       'the shape BOTH format arms of `HandoffManifest` spread (POD-1153), so the manifest can be ' +
       'versioned as a file without v2 drifting from v1 on a shared member. Same class as ' +
-      '`SessionMetaEntity` and `IssueWireCore`: a composition base, not a second representation — ' +
+      '`SessionMetaEntity` and `IssueRefHead`: a composition base, not a second representation — ' +
       'the representation is `HandoffManifest`, which IS registered, and it is the union over the ' +
       'two arms. Nothing here is hand-RESTATED: every member is the shared field instance reached ' +
       "through POD-365's groups, which `entities/handoff.test.ts` asserts by reference identity " +
       'for both arms. That is the distinction this detector structurally cannot draw — it reads ' +
       'key NAMES in a declaration and cannot see whether the values beside them are the shared ' +
       'schemas or fresh restatements (reported to POD-368, which owns the detector).',
-  },
-  {
-    file: 'packages/model/src/entities/issue.ts',
-    symbol: 'IssueWireCore',
-    reason:
-      'the provenance-free half that `IssueWire` composes, and the head every composed issue ' +
-      'projection picks from. Same class as `SessionMetaEntity`; the representation is ' +
-      '`IssueWire`, which IS registered.',
   },
 
   // --- Adjacent entities and their rows: OTHER aggregates that happen to carry a
@@ -776,7 +768,7 @@ export const NOT_A_REPRESENTATION: readonly {
     reason:
       'the in-process EVENT PAYLOAD map: one declared payload per event name, deliberately not ' +
       'stringly-typed. Its entity-carrying events pass whole representations by reference ' +
-      '(`{ sessions: SessionMeta[] }`, `{ issue: IssueWire }`) and its own members are event ' +
+      '(`{ sessions: SessionMeta[] }`, `{ issue: IssueReport }`) and its own members are event ' +
       'facts (`prev`/`next`/`code`), so it is the same class as an L1 frame. Its ATTRIBUTION ' +
       'obligations are tracked separately — inventory §9 enumerates the event-payload principal ' +
       'keys that a column-shaped search could not see.',
@@ -873,11 +865,12 @@ export const NOT_A_REPRESENTATION: readonly {
   })),
 
   // --- Characterization and demo fixtures. Inventory §3 excludes 5 test
-  // fixtures by rule; these two live in files `isTestFile` does not match.
+  // fixtures by rule; these live in files `isTestFile` does not match.
   ...(
     [
       ['apps/server/src/modules/messages/characterization-support.ts', 'SessionFixture'],
       ['apps/mobile/src/client/demoData.ts', 'DEMO_SESSIONS'],
+      ['apps/web/harness/deck-store-stub.ts', 'issue'],
     ] as const
   ).map(([file, symbol]) => ({
     file,

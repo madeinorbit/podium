@@ -4,7 +4,10 @@ import {
   asShipOrderId,
   asShipStepId,
   firstAdminMemberId,
-  type IssueWire,
+  type IssueReport,
+  type ShipLaneProjection,
+  type ShipOrder,
+  type ShipOrderProjection,
   shipRepairRef,
 } from '@podium/model'
 import { type ShippingJobResult, shippingEvidenceFingerprint } from '@podium/protocol/daemon'
@@ -13,9 +16,11 @@ import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { sessionReadPorts } from '../../test-support/session-facts'
 import { IssueService } from '../issues/service'
 import type { ShippingPolicyResolver } from './policy'
 import { CompatibilityShippingPolicyResolver } from './policy'
+import { shipLaneIdOf, shippingSchedule } from './queue'
 import type { ShippingRepairContext, ShippingRepairPort } from './repair-contract'
 import {
   type AcceptedReviewEvidence,
@@ -26,7 +31,6 @@ import {
   shippingResourceHolderId,
 } from './service'
 import { ShippingEvidenceRegistry } from './shipwright'
-import { sessionReadPorts } from '../../test-support/session-facts'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -62,6 +66,11 @@ async function harness(
     repair?: ShippingRepairPort
     beforeRepairAcknowledge?: (resultToken: string) => void
     audit?: ConstructorParameters<typeof ShippingService>[0]['audit']
+    now?: ConstructorParameters<typeof ShippingService>[0]['now']
+    /** POD-4974 O2: after every top-level shipping commit, the published order
+     * plane must equal a full recompute. Off only for tests that seed orders
+     * straight into the store, which no commit has published yet. */
+    checkOrderPlane?: boolean
   } = {},
 ) {
   const store = await openTestStore(':memory:')
@@ -90,12 +99,6 @@ async function harness(
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
     ledger,
-    publishSpecs: {
-      issueUpdated: (issue) => ({ rows: [{ id: issue.id, value: issue }] }),
-      issuesChanged: (rows) => ({
-        rows: rows.map((issue) => ({ id: issue.id, value: issue })),
-      }),
-    },
   })
   const createIssue = issues.create.bind(issues)
   issues.create = (async (input) =>
@@ -103,8 +106,40 @@ async function harness(
       ...input,
       machineId: input.machineId ?? asMachineId('machine-1'),
     })) as typeof issues.create
+  // THE ORDER-PLANE CROSS-CHECK (POD-4974 O2). A commit now recomputes only the
+  // lanes of the orders it names, so a commit that forgets one leaves a stale
+  // row that nothing else would ever fix. Every scenario in this file therefore
+  // compares, after each top-level commit, what the ledger holds against the
+  // full truth the boot path computes.
+  let commitDepth = 0
+  let orderPlaneService: ShippingService | undefined
+  const assertOrderPlaneCurrent = async (): Promise<void> => {
+    if (options.checkOrderPlane === false || !orderPlaneService) return
+    const truth = await orderPlaneService['fullProjection']()
+    const byId = (rows: readonly unknown[]) =>
+      new Map(rows.map((row) => [(row as { id: string }).id, row]))
+    expect(byId(await ledger.authority.snapshot('shipOrder'))).toEqual(
+      byId(truth.orders.map((row) => row.value)),
+    )
+    expect(byId(await ledger.authority.snapshot('shipLane'))).toEqual(
+      byId(truth.lanes.map((row) => row.value)),
+    )
+  }
+  const checked =
+    <A extends unknown[], R>(commit: (...args: A) => Promise<R>) =>
+    async (...args: A): Promise<R> => {
+      commitDepth += 1
+      let result: R
+      try {
+        result = await commit(...args)
+      } finally {
+        commitDepth -= 1
+      }
+      if (commitDepth === 0) await assertOrderPlaneCurrent()
+      return result
+    }
   const issuePort = {
-    async get(id: string): Promise<IssueWire> {
+    async get(id: string): Promise<IssueReport> {
       const issue = await issues.get(id)
       if (!issue) throw new Error(`unknown issue ${id}`)
       return {
@@ -117,14 +152,19 @@ async function harness(
         ...issue,
         branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
       })),
-    shippingCommit: issues.shippingCommit.bind(issues),
-    shippingCommitMany: issues.shippingCommitMany.bind(issues),
+    shippingCommit: checked(issues.shippingCommit.bind(issues)) as typeof issues.shippingCommit,
+    shippingCommitMany: checked(
+      issues.shippingCommitMany.bind(issues),
+    ) as typeof issues.shippingCommitMany,
     ...(options.takeBranchCustody ? { takeBranchCustody: options.takeBranchCustody } : {}),
   }
   const deps: ConstructorParameters<typeof ShippingService>[0] = {
     repository: store.shipping,
     issues: issuePort,
-    ledger,
+    ledger: {
+      commit: checked(async (op) => await ledger.commit(op)) as typeof ledger.commit,
+      reconcile: async (entity, rows) => await ledger.reconcile(entity, rows),
+    },
     daemon: { shippingJob },
     authorization: {
       attribution: () => approval.requestedBy,
@@ -153,7 +193,7 @@ async function harness(
     resolveBranchTip: options.resolveBranchTip ?? (async () => 'head-sha'),
     resolveRefTip: options.resolveRefTip ?? (async () => 'base-sha'),
     isAncestor: options.isAncestor ?? (async () => false),
-    now: () => '2026-08-13T10:00:00.000Z',
+    now: options.now ?? (() => '2026-08-13T10:00:00.000Z'),
     ...(options.beforeCompletionCommit
       ? { beforeCompletionCommit: options.beforeCompletionCommit }
       : {}),
@@ -165,6 +205,7 @@ async function harness(
     background: false,
   }
   const service = new ShippingService(deps)
+  orderPlaneService = service
   return { store, ledger, issues, service, deps }
 }
 
@@ -220,6 +261,147 @@ const provedShippingJob = async (
 })
 
 describe('ShippingService enqueue transaction', () => {
+  it('O1 scheduler tick does not scan attempt history', async () => {
+    const { store, service } = await harness()
+    const attempts = vi.spyOn(store.shipping, 'listAttempts')
+    try {
+      await service.tick()
+      expect(attempts).not.toHaveBeenCalled()
+    } finally {
+      attempts.mockRestore()
+      service.dispose()
+    }
+  })
+
+  it('O1 commits and reads queue ranks without scanning attempt history', async () => {
+    const { store, ledger, issues, service } = await harness()
+    const issue = await issues.create({
+      repoPath: '/repo',
+      title: 'compact order',
+      startNow: false,
+    })
+    await issues.update(issue.id, { stage: 'review' })
+    const attempts = vi.spyOn(store.shipping, 'listAttempts')
+    try {
+      const cursor = await ledger.cursor()
+      const admitted = await service.enqueue({ issueId: issue.id, ...approval })
+      const changes = (await ledger.changesSince(cursor)) ?? []
+      expect(
+        changes.some((change) => change.entity === 'shipOrder' && change.op === 'upsert'),
+      ).toBe(true)
+      expect(admitted.projection).not.toHaveProperty('queueRank')
+      expect(attempts).not.toHaveBeenCalled()
+
+      expect((await service.queue()).map(({ order, queueRank }) => [order.id, queueRank])).toEqual([
+        [admitted.order.id, 1],
+      ])
+      expect(attempts).not.toHaveBeenCalled()
+
+      const cancelCursor = await ledger.cursor()
+      await service.cancel({
+        orderId: admitted.order.id,
+        principal: approval.principal,
+        overrideScope: false,
+      })
+      expect(await ledger.changesSince(cancelCursor)).toContainEqual(
+        expect.objectContaining({ entity: 'shipOrder', id: admitted.order.id, op: 'remove' }),
+      )
+      expect(attempts).not.toHaveBeenCalled()
+    } finally {
+      attempts.mockRestore()
+      service.dispose()
+    }
+  })
+
+  it('O1 publishes live order rows without train or waitEstimate', async () => {
+    const { store, ledger, issues, service } = await harness()
+    const issue = await issues.create({ repoPath: '/repo', title: 'compact wire', startNow: false })
+    await issues.update(issue.id, { stage: 'review' })
+    try {
+      const cursor = await ledger.cursor()
+      const admitted = await service.enqueue({ issueId: issue.id, ...approval })
+      const rows = ((await ledger.changesSince(cursor)) ?? []).filter(
+        (change) => change.entity === 'shipOrder' && change.op === 'upsert',
+      )
+      expect(rows).toHaveLength(1)
+      for (const value of [rows[0]!.value, admitted.projection]) {
+        expect(value).toMatchObject({
+          id: admitted.order.id,
+          humanState: 'waiting',
+        })
+        expect(value).not.toHaveProperty('queueRank')
+        expect(value).not.toHaveProperty('train')
+        expect(value).not.toHaveProperty('waitEstimate')
+      }
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O1 scheduler claims the same compatible train and leader', async () => {
+    let now = '2026-08-13T10:00:00.000Z'
+    const { store, issues, service } = await harness(undefined, {
+      now: () => now,
+      resolveBranchTip: async (issue) => (issue.title === 'upper' ? 'head-upper' : 'head-sha'),
+      isAncestor: async (_issue, ancestor, descendant) =>
+        ancestor === 'head-sha' && descendant === 'head-upper',
+    })
+    try {
+      for (const [index, repoPath] of ['/repo', '/repo', '/other'].entries()) {
+        now = `2026-08-13T10:00:0${index}.000Z`
+        const title = ['lower', 'upper', 'other'][index]!
+        const issue = await issues.create({ repoPath, title, startNow: false })
+        await issues.update(issue.id, { stage: 'review', branch: `issue/${title}` })
+        await service.enqueue({
+          issueId: issue.id,
+          ...approval,
+          approved: {
+            ...approval.approved,
+            sourceHeadSha: title === 'upper' ? 'head-upper' : 'head-sha',
+          },
+        })
+      }
+      now = '2026-08-13T10:00:00.000Z'
+      const orders = await store.shipping.listOrders()
+      const members = orders
+        .filter((order) => order.repoPath === '/repo')
+        .sort(
+          (left, right) =>
+            left.requestedAt.localeCompare(right.requestedAt) || left.id.localeCompare(right.id),
+        )
+      expect(
+        shippingSchedule(orders).trains.map((train) => train.orders.map((order) => order.id)),
+      ).toContainEqual(members.map((order) => order.id))
+      const claims = vi.spyOn(store.shipping, 'claimTrain')
+      const run = vi.spyOn(service, 'runOrder').mockResolvedValue()
+      try {
+        await service.tick()
+        expect(claims).toHaveBeenCalledExactlyOnceWith({
+          leaderOrderId: members[1]!.id,
+          startedAt: '2026-08-13T10:00:00.000Z',
+          members: members.map((order) => ({ orderId: order.id })),
+        })
+        expect(run).toHaveBeenCalledExactlyOnceWith(members[1]!.id, [members[0]])
+        const manifest = await store.shipping.activeTrainForOrder(members[0]!.id)
+        expect(manifest?.leaderOrderId).toBe(members[1]!.id)
+        expect(manifest?.members.map((member) => member.orderId)).toEqual(
+          members.map((order) => order.id),
+        )
+        expect(
+          (await store.shipping.listOrders())
+            .filter((order) => order.state === 'preflight')
+            .map((order) => order.id)
+            .sort(),
+        ).toEqual(members.map((order) => order.id).sort())
+      } finally {
+        claims.mockRestore()
+        run.mockRestore()
+      }
+    } finally {
+      service.dispose()
+    }
+  })
+
   it('atomically freezes the order, moves review to shipping, and publishes compact rows', async () => {
     const { store, ledger, issues, service } = await harness()
     const issue = await issues.create({
@@ -239,24 +421,29 @@ describe('ShippingService enqueue transaction', () => {
       approvedHeadSha: 'head-sha',
       descendants: [],
     })
-    const changes = await ledger.changesSince(cursor) ?? []
-    expect(changes.some((change) => change.entity === 'issue' && change.id === issue.id)).toBe(true)
+    const changes = (await ledger.changesSince(cursor)) ?? []
+    expect(
+      changes.some((change) => change.entity === 'issueProjection' && change.id === issue.id),
+    ).toBe(true)
     expect(
       changes.some(
         (change) =>
-          change.entity === 'shipOrder' &&
-          change.id === receipt.order.id &&
-          change.op === 'upsert' &&
-          (change.value as { queueRank?: number }).queueRank === 1,
+          change.entity === 'shipOrder' && change.id === receipt.order.id && change.op === 'upsert',
       ),
     ).toBe(true)
+    expect(
+      changes.find((change) => change.entity === 'shipOrder' && change.id === receipt.order.id)
+        ?.value,
+    ).not.toHaveProperty('queueRank')
 
     await expect(service.enqueue({ issueId: issue.id, ...approval })).resolves.toMatchObject({
       created: false,
       order: { id: receipt.order.id },
     })
     expect(receipt.order.id).toMatch(/^ship_[0-9a-f-]{36}$/)
-    expect(await store.events.listEventsSince(0, { kinds: ['issue.shipping_enqueued'] })).toHaveLength(1)
+    expect(
+      await store.events.listEventsSince(0, { kinds: ['issue.shipping_enqueued'] }),
+    ).toHaveLength(1)
     service.dispose()
   })
 
@@ -730,7 +917,7 @@ describe('ShippingService enqueue transaction', () => {
     })
     expect((await store.shipping.getOrder(order.id))?.state).toBe('queued')
     expect((await store.issues.getIssue(issue.id))?.needsHuman).toBe(false)
-    const projected = await ledger.authority.snapshot('shipOrder') as {
+    const projected = (await ledger.authority.snapshot('shipOrder')) as {
       id: string
       hold?: unknown
     }[]
@@ -816,14 +1003,19 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('refuses daemon-native evidence paths before hold persistence', async () => {
-    const { store, issues, service } = await harness(async (input, machineId) =>
-      await provedShippingJob(input, machineId, {
-        state: 'held',
-        classification: 'validation-failed',
-        artifactRefs: ['/native/daemon/validation.log'],
-      }),
+    const { store, issues, service } = await harness(
+      async (input, machineId) =>
+        await provedShippingJob(input, machineId, {
+          state: 'held',
+          classification: 'validation-failed',
+          artifactRefs: ['/native/daemon/validation.log'],
+        }),
     )
-    const issue = await issues.create({ repoPath: '/repo', title: 'opaque evidence', startNow: false })
+    const issue = await issues.create({
+      repoPath: '/repo',
+      title: 'opaque evidence',
+      startNow: false,
+    })
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -1324,7 +1516,11 @@ describe('ShippingService enqueue transaction', () => {
 
   it('rolls back cancellation state when its durable issue event cannot commit', async () => {
     const { store, issues, service } = await harness(provedShippingJob)
-    const issue = await issues.create({ repoPath: '/repo', title: 'atomic cancel', startNow: false })
+    const issue = await issues.create({
+      repoPath: '/repo',
+      title: 'atomic cancel',
+      startNow: false,
+    })
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     const db = (store as unknown as { db: { exec(sql: string): void } }).db
@@ -1425,7 +1621,8 @@ describe('ShippingService enqueue transaction', () => {
       startedAt: '2026-08-13T10:00:01.000Z',
     })
     expect(claimed.attempt.leaseGeneration).toBe(2)
-    await expect(store.shipping.claimAttempt({
+    await expect(
+      store.shipping.claimAttempt({
         orderId: order.id,
         expectedState: 'preflight',
         expectedAttemptId: first.id,
@@ -1438,12 +1635,14 @@ describe('ShippingService enqueue transaction', () => {
       finishedAt: '2026-08-13T10:00:02.000Z',
       outcome: 'failed',
     })
-    await expect(store.shipping.finishAttempt(claimed.attempt.id, 2, {
+    await expect(
+      store.shipping.finishAttempt(claimed.attempt.id, 2, {
         finishedAt: '2026-08-13T10:00:03.000Z',
         outcome: 'failed',
       }),
     ).rejects.toThrow(/immutable/)
-    await expect(store.shipping.finishAttempt(claimed.attempt.id, 1, {
+    await expect(
+      store.shipping.finishAttempt(claimed.attempt.id, 1, {
         finishedAt: '2026-08-13T10:00:02.000Z',
         outcome: 'failed',
       }),
@@ -1524,7 +1723,8 @@ describe('ShippingService enqueue transaction', () => {
     expect(await store.shipping.latestStepForEffect(first.id, effectKey)).toMatchObject({
       state: 'running',
     })
-    await expect(store.shipping.claimAttempt({
+    await expect(
+      store.shipping.claimAttempt({
         orderId: order.id,
         expectedState: 'preflight',
         expectedAttemptId: first.id,
@@ -1597,7 +1797,9 @@ describe('ShippingService enqueue transaction', () => {
       outcome: 'authorization-refused',
       summary: 'delegation revoked',
     })
-    expect(await store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(false)
+    expect(await store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(
+      false,
+    )
     service.dispose()
   })
 
@@ -1650,7 +1852,9 @@ describe('ShippingService enqueue transaction', () => {
       outcome: 'cancel-error',
       summary: 'daemon disconnected',
     })
-    expect(await store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(false)
+    expect(await store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(
+      false,
+    )
     service.dispose()
   })
 
@@ -1824,7 +2028,9 @@ describe('ShippingService enqueue transaction', () => {
   it('reopens a released train repair from its persisted context after restart and daemon loss', async () => {
     let daemonEvidenceRef: string | undefined
     let evidenceRegistry: ShippingEvidenceRegistry | undefined
-    let persistedEvidenceRef: Awaited<ReturnType<ShippingEvidenceRegistry['materialize']>> | undefined
+    let persistedEvidenceRef:
+      | Awaited<ReturnType<ShippingEvidenceRegistry['materialize']>>
+      | undefined
     let originalContext: ShippingRepairContext | undefined
     let reopenedContext: ShippingRepairContext | undefined
     const consider = vi.fn(async (input: ShippingRepairContext) => {
@@ -1894,10 +2100,23 @@ describe('ShippingService enqueue transaction', () => {
       }
       return await provedShippingJob(input, machineId)
     }
-    const { store, issues, service, deps } = await harness(daemon, { repair })
+    // The train is claimed straight through the store below, which no commit
+    // publishes, so the order-plane cross-check would only report that shortcut.
+    const { store, issues, service, deps } = await harness(daemon, {
+      repair,
+      checkOrderPlane: false,
+    })
     evidenceRegistry = new ShippingEvidenceRegistry(store.shipping)
-    const issueA = await issues.create({ repoPath: '/repo', title: 'repair train a', startNow: false })
-    const issueB = await issues.create({ repoPath: '/repo', title: 'repair train b', startNow: false })
+    const issueA = await issues.create({
+      repoPath: '/repo',
+      title: 'repair train a',
+      startNow: false,
+    })
+    const issueB = await issues.create({
+      repoPath: '/repo',
+      title: 'repair train b',
+      startNow: false,
+    })
     await issues.update(issueA.id, {
       branch: 'issue/repair-train-a',
       machineId: asMachineId('machine-1'),
@@ -2078,7 +2297,11 @@ describe('ShippingService enqueue transaction', () => {
     await service.runOrder(landed.order.id)
     expect((await store.shipping.getOrder(landed.order.id))?.state).toBe('shipped')
 
-    const blockerIssue = await issues.create({ repoPath: '/repo', title: 'D2 blocker', startNow: false })
+    const blockerIssue = await issues.create({
+      repoPath: '/repo',
+      title: 'D2 blocker',
+      startNow: false,
+    })
     await issues.update(blockerIssue.id, { stage: 'review' })
     await service.enqueue({
       issueId: blockerIssue.id,
@@ -2176,9 +2399,9 @@ describe('ShippingService enqueue transaction', () => {
     expect((await store.shipping.getOrder(sibling.receipt.order.id))?.state).toBe('queued')
     expect((await store.issues.getIssue(sibling.issue.id))?.needsHuman).toBe(false)
     expect(
-      (await store.events
-        .listEventsSince(0, { kinds: ['issue.shipping_train_reset'] }))
-        .some((event) => event.subject === sibling.issue.id),
+      (await store.events.listEventsSince(0, { kinds: ['issue.shipping_train_reset'] })).some(
+        (event) => event.subject === sibling.issue.id,
+      ),
     ).toBe(true)
     service.dispose()
   })
@@ -2434,7 +2657,7 @@ describe('ShippingService resource lease boundary re-check (POD-3488)', () => {
       expectedSourceBaseSha: 'base-sha',
       approvedHeadSha: 'head-sha',
     }
-    const issue = { id: 'iss_boundary', repoPath: '/repo', branch: 'issue/boundary' } as IssueWire
+    const issue = { id: 'iss_boundary', repoPath: '/repo', branch: 'issue/boundary' } as IssueReport
     // Echoes the request it was given, so the post-effect authority fence passes
     // and the test can reach the second boundary. `running` keeps the effect from
     // committing anything afterwards.
@@ -2492,7 +2715,7 @@ describe('ShippingService resource lease boundary re-check (POD-3488)', () => {
           runEffect(
             order: unknown,
             attempt: unknown,
-            issue: IssueWire,
+            issue: IssueReport,
             operation: ShippingJobResult['operation'],
             nextState: undefined,
             resourceLease: ResourceLease,
@@ -2623,5 +2846,347 @@ describe('ShippingService under the async store (POD-3820)', () => {
     expect(audited).toEqual([])
     expect((await store.issues.getIssue(issue.id))?.stage).toBe('review')
     service.dispose()
+  })
+})
+
+describe('POD-4974 O2 ship lanes', () => {
+  const PROFILE = {
+    id: 'default',
+    argv: ['bun', 'run', 'test'],
+    cwd: 'integration-root' as const,
+    timeoutMs: 60_000,
+    resourceLocks: [] as string[],
+  }
+  /** One queued order written straight into the store, as admission would
+   * freeze it; nothing is published until a commit names it. */
+  const seedOrder = async (
+    issues: IssueService,
+    store: SessionStore,
+    input: {
+      title: string
+      minute: number
+      repoPath?: string
+      headSha?: string
+      baseSha?: string
+      deliveryDependsOn?: ShipOrder['deliveryDependsOn']
+    },
+  ): Promise<ShipOrder> => {
+    const repoPath = input.repoPath ?? '/repo'
+    const created = await issues.create({ repoPath, title: input.title, startNow: false })
+    await issues.update(created.id, { stage: 'review', branch: `issue/${input.title}` })
+    const issue = (await issues.get(created.id))!
+    const at = `2026-08-13T10:${String(input.minute).padStart(2, '0')}:00.000Z`
+    return await store.shipping.createOrder({
+      id: asShipOrderId(`order-${input.title}`),
+      issueId: issue.id,
+      descendantManifest: [],
+      repoId: issue.repoId!,
+      repoPath,
+      machineId: asMachineId('machine-1'),
+      targetBranch: 'main',
+      destination: 'local:main',
+      approvedBaseSha: input.baseSha ?? 'base-sha',
+      approvedHeadSha: input.headSha ?? `head-${input.title}`,
+      deliveryDependsOn: input.deliveryDependsOn ?? [],
+      requestedBy: approval.requestedBy,
+      requestedAt: at,
+      policyId: 'compatibility-local:main',
+      validationProfile: PROFILE,
+      validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
+      closeMode: 'after-destination',
+      state: 'queued',
+      stateChangedAt: at,
+    })
+  }
+  /** Publish the boot truth for what was seeded, as the server's hydrate does,
+   * without `reconcile()`, whose tick would start running the seeded orders. */
+  const publishSeeded = async (service: ShippingService, ledger: Ledger) => {
+    const truth = await service['fullProjection']()
+    await ledger.reconcile('shipOrder', truth.orders)
+    await ledger.reconcile('shipLane', truth.lanes)
+  }
+  const published = async (ledger: Ledger) => {
+    const lanes = (await ledger.authority.snapshot('shipLane')) as ShipLaneProjection[]
+    return {
+      orders: (await ledger.authority.snapshot('shipOrder')) as ShipOrderProjection[],
+      ranks: new Map(
+        lanes.flatMap((lane) =>
+          lane.trains.flatMap((train, index) =>
+            train.orderIds.map((id) => [id, index + 1] as const),
+          ),
+        ),
+      ),
+      lanes,
+    }
+  }
+
+  it('O4 boot and reconnect truth omit order ranks while preserving lane positions', async () => {
+    const { store, ledger, issues, service } = await harness(undefined, { checkOrderPlane: false })
+    try {
+      const first = await seedOrder(issues, store, { title: 'first', minute: 1 })
+      const second = await seedOrder(issues, store, {
+        title: 'second',
+        minute: 2,
+        baseSha: 'other-base',
+      })
+      const truth = await service['fullProjection']()
+      expect(truth.orders.map((row) => row.id)).toEqual([first.id, second.id])
+      for (const row of truth.orders) expect(row.value).not.toHaveProperty('queueRank')
+      expect(truth.lanes[0]?.value.trains).toEqual([
+        { orderIds: [first.id] },
+        { orderIds: [second.id] },
+      ])
+      await publishSeeded(service, ledger)
+      const after = await published(ledger)
+      for (const row of after.orders) expect(row).not.toHaveProperty('queueRank')
+      expect(after.ranks).toEqual(
+        new Map([
+          [first.id, 1],
+          [second.id, 2],
+        ]),
+      )
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O4 clears legacy ledger ranks then publishes a lane change without resending unchanged orders', async () => {
+    const { store, ledger, issues, service } = await harness(undefined, { checkOrderPlane: false })
+    try {
+      const first = await seedOrder(issues, store, { title: 'first', minute: 1 })
+      const second = await seedOrder(issues, store, {
+        title: 'second',
+        minute: 2,
+        baseSha: 'other-base',
+      })
+      const elsewhere = await seedOrder(issues, store, {
+        title: 'elsewhere',
+        minute: 3,
+        repoPath: '/other',
+      })
+      const truth = await service['fullProjection']()
+      // A ledger persisted by O2 still carries ranks. Boot/reconnect must replace
+      // those rows once; subsequent lane movement must not stamp them again.
+      await ledger.reconcile(
+        'shipOrder',
+        truth.orders.map((row, index) => ({
+          ...row,
+          value: { ...row.value, queueRank: index + 1 },
+        })),
+      )
+      await ledger.reconcile('shipLane', truth.lanes)
+      expect((await published(ledger)).orders.every((row) => 'queueRank' in row)).toBe(true)
+      await publishSeeded(service, ledger)
+      const before = await published(ledger)
+      for (const row of before.orders) expect(row).not.toHaveProperty('queueRank')
+
+      const cursor = await ledger.cursor()
+      await service['transition'](first, 'preflight')
+      const changes = ((await ledger.changesSince(cursor)) ?? []).filter(
+        (change) => change.entity === 'shipOrder' || change.entity === 'shipLane',
+      )
+      expect(changes.map((change) => `${change.entity}:${change.id}`).sort()).toEqual(
+        [`shipOrder:${first.id}`, `shipLane:${shipLaneIdOf(first)}`].sort(),
+      )
+      const changedOrder = changes.find((change) => change.entity === 'shipOrder')!
+      expect(changedOrder.value).toMatchObject({ id: first.id, state: 'preflight' })
+      expect(changedOrder.value).not.toHaveProperty('queueRank')
+      const after = await published(ledger)
+      expect(after.ranks.get(second.id)).toBe(1)
+      for (const id of [second.id, elsewhere.id]) {
+        expect(after.orders.find((row) => row.id === id)).toEqual(
+          before.orders.find((row) => row.id === id),
+        )
+      }
+      expect(new Map(after.orders.map((row) => [row.id, row]))).toEqual(
+        new Map((await service['fullProjection']()).orders.map((row) => [row.id, row.value])),
+      )
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O2 publishes the order the scheduler runs, native-stack edges included', async () => {
+    const { store, ledger, issues, service } = await harness(undefined, {
+      checkOrderPlane: false,
+      isAncestor: async (_issue, ancestor, descendant) =>
+        ancestor === 'lower-head' && descendant === 'upper-head',
+    })
+    try {
+      // The upper half of a stack is admitted FIRST; an unrelated order sits
+      // between them. FIFO alone would run upper before lower.
+      const upper = await seedOrder(issues, store, {
+        title: 'upper',
+        minute: 1,
+        headSha: 'upper-head',
+      })
+      const unrelated = await seedOrder(issues, store, {
+        title: 'unrelated',
+        minute: 2,
+        baseSha: 'other-base',
+      })
+      const lower = await seedOrder(issues, store, {
+        title: 'lower',
+        minute: 3,
+        headSha: 'lower-head',
+      })
+      await publishSeeded(service, ledger)
+
+      // The scheduler's own pass: it records the native-stack edge it infers
+      // and schedules over it, exactly as `runTick` does.
+      const orders = await service['ordersWithNativeStackEdges']()
+      const schedule = shippingSchedule(orders)
+      const rank = (id: string) =>
+        schedule.entries.find((entry) => entry.order.id === id)?.queueRank
+      expect([rank(upper.id), rank(unrelated.id), rank(lower.id)]).toEqual([2, 1, 2])
+
+      const after = await published(ledger)
+      expect(after.ranks).toEqual(
+        new Map([
+          [upper.id, 2],
+          [unrelated.id, 1],
+          [lower.id, 2],
+        ]),
+      )
+      expect(after.lanes).toEqual([
+        {
+          id: shipLaneIdOf(upper),
+          repoId: upper.repoId,
+          destination: 'local:main',
+          trains: schedule.trains.map((train) => ({
+            orderIds: train.orders.map((order) => order.id),
+          })),
+          blockedOrderIds: [],
+        },
+      ])
+      expect(after.lanes[0]!.trains).toEqual([
+        { orderIds: [unrelated.id] },
+        { orderIds: [lower.id, upper.id] },
+      ])
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O2 a commit reads and publishes only the lane it touched', async () => {
+    const { store, ledger, issues, service } = await harness(undefined, { checkOrderPlane: false })
+    try {
+      const first = await seedOrder(issues, store, { title: 'first', minute: 1 })
+      const second = await seedOrder(issues, store, {
+        title: 'second',
+        minute: 2,
+        deliveryDependsOn: [asShipOrderId('order-first')],
+      })
+      const elsewhere = await seedOrder(issues, store, {
+        title: 'elsewhere',
+        minute: 3,
+        repoPath: '/other',
+      })
+      await publishSeeded(service, ledger)
+      const scans = [
+        vi.spyOn(store.shipping, 'listOrders'),
+        vi.spyOn(store.shipping, 'listHolds'),
+        vi.spyOn(store.shipping, 'listReceipts'),
+        vi.spyOn(store.shipping, 'listNativeStackEdges'),
+      ]
+      const projection = vi.spyOn(
+        service as never as { projectionFor: () => unknown },
+        'projectionFor',
+      )
+      await service['transition'](first, 'preflight')
+      for (const scan of scans) expect(scan).not.toHaveBeenCalled()
+      expect(projection).toHaveBeenCalledTimes(1)
+      const specs = (await projection.mock.results[0]!.value) as {
+        entity: string
+        id: string
+        op: string
+        value?: { trains: unknown[]; blockedOrderIds: string[] }
+      }[]
+      expect(specs.map((spec) => `${spec.entity}:${spec.id}`).sort()).toEqual(
+        [
+          `shipLane:${shipLaneIdOf(first)}`,
+          `shipOrder:${first.id}`,
+          `shipOrder:${second.id}`,
+        ].sort(),
+      )
+      expect(specs.find((spec) => spec.entity === 'shipLane')?.value).toMatchObject({
+        trains: [],
+        blockedOrderIds: [second.id],
+      })
+      expect(specs.some((spec) => spec.id === elsewhere.id)).toBe(false)
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O2 a dependency that ships unblocks its dependent in another lane', async () => {
+    const { store, ledger, issues, service } = await harness(provedShippingJob)
+    try {
+      const issue = await issues.create({ repoPath: '/repo', title: 'dependency', startNow: false })
+      await issues.update(issue.id, { stage: 'review' })
+      const dependency = (await service.enqueue({ issueId: issue.id, ...approval })).order
+      const dependent = await seedOrder(issues, store, {
+        title: 'dependent',
+        minute: 30,
+        repoPath: '/other',
+        // Based on what the dependency lands, so landing it does not send the
+        // dependent back to review as a stale descendant.
+        baseSha: dependency.approvedHeadSha,
+        deliveryDependsOn: [dependency.id],
+      })
+      await publishSeeded(service, ledger)
+      expect(
+        (await published(ledger)).lanes.find((lane) => lane.id === shipLaneIdOf(dependent)),
+      ).toMatchObject({
+        trains: [],
+        blockedOrderIds: [dependent.id],
+      })
+
+      await service.runOrder(dependency.id)
+      expect((await store.shipping.getOrder(dependency.id))?.state).toBe('shipped')
+      const after = await published(ledger)
+      expect(after.lanes.find((lane) => lane.id === shipLaneIdOf(dependent))).toMatchObject({
+        trains: [{ orderIds: [dependent.id] }],
+        blockedOrderIds: [],
+      })
+      expect(after.ranks.get(dependent.id)).toBe(1)
+      // The dependency's own lane emptied, so its row is removed.
+      expect(after.lanes.some((lane) => lane.id === shipLaneIdOf(dependency))).toBe(false)
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O2 a shipping batch computes its order-plane changes once, over every entry', async () => {
+    const { store, issues, service, deps } = await harness(undefined, { checkOrderPlane: false })
+    try {
+      const orders = [
+        await seedOrder(issues, store, { title: 'one', minute: 1 }),
+        await seedOrder(issues, store, { title: 'two', minute: 2 }),
+        await seedOrder(issues, store, { title: 'three', minute: 3, repoPath: '/other' }),
+      ]
+      const projection = vi.spyOn(
+        service as never as { projectionFor: () => unknown },
+        'projectionFor',
+      )
+      const many = vi.spyOn(deps.issues, 'shippingCommitMany')
+      await service['commitMany'](
+        orders.map((order) => ({
+          order,
+          mutation: { expectedStage: ['review', 'shipping'] as const },
+        })),
+        async () => undefined,
+      )
+      expect(projection).toHaveBeenCalledTimes(1)
+      expect(projection).toHaveBeenCalledWith(orders.map((order) => order.id))
+      const entries = many.mock.calls[0]![0]
+      expect(entries.map((entry) => typeof entry.mutation.shipOrderChanges)).toEqual([
+        'function',
+        'object',
+        'object',
+      ])
+    } finally {
+      service.dispose()
+    }
   })
 })

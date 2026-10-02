@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -11,9 +11,8 @@ const { IssueQuestionCard } = await import('./IssueQuestionCard')
 
 const issue = {
   id: 'issue-1',
-  humanQuestion: 'Which navigation should ship?',
-  humanQuestionOptions: ['Work first', 'Tasks first'],
-} as unknown as IssueWire
+  asked: { question: 'Which navigation should ship?', options: ['Work first', 'Tasks first'] },
+} as unknown as IssueViewModel
 
 describe('IssueQuestionCard', () => {
   it('answers or resolves a question from its task context', async () => {

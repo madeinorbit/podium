@@ -47,7 +47,6 @@ const ROOT = join(import.meta.dirname, '..')
 const FUNNEL_FILE = 'apps/server/src/modules/funnel.ts'
 const MUX_FILE = 'apps/server/src/gateway/client-mux.ts'
 const SERVING_FILE = 'apps/server/src/gateway/feed-serving.ts'
-const ADAPTER_FILE = 'apps/server/src/gateway/legacy-wire-v1-adapter.ts'
 
 /**
  * The five message shapes the pre-cutover serving path produced, and the ONLY
@@ -64,7 +63,7 @@ const FULL_LIST_MESSAGES = [
   'automationRunsChanged',
 ] as const
 
-const FULL_LIST_ALLOWED = [ADAPTER_FILE]
+const FULL_LIST_ALLOWED: readonly string[] = []
 
 /** Authorized feed producers, not alternate repository projections. HTTP delta
  * uses Authority.changesRange; HTTP bootstrap relays opaque worker bytes. The
@@ -128,23 +127,32 @@ export function runChecks(input: AuditInput): Finding[] {
     'packages/client-core/src/socket-transport/bootstrap-zstd.ts',
   ]
   for (const path of deletedFiles) {
-    if (input.read(path) !== null) findings.push({ check: 'http-cutover-files-absent', where: path,
-      detail: 'The legacy push/catch-up module must stay deleted.' })
+    if (input.read(path) !== null)
+      findings.push({
+        check: 'http-cutover-files-absent',
+        where: path,
+        detail: 'The legacy push/catch-up module must stay deleted.',
+      })
   }
-  const legacyCode = /\b(?:serveWorld|PushedBootstrapSource|FeedAuthorityClient|BootstrapCompressionBudget|CAP_FEED_BOOTSTRAP_ZSTD_V1|FEED_BOOTSTRAP_CHUNK_ROWS|requestFreshWorld|feedChangesSince)\b/
+  const legacyCode =
+    /\b(?:serveWorld|PushedBootstrapSource|FeedAuthorityClient|BootstrapCompressionBudget|CAP_FEED_BOOTSTRAP_ZSTD_V1|FEED_BOOTSTRAP_CHUNK_ROWS|requestFreshWorld|feedChangesSince)\b/
   for (const path of input.sources()) {
     if (!/^(apps|packages)\//.test(path) || /\.test\./.test(path)) continue
     const source = input.read(path)
-    if (source !== null && legacyCode.test(code(source))) findings.push({
-      check: 'http-cutover-no-legacy-code', where: path,
-      detail: 'Legacy WebSocket bootstrap or v2 tRPC catch-up code has returned.',
-    })
+    if (source !== null && legacyCode.test(code(source)))
+      findings.push({
+        check: 'http-cutover-no-legacy-code',
+        where: path,
+        detail: 'Legacy WebSocket bootstrap or v2 tRPC catch-up code has returned.',
+      })
   }
   const schema = input.read('packages/protocol/src/messages/feed.ts')
-  if (schema === null || !/export const FeedBootstrapMessage =/.test(schema)) findings.push({
-    check: 'http-bootstrap-schema-kept', where: 'packages/protocol/src/messages/feed.ts',
-    detail: 'FeedBootstrapMessage is the HTTP NDJSON row-batch schema and must remain.',
-  })
+  if (schema === null || !/export const FeedBootstrapMessage =/.test(schema))
+    findings.push({
+      check: 'http-bootstrap-schema-kept',
+      where: 'packages/protocol/src/messages/feed.ts',
+      detail: 'FeedBootstrapMessage is the HTTP NDJSON row-batch schema and must remain.',
+    })
 
   // ---- 1. the deleted tail stays deleted --------------------------------
   for (const path of input.sources()) {
@@ -178,7 +186,7 @@ export function runChecks(input: AuditInput): Finding[] {
         where: path,
         detail:
           `constructs a '${message}' message. The pre-cutover full-list shapes are produced ONLY ` +
-          `by the expiring v1 translation (${ADAPTER_FILE}). ` +
+          `by no supported transport. ` +
           'Building one anywhere else re-creates the dual read path POD-1203 deleted — it will ' +
           'work, and it will disagree with the feed the first time the two are computed from ' +
           'different state.',
@@ -209,13 +217,23 @@ export function runChecks(input: AuditInput): Finding[] {
   // Enforcement must precede any entity admission; HTTP bootstrap records
   // remain legal NDJSON even after the WebSocket push producer is removed.
   if (mux !== null && /\bfeed\.attach\(/.test(code(mux))) {
-    findings.push({ check: 'no-pre-hello-feed', where: MUX_FILE,
-      detail: 'Admit only through capability-checked hello; pre-hello attach can push a legacy world.' })
+    findings.push({
+      check: 'no-pre-hello-feed',
+      where: MUX_FILE,
+      detail:
+        'Admit only through capability-checked hello; pre-hello attach can push a legacy world.',
+    })
   }
   const upgrade = input.read('apps/server/src/gateway/ws-server.ts')
-  if (upgrade !== null && !/pathname === '\/client'[\s\S]*getAll\('cap'\)\.includes\(CAP_SYNC_HTTP_V1\)/.test(upgrade)) {
-    findings.push({ check: 'http-cap-required-at-attach', where: 'apps/server/src/gateway/ws-server.ts',
-      detail: 'The client WebSocket attach must refuse peers without the HTTP sync capability.' })
+  if (
+    upgrade !== null &&
+    !/pathname === '\/client'[\s\S]*getAll\('cap'\)\.includes\(CAP_SYNC_HTTP_V1\)/.test(upgrade)
+  ) {
+    findings.push({
+      check: 'http-cap-required-at-attach',
+      where: 'apps/server/src/gateway/ws-server.ts',
+      detail: 'The client WebSocket attach must refuse peers without the HTTP sync capability.',
+    })
   }
 
   // ---- 4. the funnel has ONE tail ---------------------------------------
@@ -237,8 +255,12 @@ export function runChecks(input: AuditInput): Finding[] {
     if (SYNC_FEED_PRODUCERS.includes(path)) continue
     const source = input.read(path)
     if (source && /type:\s*['"]feedBootstrap['"]/.test(code(source))) {
-      findings.push({ check: 'bootstrap-producers-allowlisted', where: path,
-        detail: 'Bootstrap frames must serve the same scoped change_latest world through the feed edge or authorized sync producer.' })
+      findings.push({
+        check: 'bootstrap-producers-allowlisted',
+        where: path,
+        detail:
+          'Bootstrap frames must serve the same scoped change_latest world through the feed edge or authorized sync producer.',
+      })
     }
   }
 
@@ -246,18 +268,39 @@ export function runChecks(input: AuditInput): Finding[] {
   // mapping as the live edge. This transport must never open a repository read path.
   for (const path of ['apps/server/src/sync/routes.ts', 'apps/server/src/sync/route-support.ts']) {
     const source = input.read(path)
-    const imports = source === null ? [] : [...code(source).matchAll(/import\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/g)]
+    const imports =
+      source === null
+        ? []
+        : [...code(source).matchAll(/import\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/g)]
     const isStore = (specifier: string) => /(?:^|\/)store(?:\/|$)/.test(specifier)
     const runtimeImport = imports.some((match) => {
       const binding = match[1]!.trim()
-      const typesOnly = binding.startsWith('type ') ||
-        (binding.startsWith('{') && binding.endsWith('}') && binding.slice(1, -1).split(',').filter(part => part.trim()).every(part => part.trim().startsWith('type ')))
+      const typesOnly =
+        binding.startsWith('type ') ||
+        (binding.startsWith('{') &&
+          binding.endsWith('}') &&
+          binding
+            .slice(1, -1)
+            .split(',')
+            .filter((part) => part.trim())
+            .every((part) => part.trim().startsWith('type ')))
       return !typesOnly && isStore(match[2]!)
     })
-    const runtimeLoads = source === null ? [] : [...code(source).matchAll(/(?:\b(?:import|require)\s*\(\s*|\bimport\s*)['"]([^'"]+)['"]/g)]
-    if (runtimeImport || runtimeLoads.some(match => isStore(match[1]!))) {
-      findings.push({ check: 'sync-route-no-store-reads', where: path,
-        detail: 'HTTP sync routes must read through Authority, with store imports restricted to types.' })
+    const runtimeLoads =
+      source === null
+        ? []
+        : [
+            ...code(source).matchAll(
+              /(?:\b(?:import|require)\s*\(\s*|\bimport\s*)['"]([^'"]+)['"]/g,
+            ),
+          ]
+    if (runtimeImport || runtimeLoads.some((match) => isStore(match[1]!))) {
+      findings.push({
+        check: 'sync-route-no-store-reads',
+        where: path,
+        detail:
+          'HTTP sync routes must read through Authority, with store imports restricted to types.',
+      })
     }
   }
 
@@ -268,11 +311,6 @@ export function runChecks(input: AuditInput): Finding[] {
   // tree. Each control is a site KNOWN to contain what a detector looks for, and
   // a miss throws. A throw cannot be mistaken for a clean tree; a zero can.
   const controls: { path: string; pattern: RegExp; what: string }[] = [
-    {
-      path: ADAPTER_FILE,
-      pattern: constructionOf('sessionsChanged'),
-      what: 'the full-list construction pattern, against the translation that legitimately uses it',
-    },
     {
       path: SERVING_FILE,
       pattern: /\bpublishTo\(/,
@@ -346,26 +384,39 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
   })
   return [
     {
-      name: 'deleted pushed source returns', expect: 'http-cutover-files-absent',
-      input: overlay({ 'packages/client-core/src/replica/feed/bootstrap-source.ts': 'export class Restored {}' }),
+      name: 'deleted pushed source returns',
+      expect: 'http-cutover-files-absent',
+      input: overlay({
+        'packages/client-core/src/replica/feed/bootstrap-source.ts': 'export class Restored {}',
+      }),
     },
     {
-      name: 'legacy catch-up returns under a new module', expect: 'http-cutover-no-legacy-code',
-      input: overlay({ 'apps/server/src/revived.ts': 'const feedChangesSince = () => {}' }, ['apps/server/src/revived.ts']),
+      name: 'legacy catch-up returns under a new module',
+      expect: 'http-cutover-no-legacy-code',
+      input: overlay({ 'apps/server/src/revived.ts': 'const feedChangesSince = () => {}' }, [
+        'apps/server/src/revived.ts',
+      ]),
     },
     {
-      name: 'HTTP line schema is deleted with the push', expect: 'http-bootstrap-schema-kept',
+      name: 'HTTP line schema is deleted with the push',
+      expect: 'http-bootstrap-schema-kept',
       input: overlay({ 'packages/protocol/src/messages/feed.ts': '' }),
     },
     {
-      name: 'pre-hello feed admission returns', expect: 'no-pre-hello-feed',
+      name: 'pre-hello feed admission returns',
+      expect: 'no-pre-hello-feed',
       input: overlay({ [MUX_FILE]: `${base.read(MUX_FILE)}\nfeed.attach(peer)` }),
     },
     {
-      name: 'HTTP capability attach enforcement disappears', expect: 'http-cap-required-at-attach',
+      name: 'HTTP capability attach enforcement disappears',
+      expect: 'http-cap-required-at-attach',
       input: overlay({ 'apps/server/src/gateway/ws-server.ts': '// no capability check' }),
     },
-    ...["import '../store'", "const store = await import('../store')", "const store = require('../store')"].map(source => ({
+    ...[
+      "import '../store'",
+      "const store = await import('../store')",
+      "const store = require('../store')",
+    ].map((source) => ({
       name: `HTTP sync cannot load store via ${source}`,
       expect: 'sync-route-no-store-reads',
       input: overlay({ 'apps/server/src/sync/routes.ts': source }),
@@ -373,8 +424,12 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
     {
       name: 'a feature invents a second bootstrap producer',
       expect: 'bootstrap-producers-allowlisted',
-      input: overlay({ 'apps/server/src/modules/other-bootstrap.ts': "send({ type: 'feedBootstrap', changes })" },
-        ['apps/server/src/modules/other-bootstrap.ts']),
+      input: overlay(
+        {
+          'apps/server/src/modules/other-bootstrap.ts': "send({ type: 'feedBootstrap', changes })",
+        },
+        ['apps/server/src/modules/other-bootstrap.ts'],
+      ),
     },
     {
       name: 'HTTP sync bypasses Authority with a store import',
@@ -422,13 +477,6 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
       name: 'the funnel grows a second tail',
       expect: 'funnel-has-one-tail',
       input: overlay({ [FUNNEL_FILE]: 'export class WriteFunnel {}\n' }),
-    },
-    {
-      name: 'the full-list detector stops matching its control',
-      expect: 'detector-throws',
-      input: overlay({
-        [ADAPTER_FILE]: (base.read(ADAPTER_FILE) ?? '').replace(/type: 'sessionsChanged'/g, 'x'),
-      }),
     },
     {
       // The SECOND control, broken on its own: two controls that only ever fail

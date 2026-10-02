@@ -1,3 +1,9 @@
+import { headerDataLayer } from '@/lib/header-data-layer'
+import { useHeaderActions, usePoolHeaderMetrics, usePoolMetricIds, usePoolMetric, usePoolMachine, usePoolHostAggregate, usePoolReclaimCounts, usePoolOfflineMachines, useHeaderOutboxSize } from '@/app/header-data'
+import type { HeaderAggregate } from '@podium/client-graph/header-views'
+import type { HostMetricsWire, MachineWire } from '@podium/model/browser'
+import { memo } from 'react'
+import { measureHeader, measureLegacyHeader } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   createHostSessionAggregatesSelector,
@@ -53,8 +59,9 @@ const LoadPanel = lazy(() =>
  * the per-process breakdown / connection detail.
  */
 export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.Element {
-  const hostMetrics = useHostMetrics()
-  const outboxSize = useStoreSelector((s) => s.outboxSize)
+  const useMetrics = headerDataLayer() === 'pool' ? usePoolHeaderMetrics : useHostMetrics
+  const hostMetrics = useMetrics()
+  const outboxSize = useHeaderOutboxSize()
   const { health, visible: connVisible } = useStableConnection()
   const hibernation = useHibernationSetting()
   // The open host-info modal, plus which machine it's about. A memory chip opens
@@ -189,7 +196,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
  * share one chip per machine (POD-563) — host pressure is more of the host
  * instrument, not a third group in the well.
  */
-export function HeaderHostIndicators(): JSX.Element {
+function LegacyHeaderHostIndicators(): JSX.Element {
   const hostMetrics = useHostMetrics()
   const { machines, sessions, trpc } = useStoreSelector(
     (s) => ({
@@ -219,11 +226,6 @@ export function HeaderHostIndicators(): JSX.Element {
   // supervised daemon loss keeps `online` true while the execution plane is
   // gone — the same signal the chat/terminal banners read — so the chip dot
   // must read it too, or a frozen daemon leaves the chip blue with no banner.
-  const offlineByMachine = useMemo(() => {
-    const map = new Map<string, boolean>()
-    for (const m of machines) map.set(m.id, isMachineOfflineForLiveTerminal(m))
-    return map
-  }, [machines])
   // POD-4965: only machines still in use — a retired row is history, not a chip.
   // `hostMetrics` refreshes on every sample, so the recency clock rides along.
   const offlineWithoutMetrics = useMemo(
@@ -242,7 +244,7 @@ export function HeaderHostIndicators(): JSX.Element {
   // (`occupancyKey`) instead of on the array. `issues` stays a plain dep: its
   // identity already changes only when an issue row does.
   const selectAggregates = useMemo(() => createHostSessionAggregatesSelector(), [])
-  const aggregates = selectAggregates(sessions)
+  const aggregates = measureLegacyHeader(trpc, 'hostAggregates', () => selectAggregates(sessions))
   const occupancyKey = aggregates.occupancyKey
   const soleMachine = hostMetrics.length === 1
   const soleMachineId = hostMetrics[0]?.machineId
@@ -291,18 +293,86 @@ export function HeaderHostIndicators(): JSX.Element {
           <span>host</span>
         </button>
       )}
-      {hostMetrics.map((host) => {
+      {hostMetrics.map((host) => (
+        <HeaderMachineChip key={host.machineId ?? host.hostname} host={host}
+          machine={machines.find((machine) => machine.id === host.machineId)}
+          aggregate={aggregates.forMachine(host.machineId)} lifecycle={lifecycle}
+          serverAppVersion={serverAppVersion} healthStatus={health.status}
+          reclaimCount={host.machineId ? reclaimByMachine.get(host.machineId) ?? 0 : 0}
+          onInfo={setInfo} />
+      ))}
+      {/* POD-4830: a daemon loss deletes its hostMetrics (hosts service drops
+          the sample on `machine.disconnected`), so an offline machine would
+          otherwise vanish instead of reading offline. Render it from the
+          machines list — destructive dot + name + offline — so the chip follows
+          presence offline after the detach and back online on reattach, when
+          metrics resume and this row hands back to the live chip above. */}
+      {offlineWithoutMetrics.map((machine) => (
+        <button
+          key={machine.id}
+          data-pressable
+          type="button"
+          className="header-machine-chip"
+          aria-label={`${machine.name ?? machine.id}; offline`}
+          onClick={() => setInfo({ tab: 'connection', machineId: machine.id as MachineId })}
+        >
+          <span
+            className={cn('size-1.5 flex-none rounded-full', 'bg-destructive')}
+            aria-hidden="true"
+          />
+          <span className="header-machine-name">{machine.name ?? machine.id}</span>
+          <span className="header-readout">
+            <span className="header-value" data-tone="bad">
+              offline
+            </span>
+          </span>
+        </button>
+      ))}
+      <OutboxRecoveryIndicator compact />
+      <MessageNoticeIndicator compact />
+      {/* The chamber rule between host pressure and plan quota. Taller and
+          given air so the two groups stop reading as one run of meters. */}
+      <span className="header-strip-seam" aria-hidden="true" />
+      <QuotaIndicator header />
+      {info && (
+        <Suspense fallback={null}>
+          <HostInfoView
+            initialTab={info.tab}
+            machineId={info.machineId}
+            onClose={() => setInfo(null)}
+          />
+        </Suspense>
+      )}
+    </div>
+  )
+}
+
+export function HeaderHostIndicators(): JSX.Element {
+  return headerDataLayer() === 'pool' ? <PoolHeaderHostIndicators /> : <LegacyHeaderHostIndicators />
+}
+
+type OpenHostInfo = (info: { tab: HostInfoTab; machineId?: MachineId }) => void
+interface MachineChipProps {
+  host: HostMetricsWire
+  machine: MachineWire | undefined
+  aggregate: HeaderAggregate
+  lifecycle: ReturnType<typeof useHostLifecycleSettings>
+  serverAppVersion: ReturnType<typeof useServerAppVersion>
+  healthStatus: 'ok' | 'degraded' | 'down'
+  reclaimCount: number
+  onInfo: OpenHostInfo
+}
+const HeaderMachineChip = memo(function HeaderMachineChip({ host, machine, aggregate, lifecycle, serverAppVersion, healthStatus, reclaimCount, onInfo }: MachineChipProps): JSX.Element {
+
         const memory = hostMemoryView(host)
         const load = hostLoadView(host, lifecycle?.hibernation.loadPerCore ?? null)
-        const machine = machines.find((m) => m.id === host.machineId)
         // A renamed machine should read by its chosen name everywhere, and this
         // chip was the one surface still showing the raw telemetry hostname.
         const displayName = machine?.name ?? host.hostname
         // POD-4830: a supervised daemon loss keeps `online` true while the live
         // terminal is gone. The dot must read live-terminal presence, not just
         // the global socket health, or it stays green/blue with no banner.
-        const machineOffline = machine ? (offlineByMachine.get(machine.id) ?? false) : false
-        const aggregate = aggregates.forMachine(host.machineId)
+        const machineOffline = machine ? isMachineOfflineForLiveTerminal(machine) : false
         const agents = hostAgentsViewFromCounts(
           aggregate.count,
           aggregate.idleSplit.idle,
@@ -315,9 +385,8 @@ export function HeaderHostIndicators(): JSX.Element {
         const needsUpdate = machine != null && machineNeedsUpdate(machine, serverAppVersion)
         const updateTargetVersion =
           machine?.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
-        const reclaimCount = host.machineId ? (reclaimByMachine.get(host.machineId) ?? 0) : 0
         const reclaimablePast =
-          reclaimCount >= RECLAIMABLE_WORKTREE_THRESHOLD && health.status === 'ok'
+          reclaimCount >= RECLAIMABLE_WORKTREE_THRESHOLD && healthStatus === 'ok'
         const phases = aggregate.phases
         const agentTitleParts = [
           agents.title,
@@ -356,11 +425,11 @@ export function HeaderHostIndicators(): JSX.Element {
                     'size-1.5 flex-none rounded-full',
                     machineOffline
                       ? 'bg-destructive'
-                      : health.status === 'ok'
+                      : healthStatus === 'ok'
                         ? reclaimablePast
                           ? 'bg-warning'
                           : 'bg-success'
-                        : health.status === 'degraded'
+                        : healthStatus === 'degraded'
                           ? 'bg-warning'
                           : 'bg-destructive',
                   )}
@@ -437,55 +506,46 @@ export function HeaderHostIndicators(): JSX.Element {
                     </div>
                   ) : undefined
                 }
-                onOpenConnection={() => setInfo({ tab: 'connection', machineId: host.machineId })}
-                onOpenReclaim={() => setInfo({ tab: 'reclaim', machineId: host.machineId })}
+                onOpenConnection={() => onInfo({ tab: 'connection', machineId: host.machineId })}
+                onOpenReclaim={() => onInfo({ tab: 'reclaim', machineId: host.machineId })}
               />
             </Suspense>
           </HealthPopover>
         )
-      })}
-      {/* POD-4830: a daemon loss deletes its hostMetrics (hosts service drops
-          the sample on `machine.disconnected`), so an offline machine would
-          otherwise vanish instead of reading offline. Render it from the
-          machines list — destructive dot + name + offline — so the chip follows
-          presence offline after the detach and back online on reattach, when
-          metrics resume and this row hands back to the live chip above. */}
-      {offlineWithoutMetrics.map((machine) => (
-        <button
-          key={machine.id}
-          data-pressable
-          type="button"
-          className="header-machine-chip"
-          aria-label={`${machine.name ?? machine.id}; offline`}
-          onClick={() => setInfo({ tab: 'connection', machineId: machine.id as MachineId })}
-        >
-          <span
-            className={cn('size-1.5 flex-none rounded-full', 'bg-destructive')}
-            aria-hidden="true"
-          />
-          <span className="header-machine-name">{machine.name ?? machine.id}</span>
-          <span className="header-readout">
-            <span className="header-value" data-tone="bad">
-              offline
-            </span>
-          </span>
-        </button>
-      ))}
-      <OutboxRecoveryIndicator compact />
-      <MessageNoticeIndicator compact />
-      {/* The chamber rule between host pressure and plan quota. Taller and
-          given air so the two groups stop reading as one run of meters. */}
-      <span className="header-strip-seam" aria-hidden="true" />
-      <QuotaIndicator header />
-      {info && (
-        <Suspense fallback={null}>
-          <HostInfoView
-            initialTab={info.tab}
-            machineId={info.machineId}
-            onClose={() => setInfo(null)}
-          />
-        </Suspense>
-      )}
-    </div>
-  )
+
+})
+
+const PoolMachineReadout = memo(function PoolMachineReadout({ id, lifecycle, serverAppVersion, healthStatus, reclaimCount, onInfo }: Omit<MachineChipProps, 'host' | 'machine' | 'aggregate'> & { id: string }) {
+  const host = usePoolMetric(id)
+  const machine = usePoolMachine(host?.machineId)
+  const aggregate = usePoolHostAggregate(host?.machineId)
+  return measureHeader('pool.metricRow', () => host ? <HeaderMachineChip host={host} machine={machine} aggregate={aggregate} lifecycle={lifecycle}
+    serverAppVersion={serverAppVersion} healthStatus={healthStatus} reclaimCount={reclaimCount} onInfo={onInfo} /> : null)
+})
+
+function PoolHeaderHostIndicators(): JSX.Element {
+  const ids = usePoolMetricIds()
+  const offline = usePoolOfflineMachines()
+  const { trpc } = useHeaderActions()
+  const lifecycle = useHostLifecycleSettings()
+  const serverAppVersion = useServerAppVersion(trpc)
+  const { health } = useStableConnection()
+  const reclaim = usePoolReclaimCounts(lifecycle?.worktreeGc.afterDays ?? 14)
+  const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: MachineId } | null>(null)
+  const description = health.status === 'ok' ? '' : (() => { const d = describeHealth(health, Date.now()); return `${d.headline}. ${d.detail}` })()
+  return <div className="topbar-well header-host-indicators">
+    <span className="sr-only" role="status" aria-live="polite">{description}</span>
+    {ids.length === 0 && offline.length === 0 && <button data-pressable type="button" className="header-machine-chip" aria-label="Host connection — click for details" onClick={() => setInfo({ tab: 'connection' })}>
+      <span className={cn('size-1.5 flex-none rounded-full', health.status === 'ok' ? 'bg-success' : health.status === 'degraded' ? 'bg-warning' : 'bg-destructive')} aria-hidden="true" /><span>host</span>
+    </button>}
+    {ids.map((id) => <PoolMachineReadout key={id} id={id} lifecycle={lifecycle} serverAppVersion={serverAppVersion}
+      healthStatus={health.status} reclaimCount={reclaim[id] ?? 0} onInfo={setInfo} />)}
+    {offline.map((machine) => <button key={machine.id} data-pressable type="button" className="header-machine-chip" aria-label={`${machine.name}; offline`} onClick={() => setInfo({ tab: 'connection', machineId: machine.id })}>
+      <span className="size-1.5 flex-none rounded-full bg-destructive" aria-hidden="true" /><span className="header-machine-name">{machine.name}</span>
+      <span className="header-readout"><span className="header-value" data-tone="bad">offline</span></span>
+    </button>)}
+    <OutboxRecoveryIndicator compact /><MessageNoticeIndicator compact />
+    <span className="header-strip-seam" aria-hidden="true" /><QuotaIndicator header />
+    {info && <Suspense fallback={null}><HostInfoView initialTab={info.tab} machineId={info.machineId} onClose={() => setInfo(null)} /></Suspense>}
+  </div>
 }

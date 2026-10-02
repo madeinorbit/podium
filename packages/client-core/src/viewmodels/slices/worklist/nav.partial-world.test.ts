@@ -1,5 +1,6 @@
-import { asSessionId, type GitRepositoryWire, type SessionMeta } from '@podium/model'
+import { asSessionId, type GitRepositoryWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView } from '../../../session-values'
 import type { PinState } from '../../types'
 import { EMPTY_PINS, lastUsedMaps, sidebarSections } from './nav'
 import { groupSessionsByParent, partitionWorkItems } from './session-groups'
@@ -15,7 +16,7 @@ import { groupSessionsByParent, partitionWorkItems } from './session-groups'
 // it. The same applies to a spawn parent that leaves the replica.
 // ---------------------------------------------------------------------------
 
-function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -34,7 +35,7 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function repo(path: string, worktrees: string[] = []): GitRepositoryWire {
@@ -52,19 +53,29 @@ describe('sidebarSections over a partial world', () => {
   const repos = [repo('/repo/a', ['/repo/a/wt-1'])]
 
   it('renders the visible tree', () => {
-    const sections = sidebarSections(repos, [session('s1', { cwd: '/repo/a/wt-1' })], EMPTY_PINS, NOW)
+    const sections = sidebarSections(
+      repos,
+      [session('s1', { cwd: '/repo/a/wt-1' })],
+      EMPTY_PINS,
+      NOW,
+    )
     expect(sections.repos.map((r) => r.path)).toEqual(['/repo/a'])
     // reposToViews lists the repo's own checkout alongside its linked worktrees.
     expect(sections.repos[0]?.worktrees.map((w) => w.path)).toEqual(['/repo/a', '/repo/a/wt-1'])
     expect(
-      sections.repos[0]?.worktrees.find((w) => w.path === '/repo/a/wt-1')?.sessions.map((s) => s.sessionId),
+      sections.repos[0]?.worktrees
+        .find((w) => w.path === '/repo/a/wt-1')
+        ?.sessions.map((s) => s.sessionId),
     ).toEqual(['s1'])
   })
 
   it('never shows a shell in the tree — shells belong to the tab strip', () => {
     const sections = sidebarSections(
       repos,
-      [session('sh', { cwd: '/repo/a/wt-1', agentKind: 'shell' }), session('s1', { cwd: '/repo/a/wt-1' })],
+      [
+        session('sh', { cwd: '/repo/a/wt-1', agentKind: 'shell' }),
+        session('s1', { cwd: '/repo/a/wt-1' }),
+      ],
       EMPTY_PINS,
       NOW,
     )
@@ -73,7 +84,11 @@ describe('sidebarSections over a partial world', () => {
   })
 
   it('a pin naming a worktree this principal cannot SEE renders no row and no placeholder', () => {
-    const pins: PinState = { panels: [], worktrees: ['/repo/invisible/wt'], repos: ['/repo/invisible'] }
+    const pins: PinState = {
+      panels: [],
+      worktrees: ['/repo/invisible/wt'],
+      repos: ['/repo/invisible'],
+    }
     const sections = sidebarSections(repos, [], pins, NOW)
     expect(sections.pinnedWorktrees).toEqual([])
     expect(sections.pinnedRepos).toEqual([])

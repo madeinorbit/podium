@@ -1,11 +1,6 @@
-import {
-  asIssueId,
-  asSessionId,
-  type IssueWire,
-  type IssueWireInput,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileTrpc } from '../client/trpc'
 import { issueCommands, shouldContinueEventDrain } from './issue-detail'
@@ -55,7 +50,7 @@ describe('shouldContinueEventDrain', () => {
 // silently over something the derivation raised.
 // ---------------------------------------------------------------------------
 
-const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
+const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
   ({
     id: asIssueId('task'),
     repoPath: '/src/podium',
@@ -73,9 +68,9 @@ const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
     parentBranch: 'main',
     archived: false,
     ...partial,
-  }) as IssueWire
+  }) as IssueViewModel
 
-const session = (partial: Partial<SessionMetaInput> = {}): SessionMeta =>
+const session = (partial: Partial<SessionViewInput> = {}): SessionView =>
   ({
     sessionId: asSessionId('s'),
     issueId: asIssueId('task'),
@@ -94,9 +89,11 @@ const session = (partial: Partial<SessionMetaInput> = {}): SessionMeta =>
     readAt: null,
     unread: false,
     ...partial,
-  }) as SessionMeta
+  }) as SessionView
 
-function harness(over: { issue?: IssueWire; sessions?: SessionMeta[]; guarded?: boolean } = {}) {
+function harness(
+  over: { issue?: IssueViewModel; sessions?: SessionView[]; guarded?: boolean } = {},
+) {
   const closeIssue = vi.fn(async () => ({}))
   const updateIssue = vi.fn(async () => ({}))
   const requestClose = vi.fn()

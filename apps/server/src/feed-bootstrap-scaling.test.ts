@@ -39,14 +39,14 @@
  * corpus sizes differ instead of matching.
  */
 
-import { asUserId, issueDepId, firstAdminMemberId } from '@podium/model'
+import { asUserId, firstAdminMemberId, issueDepId } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
+import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
-import { statementBudget } from './test-support/statement-budget'
 import type { SessionStore } from './store'
+import { statementBudget } from './test-support/statement-budget'
 
 const OWNER = firstAdminMemberId()
 
@@ -184,7 +184,9 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
 
     // The property, stated directly: growing the corpus 8x must not grow the
     // per-row table scans at all. Before the fix these read 8 and 64.
-    expect(await loadSessionsCallsDuringBootstrap(large)).toBe(await loadSessionsCallsDuringBootstrap(small))
+    expect(await loadSessionsCallsDuringBootstrap(large)).toBe(
+      await loadSessionsCallsDuringBootstrap(small),
+    )
   })
   it('memoizes authorization snapshots across anchored issue refs and refreshes after append', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
@@ -217,11 +219,8 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     const dependencyId = issueDepId('i1', 'i-target', 'blocks')
     await store.sync.appendChanges(
       [
-        // Both issue kinds, as every issue write declares them: the anchor is
-        // keyed on the normalized record (POD-4971) and re-admits the old one.
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
+        // One normalized record per issue; visibility anchors use that same row.
         { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issueDep', entityId: dependencyId, op: 'upsert', payload: '{"dep":true}' },
       ],
@@ -239,12 +238,13 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     expect(wholeTableLoads).toHaveBeenCalledTimes(0)
     expect(
       first.changes.filter(
-        (change) => change.entity === 'issue' && change.entityId === 'i1' && change.op === 'upsert',
+        (change) =>
+          change.entity === 'issueProjection' && change.entityId === 'i1' && change.op === 'upsert',
       ),
     ).toHaveLength(2)
     expect(first.changes).toContainEqual(
       expect.objectContaining({
-        entity: 'issue',
+        entity: 'issueProjection',
         entityId: 'i1',
         op: 'upsert',
         value: { v: 1 },
@@ -262,7 +262,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     const cursor = await store.sync.maxChangeSeq()
     await store.sync.appendChanges(
       [
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
         { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
       ],
       2000,
@@ -277,7 +277,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     expect(sessionLoads).toHaveBeenCalledTimes(2)
     expect(second.changes).toContainEqual(
       expect.objectContaining({
-        entity: 'issue',
+        entity: 'issueProjection',
         entityId: 'i1',
         op: 'upsert',
         value: { v: 2 },
@@ -344,13 +344,21 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
       onBehalfOf: OTHER_OWNER,
     })
   }
-  return (await ledger.capture(
-    ids.map((id) => ({ entity: 'issue', id, op: 'upsert', value: { id } }) as EntityChangeSpec),
-  )).length
+  return (
+    await ledger.capture(
+      ids.map(
+        (id) =>
+          ({ entity: 'issueProjection', id, op: 'upsert', value: { id } }) as EntityChangeSpec,
+      ),
+    )
+  ).length
 }
 
 /** Count the entire async pass, keeping the probes installed until delivery finishes. */
-async function grantReadsDuring(reg: SessionRegistry, run: () => Promise<unknown>): Promise<{
+async function grantReadsDuring(
+  reg: SessionRegistry,
+  run: () => Promise<unknown>,
+): Promise<{
   points: number
   batches: number
 }> {
@@ -403,7 +411,7 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
     // AND THE ANSWER IS UNCHANGED — the rows the grant admits are still in the
     // world. A prefetch that returned nothing would satisfy every count above.
     const world = await internals(large).ledger.authority.bootstrap(feedPrincipal)
-    expect(world.changes.filter((change) => change.entity === 'issue')).toHaveLength(32)
+    expect(world.changes.filter((change) => change.entity === 'issueProjection')).toHaveLength(32)
   })
 
   it('reads them without SQL for a batch across subscribed principals', async () => {
@@ -413,54 +421,78 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
     // Seed only grants, so no earlier feed delivery can reach these subscribers.
     for (let i = 0; i < 50; i++) {
       await store.grants.upsert({
-        resourceKind: 'session', resourceId: `shared_${i}`, grantee: OWNER,
-        verb: 'read', owner: OTHER_OWNER, visibility: 'personal',
-        createdAt: '2026-09-11T00:00:00Z', actorKind: 'user',
-        actorId: OTHER_OWNER, onBehalfOf: OTHER_OWNER,
+        resourceKind: 'session',
+        resourceId: `shared_${i}`,
+        grantee: OWNER,
+        verb: 'read',
+        owner: OTHER_OWNER,
+        visibility: 'personal',
+        createdAt: '2026-09-11T00:00:00Z',
+        actorKind: 'user',
+        actorId: OTHER_OWNER,
+        onBehalfOf: OTHER_OWNER,
       })
     }
 
     const delivered: number[] = []
     const payloads: unknown[] = []
     let finishDelivery!: () => void
-    const delivery = new Promise<void>((resolve) => { finishDelivery = resolve })
+    const delivery = new Promise<void>((resolve) => {
+      finishDelivery = resolve
+    })
     const onDelivery = (subscriber: number, batch: unknown) => {
       payloads.push(batch)
       delivered.push(subscriber)
       if (delivered.length === 10) finishDelivery()
     }
     const unsubscribe = Array.from({ length: 10 }, (_, i) =>
-      ledger.authority.subscribe({
-        ...feedPrincipal,
-        device: asDeviceId(`dev:budget-${i}`),
-        capability: asCapabilityRef(`cap:budget-${i}`),
-      }, (batch) => onDelivery(i, batch)),
+      ledger.authority.subscribe(
+        {
+          ...feedPrincipal,
+          device: asDeviceId(`dev:budget-${i}`),
+          capability: asCapabilityRef(`cap:budget-${i}`),
+        },
+        (batch) => onDelivery(i, batch),
+      ),
     )
     try {
-      const publish = () => grantReadsDuring(reg, async () => {
-        await ledger.capture(Array.from({ length: 50 }, (_, i) => ({
-          entity: 'session', id: `shared_${i}`, op: 'upsert',
-          value: { id: `shared_${i}`, v: 2 },
-        })) as EntityChangeSpec[])
-        await delivery
-      })
+      const publish = () =>
+        grantReadsDuring(reg, async () => {
+          await ledger.capture(
+            Array.from({ length: 50 }, (_, i) => ({
+              entity: 'session',
+              id: `shared_${i}`,
+              op: 'upsert',
+              value: { id: `shared_${i}`, v: 2 },
+            })) as EntityChangeSpec[],
+          )
+          await delivery
+        })
       // Attribution must be enabled before import. The focused acceptance run
       // enables it; ordinary suite runs retain the repository-call guard.
       const budget = queryAttributionEnabled ? await statementBudget(publish) : null
-      const reads = budget?.result ?? await publish()
+      const reads = budget?.result ?? (await publish())
       if (budget) {
         expect(budget.statements).toBeGreaterThan(0)
         expect([...budget.byQuery].filter(([sql]) => /\bgrants\b/i.test(sql))).toEqual([])
       }
       expect(delivered).toEqual(Array.from({ length: 10 }, (_, i) => i))
       for (const batch of payloads) {
-        expect(batch).toEqual(expect.objectContaining({
-          kind: 'batch',
-          changes: expect.arrayContaining(Array.from({ length: 50 }, (_, i) => expect.objectContaining({
-            entity: 'session', entityId: `shared_${i}`, op: 'upsert',
-            value: { id: `shared_${i}`, v: 2 },
-          }))),
-        }))
+        expect(batch).toEqual(
+          expect.objectContaining({
+            kind: 'batch',
+            changes: expect.arrayContaining(
+              Array.from({ length: 50 }, (_, i) =>
+                expect.objectContaining({
+                  entity: 'session',
+                  entityId: `shared_${i}`,
+                  op: 'upsert',
+                  value: { id: `shared_${i}`, v: 2 },
+                }),
+              ),
+            ),
+          }),
+        )
       }
       expect(reads.points).toBe(0)
       // No grant repository read remains in publication.

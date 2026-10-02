@@ -1,67 +1,9 @@
-/**
- * The RETAINED-REPRESENTATION vocabulary and its default-closed totality checks
- * (POD-368, closing POD-302).
- *
- * ---------------------------------------------------------------------------
- * WHY A THIRD REGISTRY, WHEN TWO ALREADY EXIST
- * ---------------------------------------------------------------------------
- *
- * POD-304 classified the 53 ownership-matrix rows. POD-365 classified the 2
- * canonical aggregates. Neither covers the thing this epic actually contains
- * most of: the **39 retained representations** POD-364 counted — the storage
- * rows, the live-state contracts, the wire projections and the narrow ports that
- * ADR 4 D1 deliberately keeps as DISTINCT types.
- *
- * That gap mattered in four concrete ways, one per audit item below. Every one of
- * them was, before this file, a rule stated in prose in a document:
- *
- *   1. A new representation could arrive with **no visibility class**. ADR 9 D4
- *      says an undeclared class resolves to personal/private; that resolution is
- *      the semantic backstop, and the missing DECLARATION still has to fail a
- *      build (ADR 1 Amendment 1 D9). It did not.
- *   2. `owner`, `visibility` and the (actor, on-behalf-of) pair each have one
- *      definition in `../fields/`, but nothing checked that a representation
- *      composes them rather than restating a look-alike.
- *   3. `findCapabilitySnapshotKeys` (POD-643) existed and was pointed at exactly
- *      ONE representation. ADR 9 D5 A1's rule is about all of them.
- *   4. `PER_USER_STATE_KEYS` was enforced on the 2 aggregates. The singleton
- *      `readAt` that ADR 4 Am1 D10 is about does not live on an aggregate — it
- *      lives on `SessionDurableState` and on `IssueWire`, i.e. on
- *      representations.
- *
- * ---------------------------------------------------------------------------
- * WHAT THIS FILE IS NOT
- * ---------------------------------------------------------------------------
- *
- * It is **not the composition instrument.** Branding is compile-time, so a
- * composed field swapped for a fresh `z.string()` is byte-identical and passes
- * every golden fixture; only asserting a field IS the shared schema INSTANCE
- * (`toBe`, not `toEqual`) can see that, and that assertion is only available for
- * the representations that are zod schemas inside this package. For the rest —
- * TypeScript interfaces in `apps/*` — no runtime instrument exists at all, which
- * is why {@link RetainedRepresentation.composition} is DECLARED DATA with a named
- * owner for anything still outstanding, and why `scripts/rearch-audit.ts` counts
- * registration and forbidden key classes over the tree rather than claiming to
- * grade composition. A ledger claiming "composed" on the strength of an
- * instrument that cannot measure composition is claiming something it does not
- * know (POD-367 §1a).
- *
- * It is **not authorization**, for the same reason `aggregates/registry.ts` is
- * not: nothing here decides whether a principal may see a row. That is
- * visibility, then owner, then grants, then role (ADR 9 D2 rule 2), resolved
- * LIVE at apply time by ADR 3 D8, and it is Phase 3's (POD-290).
- */
-
 import type { z } from 'zod'
-import { findCapabilitySnapshotKeys } from '../annotations/capability-snapshot'
-import {
-  type MatrixRow,
-  type MatrixRowId,
-  type VisibilityClass,
-} from '../annotations/ownership'
-import { OWNERSHIP_MATRIX_INDEX } from '../annotations/matrix'
-import { visibilityClassOf } from '../annotations/resolution'
 import { PER_USER_STATE_KEYS } from '../aggregates/registry'
+import { findCapabilitySnapshotKeys } from '../annotations/capability-snapshot'
+import { OWNERSHIP_MATRIX_INDEX } from '../annotations/matrix'
+import type { MatrixRow, MatrixRowId, VisibilityClass } from '../annotations/ownership'
+import { visibilityClassOf } from '../annotations/resolution'
 
 /**
  * ADR 4 D2's six roles. A representation declares EXACTLY ONE — that is the
@@ -257,7 +199,10 @@ export function representationViolations(
     }
     if (rep.composition.state === 'declared-legitimate-restatement') {
       const { reason, enforcedBy } = rep.composition
-      if (reason.trim().length < MIN_JUSTIFICATION || enforcedBy.trim().length < MIN_JUSTIFICATION) {
+      if (
+        reason.trim().length < MIN_JUSTIFICATION ||
+        enforcedBy.trim().length < MIN_JUSTIFICATION
+      ) {
         out.push({
           representation: at,
           kind: 'undocumented',
@@ -363,10 +308,7 @@ function topLevelKeys(schema: z.ZodTypeAny): string[] | null {
       options?: z.ZodTypeAny[]
     }
     if (def.typeName === 'ZodObject') return Object.keys((cur as unknown as z.AnyZodObject).shape)
-    if (
-      (def.typeName === 'ZodUnion' || def.typeName === 'ZodDiscriminatedUnion') &&
-      def.options
-    ) {
+    if ((def.typeName === 'ZodUnion' || def.typeName === 'ZodDiscriminatedUnion') && def.options) {
       const keys = new Set<string>()
       for (const option of def.options) {
         const armKeys = topLevelKeys(option)

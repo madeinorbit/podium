@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /**
  * POD-1081 integration-shaped tests over SessionClientControl:
  * attach visibility + machine use, take-control policy, agent revoke at apply.
@@ -58,7 +59,7 @@ function makeClient(
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 1,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

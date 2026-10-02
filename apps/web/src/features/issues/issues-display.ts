@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   confirmedWorkingAgentCount as coreConfirmedWorkingAgentCount,
   confirmedWorkingAgentCountsByIssue as coreConfirmedWorkingAgentCountsByIssue,
@@ -8,7 +9,7 @@ import {
   type IssuesOrdering,
   writeSharedIssuesDisplay,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import type { IssueViewModel } from '@/app/store'
 
 export type IssuesLayout = 'board' | 'list'
@@ -85,14 +86,14 @@ export { boardIssues, filterBoardScope } from '@podium/client-core/viewmodels'
 export type EpicProgress = TaskProgress
 
 /** The board's spelling of the shared confirmed-computing predicate. */
-export function confirmedWorkingAgentCount(sessions: readonly SessionMeta[], now: number): number {
+export function confirmedWorkingAgentCount(sessions: readonly SessionView[], now: number): number {
   return coreConfirmedWorkingAgentCount(sessions, now)
 }
 
 /** Confirmed issue workers, keyed through canonical issue membership. */
 export function confirmedWorkingAgentCountsByIssue(
   issues: readonly IssueViewModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   now: number,
 ): Map<string, number> {
   return coreConfirmedWorkingAgentCountsByIssue(issues, sessions, now)
@@ -101,7 +102,7 @@ export function confirmedWorkingAgentCountsByIssue(
 export function computeEpicProgress(
   issues: IssueViewModel[],
   epicId: string,
-  sessions: readonly SessionMeta[] = [],
+  sessions: readonly SessionView[] = [],
   now = Date.now(),
 ): EpicProgress | null {
   return (
@@ -118,7 +119,7 @@ export function computeEpicProgress(
 export function computeEpicProgressMap(
   issues: IssueViewModel[],
   rootIds: string[],
-  sessions: readonly SessionMeta[] = [],
+  sessions: readonly SessionView[] = [],
   now = Date.now(),
 ): Map<string, EpicProgress | null> {
   const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)

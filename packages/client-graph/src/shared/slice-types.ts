@@ -1,3 +1,4 @@
+import type { SessionValues } from '@podium/client-core/session-values'
 /**
  * POD-4442 — the frozen worklist slice all three round-two arms build.
  *
@@ -38,7 +39,7 @@ export interface SliceIssue {
   stage: string
   closedReason?: string | null
   audience?: 'human' | 'agent'
-  draft?: boolean
+  isDraftVessel?: boolean
   /** Pinned issues move out of their group into the PINNED section (spec §3 R-GROUP). */
   pinned?: boolean
   /** Persisted manual key, meaningful only against siblings (spec §3 R-ORDER). */
@@ -63,15 +64,13 @@ export interface SliceIssue {
   branch?: string | null
   parentBranch?: string | null
   gitState?: { shared?: boolean; merged?: boolean; ahead?: number; [key: string]: unknown } | null
-  commentCount?: number
-  origin?: 'human' | 'agent'
-  humanQuestion?: string | null
-  humanQuestionOptions?: readonly string[]
+  intentOrigin?: 'human' | 'agent'
+  asked?: { question?: string; options?: readonly string[]; at?: string; by?: string }
   supersededBy?: string | null
   duplicateOf?: string | null
   /** Declared small summary over the raw normalized session lane (resume
    * twins can disappear from the roster while still contributing unread). */
-  sessionFacts?: { replicaActivityAt?: string; tipActivityAt?: string; headlessStaffed?: boolean }
+  sessionFacts?: { replicaActivityAt?: string; tipActivityAt?: string; headlessStaffed?: boolean; headlessOccupied?: boolean }
 }
 
 export interface SliceAgentState {
@@ -88,7 +87,7 @@ export interface SliceAgentState {
  * no `issueId` is owned by longest-prefix containment, never orphaned
  * (spec §2 R3).
  */
-export interface SliceSession {
+export interface SliceSession extends Partial<Pick<SessionValues, 'displayRef' | 'snoozedUntil' | 'readAt' | 'unread'>> {
   sessionId: string
   issueId?: string | null
   cwd: string
@@ -96,16 +95,12 @@ export interface SliceSession {
   title?: string
   createdAt?: string
   name?: string | null
-  displayRef?: string
-  snoozedUntil?: string | null
   draftUpdatedAt?: string
   headless?: boolean
   status?: string | null
   archived?: boolean
   lastActiveAt: string
   stoppedAt?: string | null
-  readAt?: string | null
-  unread?: boolean
   agentState?: SliceAgentState
   /** Standing offer; only its `createdAt` participates in the slice (waiting-age anchor). */
   offer?: { createdAt?: string } | null

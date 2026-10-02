@@ -1,5 +1,5 @@
 import { reaction } from 'mobx'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { checkSidebar, compareSidebarSnapshots, poolSidebarSnapshot, type SidebarDifference, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
@@ -63,6 +63,111 @@ describe('ordered sidebar differential', () => {
     const actual: SidebarSnapshot = { pending: 2, sections: [{ key: 'roster', fields: {}, rows: [{ id: 'lane', fields: { sessions: [{ sessionId: 'seat', agentState: { phase: 'working' } }] } }] }] }
     expect(compareSidebarSnapshots(expected, actual)).toMatchObject({ pending: 2, first: { field: 'sessions[0].agentState.phase' } })
   })
+})
+
+describe('sidebar readiness', () => {
+  it('defers only pending payloads while reporting settled row and header differences', () => {
+    const expected = sample()
+    const actual: SidebarSnapshot = { pending: 1, sections: expected.sections.map((section, index) => index !== 1 ? section : {
+      ...section, fields: { ...section.fields, collapsed: true }, rows: [
+        { id: 'one', pending: true, fields: { loading: true } },
+        { id: 'two', fields: { color: 'changed' } },
+      ],
+    }) }
+    const locations: SidebarDifference[] = []
+    expect(compareSidebarSnapshots(expected, actual, difference => locations.push(difference))).toMatchObject({
+      differences: 2, pending: 1, first: { sectionIndex: 1, rowIndex: null, field: 'collapsed' },
+    })
+    expect(locations).toMatchObject([{ field: 'collapsed' }, { rowIndex: 1, field: 'color' }])
+  })
+
+  it.each(['reorder-row', 'missing-row', 'extra-row', 'reorder-section', 'missing-section', 'header-field'])(
+    'keeps %s strict while row payloads are pending', fault => {
+      const expected = sample()
+      const actual = { pending: 3, sections: expected.sections.map(section => ({
+        ...section, fields: { ...section.fields }, rows: section.rows.map(row => ({ ...row, pending: true })),
+      })) }
+      if (fault === 'reorder-row') actual.sections[1]!.rows.reverse()
+      if (fault === 'missing-row') actual.sections[1]!.rows.pop()
+      if (fault === 'extra-row') actual.sections[1]!.rows.push({ id: 'extra', pending: true, fields: {} })
+      if (fault === 'reorder-section') [actual.sections[1], actual.sections[2]] = [actual.sections[2]!, actual.sections[1]!]
+      if (fault === 'missing-section') actual.sections.pop()
+      if (fault === 'header-field') actual.sections[1]!.fields.label = 'changed'
+      const result = compareSidebarSnapshots(expected, actual)
+      expect(result.differences).toBeGreaterThan(0)
+      expect(result).toMatchObject({ pending: 3, first: { field: fault.endsWith('section') ? 'section' : fault === 'header-field' ? 'label' : 'id' } })
+    },
+  )
+
+  it('compares the complete nested payload as soon as a pending row settles', () => {
+    const row = { id: 'lane', fields: { sessions: [{ sessionId: 'seat', agentState: { phase: 'idle' } }] } }
+    const expected: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: {}, rows: [row] }] }
+    const pending: SidebarSnapshot = { pending: 1, sections: [{ key: 'roster', fields: {}, rows: [{ id: row.id, pending: true, fields: { sessions: [] } }] }] }
+    expect(compareSidebarSnapshots(expected, pending)).toMatchObject({ differences: 0, first: null, pending: 1 })
+    // Readiness on either side defers only this row, without treating loading as equality.
+    expect(compareSidebarSnapshots(pending, expected)).toMatchObject({ differences: 0, first: null, pending: 1 })
+    const settled: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: {}, rows: [
+      { id: row.id, fields: { sessions: [{ sessionId: 'seat', agentState: { phase: 'working' } }] } },
+    ] }] }
+    expect(compareSidebarSnapshots(expected, settled)).toMatchObject({ differences: 1, pending: 0, first: { field: 'sessions[0].agentState.phase' } })
+    expect(compareSidebarSnapshots(expected, expected)).toMatchObject({ differences: 0, first: null, pending: 0 })
+  })
+
+  it('defers provisional roster membership and order without shifting settled mismatch locations', () => {
+    const row = (id: string, color: string | null = null) => ({ id, fields: { color } })
+    const expected: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: {}, rows: [row('issue'), row('settled'), row('pending'), row('last')] }] }
+    const actual: SidebarSnapshot = { pending: 2, sections: [{ key: 'roster', fields: {}, rows: [
+      row('issue'), { ...row('extra'), pending: true, placementPending: true },
+      { ...row('pending'), pending: true, placementPending: true }, row('settled', 'changed'), row('last'),
+    ] }] }
+    const locations: SidebarDifference[] = []
+    expect(compareSidebarSnapshots(expected, actual, difference => locations.push(difference))).toMatchObject({
+      differences: 1, pending: 2, first: { rowIndex: 1, expectedId: 'settled', actualId: 'settled', field: 'color' },
+    })
+    expect(locations).toHaveLength(1)
+    expect(compareSidebarSnapshots(actual, expected)).toMatchObject({ differences: 1, pending: 2, first: { rowIndex: 3, field: 'color' } })
+  })
+
+  it('checks worktree membership and ordering again as soon as its roster settles', () => {
+    const row = (id: string) => ({ id, fields: {} })
+    const expected: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: {}, rows: [row('one'), row('two')] }] }
+    const actual: SidebarSnapshot = { pending: 2, sections: [{ key: 'roster', fields: {}, rows: [
+      { ...row('two'), pending: true, placementPending: true }, row('one'), { ...row('extra'), pending: true, placementPending: true },
+    ] }] }
+    expect(compareSidebarSnapshots(expected, actual)).toMatchObject({ differences: 0, first: null, pending: 2 })
+    const settled: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: {}, rows: [row('two'), row('one'), row('extra')] }] }
+    expect(compareSidebarSnapshots(expected, settled)).toMatchObject({ differences: 3, pending: 0, first: { rowIndex: 0, field: 'id' } })
+  })
+
+  it('compares settled header facts while the empty-project affordance awaits a roster', () => {
+    const expected: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: { startFirstTask: true, collapsed: false }, rows: [] }] }
+    const actual: SidebarSnapshot = { pending: 1, sections: [{ key: 'roster', fields: { startFirstTask: false, collapsed: true },
+      pendingFields: ['startFirstTask'], rows: [],
+    }] }
+    expect(compareSidebarSnapshots(expected, actual)).toMatchObject({ differences: 1, pending: 1, first: { rowIndex: null, field: 'collapsed' } })
+    const settled: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: { startFirstTask: false, collapsed: false }, rows: [] }] }
+    expect(compareSidebarSnapshots(expected, settled)).toMatchObject({ differences: 1, pending: 0, first: { field: 'startFirstTask' } })
+    expect(compareSidebarSnapshots(expected, expected)).toMatchObject({ differences: 0, first: null, pending: 0 })
+  })
+
+  for (const scale of [1, 4] as const) it(`reports cold ${scale}x rows separately without draining their batched loads`, async () => {
+    const ctx = await startScenarioEngine(scale)
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
+    const hydrate = vi.spyOn(handle.pool, 'hydrate')
+    try {
+      const store = ctx.engine.getSnapshot()
+      const state: SidebarState = { pinnedRepos: store.pins.repos, pinnedWorktrees: store.pins.worktrees, projectOrder: store.sidebarSettings.repoOrder }
+      const cold = tracked(() => checkSidebar(handle.pool, store, state))
+      expect(hydrate).not.toHaveBeenCalled()
+      expect(cold.pending).toBeGreaterThan(0)
+      expect(cold).toMatchObject({ differences: 0, first: null })
+      const snapshot = tracked(() => poolSidebarSnapshot(handle.pool, state))
+      expect(snapshot.sections.flatMap(section => section.rows).some(row => row.pending && 'sessions' in row.fields)).toBe(true)
+      settle(handle.pool, state)
+      expect(tracked(() => checkSidebar(handle.pool, store, state))).toMatchObject({ differences: 0, first: null, pending: 0 })
+    } finally { hydrate.mockRestore(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
+  }, 120_000)
 })
 
 describe('sidebar differential replay', () => {

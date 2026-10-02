@@ -1,4 +1,5 @@
 import { Popover } from '@base-ui/react/popover'
+import { useStoreHandle } from '@podium/client-core/react'
 import {
   COST_HEDGE,
   costHarnessLabel,
@@ -14,7 +15,7 @@ import { useState } from 'react'
 import { useMissionCost } from '@/features/cost/useMissionCost'
 import { MENU_HOVER_CARD, MENU_SECTION_LABEL } from '@/lib/menu-surface'
 import { cn } from '@/lib/utils'
-import { useStoreSelector } from './store'
+import type { Trpc } from './trpc'
 
 /**
  * THE DECK'S ONE PRICE (POD-1862, design POD-1604 §03).
@@ -98,7 +99,7 @@ export function MissionCostChip({
   /** The chip's last line — the door to the full page, never the chip's job. */
   onOpenInExplorer: () => void
 }): JSX.Element | null {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
   // Once opened, the cohort stays wanted: the `2.3x median` line is the only
   // thing that needs the whole corpus, and re-fetching it on every close would
   // make closing the popover expensive.

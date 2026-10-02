@@ -55,7 +55,7 @@
  */
 import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/viewmodels'
 import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueWire } from '@podium/model/browser'
+import type { IssueId, } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { issueRefLong } from '../issue-card'
@@ -100,7 +100,7 @@ export function IssueExitProvider({
 /**
  * The replica's exit record, as this page's id-only lookup.
  *
- * `'issue'` is the AUTHORITY's singular entity name, which is what `exitKind`
+ * `'issueProjection'` is the AUTHORITY's singular entity name, which is what `exitKind`
  * keys on — not the `'issues'` collection kind. The two vocabularies are mapped
  * in `client-core`'s `replica/kernel/kinds.ts`, and passing the plural here
  * would answer `undefined` forever: a wiring that looks done and restores
@@ -112,23 +112,23 @@ export function IssueExitProvider({
  */
 function useReplicaExitLookup(): IssueExitLookup {
   const replica = useStoreSelector((s) => s.replica)
-  return useMemo(() => (id: string) => replica?.exitKind?.('issue', id), [replica])
+  return useMemo(() => (id: string) => replica?.exitKind?.('issueProjection', id), [replica])
 }
 
 /** Resolve any issue-to-issue reference against the partial world this replica
  *  holds. One resolver per render, closed over the issue rows and the exit
  *  lookup, so a section resolving five edges does one index build. */
-export function useIssueEdgeResolver(): (id: string | undefined | null) => IssueEdge {
+export function useIssueEdgeResolver(): (id: string | undefined | null) => IssueEdge<IssueViewModel> {
   const issues = useReplicaIssues()
   const override = useContext(IssueExitContext)
   const fromReplica = useReplicaExitLookup()
   const exitOf = override ?? fromReplica
   return useMemo(() => {
     const byId = new Map(issues.map((i) => [i.id as string, i]))
-    // The slice is typed over `IssueWire`; `IssueViewModel` is a superset of it
+    // The slice is typed over `IssueViewModel`; `IssueViewModel` is a superset of it
     // (plus projection-only and rollup fields), so the lookup widens rather than
     // rebuilding a second index in the wire's shape.
-    const lookup = (id: string): IssueWire | undefined => byId.get(id) as IssueWire | undefined
+    const lookup = (id: string): IssueViewModel | undefined => byId.get(id) as IssueViewModel | undefined
     return (id) => resolveIssueEdge(id, lookup, CROSS_BOUNDARY_POLICY, exitOf)
   }, [issues, exitOf])
 }
@@ -136,7 +136,7 @@ export function useIssueEdgeResolver(): (id: string | undefined | null) => Issue
 /** The resolved issue behind a `render: 'issue'` edge, in the page's own model
  *  type. `undefined` for every other render shape — an opaque edge is
  *  ANONYMOUS by construction (the slice never sets `value` on one). */
-export function edgeIssue(edge: IssueEdge): IssueViewModel | undefined {
+export function edgeIssue(edge: IssueEdge<IssueViewModel>): IssueViewModel | undefined {
   return edge.render === 'issue' ? (edge.resolution.value as IssueViewModel | undefined) : undefined
 }
 
@@ -162,7 +162,7 @@ export function IssueEdgeLink({
   onNavigate,
   fallbackId,
 }: {
-  edge: IssueEdge
+  edge: IssueEdge<IssueViewModel>
   onNavigate: (id: IssueId) => void
   /** Shown while `pending` — the id we were pointed at. */
   fallbackId?: string

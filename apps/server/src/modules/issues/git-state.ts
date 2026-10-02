@@ -1,4 +1,4 @@
-import type { IssueGitState, IssueWire, MachineId } from '@podium/model'
+import type { IssueGitState, IssueProjection, MachineId } from '@podium/model'
 
 /**
  * Git-state probe [POD-98] — the pure half of the "has this task committed,
@@ -22,7 +22,7 @@ export interface GitProbeIo {
  * What the probe needs about an issue's checkout.
  *
  * The three workspace members — `parentBranch`, `branch`, `machineId` — are the
- * issue's own fields and are PICKED from `IssueWire` (POD-367) rather than
+ * issue's own fields and are PICKED from `IssueProjection` (POD-367) rather than
  * restated; their docs live there. Note the visibility consequence recorded in
  * POD-364's inventory: every member of this port is a MACHINE fact, so its
  * visibility is INHERITED from the machine (ADR 9 D3 rule 3, owned-compute), not
@@ -34,8 +34,8 @@ export interface GitProbeIo {
  * harness-supplied attribution inputs this module never guesses from checkout
  * state.
  */
-export interface GitProbeTarget
-  extends Pick<IssueWire, 'parentBranch' | 'branch' | 'machineId'> {
+export interface GitProbeTarget extends Pick<IssueProjection, 'parentBranch' | 'machineId'> {
+  branch: string | null
   /** Checkout to probe: the issue worktree, or the session cwd on shared work. */
   cwd: string
   /** True = multi-task checkout (no issue-owned worktree): merge axis off. */

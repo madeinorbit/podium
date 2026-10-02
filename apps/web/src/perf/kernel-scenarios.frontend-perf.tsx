@@ -1,20 +1,20 @@
-import { hostname, cpus } from 'node:os'
+import { cpus, hostname } from 'node:os'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { COARSE_CLOCK_MS, openKernelEngineOutbox } from '@podium/client-core/engine'
-import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   readRuntimeStoreStats,
   readStoreStats,
-  storeStats,
   type StoreCounts,
+  storeStats,
 } from '@podium/client-core/perf'
+import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   StoreProvider,
   StoreStatsProfiler,
+  useSlice,
   useStoreHandle,
   useStoreSelector,
-  useSlice,
 } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import { createSlicePublisher, worklistSlice } from '@podium/client-core/viewmodels'
@@ -22,8 +22,9 @@ import {
   asIssueId,
   asSessionId,
   asUserId,
-  type SessionMeta,
   type HostMetricsWire,
+  issueUserStateRowId,
+  type SessionMeta,
 } from '@podium/model/browser'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
@@ -176,44 +177,35 @@ describe('kernel-backed interaction counts', () => {
             repoId: `r${repositoryFor(i, profile.repositories)}`,
             title: `Issue ${i}`,
             stage: 'in_progress',
+            intentOrigin: 'human',
+            isDraftVessel: false,
+            audience: 'human',
+            archived: false,
+            labels: [],
+            blockedByNotes: [],
+            priority: 2,
+            type: 'task',
             description: { value: '' },
             createdAt: '2026-09-18T10:00:00Z',
             updatedAt: '2026-09-18T10:00:00Z',
             readAt: '2026-09-18T11:00:00Z',
           })
-          cache.put('issue', `i${i}`, {
-            id: `i${i}`,
-            title: `Issue ${i}`,
-            seq: i + 1,
-            stage: 'in_progress',
-            createdAt: '2026-09-18T10:00:00Z',
-            updatedAt: '2026-09-18T10:00:00Z',
-            readAt: '2026-09-18T11:00:00Z',
-            repoPath: `/repo-${repositoryFor(i, profile.repositories)}`,
-            pinned: false,
-            origin: 'human',
-            audience: 'human',
-            draft: false,
-            archived: false,
-            labels: [],
-            deps: [],
-            dependents: [],
-            comments: [],
-            blockedByNotes: [],
-            childCount: 0,
-            childDoneCount: 0,
-            priority: 2,
-            type: 'task',
-            ready: true,
-            blocked: false,
-            deferred: false,
-            needsHuman: false,
-          })
+          cache.put(
+            'issueUserState',
+            issueUserStateRowId(asUserId('benchmark'), asIssueId(`i${i}`)),
+            {
+              userId: 'benchmark',
+              entityId: `i${i}`,
+              readAt: '2026-09-18T11:00:00Z',
+              tuckedAt: null,
+              pinned: false,
+            },
+          )
         }
         for (let i = 0; i < profile.sessions; i++)
           cache.put('session', `s${i}`, session(i, profile.repositories))
         for (let i = 0; i < profile.repositories; i++)
-          cache.put('repo', `r${i}`, { id: `r${i}`, prefix: 'POD', path: `/repo-${i}` })
+          cache.put('repo', `r${i}`, { id: `r${i}`, prefix: 'POD', repoPath: `/repo-${i}` })
         const repos = Array.from({ length: profile.repositories }, (_, i) => ({
           path: `/repo-${i}`,
           branch: 'main',

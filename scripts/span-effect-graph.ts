@@ -379,7 +379,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 132,
+    line: 131,
     why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts.',
   },
   {
@@ -678,6 +678,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'a pure repo-id resolver injected at construction',
   },
+  'apps/server/src/store/issues.ts#IssuesRepository.sessionRefPublisher': {
+    kind: 'contained',
+    why: 'The composition hook declares birth-session reference rows through ledger.capture in the repair span; authority publication waits for commit, so a rollback exposes nothing outside the process.',
+  },
   'apps/server/src/store/repos.ts#ReposRepository.repoIdResolver()': {
     kind: 'contained',
     why: 'the resolver closure repoIdResolver() returns: pure over a snapshot',
@@ -728,7 +732,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/modules/lock/service.ts#LockServiceDeps.sessionRunning': {
     kind: 'contained',
-    why: "the second in-process liveness read, added by POD-3807 so a WAITER is judged by whether it can take a grant rather than merely by existing. Same shape and same answer as `sessionAlive` above: it asks the live session registry a question and returns a boolean. It writes nothing and nothing outside the process can tell it was called.",
+    why: 'the second in-process liveness read, added by POD-3807 so a WAITER is judged by whether it can take a grant rather than merely by existing. Same shape and same answer as `sessionAlive` above: it asks the live session registry a question and returns a boolean. It writes nothing and nothing outside the process can tell it was called.',
   },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.now': {
     kind: 'contained',
@@ -788,7 +792,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/modules/machines/service.ts#MachinesDeps.targetUnavailableReason': {
     kind: 'contained',
-    why: "the twin of `targetVersion` above and the negative half of the same read: the actionable sentence for why the selected authority has no trusted target for this machine. It reads the resolved channel and the retraction reasons this process already holds and returns a string; nothing is issued and nothing is announced.",
+    why: 'the twin of `targetVersion` above and the negative half of the same read: the actionable sentence for why the selected authority has no trusted target for this machine. It reads the resolved channel and the retraction reasons this process already holds and returns a string; nothing is issued and nothing is announced.',
   },
   'packages/protocol/src/schema-digest.ts#<module>.<anonymous>': {
     kind: 'contained',
@@ -996,11 +1000,15 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
    */
   'apps/server/src/modules/sessions/repository.ts#SessionRepository.mutate': {
     kind: 'opaque',
-    why: "THE session mutation seam [POD-3330]: the callback `SessionRepository.write` runs against a DRAFT of the durable half. Supplied at the call site, analysed there.",
+    why: 'THE session mutation seam [POD-3330]: the callback `SessionRepository.write` runs against a DRAFT of the durable half. Supplied at the call site, analysed there.',
   },
   'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalWrite': {
     kind: 'opaque',
     why: 'the extra write a persist lands inside the same transaction — the shape `persist` already had. Supplied at the call site, analysed there.',
+  },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalChanges': {
+    kind: 'opaque',
+    why: 'The satellite-row declaration callback returns change specs inside the session commit, alongside additionalWrite; its body is supplied and analysed at the call site, and this port publishes nothing itself.',
   },
   'apps/server/src/modules/sessions/repository.ts#SessionRepository.<anonymous>': {
     kind: 'opaque',
@@ -1032,7 +1040,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/modules/lock/service.ts#LockService.probe': {
     kind: 'opaque',
-    why: "the liveness question `principalLiveness` asks once the sentinel principals (operator, in-process system job, unknown-relay) have been answered without asking anything. A private parameter, not an injected port: the two callers write down `deps.sessionAlive` and `deps.sessionRunning`, and both of those are classified as reads above — but they are classified AT THOSE SITES, so a third caller passing something observable is reported rather than covered by this row.",
+    why: 'the liveness question `principalLiveness` asks once the sentinel principals (operator, in-process system job, unknown-relay) have been answered without asking anything. A private parameter, not an injected port: the two callers write down `deps.sessionAlive` and `deps.sessionRunning`, and both of those are classified as reads above — but they are classified AT THOSE SITES, so a third caller passing something observable is reported rather than covered by this row.',
   },
   'apps/server/src/modules/machines/service.ts#MachineUseResolver.MachineUseResolver': {
     kind: 'opaque',

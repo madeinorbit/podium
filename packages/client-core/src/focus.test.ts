@@ -1,5 +1,5 @@
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import type { AgentRuntimeState, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   attentionGroup,
@@ -8,6 +8,7 @@ import {
   groupSessions,
   withoutShells,
 } from './focus'
+import type { SessionView, SessionViewInput } from './session-values'
 
 const needsUser = (since: string): AgentRuntimeState => ({
   phase: 'needs_user',
@@ -22,7 +23,7 @@ const working = (since: string): AgentRuntimeState => ({
   nativeSubagentCount: 0,
 })
 
-function meta(over: Partial<SessionMeta> & { sessionId: SessionId }): SessionMeta {
+function meta(over: Partial<SessionView> & { sessionId: SessionId }): SessionView {
   const { sessionId, ...rest } = over
   return {
     sessionId,
@@ -41,7 +42,7 @@ function meta(over: Partial<SessionMeta> & { sessionId: SessionId }): SessionMet
     readAt: null,
     unread: false,
     ...rest,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 describe('shared focus selectors', () => {
@@ -52,7 +53,9 @@ describe('shared focus selectors', () => {
       ),
     ).toBe('needsYou')
     expect(
-      attentionGroup(meta({ sessionId: asSessionId('work'), agentState: working('2026-07-01T01:00:00.000Z') })),
+      attentionGroup(
+        meta({ sessionId: asSessionId('work'), agentState: working('2026-07-01T01:00:00.000Z') }),
+      ),
     ).toBe('working')
     expect(attentionGroup(meta({ sessionId: asSessionId('idle'), status: 'exited' }))).toBe('idle')
   })
@@ -78,12 +81,12 @@ describe('shared focus selectors', () => {
     // mid-turn) leaves its last live phase at 'working'. A gone process is not
     // doing work — the transported status overrides the stale phase verdict.
     const w = working('2026-07-01T01:00:00.000Z')
-    expect(attentionGroup(meta({ sessionId: asSessionId('exited'), status: 'exited', agentState: w }))).toBe(
-      'idle',
-    )
-    expect(attentionGroup(meta({ sessionId: asSessionId('hib'), status: 'hibernated', agentState: w }))).toBe(
-      'idle',
-    )
+    expect(
+      attentionGroup(meta({ sessionId: asSessionId('exited'), status: 'exited', agentState: w })),
+    ).toBe('idle')
+    expect(
+      attentionGroup(meta({ sessionId: asSessionId('hib'), status: 'hibernated', agentState: w })),
+    ).toBe('idle')
   })
 
   it('uses the captured need summary on attention cards', () => {

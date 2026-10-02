@@ -27,10 +27,12 @@
  */
 
 import {
+  asRepoId,
   ChangeCursorSeqField,
   ChangeEntityIdField,
   ChangeSeqField,
   GlobalChangeOpField,
+  shipLaneId,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -50,7 +52,7 @@ const changesSinceArms = (union: unknown): { shape: Record<string, unknown> }[] 
   (union as { options: { shape: Record<string, unknown> }[] }).options
 
 describe('the wire change row composes the model vocabulary', () => {
-  it('has all thirteen entity arms, so the loops below are not vacuous', () => {
+  it('has all seventeen entity arms, so the loops below are not vacuous', () => {
     // The counterfactual guard: if `.options` ever stopped resolving, every
     // per-arm assertion below would iterate an empty list and pass silently.
     //
@@ -63,15 +65,18 @@ describe('the wire change row composes the model vocabulary', () => {
     // arrived with the durable shipping model (7fb15bc57) — which added the arm
     // and left this count at eleven, so the suite went red on exactly the fact
     // it exists to notice — THIRTEEN with 'pendingInteraction' (POD-2020),
-    // the blocking asks a session is stopped on, and FOURTEEN NOW with 'message'
-    // (POD-4764), a chat message's record and delivery status. They are COUNTED here rather than
+    // the blocking asks a session is stopped on, FOURTEEN with 'message'
+    // (POD-4764), a chat message's record and delivery status, FIFTEEN and
+    // SIXTEEN with 'issueUserState' and 'issueGitState' (POD-4967), which again
+    // left this count behind, and SEVENTEEN NOW with 'shipLane' (POD-4974 O2),
+    // one delivery lane's queue. They are COUNTED here rather than
     // exempted because the loops below are what proves the new arms compose the
     // shared vocabulary too — main declared the earlier three as hand-written
     // `z.object`s restating `seq`/`id`/`op`, which is exactly the fork this file
     // exists to see. They are composed through `metadataChangeArm` instead, and
     // these assertions are the evidence that the port did not reintroduce the
     // five restatements POD-305 deleted.
-    expect(strictArms).toHaveLength(14)
+    expect(strictArms).toHaveLength(17)
   })
 
   it('takes `seq` from the shared field schema INSTANCE in every arm', () => {
@@ -126,6 +131,29 @@ describe('the changesSince result composes the cursor field', () => {
 })
 
 describe('the composition did not change what parses', () => {
+  it('preserves optional shipping lane rows in both snapshot parsers and accepts older snapshots', () => {
+    const repoId = asRepoId('repo-a')
+    const lane = {
+      id: shipLaneId(repoId, 'local:main'),
+      repoId,
+      destination: 'local:main',
+      trains: [{ orderIds: ['ship-a'] }],
+      blockedOrderIds: [],
+    }
+    const older = {
+      kind: 'snapshot',
+      cursor: 1,
+      sessions: [],
+      issues: [],
+      conversations: [],
+      diagnostics: [],
+    }
+    for (const schema of [SyncChangesSinceResult, SyncChangesSinceResultLenientSchema]) {
+      expect(schema.parse(older)).toEqual(older)
+      expect(schema.parse({ ...older, shipLanes: [lane] })).toEqual({ ...older, shipLanes: [lane] })
+    }
+  })
+
   // Identity is necessary but not sufficient: a shared instance wired into the
   // wrong position would satisfy every `toBe` above. These are the behaviours the
   // arms are FOR, asserted independently of how they are built.

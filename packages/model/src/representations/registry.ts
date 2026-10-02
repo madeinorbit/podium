@@ -1,76 +1,6 @@
-/**
- * THE RETAINED-REPRESENTATION REGISTRY — POD-368, the closing child of POD-302.
- *
- * ADR 4 D1: one vocabulary, **not** one universal record. The canonical durable
- * aggregate (R1), live state (R2), the storage row (R3), the wire and read
- * projections (R4), the narrow ports (R5) and the portable export (R6) stay
- * DISTINCT types that `Pick` from the same field groups. So the end state of 1.4
- * is not "one shape"; it is "every shape justified, classified, and composed".
- *
- * This file is the justified-and-classified half. Each entry answers the three
- * questions this issue's convention requires — what it is FOR, why its semantics
- * genuinely differ from the canonical aggregate, and what it composes — and
- * declares its ADR 9 D3 visibility class against an ADR 1 matrix row.
- *
- * ---------------------------------------------------------------------------
- * THE SET, AND WHY IT IS 43 AND NOT POD-364'S 41
- * ---------------------------------------------------------------------------
- *
- * POD-364 counted 24 session + 17 issue representations at `0e583f44`. The live
- * set is 26 session + 17 issue, and both halves of that difference are recorded
- * rather than reconciled away.
- *
- * TWO WERE DELETED rather than documented, which is the convention working as
- * intended:
- *
- *   - `BtwSessionInfo` (§2.1 #14) — a strict subset of `ConciergeSessionInfo`,
- *     re-declared. Retired by POD-366; `btw.ts` now names #13 directly.
- *   - `StatusWire` (§2.1 #22) — a key-for-key hand copy of `SessionStatusResult`
- *     whose own comment named its source. Retired by POD-366; the CLI reads the
- *     shared projection in `../projections/session-read.ts`.
- *
- * Neither could answer `distinctSemantics`, so neither is here. **A
- * representation that cannot justify itself in this form is a drifted duplicate
- * and belongs deleted, not registered.**
- *
- * FOUR MORE WERE FOUND that POD-364's hand pass missed:
- * `SessionInstructionContext`, `SessionSpawnResult`, `SessionInfo` (the session
- * twin of the `IssueInfo` POD-367 corrected, in the same file) and
- * `OptimisticSpawnArgs`. POD-364 enumerated by READING; `scripts/
- * representation-audit.ts` enumerates by KEY SET, and no excluded category covers
- * these four. **The set is not claimed to be complete even now**: a composed
- * representation leaves no key list behind, so no structural detector can
- * enumerate one, and the registry is what enumerates them instead.
- *
- * ---------------------------------------------------------------------------
- * WHAT THE `pending` ENTRIES MEAN, AND WHY THEY ARE NOT LAUNDERED
- * ---------------------------------------------------------------------------
- *
- * Some entries still hand-restate their key list. Each declares a NAMED owner and
- * a NAMED blocker, and `scripts/rearch-audit.ts` counts them as debt under that
- * owner's phase — not under POD-302, and not at zero. Three blockers recur, and
- * all three are architectural rather than anyone's omission:
- *
- *   1. **A circular import.** `../fields/issue.ts` imports six vocabularies FROM
- *      `../entities/issue.ts`, so the entity cannot import the groups back. Being
- *      zod VALUES this fails at RUNTIME (`undefined is not an object (evaluating
- *      'IssueStage.optional')`), not at lint. POD-1141 owns it, with 44 of
- *      `IssueWire`'s 78 keys already measured type-identical and byte-safe.
- *   2. **No shared home the consumer may import.** `packages/issue-client` and
- *      `apps/cli` cannot import `apps/server`, which is WHY those copies were
- *      hand-written. Deleting the copy requires the definition to sit in a
- *      package both sides may depend on.
- *   3. **An entity-in-entity embed whose removal has no receiver.** POD-308 owns
- *      all three embeds for one shared reason recorded in POD-367 §3.2, and it is
- *      a scoped-feed prerequisite rather than a perf note: an embedded child
- *      carries a visibility class of its own, so a nested session the reader may
- *      not see cannot be filtered out of the parent projection without either
- *      lying about the parent or leaking the child.
- */
-
 import { ROW } from '../annotations/matrix'
 import { HandoffManifest } from '../entities/handoff'
-import { IssueGraphNode, IssueWire, OrphanIssue } from '../entities/issue'
+import { IssueGraphNode, OrphanIssue } from '../entities/issue'
 import { SessionMeta } from '../entities/session'
 import { ShipOrderProjection } from '../shipping'
 import type { RetainedRepresentation } from './checks'
@@ -207,10 +137,9 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     role: 'R4',
     purpose: 'The session as every replica receives it — the shape that rides the change feed.',
     distinctSemantics:
-      'It is the one representation that must be BYTE-STABLE across this rewrite (POD-360 pins ' +
-      'it), so it keeps provenance flat at its historical key position rather than nested, and ' +
-      'it adds the derived reads (`displayRef`, `unread`, `machineName`) that R1 must never ' +
-      'store beside the fields they are computed from (ADR 4 D3.6).',
+      'Session facts and stable reference inputs on the shared feed. Per-user markers live ' +
+      'in sessionUserState; machine names, conditions and repo labels are client joins ' +
+      '(POD-4974 S6). Provenance remains flat at its historical key position.',
     composition: {
       state: 'composed',
       from:
@@ -456,7 +385,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
       state: 'pending',
       owner: 'POD-1141',
       blocker:
-        'its issue twin RefIssueLike is already a Pick from IssueWire; the session half waits ' +
+        'its issue twin RefIssueLike is already a Pick from IssueReport; the session half waits ' +
         'on the same batch of R5 ports',
     },
     matrixRow: ROW.sessionIdentity,
@@ -718,18 +647,18 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
   {
     symbol: 'ShipOrderProjection',
     entity: 'issue',
-    site: 'packages/model/src/shipping.ts',
+    site: 'packages/model/src/shipping-projection.ts',
     role: 'R4',
     purpose:
       'The compact replicated shipping row keyed by order id and joined locally through issueId.',
     distinctSemantics:
-      'It omits execution journals and immutable proof bodies, derives humanState/activity, may carry a scheduler-supplied queueRank, and tombstones cancelled orders from the routine feed.',
+      'It omits execution journals, immutable proof bodies, queueRank, train and waitEstimate; derives humanState/activity; and tombstones cancelled orders from the routine feed. Queue rank lives only on the server-maintained shipLane row (POD-4974 O4). Legacy optional queueRank/train/waitEstimate schemas accept older wire rows and offline caches only.',
     composition: {
       state: 'declared-legitimate-restatement',
       reason:
         'The projection deliberately derives operator-facing macro state from several normalized shipping records and therefore cannot be a structural pick of ShipOrder.',
       enforcedBy:
-        'apps/server/src/store-issues.test.ts exercises compact projection derivation, cancelled omission, hold joining, and receipt-id joining.',
+        'apps/server/src/store-issues.test.ts exercises cancelled omission and normalized shipping joins; modules/shipping/service.test.ts and queue.test.ts prove live and boot rows omit train/waitEstimate while scheduler claims keep their members and leader, that the published rank equals the scheduler order with native-stack edges, and (through the harness cross-check) that every commit leaves the rows equal to a full recompute; lane-commit-cost.test.ts pins the rows a commit reads as flat in the orders outside its lane.',
     },
     matrixRow: ROW.shippingAggregate,
     visibility: 'personal',
@@ -813,26 +742,6 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     visibility: 'personal',
   },
   {
-    symbol: 'IssueWire',
-    entity: 'issue',
-    site: 'packages/model/src/entities/issue.ts',
-    role: 'R4',
-    purpose: 'The issue as every replica receives it — the shape that rides the change feed.',
-    distinctSemantics:
-      'Byte-stability is its contract (POD-360 pins 87 fixtures), so it keeps the pre-rewrite ' +
-      'spellings the aggregate deliberately renamed (`blockedBy`, `origin`, `draft`), the ' +
-      'flattened needs-human tuple, plain strings where the aggregate wraps documents, and the ' +
-      'derived rollups R1 must not store.',
-    composition: {
-      state: 'pending',
-      owner: 'POD-1141',
-      blocker: CYCLE_BLOCKER,
-    },
-    matrixRow: ROW.issueCore,
-    visibility: 'personal',
-    schema: IssueWire,
-  },
-  {
     symbol: 'IssuePatch',
     entity: 'issue',
     site: 'apps/server/src/modules/issues/service/types.ts',
@@ -862,6 +771,21 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     composition: {
       state: 'composed',
       from: '`Pick<IssueRow, …>` through a `CreatableRowFields<K>` mapped type (POD-367)',
+    },
+    matrixRow: ROW.issueCore,
+    visibility: 'personal',
+  },
+  {
+    symbol: 'IssueReport',
+    entity: 'issue',
+    site: 'packages/model/src/projections/issue-read.ts',
+    role: 'R4',
+    purpose: 'The on-demand CLI and RPC response for a reader without a local replica.',
+    distinctSemantics:
+      'Preserves the command response fields, including graph and personal joins. Never stored or published as a feed entity.',
+    composition: {
+      state: 'composed',
+      from: 'IssueProjection own facts plus IssueUserOverlay and query-only graph/count fields',
     },
     matrixRow: ROW.issueCore,
     visibility: 'personal',
@@ -917,7 +841,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     distinctSemantics:
       'A version-tolerant read: every optional member may be absent because this client can meet ' +
       'an older server across a remote relay, and it reads `null` where the current server omits ' +
-      'the key — so every optional member is `| null` too. A straight Pick<IssueWire, …> would ' +
+      'the key — so every optional member is `| null` too. A straight Pick<IssueReport, …> would ' +
       'declare a contract this client cannot rely on, and tightening the read would be a ' +
       'behaviour change dressed as a refactor. The key SET is the projection, spelled once.',
     composition: {
@@ -994,7 +918,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     composition: {
       state: 'composed',
       from:
-        '`Pick<IssueWire, …>` + `Partial<Pick<…>>` + panel member types from the panel group ' +
+        '`Pick<IssueReport, …>` + `Partial<Pick<…>>` + panel member types from the panel group ' +
         'itself. It was the largest hand-written restatement in the repo (22 keys) and ' +
         'composing it caught eleven fixture sites that needed branded ids (POD-367)',
     },
@@ -1013,7 +937,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     composition: {
       state: 'composed',
       from:
-        "`Pick<IssueWire, 'seq'|'title'> & Partial<Pick<IssueWire, 'stage'|'repoPath'>>`; " +
+        "`Pick<IssueReport, 'seq'|'title'> & Partial<Pick<IssueReport, 'stage'|'repoPath'>>`; " +
         '`stage` tightened from bare `string` to `IssueStage` as a side effect, which is the ' +
         'drift this removed (POD-367)',
     },
@@ -1067,7 +991,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     composition: {
       state: 'declared-legitimate-restatement',
       reason:
-        'a validation gate over untrusted input — composing it from IssueWire would turn a gate ' +
+        'a validation gate over untrusted input — composing it from IssueReport would turn a gate ' +
         'that refuses a wrong-state payload into one that accepts it, and an audit number is ' +
         'not worth loosening a gate.',
       enforcedBy:
@@ -1093,7 +1017,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     composition: {
       state: 'composed',
       from:
-        "`extends Pick<IssueWire, 'parentBranch'|'branch'|'machineId'>` plus probe-local " +
+        "`extends Pick<IssueReport, 'parentBranch'|'branch'|'machineId'>` plus probe-local " +
         'inputs (POD-367)',
     },
     matrixRow: ROW.machine,

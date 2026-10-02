@@ -1,3 +1,4 @@
+import type { SessionView } from '../../../session-values'
 /**
  * MACHINES SLICE — spawn PLACEMENT (POD-330).
  *
@@ -14,7 +15,7 @@
  * Depends on nothing in `viewmodels/` except the shared view types.
  * Platform-neutral: no DOM, no storage.
  */
-import { DEFAULT_HARNESS_AGENT, isHeadlessSession, type AgentKind, type SessionMeta, type MachineId } from '@podium/model'
+import { DEFAULT_HARNESS_AGENT, isHeadlessSession, type AgentKind, type MachineId } from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
 
 // ---------------------------------------------------------------------------
@@ -114,10 +115,10 @@ export function spawnTargetForRepo(
  *  terminal and worklist both read it. */
 export function resolveDefaultAgent(
   setting: string | undefined,
-  sessions: SessionMeta[],
+  sessions: SessionView[],
 ): AgentKind {
   if (setting && setting !== 'auto') return setting as AgentKind
-  let best: SessionMeta | undefined
+  let best: SessionView | undefined
   for (const s of sessions) {
     if (s.agentKind === 'shell' || isHeadlessSession(s)) continue
     if (!best || s.lastActiveAt > best.lastActiveAt) best = s

@@ -1,3 +1,4 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
 // @vitest-environment happy-dom
 /**
  * POD-4563 (L6a) — every fence, on every scenario, for every arm.
@@ -244,8 +245,11 @@ describe('wall-clock independence of the #9 steps', () => {
         })
         views.push(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)))
         readAts.push(
-          ctx.engine.getSnapshot().issues.find((issue) => issue.id === ctx.targets.markReadId)
-            ?.readAt,
+          allIssueViewModels(
+            ctx.replica,
+            ctx.engine.getSnapshot().issueProjections,
+            ctx.engine.getSnapshot().issueUserStates,
+          ).find((issue) => issue.id === ctx.targets.markReadId)?.readAt,
         )
       }
       return { cells, views, readAts }

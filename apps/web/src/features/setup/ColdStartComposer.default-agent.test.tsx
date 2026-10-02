@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
  * WHICH HARNESS THE BOX OPENS ON, AND WHAT REMEMBERS IT (POD-1469).

@@ -8,10 +8,11 @@
 
 import type { IssueId, SessionId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
+import { useStoreHandle } from '@podium/client-core/react'
 import { Mail as MailIcon, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -106,7 +107,7 @@ export function MessageLedgerView({
   issueId?: IssueId
   sessionId?: SessionId
 }): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
   const [rows, setRows] = useState<LedgerMessage[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const refresh = useCallback(() => {

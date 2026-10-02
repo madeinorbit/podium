@@ -17,12 +17,13 @@
  * active replica. An address the phone cannot show also falls back externally.
  */
 
+import { type SessionValueInput, sessionValues } from '@podium/client-core/session-values'
 import {
-  type PodiumLink,
-  type PodiumTarget,
   canonicalPodiumOrigin,
   formatExternalHttpLink,
   formatPodiumLinkFallback,
+  type PodiumLink,
+  type PodiumTarget,
   parseIssueRef,
   parsePodiumLink,
   parseSessionRef,
@@ -79,9 +80,8 @@ export interface LinkIssueLike {
 }
 
 /** The fields of a session row this module needs. */
-export interface LinkSessionLike {
+export interface LinkSessionLike extends SessionValueInput {
   sessionId: string
-  displayRef?: string
 }
 
 /**
@@ -133,7 +133,7 @@ export function findLinkedSession(
   const direct = sessions.find((session) => session.sessionId === trimmed)
   if (direct) return direct
   if (!parseSessionRef(trimmed)) return undefined
-  return sessions.find((session) => session.displayRef === trimmed)
+  return sessions.find((session) => sessionValues(session).displayRef === trimmed)
 }
 
 // --- Following a link ------------------------------------------------------

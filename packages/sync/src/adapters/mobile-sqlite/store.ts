@@ -140,6 +140,8 @@ export interface DurabilityDegradation {
 }
 
 export interface SqliteStoreOptions {
+  /** Retire unsupported entity cache rows without changing cursors or the outbox. */
+  readonly retainEntity?: (entity: string) => boolean
   /** Open (or create) the replica database file. Called again after a poison clear. */
   readonly openDatabase: () => SqlDatabaseLike
   /**
@@ -771,6 +773,10 @@ export class SqliteSyncStore {
     this.nextOrdinal = 0
   }
 
+  retainsEntity(entity: string): boolean {
+    return this.options.retainEntity?.(entity) ?? true
+  }
+
   private hydrate(): void {
     const entities = this.db
       .prepare(
@@ -795,7 +801,22 @@ export class SqliteSyncStore {
     this.cursors.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
+    const excluded = entities.filter((row) => !this.retainsEntity(row.entity))
+    if (excluded.length > 0) {
+      this.db.exec('BEGIN IMMEDIATE')
+      try {
+        const remove = this.db.prepare(
+          `DELETE FROM ${ENTITY_TABLE} WHERE principal = ? AND entity = ? AND entity_id = ?`,
+        )
+        for (const row of excluded) remove.run(row.principal, row.entity, row.entity_id)
+        this.db.exec('COMMIT')
+      } catch (error) {
+        this.db.exec('ROLLBACK')
+        throw error
+      }
+    }
     for (const row of entities) {
+      if (!this.retainsEntity(row.entity)) continue
       // The column is NOT NULL, so this is unreachable in a well-formed file — and a
       // file where it fires is not one. Throwing takes the D4.5 path (clear and cold
       // start) instead of quietly hydrating an entity with no provenance, which the
@@ -992,6 +1013,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
       draft.entities.set(this.principal, next)
       draft.touchedCache = true
       for (const row of rows) {
+        if (!this.store.retainsEntity(row.entity)) continue
         next.set(rowKey(row.entity, row.entityId), row)
         draft.ops.push(upsertEntityOp(this.principal, row))
       }
@@ -1051,6 +1073,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
   ): void {
     draft.touchedCache = true
     for (const op of mutation.operations) {
+      if (!this.store.retainsEntity(op.entity)) continue
       if (op.kind === 'upsert') {
         const row: EntityRecord = {
           entity: op.entity,

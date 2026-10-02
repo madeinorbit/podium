@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -57,7 +58,7 @@ import {
   writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
-import type { IssueId, MachineId, SessionId, SessionMeta } from '@podium/model/browser'
+import type { IssueId, MachineId, SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,
@@ -654,7 +655,7 @@ function StateLabel({ value, label }: { value: DeckIssueState; label?: string })
  *  Deliberately a coarse word rather than a live clock — the icon exists so the
  *  operator can decide whether to unfold, and a tooltip that ticks would be one
  *  more thing animating in a column whose only motion is the working spinner. */
-function crewLine(session: SessionMeta, now: number): string {
+function crewLine(session: SessionView, now: number): string {
   const retired = session.archived || session.status === 'exited'
   const phase = motionPhase(session)
   const state = retired
@@ -684,7 +685,7 @@ const CREW_SHOWN = 4
  * is hidden by default — and everything each icon stands for rides on its
  * tooltip, which is also where an icon dropped by a narrow column survives.
  */
-function CrewCensus({ crew }: { crew: readonly SessionMeta[] }): JSX.Element {
+function CrewCensus({ crew }: { crew: readonly SessionView[] }): JSX.Element {
   const now = useStoreSelector((store) => store.coarseNow)
   const shown = crew.slice(0, CREW_SHOWN)
   const extra = crew.length - shown.length
@@ -880,7 +881,7 @@ function NativeRows({
   session,
   onOpen,
 }: {
-  session: SessionMeta
+  session: SessionView
   onOpen: () => void
 }): JSX.Element | null {
   const rows = nativeSubagentRows(session)
@@ -1049,7 +1050,7 @@ function SessionRow({
   onOpen,
   onOpenNative,
 }: {
-  session: SessionMeta
+  session: SessionView
   /** The task this row hangs on. Needed to answer "is it asking?", which a
    *  session cannot answer alone once the task has closed (POD-1072). Null
    *  outside the tree, where the archived reveal draws rows on their own. */
@@ -1403,7 +1404,7 @@ function SessionRow({
  *  more: it is a chip on the strip itself (see `SeatChip`). */
 interface HungContext {
   issue: IssueNavigationModel
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   rootId: string | undefined
   inMission: ReadonlySet<string>
   nameOf: (sessionId: SessionId) => string | undefined
@@ -1418,8 +1419,8 @@ interface HungContext {
   /** Keep the last row's rail running to the block's bottom edge, because the
    *  tree carries on below it. The root block sets this; a strip never does. */
   tail: boolean
-  onSelectSession: (session: SessionMeta, permanent: boolean) => void
-  onSelectNative: (session: SessionMeta) => void
+  onSelectSession: (session: SessionView, permanent: boolean) => void
+  onSelectNative: (session: SessionView) => void
 }
 
 function HungRows(ctx: HungContext): JSX.Element | null {
@@ -1550,8 +1551,8 @@ const TaskRow = memo(
     /** Single click previews the task's lead session (and toggles the fold);
      *  double click / Enter opens it permanently. */
     onSelectIssue: (permanent: boolean) => void
-    onSelectSession: (session: SessionMeta, permanent: boolean) => void
-    onSelectNative: (session: SessionMeta) => void
+    onSelectSession: (session: SessionView, permanent: boolean) => void
+    onSelectNative: (session: SessionView) => void
     /** Open the shared task menu at the cursor — right-click, or the ⋯ reveal. */
     onMenu: (event: ReactMouseEvent) => void
     /** The strip's status glyph is a picker (POD-1271) — the deck applies it. */
@@ -2083,7 +2084,7 @@ export function WhereTheWorkWent({
   continuationState?: DeckIssueState | null
   /** The vacated task's OWN sessions, so the card can check "vacated" rather
    *  than assume it (POD-1233). */
-  continuationSessions?: readonly SessionMeta[]
+  continuationSessions?: readonly SessionView[]
   /** Whether the vacated task itself is already recorded as finished — the card
    *  names a different filing action when it is not (see {@link ContinuationCard}). */
   continuationFinished?: boolean
@@ -2170,7 +2171,7 @@ export function WhereTheWorkWent({
  */
 export function continuationPresenceLine(
   kind: IssueContinuation['kind'],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): string {
   return sharedContinuationPresenceLine(kind, sessions)
 }
@@ -2273,7 +2274,7 @@ export function ContinuationCard({
   /** THIS task's own sessions — the only thing that can answer whether anyone
    *  is still here. Unfiltered: the view bar narrows what the spine DRAWS, and
    *  a sentence of fact must not change with a display toggle. */
-  sessions?: readonly SessionMeta[]
+  sessions?: readonly SessionView[]
   onOpen: (issue: IssueNavigationModel) => void
   /** File this signpost away — which on an unfinished task also records the
    *  ending, because tucking alone cannot fold it (see above). */
@@ -2375,11 +2376,10 @@ const clampBriefRatio = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value))
 
 /**
- * The four numbers the cutoff layout derives from, read in one batch before the
- * (async-state) write — there is no read-after-write here, so batching the reads
- * differently buys nothing. The cost driver was invocation frequency (POD-4439),
- * which is why the callers below measure once per content and watch two boxes.
- * Null when the deck has no box yet.
+ * Read only after the browser's layout, in ResizeObserver delivery. Reading
+ * these boxes during the commit forces layout of the entire new mission tree
+ * (POD-5106), even though the brief needs just four numbers. Null when the deck
+ * has no box yet.
  */
 function readBriefMetrics(
   el: HTMLElement | null,
@@ -2476,44 +2476,38 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
   // trigger, not a value the effect reads.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
   useEffect(() => setOpen(false), [html])
-  // THE BRIEF IS MEASURED ONCE PER CONTENT, NOT ONCE PER SETTLE (POD-4439).
-  //
-  // `html` is not READ below, it is the reason to run again: a new brief in the
-  // same box is new content to measure, and the element identity does not change
-  // to say so. The watcher underneath is mounted once, because re-observing the
-  // same nodes on every content change buys a second delivery from the
-  // ResizeObserver — an initial report of sizes the direct measure just read —
-  // and with it a second synchronous layout read per switch for values that
-  // cannot have moved yet.
-  //
-  // The watcher also leaves the brief body itself alone. The body's height is an
-  // OUTPUT of this measurement — the cutoff writes `max-height` straight onto
-  // it — so observing it turns every cutoff update into another
-  // measure-and-compare that always compares equal. The inputs live elsewhere:
-  // the deck's height (window resizes) and the body's top (header wrapping, the
-  // cost chip arriving late), and those are the two boxes watched.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
-  useLayoutEffect(() => {
-    const next = readBriefMetrics(ref.current, endRef.current)
-    if (next) publishBriefMetrics(setMetrics, next)
-  }, [html])
+  // The observer delivers after layout, so the rect/scrollHeight reads do not
+  // force the newly committed mission tree through synchronous layout. A new
+  // brief needs a fresh initial delivery even when both ancestor boxes kept
+  // their size (a clipped brief can change without resizing the header).
+  // Observe the inputs, not the body whose max-height this measurement writes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: html triggers a fresh observation of content in the same nodes
   useLayoutEffect(() => {
     const el = ref.current
     const deck = el?.closest<HTMLElement>('[data-testid="flight-deck-scroller"]')
     const header = el?.closest<HTMLElement>('.deck-header')
     if (!el || !deck || !header) return
-    // Ancestors, not content: this component never changes identity without
-    // remounting, so one watcher per mount stays pointed at the right nodes
-    // across content changes.
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => {
+    const measure = (): void => {
       const next = readBriefMetrics(ref.current, endRef.current)
       if (next) publishBriefMetrics(setMetrics, next)
-    })
+    }
+    if (typeof ResizeObserver === 'undefined') {
+      // rAF alone is still before layout. The task it queues runs after that
+      // frame; cancel both stages when another brief replaces this one.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const frame = requestAnimationFrame(() => {
+        timer = setTimeout(measure, 0)
+      })
+      return () => {
+        cancelAnimationFrame(frame)
+        clearTimeout(timer)
+      }
+    }
+    const observer = new ResizeObserver(measure)
     observer.observe(header)
     observer.observe(deck)
     return () => observer.disconnect()
-  }, [])
+  }, [html])
 
   const onRulePointerDown = (event: ReactPointerEvent<HTMLSpanElement>): void => {
     if (
@@ -3101,7 +3095,7 @@ export function FlightDeck({
    * worked may be the one in pane B.
    */
   const focusedSession = useMemo(() => {
-    const find = (id: string | null): SessionMeta | undefined =>
+    const find = (id: string | null): SessionView | undefined =>
       id ? sessions.find((session) => session.sessionId === id) : undefined
     return find(paneA) ?? (split ? find(paneB) : undefined)
   }, [paneA, paneB, split, sessions])
@@ -3333,7 +3327,7 @@ export function FlightDeck({
    */
   const archivedSessions = useMemo(() => {
     const seen = new Set<string>()
-    const found: SessionMeta[] = []
+    const found: SessionView[] = []
     for (const row of rows) {
       for (const session of archivedSessionsForIssue(row.issue, sessions, allWorktreePaths)) {
         if (seen.has(session.sessionId)) continue
@@ -3350,7 +3344,7 @@ export function FlightDeck({
     return ids
   }, [rows])
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
-  const draftFilling = Boolean(root?.draft && rootSession)
+  const draftFilling = Boolean(root?.isDraftVessel && rootSession)
   // Naming and lifecycle answer different questions. `draftFilling` governs
   // the temporary mission brief; the title switches as soon as the optimistic
   // rename carries a non-placeholder value, before the server clears `draft`.
@@ -3633,7 +3627,7 @@ export function FlightDeck({
   }
   const selectSession = (
     issueId: IssueId | null,
-    session: SessionMeta,
+    session: SessionView,
     opts: { permanent: boolean; native?: boolean },
   ): void => {
     if (view === 'waterfall' && !opts.native) {
@@ -3873,14 +3867,14 @@ export function FlightDeck({
                     and a double click on the header are the same request. */}
                   {rootIssue && rootRow && (
                     <MissionCostChip
-                      key={rootIssue.id}
+                      key={`cost:${rootIssue.id}`}
                       issueId={rootIssue.id}
                       onOpenInExplorer={() => selectIssue(rootRow, true)}
                     />
                   )}
                   {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
                     <MissionAgentMenu
-                      key={rootIssue.id}
+                      key={`agent-menu:${rootIssue.id}`}
                       defaultAgent={rootIssue.defaultAgent}
                       repoPath={rootIssue.repoPath}
                       machineId={rootIssue.machineId}

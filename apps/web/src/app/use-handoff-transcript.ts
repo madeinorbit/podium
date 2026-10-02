@@ -1,23 +1,24 @@
-import { shallowEqual } from '@podium/client-core/store'
+import type { SessionView } from '@podium/client-core/session-values'
+import { useStoreHandle } from '@podium/client-core/react'
 import {
   pairLatestPromptAndAnswer,
   parseEnvelopeBatch,
   selectLatestPromptSession,
   type HandoffTranscriptPair,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta, TranscriptItem } from '@podium/model/browser'
+import type { TranscriptItem } from '@podium/model/browser'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useStoreSelector } from './store'
+import type { Trpc } from './trpc'
 
 const INITIAL_LIMIT = 200
 const PAGE_LIMIT = 400
 const MAX_ITEMS = 2_000
 
 type HandoffTranscriptState =
-  | { status: 'empty'; session: SessionMeta | null; pair: null }
-  | { status: 'loading'; session: SessionMeta; pair: HandoffTranscriptPair | null }
-  | { status: 'ready'; session: SessionMeta; pair: HandoffTranscriptPair }
-  | { status: 'error'; session: SessionMeta; pair: null }
+  | { status: 'empty'; session: SessionView | null; pair: null }
+  | { status: 'loading'; session: SessionView; pair: HandoffTranscriptPair | null }
+  | { status: 'ready'; session: SessionView; pair: HandoffTranscriptPair }
+  | { status: 'error'; session: SessionView; pair: null }
 
 const transcriptCache = new Map<string, HandoffTranscriptPair | null>()
 
@@ -39,15 +40,9 @@ function mergeOlder(
 
 export function useHandoffTranscript(
   active: boolean,
-  missionSessions: readonly SessionMeta[],
+  missionSessions: readonly SessionView[],
 ): HandoffTranscriptState & { retry: () => void } {
-  const { trpc, replica } = useStoreSelector(
-    (store) => ({
-      trpc: store.trpc,
-      replica: store.replica,
-    }),
-    shallowEqual,
-  )
+  const { trpc, replica } = useStoreHandle<Trpc>().getSnapshot()
   const session = useMemo(
     () => (active ? selectLatestPromptSession(missionSessions) : null),
     [active, missionSessions],
@@ -123,7 +118,7 @@ export function useHandoffTranscript(
       cancelled = true
     }
     // `cacheKey` is the transcript read's semantic identity. Replica refreshes
-    // may replace an equal SessionMeta object; restarting for that identity-only
+    // may replace an equal SessionView object; restarting for that identity-only
     // change would turn each state write above into another read.
     // biome-ignore lint/correctness/useExhaustiveDependencies: session identity is deliberately represented by cacheKey.
   }, [active, cacheKey, replica, retryKey, trpc])

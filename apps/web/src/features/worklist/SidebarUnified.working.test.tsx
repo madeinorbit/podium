@@ -1,3 +1,5 @@
+import '@/test-support/mock-core-store-handle'
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -161,7 +163,7 @@ vi.mock('@/app/store', () => {
   // The selector-store hook (refactor) reads slices off the same store shape.
   return {
     useStore,
-    useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
+    useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     // POD-331: the worklist is a PUBLISHED slice now, so the component reads it
     // through `useSlice` instead of deriving it locally. These suites assert
@@ -170,7 +172,7 @@ vi.mock('@/app/store', () => {
     // and a mock that pretended to memoize here would be a second, untested
     // implementation of the mechanism.
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
   }
 })
 

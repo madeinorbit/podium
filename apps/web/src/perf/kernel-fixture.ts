@@ -1,8 +1,9 @@
 import {
   createKernelReplica,
   createSideCache,
-  memoryStorage,
   type KernelCacheRead,
+  memoryStorage,
+  retainReplicaEntity,
 } from '@podium/client-core/replica'
 import type { EntityRecord } from '@podium/sync/replica'
 
@@ -35,7 +36,7 @@ export class BenchmarkCache implements KernelCacheRead {
   }
   put(entity: string, entityId: string, value: unknown): EntityRecord {
     const record = { entity, entityId, value, provenance: { seq: 1 } }
-    this.records.set(`${entity}:${entityId}`, record)
+    if (retainReplicaEntity(entity)) this.records.set(`${entity}:${entityId}`, record)
     return record
   }
 }

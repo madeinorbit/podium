@@ -1,3 +1,5 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
+
 // @vitest-environment happy-dom
 /**
  * POD-4571 (Mb3) — the row roll-ups on the live engine, 1x live-shaped
@@ -47,9 +49,19 @@
  * oracle's withdrawn ask.
  */
 
+import { rowViewOf } from '@podium/client-graph/models'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { RowView } from '@podium/client-graph/shared/row-view'
 import { observable, reaction, runInAction } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
+import {
+  type HarnessMobxPoolHandle,
+  harnessMobxPoolArm,
+  poolPendingLoads,
+  tracked,
+  visibleOrderOf,
+} from '../../../../harness/src/adapters/mobx-pool'
 import {
   assertCommits,
   type MountedArm,
@@ -63,16 +75,12 @@ import {
   parityLocals,
   runFenceStep,
 } from '../../../../harness/src/fence-scenarios'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { rowViewsFromStore, snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
-import type { RowView } from '@podium/client-graph/shared/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
-import { harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { rowViewOf } from '@podium/client-graph/models'
 
 installMobxWarnTrap()
 
@@ -125,7 +133,11 @@ function settle(pool: MobxPool): number {
 }
 
 /** The settled snapshot against the oracle and the rebuild (no exception). */
-function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: string): string | null {
+function checkParity(
+  ctx: ScenarioEngine,
+  handle: HarnessMobxPoolHandle,
+  at: string,
+): string | null {
   const snapshot = handle.snapshot()
   const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
@@ -402,7 +414,10 @@ function coldLevels(rig: FamilyRig, root: string): string[][] {
     for (const child of rig.children(id)) {
       const cold = rig.residency.isCold('issue', child)
       const at = cold ? depth + 1 : depth
-      if (cold) (levels[at - 1] ??= []).push(child)
+      if (cold) {
+        levels[at - 1] ??= []
+        levels[at - 1]!.push(child)
+      }
       walk(child, at)
     }
   }
@@ -418,7 +433,10 @@ function familyParents(rig: FamilyRig): { id: string; levels: string[][] }[] {
       .filter((id) => {
         const node = rig.pool.knownIssue(id)!
         // No cold row the ATTENTION roll-up would ask for: no spin-off, no origin.
-        return node.spinOffIds.length === 0 && rig.pool.relations.one('issue', id, 'discoveredFrom') === null
+        return (
+          node.spinOffIds.length === 0 &&
+          rig.pool.relations.one('issue', id, 'discoveredFrom') === null
+        )
       })
       .map((id) => ({ id, levels: coldLevels(rig, id) }))
       .filter((parent) => parent.levels.length > 0),
@@ -461,7 +479,6 @@ describe('row roll-ups (Mb3)', () => {
     // A heartbeat composes nothing.
     writeResult('mobx-rollups-1x', { scale: 1, cells })
   }, 900_000)
-
 
   it('a question four levels deep reads the chain and composes exactly the chain', async () => {
     const correct = await chainStep(arm, true)
@@ -669,9 +686,7 @@ describe('row roll-ups (Mb3)', () => {
     expect(burst, '#10 burst50').toBeDefined()
     const cells = []
     for (const scale of [1, 4] as const) {
-      const sortedOf = async (
-        create: CheckableArm,
-      ): Promise<{ sorts: number; rows: number }> => {
+      const sortedOf = async (create: CheckableArm): Promise<{ sorts: number; rows: number }> => {
         let sorts = 0
         let rows = 0
         await withMountedScale(create, scale, async (ctx, mounted, handle, flush) => {
@@ -708,7 +723,11 @@ describe('row roll-ups (Mb3)', () => {
       const seen: { loading: boolean; done: number; total: number }[] = []
       for (const level of levels) {
         const view = rig.view(id)
-        seen.push({ loading: view.loading === true, done: view.progressDone, total: view.progressTotal })
+        seen.push({
+          loading: view.loading === true,
+          done: view.progressDone,
+          total: view.progressTotal,
+        })
         expect(view.loading, 'loading while a level is out of memory').toBe(true)
         expect(rig.pending(id).progress, 'one marker per row of this level').toBe(level.length)
         // Window k asks for level k and nothing deeper.
@@ -769,16 +788,10 @@ describe('row roll-ups (Mb3)', () => {
         () => rowViewOf(pool.issue(id)),
         () => {},
       )
-      const wire = ctx.cache.read('issue', id)?.value as object
+      const wire = ctx.cache.read('issueProjection', id)?.value as object
       const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
       ctx.replica.batch(() => {
-        upsert(ctx, 'issue', id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
-        upsert(ctx, 'issueProjection', id, {
-          ...(projection ?? {}),
-          stage: 'review',
-          closedReason: null,
-          closedAt: null,
-        })
+        upsertIssue(ctx, id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
       })
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()

@@ -1,3 +1,4 @@
+import type { SessionView, SessionViewInput } from '../../../session-values'
 /**
  * POD-781 design constraint (b) — THE DELETE CASCADE, pinned.
  *
@@ -22,7 +23,7 @@
  * finds out.
  */
 
-import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   type IssueNavigationModel,
@@ -52,18 +53,18 @@ function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavig
     needsHuman: false,
     memberSessionIds: ['s1'],
     sessionSummary: { total: 1, byPhase: {} },
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     unread: false,
     readAt: '2026-08-12T11:00:00.000Z',
     ...over,
-  } as IssueNavigationModel
+  } as unknown as IssueNavigationModel
 }
 
-function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
+function session(over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: 's1',
     issueId: 'i1',
@@ -77,7 +78,7 @@ function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
     unread: false,
     readAt: '2026-08-12T11:00:00.000Z',
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
 const sections: SidebarSections = { pinnedWorktrees: [], pinnedRepos: [], repos: [] }

@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { ONBOARDING_ACTIVE_KEY } from '@podium/client-core/ui-state'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'

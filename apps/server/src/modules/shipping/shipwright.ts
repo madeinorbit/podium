@@ -1,33 +1,33 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import {
-  DEFAULT_SHIPWRIGHT_BUDGET,
   type AccountId,
   type AgentQuotaWire,
-  type IssueWire,
-  ShipwrightEvidenceRef,
-  type ShipwrightEvidenceRef as ShipwrightEvidenceRefValue,
-  ShipwrightInspectionContract,
+  asSessionId,
+  asThreadId,
+  DEFAULT_SHIPWRIGHT_BUDGET,
+  type IssueReport,
   type ShipAttempt,
   type ShipHoldAction,
   type ShipHoldCode,
   type ShipOrder,
   type ShipwrightAttemptResult,
   ShipwrightBudget,
+  ShipwrightEvidenceRef,
+  type ShipwrightEvidenceRef as ShipwrightEvidenceRefValue,
   type ShipwrightFailureKind,
+  ShipwrightInspectionContract,
   type ShipwrightLevel,
-  type ShipwrightRoute,
-  ShipwrightPatchContract,
   type ShipwrightPatchContract as ShipwrightPatch,
-  type UserId,
-  asSessionId,
-  asThreadId,
+  ShipwrightPatchContract,
+  type ShipwrightRoute,
   shipRepairRef,
+  type UserId,
 } from '@podium/model'
-import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import type { ShippingJobClassification, ShippingValidationProfile } from '@podium/protocol/daemon'
-import type { ModelCatalogSnapshot } from '../../model-catalog'
+import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { jsonSchema } from '../../llm-roles'
+import type { ModelCatalogSnapshot } from '../../model-catalog'
 import type { HeadlessService } from '../superagent/headless'
 import { routeShipwright, shipwrightModelFamily } from './shipwright-router'
 
@@ -45,16 +45,18 @@ export interface ShipwrightDeps {
     'createHeadlessSession' | 'headlessSession' | 'headlessTurn' | 'headlessTurnAck'
   >
   settingsFor(userId: UserId): PodiumSettings | Promise<PodiumSettings>
-  modelCatalog(machineId: ShipAttempt['machineId']):
-    | ModelCatalogSnapshot
-    | Promise<ModelCatalogSnapshot>
+  modelCatalog(
+    machineId: ShipAttempt['machineId'],
+  ): ModelCatalogSnapshot | Promise<ModelCatalogSnapshot>
   quota(machineId: ShipAttempt['machineId']): Promise<AgentQuotaWire[]>
   nativeAccountId(
     machineId: ShipAttempt['machineId'],
     agent: ShipwrightRoute['agent'],
     requested: AccountId,
   ): AccountId | null | Promise<AccountId | null>
-  validationProfile(issue: IssueWire): ShippingValidationProfile | Promise<ShippingValidationProfile>
+  validationProfile(
+    issue: IssueReport,
+  ): ShippingValidationProfile | Promise<ShippingValidationProfile>
   /** Future stable-port seam: copy/register only authorized executor artifacts
    * and return repository-canonical opaque artifact:// references. */
   evidence: ShipwrightEvidenceMaterializer
@@ -104,7 +106,7 @@ export type ShipwrightOutcome =
 export interface ShipwrightRepairInput {
   order: ShipOrder
   attempt: ShipAttempt
-  issue: IssueWire
+  issue: IssueReport
   failure: {
     operation: 'prepare-merge-group' | 'validate'
     classification: ShippingJobClassification
@@ -182,7 +184,7 @@ export function shipwrightApplyPatchThroughRelay(
 export interface ShipwrightContextInput {
   order: ShipOrder
   attempt: ShipAttempt
-  issue: IssueWire
+  issue: IssueReport
   failure: {
     operation: ShipwrightRepairInput['failure']['operation']
     classification: ShippingJobClassification
@@ -204,7 +206,10 @@ export interface MaterializedEvidence {
 
 export interface ShippingEvidenceStore {
   shippingEvidence(ref: string): Promise<MaterializedEvidence | null>
-  shippingEvidenceForSource(custodyDigest: string, sourceRef: string): Promise<MaterializedEvidence | null>
+  shippingEvidenceForSource(
+    custodyDigest: string,
+    sourceRef: string,
+  ): Promise<MaterializedEvidence | null>
   recordShippingEvidence(input: MaterializedEvidence): Promise<MaterializedEvidence>
 }
 
@@ -427,7 +432,7 @@ function byteSlice(value: string, maxBytes: number): string {
   return `${bytes.subarray(0, maxBytes).toString('utf8')}\n[truncated by shipwright budget]`
 }
 
-function issueContext(issue: IssueWire): string {
+function issueContext(issue: IssueReport): string {
   return [
     `Title: ${issue.title}`,
     `Description: ${issue.description}`,
@@ -506,7 +511,7 @@ function systemPrompt(level: ShipwrightLevel): string {
 
 function promptFor(
   level: ShipwrightLevel,
-  issue: IssueWire,
+  issue: IssueReport,
   failure: ShipwrightFailure,
   budget: ShipwrightBudget,
   proposedPatch?: ShipwrightPatch,
@@ -824,7 +829,7 @@ export class ShipwrightService {
   async run(input: {
     order: ShipOrder
     attempt: ShipAttempt
-    issue: IssueWire
+    issue: IssueReport
     failure: ShipwrightFailure
     level: ShipwrightLevel
     rung: number

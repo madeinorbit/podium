@@ -1,4 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   type ActivityEntry,
   type ActivityItem,
@@ -7,10 +8,15 @@ import {
   type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire } from '@podium/model'
+import { useState } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
+import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
+import { alpha } from '../../theme/mix'
+import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
+import { Icon } from '../Icon'
 import {
-  ArrowRight,
   type AppIcon,
+  ArrowRight,
   CheckCircle2,
   ChevronRight,
   Circle,
@@ -25,12 +31,6 @@ import {
   Trash2,
   Unlock,
 } from '../icons'
-import { useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
-import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
-import { alpha } from '../../theme/mix'
-import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
-import { Icon } from '../Icon'
 import { PressableScale } from '../PressableScale'
 import { MachineLabel, SectionHeading } from './chrome'
 
@@ -110,7 +110,7 @@ export function IssueActivitySection({
   commands,
   feed,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssueCommands
   feed: ActivityItem[]

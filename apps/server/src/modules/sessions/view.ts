@@ -3,20 +3,18 @@ import { readResourcesGrants } from '../world-index/grant-reader'
 import {
   firstAdminMemberId,
   asUserId,
-  NO_SESSION_USER_STATE,
   type SessionId,
   type SessionMeta,
   type SessionUserOverlay,
   type UserId,
   type IssueId,
+  type RepoId,
 } from '@podium/model'
-import { formatSessionRef } from '@podium/protocol'
 import { userCommandPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import { isIssueMember } from '../../issue-util'
 import type { SessionStore } from '../../store'
 import type { IssueRow } from '../../store/types'
-import type { MachineFactsSnapshot, MachinesService } from '../machines/service'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import { granteesOf } from './session-state/grantees'
 import type { Session, SessionDurableFields } from './session'
@@ -28,16 +26,13 @@ export interface ProjectionPass {
   queuedMessageCounts: ReadonlyMap<SessionId, number>
   issues: Map<string, IssueRow | null>
   grants: Map<string, string[]>
-  prefixes: ReadonlyMap<string, string | null>
-  overlays: ReadonlyMap<SessionId, SessionUserOverlay>
-  machines: MachineFactsSnapshot
+  refRepoIds?: ReadonlyMap<string, RepoId | undefined>
   occupancy: ReadonlyMap<SessionId, number | undefined>
 }
 
 export interface SessionViewPorts {
   sessions: Map<SessionId, Session>
   store: SessionStore
-  machines: MachinesService
   state: SessionStateService
   /**
    * Room occupancy for a session (POD-1081). When provided, `clientCount` is
@@ -65,8 +60,8 @@ export interface SessionViewPorts {
  *    projection by definition. Once per server start.
  *  - `rpc` — the `sessions.list` procedure. A client read, per request.
  *  - `listAllTool` — the superagent's `list_sessions` tool. Agent-facing and
- *    on demand; it reports each session's SNOOZE state, which lives in the
- *    per-user overlay and so exists only on the projection.
+ *    on demand; visibility is established here, and its snooze state is read
+ *    separately from the caller's per-user source row.
  */
 export type SessionListCaller = 'bootstrap' | 'rpc' | 'listAllTool'
 
@@ -169,8 +164,7 @@ export class SessionView {
    *
    * The authz sites (layout, fleet, settings, read-position) and the delegation
    * index want one string, not a `SessionMeta`. Wiring one costs the harness
-   * manifest, the user overlay, the machine name and the display-ref resolution
-   * — every one of them discarded here. `spawnedBy` is a plain field that
+   * manifest, queue counts and reference inputs, all discarded here. `spawnedBy` is a plain field that
    * `toMeta` copies through unchanged (falsy stripped, which is the same
    * `undefined` optional chaining produced), so this returns what the wired
    * lookup returned, under the same visibility check.
@@ -197,7 +191,7 @@ export class SessionView {
   private async project(candidates: Session[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
     const principal = forPrincipal ?? await this.defaultPrincipal()
     if (!principal) return []
-    const pass = await this.buildProjectionPass(candidates, principal)
+    const pass = await this.buildProjectionPass(candidates)
     const visible = await this.ports.state.visibleSessions(
       principal, candidates.map(session => session.sessionId), pass,
     )
@@ -209,9 +203,7 @@ export class SessionView {
   /** Build after any transaction writes; drafts supply the fields being committed. */
   async buildProjectionPass(
     sessions: readonly (SessionDurableFields & { sessionId: SessionId })[],
-    forPrincipal?: SessionStatePrincipal,
   ): Promise<ProjectionPass> {
-    const principal = forPrincipal ?? await this.defaultPrincipal()
     const ids = sessions.map(s => s.sessionId)
     const issueIds = [...new Set(sessions.flatMap(s =>
       [s.issueId, s.refIssueId].filter((id): id is IssueId => !!id),
@@ -231,18 +223,22 @@ export class SessionView {
       const issue = s.refIssueId && s.refLetter ? issues.get(s.refIssueId) : undefined
       return issue ? [issue.repoPath] : s.refDraft != null ? [s.cwd] : []
     }))
-    const prefixes = new Map<string, string | null>()
+    const refRepoIds = new Map<string, RepoId | undefined>()
     if (paths.size) {
-      const prefixForPath = await this.ports.store.repos.prefixResolver()
-      for (const path of paths) prefixes.set(path, prefixForPath(path))
+      const repoIdForPath = await this.ports.store.repos.repoIdResolver()
+      for (const path of paths) refRepoIds.set(path, repoIdForPath(path) ?? undefined)
     }
     const queuedMessageCounts = await this.ports.store.sync.queuedMessageCounts(ids)
-    const overlays = principal
-      ? await this.ports.state.overlaySnapshot(principal.userId, ids)
-      : new Map<SessionId, SessionUserOverlay>()
-    const machines = await this.ports.machines.factsSnapshot()
-    const occupancy = new Map(sessions.map(s => [s.sessionId, this.ports.sessionOccupancyCount?.(s.sessionId)]))
-    return { issues, grants, prefixes, queuedMessageCounts, overlays, machines, occupancy }
+    const occupancy = new Map(
+      sessions.map((s) => [s.sessionId, this.ports.sessionOccupancyCount?.(s.sessionId)]),
+    )
+    return {
+      issues,
+      grants,
+      refRepoIds,
+      queuedMessageCounts,
+      occupancy,
+    }
   }
 
   readonly wire = wireSession
@@ -302,26 +298,23 @@ export function wireSession(
   pass: ProjectionPass,
   d: SessionDurableFields = session,
 ): SessionMeta {
-  const meta = session.toMeta(pass.overlays.get(session.sessionId) ?? NO_SESSION_USER_STATE, d)
+  const meta = session.toMeta(d)
   const queuedMessageCount = pass.queuedMessageCounts.get(session.sessionId) ?? 0
   const occupancy = pass.occupancy.get(session.sessionId)
-  const loginCondition = pass.machines.loginCondition(d.machineId, session.agentKind)
   const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
-  let displayRef: string | undefined
+  let refRepoId: RepoId | undefined
+  let refSeq: number | undefined
   if (d.refIssueId && d.refLetter) {
     const issue = pass.issues.get(d.refIssueId)
-    const prefix = issue && pass.prefixes.get(issue.repoPath)
-    if (prefix && issue) displayRef = formatSessionRef({ prefix, seq: issue.seq, letter: d.refLetter })
+    refRepoId = issue?.repoId ?? (issue ? pass.refRepoIds?.get(issue.repoPath) : undefined)
+    refSeq = issue?.seq
   } else if (d.refDraft != null) {
-    const prefix = pass.prefixes.get(d.cwd)
-    if (prefix) displayRef = formatSessionRef({ prefix, draft: d.refDraft })
+    refRepoId = pass.refRepoIds?.get(d.cwd)
   }
   return {
     ...meta,
     ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}),
     ...(occupancy !== undefined ? { clientCount: occupancy } : {}),
-    machineName: pass.machines.name(d.machineId),
-    ...(loginCondition ? { condition: loginCondition } : {}),
     ...(harnessCapabilities ? {
       harnessHandoff: harnessCapabilities.handoff,
       harnessPromptModeHints: harnessCapabilities.promptModeHints,
@@ -329,6 +322,7 @@ export function wireSession(
     ...(d.refIssueId ? { refIssueId: d.refIssueId } : {}),
     ...(d.refLetter ? { refLetter: d.refLetter } : {}),
     ...(d.refDraft != null ? { refDraft: d.refDraft } : {}),
-    ...(displayRef ? { displayRef } : {}),
+    ...(refRepoId ? { refRepoId } : {}),
+    ...(refSeq !== undefined ? { refSeq } : {}),
   }
 }

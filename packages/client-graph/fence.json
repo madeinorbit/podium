@@ -1,7 +1,5 @@
 {
-  "enumeration": [
-    "src/enumerate.ts"
-  ],
+  "enumeration": ["src/enumerate.ts"],
   "tables": [
     "issue",
     "session",
@@ -18,7 +16,9 @@
     "src/residency.ts",
     "src/tables.ts",
     "src/write/create.ts",
-    "src/write/edit.ts"
+    "src/write/edit.ts",
+    "src/header-entities.ts",
+    "src/header-source.ts"
   ],
   "rows": []
 }

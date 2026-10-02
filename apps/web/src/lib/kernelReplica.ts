@@ -31,8 +31,9 @@ import {
   createKernelReplica,
   createSideCache,
   FeedSink,
-  preparePrincipalNamespace,
   parseReplicaNamespaceKey,
+  preparePrincipalNamespace,
+  retainReplicaEntity,
 } from '@podium/client-core/replica'
 import type { FeedServerFrame, FeedSinkPort } from '@podium/client-core/socket-transport'
 import {
@@ -274,6 +275,7 @@ export async function openKernelAssembly(
   const store = await IndexedDbSyncStore.open({
     factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
     databaseName,
+    retainEntity: retainReplicaEntity,
     onDegraded: (detail: unknown) => {
       // Recoverable corruption may cold-start in memory. An unavailable store
       // is captured here and rejected below; the supported private replica must

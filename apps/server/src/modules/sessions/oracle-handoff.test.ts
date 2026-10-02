@@ -532,7 +532,7 @@ describe('oracle: handoff success across two machines', () => {
       }),
     )
     // The overlay every client renders the move with is cleared on arrival.
-    expect((await meta(f))?.handoffTarget).toBeUndefined()
+    expect((await meta(f))?.handoffTargetMachineId).toBeUndefined()
   })
 
   it(`${MUST_NOT_CHANGE}: the whole two-machine step sequence, in order — nothing irreversible happens before the TARGET verified a common base`, async () => {
@@ -741,7 +741,7 @@ describe('oracle: handoff refusals that must not move anything', () => {
     expect(f.source.some((m) => m.type === 'handoffExportRequest')).toBe(false)
     expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(false)
     // And the handover overlay was cleared rather than left painted.
-    expect((await meta(f))?.handoffTarget).toBeUndefined()
+    expect((await meta(f))?.handoffTargetMachineId).toBeUndefined()
   })
 
   it(`${MUST_NOT_CHANGE}: handing a session to the machine it is already on is refused`, async () => {
@@ -817,7 +817,7 @@ describe('oracle: mid-transfer crash', () => {
 
     // Home, cwd and overlay all restored; the recovery spawn goes back to m1.
     expect(await meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
-    expect((await meta(f))?.handoffTarget).toBeUndefined()
+    expect((await meta(f))?.handoffTargetMachineId).toBeUndefined()
     await waitFor(
       () => f.source.some((m) => m.type === 'spawn' && m.sessionId === f.sessionId),
       'the rollback resurrect to spawn back on the source',
@@ -857,7 +857,7 @@ describe('oracle: mid-transfer crash', () => {
     // daemon-side failure, because a refusal at apply IS a mid-transfer failure.
     expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(false)
     expect(await meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
-    expect((await meta(f))?.handoffTarget).toBeUndefined()
+    expect((await meta(f))?.handoffTargetMachineId).toBeUndefined()
     await waitFor(
       () => f.source.some((m) => m.type === 'spawn' && m.sessionId === f.sessionId),
       'the rollback resurrect to spawn back on the source',
@@ -923,7 +923,7 @@ describe('oracle: mid-transfer crash', () => {
     expect(f.source.some((m) => m.type === 'runtimeLifecycleRequest')).toBe(false)
     expect(f.source.some((m) => m.type === 'handoffExportRequest')).toBe(false)
     expect(await meta(f)).toMatchObject({ machineId: 'm1', status: 'starting' })
-    expect((await meta(f))?.handoffTarget).toBeUndefined()
+    expect((await meta(f))?.handoffTargetMachineId).toBeUndefined()
   })
 })
 

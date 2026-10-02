@@ -1,8 +1,8 @@
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   ISSUE_COLOR_HEX,
   ISSUE_COLOR_SLOTS,
   type IssueColorSlot,
-  type IssueWire,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
@@ -31,7 +31,7 @@ export function IssueColorSheet({
   issue,
   onClose,
 }: {
-  issue: IssueWire | null
+  issue: IssueNavigationModel | null
   onClose: () => void
 }) {
   const { updateIssue } = useStoreActions()

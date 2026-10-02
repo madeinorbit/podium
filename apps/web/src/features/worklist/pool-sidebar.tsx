@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
 import type { Store } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
@@ -12,7 +13,7 @@ import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import { isSessionWorking } from '@podium/client-graph/worklist/rollup'
 import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
-import { asIssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
+import { asIssueId, type SessionId } from '@podium/model/browser'
 import * as m from 'motion/react-m'
 import {
   type AnimationEvent,
@@ -208,6 +209,7 @@ const MemoPanelRow = memo(
     a.active === b.active &&
     a.onSelect === b.onSelect &&
     a.issueDisplayRef === b.issueDisplayRef &&
+    compareStructural(a.snoozeState, b.snoozeState) &&
     compareStructural(stampPaint(a.trailingMeta), stampPaint(b.trailingMeta)) &&
     compareStructural(poolSessionPaint(a.session), poolSessionPaint(b.session)),
 )
@@ -839,7 +841,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
   const panel = useCallback((sid: SessionId) => actions.selectPanel(path, sid), [actions, path])
   const renderSession = useCallback(
-    (session: SessionMeta, active: boolean, ref: string | undefined, trailing: ReactNode) => (
+    (session: SessionView, active: boolean, ref: string | undefined, trailing: ReactNode) => (
       <PoolPanelRow
         key={session.sessionId}
         pool={pool}
@@ -861,7 +863,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
       active={value.active}
       paneA={state.paneA}
       now={pool.clock.current}
-      partition={{ visible: value.visible as SessionMeta[], stale: value.stale as SessionMeta[] }}
+      partition={{ visible: value.visible as SessionView[], stale: value.stale as SessionView[] }}
       renderSession={renderSession}
       onSelect={select}
       onSelectPanel={panel}
@@ -888,7 +890,7 @@ const PoolPanelRow = observer(function PoolPanelRow({
 }) {
   const value = useMemo(
     () =>
-      computed(() => pool.row('session', id) as SessionMeta | typeof LOADING | undefined, {
+      computed(() => pool.row('session', id) as SessionView | typeof LOADING | undefined, {
         equals: (a, b) =>
           compareStructural(
             a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,
@@ -898,6 +900,24 @@ const PoolPanelRow = observer(function PoolPanelRow({
     [pool, id],
   ).get()
   const select = useCallback(() => actions.selectPanel(path, id as SessionId), [actions, path, id])
+  const snoozeState = useMemo(
+    () =>
+      computed(
+        () => {
+          if (value === undefined || value === LOADING) return undefined
+          const until =
+            typeof value.snoozedUntil === 'string' ? Date.parse(value.snoozedUntil) : NaN
+          const timed = Number.isFinite(until)
+          const returned = timed && pool.clock.reached(until)
+          return {
+            snoozed: value.snoozedUntil === null || (timed && !returned),
+            returned,
+          }
+        },
+        { equals: compareStructural },
+      ),
+    [pool, value],
+  ).get()
   return value === LOADING ? (
     <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" />
   ) : value === undefined ? null : (
@@ -908,6 +928,7 @@ const PoolPanelRow = observer(function PoolPanelRow({
       dotRight
       roster
       guardWorking={isSessionWorking(value)}
+      snoozeState={snoozeState}
       issueDisplayRef={issueDisplayRef}
       trailingMeta={trailingMeta}
     />

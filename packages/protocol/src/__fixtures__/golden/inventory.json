@@ -3,6 +3,296 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
+      "schema": "HarnessDescriptorAvailableWire",
+      "variant": "minimal",
+      "wire": {
+        "installed": true,
+        "loggedIn": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"installed\":true,\"loggedIn\":true}"
+    },
+    {
+      "schema": "HarnessDescriptorAvailableWire",
+      "variant": "full",
+      "wire": {
+        "installed": true,
+        "loggedIn": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"installed\":true,\"loggedIn\":true}"
+    },
+    {
+      "schema": "HarnessDescriptorBrandWire",
+      "variant": "minimal",
+      "wire": {
+        "bg": "bg",
+        "fg": "fg"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"bg\":\"bg\",\"fg\":\"fg\"}"
+    },
+    {
+      "schema": "HarnessDescriptorBrandWire",
+      "variant": "full",
+      "wire": {
+        "bg": "bg",
+        "fg": "fg"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"bg\":\"bg\",\"fg\":\"fg\"}"
+    },
+    {
+      "schema": "HarnessDescriptorCapabilitiesWire",
+      "variant": "minimal",
+      "wire": {
+        "argvPrompt": true,
+        "effort": true,
+        "systemPrompt": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"argvPrompt\":true,\"effort\":true,\"systemPrompt\":true}"
+    },
+    {
+      "schema": "HarnessDescriptorCapabilitiesWire",
+      "variant": "full",
+      "wire": {
+        "argvPrompt": true,
+        "effort": true,
+        "systemPrompt": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"argvPrompt\":true,\"effort\":true,\"systemPrompt\":true}"
+    },
+    {
+      "schema": "HarnessDescriptorCatalogWire",
+      "variant": "minimal",
+      "wire": {
+        "models": [],
+        "efforts": [],
+        "liveMerge": "liveMerge"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"models\":[],\"efforts\":[],\"liveMerge\":\"liveMerge\"}"
+    },
+    {
+      "schema": "HarnessDescriptorCatalogWire",
+      "variant": "full",
+      "wire": {
+        "models": [
+          {
+            "value": "models[0].value",
+            "label": "models[0].label",
+            "efforts": ["models[0].efforts[0]"]
+          }
+        ],
+        "efforts": ["efforts[0]"],
+        "liveMerge": "liveMerge"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"models\":[{\"value\":\"models[0].value\",\"label\":\"models[0].label\",\"efforts\":[\"models[0].efforts[0]\"]}],\"efforts\":[\"efforts[0]\"],\"liveMerge\":\"liveMerge\"}"
+    },
+    {
+      "schema": "HarnessDescriptorDefaultsWire",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "HarnessDescriptorDefaultsWire",
+      "variant": "full",
+      "wire": {
+        "model": "model",
+        "effort": "effort",
+        "panelMode": "panelMode"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"model\":\"model\",\"effort\":\"effort\",\"panelMode\":\"panelMode\"}"
+    },
+    {
+      "schema": "HarnessDescriptorIconWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "viewBox": "viewBox",
+        "d": "d"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"viewBox\":\"viewBox\",\"d\":\"d\"}"
+    },
+    {
+      "schema": "HarnessDescriptorIconWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "viewBox": "viewBox",
+        "d": "d"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"viewBox\":\"viewBox\",\"d\":\"d\"}"
+    },
+    {
+      "schema": "HarnessDescriptorLoginWire",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "HarnessDescriptorLoginWire",
+      "variant": "full",
+      "wire": {
+        "command": "command",
+        "installHint": "installHint",
+        "signedOutHint": "signedOutHint"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"command\":\"command\",\"installHint\":\"installHint\",\"signedOutHint\":\"signedOutHint\"}"
+    },
+    {
+      "schema": "HarnessDescriptorSectionWire",
+      "variant": "minimal",
+      "wire": {
+        "section": "section",
+        "supported": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"section\":\"section\",\"supported\":true}"
+    },
+    {
+      "schema": "HarnessDescriptorSectionWire",
+      "variant": "full",
+      "wire": {
+        "section": "section",
+        "supported": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"section\":\"section\",\"supported\":true}"
+    },
+    {
+      "schema": "HarnessDescriptorWire",
+      "variant": "minimal",
+      "wire": {
+        "schemaVersion": 1,
+        "kind": "kind",
+        "label": "label",
+        "shortLabel": "shortLabel",
+        "icon": {
+          "id": "icon.id",
+          "viewBox": "icon.viewBox",
+          "d": "icon.d"
+        },
+        "capabilities": {
+          "argvPrompt": true,
+          "effort": true,
+          "systemPrompt": true
+        },
+        "catalog": {
+          "models": [],
+          "efforts": [],
+          "liveMerge": "catalog.liveMerge"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"schemaVersion\":1,\"kind\":\"kind\",\"label\":\"label\",\"shortLabel\":\"shortLabel\",\"icon\":{\"id\":\"icon.id\",\"viewBox\":\"icon.viewBox\",\"d\":\"icon.d\"},\"capabilities\":{\"argvPrompt\":true,\"effort\":true,\"systemPrompt\":true},\"catalog\":{\"models\":[],\"efforts\":[],\"liveMerge\":\"catalog.liveMerge\"}}"
+    },
+    {
+      "schema": "HarnessDescriptorWire",
+      "variant": "full",
+      "wire": {
+        "schemaVersion": 1,
+        "kind": "kind",
+        "provider": "provider",
+        "label": "label",
+        "shortLabel": "shortLabel",
+        "mark": "mark",
+        "icon": {
+          "id": "icon.id",
+          "viewBox": "icon.viewBox",
+          "d": "icon.d"
+        },
+        "brand": {
+          "bg": "brand.bg",
+          "fg": "brand.fg"
+        },
+        "capabilities": {
+          "argvPrompt": true,
+          "effort": true,
+          "systemPrompt": true
+        },
+        "catalog": {
+          "models": [
+            {
+              "value": "catalog.models[0].value",
+              "label": "catalog.models[0].label",
+              "efforts": ["catalog.models[0].efforts[0]"]
+            }
+          ],
+          "efforts": ["catalog.efforts[0]"],
+          "liveMerge": "catalog.liveMerge"
+        },
+        "login": {
+          "command": "login.command",
+          "installHint": "login.installHint",
+          "signedOutHint": "login.signedOutHint"
+        },
+        "defaults": {
+          "model": "defaults.model",
+          "effort": "defaults.effort",
+          "panelMode": "defaults.panelMode"
+        },
+        "available": {
+          "installed": true,
+          "loggedIn": true
+        },
+        "sections": [
+          {
+            "section": "sections[0].section",
+            "supported": true
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"schemaVersion\":1,\"kind\":\"kind\",\"provider\":\"provider\",\"label\":\"label\",\"shortLabel\":\"shortLabel\",\"mark\":\"mark\",\"icon\":{\"id\":\"icon.id\",\"viewBox\":\"icon.viewBox\",\"d\":\"icon.d\"},\"brand\":{\"bg\":\"brand.bg\",\"fg\":\"brand.fg\"},\"capabilities\":{\"argvPrompt\":true,\"effort\":true,\"systemPrompt\":true},\"catalog\":{\"models\":[{\"value\":\"catalog.models[0].value\",\"label\":\"catalog.models[0].label\",\"efforts\":[\"catalog.models[0].efforts[0]\"]}],\"efforts\":[\"catalog.efforts[0]\"],\"liveMerge\":\"catalog.liveMerge\"},\"login\":{\"command\":\"login.command\",\"installHint\":\"login.installHint\",\"signedOutHint\":\"login.signedOutHint\"},\"defaults\":{\"model\":\"defaults.model\",\"effort\":\"defaults.effort\",\"panelMode\":\"defaults.panelMode\"},\"available\":{\"installed\":true,\"loggedIn\":true},\"sections\":[{\"section\":\"sections[0].section\",\"supported\":true}]}"
+    },
+    {
       "schema": "InventoryReportMessage",
       "variant": "minimal",
       "wire": {
@@ -57,7 +347,7 @@
             {
               "harness": "claude-code",
               "id": "inventory.runtimeDrivers[0].id",
-              "family": "terminal"
+              "family": "server"
             }
           ],
           "tools": [
@@ -72,12 +362,67 @@
               "path": "inventory.tools[0].path"
             }
           ]
-        }
+        },
+        "descriptors": [
+          {
+            "schemaVersion": 1,
+            "kind": "descriptors[0].kind",
+            "provider": "descriptors[0].provider",
+            "label": "descriptors[0].label",
+            "shortLabel": "descriptors[0].shortLabel",
+            "mark": "descriptors[0].mark",
+            "icon": {
+              "id": "descriptors[0].icon.id",
+              "viewBox": "descriptors[0].icon.viewBox",
+              "d": "descriptors[0].icon.d"
+            },
+            "brand": {
+              "bg": "descriptors[0].brand.bg",
+              "fg": "descriptors[0].brand.fg"
+            },
+            "capabilities": {
+              "argvPrompt": true,
+              "effort": true,
+              "systemPrompt": true
+            },
+            "catalog": {
+              "models": [
+                {
+                  "value": "descriptors[0].catalog.models[0].value",
+                  "label": "descriptors[0].catalog.models[0].label",
+                  "efforts": ["descriptors[0].catalog.models[0].efforts[0]"]
+                }
+              ],
+              "efforts": ["descriptors[0].catalog.efforts[0]"],
+              "liveMerge": "descriptors[0].catalog.liveMerge"
+            },
+            "login": {
+              "command": "descriptors[0].login.command",
+              "installHint": "descriptors[0].login.installHint",
+              "signedOutHint": "descriptors[0].login.signedOutHint"
+            },
+            "defaults": {
+              "model": "descriptors[0].defaults.model",
+              "effort": "descriptors[0].defaults.effort",
+              "panelMode": "descriptors[0].defaults.panelMode"
+            },
+            "available": {
+              "installed": true,
+              "loggedIn": true
+            },
+            "sections": [
+              {
+                "section": "descriptors[0].sections[0].section",
+                "supported": true
+              }
+            ]
+          }
+        ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"inventoryReport\",\"machineId\":\"machineId\",\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+      "encoded": "{\"type\":\"inventoryReport\",\"machineId\":\"machineId\",\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"descriptors\":[{\"schemaVersion\":1,\"kind\":\"descriptors[0].kind\",\"provider\":\"descriptors[0].provider\",\"label\":\"descriptors[0].label\",\"shortLabel\":\"descriptors[0].shortLabel\",\"mark\":\"descriptors[0].mark\",\"icon\":{\"id\":\"descriptors[0].icon.id\",\"viewBox\":\"descriptors[0].icon.viewBox\",\"d\":\"descriptors[0].icon.d\"},\"brand\":{\"bg\":\"descriptors[0].brand.bg\",\"fg\":\"descriptors[0].brand.fg\"},\"capabilities\":{\"argvPrompt\":true,\"effort\":true,\"systemPrompt\":true},\"catalog\":{\"models\":[{\"value\":\"descriptors[0].catalog.models[0].value\",\"label\":\"descriptors[0].catalog.models[0].label\",\"efforts\":[\"descriptors[0].catalog.models[0].efforts[0]\"]}],\"efforts\":[\"descriptors[0].catalog.efforts[0]\"],\"liveMerge\":\"descriptors[0].catalog.liveMerge\"},\"login\":{\"command\":\"descriptors[0].login.command\",\"installHint\":\"descriptors[0].login.installHint\",\"signedOutHint\":\"descriptors[0].login.signedOutHint\"},\"defaults\":{\"model\":\"descriptors[0].defaults.model\",\"effort\":\"descriptors[0].defaults.effort\",\"panelMode\":\"descriptors[0].defaults.panelMode\"},\"available\":{\"installed\":true,\"loggedIn\":true},\"sections\":[{\"section\":\"descriptors[0].sections[0].section\",\"supported\":true}]}]}"
     },
     {
       "schema": "InventoryRequestMessage",

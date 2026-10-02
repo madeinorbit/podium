@@ -60,6 +60,7 @@ import {
   asIssueId,
   type IssueId,
   type IssueProjection,
+  type IssueUserStateWire,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
@@ -89,13 +90,7 @@ export interface IssueView {
   ready: boolean
   /** Snoozed into the future. */
   deferred: boolean
-  /** Incoming dependency edges — the issues that point AT this one, `{ id:
-   *  fromId, type }`. The reverse of every other issue's `deps`; derived here in
-   *  one O(deps) pass so `dependents` never rode the wire (an edge A→B changing
-   *  B's `dependents` with no write on B is the same cross-entity ripple `deps`
-   *  and `blocked` are). Real dependency edges only — parent/child is carried by
-   *  `childIds`, not synthesized in here (issue_deps stores no parent-child row,
-   *  #164). Replaces the legacy `IssueWire.dependents`. */
+
   dependents: Array<{ id: IssueId; type: string }>
 }
 
@@ -106,10 +101,6 @@ export interface IssueSessionRollups {
   sessionSummary: { total: number; byPhase: Record<string, number> }
 }
 
-/** The issue fields these derivations read. Structural rather than `IssueWire`
- *  so the POD-796 cutover to `IssueProjection` re-points ONE type alias: every
- *  field named here exists under both spellings, which is the whole reason the
- *  cutover can be mechanical. */
 export interface IssueViewInput {
   id: string
   seq: number
@@ -148,9 +139,7 @@ export interface SessionViewInput {
  * `'unknown'` (the same bucket `AgentPhase` names for that state).
  */
 export function sessionRollupPhase(
-  row:
-    | { agentState?: { phase?: string | null } | undefined; phase?: string | null }
-    | undefined,
+  row: { agentState?: { phase?: string | null } | undefined; phase?: string | null } | undefined,
 ): string | null {
   if (!row) return null
   return row.agentState?.phase ?? row.phase ?? null
@@ -314,7 +303,12 @@ function sameIssueView(a: IssueView, b: IssueView): boolean {
 export function deriveIssueViews(
   issues: readonly IssueViewInput[],
   sessions: readonly SessionViewInput[],
-  opts: { now?: () => number; previous?: ReadonlyMap<string, IssueView> } = {},
+  opts: {
+    now?: () => number
+    previous?: ReadonlyMap<string, IssueView>
+    /** Neighbour blocking changes only when authoritative stages arrive. */
+    dependencyStage?: (id: string) => string | undefined
+  } = {},
 ): Map<string, IssueView> {
   const now = opts.now ?? Date.now
   const sessionsByIssue = indexSessionsByIssue(sessions)
@@ -351,9 +345,10 @@ export function deriveIssueViews(
     // dep id counts as NOT blocking — the alternative is that a replica which
     // has not yet seen a dependency renders every issue blocked, which is worse
     // than briefly rendering one ready.
-    const blocked = (issue.deps ?? []).some(
-      (dep) => dep.type === 'blocks' && stageById.has(dep.id) && stageById.get(dep.id) !== 'done',
-    )
+    const blocked = (issue.deps ?? []).some((dep) => {
+      const stage = opts.dependencyStage ? opts.dependencyStage(dep.id) : stageById.get(dep.id)
+      return dep.type === 'blocks' && stage !== undefined && stage !== 'done'
+    })
     const deferred = issue.deferUntil != null && Date.parse(issue.deferUntil) > now()
     const next: IssueView = {
       id: issueId,
@@ -462,49 +457,15 @@ export function buildIssueBoard(
   return board
 }
 
-/**
- * Assemble the views' inputs from the replica [POD-822 — THE cutover].
- *
- * Before POD-822 this cast one collection — `rows('issues') as IssueViewInput` —
- * because the legacy `IssueWire` carried `deps` and `prefix` as its own fields.
- * That cast compiled clean against `IssueProjection` too, and THAT was the trap
- * the deleted `ViewFieldsMissingFromProjection` tripwire guarded: the projection
- * carries neither field (an edge belongs to two issues, a prefix to a repo — see
- * model's `issue/dep.ts` and `repo/fields.ts`), so `deps ?? []` read "no
- * dependencies" and every blocked issue derived `blocked: false`.
- *
- * The collection JOIN is the fix, and it is where D7.3 actually happens:
- *
- *  - `issueProjections` — the issue's own durable row. The source now.
- *  - `issues` — the retained principal-scoped row whose `readAt` persistence
- *    and optimistic overlays both write. The projection carries no per-user
- *    cursor; unread derivation reads this one home.
- *  - `issueDeps` — the edges, indexed by `fromId`. Issue X's `deps` are the
- *    edges leaving X, each `{ id: toId, type }` — exactly what `deriveIssueViews`
- *    reads. An edge add/remove touches ONE row here and re-derives `blocked` on
- *    both endpoints for free; no issue was rewritten to make that happen.
- *  - `repos` — `(id, prefix)`, indexed by `id`. `displayRef` joins
- *    `issue.repoId → repo.prefix`. A prefix change moves one repo row and every
- *    `POD-13` in the repo follows; no issue was rewritten.
- *
- * The join is O(projections + issues + deps + repos), not O(issues × anything):
- * the three indexes below are built once. `deriveIssueViews` and `IssueViewInput` did not
- * change — only their SOURCE did — which is the whole reason the cutover is this
- * one function.
- *
- * Empty normalized collections yield empty views, not guessed legacy views: no
- * durable issue content in, no views out. Compatibility rows may still coexist,
- * but this read path intentionally depends only on normalized inputs. The
- * retained issue collection remains the per-user cursor source.
- */
 export function readViewInputs(
   replica: Replica,
   projections: readonly IssueProjection[] = replica.rows('issueProjections'),
+  userStates: readonly IssueUserStateWire[] = replica.rows('issueUserStates'),
 ): {
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
 } {
-  const readAtByIssueId = new Map(replica.rows('issues').map((issue) => [issue.id, issue.readAt]))
+  const readAtByIssueId = new Map(userStates.map((state) => [state.entityId, state.readAt]))
   const prefixByRepoId = new Map<string, string | null>()
   for (const repo of replica.rows('repos')) prefixByRepoId.set(repo.id, repo.prefix ?? null)
   const depsByFrom = new Map<string, { id: string; type: string }[]>()

@@ -1,3 +1,4 @@
+import { sessionView } from '@podium/client-core/session-values'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   followPodiumLink,
@@ -51,6 +52,45 @@ describe('mobilePodiumRoute', () => {
     expect(mobilePodiumRoute({ kind: 'session', session: 'sess-1' }, { issues, sessions })).toBe(
       '/session/sess-1',
     )
+  })
+
+  it.each([
+    false,
+    true,
+  ])('resolves a joined birth ref after a prefix rename, stripped=%s', (stripped) => {
+    const raw = {
+      sessionId: 'sess-born',
+      refRepoId: 'repo-birth',
+      refSeq: 42,
+      refLetter: 'B',
+      displayRef: 'OLD-42-B',
+    }
+    if (stripped) Reflect.deleteProperty(raw, 'displayRef')
+    const target = (session: string) => ({ kind: 'session' as const, session })
+    const before = [sessionView(raw, { repo: { prefix: 'POD' } })]
+    const after = [sessionView(raw, { repo: { prefix: 'NEW' } })]
+    expect(mobilePodiumRoute(target('POD-42-B'), { issues: [], sessions: before })).toBe(
+      '/session/sess-born',
+    )
+    expect(mobilePodiumRoute(target('NEW-42-B'), { issues: [], sessions: after })).toBe(
+      '/session/sess-born',
+    )
+    expect(mobilePodiumRoute(target('POD-42-B'), { issues: [], sessions: after })).toBeNull()
+    expect(mobilePodiumRoute(target('sess-born'), { issues: [], sessions: after })).toBe(
+      '/session/sess-born',
+    )
+  })
+
+  it('resolves a joined draft ref and honors an absent or cleared repo prefix', () => {
+    const raw = { sessionId: 'sess-draft', refDraft: 7, displayRef: 'OLD-DRAFT-7' }
+    const route = (ref: string, repo?: { prefix: string | null }) =>
+      mobilePodiumRoute(
+        { kind: 'session', session: ref },
+        { issues: [], sessions: [sessionView(raw, { repo })] },
+      )
+    expect(route('POD-DRAFT-7', { prefix: 'POD' })).toBe('/session/sess-draft')
+    expect(route('OLD-DRAFT-7')).toBe('/session/sess-draft')
+    expect(route('OLD-DRAFT-7', { prefix: null })).toBeNull()
   })
 
   it('has no screen for an artifact or a file, and says so', () => {

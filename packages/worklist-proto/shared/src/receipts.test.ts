@@ -9,31 +9,31 @@
  */
 import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
-import { asMutationId, type MutationId } from '@podium/model'
-import { Outbox as KernelOutbox } from '@podium/sync/outbox'
-import { describe, expect, it, vi } from 'vitest'
 import {
   createWriteTransport,
   type ReceiptEvent,
   type ReceiptsRuntime,
   subscribeReceipts,
 } from '@podium/client-graph/shared/receipts'
+import type { WriteTransport } from '@podium/client-graph/shared/write-contract'
+import { asIssueId, asMutationId, issueUserStateRowId, type MutationId } from '@podium/model'
+import { Outbox as KernelOutbox } from '@podium/sync/outbox'
+import { describe, expect, it, vi } from 'vitest'
 import {
   armMarkReadRejection,
   type ScenarioEngine,
   type ScenarioServer,
   startScenarioEngine,
-  upsert,
+  upsertIssue,
   writeOptimisticEcho,
   writeOptimisticPress,
 } from './scenarios'
-import type { WriteTransport } from '@podium/client-graph/shared/write-contract'
 
 const tick = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms))
 const tx = (n: string): MutationId => asMutationId(`00000000-0000-4000-8000-${n.padStart(12, '0')}`)
 
 function issueRow(ctx: ScenarioEngine, id: string): Record<string, unknown> {
-  const row = ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+  const row = ctx.cache.read('issueProjection', id)?.value as Record<string, unknown> | undefined
   if (!row) throw new Error(`issue ${id} missing from the server cache`)
   return row
 }
@@ -112,7 +112,7 @@ describe('write transport on the kernel queue', () => {
         seen.push(input.mutationId)
         // The broadcast outruns the HTTP response (Linear's refresh race):
         // the echo lands before the command returns.
-        upsert(ctx!, 'issue', input.id, { ...issueRow(ctx!, input.id), ...input.patch }, 5)
+        upsertIssue(ctx!, input.id, { ...issueRow(ctx!, input.id), ...input.patch }, 5)
         await tick(20)
         return {}
       },
@@ -128,7 +128,7 @@ describe('write transport on the kernel queue', () => {
     expect(seen).toEqual([tx('1')])
     expect(events).toEqual([{ type: 'accepted', txId: tx('1'), kind: 'issueUpdate', id }])
     // A second copy of the echo row: no second event.
-    upsert(ctx, 'issue', id, { ...issueRow(ctx, id), title: 'Renamed' }, 6)
+    upsertIssue(ctx, id, { ...issueRow(ctx, id), title: 'Renamed' }, 6)
     await tick()
     expect(events).toHaveLength(1)
     // The arm's contract type accepts this transport as is.
@@ -167,7 +167,11 @@ describe('write transport on the kernel queue', () => {
     const network = switchableNetwork()
     const ctx = await startScenarioEngine(1, { outbox: 'kernel', network })
     const id = ctx.targets.markReadId
-    const readAtBefore = (issueRow(ctx, id).readAt as string | null | undefined) ?? null
+    const marker = ctx.cache.read(
+      'issueUserState',
+      issueUserStateRowId(ctx.engine.principal.userId, asIssueId(id)),
+    )?.value as { readAt?: string | null } | undefined
+    const readAtBefore = marker?.readAt ?? null
     const transport = createWriteTransport(ctx.engine)
     const events: ReceiptEvent[] = []
     transport.subscribe((e) => events.push(e))

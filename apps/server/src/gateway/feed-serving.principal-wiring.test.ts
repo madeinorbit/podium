@@ -57,9 +57,9 @@
 import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
+  CLIENT_WIRE_VERSION,
   type ClientMessage,
   type ServerMessage,
-  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import {
   GrantEdgeVisibilityPolicy,
@@ -85,9 +85,9 @@ const BOB = asUserId('user-bob')
  */
 function issueOwnershipPolicy(owners: Map<string, UserId>, grants: Map<string, UserId[]>) {
   const port: VisibilityStatePort = {
-    classOf: (entity) => (entity === 'issue' ? 'personal' : null),
+    classOf: (entity) => (entity === 'issueProjection' ? 'personal' : null),
     mayRead: (user, ref) => {
-      if (ref.entity !== 'issue') return false
+      if (ref.entity !== 'issueProjection') return false
       if (owners.get(ref.entityId) === user) return true
       return (grants.get(ref.entityId) ?? []).includes(user as UserId)
     },
@@ -170,7 +170,10 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
   }
 }
 
-const helloFrom = (clientId: string, caps: string[] = [CAP_METADATA_DELTA, 'sync.http.v1']): ClientMessage => ({
+const helloFrom = (
+  clientId: string,
+  caps: string[] = [CAP_METADATA_DELTA, 'sync.http.v1'],
+): ClientMessage => ({
   type: 'hello',
   clientId,
   viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -186,7 +189,7 @@ const commitIssue = (
 ) =>
   plumbing.ledger.commit({
     write: async () => {},
-    changes: () => [{ entity: 'issue', id, op, ...(op === 'upsert' ? { value } : {}) }],
+    changes: () => [{ entity: 'issueProjection', id, op, ...(op === 'upsert' ? { value } : {}) }],
   })
 
 /** Wait for admission and for every live socket to certify the committed head.
@@ -200,7 +203,12 @@ async function settle(g: Awaited<ReturnType<typeof gateway>>) {
   await vi.waitFor(() => {
     for (const socket of g.sockets) {
       if (!g.registry.get(socket.id)) continue
-      expect(socket.received.some((frame) => (frame.type === 'feedDelta' || frame.type === 'feedResume') && frame.seq >= head)).toBe(true)
+      expect(
+        socket.received.some(
+          (frame) =>
+            (frame.type === 'feedDelta' || frame.type === 'feedResume') && frame.seq >= head,
+        ),
+      ).toBe(true)
     }
   })
 }
@@ -214,17 +222,6 @@ function changesOn(socket: Socket): { seq: number; entityId: string; op: string 
   )
 }
 
-/**
- * Did this entity reach this socket in ANY shape at all?
- *
- * `changesOn` reads the v2 frame family only, and that blindness was a real hole:
- * a peer that never reaches wire 2 is served the SAME feed folded into v1
- * `issuesChanged` full lists (`legacy-wire-v1-adapter.ts`), so a leak into a
- * legacy list is invisible to a v2-only reader. A mutation that stopped a peer
- * renegotiating went undetected until this helper existed — the test was passing
- * because it had stopped looking, which is the failure mode a negative assertion
- * is most prone to.
- */
 const leakedTo = (socket: Socket, entityId: string): boolean =>
   socket.received.some((msg) => JSON.stringify(msg).includes(entityId))
 
@@ -325,14 +322,16 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
       g.changeVisibility(() => grants.set('issue-shared', visible ? [BOB] : []))
       expect(await g.plumbing.authority.cursor()).toBe(head)
       const socket = await g.signIn(BOB)
-      expect(socket.received.filter(m => m.type === 'feedResume')).toHaveLength(1)
-      expect(socket.received.filter(m => ['feedBootstrap', 'issuesChanged'].includes(m.type))).toEqual([])
+      expect(socket.received.filter((m) => m.type === 'feedResume')).toHaveLength(1)
+      expect(
+        socket.received.filter((m) => ['feedBootstrap', 'issuesChanged'].includes(m.type)),
+      ).toEqual([])
       expect(bootstrap).not.toHaveBeenCalled()
       const principal = g.mux.principalOf(socket.id)
       if (!principal) throw new Error('missing authenticated principal')
       // A fresh authority read (the HTTP producer's source) evaluates current grants.
       const world = await g.plumbing.authority.bootstrap(feedPrincipalOf(principal))
-      expect(world.changes.some(c => c.entityId === 'issue-shared')).toBe(visible)
+      expect(world.changes.some((c) => c.entityId === 'issue-shared')).toBe(visible)
       bootstrap.mockClear()
       g.mux.detachClient(socket.id)
     }

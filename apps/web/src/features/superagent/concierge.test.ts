@@ -1,6 +1,7 @@
-import { asThreadId, asSessionId } from '@podium/model'
 import { Buffer } from 'node:buffer'
-import type { GitRepositoryWire, SessionId, SessionMeta } from '@podium/model'
+import type { SessionView } from '@podium/client-core/session-values'
+import type { GitRepositoryWire, SessionId } from '@podium/model'
+import { asSessionId, asThreadId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   conciergeLabel,
@@ -19,7 +20,7 @@ import {
 const repo = (path: string, worktrees: { path: string; branch?: string }[] = []) =>
   ({ path, kind: 'repository', worktrees }) as GitRepositoryWire
 
-const session = (sessionId: SessionId, cwd: string) => ({ sessionId, cwd }) as SessionMeta
+const session = (sessionId: SessionId, cwd: string) => ({ sessionId, cwd }) as SessionView
 
 describe('conciergeThreadId', () => {
   it('matches the server encoding (Buffer base64url) including non-ASCII + URL-unsafe bytes', () => {

@@ -1,3 +1,4 @@
+import { inheritSessionHomes } from '../session-values'
 /**
  * ONE optimistic mechanism (#263 [spec:SP-3fe2]): the outbox IS the overlay.
  *
@@ -54,7 +55,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { IssueWire, SessionMeta, WorkState } from '@podium/model'
+import type { SessionMeta, SessionUserStateWire, WorkState } from '@podium/model'
 import {
   IssueProjection,
   IssueUserStateWire,
@@ -68,21 +69,23 @@ const log = createLogger('client-core:overlay')
 
 /** The entities a per-row reader may ask the ledger about (the pool's row
  *  source reads exactly these). Conversations carry no optimistic writes. */
-export type OverlayEntity = 'sessions' | 'issues' | 'issueProjections'
+export type OverlayEntity = 'sessions' | 'issueProjections'
 
 /**
  * Every entity an overlay can paint (POD-4969). The per-user issue state —
  * `readAt`, `tuckedAt`, `pinned`, one row per (user, issue) — is a target of its
- * own: the normalized issue row deliberately carries no per-user cell.
+ * own: the normalized issue row deliberately carries no per-user cell. So is
+ * the per-user session state (POD-4974 S3): `readAt` and `snoozedUntil`, one
+ * row per (user, session), joined into the session view by the reader.
  */
-export type OverlayTarget = OverlayEntity | 'issueUserStates'
+export type OverlayTarget = OverlayEntity | 'issueUserStates' | 'sessionUserStates'
 
 /** Fields folded over a base row. Loose on purpose — the projection functions
  *  below are the typed constructors; folding is structural. */
 type OverlayPatch = Record<string, unknown>
 
 /** The rows a `coveredBy` judges. */
-export type OverlayRow = SessionMeta | IssueWire | IssueProjection | IssueUserStateWire
+export type OverlayRow = SessionMeta | IssueProjection | IssueUserStateWire | SessionUserStateWire
 
 export type PendingOverlay =
   | {
@@ -90,7 +93,7 @@ export type PendingOverlay =
       /** Stable identity: the outbox entry's mutationId. */
       key: string
       entity: OverlayTarget
-      /** Target row id (sessionId / issue id; the issue id for per-user state). */
+      /** Target row id (sessionId / issue id; the entity's id for per-user state). */
       id: string
       patch: OverlayPatch
       /** True when `row` (current server truth) already reflects this
@@ -100,9 +103,12 @@ export type PendingOverlay =
        * The row this patch folds over when the target row is ABSENT. Only
        * per-user state has one: an absent `(user, issue)` row means "nothing
        * set" (the server deletes the row rather than store three nulls), so a
-       * mark-read on a never-touched issue must still paint. The ledger sets it,
-       * because only the ledger knows the principal and whether the issue is in
-       * the slice; an overlay built from an entry alone never carries it.
+       * mark-read on a never-touched issue must still paint. An absent
+       * `(user, session)` row means "not loaded": the session row's own legacy
+       * cells still speak for it (POD-4974 S2's fallback), and the patch folds
+       * over those. The ledger sets it, because only the ledger knows the
+       * principal and whether the entity is in the slice; an overlay built from
+       * an entry alone never carries it.
        */
       absent?: object
     }
@@ -113,7 +119,7 @@ export type PendingOverlay =
       entity: OverlayTarget
       id: string
       /** The whole placeholder row, shown until a base row (same id) lands. */
-      insert: SessionMeta | IssueWire | IssueProjection | IssueUserStateWire
+      insert: SessionMeta | IssueProjection | IssueUserStateWire | SessionUserStateWire
     }
 
 /** A resolved patch overlay still awaiting covering server truth (rule (a)).
@@ -170,13 +176,29 @@ export function rowFingerprint(row: object): string {
  *
  * `null` and `undefined` are ONE value here, and that is not laziness about
  * types: the wire spells "unset" both ways for the same field. `issues.update`
- * clears a colour with `color: null` while `IssueWire.color` is `optional()` —
+ * clears a colour with `color: null` while `IssueProjection.color` is `optional()` —
  * absent once cleared — so a strict `===` would leave every clear painted until
  * its TTL. `rowFingerprint` above already makes the same collapse for the same
  * reason (JSON.stringify drops undefined-valued keys).
  */
 function sameCell(a: unknown, b: unknown): boolean {
   return cellValue(a) === cellValue(b)
+}
+
+/**
+ * Cells where `null` and ABSENT are two different facts, so the collapse above
+ * would erase a real edit. `snoozedUntil: null` is a snooze "until the next
+ * message"; an absent `snoozedUntil` is no snooze at all (`predicates/snooze.ts`,
+ * `SessionSnoozeState`). Read as one value, a "snooze until next message" on an
+ * unsnoozed session moved no cell: the press painted nothing, and the snooze
+ * showed only when the server answered.
+ */
+const NULL_IS_A_VALUE: ReadonlySet<string> = new Set(['snoozedUntil'])
+
+/** {@link sameCell} for one named cell. */
+function sameKeyedCell(key: string, a: unknown, b: unknown): boolean {
+  if (NULL_IS_A_VALUE.has(key) && (a === null) !== (b === null)) return false
+  return sameCell(a, b)
 }
 
 /**
@@ -243,8 +265,8 @@ export function patchedCellsMovedPast(
   const rec = row as Record<string, unknown>
   for (const key of Object.keys(overlay.patch)) {
     const now = rec[key]
-    if (sameCell(now, parsed[key])) continue
-    if (sameCell(now, overlay.patch[key])) continue
+    if (sameKeyedCell(key, now, parsed[key])) continue
+    if (sameKeyedCell(key, now, overlay.patch[key])) continue
     return true
   }
   return false
@@ -328,16 +350,12 @@ export function issueUpdateRoute(patch: OverlayPatch): { issue: OverlayPatch; us
  * ONE ENTRY, ONE OVERLAY PER ROW IT LANDS ON (POD-4969). Issue writes target
  * the NORMALIZED rows: the durable fields on `issueProjections`, the per-user
  * markers on `issueUserStates`. Every kind lands on exactly one of them except
- * `issueUpdate`, whose patch may carry `pinned` beside durable fields. While the
- * old issue record still has readers, each issue entry also carries ONE part on
- * it ({@link legacyIssuePart}). All overlays of one entry share its mutationId
- * as `key`, and each is held and retired against its own row.
+ * `issueUpdate`, whose patch may carry personal markers beside durable fields.
+ * All parts share the mutationId and retire against their own rows.
  */
 export function overlaysForOutboxEntry(entry: OutboxEntry): PendingOverlay[] {
   const projected = overlayOf(entry)
-  const overlays = projected === null ? [] : Array.isArray(projected) ? projected : [projected]
-  const legacy = legacyIssuePart(overlays)
-  return legacy === null ? overlays : [...overlays, legacy]
+  return projected === null ? [] : Array.isArray(projected) ? projected : [projected]
 }
 
 function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null {
@@ -370,46 +388,74 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
         (r) => ((r as SessionMeta).workState ?? null) === (workState ?? null),
       )
     }
+    // THE FOUR PER-USER SESSION KINDS (POD-4974 S3) land on this principal's
+    // `(user, session)` row, never on the shared session row: `readAt` and
+    // `snoozedUntil` are facts about a reader and a session together. The
+    // reader joins that row into the session view (`session-values.ts`), which
+    // is where `unread` is derived, so nothing here paints `unread`. Coverage is
+    // judged on the per-user row too.
     case 'snoozeSet': {
+      // Exact, with `null` its own value: a snooze "until the next message" is
+      // `null`, and no snooze is an absent cell (NULL_IS_A_VALUE).
       const i = entry.input as OutboxKinds['snoozeSet']
       return patchOverlay(
-        'sessions',
+        'sessionUserStates',
         i.sessionId,
         entry.mutationId,
         { snoozedUntil: i.until },
-        (r) => ((r as SessionMeta).snoozedUntil ?? null) === (i.until ?? null),
+        (r) => sameKeyedCell('snoozedUntil', (r as SessionUserStateWire).snoozedUntil, i.until),
       )
     }
     case 'snoozeClear': {
+      // `undefined`, not null: the server's cleared row carries no snooze cell,
+      // and `null` would be a snooze until the next message.
       const i = entry.input as OutboxKinds['snoozeClear']
       return patchOverlay(
-        'sessions',
+        'sessionUserStates',
         i.sessionId,
         entry.mutationId,
         { snoozedUntil: undefined },
-        (r) => (r as SessionMeta).snoozedUntil == null,
+        (r) => (r as SessionUserStateWire).snoozedUntil === undefined,
       )
     }
     case 'sessionMarkRead': {
       const i = entry.input as OutboxKinds['sessionMarkRead']
-      // The server stamps its OWN readAt clock, so covering truth is judged on
-      // the derived unread flag (+ readAt presence), not readAt equality.
-      return patchOverlay(
-        'sessions',
-        i.sessionId,
-        entry.mutationId,
-        { readAt: new Date(entry.queuedAt).toISOString(), unread: false },
-        (r) => (r as SessionMeta).unread === false && (r as SessionMeta).readAt != null,
-      )
+      // THE PAINT IS AT LEAST THE SESSION'S LAST ACTIVITY. `unread` is derived
+      // on the client as `lastActiveAt > readAt`, and `lastActiveAt` is the
+      // SERVER's clock: a client clock running behind it would paint a cursor
+      // older than the activity it is acknowledging, and the session would stay
+      // unread under the press. The enqueue baseline carries the session row's
+      // `lastActiveAt` (the ledger merges it in), so this stays a function of
+      // the entry; without one (a reloaded kernel entry) the press time stands.
+      //
+      // COVERED like `issueMarkRead`: the server stamps its own clock, so the
+      // cursor only has to move off the enqueue-time one. WITHOUT a baseline —
+      // which is every entry the kernel queue restores after a reload, since it
+      // keeps baselines in memory only — the enqueue-time cursor is unknown,
+      // and any older cursor would read as coverage and drop the paint before
+      // the echo. Then the cursor must be at or after the press: a client clock
+      // AHEAD of the server's only holds the paint until the TTL, while truth
+      // already says read.
+      const pressedAt = new Date(entry.queuedAt).toISOString()
+      const activity = baselineCell(entry, 'lastActiveAt')
+      const readAt =
+        typeof activity === 'string' && Date.parse(activity) > entry.queuedAt ? activity : pressedAt
+      const previousReadAt = baselineCell(entry, 'readAt')
+      return patchOverlay('sessionUserStates', i.sessionId, entry.mutationId, { readAt }, (r) => {
+        const current = (r as SessionUserStateWire).readAt
+        if (current == null) return false
+        if (entry.baseline !== undefined) return current !== previousReadAt
+        return Date.parse(current) >= entry.queuedAt
+      })
     }
     case 'sessionMarkUnread': {
       const i = entry.input as OutboxKinds['sessionMarkUnread']
       return patchOverlay(
-        'sessions',
+        'sessionUserStates',
         i.sessionId,
         entry.mutationId,
-        { readAt: null, unread: true },
-        (r) => (r as SessionMeta).unread === true,
+        { readAt: null },
+        (r) => (r as SessionUserStateWire).readAt == null,
       )
     }
     case 'dismissOffer': {
@@ -776,53 +822,6 @@ export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> 
   'snoozes.clear': 'snoozeClear',
 }
 
-/**
- * THE OLD-RECORD PART (POD-4969) — why a reader of the old issue record still
- * sees every edit on the press, and never sees it flicker back.
- *
- * Every issue overlay of record targets the NORMALIZED rows: `issueProjections`
- * for durable fields and `issueUserStates` for the per-user markers. But the old
- * record (`issues`, `IssueWire`) still has readers that have not moved: mobile
- * reads nothing else, the web's view models spread it first, and the pool
- * sidebar joins its per-user cells. For them, an issue entry carries one more
- * part: the same patch on the old row, in the old spelling.
- *
- * IT RETIRES ON ITS OWN ROW, not with the normalized part, because the server
- * does not publish the two together for every command: `markIssueRead`,
- * `markIssueUnread` and `setIssueTucked` commit the per-user row first and
- * republish the old record in a SECOND commit (`IssueCrud`, `writeIssueUserState`
- * then `persist`). A copy that left with the normalized part would hand the old
- * record's readers its pre-edit value for that gap: the unread dot flashing back.
- * So the part is held and retired like any overlay, against the old row, and
- * the entry's durable outbox record stays until every part has retired.
- *
- * Its `coveredBy` is the normalized parts' own, all of them: each reads only the
- * keys its part wrote, and the old record spells every key an overlay writes the
- * same way — except the documents (`{ value }` normalized, plain text here),
- * which `sameCell` compares by text.
- *
- * Nothing is painted on a row the replica no longer stores (a client that drops
- * the old record holds no part), and the part goes with the old record
- * (POD-4973).
- */
-export function legacyIssuePart(overlays: readonly PendingOverlay[]): PendingOverlay | null {
-  const parts = overlays.filter(
-    (o): o is Extract<PendingOverlay, { op: 'patch' }> =>
-      o.op === 'patch' && (o.entity === 'issueProjections' || o.entity === 'issueUserStates'),
-  )
-  const first = parts[0]
-  if (first === undefined) return null
-  const patch: OverlayPatch = {}
-  for (const part of parts) {
-    for (const [key, value] of Object.entries(part.patch)) {
-      patch[key] = ISSUE_DOCUMENT_KEYS.has(key) ? (value as { value: string }).value : value
-    }
-  }
-  return patchOverlay('issues', first.id, first.key, patch, (row) =>
-    parts.every((part) => part.coveredBy(row)),
-  )
-}
-
 /** True when the fold actually moved one of the cells it wrote. Only the patched
  *  keys are looked at — every other cell came straight off `row`. */
 function movedAnyCell(row: object, merged: object, patches: readonly OverlayPatch[]): boolean {
@@ -830,7 +829,7 @@ function movedAnyCell(row: object, merged: object, patches: readonly OverlayPatc
   const after = merged as Record<string, unknown>
   for (const patch of patches) {
     for (const key of Object.keys(patch)) {
-      if (!sameCell(before[key], after[key])) return true
+      if (!sameKeyedCell(key, before[key], after[key])) return true
     }
   }
   return false
@@ -852,7 +851,7 @@ export interface FoldResult<T> {
  *
  * "NOTHING APPLIES" IS ABOUT VALUES, NOT ABOUT IDS (POD-1053). A patch whose
  * cells already read back equal on the row is observationally a no-op, and a
- * fresh row object for it is not free: `store.issues` is the cache key for the
+ * fresh row object for it is not free: `store.issueProjections` is the cache key for the
  * shared view-model cache and for the published worklist slice, so a gratuitous
  * row identity costs a model rebuild and, absent the value comparison further
  * down, a whole worklist derivation. The commonest shape is composition —
@@ -906,7 +905,7 @@ export function foldOverlays<T extends object>(
     const next = rows.map((row) => {
       const patches = patchesById.get(keyOf(row))
       if (!patches) return row
-      const merged = Object.assign({}, row, ...patches) as T
+      const merged = inheritSessionHomes(row, Object.assign({}, row, ...patches)) as T
       // Judge the COMPOSED result, not each patch: two queued writes to the same
       // cell can land on the value the row already holds, and only the merge
       // knows that.
@@ -959,7 +958,7 @@ export function foldRowOverlays<T extends object>(
   const patches: OverlayPatch[] = []
   for (const o of overlays) if (o.op === 'patch') patches.push(o.patch)
   if (patches.length === 0) return row
-  const merged = Object.assign({}, row, ...patches) as T
+  const merged = inheritSessionHomes(row, Object.assign({}, row, ...patches)) as T
   if (movedAnyCell(row, merged, patches)) return merged
   // An absent row that the patches leave saying "nothing set" stays absent.
   return absent ? undefined : row

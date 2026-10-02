@@ -1,3 +1,4 @@
+import type { SessionView } from '../session-values'
 /**
  * One unread rule for every surface that names an issue or a session.
  *
@@ -11,7 +12,7 @@
  * emphasis: lastActiveAt ticks every token, and the spinner already says
  * "something is happening".
  */
-import type { SessionMeta } from '@podium/model'
+
 import { isSessionWorking } from './session-status'
 
 export function parseStamp(value: string | null | undefined): number | null {
@@ -67,6 +68,6 @@ export function issueOwnContentUnread(issue: {
 }
 
 /** Session unread that is actually worth drawing. */
-export function sessionUnreadEmphasized(session: SessionMeta): boolean {
+export function sessionUnreadEmphasized(session: SessionView): boolean {
   return session.unread === true && !isSessionWorking(session)
 }

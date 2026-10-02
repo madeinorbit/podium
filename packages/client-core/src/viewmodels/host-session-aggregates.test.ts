@@ -1,4 +1,5 @@
-import { asMachineId, type SessionMeta } from '@podium/model'
+import type { SessionView } from '../session-values'
+import { asMachineId } from '@podium/model'
 import { afterEach, expect, it } from 'vitest'
 import { readRuntimeStoreStats, storeStats } from '../perf/store-stats'
 import { createHostSessionAggregatesSelector } from './host-session-aggregates'
@@ -9,10 +10,10 @@ const fixture = () => Array.from({ length: 4304 }, (_, i) => ({
   machineId: ids[i % 3], status: ['live', 'starting', 'reconnecting', 'exited'][i % 4],
   cwd: `/repo/${i % 20}`, archived: i % 7 === 0, resumable: i % 2 === 0,
   agentState: { phase: ['working', 'compacting', 'idle', 'ended', 'needs_user', 'unknown'][i % 6] },
-}) as SessionMeta)
+}) as SessionView)
 afterEach(() => { storeStats.enable(false); storeStats.reset() })
 
-function legacy(rows: SessionMeta[]) {
+function legacy(rows: SessionView[]) {
   return { occupancyKey: residentWorktreeKey(rows), machines: ids.map((id) => ({
     agents: hostAgentsView(rows, id, 12, 'host'),
     idleSplit: idleSessionSplit(rows, id), phases: residencyBreakdown(rows, id),
@@ -31,7 +32,7 @@ it('armed before/after: disconnected renders scan zero sessions; immaterial repl
   for (const disconnected of [true, false]) {
     for (const old of [true, false]) {
       let visits = 0
-      const tracked = (rows: SessionMeta[]) => new Proxy(rows, {
+      const tracked = (rows: SessionView[]) => new Proxy(rows, {
         get(target, property, receiver) {
           if (typeof property === 'string' && /^\d+$/.test(property)) visits++
           return Reflect.get(target, property, receiver)
@@ -65,10 +66,10 @@ it('preserves legacy semantics across all material changes, removal and independ
   const first = select(rows)
   rows = rows.map((s) => ({ ...s, title: 'changed', agentKind: 'shell' }))
   expect(select(rows)).toBe(first)
-  const changes: Partial<SessionMeta>[] = [
+  const changes: Partial<SessionView>[] = [
     { machineId: asMachineId('b') }, { status: 'live' }, { archived: false },
     { cwd: '/moved' }, { resumable: true },
-    { agentState: { phase: 'needs_user' } as SessionMeta['agentState'] },
+    { agentState: { phase: 'needs_user' } as SessionView['agentState'] },
     { agentState: undefined },
   ]
   for (const change of changes) {

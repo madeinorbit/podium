@@ -2,19 +2,19 @@ import { createLogger, describeError } from '@podium/logger'
 import type {
   AgentRuntimeState,
   IssueId,
-  IssueWire,
+  IssueReport,
   SessionId,
-  SessionMeta,
   TelegramChatBinding,
+  ThreadId,
   TranscriptItem,
   UserId,
-  ThreadId,
 } from '@podium/model'
 import { asThreadId, resolveTelegramPrincipal } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
 import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
 import type { EventBus } from '../bus'
+import type { SessionFacts } from '../sessions/facts'
 import {
   buildIssuesMessage,
   HELP_TEXT,
@@ -23,7 +23,6 @@ import {
   pickIssueSession,
   registerTelegramCommands,
 } from './commands'
-import type { SessionFacts } from '../sessions/facts'
 import { TelegramChannel } from './telegram'
 import { formatTopicRecap, TOPIC_INACTIVITY_MS, transcriptSessionIdForThread } from './topic-recap'
 import type {
@@ -99,7 +98,7 @@ export interface MessagingDeps {
   telegramBotToken(): Promise<string>
   superagent: SuperagentTurnPort
   /** Issue list for /issues slash commands. */
-  issues?: { list(): Promise<IssueWire[]> }
+  issues?: { list(): Promise<IssueReport[]> }
   /** Sessions held by this server, resolved by explicit issueId membership.
    *  Facts, not the projection [POD-3857]: {@link pickIssueSession} reads
    *  `issueId`, `archived`, `headless`, `status` and `lastActiveAt`, and the
@@ -227,7 +226,10 @@ export class MessagingService implements TelegramNoticePort {
 
   constructor(private readonly deps: MessagingDeps) {
     deps.bus.on('superagent.turnEnded', async (ev) => await this.onTurnEnded(ev))
-    deps.bus.on('notification.telegramRequested', async (request) => await this.sendUserNotice(request))
+    deps.bus.on(
+      'notification.telegramRequested',
+      async (request) => await this.sendUserNotice(request),
+    )
     deps.bus.on('settings.changed', async () => await this.configure())
     // Rule 51b: the typing indicator SCHEDULES, it does not answer. Resolving
     // the topic moved into this already-deferred best-effort body, alongside the
@@ -282,9 +284,11 @@ export class MessagingService implements TelegramNoticePort {
     const botToken = botTokenValue.trim()
     const chatIds = [...new Set(bindings.map((row) => row.chatId))].sort()
     const topics = this.deps.topics
-      ? (await Promise.all(chatIds.map(async (chatId) => await this.deps.topics?.listForChat(chatId)))).flatMap(
-          (rows) => rows ?? [],
-        )
+      ? (
+          await Promise.all(
+            chatIds.map(async (chatId) => await this.deps.topics?.listForChat(chatId)),
+          )
+        ).flatMap((rows) => rows ?? [])
       : []
 
     // Publish the resolved snapshot only after every read succeeds. Adapter
@@ -375,7 +379,11 @@ export class MessagingService implements TelegramNoticePort {
     }
     pushTelegramText({ botToken, chatId }, input.text)
   }
-  async sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: SessionId }): Promise<void> {
+  async sendNotice(
+    text: string,
+    config: TelegramConfig,
+    opts?: { sessionId?: SessionId },
+  ): Promise<void> {
     const botToken = config.botToken.trim()
     const chatId = config.chatId.trim()
     if (!botToken || !chatId) return
@@ -408,7 +416,10 @@ export class MessagingService implements TelegramNoticePort {
    * send. Rule 51 CASE 1: every caller may yield, so the port is widened and
    * awaited rather than the read being removed.
    */
-  private async noticeThreadRef(chatId: string, sessionId?: SessionId): Promise<string | undefined> {
+  private async noticeThreadRef(
+    chatId: string,
+    sessionId?: SessionId,
+  ): Promise<string | undefined> {
     if (sessionId) {
       const issueId = this.deps.sessionIssueId?.(sessionId)
       if (!issueId) return undefined
@@ -440,20 +451,21 @@ export class MessagingService implements TelegramNoticePort {
     return asThreadId('global')
   }
 
-  private async resolveIssueThread(issue: IssueWire, ownerUserId: UserId): Promise<ThreadId> {
+  private async resolveIssueThread(issue: IssueReport, ownerUserId: UserId): Promise<ThreadId> {
     const sessions =
       this.deps.sessions?.sessionFactsByIssue(issue.worktreePath ?? null, issue.id) ?? []
     const session = pickIssueSession(issue, sessions)
     if (session) {
-      return (await this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId }))
-        .threadId
+      return (
+        await this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId })
+      ).threadId
     }
     return (
       await this.deps.superagent.ensureConciergeThread({ ownerUserId, repoPath: issue.repoPath })
     ).threadId
   }
 
-  private async issueThreadNote(issue: IssueWire): Promise<string> {
+  private async issueThreadNote(issue: IssueReport): Promise<string> {
     const sessions =
       this.deps.sessions?.sessionFactsByIssue(issue.worktreePath ?? null, issue.id) ?? []
     const session = pickIssueSession(issue, sessions)
@@ -498,16 +510,16 @@ export class MessagingService implements TelegramNoticePort {
 
     this.lastInboundRefByChat.set(msg.source.chatId, msg.source)
     if (msg.callback) {
-      void await this.handleCallback(msg, boundUser)
+      void (await this.handleCallback(msg, boundUser))
       return
     }
     const slash = parseSlashCommand(msg.text)
     if (slash) {
       const threadId = await this.resolveThreadId(msg)
-      void await this.handleSlash(boundUser, threadId, msg.source, slash)
+      void (await this.handleSlash(boundUser, threadId, msg.source, slash))
       return
     }
-    void await this.handleChatMessage(msg, boundUser)
+    void (await this.handleChatMessage(msg, boundUser))
   }
 
   /** Plain chat (not slash/callback): optional inactivity recap, then queue. */
@@ -610,7 +622,8 @@ export class MessagingService implements TelegramNoticePort {
     ownerUserId: UserId | undefined,
     next: AgentRuntimeState,
   ): Promise<void> {
-    if (next.phase === 'working' && ownerUserId) await this.startAmbientTyping(sessionId, ownerUserId)
+    if (next.phase === 'working' && ownerUserId)
+      await this.startAmbientTyping(sessionId, ownerUserId)
     else this.stopAmbientTyping(sessionId)
   }
 
@@ -674,7 +687,7 @@ export class MessagingService implements TelegramNoticePort {
         if ((err instanceof Error ? err.message : String(err)).includes('already running')) return
         const message = describeError(err)
         queue?.shift()
-        void await this.reply(next.source, `⚠️ Could not reach the superagent: ${message}`)
+        void (await this.reply(next.source, `⚠️ Could not reach the superagent: ${message}`))
         await this.pump(ownerUserId, threadId)
       })
   }
@@ -764,7 +777,7 @@ export class MessagingService implements TelegramNoticePort {
         : ev.deliveryStatus === 'unknown'
           ? `⚠️ Delivery unknown: ${ev.error ?? 'Delivery could not be proven; the message may have reached the agent.'}`
           : `⚠️ Turn failed: ${ev.error ?? 'unknown error'}`
-      void await this.reply(awaited.source, text)
+      void (await this.reply(awaited.source, text))
     }
     const ownerUserId = awaited?.ownerUserId ?? this.queues.get(key)?.[0]?.ownerUserId
     if (ownerUserId) await this.pump(ownerUserId, ev.threadId)
@@ -837,7 +850,7 @@ export class MessagingService implements TelegramNoticePort {
   private async openIssueTopic(
     ownerUserId: UserId,
     chatId: string,
-    issue: IssueWire,
+    issue: IssueReport,
   ): Promise<{ threadRef: string; text: string; reused: boolean; superagentThreadId: ThreadId }> {
     const threadId = await this.resolveIssueThread(issue, ownerUserId)
     const ref = issueDisplayRef(issue)

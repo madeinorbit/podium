@@ -1,4 +1,5 @@
 import type { SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, type IssueReport, type UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildIssuesMessage,
@@ -11,11 +12,10 @@ import {
   parseSlashCommand,
   pickIssueSession,
 } from './commands'
-import { asIssueId, asSessionId, type IssueWire, type IssueWireInput } from '@podium/model'
 
 function issue(
-  partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title'>,
-): IssueWire {
+  partial: Partial<UnbrandIds<IssueReport>> & Pick<IssueReport, 'id' | 'seq' | 'title'>,
+): IssueReport {
   return {
     repoPath: '/p',
     description: '',
@@ -42,12 +42,11 @@ function issue(
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     archived: false,
-    readAt: null,
     origin: 'human',
     audience: 'human',
     draft: false,
     ...partial,
-  } as unknown as IssueWire
+  } as unknown as IssueReport
 }
 
 describe('parseSlashCommand', () => {
@@ -144,7 +143,7 @@ describe('issue formatters', () => {
   })
 
   it('picks the live session for btw wiring', () => {
-    // `sessions` left `IssueWire` with the POD-797 embed removal, and
+    // `sessions` left `IssueReport` with the POD-797 embed removal, and
     // `pickIssueSession` already takes the HELD list as its own argument — so the
     // fixture states the two separately instead of nesting one inside the other.
     const withSessions = issue({ id: asIssueId('e'), seq: 5, title: 'Epic' })
@@ -164,8 +163,6 @@ describe('issue formatters', () => {
         lastActiveAt: '2026-07-10T00:00:00.000Z',
         origin: { kind: 'spawn' },
         archived: false,
-        readAt: null,
-        unread: false,
       },
       {
         sessionId: asSessionId('live'),
@@ -182,8 +179,6 @@ describe('issue formatters', () => {
         lastActiveAt: '2026-07-16T00:00:00.000Z',
         origin: { kind: 'spawn' },
         archived: false,
-        readAt: null,
-        unread: false,
       },
     ] as SessionMeta[]
     // The held-session list is now a SEPARATE argument: membership moved off the

@@ -34,14 +34,8 @@
 import type { BRAND } from 'zod'
 import type { AutomationRunWire, AutomationWire } from './automation'
 import type { ConversationSummaryWire } from './conversation'
-import type { IssueWire } from './issue'
 import type { SessionMeta } from './session'
 
-/**
- * Widen every BRANDED string in `T` back to `string`, recursing through arrays
- * and nested objects (`IssueWire.sessions` is the one nested entity, and it
- * carries branded ids of its own).
- */
 export type UnbrandIds<T> = { [K in keyof T]: Unbrand<T[K]> }
 
 type Unbrand<V> =
@@ -57,8 +51,6 @@ type Unbrand<V> =
 
 /** {@link SessionMeta} with its branded ids on the input side (plain strings). */
 export type SessionMetaInput = UnbrandIds<SessionMeta>
-/** {@link IssueWire} with its branded ids on the input side. */
-export type IssueWireInput = UnbrandIds<IssueWire>
 /** {@link AutomationWire} with its branded ids on the input side. */
 export type AutomationWireInput = UnbrandIds<AutomationWire>
 /** {@link AutomationRunWire} with its branded ids on the input side. */

@@ -1,7 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import type { SessionView } from '../session-values'
 import { recordSliceDerivation } from '../perf/store-stats'
 
-type UsageSession = Pick<SessionMeta, 'agentKind' | 'cwd' | 'lastActiveAt'>
+type UsageSession = Pick<SessionView, 'agentKind' | 'cwd' | 'lastActiveAt'>
 type Material = { cwd: string; lastActiveAt: string }
 
 /** Component-local, single-snapshot cache. Never shares session scope across stores.

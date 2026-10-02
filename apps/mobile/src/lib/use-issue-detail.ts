@@ -1,12 +1,13 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   type ActivityComment,
   type ActivityItem,
   buildActivityFeed,
   type IssueEvent,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire } from '@podium/model'
-import { useEffect, useState } from 'react'
-import { useHub, useTrpc } from '../client/hooks'
+
+import { useEffect, useRef, useState } from 'react'
+import { useTrpc } from '../client/hooks'
 import {
   type IssueMailMessage,
   loadIssueComments,
@@ -43,8 +44,7 @@ import {
  * The refetch keys are the desktop model's, for the same reasons. Comments and
  * mail re-read on `updatedAt` — every `addComment` broadcasts the updated issue,
  * so a comment (ours or an agent's) pulls the fresh thread without a second
- * channel. Events drain to the end on open, then re-drain on each `issuesChanged`
- * broadcast, pulling only the new tail.
+ * channel. Events drain to the end on open, then re-drain on each normalized issue update, pulling only the new tail.
  */
 
 /** Page size for the subject-narrowed event drain. One task's whole history is
@@ -63,25 +63,20 @@ export interface IssueActivity {
   appendLocalComment: (body: string) => void
 }
 
-export function useIssueActivity(issue: IssueWire): IssueActivity {
+export function useIssueActivity(issue: IssueViewModel): IssueActivity {
   const trpc = useTrpc()
-  const hub = useHub()
   const [comments, setComments] = useState<ActivityComment[]>([])
   const [events, setEvents] = useState<IssueEvent[]>([])
+  const drainEvents = useRef<(() => void) | null>(null)
   const [mail, setMail] = useState<IssueMailMessage[]>([])
 
   const issueId = issue.id
   const updatedAt = issue.updatedAt
   const repoPath = issue.repoPath
-  // The legacy embedded thread (pre-#175 payloads still carry one) is the seed
-  // and the fallback: a hub-mirrored row has no local comments, so an empty
-  // fetch means "ask the wire", not "there are none".
-  const embedded = issue.comments
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on task switch / update tick only; `embedded` is a seed read at that moment and trpc is a stable store singleton
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on task switch / update tick only; trpc is a stable store singleton
   useEffect(() => {
     let cancelled = false
-    setComments(embedded ?? [])
+    setComments([])
     Promise.resolve()
       .then(() => loadIssueComments(trpc, issueId))
       .then((rows) => {
@@ -90,7 +85,7 @@ export function useIssueActivity(issue: IssueWire): IssueActivity {
         // `.map` to throw inside a render.
         if (cancelled) return
         const list = Array.isArray(rows) ? rows : []
-        setComments(list.length === 0 ? (embedded ?? []) : list)
+        setComments(list)
       })
       .catch(() => {
         // best-effort — keep whatever we already have
@@ -116,12 +111,13 @@ export function useIssueActivity(issue: IssueWire): IssueActivity {
     }
   }, [issueId, updatedAt])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload on task switch only; trpc/hub are stable store singletons
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload on task switch only; trpc are stable store singletons
   useEffect(() => {
     let cancelled = false
     let since = 0
     let pages = 0
     let draining = false
+    let pending = false
     const absorb = (rows: IssueEvent[]): void => {
       if (cancelled || !Array.isArray(rows) || rows.length === 0) return
       since = rows.reduce((m, r) => Math.max(m, r.id), since)
@@ -132,11 +128,17 @@ export function useIssueActivity(issue: IssueWire): IssueActivity {
       })
     }
     const drain = (): void => {
-      // One in-flight drain at a time. `hub.onIssues` fires on every task
+      // One in-flight drain at a time. The issue update signal fires on every task
       // write; stacking them is how a busy board turned this page into a
       // request storm.
-      if (draining) return
+      if (cancelled) return
+      if (draining) {
+        pending = true
+        return
+      }
       draining = true
+      pending = false
+      pages = 0
       const step = (): void => {
         const sinceBefore = since
         // Wrapped, like the two reads above: a missing `issues.events` on the
@@ -163,21 +165,27 @@ export function useIssueActivity(issue: IssueWire): IssueActivity {
               return
             }
             draining = false
+            if (pending && !cancelled) drain()
           })
           .catch(() => {
             draining = false
+            if (pending && !cancelled) drain()
           })
       }
       step()
     }
     setEvents([])
-    drain()
-    const off = hub.onIssues(() => drain())
+    drainEvents.current = drain
     return () => {
       cancelled = true
-      off()
+      drainEvents.current = null
     }
   }, [issueId, repoPath])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A selected issue or new issue revision must restart the event drain held in the ref.
+  useEffect(() => {
+    drainEvents.current?.()
+  }, [issueId, repoPath, updatedAt])
 
   return {
     feed: buildActivityFeed(comments, events),

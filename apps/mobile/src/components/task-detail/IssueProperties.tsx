@@ -1,18 +1,20 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   groupRelations,
-  type IssueEdge,
   ISSUE_STAGE_LABELS,
+  type IssueEdge,
   sessionTitle,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { ChevronRight, ExternalLink, Plus, X } from '../icons'
 import { type ReactNode, useState } from 'react'
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
+import { ChevronRight, ExternalLink, Plus, X } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { PriorityGlyph, StageGlyph } from '../StageGlyph'
 import { Disclosure, MachineLabel } from './chrome'
@@ -52,11 +54,11 @@ export function IssueProperties({
   onPickParent,
   onAddRelation,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   /** This task's member sessions, resolved against the session world. */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** The parent row, when the replica holds it. */
-  parent: IssueWire | undefined
+  parent: IssueViewModel | undefined
   /** Shared cross-boundary policy, closed over this replica's exit record. */
   resolveEdge: (id: string | undefined | null) => IssueEdge
   busy: boolean
@@ -272,7 +274,7 @@ export function IssueProperties({
         <Row label="Origin">
           <Text
             style={styles.meta}
-          >{`Created by ${issue.origin === 'agent' ? 'an agent' : 'a person'}`}</Text>
+          >{`Created by ${issue.intentOrigin === 'agent' ? 'an agent' : 'a person'}`}</Text>
           <Text
             style={styles.meta}
           >{`Written for ${issue.audience === 'agent' ? 'agents only' : 'people'}`}</Text>
@@ -301,7 +303,7 @@ export function PropertyBar({
   onPriority,
   onType,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   onStage: () => void
   onPriority: () => void
   onType: () => void

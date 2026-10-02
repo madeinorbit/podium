@@ -26,6 +26,7 @@ export function initializeSidebarDataLayer(ui: Pick<UiState, 'get'>): void {
   startupCheck = startupDataLayer === 'pool' && params?.get('mobxSidebarCheck') === '1'
 }
 
+/** The switch requests one startup comparison; later checks require an explicit request. */
 export function sidebarCheckRequested(): boolean {
   return startupCheck
 }

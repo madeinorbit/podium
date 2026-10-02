@@ -1,3 +1,5 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView } from '../session-values'
 /**
  * Workspace membership: WHICH tabs a workspace may keep.
  *
@@ -17,20 +19,30 @@
  *     answer needed was rebuilt inside the loop that consumed it.
  */
 
-import type { IssueWire, SessionMeta } from '@podium/model'
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab, WorkspaceKey } from '../viewmodels'
 import { missionIssueIds } from '../viewmodels'
 import type { EngineState } from './state'
-import { knownTabIdsForWorkspace, sessionBelongsToWorkspace } from './state'
+import {
+  enableWorkspaceKeyCache,
+  knownTabIdsForWorkspace,
+  sessionBelongsToWorkspace,
+  workspaceKeyForState,
+} from './state'
 
 /** Exactly the slices the membership rule reads. */
 type MembershipState = Pick<
   EngineState,
-  'issues' | 'sessions' | 'pendingSpawnIds' | 'pendingSpawnPrompts' | 'fileTabs'
+  | 'issueProjections'
+  | 'issueDeps'
+  | 'sessions'
+  | 'pendingSpawnIds'
+  | 'pendingSpawnPrompts'
+  | 'fileTabs'
 >
 
-function issue(id: string, over: Record<string, unknown> = {}): IssueWire {
+function issue(id: string, over: Record<string, unknown> = {}): IssueViewModel {
   return {
     id,
     repoPath: '/r/acme',
@@ -58,14 +70,14 @@ function issue(id: string, over: Record<string, unknown> = {}): IssueWire {
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     ...over,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
-function sess(id: string, over: Record<string, unknown> = {}): SessionMeta {
+function sess(id: string, over: Record<string, unknown> = {}): SessionView {
   return {
     sessionId: id,
     title: id,
@@ -77,16 +89,35 @@ function sess(id: string, over: Record<string, unknown> = {}): SessionMeta {
     createdAt: '2026-07-01T00:00:00.000Z',
     lastActiveAt: '2026-07-01T01:00:00.000Z',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function membership(
-  issues: IssueWire[],
-  sessions: SessionMeta[],
+  issues: IssueViewModel[],
+  sessions: SessionView[],
   over: Partial<MembershipState> = {},
 ): MembershipState {
   return {
-    issues,
+    issueProjections: issues.map(
+      (row) =>
+        ({
+          ...row,
+          description: { value: row.description },
+          isDraftVessel: row.isDraftVessel,
+          intentOrigin: row.intentOrigin,
+        }) as unknown as import('@podium/model').IssueProjection,
+    ),
+    issueDeps: issues.flatMap((row) =>
+      row.deps.map(
+        (dep, index) =>
+          ({
+            id: `${row.id}:${index}`,
+            fromId: row.id,
+            toId: dep.id,
+            type: dep.type,
+          }) as import('@podium/model').IssueDepProjection,
+      ),
+    ),
     sessions,
     pendingSpawnIds: new Set<string>(),
     pendingSpawnPrompts: new Map<string, string>(),
@@ -100,9 +131,9 @@ function membership(
  * `find` per session, the mission set rebuilt per session, and all.
  */
 function legacyBelongs(
-  st: Pick<EngineState, 'issues' | 'sessions'>,
+  st: Pick<MembershipState, 'issueProjections' | 'issueDeps' | 'sessions'>,
   key: WorkspaceKey,
-  session: SessionMeta,
+  session: SessionView,
 ): boolean {
   if (key === 'none') return true
   if (key.startsWith('wt:')) {
@@ -112,15 +143,15 @@ function legacyBelongs(
   if (key.startsWith('issue:')) {
     const issueId = key.slice(6)
     if (session.issueId !== undefined) return session.issueId === issueId
-    const found = st.issues.find((candidate) => candidate.id === issueId)
+    const found = st.issueProjections.find((candidate) => candidate.id === issueId)
     const wt = found?.worktreePath
     return Boolean(wt && (session.cwd === wt || session.cwd.startsWith(`${wt}/`)))
   }
   if (key.startsWith('mission:')) {
     const rootId = key.slice(8)
-    const ids = missionIssueIds(st.issues, rootId, st.sessions)
+    const ids = missionIssueIds(st.issueProjections, rootId, st.sessions)
     if (session.issueId !== undefined) return ids.has(session.issueId)
-    for (const candidate of st.issues) {
+    for (const candidate of st.issueProjections) {
       if (!ids.has(candidate.id) || !candidate.worktreePath) continue
       if (
         session.cwd === candidate.worktreePath ||
@@ -231,7 +262,7 @@ describe('workspace membership', () => {
 /** Counts ELEMENT reads of the issue slice. The old code's per-session `find`
  *  and per-session index rebuild are both visible here and nowhere else: they
  *  are pure array traversal. */
-function countingIssues(rows: IssueWire[]): { issues: IssueWire[]; reads: () => number } {
+function countingIssues(rows: IssueViewModel[]): { issues: IssueViewModel[]; reads: () => number } {
   let reads = 0
   const proxy = new Proxy(rows, {
     get(target, prop, receiver) {
@@ -246,7 +277,7 @@ describe('workspace membership budget', () => {
   const ISSUES = 500
   const SESSIONS = 400
 
-  function world(): { rows: IssueWire[]; sessions: SessionMeta[] } {
+  function world(): { rows: IssueViewModel[]; sessions: SessionView[] } {
     const rows = [issue('root', { worktreePath: '/wt/root' })]
     for (let i = 0; i < ISSUES - 1; i += 1) {
       rows.push(issue(`iss-${i}`, { parentId: 'root', worktreePath: `/wt/iss-${i}` }))
@@ -289,5 +320,53 @@ describe('workspace membership budget', () => {
     // subsequent `issue:` keys must not each re-index the slice.
     for (let i = 1; i < 20; i += 1) knownTabIdsForWorkspace(st, `issue:iss-${i}`)
     expect(counted.reads()).toBe(afterFirst)
+  })
+})
+
+// One scalar memo, on the existing mutable engine state only. The reference
+// answer remains the unopted path; every topology/selection input invalidates.
+describe('pool workspace scalar cache', () => {
+  it('avoids a repeated corpus walk and invalidates selection, topology and rescope', () => {
+    let reads = 0
+    const projections = membership(
+      [issue('root'), issue('child', { parentId: 'root' })],
+      [],
+    ).issueProjections.map(
+      (row) =>
+        new Proxy(row, {
+          get(target, key, receiver) {
+            reads++
+            return Reflect.get(target, key, receiver)
+          },
+        }),
+    )
+    const st = {
+      issueProjections: projections,
+      selectedIssueId: 'child',
+      selectedWorktree: '/wt',
+    } as EngineState
+    const reference = () => workspaceKeyForState({ ...st })
+    enableWorkspaceKeyCache(st)
+    expect(workspaceKeyForState(st)).toBe(reference())
+    reads = 0
+    for (let i = 0; i < 100; i++) expect(workspaceKeyForState(st)).toBe('mission:root')
+    expect(reads).toBe(0)
+    st.selectedIssueId = asIssueId('missing')
+    expect(workspaceKeyForState(st)).toBe(reference())
+    st.selectedWorktree = '/other'
+    expect(workspaceKeyForState(st)).toBe(reference())
+    st.selectedIssueId = asIssueId('child')
+    st.issueProjections = membership(
+      [issue('root', { archived: true }), issue('child', { parentId: 'root' })],
+      [],
+    ).issueProjections
+    expect(workspaceKeyForState(st)).toBe('mission:child')
+    expect(workspaceKeyForState(st)).toBe(reference())
+    st.issueProjections = [] // an evict/rescope cannot retain the former root
+    expect(workspaceKeyForState(st)).toBe(reference())
+    st.selectedIssueId = null
+    expect(workspaceKeyForState(st)).toBe('wt:/other')
+    st.selectedWorktree = null
+    expect(workspaceKeyForState(st)).toBe('none')
   })
 })

@@ -30,7 +30,7 @@ function service(store: SessionStore, hostMachineId = store.hostMachineId) {
   return new MachinesService({
     instanceId: 'default', store, hostMachineId,
     userExists: async (id) => await store.users.get(id) !== undefined,
-    sessionsChangedForMachine: () => {}, clients: () => [], machinesForPrincipal: async () => [],
+     clients: () => [], machinesForPrincipal: async () => [],
   })
 }
 

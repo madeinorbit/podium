@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 // @vitest-environment happy-dom
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { JSX } from 'react'
@@ -41,6 +42,11 @@ vi.mock('./operator-focus', () => ({
   useOperatorFocus: () => ({ focusedIssueId: null, setFocusedIssueId: vi.fn() }),
 }))
 
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useHarnessDescriptors: () => ({ served: [] }),
+}))
+
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => false,
 }))
@@ -50,7 +56,7 @@ const task = {
   title: 'The task',
   repoPath: '/repo',
   worktreePath: '/repo/wt',
-} as IssueWire
+} as IssueViewModel
 
 const session = (id: string): SessionMeta =>
   ({
@@ -119,7 +125,7 @@ const uiListeners = new Set<() => void>()
 
 /** The REPLICA-derived issue list — deliberately separate from what the engine
  *  keys workspaces by, because the two can disagree mid-cutover (POD-710 §4). */
-let replicaIssues: IssueWire[] = [task]
+let replicaIssues: IssueViewModel[] = [task]
 
 vi.mock('./store', () => ({
   useStoreSelector: (selector: (s: Record<string, unknown>) => unknown) => selector(state),
@@ -1251,7 +1257,7 @@ describe('Workspace with no mission on screen', () => {
   })
 
   it('falls back to the cold deck when the selected task is archived', () => {
-    replicaIssues = [{ ...task, archived: true } as IssueWire]
+    replicaIssues = [{ ...task, archived: true } as IssueViewModel]
     state.workspaces = emptyPane()
     render(<Workspace />)
 
@@ -1260,7 +1266,7 @@ describe('Workspace with no mission on screen', () => {
   })
 
   it('falls back to the cold deck for a draft vessel nobody filled', () => {
-    replicaIssues = [{ ...task, draft: true, worktreePath: null } as IssueWire]
+    replicaIssues = [{ ...task, isDraftVessel: true, worktreePath: null } as IssueViewModel]
     state.sessions = []
     state.workspaces = emptyPane()
     render(<Workspace />)
@@ -1269,7 +1275,7 @@ describe('Workspace with no mission on screen', () => {
   })
 
   it('renders the open tabs rather than the composer, whatever the selection says', () => {
-    replicaIssues = [{ ...task, archived: true } as IssueWire]
+    replicaIssues = [{ ...task, archived: true } as IssueViewModel]
     render(<Workspace />)
 
     expect(screen.queryByTestId('workspace-cold-deck')).toBeNull()

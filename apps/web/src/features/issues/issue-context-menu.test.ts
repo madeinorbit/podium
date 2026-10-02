@@ -1,11 +1,5 @@
-import {
-  asIssueId,
-  asMachineId,
-  asRepoId,
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asIssueId, asMachineId, asRepoId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import {
@@ -56,8 +50,8 @@ const handoffMachines = [
   },
 ]
 const makeSession = (
-  over: Partial<SessionMetaInput> & Pick<SessionMetaInput, 'sessionId'>,
-): SessionMeta =>
+  over: Partial<SessionViewInput> & Pick<SessionViewInput, 'sessionId'>,
+): SessionView =>
   ({
     status: 'live',
     agentKind: 'codex',
@@ -69,7 +63,7 @@ const makeSession = (
     updatedAt: 't',
     unread: false,
     ...over,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 describe('issueMenuEligibility', () => {
   it('gates everything off for an empty target set', () => {
@@ -379,8 +373,8 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
     ).toBeNull()
   })
 
-  it('looks up SessionMeta from the store by memberSessionIds', () => {
-    // Member ids resolve against the live SessionMeta rows held by the client.
+  it('looks up SessionView from the store by memberSessionIds', () => {
+    // Member ids resolve against the live SessionView rows held by the client.
     const issue = makeIssue({
       memberSessionIds: ['s1'],
     })

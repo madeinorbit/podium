@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
  * THE REPORTED FAILURE, RENDERED (POD-2700).

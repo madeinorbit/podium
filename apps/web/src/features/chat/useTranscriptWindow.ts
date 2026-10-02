@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import {
   createTranscriptController,
@@ -5,7 +6,7 @@ import {
   type TranscriptFreshness,
 } from '@podium/client-core/transcript'
 import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model/browser'
+import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { TranscriptSearchState } from '@podium/client-core/viewmodels'
 import type { Dispatch, SetStateAction } from 'react'
 import {
@@ -87,7 +88,7 @@ export interface UseTranscriptWindowOptions {
   /** Mirrors ChatView's `active` prop — re-reads the window when this pane
    *  becomes the foreground view again (a backgrounded view can fall behind). */
   active: boolean
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   /** A client-minted session can be painted before the authority knows its id.
    * Keep the optimistic feed visible without spending the one initial read on a
    * guaranteed not-found; the caller clears this when replica truth arrives. */

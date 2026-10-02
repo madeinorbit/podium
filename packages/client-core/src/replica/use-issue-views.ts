@@ -11,7 +11,7 @@
  * This file is the binding and nothing else.
  */
 
-import type { IssueId, IssueProjection, IssueWire } from '@podium/model'
+import type { IssueId, IssueProjection, IssueUserStateWire } from '@podium/model'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import {
   type IssueModelsProjection,
@@ -66,11 +66,11 @@ function useIssueModelsSelection<T>(
   replica: Replica,
   select: (projection: IssueModelsProjection) => T,
   projectionRows?: readonly IssueProjection[],
-  legacyRows?: readonly IssueWire[],
+  userStateRows?: readonly IssueUserStateWire[],
 ): T {
   const getSnapshot = useCallback(
-    () => select(modelsFor(replica, projectionRows, legacyRows)),
-    [legacyRows, projectionRows, replica, select],
+    () => select(modelsFor(replica, projectionRows, userStateRows)),
+    [userStateRows, projectionRows, replica, select],
   )
   const subscribe = useCallback(
     (onChange: () => void) => subscribeToIssueViews(replica, onChange),
@@ -87,18 +87,18 @@ const selectAllIssueModels = (projection: IssueModelsProjection): IssueViewModel
 export function useIssueViewModels(
   replica: Replica,
   projectionRows?: readonly IssueProjection[],
-  legacyRows?: readonly IssueWire[],
+  userStateRows?: readonly IssueUserStateWire[],
 ): Map<string, IssueViewModel> {
-  return useIssueModelsSelection(replica, selectIssueModelIndex, projectionRows, legacyRows)
+  return useIssueModelsSelection(replica, selectIssueModelIndex, projectionRows, userStateRows)
 }
 
 /** Every issue's flat render model in replica order. The array is shared too. */
 export function useAllIssueViewModels(
   replica: Replica,
   projectionRows?: readonly IssueProjection[],
-  legacyRows?: readonly IssueWire[],
+  userStateRows?: readonly IssueUserStateWire[],
 ): IssueViewModel[] {
-  return useIssueModelsSelection(replica, selectAllIssueModels, projectionRows, legacyRows)
+  return useIssueModelsSelection(replica, selectAllIssueModels, projectionRows, userStateRows)
 }
 
 /** One issue's flat render model. Unchanged peer models retain identity. */
@@ -106,11 +106,11 @@ export function useIssueViewModel(
   replica: Replica,
   issueId: IssueId,
   projectionRows?: readonly IssueProjection[],
-  legacyRows?: readonly IssueWire[],
+  userStateRows?: readonly IssueUserStateWire[],
 ): IssueViewModel | undefined {
   const select = useCallback(
     (projection: IssueModelsProjection) => projection.index.get(issueId),
     [issueId],
   )
-  return useIssueModelsSelection(replica, select, projectionRows, legacyRows)
+  return useIssueModelsSelection(replica, select, projectionRows, userStateRows)
 }

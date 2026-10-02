@@ -1,6 +1,6 @@
 import { bootStage } from '../../boot-timing'
-import type { MachineId, SessionId, SessionMeta } from '@podium/model'
-import { AgentKind } from '@podium/model'
+import type { IssueId, MachineId, SessionId, SessionMeta, SessionUserStateWire } from '@podium/model'
+import { AgentKind, sessionUserStateRowId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -152,7 +152,7 @@ export class SessionRepository {
    *    while a persist is in flight.
    *  - the LIVE TERMINAL half — frames, the cursor, geometry, the activity
    *    counters, and the four {@link SessionVolatileField}s a rollback preserves
-   *    (`geometry`, `status`, `machineId`, `handoffTarget`) — MAY change while
+   *    (`geometry`, `status`, `machineId`, `handoffTargetMachineId`) — MAY change while
    *    persistence is awaiting, and deliberately does: a pty does not stop
    *    producing output because a metadata row is being written. Those fields
    *    are re-captured by the volatile sweep rather than rolled back, which is
@@ -307,7 +307,7 @@ export class SessionRepository {
 
   markVolatileSessionDirty(
     sessionId: SessionId,
-    preserve: SessionVolatileField[] = ['handoffTarget'],
+    preserve: SessionVolatileField[] = ['handoffTargetMachineId'],
     issueRelevant = true,
   ): void {
     const previous = this.pendingVolatileSessions.get(sessionId)
@@ -472,14 +472,25 @@ export class SessionRepository {
     return true
   }
 
-  /** Machine-owned derived fields changed (machineId and/or machineName). */
-  sessionsChangedForMachine(machineId: MachineId): void {
-    for (const session of this.sessions.values()) {
-      if (session.machineId === machineId)
-        this.markVolatileSessionDirty(session.sessionId, ['machineId'])
-    }
-    this.broadcastSessions()
+  /** Rare birth-ref repairs declare affected session rows inside the issue
+   * repair's commit. Reattached sessions still follow their birth issue. */
+  async captureReferenceChanges(issueIds: readonly IssueId[]): Promise<void> {
+    const affected = new Set(issueIds)
+    const sessions = [...this.sessions.values()].filter(
+      (session) => session.refIssueId && affected.has(session.refIssueId),
+    )
+    if (sessions.length === 0) return
+    const pass = await this.view.buildProjectionPass(sessions)
+    await this.ports.ledger.capture(
+      sessions.map((session) => ({
+        entity: 'session',
+        id: session.sessionId,
+        op: 'upsert',
+        value: this.view.wire(session, pass),
+      })),
+    )
   }
+
 
   /**
    * Queue one session's durable writes so a sibling cannot cut or persist
@@ -543,6 +554,7 @@ export class SessionRepository {
   async persist(
     session: Session,
     additionalWrite: () => void | Promise<void> = async () => {},
+    additionalChanges: () => Promise<EntityChangeSpec[]> = async () => [],
   ): Promise<void> {
     // NOTHING DURABLE CHANGED, so the draft is the live state [POD-3330]. This
     // is the write the activity flush, the volatile sweep and the boot install
@@ -556,7 +568,12 @@ export class SessionRepository {
     // live state before a sibling write installed would restate the previous
     // snapshot and clobber it.
     await this.enqueueSessionWrite(session.sessionId, () =>
-      this.persistDraftUnlocked(session, session.captureDurableState(), additionalWrite),
+      this.persistDraftUnlocked(
+        session,
+        session.captureDurableState(),
+        additionalWrite,
+        additionalChanges,
+      ),
     )
   }
 
@@ -619,6 +636,7 @@ export class SessionRepository {
     session: Session,
     draft: SessionDurableState,
     additionalWrite: () => void | Promise<void> = async () => {},
+    additionalChanges: () => Promise<EntityChangeSpec[]> = async () => [],
   ): Promise<void> {
     const pending = this.pendingVolatileSessions.get(session.sessionId)
     // THE DRAFT IS WHAT THIS WRITE PERSISTS [POD-3259, POD-3330], overlayed
@@ -645,6 +663,7 @@ export class SessionRepository {
           await this.store.sessions.upsertSession(session.toRow(toPersist))
         },
         changes: async () => [
+          ...(await additionalChanges()),
           {
             entity: 'session',
             id: session.sessionId,
@@ -989,6 +1008,26 @@ export class SessionRepository {
     const recovered = await this.ports.ledger.reconcile(
       'session',
       sessions.map((s) => ({ id: s.sessionId, value: s })),
+    )
+    // Explicit cleared records must survive a restart: the source tables use
+    // absence for never-read/no-snooze, while replica absence means not loaded.
+    const activeUsers = new Set(
+      (await this.store.users.list()).filter((user) => !user.disabledAt).map((user) => user.id),
+    )
+    const markers = new Map<string, SessionUserStateWire>()
+    for (const value of await this.store.sessions.listSessionUserStateRows(undefined, this.now())) {
+      if (this.sessions.has(value.sessionId) && activeUsers.has(value.userId))
+        markers.set(sessionUserStateRowId(value.userId, value.sessionId), value)
+    }
+    for (const prior of ((await this.ports.ledger.authority?.snapshot('sessionUserState')) ??
+      []) as SessionUserStateWire[]) {
+      const id = sessionUserStateRowId(prior.userId, prior.sessionId)
+      if (!markers.has(id) && this.sessions.has(prior.sessionId) && activeUsers.has(prior.userId))
+        markers.set(id, { userId: prior.userId, sessionId: prior.sessionId, readAt: null })
+    }
+    await this.ports.ledger.reconcile(
+      'sessionUserState',
+      [...markers].map(([id, value]) => ({ id, value })),
     )
     this.publishSessionProjection(recovered)
     bootStage('sessions baseline', baselineStarted)

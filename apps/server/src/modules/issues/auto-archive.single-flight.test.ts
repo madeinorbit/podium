@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueProjection } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   AUTO_ARCHIVE_BOOT_DELAY_MS,
@@ -10,7 +10,7 @@ import {
  *  tick is fired from inside the first, which is the overlap an awaited store
  *  call will produce once the pass yields. */
 describe('IssueAutoArchive single-flight (POD-3258)', () => {
-  const noIssues: IssueWire[] = []
+  const noIssues: IssueProjection[] = []
 
   it('skips a tick that lands on a sweep already running', async () => {
     vi.useFakeTimers()

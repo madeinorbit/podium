@@ -1,3 +1,5 @@
+import '@/test-support/mock-core-store-handle'
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 //
 // BRING BACK (POD-1188) — the inverse of the Tuck chip, reached by right-clicking
@@ -148,10 +150,10 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
-    useReplicaIssues: () => useStore().issues,
+    useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useStoreSelector: (selector: (state: unknown) => unknown) => selector(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
   }
 })
 

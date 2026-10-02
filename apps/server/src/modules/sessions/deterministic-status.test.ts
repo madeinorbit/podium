@@ -8,6 +8,7 @@ import { SessionReadToolkit } from './read-toolkit'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metasAsFacts } from '../../test-support/session-facts'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { readSessionRefs } from './refs'
 
 const ISSUE = {
   id: 'iss_status',
@@ -91,6 +92,8 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
       const wanted = new Set(sessionIds)
       return [meta as SessionMeta].filter((s) => wanted.has(s.sessionId))
     },
+    sessionRefs: async (sessions) => await readSessionRefs(store, sessions),
+    machineName: async (machineId) => await registry.modules.machines.machineName(machineId),
     issues: ({
         resolveRef: async () => ISSUE.id,
         getMeta: async () => ISSUE,

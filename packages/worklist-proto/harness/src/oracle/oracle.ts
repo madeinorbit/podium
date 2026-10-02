@@ -1,3 +1,4 @@
+import { fixtureGitStates, fixtureMarkers } from '../fixture/normalized-issues'
 /**
  * POD-4443 — parity oracle: the exact rows, order and groups the current app
  * would show for a fixture corpus.
@@ -15,7 +16,6 @@ import type { Replica } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import {
   groupUnifiedWorkRows,
-  type IssueNavigationModel,
   indexMissionSessions,
   issueDisplayTitle,
   missionRollup,
@@ -23,15 +23,17 @@ import {
   rowInClosedFold,
   rowMotionPhase,
   rowWaitingCount,
-  sortUnifiedWorkRows,
   splitPinnedWork,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
   unifiedRowBand,
-  type WorklistSlice,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta, IssueWire } from '@podium/model'
+import {
+  type LegacyDerivation,
+  legacyDerivationFromStore,
+  visibleIssueRows,
+} from '@podium/client-graph/diagnostics/legacy'
 import type {
   SliceGroup,
   SliceLocals,
@@ -41,12 +43,17 @@ import type {
 } from '@podium/client-graph/shared/slice-types'
 import type { FixtureCorpus } from '../fixture/index'
 
-import { legacyDerivationFromStore, visibleIssueRows, type LegacyDerivation } from '@podium/client-graph/diagnostics/legacy'
-export { legacyDerivationFromStore, visibleIssueRows, type LegacyDerivation } from '@podium/client-graph/diagnostics/legacy'
+export {
+  type LegacyDerivation,
+  legacyDerivationFromStore,
+  visibleIssueRows,
+} from '@podium/client-graph/diagnostics/legacy'
 
 function stubReplica(corpus: FixtureCorpus): Replica {
   const byKind = {
     issueProjections: corpus.issueProjections,
+    issueUserStates: corpus.issueUserStates ?? fixtureMarkers(corpus.issues),
+    issueGitStates: corpus.issueGitStates ?? fixtureGitStates(corpus.issues),
     issues: corpus.issues,
     repos: corpus.repoProjections,
     issueDeps: corpus.issueDeps,
@@ -79,6 +86,7 @@ export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals):
     replica,
     issues: corpus.issues,
     issueProjections: corpus.issueProjections,
+    issueUserStates: replica.rows('issueUserStates'),
     repos: corpus.repos,
     machines: corpus.machines,
     sessions,
@@ -88,8 +96,12 @@ export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals):
   const slice = worklistSlice.derive(store)
   // The same shared model cache the slice derived from: identical inputs, so
   // the progress fallback below reads the same objects, never a rebuild.
-  const models = allIssueViewModels(replica, corpus.issueProjections, corpus.issues)
-  return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths, temporaryIssues: corpus.issues }
+  const models = allIssueViewModels(
+    replica,
+    corpus.issueProjections,
+    replica.rows('issueUserStates'),
+  )
+  return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths }
 }
 
 function projectRow(

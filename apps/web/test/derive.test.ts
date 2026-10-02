@@ -1,3 +1,4 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import {
   agentBadge,
   chatActivity,
@@ -20,8 +21,6 @@ import {
   type GitRepositoryWire,
   isSnoozed,
   returnedFromSnooze,
-  type SessionMeta,
-  type SessionMetaInput,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
 } from '@podium/model'
@@ -40,7 +39,7 @@ describe('defaultChatCapable', () => {
 })
 
 /** Tests build ids from plain strings; the SessionId brand is a compile-time tag only. */
-const sid = (id: string) => id as SessionMeta['sessionId']
+const sid = (id: string) => id as SessionView['sessionId']
 
 const repo: GitRepositoryWire = {
   path: '/src/app',
@@ -49,7 +48,7 @@ const repo: GitRepositoryWire = {
   worktrees: [{ path: '/src/app-feat', branch: 'feat' }],
 }
 
-const session = (cwd: string): SessionMeta =>
+const session = (cwd: string): SessionView =>
   ({
     sessionId: sid(`s-${cwd}`),
     agentKind: 'claude-code',
@@ -64,7 +63,7 @@ const session = (cwd: string): SessionMeta =>
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
     archived: false,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 describe('reposToViews', () => {
   it('lists the repo checkout as main plus linked worktrees', () => {
@@ -175,7 +174,7 @@ describe('exitedRecovery', () => {
 })
 
 describe('orphanSessionFor', () => {
-  const mk = (sessionId: string, cwd: string, archived = false): SessionMeta => ({
+  const mk = (sessionId: string, cwd: string, archived = false): SessionView => ({
     ...session(cwd),
     sessionId: sid(sessionId),
     archived,
@@ -325,7 +324,7 @@ describe('pin-aware navigation derivation', () => {
 })
 
 describe('orderTabs', () => {
-  const named = (id: string): SessionMeta => ({ ...session('/src/app'), sessionId: sid(id) })
+  const named = (id: string): SessionView => ({ ...session('/src/app'), sessionId: sid(id) })
 
   it('keeps arrival order when no manual order exists (pin-first is retired, POD-169)', () => {
     const sessions = [named('a'), named('b')]
@@ -359,13 +358,13 @@ describe('orderTabs', () => {
 })
 
 const stateAt = (
-  phase: NonNullable<SessionMeta['agentState']>['phase'],
+  phase: NonNullable<SessionView['agentState']>['phase'],
   extra: Record<string, unknown> = {},
 ) =>
   ({ phase, since: '2026-06-12T10:00:00.000Z', nativeSubagentCount: 0, ...extra }) as NonNullable<
-    SessionMeta['agentState']
+    SessionView['agentState']
   >
-const sessionWithState = (agentState?: SessionMeta['agentState']): SessionMeta => ({
+const sessionWithState = (agentState?: SessionView['agentState']): SessionView => ({
   ...session('/src/app'),
   ...(agentState ? { agentState } : {}),
 })
@@ -490,9 +489,9 @@ describe('partitionWorkItems', () => {
   // Real status values: 'live' | 'starting' | 'reconnecting' | 'hibernated' | 'exited'
   const s = (
     id: string,
-    phase: NonNullable<SessionMeta['agentState']>['phase'] | null,
-    status: SessionMeta['status'] = 'live',
-  ): SessionMeta =>
+    phase: NonNullable<SessionView['agentState']>['phase'] | null,
+    status: SessionView['status'] = 'live',
+  ): SessionView =>
     ({
       sessionId: sid(id),
       agentKind: 'claude-code',
@@ -508,7 +507,7 @@ describe('partitionWorkItems', () => {
       origin: { kind: 'spawn' },
       archived: false,
       ...(phase != null ? { agentState: { phase, since: '', nativeSubagentCount: 0 } } : {}),
-    }) as unknown as SessionMeta
+    }) as unknown as SessionView
 
   it('partitions sessions by state and also lists pinned ones in pinnedPanels', () => {
     // 'idle' → attention, 'working' → working, 'needs_user' → attention
@@ -520,7 +519,7 @@ describe('partitionWorkItems', () => {
   })
 
   it('excludes archived sessions from all buckets', () => {
-    const archived: SessionMeta = { ...s('z', 'idle'), archived: true }
+    const archived: SessionView = { ...s('z', 'idle'), archived: true }
     const { attention, working, pinnedPanels } = partitionWorkItems([archived], new Set())
     expect(attention).toHaveLength(0)
     expect(working).toHaveLength(0)
@@ -558,7 +557,7 @@ describe('partitionWorkItems', () => {
   })
 })
 
-const base = (over: Partial<SessionMetaInput>): SessionMeta =>
+const base = (over: Partial<SessionViewInput>): SessionView =>
   ({
     sessionId: 's',
     agentKind: 'claude-code',
@@ -574,7 +573,7 @@ const base = (over: Partial<SessionMetaInput>): SessionMeta =>
     origin: { kind: 'spawn' },
     archived: false,
     ...over,
-  }) as SessionMeta
+  }) as SessionView
 
 describe('returnedFromSnooze', () => {
   const now = Date.parse('2026-06-12T12:00:00.000Z')
@@ -878,12 +877,12 @@ describe('sessionDotClass', () => {
 })
 
 describe('pinned panel ordering & co-location', () => {
-  const work = (cwd: string, id: string): SessionMeta => ({
+  const work = (cwd: string, id: string): SessionView => ({
     ...session(cwd),
     sessionId: sid(id),
     agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
   })
-  const needs = (cwd: string, id: string): SessionMeta => ({
+  const needs = (cwd: string, id: string): SessionView => ({
     ...session(cwd),
     sessionId: sid(id),
     agentState: {
@@ -909,17 +908,17 @@ describe('pinned panel ordering & co-location', () => {
 
 const NOW = Date.parse('2026-06-19T12:00:00.000Z')
 const withState = (
-  s: SessionMeta,
-  phase: NonNullable<SessionMeta['agentState']>['phase'],
+  s: SessionView,
+  phase: NonNullable<SessionView['agentState']>['phase'],
   extra: Record<string, unknown> = {},
-): SessionMeta => ({
+): SessionView => ({
   ...s,
   agentState: {
     phase,
     since: '2026-06-19T00:00:00.000Z',
     nativeSubagentCount: 0,
     ...extra,
-  } as NonNullable<SessionMeta['agentState']>,
+  } as NonNullable<SessionView['agentState']>,
 })
 
 describe('isSnoozed', () => {

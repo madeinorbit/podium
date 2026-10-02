@@ -1,9 +1,9 @@
 import { describeError } from '@podium/logger'
 import {
-  integrationReceiptMatchesOrder,
   type DescendantTip,
   type IssueId,
-  type IssueWire,
+  type IssueProjection,
+  integrationReceiptMatchesOrder,
 } from '@podium/model'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { IssueRow } from '../../../store'
@@ -80,7 +80,7 @@ export class IssueEpicIntegrationModule {
   async integrate(
     id: string,
     principal: CommandPrincipal,
-  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     const row = await this.store.rowOrThrow(id)
     // Per-epic in-flight guard: two overlapping runs would interleave resets/rebases
     // in the SAME integration worktree. Re-entry refuses cleanly with zero repoOps.
@@ -88,7 +88,7 @@ export class IssueEpicIntegrationModule {
       return {
         ok: false,
         output: `integration already running for #${row.seq}`,
-        issue: await this.store.toWire(row),
+        issue: await this.store.projection(row),
       }
     }
     this.integratingEpics.add(row.id)
@@ -102,11 +102,13 @@ export class IssueEpicIntegrationModule {
   private async integrateRun(
     row: IssueRow,
     principal: CommandPrincipal,
-  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const refuse = async (output: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> => ({
+  ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
+    const refuse = async (
+      output: string,
+    ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> => ({
       ok: false,
       output,
-      issue: await this.store.toWire(row),
+      issue: await this.store.projection(row),
     })
     // Preconditions: the target must have children, ≥1 of them closed with a branch.
     const children = [...this.store.rows.values()].filter((r) => r.parentId === row.id)
@@ -286,28 +288,28 @@ export class IssueEpicIntegrationModule {
           descendants: descendantTips,
         })
       } catch (error) {
-        return await refuse(
-          `integrate: receipt persistence failed: ${this.errorSummary(error)}`,
-        )
+        return await refuse(`integrate: receipt persistence failed: ${this.errorSummary(error)}`)
       }
     }
     // Comment dedup: rebuild runs are idempotent, so an unchanged outcome must not
     // spam a new comment — skip when the latest integrate comment is identical.
-    const prior = (await this.store.d.store.issues
-      .listIssueComments(row.id))
+    const prior = (await this.store.d.store.issues.listIssueComments(row.id))
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
     if (prior?.body !== summary)
       await this.commentsMail().addComment(row.id, 'system:integrate', summary, principal)
     if (blockedAt != null) {
-      await this.attention().setNeedsHuman(row.id, `integration blocked at #${blockedAt}: ${blockedWhy}`)
+      await this.attention().setNeedsHuman(
+        row.id,
+        `integration blocked at #${blockedAt}: ${blockedWhy}`,
+      )
     }
     await this.store.emitEvent('issue.integration', row.id, {
       epicSeq: row.seq,
       integrated,
       ...(blockedAt != null ? { blockedAt } : {}),
     })
-    return { ok: blockedAt == null, output: summary, issue: await this.store.toWire(row) }
+    return { ok: blockedAt == null, output: summary, issue: await this.store.projection(row) }
   }
 
   /** Current non-deleted descendant closure. Tips from this traversal are never

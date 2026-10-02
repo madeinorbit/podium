@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * Pure command-palette model (no React): the command shape, the cmdk-inspired
  * subsequence scorer, and the grouped filter the palette renders from. Kept
@@ -27,7 +28,7 @@
  * offered before there is one (`rest: 0`).
  */
 
-import type { SessionMeta } from '@podium/model/browser'
+
 import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import type { ComponentType } from 'react'
 
@@ -62,7 +63,7 @@ export interface PaletteCommand {
   /** Rich identity for task rows; filtering still uses label/keywords. */
   issueReference?: IssueReferenceModel
   /** Rich identity for agent rows — carries the live working/waiting glyph. */
-  session?: SessionMeta
+  session?: SessionView
   /** Leading glyph for rows that have no richer identity. */
   icon?: PaletteIcon
   run: () => void | Promise<void>

@@ -1,5 +1,6 @@
-import { asSessionId, asThreadId, type SessionMeta, type TranscriptItem } from '@podium/model'
+import { asSessionId, asThreadId, type TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView } from '../../session-values'
 import { buildChatRows, pairToolResults } from '../chat'
 import {
   chatActivityState,
@@ -23,7 +24,7 @@ const item = (over: Partial<TranscriptItem> & Pick<TranscriptItem, 'role'>): Tra
   ...over,
 })
 
-const session = (over: Partial<SessionMeta> = {}): SessionMeta =>
+const session = (over: Partial<SessionView> = {}): SessionView =>
   ({
     sessionId: asSessionId('s1'),
     cwd: '/repo',
@@ -40,7 +41,7 @@ const session = (over: Partial<SessionMeta> = {}): SessionMeta =>
     unread: false,
     title: 't',
     ...over,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 const blocksOf = (items: TranscriptItem[]) => pairToolResults(items)
 
@@ -48,7 +49,7 @@ describe('attribution is a pair, read and never synthesised', () => {
   it('keeps actor and on-behalf-of apart, and reports an uncarried half as unknown', () => {
     const pair = transcriptAttribution(
       item({ role: 'assistant', text: 'hi' }),
-      session({ name: 'Reviewer', agentKind: 'claude-code' } as Partial<SessionMeta>),
+      session({ name: 'Reviewer', agentKind: 'claude-code' } as Partial<SessionView>),
     )
     expect(pair.actorKind).toBe('agent')
     expect(pair.actorId).toBe('Reviewer')
@@ -61,7 +62,7 @@ describe('attribution is a pair, read and never synthesised', () => {
   it('never borrows the agent name for a human turn', () => {
     const pair = transcriptAttribution(
       item({ role: 'user', text: 'do the thing' }),
-      session({ name: 'Reviewer' } as Partial<SessionMeta>),
+      session({ name: 'Reviewer' } as Partial<SessionView>),
     )
     expect(pair.actorKind).toBe('human')
     expect(pair.actorId).toBeUndefined()
@@ -70,7 +71,7 @@ describe('attribution is a pair, read and never synthesised', () => {
   it('reads a carried null as "no human", distinct from unknown', () => {
     const pair = transcriptAttribution(
       item({ role: 'assistant', text: 'x' }),
-      session({ onBehalfOf: null } as unknown as Partial<SessionMeta>),
+      session({ onBehalfOf: null } as unknown as Partial<SessionView>),
     )
     expect(pair.onBehalfOf).toBeNull()
     expect(pair.delegated).toBe(false)
@@ -390,7 +391,7 @@ describe('composer, queue, offer and activity', () => {
         nativeSubagentCount: 0,
         error: { class: 'usage_limit', retryable: false, detail: 'API quota exhausted' },
       },
-    } as Partial<SessionMeta>)
+    } as Partial<SessionView>)
     const composer = composerState({
       session: blocked,
       headless: false,
@@ -428,7 +429,7 @@ describe('composer, queue, offer and activity', () => {
         nativeSubagentCount: 0,
         error: { class: 'authentication', retryable: false, detail: 'token expired' },
       },
-    } as Partial<SessionMeta>)
+    } as Partial<SessionView>)
     expect(
       composerState({
         session: blocked,
@@ -447,7 +448,7 @@ describe('composer, queue, offer and activity', () => {
     const parkedWithQueue = session({
       status: 'hibernated',
       queuedMessageCount: 1,
-    } as Partial<SessionMeta>)
+    } as Partial<SessionView>)
 
     it('says the agent is waking rather than offering to resume it', () => {
       expect(
@@ -476,7 +477,7 @@ describe('composer, queue, offer and activity', () => {
     it('carries the wake through the resurrect, while the process is `starting`', () => {
       expect(
         chatActivityState({
-          session: session({ status: 'starting', queuedMessageCount: 2 } as Partial<SessionMeta>),
+          session: session({ status: 'starting', queuedMessageCount: 2 } as Partial<SessionView>),
           headless: false,
           turnRunning: false,
           justSent: false,
@@ -516,7 +517,7 @@ describe('composer, queue, offer and activity', () => {
 
   it('hides the offer optimistically by createdAt, and always for headless', () => {
     const offer = { createdAt: 'T1', message: 'm', actions: [] }
-    const withOffer = session({ offer } as unknown as Partial<SessionMeta>)
+    const withOffer = session({ offer } as unknown as Partial<SessionView>)
     expect(visibleOffer({ session: withOffer, headless: false, dismissedOfferAt: null })).toBe(
       offer,
     )
@@ -552,7 +553,7 @@ describe('composer, queue, offer and activity', () => {
       chatActivityState({
         session: session({
           agentState: { phase: 'idle', idle: { kind: 'interrupted' } },
-        } as Partial<SessionMeta>),
+        } as Partial<SessionView>),
         headless: false,
         turnRunning: false,
         justSent: false,
@@ -562,7 +563,7 @@ describe('composer, queue, offer and activity', () => {
       chatActivityState({
         session: session({
           agentState: { phase: 'errored', error: { class: 'rate_limit', retryable: true } },
-        } as Partial<SessionMeta>),
+        } as Partial<SessionView>),
         headless: false,
         turnRunning: false,
         justSent: false,

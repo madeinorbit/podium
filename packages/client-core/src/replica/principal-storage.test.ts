@@ -1,15 +1,15 @@
-import { asUserId } from '@podium/model'
-import { asClientPrincipal, samePrincipal, principalKey } from '../principal'
 import { addSink } from '@podium/logger'
+import { asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { asClientPrincipal, principalKey, samePrincipal } from '../principal'
 import type { StorageApi, StorageEventApi } from './contract'
 import { createSideCache } from './kernel/side-cache'
 import {
   type PrincipalNamespacePolicy,
+  parseReplicaNamespaceKey,
   preparePrincipalNamespace,
   principalKeyPrefix,
   replicaNamespaceKey,
-  parseReplicaNamespaceKey,
 } from './principal-storage'
 import { createReplica } from './replica'
 
@@ -61,7 +61,7 @@ describe('principal replica storage', () => {
     })
     const aliceUi = createReplica({ storage: memory.api, keyPrefix: alice.keyPrefix }).uiState()
     aliceUi.set('podium.panelMode', '{"s1":"chat"}')
-    aliceUi.set('podium.view', 'issues')
+    aliceUi.set('podium.view', 'issueProjections')
     await new Promise((r) => setTimeout(r, 0))
 
     const bob = preparePrincipalNamespace({
@@ -185,7 +185,7 @@ describe('principal replica storage', () => {
 
   it('legacy inputs are consumed once by the acting principal; theme alone remains raw', () => {
     const memory = keyedStorage()
-    memory.api.setItem('podium.view', 'issues')
+    memory.api.setItem('podium.view', 'issueProjections')
     memory.api.setItem('podium.theme.mode', 'dark')
     memory.api.setItem(
       'podium.outbox.v1',
@@ -197,7 +197,7 @@ describe('principal replica storage', () => {
       enumerateKeys: memory.keys,
       keyPrefix: alicePrefix,
     })
-    expect(alice.uiState().get('podium.view')).toBe('issues')
+    expect(alice.uiState().get('podium.view')).toBe('issueProjections')
     expect(
       alice
         .outboxStorage()

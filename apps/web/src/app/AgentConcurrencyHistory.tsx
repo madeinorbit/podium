@@ -1,5 +1,8 @@
+import type { SessionView } from '@podium/client-core/session-values'
+import { headerDataLayer } from '@/lib/header-data-layer'
+import { usePoolConcurrencyHistory } from './header-data'
 import { Popover } from '@base-ui/react/popover'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { type JSX, useEffect, useMemo, useState } from 'react'
 import { StatusMetric } from './StatusMetric'
 import { shareAgentConcurrency } from './status-share'
@@ -46,34 +49,12 @@ export function AgentConcurrencyHistory({
   workingSessions,
   trpc,
 }: {
-  workingSessions: SessionMeta[]
+  workingSessions: readonly Pick<SessionView, 'sessionId' | 'name' | 'title' | 'displayRef' | 'agentKind'>[]
   trpc: Trpc
 }): JSX.Element {
-  const [history, setHistory] = useState<HistoryResult | null>(null)
   const working = workingSessions.length
-
-  useEffect(() => {
-    let disposed = false
-    const load = (): void => {
-      void trpc.sessions.concurrencyHistory
-        .query()
-        .then((next) => {
-          if (!disposed && validHistory(next)) {
-            const buckets = next.buckets.map((bucket) => ({ ...bucket }))
-            const latest = buckets.at(-1)
-            if (latest) latest.count = Math.max(latest.count, working)
-            setHistory({ ...next, peak: Math.max(next.peak, working), buckets })
-          }
-        })
-        .catch(() => {})
-    }
-    load()
-    const timer = window.setInterval(load, REFRESH_MS)
-    return () => {
-      disposed = true
-      window.clearInterval(timer)
-    }
-  }, [trpc, working])
+  const useHistory = headerDataLayer() === 'pool' ? usePoolConcurrencyHistory : useLegacyConcurrencyHistory
+  const history = useHistory(trpc, working)
 
   const buckets = useMemo(() => {
     const next =
@@ -144,4 +125,32 @@ export function AgentConcurrencyHistory({
       shareText={shareAgentConcurrency(working)}
     />
   )
+}
+
+function useLegacyConcurrencyHistory(trpc: Trpc, working: number) {
+  const [history, setHistory] = useState<HistoryResult | null>(null)
+  useEffect(() => {
+    let disposed = false
+    const load = (): void => {
+      void trpc.sessions.concurrencyHistory
+        .query()
+        .then((next) => {
+          if (!disposed && validHistory(next)) {
+            const buckets = next.buckets.map((bucket) => ({ ...bucket }))
+            const latest = buckets.at(-1)
+            if (latest) latest.count = Math.max(latest.count, working)
+            setHistory({ ...next, peak: Math.max(next.peak, working), buckets })
+          }
+        })
+        .catch(() => {})
+    }
+    load()
+    const timer = window.setInterval(load, REFRESH_MS)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [trpc, working])
+
+  return history
 }

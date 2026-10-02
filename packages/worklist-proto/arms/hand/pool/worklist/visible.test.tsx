@@ -1,3 +1,5 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
+import { upsertIssue } from '../../../../shared/src/scenarios'
 // @vitest-environment happy-dom
 /**
  * POD-4582 (Hb1) — the visible collection and its order on the live engine,
@@ -26,6 +28,11 @@ import { act, type ReactElement, useCallback, useState, useSyncExternalStore } f
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it } from 'vitest'
 import {
+  type HarnessHandPoolHandle,
+  harnessHandPoolArm,
+  poolPendingLoads,
+} from '../../../../harness/src/adapters/hand-pool'
+import {
   assertCommits,
   assertReads,
   mountArmForCounts,
@@ -49,10 +56,8 @@ import { CommitLogContext, currentCommitLog, RowShell } from '../../../../shared
 import {
   type ScenarioEngine,
   startScenarioEngine,
-  upsert,
   writeTitleRename,
 } from '../../../../shared/src/scenarios'
-import { harnessHandPoolArm, poolPendingLoads, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 import type { HandPool } from '../pool'
 import { PoolRow } from '../react/row'
 
@@ -266,9 +271,9 @@ describe('visible collection and order (Hb1)', () => {
       mounted.log.reset()
       pool.stats.reset()
       await act(async () => {
-        const wire = ctx.cache.read('issue', target!)?.value as object | undefined
+        const wire = ctx.cache.read('issueProjection', target!)?.value as object | undefined
         expect(wire).toBeDefined()
-        ctx.replica.batch(() => upsert(ctx, 'issue', target!, { ...wire, pinned: true }))
+        ctx.replica.batch(() => upsertIssue(ctx, target!, { ...wire, pinned: true }))
         await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
         feeds.flush()
       })
@@ -413,7 +418,11 @@ async function runHiddenSpinOffRename(
   const visible = rowViewsFromStore(store, engineLocals(ctx))
   let origin: string | undefined
   let spinOff: string | undefined
-  for (const issue of store.issues) {
+  for (const issue of allIssueViewModels(
+    store.replica,
+    store.issueProjections,
+    store.issueUserStates,
+  )) {
     const from = issue.deps?.find((dep) => dep.type === 'discovered-from')?.id
     if (from === undefined || visible[from] === undefined) continue
     if (issue.closedAt != null || visible[issue.id] !== undefined) continue

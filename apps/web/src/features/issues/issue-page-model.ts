@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * Viewmodel for the issue page (P5d, issue #264): the busy/error mutation
  * runner, the lazy comment thread, the event-log drain, and the pure
@@ -13,9 +14,9 @@ import {
   type IssueEvent,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model/browser'
+import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Store } from '@/app/store'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -67,9 +68,9 @@ export interface IssuePageModel {
   /** This issue's member sessions, resolved against the session world. The Now
    *  block and the rail's roster both render from this one list (POD-591), so
    *  they can never disagree about who is on the task. */
-  memberSessions: SessionMeta[]
+  memberSessions: SessionView[]
   /** The visible session world, used to resolve canonical state for child rows. */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** [spec:SP-a1c0] (#411) Route through the central action — never roll
    *  per-feature navigation (setPane+setView flips the URL then reverts). */
   openSession: (sessionId: SessionId) => void
@@ -81,7 +82,6 @@ export interface IssuePageModel {
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
   const {
     trpc,
-    hub,
     sessions,
     navigateToSession,
     updateIssue,
@@ -94,7 +94,6 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      hub: s.hub,
       sessions: s.sessions,
       navigateToSession: s.navigateToSession,
       updateIssue: s.updateIssue,
@@ -110,15 +109,14 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   const issues = useReplicaIssues()
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<IssueEvent[]>([])
+  const drainEvents = useRef<(() => void) | null>(null)
   const [comments, setComments] = useState<ActivityComment[]>([])
   const [mail, setMail] = useState<IssueMailMessage[]>([])
 
-  // Seed comments on issue switch from the (legacy, pre-#175) embedded thread if
-  // the wire still carries one; the lazy fetch below replaces it with server
-  // truth.
+  // A new issue starts empty; its comments are loaded on demand below.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {
-    setComments(issue.comments ?? [])
+    setComments([])
   }, [issue.id])
 
   // Lazy comment fetch (#175): comment bodies no longer ride IssueViewModel — fetch
@@ -136,7 +134,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
       .then(() => loadIssueComments(trpc, issue.id))
       .then((rows) => {
         if (cancelled) return
-        setComments(rows.length === 0 ? (issue.comments ?? []) : rows)
+        setComments(rows)
       })
       .catch(() => {
         // best-effort — keep whatever we already have
@@ -174,14 +172,16 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   // page holds only rows this feed will render — no repo-wide download, and no
   // issue silently emptied by its events falling outside the newest page. On
   // open we drain to the end, then advance the cursor and let each
-  // `issuesChanged` broadcast pull only the new tail. This is best-effort: a
+  // normalized issue update pull only the new tail. This is best-effort: a
   // fetch error just leaves the comment-only feed intact.
-  // Deps are the issue identity only — `trpc`/`hub` are stable store singletons,
+  // Deps are the issue identity only — `trpc` are stable store singletons,
   // so keying on them would just risk a refetch loop if their identity churned.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload only on issue switch; trpc/hub are stable
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload only on issue switch; trpc are stable
   useEffect(() => {
     let cancelled = false
     let since = 0
+    let draining = false
+    let pending = false
     const absorb = (rows: IssueEvent[]): void => {
       if (cancelled || rows.length === 0) return
       since = rows.reduce((m, r) => Math.max(m, r.id), since)
@@ -192,29 +192,49 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
       })
     }
     const drain = (): void => {
-      loadIssueEventsPage(trpc, {
-        since,
-        repoPath: issue.repoPath,
-        subject: issue.id,
-        limit: EVENTS_PAGE,
-      })
-        .then((rows) => {
-          if (cancelled) return
-          absorb(rows)
-          if (rows.length === EVENTS_PAGE) drain() // a full page means more remain
-        })
-        .catch(() => {
-          // best-effort — keep whatever we already have
-        })
+      if (cancelled) return
+      if (draining) {
+        pending = true
+        return
+      }
+      draining = true
+      pending = false
+      const step = async (): Promise<void> => {
+        try {
+          let rows: IssueEvent[]
+          let previous: number
+          do {
+            previous = since
+            rows = await loadIssueEventsPage(trpc, {
+              since,
+              repoPath: issue.repoPath,
+              subject: issue.id,
+              limit: EVENTS_PAGE,
+            })
+            if (cancelled) return
+            absorb(rows)
+          } while (rows.length === EVENTS_PAGE && since > previous)
+        } catch {
+          // Best effort: preserve the history already loaded.
+        } finally {
+          draining = false
+          if (pending && !cancelled) drain()
+        }
+      }
+      void step()
     }
     setEvents([])
-    drain()
-    const off = hub.onIssues(() => drain())
+    drainEvents.current = drain
     return () => {
       cancelled = true
-      off()
+      drainEvents.current = null
     }
   }, [issue.id, issue.repoPath])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A selected issue or new issue revision must restart the event drain held in the ref.
+  useEffect(() => {
+    drainEvents.current?.()
+  }, [issue.id, issue.repoPath, issue.updatedAt])
 
   // A REFUSED WRITE IS AN ALERT, NOT A FOOTNOTE (POD-1266). This used to set a
   // string that IssuePage drew as a muted strip pinned under the whole page —
@@ -260,7 +280,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     sessions,
     memberSessions: (issue.memberSessionIds ?? [])
       .map((id) => (sessions ?? []).find((session) => session.sessionId === id))
-      .filter((session): session is SessionMeta => session !== undefined),
+      .filter((session): session is SessionView => session !== undefined),
     openSession: navigateToSession,
     children: subIssuesOf(issues, issue.id),
     appendLocalComment: (body) =>

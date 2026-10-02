@@ -1,3 +1,4 @@
+import { clientSessionViews } from './test-support/session-views'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -757,10 +758,10 @@ describe('queueText (durable outbox sends)', () => {
       sessionId: asSessionId(sessionId),
       until: null,
     })
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.snoozedUntil).toBeNull()
+    expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeNull()
 
     await reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })
-    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {})).toBe(false)
+    expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeUndefined()
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
   })
 })

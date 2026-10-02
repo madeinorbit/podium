@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 
 /**
@@ -6,7 +7,7 @@
  * rail's Branch section were showing the same branch, the same merge axis and
  * the same dirty count side by side.
  */
-import type { SessionMeta } from '@podium/model'
+
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -14,7 +15,7 @@ import { IssueDetailHeader } from './IssueDetailHeader'
 
 vi.mock('@/app/store', () => ({ useReplicaIssues: () => [] }))
 
-const working = (id: string): SessionMeta =>
+const working = (id: string): SessionView =>
   ({
     sessionId: id,
     issueId: 'issue',
@@ -24,9 +25,9 @@ const working = (id: string): SessionMeta =>
     archived: false,
     lastActiveAt: '2026-08-10T12:00:00.000Z',
     agentState: { phase: 'working', since: '2026-08-10T12:00:00.000Z', nativeSubagentCount: 0 },
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
-const renderHeader = (sessions: SessionMeta[] = []): ReturnType<typeof render> =>
+const renderHeader = (sessions: SessionView[] = []): ReturnType<typeof render> =>
   render(
     <IssueDetailHeader
       issue={makeIssue({

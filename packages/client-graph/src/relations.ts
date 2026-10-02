@@ -92,6 +92,7 @@
  */
 
 import { type ObservableMap, type ObservableSet, observable } from 'mobx'
+import { debugName } from './debug-name'
 import type { RelationReader } from './shared/relation-reader'
 import { relationRef } from './shared/links'
 
@@ -365,11 +366,11 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           inputs: linkInputs(spec),
           forward: observable.map<string, string>(undefined, {
             deep: false,
-            name: `pool.${from}.${name}`,
+            name: debugName(() => `pool.${from}.${name}`),
           }),
           buckets: observable.map<string, ObservableSet<string>>(undefined, {
             deep: false,
-            name: `pool.${spec.to}.${spec.inverse}`,
+            name: debugName(() => `pool.${spec.to}.${spec.inverse}`),
           }),
           under: prefix ? new Map() : null,
           placed: prefix ? new Map() : null,
@@ -382,7 +383,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
             spec: subsetSpec,
             sets: observable.map<string, ObservableSet<string>>(undefined, {
               deep: false,
-              name: `pool.${spec.to}.${spec.inverse}.${subset}`,
+              name: debugName(() => `pool.${spec.to}.${spec.inverse}.${subset}`),
             }),
           })),
         }
@@ -883,7 +884,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     if (set === undefined) {
       set = observable.set<string>(undefined, {
         deep: false,
-        name: `pool.${link.collection}.${subset.name}.bucket`,
+        name: debugName(() => `pool.${link.collection}.${subset.name}.bucket`),
       })
       subset.sets.set(target, set)
     }
@@ -1083,7 +1084,7 @@ function peekBucket(link: Link, target: string): ReadonlySet<string> {
 function newBucket(link: Link): ObservableSet<string> {
   return observable.set<string>(undefined, {
     deep: false,
-    name: `pool.${link.collection}.bucket`,
+    name: debugName(() => `pool.${link.collection}.bucket`),
   })
 }
 

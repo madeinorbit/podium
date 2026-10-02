@@ -20,10 +20,7 @@ import { ptySmokeTests, realAgentSmokeTests } from './vitest.smoke-requirements'
  *
  * Drift guard: scripts/test-configuration.test.ts asserts the lane invariants.
  */
-export const normalizedWireTests = [
-  'apps/server/src/issues.normalized-wire.test.ts',
-  'apps/server/src/issues.normalized-wire.bench.test.ts',
-]
+export const normalizedWireTests = ['apps/server/src/issues.normalized-wire.test.ts']
 
 /**
  * Unit-lane exclusions shared by the root node project and package-local configs.

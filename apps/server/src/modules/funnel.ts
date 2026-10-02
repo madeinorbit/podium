@@ -1,8 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type {
-  MetadataChange,
-  Principal,
-} from '@podium/protocol'
+import type { MetadataChange, Principal } from '@podium/protocol'
 import {
   type AuthorityPort,
   DEVICE_GRADE_PRINCIPAL,
@@ -58,50 +55,6 @@ export interface FeedServingPort {
   retentionFloor(): number | Promise<number>
 }
 
-/**
- * THE write funnel (issue #13 Phase 2 step 3; slimmed to its real shape in
- * P2f, [spec:SP-3fe2] #258): every mutation flows authorize → repository
- * write → change append → broadcast, in that order and nowhere else. "Durable
- * before fan-out" (oplog-read-path §2.5) holds by construction rather than by
- * convention at each call site.
- *
- * EVERY entity kind is ledger-owned ([spec:SP-3fe2] #255 issues, #256
- * sessions, #257 conversations): changes are captured at the WRITE seam by the
- * injected {@link Ledger} (atomic with the entity write). What survives here:
- *
- *  - {@link run} — authorize → write ordering for the write-only call sites
- *    (issue mail, subscriptions: durable writes with no publishable change);
- *  - the ordered, COALESCED delivery pipe ({@link flushDeltas}) fed by the
- *    Authority's per-principal subscription;
- *  - {@link changesSince}/{@link cursor} passthroughs for the
- *    `sync.changesSince` read path.
- *
- * WHAT LEFT AT THE SERVING-PATH CUTOVER (POD-1203): `publishComputed`, the
- * legacy full-list snapshot tail. Thirteen call sites across five features each
- * rebuilt their own list and handed it here to be fanned out beside the delta
- * pipe — two paths over one truth, agreeing by assumption. Legacy clients still
- * receive those messages; they are now built at the connection boundary, from
- * this feed, in `gateway/legacy-wire-v1-adapter.ts`, and they expire with it.
- *
- * ---------------------------------------------------------------------------
- * COALESCING HAPPENS HERE, BEFORE FRAMING, AND THAT ORDER IS THE DECISION
- * ---------------------------------------------------------------------------
- *
- * An async burst — boot reconcile, a bind-storm's per-session commits —
- * arrives as many appends. Coalescing them after scheduler idle BEFORE they reach
- * `FeedPublisher` means the burst becomes ONE certified frame per connection,
- * exactly as it used to become one `metadataDelta`. Coalescing after framing is
- * not available: a certified range may only be merged by range extension and
- * only when at most one side carries rows (D13.2/D13.3), so the publisher would
- * have had to emit one frame per commit and a reconnect storm would multiply
- * them by the connection count.
- *
- * Merging two evaluated ranges is sound in exactly the way the publisher's own
- * coalescing is: `(a, b]` followed by `(b, c]` is `(a, c]`, the rows keep their
- * seq order, and no seq between them goes uncertified. A `rescope` cannot be
- * merged into anything — it is a different arm with a different meaning — so it
- * flushes what is pending and goes out on its own, in order.
- */
 export class WriteFunnel {
   constructor(private readonly deps: WriteFunnelDeps) {
     // Ledger-appended changes (commits + reconciles, #255/#256/#257) fire the
@@ -128,7 +81,6 @@ export class WriteFunnel {
       // same ordered pipe as everything else.
       //
       // The `evict` refusal that lived here has MOVED rather than been dropped —
-      // it is in `legacy-wire-v1-adapter.ts`, at the only boundary where an evict
       // is genuinely inexpressible. That is the point of the cutover: a scoped
       // principal must be served wire v2 or not served, and the failure is loud
       // at the edge that cannot express it instead of loud for everyone.

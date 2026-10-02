@@ -77,6 +77,6 @@ export function planNavigation(
   const issue = context.visible ? foregroundIssue({ ...landing, ...patch }) : undefined
   patch.issueVisitBaseline = !issue ? null : state.issueVisitBaseline?.issueId === issue.id
     ? state.issueVisitBaseline
-    : { issueId: issue.id, readAt: issue.readAt, openedAt: context.now }
+    : { issueId: issue.id, readAt: state.issueUserStates.find(marker => marker.entityId === issue.id)?.readAt ?? null, openedAt: context.now }
   return { patch, route, key, replace: intent.history !== 'push' && current.view === intent.view }
 }

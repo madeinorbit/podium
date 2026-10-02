@@ -2,14 +2,15 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  asMutationId,
   asIssueId,
   asMachineId,
+  asMutationId,
   asUserId,
   firstAdminMemberId,
   type SessionId,
 } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
@@ -26,8 +27,8 @@ import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { attachTestClient } from './test-support/client-transport'
-import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
 
 /**
@@ -82,6 +83,13 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // A client attached from the start observes everything live.
     const witness = sink()
     const witnessId = attachTestClient(reg.clientGateway, witness.send)
+    await reg.clientGateway.routeClientFrame(witnessId, {
+      type: 'hello',
+      clientId: witnessId,
+      wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: ['sync.http.v1'],
+    })
     await reg.clientGateway.routeClientFrame(witnessId, { type: 'attach', sessionId })
 
     // Three frames before the disconnect. The daemon bridge seq (0,1,2) is
@@ -97,17 +105,21 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
 
     // Daemon connection drops: the session degrades to reconnecting (not exited).
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status).toBe(
-      'reconnecting',
-    )
+    expect(
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.status,
+    ).toBe('reconnecting')
 
     // A new daemon connection reattaches; bind promotes the session back to live.
     const daemon2: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon2.push(m))
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status).toBe(
-      'live',
-    )
+    expect(
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.status,
+    ).toBe('live')
 
     // Post-reconnect frames arrive with the bridge seq RESET to 0 (that is what a
     // fresh PTY bridge does). A single-frame batch remains one server frame; a
@@ -141,6 +153,13 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // resumed:true and EXACTLY the two missed frames, in order.
     const resumer = sink()
     const resumerId = attachTestClient(reg.clientGateway, resumer.send)
+    await reg.clientGateway.routeClientFrame(resumerId, {
+      type: 'hello',
+      clientId: resumerId,
+      wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: ['sync.http.v1'],
+    })
     await reg.clientGateway.routeClientFrame(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
     expect(resumer.sent.find((m) => m.type === 'attached')).toMatchObject({
       sessionId,
@@ -158,6 +177,13 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // not dropped by the reconnect.
     const fresh = sink()
     const freshId = attachTestClient(reg.clientGateway, fresh.send)
+    await reg.clientGateway.routeClientFrame(freshId, {
+      type: 'hello',
+      clientId: freshId,
+      wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: ['sync.http.v1'],
+    })
     await reg.clientGateway.routeClientFrame(freshId, { type: 'attach', sessionId })
     expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([
@@ -208,7 +234,7 @@ async function observe(reg: SessionRegistry, issueId: string): Promise<Lifecycle
     // differently than awaited ones, but the final recorded truth must match.
     oplogIssues: normalize(
       (await store.sync.latestChangeStates())
-        .filter((r) => r.entity === 'issue')
+        .filter((r) => r.entity === 'issueProjection')
         .map((r) => ({ op: r.op, payload: r.payload == null ? null : JSON.parse(r.payload) })),
     ),
   }
@@ -322,9 +348,13 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       // The author is the caller's own name on every path (POD-4751) — never a
       // label the caller chose.
       const operator = await (
-        regA as unknown as { store: { users: { get(id: string): Promise<{ displayName: string } | undefined> } } }
+        regA as unknown as {
+          store: { users: { get(id: string): Promise<{ displayName: string } | undefined> } }
+        }
       ).store.users.get(firstAdminMemberId())
-      expect(obsA.comments).toMatchObject([{ author: operator?.displayName, body: 'progress note' }])
+      expect(obsA.comments).toMatchObject([
+        { author: operator?.displayName, body: 'progress note' },
+      ])
       expect(obsA.oplogIssues).toHaveLength(1)
 
       // The actual contract: all three entry points converge byte-for-byte
@@ -357,9 +387,9 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       // #24: closing via reason IS closing — stage follows to 'done'.
       expect(patched.stage).toBe('done')
       expect(patched.closedReason).toBe('wontfix')
-      expect((await reg.issues.search({ repoPath: '/r', status: 'closed' })).map((i) => i.id)).toEqual([
-        w.id,
-      ])
+      expect(
+        (await reg.issues.search({ repoPath: '/r', status: 'closed' })).map((i) => i.id),
+      ).toEqual([w.id])
       expect(await reg.issues.search({ repoPath: '/r', status: 'open' })).toEqual([])
       expect(await reg.issues.stats('/r')).toMatchObject({ total: 1, closed: 1, open: 0 })
       // The close EVENT fires off the derived flip, with the patched reason.
@@ -389,7 +419,9 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       // #24: closedReason clears with the stage move, so the reopened issue is
       // open/ready-visible again — no explicit closedReason:null needed.
       expect(reopened.closedReason).toBeUndefined()
-      expect((await reg.issues.search({ repoPath: '/r', status: 'open' })).map((i) => i.id)).toEqual([w.id])
+      expect(
+        (await reg.issues.search({ repoPath: '/r', status: 'open' })).map((i) => i.id),
+      ).toEqual([w.id])
       expect(await reg.issues.stats('/r')).toMatchObject({ closed: 0, open: 1 })
       // The reopen is observable: issue.reopened fires on the true→false flip.
       const reopenedEvents = (await reg.sessionStore.events.listEventsSince(0)).filter(
@@ -406,7 +438,11 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.create({ repoPath: '/r', title: 'audible re-close', startNow: false })
+      const w = await reg.issues.create({
+        repoPath: '/r',
+        title: 'audible re-close',
+        startNow: false,
+      })
       await reg.issues.close(w.id)
       await reg.issues.update(w.id, { stage: 'in_progress' }) // real reopen: reason clears
       await reg.issues.update(w.id, { stage: 'done' }) // drag back to done
@@ -461,7 +497,7 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Round 1 — both clients see it. reconcile() is the full-truth diff path
     // (the same semantics the deleted broadcast-seam oplog's record() had).
-    let changes = await ledger.reconcile('issue', [
+    let changes = await ledger.reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 'a1' } },
       { id: 'b', value: { id: 'b', title: 'b1' } },
     ])
@@ -470,8 +506,11 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Rounds 2-3 happen while the lagging client is offline: an edit, a removal,
     // and a brand-new entity.
-    apply(liveState, await ledger.reconcile('issue', [{ id: 'a', value: { id: 'a', title: 'a2' } }]))
-    changes = await ledger.reconcile('issue', [
+    apply(
+      liveState,
+      await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 'a2' } }]),
+    )
+    changes = await ledger.reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 'a3' } },
       { id: 'c', value: { id: 'c', title: 'c1' } },
     ])
@@ -528,7 +567,9 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     const issue = await reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
     await reg1.issues.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
     await reg1.issues.close(issue.id, 'done')
-    await reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({ ok: true }))
+    await reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({
+      ok: true,
+    }))
     await store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
     await reg1.modules.sessions.flushBroadcasts() // oplog `changes` rows
 
@@ -570,7 +611,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     // The oplog seq keeps counting from where it was — a reset here would corrupt
     // every client cursor.
     const next = await store2.sync.appendChanges(
-      [{ entity: 'issue', entityId: issue.id, op: 'upsert', payload: '{}' }],
+      [{ entity: 'issueProjection', entityId: issue.id, op: 'upsert', payload: '{}' }],
       2000,
     )
     expect(next).toEqual([before.maxChangeSeq + 1])

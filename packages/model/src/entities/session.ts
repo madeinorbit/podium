@@ -22,20 +22,9 @@ import { SessionDelegation } from '../identity/delegation'
  * append optional fields and the golden fixtures still pass unchanged, which is
  * exactly how §3.2's "minimum shape" is meant to be proven additive.
  *
- * PER-USER STATE (§3.3), RE-KEYED BY POD-1076. `readAt`, `unread` and
- * `snoozedUntil` are still declared here, and that is correct: the wire is
- * byte-identical because it was a RE-KEY, not a re-representation (model README
- * invariant 2). What moved is where the values come FROM — `session_user_state`
- * and `snoozes`, both keyed `(userId, sessionId)`, joined at projection time via
- * `SessionUserOverlay`. They are no longer a column on `sessions` nor a field on
- * the live `Session`, and the second of those was the load-bearing half: a mirror
- * field on a shared object is an instance-wide singleton however per-user the
- * table behind it is.
- *
- * THE REMAINING GAP IS THE FEED, NOT THE SHAPE. A value that differs per reader
- * cannot honestly be a field of a payload BROADCAST to many readers (ADR 2 D2),
- * so today these carry one named viewer's values to every client. POD-1077's
- * scoped feed closes that; the rows already have owners.
+ * PER-USER STATE lives in `sessionUserState`, keyed by (userId, sessionId).
+ * Clients derive unread from that row and lastActiveAt. The shared session
+ * carries no reader's markers (POD-4974 S6).
  *
  * ATTRIBUTION (§3.1.3 A3, and see `entities/issue.ts`). `controllerId` and
  * `spawnedBy` are actor-shaped fields carrying at most one value. A3 makes
@@ -45,11 +34,9 @@ import { SessionDelegation } from '../identity/delegation'
  * shipped `UserId` and the `users` table, so the pair now has a production value
  * on both halves and is projected rather than deferred.
  *
- * MACHINE FACTS EMBEDDED HERE. `machineId` / `machineName` are a *reference to*
- * a machine, not facts about one, so they stay on the session rather than
- * joining `entities/machine.ts`'s per-machine group. §3.1.4 M1's `see` verb
- * explicitly covers "your session ran there" attribution, so a principal who
- * can see the session may learn these two.
+ * Machine names, login conditions and reference labels are client joins from
+ * the replicated machine and repo rows. Only their ids and ref inputs ride
+ * this record; a name change never republishes sessions.
  */
 
 import { z } from 'zod'
@@ -59,6 +46,7 @@ import {
   ConversationIdField,
   IssueIdField,
   MachineIdField,
+  RepoIdField,
   SessionIdField,
 } from '../ids'
 import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
@@ -417,20 +405,10 @@ export const SessionMetaEntity = z.object({
   lastInputAt: z.string().optional(),
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
-  /** Server-derived harness condition; a logged-out session remains startable. */
-  condition: SessionCondition.optional(),
   archived: z.boolean(),
-  /** Email-style read state (issue #124). PER-USER since POD-1076 — the ISO time
-   *  THIS READER last opened the session, or null if they never opened it. Read
-   *  from their `(userId, sessionId)` row, not from the session. */
-  readAt: z.string().nullable().catch(null).default(null),
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt: z.string().optional(),
   stopReason: z.enum(['self', 'parent', 'forced', 'exited', 'oom']).optional(),
-  /** Server-DERIVED: there is activity the operator hasn't seen —
-   *  `lastActiveAt > readAt`, or `readAt` is null (never opened). Defaulted so a
-   *  pre-field cached payload still validates (unread → false). */
-  unread: z.boolean().catch(false).default(false),
   workState: WorkState.optional(),
   /** True when a resume ref is known — hibernate→resume is possible. */
   resumable: z.boolean().optional(),
@@ -487,21 +465,8 @@ export const SessionMetaEntity = z.object({
   /** Latest exact harness-reported context-window usage. Absent when the
    * harness transcript does not expose both used tokens and window capacity. */
   contextUsagePercent: z.number().finite().min(0).max(100).optional(),
-  // The machine (daemon) this session runs on. machineId is the stable join key;
-  // machineName is the display label (server-resolved from the machines table).
-  // OPTIONAL on the WIRE so every task stays typecheck-green: Task 5 always emits
-  // them. (The durable row is NOT optional — `SessionRow.machineId` is required
-  // since POD-318.) It was carved out of the brand flip while the column DEFAULTED
-  // to '__local__' and the constant 'local' existed: ADR 1 Amendment 2 D16.2 forbids
-  // branding a site that can hold a sentinel, because a length-only brand launders
-  // it. Both are retired and `MachineId` refuses them, so the brand lands.
+  /** The machine this session runs on; the client joins its replicated row. */
   machineId: MachineIdField.optional(),
-  machineName: z.string().optional(),
-  /** Snooze state — orthogonal to agentState. `undefined`/absent = not snoozed;
-   *  `null` = snoozed until the next message; an ISO string = snoozed until that
-   *  time (or the next message, whichever first). Drives the sidebar's attention
-   *  triage only; never changes the agent's phase. */
-  snoozedUntil: z.string().nullable().optional(),
   /** Last-edit time (ISO 8601) of a non-empty unsent composer draft, when one
    *  exists. Drives the "DRAFT" tag and lifts the session in NEEDS YOUR ATTENTION
    *  by when its prompt was last edited (a draft edit is recent user intent on
@@ -572,19 +537,18 @@ export const SessionMetaEntity = z.object({
   attachKinds: z.array(z.enum(['engine', 'client'])).optional(),
   /** Number of durable server-held messages waiting to be typed into this agent
    *  once it is back (docs/spec/outbox-write-path.md §2.2). Absent = none. Like
-   *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the
+   *  draftUpdatedAt this is pending USER intent, orthogonal to the
    *  agent's phase; it drives the chat "queued" state on every client. */
   queuedMessageCount: z.number().int().positive().optional(),
   /** Agent action offer [spec:SP-c7f1]. Session-scoped channel for an agent to
    *  suggest next actions the user can pick — a freeform message plus zero..N
    *  buttons, each carrying an agent-authored prompt injected as a normal turn
-   *  on click. Like snoozedUntil/draftUpdatedAt it is a derived overlay merged
+   *  on click. Like draftUpdatedAt it is a derived overlay merged
    *  onto SessionMeta, orthogonal to the agent's phase. Ephemeral: cleared on
    *  the next user-submitted turn (a button click counts). Absent/null = none. */
   offer: SessionOffer.nullable().optional(),
-  /** Transient move overlay; absent outside an in-flight handoff. Not an id at
-   *  all: the server sets it to `targetMachine.name`, a display label. */
-  handoffTarget: z.string().optional(),
+  /** Live move target identity; its label comes from the replicated machine. */
+  handoffTargetMachineId: MachineIdField.optional(),
   /** The stable Podium conversation identity this session is working in
    *  (docs/spec/conversation-registry.md) — survives resume-rolls and worktree
    *  moves, unlike the native resume ref. Absent until first known.
@@ -636,9 +600,9 @@ export const SessionMetaEntity = z.object({
   refIssueId: IssueIdField.optional(),
   refLetter: z.string().optional(),
   refDraft: z.number().int().optional(),
-  /** Server-DERIVED permanent birth nice name (`POD-13-A` / `POD-DRAFT-3`).
-   *  Computed from the repo prefix + ref fields. Absent until named. */
-  displayRef: z.string().optional(),
+  /** Reference inputs independent of birth-issue visibility. Prefix joins by id. */
+  refRepoId: RepoIdField.optional(),
+  refSeq: z.number().int().optional(),
   /** True for a HEADLESS harness session (concierge unification): a persistent
    *  harness session driven turn-by-turn by the daemon with NO PTY. It renders
    *  via the normal transcript pipeline but has no terminal to attach to; the

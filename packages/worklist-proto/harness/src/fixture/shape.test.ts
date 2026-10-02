@@ -5,7 +5,8 @@
  * measures differently), and hashing keeps both the oracle snapshot and every
  * lane relation, including the fork trap.
  */
-import type { GitRepositoryWire, SessionMeta } from '@podium/model'
+import type { SessionView } from '@podium/client-core/session-values'
+import type { GitRepositoryWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { expectedSnapshot } from '../oracle/index'
 import { buildCorpus, type FixtureCorpus } from './index'
@@ -116,7 +117,7 @@ const scanRow = (path: string, worktrees: string[] = []): GitRepositoryWire =>
     worktrees: worktrees.map((p) => ({ path: p, branch: 'task' })),
   }) as never
 
-const session = (sessionId: string, cwd: string): SessionMeta =>
+const session = (sessionId: string, cwd: string): SessionView =>
   ({
     sessionId,
     cwd,
@@ -188,14 +189,18 @@ describe('repo-root lanes (POD-4565 addendum)', () => {
 })
 
 describe('anonymisation', () => {
-  it('keeps both sidebar origin spellings as enums', () => {
+  it('keeps the canonical intent origin enum', () => {
     const raw = buildCorpus(1)
-    const input = { ...raw,
-      issues: raw.issues.map(issue => ({ ...issue, origin: 'human' as const })),
-      issueProjections: raw.issueProjections.map(issue => ({ ...issue, intentOrigin: 'human' as const })),
+    const input = {
+      ...raw,
+      issues: raw.issues.map((issue) => ({ ...issue, intentOrigin: 'human' as const })),
+      issueProjections: raw.issueProjections.map((issue) => ({
+        ...issue,
+        intentOrigin: 'human' as const,
+      })),
     }
     const output = anonymiseCollections(input)
-    expect(output.issues[0]!.origin).toBe('human')
+    expect(output.issues[0]!.intentOrigin).toBe('human')
     expect(output.issueProjections[0]!.intentOrigin).toBe('human')
   })
   it('keeps every lane relation and seating when paths are hashed', () => {

@@ -7,14 +7,15 @@ import {
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
-import { asIssueId } from '@podium/model'
 import type { SessionId } from '@podium/model'
+import { actorAgent, actorSystem, actorUser, asAgentIdentityId, asIssueId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { attributionOf } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
 import { ShippingOrderAccessError } from '../shipping/service'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
+import type { IssueCommandResult } from './service/reads'
 
 /**
  * THE ISSUE COMMAND TABLE: every issue command's handler, joined to its L1
@@ -223,10 +224,18 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
     target?: (input: Record<string, unknown>) => string | undefined
     handler: (ctx: IssueCommandCtx, input: ContractInput<(typeof ISSUE_CONTRACTS)[N]>) => Out
   } & (K extends 'mutation' ? ContractDeclaresConflict<(typeof ISSUE_CONTRACTS)[N]> : unknown),
-): IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out> {
+): IssueCommandDef<
+  K,
+  (typeof ISSUE_CONTRACTS)[N]['input'],
+  Promise<K extends 'mutation' ? IssueCommandResult<Awaited<Out>> : Awaited<Out>>
+> {
   const contract = ISSUE_CONTRACTS[name]
   return {
     ...d,
+    handler: async (ctx: IssueCommandCtx, input: ContractInput<(typeof ISSUE_CONTRACTS)[N]>) => {
+      const result = await d.handler(ctx, input)
+      return d.kind === 'mutation' ? await ctx.reports.commandResult(result) : result
+    },
     input: contract.input,
     action: contract.policy.action,
     // Every contract declares a class since POD-1250, so this is an
@@ -234,7 +243,11 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
     // conditional because it belongs to `cmd` rows alone.
     conflict: contract.conflict,
     ...('conflictRule' in contract ? { conflictRule: contract.conflictRule } : {}),
-  } as unknown as IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out>
+  } as unknown as IssueCommandDef<
+    K,
+    (typeof ISSUE_CONTRACTS)[N]['input'],
+    Promise<K extends 'mutation' ? IssueCommandResult<Awaited<Out>> : Awaited<Out>>
+  >
 }
 
 async function shippingOrderResult<T>(operation: () => T | Promise<T>): Promise<T> {
@@ -300,13 +313,23 @@ const defs = {
   epicStatus: def('epicStatus', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.readIssue(input.id, async () => await ctx.reports.epicStatus(input.id, async (id) => await ctx.mayReadIssue(id))),
+      await ctx.readIssue(
+        input.id,
+        async () =>
+          await ctx.reports.epicStatus(input.id, async (id) => await ctx.mayReadIssue(id)),
+      ),
   }),
   children: def('children', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.readIssue(input.id, async () =>
-        await ctx.reports.children(input.id, input.recursive ?? false, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.readIssue(
+        input.id,
+        async () =>
+          await ctx.reports.children(
+            input.id,
+            input.recursive ?? false,
+            async (id) => await ctx.mayReadIssue(id),
+          ),
       ),
   }),
   tree: def('tree', {
@@ -323,62 +346,88 @@ const defs = {
   }),
   depReport: def('depReport', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.depReport(input, async (id) => await ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.depReport(input, async (id) => await ctx.mayReadIssue(id)),
   }),
   closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.closeEligibleEpics(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.closeEligibleEpics(
+        input.repoPath,
+        async (id) => await ctx.mayReadIssue(id),
+      ),
   }),
   findDuplicates: def('findDuplicates', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.findDuplicates(input.repoPath, input.threshold, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.findDuplicates(
+        input.repoPath,
+        input.threshold,
+        async (id) => await ctx.mayReadIssue(id),
+      ),
   }),
   stale: def('stale', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.staleList(input.repoPath, input.days, Date.now(), async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.staleList(
+        input.repoPath,
+        input.days,
+        Date.now(),
+        async (id) => await ctx.mayReadIssue(id),
+      ),
   }),
   lint: def('lint', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.lint(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.lint(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   doctor: def('doctor', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.doctor(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.doctor(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   preflight: def('preflight', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.preflight(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.preflight(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   deliveryReceipt: def('deliveryReceipt', {
     kind: 'query',
     // Shipping resolves order -> root and authorizes before revealing whether a
     // receipt exists. Collapse inaccessible/absent orders at this command edge.
     handler: async (ctx, input) =>
-      await shippingOrderResult(async () =>
-        await ctx.shipping.deliveryReceipt({
-          orderId: input.orderId,
-          principal: ctx.requirePrincipal(),
-        }),
+      await shippingOrderResult(
+        async () =>
+          await ctx.shipping.deliveryReceipt({
+            orderId: input.orderId,
+            principal: ctx.requirePrincipal(),
+          }),
       ),
   }),
   search: def('search', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.search(input, async (id) => await ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.search(input, async (id) => await ctx.mayReadIssue(id)),
+  }),
+  searchNormalized: def('searchNormalized', {
+    kind: 'query',
+    handler: async (ctx, input) =>
+      await ctx.reports.searchNormalized(input, async (id) => await ctx.mayReadIssue(id)),
   }),
   count: def('count', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.count(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.count(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   stats: def('stats', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.stats(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.stats(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   orphans: def('orphans', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.orphans(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.orphans(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   get: def('get', {
     kind: 'query',
@@ -388,11 +437,25 @@ const defs = {
         if (!issue) return null
         // The issue's live sessions ride the read (ab75ab1e). `shell` panes are
         // not agents on the issue, so they are not listed as such.
-        const sessions = (
-          await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id)
-        ).filter((session) => session.agentKind !== 'shell')
+        const sessions = (await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id)).filter(
+          (session) => session.agentKind !== 'shell',
+        )
         return { ...issue, sessions }
       }),
+  }),
+  resolveRefs: def('resolveRefs', {
+    kind: 'query',
+    handler: async (ctx, input) =>
+      await Promise.all(
+        (await ctx.reports.resolveRefs(input.refs)).map(async ({ ref, id }) => {
+          try {
+            // Missing and unreadable references have exactly the same answer.
+            return { ref, id: id !== null && (await ctx.mayReadIssue(id)) ? id : null }
+          } catch {
+            return { ref, id: null }
+          }
+        }),
+      ),
   }),
   /** Read one artifact's stored bytes back (POD-1999). A read of issue content,
    *  so it rides `readIssue` like `get` — and it is served from the server's own
@@ -400,20 +463,23 @@ const defs = {
   artifactRead: def('artifactRead', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.readIssue(input.id, async () =>
-        await ctx.crud.panelArtifactRead(input.id, {
-          ...(input.index != null ? { index: input.index } : {}),
-          ...(input.path != null ? { path: input.path } : {}),
-          ...(input.file != null ? { file: input.file } : {}),
-        }),
+      await ctx.readIssue(
+        input.id,
+        async () =>
+          await ctx.crud.panelArtifactRead(input.id, {
+            ...(input.index != null ? { index: input.index } : {}),
+            ...(input.path != null ? { path: input.path } : {}),
+            ...(input.file != null ? { file: input.file } : {}),
+          }),
       ),
   }),
-  /** Lazy comment fetch (#175) — bodies left IssueWire (commentCount rides it).
+  /** Lazy comment fetch (#175) — bodies left IssueProjection (commentCount rides it).
    *  A read (like get/list). Hub-mirrored issues have no local thread: their
    *  comments live on the hub, so this returns []. */
   comments: def('comments', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.readIssue(input.id, async () => await ctx.commentsMail.comments(input.id)),
+    handler: async (ctx, input) =>
+      await ctx.readIssue(input.id, async () => await ctx.commentsMail.comments(input.id)),
   }),
   events: def('events', {
     kind: 'query',
@@ -522,7 +588,7 @@ const defs = {
       // M5 [spec:SP-6144]: sub-creates under a proposed parent (or deeper in a
       // proposal subtree) stay inert — never auto-started, never board-facing.
       const underProposed =
-        parent != null && !isOperator && await ctx.hierarchy.inProposedSubtree(parent.id)
+        parent != null && !isOperator && (await ctx.hierarchy.inProposedSubtree(parent.id))
       const isAgentTopLevel = origin === 'agent' && !input.parentId
       const audience: 'human' | 'agent' = isOperator
         ? 'human'
@@ -566,7 +632,7 @@ const defs = {
           },
           { spawnedBy: ctx.spawnProvenance() },
         )
-        if (audience === 'agent' && !await ctx.hasHumanAudienceAncestor(created)) {
+        if (audience === 'agent' && !(await ctx.hasHumanAudienceAncestor(created))) {
           return {
             ...created,
             warning:
@@ -592,14 +658,16 @@ const defs = {
           await assertNotProposedForAgent(ctx, anc, 'start work under')
         }
       }
-      return await ctx.withMutation(input.mutationId, async () =>
-        await ctx.gitWorkflow.start(input.id, input.agentKind, {
-          spawnedBy: ctx.spawnProvenance(),
-          // Explicit per-launch choice (POD-1545); persists onto the issue profile.
-          ...(input.defaultModel ? { model: input.defaultModel } : {}),
-          ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
-          ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
-        }),
+      return await ctx.withMutation(
+        input.mutationId,
+        async () =>
+          await ctx.gitWorkflow.start(input.id, input.agentKind, {
+            spawnedBy: ctx.spawnProvenance(),
+            // Explicit per-launch choice (POD-1545); persists onto the issue profile.
+            ...(input.defaultModel ? { model: input.defaultModel } : {}),
+            ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
+            ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+          }),
       )
     },
   }),
@@ -677,7 +745,10 @@ const defs = {
       // The scope guard stays OUTSIDE the ledger, like `update`'s does: a
       // replayed archive must not be waved through on a cached receipt minted
       // when the subtree looked different (D8 re-authorizes at every apply).
-      return await ctx.withMutation(input.mutationId, async () => await ctx.attention.archive(input.id))
+      return await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.archive(input.id),
+      )
     },
   }),
   delete: def('delete', {
@@ -749,7 +820,8 @@ const defs = {
   integrate: def('integrate', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) => await ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
+    handler: async (ctx, input) =>
+      await ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
   }),
   ship: def('ship', {
     kind: 'mutation',
@@ -769,12 +841,13 @@ const defs = {
     // authorization and owns every durable generation/custody fence.
     target: () => undefined,
     handler: async (ctx, input) =>
-      await shippingOrderResult(async () =>
-        await ctx.shipping.cancel({
-          orderId: input.orderId,
-          principal: ctx.requirePrincipal(),
-          overrideScope: ctx.caller.overrideScope === true,
-        }),
+      await shippingOrderResult(
+        async () =>
+          await ctx.shipping.cancel({
+            orderId: input.orderId,
+            principal: ctx.requirePrincipal(),
+            overrideScope: ctx.caller.overrideScope === true,
+          }),
       ),
   }),
   resolveShipHold: def('resolveShipHold', {
@@ -783,14 +856,15 @@ const defs = {
     // and runs the same live issue authorization there.
     target: () => undefined,
     handler: async (ctx, input) =>
-      await shippingOrderResult(async () =>
-        await ctx.shipping.resolveHold({
-          orderId: input.orderId,
-          action: input.action,
-          expectedGeneration: input.expectedGeneration,
-          principal: ctx.requirePrincipal(),
-          overrideScope: ctx.caller.overrideScope === true,
-        }),
+      await shippingOrderResult(
+        async () =>
+          await ctx.shipping.resolveHold({
+            orderId: input.orderId,
+            action: input.action,
+            expectedGeneration: input.expectedGeneration,
+            principal: ctx.requirePrincipal(),
+            overrideScope: ctx.caller.overrideScope === true,
+          }),
       ),
   }),
   addSession: def('addSession', {
@@ -830,13 +904,21 @@ const defs = {
     // the SET is computed on the client from the labels it could see — a replay
     // that re-ran it would push a stale set over one edited in between.
     handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () => await ctx.crud.setLabels(input.id, input.labels)),
+      await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.crud.setLabels(input.id, input.labels),
+      ),
   }),
   share: def('share', {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) =>
-      await ctx.crud.share(input.id, input.grantee, input.verb, await ctx.ownerAttribution(input.id)),
+      await ctx.crud.share(
+        input.id,
+        input.grantee,
+        input.verb,
+        await ctx.ownerAttribution(input.id),
+      ),
   }),
   unshare: def('unshare', {
     kind: 'mutation',
@@ -850,8 +932,10 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () =>
-        await ctx.commentsMail.addCallerComment(input.id, input.body, ctx.requirePrincipal()),
+      await ctx.withMutation(
+        input.mutationId,
+        async () =>
+          await ctx.commentsMail.addCallerComment(input.id, input.body, ctx.requirePrincipal()),
       ),
   }),
   depAdd: def('depAdd', {
@@ -864,7 +948,8 @@ const defs = {
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // Removing a mistaken edge is the inverse of the already-agent-safe depAdd.
     target: (i) => i.fromId as string,
-    handler: async (ctx, input) => await ctx.hierarchy.removeDep(input.fromId, input.toId, input.type),
+    handler: async (ctx, input) =>
+      await ctx.hierarchy.removeDep(input.fromId, input.toId, input.type),
   }),
   defer: def('defer', {
     kind: 'mutation',
@@ -873,7 +958,10 @@ const defs = {
     // a second identical apply is harmless — but a LATE one is not: the ledger is
     // what stops a drain landing a snooze the operator has since ended.
     handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () => await ctx.attention.defer(input.id, input.until)),
+      await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.defer(input.id, input.until),
+      ),
   }),
   // Manual unsnooze (issue #133): ends a snooze and floats the issue back to the
   // top of WORK with the "Unsnoozed" tag (returned-from-defer), unlike defer(null)
@@ -893,14 +981,20 @@ const defs = {
   markRead: def('markRead', {
     kind: 'mutation',
     handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueRead(input.id)),
+      await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.markIssueRead(input.id),
+      ),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
   // `unread` back to true. Like markRead, read-tracking needs only 'read'.
   markUnread: def('markUnread', {
     kind: 'mutation',
     handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueUnread(input.id)),
+      await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.markIssueUnread(input.id),
+      ),
   }),
   // Tuck a finished issue into the sidebar's Closed fold, or bring it back
   // (POD-333). Sidebar curation the operator performs while reading the board —
@@ -908,8 +1002,9 @@ const defs = {
   setTucked: def('setTucked', {
     kind: 'mutation',
     handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () =>
-        await ctx.attention.setIssueTucked(input.id, input.tucked),
+      await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.setIssueTucked(input.id, input.tucked),
       ),
   }),
   setNeedsHuman: def('setNeedsHuman', {
@@ -936,9 +1031,20 @@ const defs = {
             'askedBy is server-authoritative: agents may only attribute a question to their own session (omit askedBy)',
         })
       }
+      const principal = ctx.requirePrincipal()
+      const attribution =
+        principal.kind === 'user'
+          ? { actor: actorUser(principal.user), onBehalfOf: principal.user }
+          : principal.kind === 'agent'
+            ? {
+                actor: actorAgent(asAgentIdentityId(principal.agentSessionId)),
+                onBehalfOf: principal.onBehalfOf,
+              }
+            : { actor: actorSystem(principal.job), onBehalfOf: null }
       return await ctx.attention.setNeedsHuman(input.id, input.question ?? null, {
         ...(input.options ? { options: input.options } : {}),
         ...(askedBy ? { askedBy } : {}),
+        attribution,
       })
     },
   }),
@@ -1105,10 +1211,12 @@ const defs = {
     target: targetId,
     handler: async (ctx, input) => {
       await assertNotProposedForAgent(ctx, input.id, 'close')
-      return await ctx.withMutation(input.mutationId, async () =>
-        await ctx.crud.close(input.id, input.reason, {
-          actorSessionId: ctx.caller.capability.actorSessionId,
-        }),
+      return await ctx.withMutation(
+        input.mutationId,
+        async () =>
+          await ctx.crud.close(input.id, input.reason, {
+            actorSessionId: ctx.caller.capability.actorSessionId,
+          }),
       )
     },
   }),
@@ -1189,7 +1297,7 @@ const defs = {
       // mark mail read, or delivery to the real recipient is suppressed.
       const markRead =
         ctx.caller.capability.scope.kind === 'subtree' &&
-        await ctx.reports.resolveRef(id) === ctx.caller.capability.scope.rootId
+        (await ctx.reports.resolveRef(id)) === ctx.caller.capability.scope.rootId
       // WHICH session is reading [POD-1379]: the mailbox is shared by every
       // agent on the issue, so the read is consumed per reader. Server-stamped
       // from the caller (mailIdentity pattern); client input never contributes.
@@ -1279,9 +1387,9 @@ const defs = {
       // Constrained callers may only remove their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
         const subscriber = ctx.deriveSubscriber()
-        const owned = (await ctx.attention
-          .subscriptionList({ subscriberId: subscriber.id }))
-          .some((s) => s.id === input.id)
+        const owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
+          (s) => s.id === input.id,
+        )
         if (!owned) {
           throw new TRPCError({
             code: 'FORBIDDEN',
@@ -1301,9 +1409,9 @@ const defs = {
       // Constrained callers may only toggle their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
         const subscriber = ctx.deriveSubscriber()
-        const owned = (await ctx.attention
-          .subscriptionList({ subscriberId: subscriber.id }))
-          .some((s) => s.id === input.id)
+        const owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
+          (s) => s.id === input.id,
+        )
         if (!owned) {
           throw new TRPCError({
             code: 'FORBIDDEN',

@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueProjection } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../command-principal'
 import type { IssueCaller } from '../modules/issues/command-ctx'
 import type { IssueAttentionCapability } from '../modules/issues/service'
@@ -21,13 +21,14 @@ export interface IssueAttachOrchestratorPorts {
 export class IssueAttachOrchestrator {
   constructor(private readonly ports: IssueAttachOrchestratorPorts) {}
 
-  async execute(caller: IssueCaller, input: IssueAttachInput): Promise<IssueWire> {
+  async execute(caller: IssueCaller, input: IssueAttachInput): Promise<IssueProjection> {
     const principal = this.transportPrincipal(caller)
-    return await this.ports.transact(async () =>
-      await this.ports.attention.attachSession({
-        ...input,
-        principal,
-      }),
+    return await this.ports.transact(
+      async () =>
+        await this.ports.attention.attachSession({
+          ...input,
+          principal,
+        }),
     )
   }
 

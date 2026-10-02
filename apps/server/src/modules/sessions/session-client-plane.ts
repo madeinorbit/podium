@@ -18,12 +18,12 @@ import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
+import type { DaemonRpcService } from '../machines/rpc'
+import type { MachineListing, MachinesService } from '../machines/service'
 import { authorReattachBinding } from './binding-mint'
-import type { MachinesService, MachineListing } from '../machines/service'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { Session } from './session'
 import type { SessionTerminalProof } from './terminal-proof'
-import type { DaemonRpcService } from '../machines/rpc'
 
 const log = createLogger('server:sessions')
 
@@ -168,14 +168,12 @@ export class SessionClientPlane {
    */
   reestablishHeadless(session: Session): void {
     if (!session.headless || session.resume?.value) return
-    void this.ports.headless
-      .reestablishHeadless(session.sessionId)
-      .catch((error: unknown) => {
-        log.warn('headless re-establish failed', {
-          sessionId: session.sessionId,
-          reason: error instanceof Error ? error.message : String(error),
-        })
+    void this.ports.headless.reestablishHeadless(session.sessionId).catch((error: unknown) => {
+      log.warn('headless re-establish failed', {
+        sessionId: session.sessionId,
+        reason: error instanceof Error ? error.message : String(error),
       })
+    })
   }
 
   /** Route a control message to the daemon that owns `machineId` (modules/machines);
@@ -192,10 +190,6 @@ export class SessionClientPlane {
    * materialize it to an array. Only CHANGED sessions are sent (diffed against
    * lastPriority) so a viewState/attach churn never re-floods the whole map.
    */
-
-  sessionsChangedForMachine(machineId: MachineId): void {
-    this.ports.repository.sessionsChangedForMachine(machineId)
-  }
 
   /**
    * A machine's daemon became reachable / went away — the SESSION half of

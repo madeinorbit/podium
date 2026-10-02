@@ -188,6 +188,11 @@ function directScope(args: {
       tables.issue.has(id)
         ? retainedSeatIdsOf(visible, id, directVisibleParts(visible, id, memo), false)
         : [],
+    // POD-4708 — from scratch over the scanned relation (the live pool reads
+    // its maintained SORTED mirror). The rebuild never counts; values equal
+    // the live derivations' (both sorted), so L4b holds the maintenance to it.
+    seats: (id) => relations.many('issue', id, 'sessions'),
+    seatList: (id) => [...relations.many('issue', id, 'sessions')].sort(),
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
@@ -260,6 +265,10 @@ function directScope(args: {
     },
     sessionActivity: inputs.sessionActivity,
     own: (id) => directParts(inputs, id).own,
+    // POD-4708 — from scratch (the live pool reads its maintained SORTED
+    // mirror). The rebuild never counts; L4b holds the maintenance to it.
+    seats: (id) => relations.many('issue', id, 'sessions'),
+    seatList: (id) => [...relations.many('issue', id, 'sessions')].sort(),
     passed: inputs.passed,
   }
   return { inputs, visible, rollupPartsOf, visiblePartsOf: (id) => directVisibleParts(visible, id, memo) }

@@ -20,7 +20,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { EXAMPLE_USAGE_REPORT_DISPLAY as EXAMPLE_REPORT } from '@podium/telemetry/example'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { DiagnosticLoggingSubsection } from './diagnostic-logging'
@@ -66,7 +66,7 @@ export function PrivacySection({
   const forcedUsage = useForcedSetting('telemetryUsage')
   const forcedCrash = useForcedSetting('telemetryCrash')
   const forced = { usage: forcedUsage, crash: forcedCrash }
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const [state, setState] = useState<TelemetryStateWire | null>(null)
   const [preview, setPreview] = useState<unknown>(null)
   const [error, setError] = useState<string | null>(null)
@@ -250,7 +250,7 @@ function TranscriptMirrorRow({
   const forcedUsage = useForcedSetting('telemetryUsage')
   const forcedCrash = useForcedSetting('telemetryCrash')
   const forced = { usage: forcedUsage, crash: forcedCrash }
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   // PRIMITIVES, not one object: this effect's dependency is the tRPC client, and
   // a client that is not referentially stable across renders would re-run it
   // every pass. Storing a fresh object each time then re-renders unconditionally

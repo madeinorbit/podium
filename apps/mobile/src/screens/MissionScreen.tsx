@@ -1,3 +1,6 @@
+import { useHarnessDescriptors } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   isSessionWorking,
@@ -8,13 +11,14 @@ import {
   missionSessions as missionSessionsOf,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useBooting, useIssues, useStoreSelector, useSessions } from '../client/hooks'
+import { useBooting, useIssues, useSessions, useStoreSelector } from '../client/hooks'
+import type { MobileTrpc } from '../client/trpc'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
@@ -29,9 +33,7 @@ import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
-import { useHarnessDescriptors } from '@podium/client-core/react'
 import { issueAgentKind, issueAgentLabel, modelLabel } from '../lib/agent-models'
-import type { MobileTrpc } from '../client/trpc'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { mostRelevantSession } from '../lib/mission-session'
 import { alpha } from '../theme/mix'
@@ -90,7 +92,7 @@ export function MissionScreen() {
   const [pinnedSessionId, setPinnedSessionId] = useState<SessionId | null>(
     requestedSessionId ? (requestedSessionId as SessionId) : null,
   )
-  const [peek, setPeek] = useState<IssueWire | null>(null)
+  const [peek, setPeek] = useState<IssueViewModel | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
   const [colorOpen, setColorOpen] = useState(false)
@@ -122,7 +124,7 @@ export function MissionScreen() {
   const live = missionSessions.filter((s) => !s.archived && s.status !== 'exited').length
   const working = missionSessions.filter(isSessionWorking).length
 
-  const openSession = useCallback((session: SessionMeta) => {
+  const openSession = useCallback((session: SessionView) => {
     setPinnedSessionId(session.sessionId)
     void Haptics.selectionAsync().catch(() => {})
   }, [])
@@ -210,7 +212,9 @@ export function MissionScreen() {
             : undefined
       }
       leading={
-        current ? <HarnessChip kind={current.agentKind} size={20} descriptors={served} /> : undefined
+        current ? (
+          <HarnessChip kind={current.agentKind} size={20} descriptors={served} />
+        ) : undefined
       }
       right={
         <>
@@ -301,8 +305,8 @@ function MissionBody({
   findRequest,
   onOpenDetails,
 }: {
-  current: SessionMeta | undefined
-  currentIssue: IssueWire | undefined
+  current: SessionView | undefined
+  currentIssue: IssueViewModel | undefined
   progress: MissionProgress
   live: number
   working: number

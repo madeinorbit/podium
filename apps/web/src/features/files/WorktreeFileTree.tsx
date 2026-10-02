@@ -1,4 +1,4 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import { basename } from '@podium/client-core/viewmodels'
 import type { MachineId } from '@podium/model'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw, Search, X } from 'lucide-react'
@@ -6,7 +6,7 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useClickIntent } from '@/app/click-intent'
-import { useStoreSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { compareEntries } from './entry-order'
@@ -179,10 +179,7 @@ export function WorktreeFileTree({
   root: string
   machineId?: MachineId
 }): JSX.Element {
-  const { listDir, openFileInWorktree, trpc } = useStoreSelector(
-    (s) => ({ listDir: s.listDir, openFileInWorktree: s.openFileInWorktree, trpc: s.trpc }),
-    shallowEqual,
-  )
+  const { listDir, openFileInWorktree, trpc } = useStoreHandle<Trpc>().getSnapshot()
   // dir path → its listed entries (presence = loaded); separate expanded set.
   const [children, setChildren] = useState<Record<string, Entry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())

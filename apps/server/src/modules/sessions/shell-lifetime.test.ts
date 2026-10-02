@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /**
  * SHELL LIFETIME TRIGGERS (POD-4435): the tab-release edge and the
  * issue-close / worktree-free upgrade, against a real registry.
@@ -11,17 +12,17 @@
 
 import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ClientConn } from '../../gateway/client-registry'
 import { SessionRegistry } from '../../relay'
 import { testClientPrincipal } from '../../test-support/client-principal'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
-import type { ClientConn } from '../../gateway/client-registry'
-import type { ControlMessage } from '@podium/protocol/daemon'
 import { SessionClientControl } from './client-control'
 import type { SessionInbox } from './inbox'
-import type { Session } from './session'
 import type { SessionLifecycle } from './lifecycle'
-import { attachHostDaemon } from '../../test-support/host-daemon'
+import type { Session } from './session'
 
 const registries: SessionRegistry[] = []
 
@@ -59,7 +60,11 @@ async function makeRegistry(): Promise<{ reg: SessionRegistry; daemon: ControlMe
     }
   ).rpc
   rpc.runtimeLifecycle = async (input) => {
-    daemon.push({ type: 'runtimeLifecycleRequest', requestId: 'fixture', ...input } as ControlMessage)
+    daemon.push({
+      type: 'runtimeLifecycleRequest',
+      requestId: 'fixture',
+      ...input,
+    } as ControlMessage)
     return { sessionId: input.sessionId, result: { ok: true, retirement: 'confirmed' } }
   }
   return { reg, daemon }
@@ -84,7 +89,7 @@ function stubClient(id: string): ClientConn & { sent: ServerMessage[] } {
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 1,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

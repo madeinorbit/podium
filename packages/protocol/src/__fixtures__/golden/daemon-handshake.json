@@ -130,12 +130,17 @@
         "code": "code",
         "machineId": "machineId",
         "hostname": "hostname",
-        "name": "name"
+        "name": "name",
+        "assignment": {
+          "server": true,
+          "agentExecution": true
+        },
+        "publicKey": "publicKey"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"pair\",\"code\":\"code\",\"machineId\":\"machineId\",\"hostname\":\"hostname\",\"name\":\"name\"}"
+      "encoded": "{\"type\":\"pair\",\"code\":\"code\",\"machineId\":\"machineId\",\"hostname\":\"hostname\",\"name\":\"name\",\"assignment\":{\"server\":true,\"agentExecution\":true},\"publicKey\":\"publicKey\"}"
     },
     {
       "schema": "PairRejectedReply",

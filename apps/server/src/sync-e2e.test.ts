@@ -2,10 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  CLIENT_WIRE_VERSION,
   type FeedDeltaMessage,
   type ServerMessage,
   type SyncChangesSinceResult,
-  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -39,7 +39,9 @@ describe('metadata oplog e2e (live server)', () => {
   })
 
   function connect(caps?: string[]): { inbox: ServerMessage[]; ready: Promise<void> } {
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`)
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`,
+    )
     sockets.push(ws)
     const inbox: ServerMessage[] = []
     ws.on('message', (data) => inbox.push(JSON.parse(String(data)) as ServerMessage))
@@ -86,18 +88,8 @@ describe('metadata oplog e2e (live server)', () => {
 
     await until(() => capClient.inbox.some((m) => m.type === 'feedDelta'))
     const delta = capClient.inbox.find((m) => m.type === 'feedDelta') as FeedDeltaMessage
-    expect(delta.changes.map((change) => change.entity).sort()).toEqual([
-      'issue',
-      'issueProjection',
-    ])
+    expect(delta.changes.map((change) => change.entity).sort()).toEqual(['issueProjection'])
     expect(delta.changes.every((change) => change.op === 'upsert')).toBe(true)
-
-    // The cap socket never got the issuesChanged rebroadcast. On this server it
-    // never gets `issuesChanged` at all — see the POD-1625 case below for why.
-    const capListRebroadcasts = capClient.inbox.filter(
-      (m) => m.type === 'issuesChanged' && m.issues.length > 0,
-    )
-    expect(capListRebroadcasts).toHaveLength(0)
 
     // Heal from the boot cursor: exactly the one issue upsert, cursor advanced.
     const heal = (await trpc.sync.changesSince.query({
@@ -106,7 +98,6 @@ describe('metadata oplog e2e (live server)', () => {
     expect(heal.kind).toBe('delta')
     if (heal.kind !== 'delta') return
     expect(heal.changes.map((c) => [c.entity, c.op]).sort()).toEqual([
-      ['issue', 'upsert'],
       ['issueProjection', 'upsert'],
     ])
     expect(heal.cursor).toBe(delta.seq)
@@ -118,7 +109,16 @@ describe('metadata oplog e2e (live server)', () => {
     await until(() => client.inbox.some((m) => m.type === 'feedResume'))
     await new Promise((r) => setTimeout(r, 250))
     expect(client.inbox.filter((m) => m.type === 'feedResume')).toHaveLength(1)
-    expect(client.inbox.filter((m) => ['feedBootstrap', 'issuesChanged',
-      'conversationsChanged', 'automationsChanged', 'automationRunsChanged'].includes(m.type))).toEqual([])
+    expect(
+      client.inbox.filter((m) =>
+        [
+          'feedBootstrap',
+          'issuesChanged',
+          'conversationsChanged',
+          'automationsChanged',
+          'automationRunsChanged',
+        ].includes(m.type),
+      ),
+    ).toEqual([])
   })
 })

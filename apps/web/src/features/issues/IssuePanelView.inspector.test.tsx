@@ -1,6 +1,7 @@
+import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 import type { IssueEvent } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+
 import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -49,14 +50,14 @@ const GRANDCHILD = makeIssue({
   parentId: 'k1',
 })
 
-/** Ids are branded on `SessionMeta`; fixtures are built from string literals,
+/** Ids are branded on `SessionView`; fixtures are built from string literals,
  *  so the override side is the unbranded spelling. */
-type SessionOverride = Partial<Omit<SessionMeta, 'sessionId' | 'issueId'>> & {
+type SessionOverride = Partial<Omit<SessionView, 'sessionId' | 'issueId'>> & {
   sessionId?: string
   issueId?: string
 }
 
-const session = (over: SessionOverride = {}): SessionMeta =>
+const session = (over: SessionOverride = {}): SessionView =>
   ({
     sessionId: 's1',
     issueId: 'root',
@@ -66,10 +67,10 @@ const session = (over: SessionOverride = {}): SessionMeta =>
     status: 'live',
     lastActiveAt: '2026-08-07T00:00:00.000Z',
     ...over,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 let mockIssues = [ROOT, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
-let mockSessions: SessionMeta[] = []
+let mockSessions: SessionView[] = []
 
 const setPane = vi.fn()
 const setView = vi.fn()
@@ -413,7 +414,16 @@ describe('IssuePanelView inspector', () => {
     cleanup()
 
     mockIssues = [
-      { ...ROOT, needsHuman: true, humanQuestion: 'Merge this or send it back?' },
+      {
+        ...ROOT,
+        needsHuman: true,
+        asked: {
+          question: 'Merge this or send it back?',
+          at: 'asked-at',
+          by: 's-asker' as never,
+          attribution: { actor: { kind: 'agent', id: 's-asker' as never }, onBehalfOf: null },
+        },
+      },
       OPEN_CHILD,
       DONE_CHILD,
       GRANDCHILD,

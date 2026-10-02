@@ -1,3 +1,4 @@
+import type { SessionView } from '../session-values'
 /**
  * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
  *
@@ -22,15 +23,17 @@ import type {
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
+  IssueDepProjection,
   IssueEventWire,
+  IssueGitStateProjection,
   IssueId,
   IssueProjection,
   IssueUserStateWire,
-  IssueWire,
   MachineWire,
   MessageRecordWire,
+  RepoProjection,
   SessionId,
-  SessionMeta,
+  ShipLaneProjection,
   ShipOrderProjection,
   ThreadId,
 } from '@podium/model'
@@ -67,9 +70,11 @@ export interface EngineState {
   reposLoading: boolean
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  sessions: SessionMeta[]
-  issues: IssueWire[]
+  sessions: SessionView[]
   issueProjections: IssueProjection[]
+  issueDeps: IssueDepProjection[]
+  issueGitStates: IssueGitStateProjection[]
+  repoProjections: RepoProjection[]
   /** This principal's per-user issue markers (`readAt`, `tuckedAt`, `pinned`),
    *  one row per issue they touched, optimistic edits folded in (POD-4969). */
   issueUserStates: IssueUserStateWire[]
@@ -80,6 +85,7 @@ export interface EngineState {
   /** People's chat message records (POD-4764), replicated by id. */
   messageRecords: MessageRecordWire[]
   shipOrders: ShipOrderProjection[]
+  shipLanes: ShipLaneProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
@@ -181,9 +187,9 @@ export const tabIsVisible = (): boolean =>
  *  sidebar/collapsed rollup so remake-on-view sees the same activity the row
  *  does (POD-912). */
 export function issueActivityAt(
-  issue: Pick<IssueWire, 'id' | 'updatedAt'>,
-  sessions: SessionMeta[],
-  issues: readonly Pick<IssueWire, 'id' | 'parentId' | 'updatedAt'>[] = [],
+  issue: Pick<IssueProjection, 'id' | 'updatedAt'>,
+  sessions: SessionView[],
+  issues: readonly Pick<IssueProjection, 'id' | 'parentId' | 'updatedAt'>[] = [],
 ): string {
   const subtree = new Set<string>([issue.id])
   let grew = true
@@ -278,7 +284,7 @@ export interface WorkspacePatch {
 /** The selection a workspace key is computed from. */
 export type WorkspaceSelection = Pick<
   EngineState,
-  'issues' | 'selectedIssueId' | 'selectedWorktree'
+  'issueProjections' | 'selectedIssueId' | 'selectedWorktree'
 >
 
 /**
@@ -290,16 +296,48 @@ export type WorkspaceSelection = Pick<
  * here so the engine and the view cannot disagree about which task's tabs they
  * are writing.
  */
+const workspaceKeys = new WeakMap<
+  WorkspaceSelection,
+  {
+    source?: WorkspaceSelection['issueProjections']
+    issue?: WorkspaceSelection['selectedIssueId']
+    worktree?: WorkspaceSelection['selectedWorktree']
+    value?: WorkspaceKey
+  }
+>()
+
+/** The existing runtime opts in at startup. Cache one scalar answer, never
+ * rows or relations; a replaced issue array (including evict/rescope) misses. */
+export function enableWorkspaceKeyCache(st: WorkspaceSelection): void {
+  if (!workspaceKeys.has(st)) workspaceKeys.set(st, {})
+}
+
 export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
+  const cached = workspaceKeys.get(st)
+  if (
+    cached?.value !== undefined &&
+    cached.source === st.issueProjections &&
+    cached.issue === st.selectedIssueId &&
+    cached.worktree === st.selectedWorktree
+  )
+    return cached.value
   const selected = st.selectedIssueId
-    ? st.issues.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
+    ? st.issueProjections.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
-  const root = selected ? missionRootFor(st.issues, selected.id) : undefined
-  return workspaceKeyFor({
+  const root = selected ? missionRootFor(st.issueProjections, selected.id) : undefined
+  const value = workspaceKeyFor({
     missionRootId: root?.id ?? null,
     issueId: st.selectedIssueId,
     worktreePath: st.selectedWorktree,
   })
+  if (cached)
+    Object.assign(cached, {
+      source: st.issueProjections,
+      issue: st.selectedIssueId,
+      worktree: st.selectedWorktree,
+      value,
+    })
+  return value
 }
 
 /** The layout for a key — always a layout, never undefined, so no caller has to
@@ -454,7 +492,10 @@ function resolvableFileTabIds(st: Pick<EngineState, 'sessions' | 'fileTabs'>): s
  * it is foreign, and the origin strip must drop it immediately.
  */
 export function knownTabIdsForWorkspace(
-  st: Pick<EngineState, 'issues' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'>,
+  st: Pick<
+    EngineState,
+    'issueProjections' | 'issueDeps' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'
+  >,
   key: WorkspaceKey,
 ): Set<string> {
   const ids = new Set<string>()
@@ -473,7 +514,7 @@ export function knownTabIdsForWorkspace(
  * The issue slice indexed by id, built once per slice and shared by every caller
  * holding the same array.
  *
- * This replaces a `st.issues.find(...)` that ran once per SESSION per WORKSPACE
+ * This replaces a `st.issueProjections.find(...)` that ran once per SESSION per WORKSPACE
  * per publish. A Chrome profile of a live client holding 1,027 issues and 827
  * sessions put `sessionBelongsToWorkspace` at 47% of all busy main-thread CPU,
  * essentially all of it that one linear scan.
@@ -492,12 +533,12 @@ export function knownTabIdsForWorkspace(
  * be impossible; if it ever happens this must not quietly start answering with
  * the other one.
  */
-const issueIndexes = new WeakMap<readonly IssueWire[], ReadonlyMap<string, IssueWire>>()
+const issueIndexes = new WeakMap<readonly IssueProjection[], ReadonlyMap<string, IssueProjection>>()
 
-function issuesById(issues: readonly IssueWire[]): ReadonlyMap<string, IssueWire> {
+function issuesById(issues: readonly IssueProjection[]): ReadonlyMap<string, IssueProjection> {
   const cached = issueIndexes.get(issues)
   if (cached) return cached
-  const byId = new Map<string, IssueWire>()
+  const byId = new Map<string, IssueProjection>()
   for (const issue of issues) if (!byId.has(issue.id)) byId.set(issue.id, issue)
   issueIndexes.set(issues, byId)
   return byId
@@ -516,9 +557,9 @@ function issuesById(issues: readonly IssueWire[]): ReadonlyMap<string, IssueWire
  * which is how ~651 ms of main-thread time went missing per frame.
  */
 export function workspaceMembership(
-  st: Pick<EngineState, 'issues' | 'sessions'>,
+  st: Pick<EngineState, 'issueProjections' | 'issueDeps' | 'sessions'>,
   key: WorkspaceKey,
-): (session: SessionMeta) => boolean {
+): (session: SessionView) => boolean {
   if (key === 'none') return () => true
   if (key.startsWith('wt:')) {
     const path = key.slice(3)
@@ -528,7 +569,7 @@ export function workspaceMembership(
     const issueId = key.slice(6)
     // Resolved for the KEY, not for the session: the old code re-found the same
     // issue for every session that did not name one.
-    const wt = issuesById(st.issues).get(issueId)?.worktreePath
+    const wt = issuesById(st.issueProjections).get(issueId)?.worktreePath
     return (session) => {
       if (session.issueId !== undefined) return session.issueId === issueId
       return Boolean(wt && (session.cwd === wt || session.cwd.startsWith(`${wt}/`)))
@@ -536,12 +577,12 @@ export function workspaceMembership(
   }
   if (key.startsWith('mission:')) {
     const rootId = key.slice(8)
-    const ids = missionIssueIds(st.issues, rootId, st.sessions)
+    const ids = missionIssueIds(issueTopology(st), rootId, st.sessions)
     // The mission's worktrees, collected once. The old loop rebuilt this
     // filtered view of the slice inside every session's test; the SET it walks
     // is identical, and the answer is a boolean, so order is immaterial.
     const worktrees: string[] = []
-    for (const issue of st.issues) {
+    for (const issue of st.issueProjections) {
       if (ids.has(issue.id) && issue.worktreePath) worktrees.push(issue.worktreePath)
     }
     return (session) => {
@@ -556,9 +597,9 @@ export function workspaceMembership(
  *  {@link workspaceMembership} — a caller with one session to test should not
  *  have to know that the rule has a per-key half. */
 export function sessionBelongsToWorkspace(
-  st: Pick<EngineState, 'issues' | 'sessions'>,
+  st: Pick<EngineState, 'issueProjections' | 'issueDeps' | 'sessions'>,
   key: WorkspaceKey,
-  session: SessionMeta,
+  session: SessionView,
 ): boolean {
   return workspaceMembership(st, key)(session)
 }
@@ -575,10 +616,10 @@ export function referencedTabIds(st: Pick<EngineState, 'workspaces'>): Set<strin
  *
  *  A miss is final, not pending: under a scoped slice the selected issue may
  *  simply not be visible to this principal. */
-export function foregroundIssue(st: EngineState): IssueWire | undefined {
+export function foregroundIssue(st: EngineState): IssueProjection | undefined {
   const id =
     st.view === 'issues' ? st.openIssueId : st.view === 'workspace' ? st.selectedIssueId : null
-  return id ? st.issues.find((i) => i.id === id) : undefined
+  return id ? st.issueProjections.find((i) => i.id === id) : undefined
 }
 
 /** The UI-state module's view of the workspace — the single input to routing,
@@ -642,14 +683,17 @@ export function userFocus(st: EngineState): UserFocus {
 export interface EngineStateSeed {
   readonly persisted: WorkspaceUiSnapshot
   readonly route: { settingsTab: string | null; issueId?: IssueId | null }
-  readonly sessions: SessionMeta[]
-  readonly issues: IssueWire[]
+  readonly sessions: SessionView[]
   readonly issueProjections: IssueProjection[]
   readonly issueUserStates: IssueUserStateWire[]
+  readonly issueGitStates: IssueGitStateProjection[]
+  readonly repoProjections: RepoProjection[]
+  readonly issueDeps: IssueDepProjection[]
   readonly issueEvents: IssueEventWire[]
   readonly pendingInteractions: PendingInteractionWire[]
   readonly messageRecords: MessageRecordWire[]
   readonly shipOrders: ShipOrderProjection[]
+  readonly shipLanes: ShipLaneProjection[]
   readonly conversations: ConversationSummaryWire[]
   readonly automations: AutomationWire[]
   readonly automationRuns: AutomationRunWire[]
@@ -681,13 +725,16 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     reposLoaded: false,
     repoDiagnostics: [],
     sessions: seed.sessions,
-    issues: seed.issues,
     issueProjections: seed.issueProjections,
     issueUserStates: seed.issueUserStates,
+    issueGitStates: seed.issueGitStates,
+    repoProjections: seed.repoProjections,
+    issueDeps: seed.issueDeps,
     issueEvents: seed.issueEvents,
     pendingInteractions: seed.pendingInteractions,
     messageRecords: seed.messageRecords,
     shipOrders: seed.shipOrders,
+    shipLanes: seed.shipLanes,
     conversations: seed.conversations,
     automations: seed.automations,
     automationRuns: seed.automationRuns,
@@ -741,4 +788,34 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     recoverOutbox: seed.recoverOutbox,
     coarseNow: seed.now,
   }
+}
+
+const topologyJoins = new WeakMap<
+  readonly IssueProjection[],
+  WeakMap<
+    readonly IssueDepProjection[],
+    Array<IssueProjection & { deps: Array<{ id: string; type: string }> }>
+  >
+>()
+function issueTopology(st: Pick<EngineState, 'issueProjections' | 'issueDeps'>) {
+  let byEdges = topologyJoins.get(st.issueProjections)
+  if (!byEdges) {
+    byEdges = new WeakMap()
+    topologyJoins.set(st.issueProjections, byEdges)
+  }
+  const edges = st.issueDeps
+  const previous = byEdges.get(edges)
+  if (previous) return previous
+  const outgoing = new Map<string, Array<{ id: string; type: string }>>()
+  for (const dep of edges) {
+    const values = outgoing.get(dep.fromId) ?? []
+    values.push({ id: dep.toId, type: dep.type })
+    outgoing.set(dep.fromId, values)
+  }
+  const joined = st.issueProjections.map((issue) => ({
+    ...issue,
+    deps: outgoing.get(issue.id) ?? [],
+  }))
+  byEdges.set(edges, joined)
+  return joined
 }

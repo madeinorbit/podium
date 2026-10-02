@@ -1,20 +1,20 @@
-import { workspaceFetch } from '@/lib/workspace-request'
 import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import {
+  CLIENT_WIRE_VERSION,
   classifySkew,
   parseServerVersion,
   type ServerVersion,
   type SkewVerdict,
-  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
+import { forceReload } from '@/lib/force-reload'
 import { isIterationMode } from '@/lib/iteration-mode'
 import { pageBundleVersion } from '@/lib/logging/build-version'
 import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budget'
 import { askServedAssets, type ServedAssetsAnswer } from '@/lib/served-assets'
-import { forceReload } from '@/lib/force-reload'
+import { workspaceFetch } from '@/lib/workspace-request'
 
 // Keep the historical import path public while sharing the implementation with
 // the root stale-build banner without pulling this feature into its eager graph.
@@ -197,6 +197,21 @@ export async function checkServerVersion(
         `(wire ${server.wireVersion} against ${CLIENT_WIRE_VERSION}). Update your server to continue.`,
     })
     return 'server-behind'
+  }
+
+  const pageOrigin = globalThis.location?.origin
+  if (
+    pageOrigin === 'tauri://localhost' ||
+    pageOrigin === 'http://tauri.localhost' ||
+    pageOrigin === 'https://tauri.localhost'
+  ) {
+    reportSkew({
+      source: 'boot-digest',
+      severe: true,
+      message:
+        'Update Podium to continue. This desktop app contains a build that is incompatible with the server.',
+    })
+    return 'blocked'
   }
 
   const serverWire = server.wireVersion

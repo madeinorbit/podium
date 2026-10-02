@@ -206,7 +206,7 @@ describe('issue command registry completeness', () => {
       (n) => ISSUE_CONTRACTS[n].policy.resource !== 'issue',
     )
     expect(scoped.length).toBe(39)
-    expect(unscoped.length).toBe(37)
+    expect(unscoped.length).toBe(39)
     // The predicate the assertion above applies, run on PLANTED pairs so it is
     // observed saying NO before its silence is read as agreement.
     const agrees = (hasExtractor: boolean, resource: string) =>
@@ -238,7 +238,7 @@ describe('handler↔contract schema identity', () => {
       expect(def?.input, name).toBe(ISSUE_CONTRACTS[name].input)
       checked += 1
     }
-    expect(checked).toBe(76)
+    expect(checked).toBe(78)
   })
 
   it('`toBe` here is load-bearing: an equal-but-separate schema would pass toEqual', () => {
@@ -813,6 +813,25 @@ describe('Shipping command boundary', () => {
         overrideScope: true,
       }),
     ).rejects.toThrow(/unknown issue/)
+  })
+})
+
+describe('normalized palette search', () => {
+  it('keeps legacy search while returning canonical fields on the additive query', async () => {
+    const registry = await reportingRegistry()
+    try {
+      const issue = await registry.issues.create({ repoPath: '/r', title: 'Normalized search example', startNow: false })
+      const legacy = await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'search', { text: 'Normalized search' }) as Array<Record<string, unknown>>
+      const normalized = await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'searchNormalized', { text: 'Normalized search' }) as Array<Record<string, unknown>>
+      expect(legacy.map(row => row.id)).toEqual([issue.id])
+      expect(normalized.map(row => row.id)).toEqual([issue.id])
+      expect(normalized[0]).toMatchObject({ description: { value: '' }, isDraftVessel: false, intentOrigin: 'human' })
+      expect(normalized[0]).not.toHaveProperty('draft')
+      expect(normalized[0]).not.toHaveProperty('origin')
+      expect(normalized[0]).not.toHaveProperty('humanQuestion')
+      expect(normalized[0]?.displayRef).toBe(legacy[0]?.displayRef)
+      expect(legacy[0]).toHaveProperty('draft')
+    } finally { await registry.dispose() }
   })
 })
 

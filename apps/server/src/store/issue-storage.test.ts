@@ -17,7 +17,25 @@
  *     thing under test cannot notice its own coverage shrinking.
  */
 
-import { IssueAgentDefaults, IssueCoordination, IssueGraphRefs, IssueIdentity, IssueIntent, IssueLifecycle, IssueLinear, IssuePanelGroup, IssueText, IssueTriage, IssueWorkspace, NeedsHuman, asIssueId, asRepoId, asSessionId, asUserId, asMachineId} from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asRepoId,
+  asSessionId,
+  asUserId,
+  IssueAgentDefaults,
+  IssueCoordination,
+  IssueGraphRefs,
+  IssueIdentity,
+  IssueIntent,
+  IssueLifecycle,
+  IssueLinear,
+  IssuePanelGroup,
+  IssueText,
+  IssueTriage,
+  IssueWorkspace,
+  NeedsHuman,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   fromStorage,
@@ -85,6 +103,7 @@ const fullRow = (): IssueRow => ({
   humanQuestion: 'which branch?',
   humanQuestionOptions: ['main', 'develop'],
   humanQuestionAskedBy: asSessionId('sess_1'),
+  humanQuestionAttribution: null,
   humanQuestionAskedAt: '2026-01-03T00:00:00Z',
   panel: JSON.stringify({ todos: [], artifacts: [], deferred: [] }),
   // The two type-identical enums, deliberately DIFFERENT.
@@ -146,6 +165,7 @@ const emptyRow = (): IssueRow => ({
   humanQuestion: null,
   humanQuestionOptions: null,
   humanQuestionAskedBy: null,
+  humanQuestionAttribution: null,
   humanQuestionAskedAt: null,
   panel: null,
   origin: 'human',
@@ -257,19 +277,12 @@ describe('the storage gap is named, not invented', () => {
     ])
   })
 
-  it('asked keeps its all-or-nothing invariant with only attribution removed', () => {
-    // The counterfactual: attribution IS gone (so the omission happened at all)…
-    expect(Object.keys(StoredIssue.shape.asked.unwrap().shape)).toEqual([
-      'question',
-      'options',
-      'at',
-      'by',
-    ])
-    // …and "when without who" still does not parse, which is the property
-    // POD-365 built the nested object for.
-    expect(
-      StoredIssue.shape.asked.unwrap().safeParse({ question: 'q', at: 't' }).success,
-    ).toBe(false)
+  it('stores the canonical optional asker without inventing an attribution', () => {
+    expect(StoredIssue.shape.asked.unwrap()).toBe(NeedsHuman.shape.asked.unwrap())
+    expect(StoredIssue.shape.asked.unwrap().parse({ question: 'q', at: 't' })).toEqual({
+      question: 'q',
+      at: 't',
+    })
   })
 
   it('keeps the per-user and derived columns OFF R1', () => {

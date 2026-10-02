@@ -18,7 +18,8 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsClient } from '@/features/settings/stable-access'
+import { useSettingsDraft, parseSettingsText, serializeSettingsText } from '@/features/settings/readers'
 import { parseServerOrigin, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -97,7 +98,7 @@ export function ExistingPodiumActivation({
   onRouteChange: (route: ActivationRoute) => void
   onConfigured: () => Promise<ShellRestart>
 }): JSX.Element {
-  const uiState = useStoreSelector((store) => store.uiState)
+  const { uiState } = useSettingsClient()
 
   if (route === 'existing-client') {
     return (
@@ -167,9 +168,7 @@ function ExistingClientStep({
   onBack: () => void
   onConfigured: () => Promise<ShellRestart>
 }): JSX.Element {
-  const [serverUrl, setServerUrl] = useState(
-    () => uiState.get(EXISTING_PODIUM_CLIENT_DRAFT_KEY) ?? '',
-  )
+  const [serverUrl, setServerUrl] = useSettingsDraft(EXISTING_PODIUM_CLIENT_DRAFT_KEY, parseSettingsText, serializeSettingsText)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const handoff = useActivationHandoff(onConfigured)
@@ -225,7 +224,6 @@ function ExistingClientStep({
                 onChange={(event) => {
                   const value = event.currentTarget.value
                   setServerUrl(value)
-                  uiState.set(EXISTING_PODIUM_CLIENT_DRAFT_KEY, value || null)
                   if (error) setError(null)
                 }}
               />
@@ -291,9 +289,7 @@ function ExistingMachineStep({
   onBack: () => void
   onConfigured: () => Promise<ShellRestart>
 }): JSX.Element {
-  const [joinCode, setJoinCode] = useState(
-    () => uiState.get(EXISTING_PODIUM_MACHINE_DRAFT_KEY) ?? '',
-  )
+  const [joinCode, setJoinCode] = useSettingsDraft(EXISTING_PODIUM_MACHINE_DRAFT_KEY, parseSettingsText, serializeSettingsText)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
@@ -371,7 +367,6 @@ function ExistingMachineStep({
                 onChange={(event) => {
                   const value = event.currentTarget.value
                   setJoinCode(value)
-                  uiState.set(EXISTING_PODIUM_MACHINE_DRAFT_KEY, value || null)
                   if (error) setError(null)
                 }}
               />

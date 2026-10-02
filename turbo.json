@@ -31,7 +31,7 @@
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/package.json",
         "$TURBO_ROOT$/packages/commands/src/**",
-                "$TURBO_ROOT$/packages/harness/package.json",
+        "$TURBO_ROOT$/packages/harness/package.json",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/package.json",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -51,7 +51,7 @@
         "$TURBO_ROOT$/packages/terminal-client-react/src/**",
         "$TURBO_ROOT$/packages/terminal-client/package.json",
         "$TURBO_ROOT$/packages/terminal-client/src/**",
-                "$TURBO_ROOT$/scripts/archive-web-sourcemaps.ts",
+        "$TURBO_ROOT$/scripts/archive-web-sourcemaps.ts",
         "$TURBO_ROOT$/scripts/precompress-dist.ts",
         "$TURBO_ROOT$/scripts/web-bundle-budget.ts",
         "$TURBO_ROOT$/scripts/write-web-build-stamp.ts"
@@ -70,7 +70,7 @@
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/package.json",
         "$TURBO_ROOT$/packages/harness/src/**",
-                "$TURBO_ROOT$/packages/logger/package.json",
+        "$TURBO_ROOT$/packages/logger/package.json",
         "$TURBO_ROOT$/packages/logger/src/**",
         "$TURBO_ROOT$/packages/model/package.json",
         "$TURBO_ROOT$/packages/model/src/**",
@@ -118,6 +118,20 @@
       "inputs": ["$TURBO_DEFAULT$"],
       "outputs": ["*.tsbuildinfo"]
     },
+    "@podium/client-graph#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/mobx-census.ts",
+        "$TURBO_ROOT$/apps/web/node_modules/vite/dist/node/index.js"
+      ],
+      "outputs": ["*.tsbuildinfo"]
+    },
+    "@podium/worklist-proto#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/diagnostics/issue-chips-replay.ts"],
+      "outputs": ["*.tsbuildinfo"]
+    },
     "@podium/scripts#typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": [
@@ -159,7 +173,7 @@
         "$TURBO_ROOT$/apps/daemon/src/**",
         "$TURBO_ROOT$/drizzle.config.ts",
         "$TURBO_ROOT$/packages/client-core/package.json",
-        "$TURBO_ROOT$/packages/client-core/src/socket-transport/bootstrap-zstd.ts"
+        "$TURBO_ROOT$/packages/client-core/src/**"
       ],
       "outputs": ["*.tsbuildinfo"]
     },
@@ -177,13 +191,21 @@
     },
     "@podium/mobile#typecheck": {
       "dependsOn": ["^typecheck"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/src/features/setup/**"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
+        "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
+        "$TURBO_ROOT$/apps/web/src/features/setup/**",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**"
+      ],
       "outputs": ["*.tsbuildinfo"]
     },
     "@podium/web#test": {
       "dependsOn": [],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
+        "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/vitest.config.ts",
         "$TURBO_ROOT$/vitest.unit.config.ts",
         "$TURBO_ROOT$/vitest.smoke-requirements.ts",
@@ -265,7 +287,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
-                "$TURBO_ROOT$/packages/harness/src/**",
+        "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
         "$TURBO_ROOT$/packages/pty/src/**",
@@ -476,7 +498,7 @@
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
-                "$TURBO_ROOT$/packages/model/src/**",
+        "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
         "$TURBO_ROOT$/packages/runtime/src/**",
         "$TURBO_ROOT$/packages/sync/src/**"
@@ -487,6 +509,8 @@
       "dependsOn": [],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
+        "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/vitest.config.ts",
         "$TURBO_ROOT$/vitest.unit.config.ts",
         "$TURBO_ROOT$/vitest.smoke-requirements.ts",
@@ -494,7 +518,8 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
-        "$TURBO_ROOT$/packages/*/src/**"
+        "$TURBO_ROOT$/packages/*/src/**",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**"
       ],
       "outputs": []
     },

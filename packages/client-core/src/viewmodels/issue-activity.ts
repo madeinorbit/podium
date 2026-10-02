@@ -1,8 +1,4 @@
-import {
-  canonicalIssueCloseReason,
-  ISSUE_STATUS_LABELS,
-  type IssueStage,
-} from '@podium/model'
+import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS, type IssueStage } from '@podium/model'
 import { ISSUE_STAGE_LABELS } from './issue-reference'
 
 /**
@@ -163,7 +159,7 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
 }
 
 /** A comment as IssuePage renders it — fetched lazily via the issues.comments
- *  proc (#175); comment bodies no longer ride IssueWire. */
+ *  proc (#175); comment bodies no longer ride IssueViewModel. */
 export interface ActivityComment {
   author: string
   body: string

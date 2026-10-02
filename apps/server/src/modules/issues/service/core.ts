@@ -1,5 +1,3 @@
-import { bindCommittedIssueReader } from '../../world-index/issue-reader'
-import { issueFromRow } from '../../../store/issues'
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
@@ -12,8 +10,6 @@ import {
   type IssuePanel,
   type IssueProjection,
   type IssueUserOverlay,
-  type IssueWire,
-  type MachineId,
   isIssueBlocked,
   isIssueClosed,
   isIssueDeferred,
@@ -23,20 +19,22 @@ import {
   issueOverlayOf,
   issueUserStateRowId,
   issueUserStateToWire,
+  type MachineId,
   type RepoProjection,
   requireInstant,
-  type SessionId,
   type SessionMeta,
   type UserId,
 } from '@podium/model'
-import { formatIssueRef, parseIssueRef } from '@podium/protocol'
+import { parseIssueRef } from '@podium/protocol'
 import { type EntityChangeSpec, StagedOverlay } from '@podium/sync'
 import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit, applyAfterCommit } from '../../../store/executor/executor'
-import { decodePanel, fromStorage } from '../../../store/issue-storage'
+import { decodePanel } from '../../../store/issue-storage'
+import { issueFromRow } from '../../../store/issues'
+import type { SessionFacts } from '../../sessions/facts'
+import { bindCommittedIssueReader } from '../../world-index/issue-reader'
 import { normalizeBlankIssueText } from '../blank-text'
-import { countIssueWireBuild } from '../instrumentation'
 import {
   issueDepProjectionRows,
   issueDepToProjection,
@@ -44,19 +42,52 @@ import {
   issueRowToProjection,
   repoProjectionRows,
 } from '../projection'
-import type { PublishSpec } from '../publish'
 import { IssueNotFound } from './not-found'
-import type { SessionFacts } from '../../sessions/facts'
 import type { IssueDeps } from './types'
 
 const log = createLogger('server:issues')
 
-export interface IssueWireBatch {
-  labelsByIssue: Map<string, string[]>
-  depsByFrom: Map<string, { toId: IssueId; type: string }[]>
-  dependentsByTo: Map<string, { fromId: IssueId; type: string }[]>
-  childrenByParent: Map<string, IssueRow[]>
-  prefixesByRepoPath: Map<string, string | null>
+/** Row identities only. Prefixes stay in the repo registry, so renaming one
+ * changes lookup immediately without rewriting any issue's index entry. */
+class IssueReferenceIndex {
+  private readonly bySeq = new Map<number, Set<string>>()
+  private readonly byRepo = new Map<string | null, Map<number, Set<string>>>()
+  private readonly order = new Map<string, number>()
+  nextOrder = 0
+
+  add(row: IssueRow): void {
+    if (!this.order.has(row.id)) this.order.set(row.id, this.nextOrder++)
+    const seq = this.bySeq.get(row.seq) ?? new Set<string>()
+    seq.add(row.id)
+    this.bySeq.set(row.seq, seq)
+    const repoId = row.repoId ?? null
+    const repo = this.byRepo.get(repoId) ?? new Map<number, Set<string>>()
+    const ids = repo.get(row.seq) ?? new Set<string>()
+    ids.add(row.id)
+    repo.set(row.seq, ids)
+    this.byRepo.set(repoId, repo)
+  }
+
+  remove(row: IssueRow, forgetOrder: boolean): void {
+    const seq = this.bySeq.get(row.seq)
+    seq?.delete(row.id)
+    if (seq?.size === 0) this.bySeq.delete(row.seq)
+    const repoId = row.repoId ?? null
+    const repo = this.byRepo.get(repoId)
+    const ids = repo?.get(row.seq)
+    ids?.delete(row.id)
+    if (ids?.size === 0) repo?.delete(row.seq)
+    if (repo?.size === 0) this.byRepo.delete(repoId)
+    if (forgetOrder) this.order.delete(row.id)
+  }
+
+  ids(seq: number, repoId?: string | null): Iterable<string> {
+    return (repoId === undefined ? this.bySeq.get(seq) : this.byRepo.get(repoId)?.get(seq)) ?? []
+  }
+
+  orderOf(id: string): number | undefined {
+    return this.order.get(id)
+  }
 }
 
 /**
@@ -115,6 +146,8 @@ export class IssueStore {
    * been staged, promoted or dropped since you last looked".
    */
   private composedRows: { version: number; rows: Map<string, IssueRow> } | undefined
+  private references = new IssueReferenceIndex()
+  private stagedReferences: { version: number; index: IssueReferenceIndex } | undefined
   constructor(readonly deps: IssueDeps) {
     this.stagedViewerState = new StagedOverlay(
       deps.applyCommit,
@@ -122,7 +155,6 @@ export class IssueStore {
         const viewerState = this.requireHydrated().viewerState
         if (state) viewerState.set(id, state)
         else viewerState.delete(id)
-        this.bumpIssueInputs()
       },
       'issue-user-state-install',
     )
@@ -157,7 +189,7 @@ export class IssueStore {
    * body with the request's principal; every caller already asks the question.
    */
   async broadcastViewer(): Promise<UserId> {
-    return (await firstAdminMemberId(this.deps.store))
+    return await firstAdminMemberId(this.deps.store)
   }
 
   /**
@@ -226,41 +258,10 @@ export class IssueStore {
       ],
     })
     this.stagedViewerState.set(issueId, next)
-    this.bumpIssueInputs()
   }
 
-  // Dirty-scoped issue wire rebuild [POD-723]. One built IssueWire per issue,
-  // keyed by a fingerprint of that issue's OWN toWire inputs. It was sized for a
-  // session-driven publish — the O(issues×sessions) republish path POD-701
-  // measured, deleted at POD-1574/POD-1576 — where no issue row/label/dep/comment
-  // changed, so `issueInputsGen` stayed stable and only issues whose member
-  // sessions moved rebuilt. That caller is gone; the memo still pays for itself
-  // on {@link broadcastList}, where one write's ripple rebuilds a few rows and
-  // every untouched issue reuses its cached payload, skipping toWire's per-issue
-  // store queries + O(issues) children scan.
-  // Interim until POD-308 deletes the snapshot fan-out.
-  private readonly wireCache = new Map<string, { key: string; wire: IssueWire }>()
-  // Bumped on EVERY issue-side input change (row upsert, labels, deps, comments,
-  // read state, hierarchy, archive, delete). Coarse by design: any issue mutation
-  // invalidates the whole memo — that path already rebuilds the full list and is
-  // not the hot one. It is NEVER bumped by the session-driven publish, which is
-  // exactly where the memo pays off. Cross-issue derived ripples (a close flipping
-  // dependents' blocked/ready) are covered because the mutation that caused them
-  // bumps this counter, invalidating the affected rows' cache too.
-  private issueInputsGen = 0
-
-  /** Git status of each issue's checkout [POD-98] — EPHEMERAL (like the wire's
-   *  `sessions`): probed on the working→idle edge, joined in toWire, never a
-   *  column. Lost on restart by design — the next turn end re-probes, and the
-   *  attribution ledger's absence is what flips `fallback` on. Writers must
-   *  broadcast via {@link broadcastList} so the POD-723 memo invalidates. */
+  /** Ephemeral observations, published only as issueGitState rows. */
   readonly gitStates = new Map<string, IssueGitState>()
-
-  /** Signal that some issue-side input feeding {@link toWire} changed, so cached
-   *  wire payloads must be rebuilt on the next list() [POD-723]. */
-  bumpIssueInputs(): void {
-    this.issueInputsGen++
-  }
 
   /** The in-memory row map. Row-level quarantine lives in the store
    *  (listIssueRows skips + logs + counts corrupt rows), so hydration is total:
@@ -309,22 +310,23 @@ export class IssueStore {
     this.stagedRows.set(id, row ?? undefined)
     // Whichever way it went, the map a reader sees has moved, so every cached
     // wire built from it is stale [POD-723].
-    this.bumpIssueInputs()
   }
 
   /** Write straight through to the committed map. */
   private applyRow(id: string, row: IssueRow | null): void {
     const committed = this.requireHydrated().rows
+    const previous = committed.get(id)
+    const identityChanged =
+      !previous || !row || previous.seq !== row.seq || previous.repoId !== row.repoId
+    if (previous && identityChanged) this.references.remove(previous, row === null)
+    if (row && identityChanged) this.references.add(row)
     if (row === null) {
       committed.delete(id)
       // A purged issue's memo would otherwise outlive its row. `hydrate` used to
       // prune these by dropping the whole map [POD-723]; a targeted removal has
       // to say so.
-      this.wireCache.delete(id)
     } else committed.set(id, row)
   }
-
-
 
   /**
    * DRAFT-THEN-INSTALL, THE ISSUE REGISTRY'S MODEL [POD-3259, spec §3.6 (b)].
@@ -499,26 +501,35 @@ export class IssueStore {
     // (shipping CAS, renumber, reassignment and machine backfill).
     await this.deps.store.transact(async () => {
       const map = new Map<string, IssueRow>()
-      for (const r of await this.deps.store.issues.listIssueRows()) map.set(r.id, r)
-      const viewerState = await this.deps.store.issues.listIssueUserState(await this.broadcastViewer())
+      const references = new IssueReferenceIndex()
+      for (const r of await this.deps.store.issues.listIssueRows()) {
+        map.set(r.id, r)
+        references.add(r)
+      }
+      const viewerState = await this.deps.store.issues.listIssueUserState(
+        await this.broadcastViewer(),
+      )
       applyAfterCommit(() => {
         this.composedRows = undefined
         this.hydrated = map
+        this.references = references
+        this.stagedReferences = undefined
         this.viewerState = viewerState
         this.unsubscribeRows?.()
-        this.unsubscribeRows = this.deps.store.issues.committed.subscribe(change => {
+        this.unsubscribeRows = this.deps.store.issues.committed.subscribe((change) => {
           for (const raw of change.rows) {
             this.applyRow(raw.id, change.operation === 'delete' ? null : issueFromRow(raw))
           }
-          this.bumpIssueInputs()
         })
         // Point and cwd reads quarantine fewer columns than listIssueRows.
         // If boot omitted anything, use SQL rather than turn a quarantined
         // row into a missing ownership fact or change cwd ambiguity rules.
-        bindCommittedIssueReader(this.deps.store.issues,
-          this.deps.store.issues.quarantinedRowCount === 0 ? () => this.requireHydrated().rows : undefined)
-        this.wireCache.clear()
-        this.bumpIssueInputs()
+        bindCommittedIssueReader(
+          this.deps.store.issues,
+          this.deps.store.issues.quarantinedRowCount === 0
+            ? () => this.requireHydrated().rows
+            : undefined,
+        )
       }, 'issue-rows:load')
     })
   }
@@ -602,9 +613,12 @@ export class IssueStore {
   }
 
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
-  async computeBlocked(row: IssueRow, batch?: IssueWireBatch): Promise<boolean> {
+  async computeBlocked(
+    row: IssueRow,
+    batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> },
+  ): Promise<boolean> {
     // With a batch this reads nothing: the outgoing deps for the whole set were
-    // fetched once by {@link wireBatch}. Without one it is the single-row case
+    // fetched once by the report batch. Without one it is the single-row case
     // and asks for its own row's deps, as it always did (POD-3257).
     const outgoing = batch
       ? (batch.depsByFrom.get(row.id) ?? [])
@@ -615,291 +629,22 @@ export class IssueStore {
     return isIssueBlocked(row, blocksTargets)
   }
 
-  /** Serialize one issue into the transitional legacy shape.
-   *
-   *  `commentCounts` batches the comment COUNT (#175): list serializers pass one
-   *  GROUP BY map; single-issue paths run one scalar COUNT. Comment BODIES never
-   *  ride the wire anymore — fetch via comments(id).
-   *
-   *  NO SESSION LIST IS READ HERE ANY MORE [POD-797]. `sessions`,
-   *  `sessionSummary` and `unread` left the wire, and they were the only reason
-   *  this projection ever needed one — so the `listSessions()` call went with
-   *  them. That is the O(issues x sessions) coupling the slice exists to remove,
-   *  and removing the FIELDS without removing the CALL would have kept every
-   *  cost and shipped none of the benefit. `IssueWireBatch.sessions` is GONE too
-   *  as of POD-3257 — it was a `listSessions()` per batch that no reader had
-   *  wanted since POD-797, and handing the batch to every list serializer would
-   *  have bought it once per call instead of once.
-   *
-   *  What a caller wanting membership does instead: read it from the SESSION
-   *  side (`sessionId -> issueId`), which is where it is stored. `unreadFor`
-   *  above is the one derivation that still joins the two, and it fetches its
-   *  own list. */
-  async toWire(row: IssueRow, commentCounts?: Map<string, number>, batch?: IssueWireBatch): Promise<IssueWire> {
-    // Transitional builds remain observable; the D7.2 membership-scan counter
-    // has no increment site after the old membership assembly is deleted.
-    countIssueWireBuild()
-    // R3 -> R1 -> R4. Every encoding split this projection used to perform inline
-    // (raw panel JSON, the stage/type casts, the three D-2 renames, the two
-    // 'human' | 'agent' enums, the nullable->optional collapse) now lives in the
-    // ONE documented pair (ADR 4 §4.1). `row` is still passed to the predicates
-    // and store lookups below, which take rows by design.
-    const issue = fromStorage(row)
-    const gitState = row.deletedAt ? undefined : this.gitStates.get(row.id)
-    const labels = batch
-      ? (batch.labelsByIssue.get(row.id) ?? [])
-      : await this.deps.store.issues.getIssueLabels(row.id)
-    const children = batch
-      ? (batch.childrenByParent.get(row.id) ?? [])
-      : [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
-    // Wire deps/dependents keep carrying the parent-child edges for client
-    // compatibility, but they are SYNTHESIZED from parent_id / children —
-    // issue_deps stores only real dependency types (#164).
-    const deps = [
-      ...(batch
-        ? (batch.depsByFrom.get(row.id) ?? [])
-        : await this.deps.store.issues.listIssueDeps(row.id)
-      ).map((d) => ({ id: d.toId, type: d.type })),
-      ...(row.parentId ? [{ id: row.parentId, type: 'parent-child' }] : []),
-    ]
-    const dependents = [
-      ...(batch
-        ? (batch.dependentsByTo.get(row.id) ?? [])
-        : await this.deps.store.issues.listDependents(row.id)
-      ).map((d) => ({ id: d.fromId, type: d.type })),
-      ...children.map((c) => ({ id: c.id, type: 'parent-child' })),
-    ]
-    const commentCount = commentCounts
-      ? (commentCounts.get(row.id) ?? 0)
-      : await this.deps.store.issues.countIssueComments(row.id)
-    const blocked = await this.computeBlocked(row, batch)
-    const deferred = this.isDeferred(row)
-    const ready =
+  /** Only this issue's own fields and labels enter its publication. */
+  async projection(row: IssueRow): Promise<IssueProjection> {
+    return issueRowToProjection(row, await this.deps.store.issues.getIssueLabels(row.id))
+  }
+
+  async isReady(
+    row: IssueRow,
+    batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> },
+  ): Promise<boolean> {
+    return (
       isIssueStage(row.stage) &&
       isReadyIssueStage(row.stage) &&
       !this.isClosed(row) &&
-      !deferred &&
-      !blocked
-    let prefix = batch?.prefixesByRepoPath.get(row.repoPath)
-    if (prefix === undefined) {
-      prefix = await this.deps.store.repos.prefixForPath(row.repoPath)
-      batch?.prefixesByRepoPath.set(row.repoPath, prefix)
-    }
-    const displayRef = prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
-    // Either shape of the needs-human quartet projects the same four wire keys;
-    // `askedLegacy` is a pre-#53 row whose asker was never recorded, and dropping
-    // it here would delete an open question from the wire.
-    const asked = issue.asked ?? issue.askedLegacy
-    return {
-      id: issue.id,
-      repoPath: row.repoPath,
-      ...(issue.repoId ? { repoId: issue.repoId } : {}),
-      ...(prefix ? { prefix } : {}),
-      displayRef,
-      // Per-entity revision (ADR 2 D3) — assigned by upsertIssue at the SQL
-      // write, so this projection carries the COMMITTED token only when taken
-      // after the write. Spread-conditionally like the other optionals: a row
-      // that has never been written has no revision, and an absent field is
-      // honest where a fabricated 1 would claim a write that never happened.
-      ...(issue.revision === undefined ? {} : { revision: issue.revision }),
-      seq: issue.seq,
-      title: issue.title,
-      description: issue.description.value,
-      ...(issue.brief ? { brief: issue.brief } : {}),
-      stage: issue.stage,
-      worktreePath: issue.worktreePath,
-      branch: issue.branch,
-      parentBranch: issue.parentBranch,
-      defaultAgent: issue.defaultAgent,
-      defaultModel: issue.defaultModel,
-      defaultEffort: issue.defaultEffort,
-      ...(issue.machineId ? { machineId: issue.machineId } : {}),
-      ...(issue.linearId ? { linearId: issue.linearId } : {}),
-      ...(issue.linearIdentifier ? { linearIdentifier: issue.linearIdentifier } : {}),
-      ...(issue.linearUrl ? { linearUrl: issue.linearUrl } : {}),
-      ...(issue.activityNotes ? { activityNotes: issue.activityNotes } : {}),
-      ...(issue.notesUpdatedAt ? { notesUpdatedAt: issue.notesUpdatedAt } : {}),
-      ...(issue.suggestedStage ? { suggestedStage: issue.suggestedStage } : {}),
-      ...(issue.suggestedReason ? { suggestedReason: issue.suggestedReason } : {}),
-      // No cast (POD-1144 resolved POD-362's reported misbrand): the wire field
-      // now IS `IssueGraphRefs.shape.blockedByNotes`, so a branch name reaches
-      // the client as the string it is. Assign it straight — a cast reappearing
-      // here would mean the two types have drifted apart again.
-      //
-      // POD-1530 renamed the wire KEY to match, so this is no longer a rename at
-      // all — it is the same name on both sides. v1 peers still read `blockedBy`;
-      // `gateway/legacy-wire-v1-adapter.ts` renames it back for them.
-      blockedByNotes: issue.blockedByNotes,
-      ...(issue.dependencyNote ? { dependencyNote: issue.dependencyNote } : {}),
-      ...(issue.prUrl ? { prUrl: issue.prUrl } : {}),
-      priority: issue.priority,
-      type: issue.type,
-      pinned: this.issueOverlay(row.id).pinned,
-      ...(issue.sortKey ? { sortKey: issue.sortKey } : {}),
-      // A corrupt/unknown stored slot already degraded to "no colour" in
-      // `fromStorage` [spec:SP-b4d1] — one tolerant decode, not two.
-      ...(issue.color ? { color: issue.color } : {}),
-      needsHuman: issue.needsHuman,
-      ...(asked?.question ? { humanQuestion: asked.question } : {}),
-      ...(asked?.options?.length ? { humanQuestionOptions: asked.options } : {}),
-      ...(asked?.by ? { humanQuestionAskedBy: asked.by as SessionId } : {}),
-      ...(asked?.at ? { humanQuestionAskedAt: asked.at } : {}),
-      ...(issue.supersededBy ? { supersededBy: issue.supersededBy } : {}),
-      ...(issue.duplicateOf ? { duplicateOf: issue.duplicateOf } : {}),
-      ...(issue.assignee ? { assignee: issue.assignee } : {}),
-      ...(issue.parentId ? { parentId: issue.parentId } : {}),
-      ...(issue.design ? { design: issue.design } : {}),
-      ...(issue.acceptance ? { acceptance: issue.acceptance } : {}),
-      ...(issue.notes?.value ? { notes: issue.notes.value } : {}),
-      ...(issue.dueAt ? { dueAt: issue.dueAt } : {}),
-      ...(issue.deferUntil ? { deferUntil: issue.deferUntil } : {}),
-      ...(issue.closedReason ? { closedReason: issue.closedReason } : {}),
-      ...(issue.closedAt ? { closedAt: issue.closedAt } : {}),
-      // Always on the wire (like readAt, not spread-when-truthy): the client
-      // reads absence as "not tucked", and an untuck must be able to say so.
-      tuckedAt: this.issueOverlay(row.id).tuckedAt,
-      ...(issue.estimateMin != null ? { estimateMin: issue.estimateMin } : {}),
-      ...(issue.panel ? { panel: issue.panel } : {}),
-      labels,
-      deps,
-      dependents,
-      commentCount,
-      ready,
-      blocked,
-      deferred,
-      childCount: children.length,
-      childDoneCount: children.filter((c) => this.isClosed(c)).length,
-      createdAt: issue.createdAt,
-      updatedAt: issue.updatedAt,
-      archived: issue.archived,
-      readAt: this.issueOverlay(row.id).readAt,
-      ...(issue.deletedAt ? { deletedAt: issue.deletedAt } : {}),
-      // NO `sessions` / `sessionSummary` / `unread` [POD-797, taken from main at
-      // the POD-1246 catch-up]. Dropping them from the schema alone would not have
-      // been enough: zod strips unknown keys, so a producer that kept computing
-      // them would keep paying the O(issues x sessions) rollup on every publish
-      // and throw the result away — the cost this slice exists to remove, hidden
-      // behind a passing wire test. They are removed HERE too, which is what makes
-      // the removal real.
-      ...(gitState ? { gitState } : {}),
-      // D-2's two renames, read back: the wire keeps the unqualified names until
-      // POD-308, and this pair is the one place they map.
-      origin: issue.intentOrigin,
-      audience: issue.audience,
-      draft: issue.isDraftVessel,
-      // Bare session ids (same format as humanQuestionAskedBy) — no `session:` prefix.
-      ...(issue.coordinatorSessionId ? { coordinatorSessionId: issue.coordinatorSessionId } : {}),
-      ...(issue.startedBySession ? { startedBySession: issue.startedBySession } : {}),
-    }
-  }
-
-  /**
-   * The joins {@link toWire} would otherwise re-run PER ROW — labels, deps in
-   * both directions, and the children scan — fetched once for a whole set.
-   *
-   * Extracted from `list` so any multi-row path can have it (POD-1102). Without
-   * it a write touching hundreds of rows pays hundreds of label queries and
-   * hundreds of O(N) children scans, which is most of how a scope compaction
-   * spent eight seconds blocking the event loop.
-   *
-   * PUBLIC AND USED BY EVERY MULTI-ROW READ SINCE POD-3257. `list` was the only
-   * caller, so every other list serializer paid four per-row queries — 120 of
-   * the 371 the issue-frame baseline measured. On a networked backend each one
-   * is a round trip, so a serializer that does not take a batch is an N+1 by
-   * construction; the two reads here answer for the whole set.
-   *
-   * `sessions` LEFT THE BATCH with POD-3257: `toWire` stopped reading it at
-   * POD-797 and nothing else ever did, so it was a `listSessions()` per batch
-   * bought for nobody — and handing the batch to more callers would have bought
-   * it once per call.
-   */
-  async wireBatch(): Promise<IssueWireBatch> {
-    const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
-    const depsByFrom = new Map<string, { toId: IssueId; type: string }[]>()
-    const dependentsByTo = new Map<string, { fromId: IssueId; type: string }[]>()
-    for (const dep of await this.deps.store.issues.listAllIssueDeps()) {
-      const outgoing = depsByFrom.get(dep.fromId)
-      if (outgoing) outgoing.push({ toId: dep.toId, type: dep.type })
-      else depsByFrom.set(dep.fromId, [{ toId: dep.toId, type: dep.type }])
-      const incoming = dependentsByTo.get(dep.toId)
-      if (incoming) incoming.push({ fromId: dep.fromId, type: dep.type })
-      else dependentsByTo.set(dep.toId, [{ fromId: dep.fromId, type: dep.type }])
-    }
-    const childrenByParent = new Map<string, IssueRow[]>()
-    for (const row of this.rows.values()) {
-      if (!row.parentId || row.deletedAt) continue
-      const children = childrenByParent.get(row.parentId)
-      if (children) children.push(row)
-      else childrenByParent.set(row.parentId, [row])
-    }
-    return {
-      labelsByIssue,
-      depsByFrom,
-      dependentsByTo,
-      childrenByParent,
-      prefixesByRepoPath: new Map(),
-    }
-  }
-
-  async list(repoPath?: string): Promise<IssueWire[]> {
-    const commentCounts = await this.deps.store.issues.countIssueCommentsByIssue()
-    const batch = await this.wireBatch()
-    // Resolved once per repoPath (few repos) — it rides the memo key because
-    // `displayRef` reads it and it changes out-of-band of any issue mutation.
-    const prefixByPath = new Map<string, string>()
-    const prefixFor = async (p: string): Promise<string> => {
-      let v = prefixByPath.get(p)
-      if (v === undefined) {
-        v = await this.deps.store.repos.prefixForPath(p) ?? ''
-        prefixByPath.set(p, v)
-      }
-      return v
-    }
-    const inScope = await this.repoScopeFilter(repoPath)
-    const rows = [...this.rows.values()]
-      .filter((r) => inScope(r))
-      .sort((a, b) => {
-        const ga = a.repoId ?? a.repoPath
-        const gb = b.repoId ?? b.repoPath
-        return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
-      })
-    return await Promise.all(
-      rows.map(async (r) => await this.toWireMemo(r, commentCounts, batch, await prefixFor(r.repoPath))),
+      !this.isDeferred(row) &&
+      !(await this.computeBlocked(row, batch))
     )
-  }
-
-  /**
-   * Cached {@link toWire} for the multi-issue list path [POD-723].
-   *
-   * THE KEY NO LONGER CARRIES A MEMBERSHIP FINGERPRINT [POD-797]. It used to:
-   * `IssueWire.sessions` embedded each `SessionMeta` verbatim, so any member
-   * field change had to invalidate the payload, and the key joined a per-session
-   * projection to catch it. The embed is gone, so the payload is a function of
-   * the issue's OWN inputs plus its repo prefix — and keying on membership would
-   * now mean rebuilding on a change the output cannot reflect. That rebuild is
-   * the O(issues x sessions) coupling this slice removes; keeping the key would
-   * have removed the field and kept the cost.
-   *
-   * What remains in the key is exactly what the payload reads: `issueInputsGen`
-   * (bumped by every issue-side mutation — rows, labels, deps, comments, read
-   * state, hierarchy, archive, delete) and the repo `prefix`, which feeds
-   * `displayRef` and changes out-of-band of any issue mutation.
-   *
-   * Single-issue `toWire` callers deliberately bypass this — they always want a
-   * fresh build.
-   */
-  private async toWireMemo(
-    row: IssueRow,
-    commentCounts: Map<string, number>,
-    batch: IssueWireBatch,
-    prefix: string,
-  ): Promise<IssueWire> {
-    const key = `${this.issueInputsGen}\u0000${this.stagedViewerState.version}\u0000${prefix}`
-    const cached = this.wireCache.get(row.id)
-    if (cached && cached.key === key) return cached.wire
-    const wire = await this.toWire(row, commentCounts, batch)
-    this.wireCache.set(row.id, { key, wire })
-    return wire
   }
 
   /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel).
@@ -938,7 +683,85 @@ export class IssueStore {
     if (!repoPath) return () => true
     const resolve = await this.deps.store.repos.issueRepoIdResolver()
     const scope = resolve(repoPath)
-    return (row: IssueRow) => scope !== null && (row.repoId ?? resolve(row.repoPath, row.machineId)) === scope
+    return (row: IssueRow) =>
+      scope !== null && (row.repoId ?? resolve(row.repoPath, row.machineId)) === scope
+  }
+
+  /** Index only staged writes, once per overlay version. Copying the composed
+   * row map here would make an in-span point lookup scan every committed issue. */
+  private pendingReferences(): IssueReferenceIndex | undefined {
+    if (this.stagedRows.empty) return undefined
+    const version = this.stagedRows.version
+    if (this.stagedReferences?.version !== version) {
+      const index = new IssueReferenceIndex()
+      for (const [, row] of this.stagedRows.entries()) {
+        if (row) index.add(row)
+      }
+      this.stagedReferences = { version, index }
+    }
+    return this.stagedReferences.index
+  }
+
+  /** Read the matching bucket and overlay only. A staged rekey or removal must
+   * hide its committed entry, and a rollback drops it through StagedOverlay. */
+  private referenceRows(seq: number, repoId?: string | null): IssueRow[] {
+    const pending = this.pendingReferences()
+    const ids = new Set(this.references.ids(seq, repoId))
+    for (const id of pending?.ids(seq, repoId) ?? []) ids.add(id)
+    const committed = this.requireHydrated().rows
+    const matches: IssueRow[] = []
+    for (const id of ids) {
+      const staged = this.stagedRows.peek(id)
+      const row = staged ? staged.value : committed.get(id)
+      if (row && row.seq === seq && (repoId === undefined || (row.repoId ?? null) === repoId)) {
+        matches.push(row)
+      }
+    }
+    // Keep the row map's insertion order, including after a seq/repo rekey.
+    return this.sortReferenceRows(matches, pending)
+  }
+
+  private sortReferenceRows(matches: IssueRow[], pending = this.pendingReferences()): IssueRow[] {
+    const order = (id: string) =>
+      this.references.orderOf(id) ?? this.references.nextOrder + (pending?.orderOf(id) ?? 0)
+    return matches.sort((a, b) => order(a.id) - order(b.id))
+  }
+
+  private async referenceInRepo(seq: number, repoId: string): Promise<IssueId | null> {
+    const matches = this.referenceRows(seq, repoId)
+    // Legacy rows without repo_id still use the live, machine-aware resolver.
+    // Its snapshot must not be held across repo-registry writes.
+    const legacy = this.referenceRows(seq, null)
+    if (legacy.length > 0) {
+      const resolve = await this.deps.store.repos.issueRepoIdResolver()
+      matches.push(...legacy.filter((row) => resolve(row.repoPath, row.machineId) === repoId))
+      this.sortReferenceRows(matches)
+    }
+    return matches[0]?.id ?? null
+  }
+
+  /** The chip batch accepts display refs and unambiguous #N, as before.
+   * Prefix queries are indexed in storage and shared within the batch; issue
+   * lookups use the maintained repo/seq index rather than an issue-row pass. */
+  async resolveRefs(refs: readonly string[]): Promise<Array<{ ref: string; id: IssueId | null }>> {
+    const prefixes = new Map<string, ReturnType<IssueDeps['store']['repos']['repoForPrefix']>>()
+    return await Promise.all(
+      [...new Set(refs)].map(async (ref) => {
+        const nice = parseIssueRef(ref.trim().toUpperCase())
+        if (nice) {
+          let lookup = prefixes.get(nice.prefix)
+          if (!lookup) {
+            lookup = this.deps.store.repos.repoForPrefix(nice.prefix)
+            prefixes.set(nice.prefix, lookup)
+          }
+          const repo = await lookup
+          return { ref, id: repo ? await this.referenceInRepo(nice.seq, repo.repoId) : null }
+        }
+        const numeric = /^#(\d+)$/.exec(ref.trim())
+        const matches = numeric ? this.referenceRows(Number(numeric[1])) : []
+        return { ref, id: matches.length === 1 ? (matches[0]?.id ?? null) : null }
+      }),
+    )
   }
 
   /** Resolve an issue reference to the internal id. Accepts the internal `iss_…` id
@@ -961,7 +784,12 @@ export class IssueStore {
    *  which id SPACE a value belongs to, never that the row exists — existence is
    *  the throw's job, not the type's. */
   async resolveRef(ref: string, scopeRepoPath?: string): Promise<IssueId> {
-    if (ref.startsWith('iss_') || this.rows.has(ref)) return asIssueId(ref)
+    const staged = this.stagedRows.peek(ref)
+    if (
+      ref.startsWith('iss_') ||
+      (staged ? staged.value !== undefined : this.requireHydrated().rows.has(ref))
+    )
+      return asIssueId(ref)
     // Human-facing nice id `PREFIX-seq` (#474). The prefix identifies the repo
     // server-wide, so this resolves without a path qualifier. A prefix that no
     // repo owns falls through to the other branches (and ultimately returns the
@@ -971,15 +799,8 @@ export class IssueStore {
     if (nice) {
       const repo = await this.deps.store.repos.repoForPrefix(nice.prefix)
       if (repo) {
-        // One registry read for the scan, not one per row (POD-3257): every row
-        // without a stored repo_id used to re-resolve its path through the store
-        // from inside the filter.
-        const resolve = await this.deps.store.repos.issueRepoIdResolver()
-        const repoId = repo.repoId ?? resolve(repo.path)
-        const matches = [...this.rows.values()].filter(
-          (r) => r.seq === nice.seq && (r.repoId ?? resolve(r.repoPath, r.machineId)) === repoId,
-        )
-        if (matches.length >= 1) return matches[0]!.id
+        const id = await this.referenceInRepo(nice.seq, repo.repoId)
+        if (id) return id
       }
     }
     const qualified = /^(.+)#(\d+)$/.exec(ref.trim())
@@ -988,7 +809,7 @@ export class IssueStore {
       const seq = Number(seqStr)
       // Repo qualifier matches the display path (exact or trailing suffix like
       // `podium#10`) OR the stable repo_id (#164) — path stays a lookup attribute.
-      const matches = [...this.rows.values()].filter(
+      const matches = this.referenceRows(seq).filter(
         (r) =>
           r.seq === seq &&
           (r.repoPath === repo || r.repoPath.endsWith(`/${repo}`) || r.repoId === repo),
@@ -1003,7 +824,7 @@ export class IssueStore {
     const m = /^#?(\d+)$/.exec(ref.trim())
     if (!m) return asIssueId(ref)
     const seq = Number(m[1])
-    let matches = [...this.rows.values()].filter((r) => r.seq === seq)
+    let matches = this.referenceRows(seq)
     if (matches.length > 1 && scopeRepoPath) {
       const inScope = await this.repoScopeFilter(scopeRepoPath)
       const scoped = matches.filter((r) => inScope(r))
@@ -1019,33 +840,18 @@ export class IssueStore {
     return asIssueId(ref)
   }
 
-  async allWire(): Promise<IssueWire[]> {
-    return await this.list()
-  }
-
   // ---- The normalized issue projection [POD-796, ADR 4 D7.1] ----
   //
-  /** The `issueProjection` change ONE issue's write declares.
-   *  Returned as an array so a call site can spread it into its `changes()` and
-   *  stay a single expression when the flag is off. */
-  async projectionChanges(
-    row: IssueRow,
-  ): Promise<{ entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }[]> {
+  /** An issue's own row and independently keyed companions in the same commit. */
+  async companionChanges(row: IssueRow, projection?: IssueProjection): Promise<EntityChangeSpec[]> {
+    const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
     return [
       {
         entity: 'issueProjection',
         id: row.id,
         op: 'upsert',
-        value: issueRowToProjection(row, await this.deps.store.issues.getIssueLabels(row.id)),
+        value: projection ?? (await this.projection(row)),
       },
-    ]
-  }
-
-  /** One issue's additive companions, declared beside its old record. */
-  async companionChanges(row: IssueRow): Promise<EntityChangeSpec[]> {
-    const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
-    return [
-      ...(await this.projectionChanges(row)),
       this.gitStateChange(row),
       ...states.map((state) => ({
         entity: 'issueUserState' as const,
@@ -1092,10 +898,7 @@ export class IssueStore {
    *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
    *  the difference is the rollback — see {@link EMPTY_NORMALIZED_TRUTH}.
    *
-   *  The normalized parallel to {@link allWire}. Public because it predates
-   *  POD-1576, when the relay's write-less publish tail was its outside caller;
-   *  {@link reconcileAndPublish} is the only caller left, so this is the
-   *  service's own truth now and no publisher unions anything into it. */
+   *  Used only by boot reconciliation and explicit normalized truth reads. */
   async allProjections(): Promise<{ id: string; value: IssueProjection }[] | undefined> {
     const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
     return issueProjectionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
@@ -1178,12 +981,8 @@ export class IssueStore {
     }
   }
 
-  /** THE full-list reconcile + fan-out tail every write-less issue publish runs
-   *  (broadcastList, purgeEmptyDraft). Both kinds reconcile against the same
-   *  truth in the same pass, so the legacy feed and the normalized feed can
-   *  never disagree about which issues exist. */
-  async reconcileAndPublish(spec: PublishSpec): Promise<void> {
-    await this.deps.ledger.reconcile('issue', spec.rows)
+  /** Reconcile own rows and companions at boot or after a hard delete. */
+  async reconcileAndPublish(): Promise<void> {
     const projections = await this.allProjections()
     if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
     await this.reconcileCompanions()
@@ -1207,14 +1006,8 @@ export class IssueStore {
       })
     } catch {}
   }
-  /** Persist ONE row and broadcast it as a single-issue delta (issue #22).
-   *  Historically every persist() also broadcast the FULL allWire() list —
-   *  N × toWire (4 store queries each + an O(N) children scan) per mutation,
-   *  O(N²) under load. Mutations whose effect stays within the row now cost one
-   *  toWire; mutations that change OTHER issues' derived wire data (closed flips
-   *  → dependents' blocked/ready + parent childDoneCount, hierarchy/dep edits,
-   *  membership changes) additionally call {@link broadcastList}. */
-  async persist(row: IssueRow, opts?: { touch?: boolean }): Promise<IssueWire> {
+  /** Persist one row and publish only its normalized data. */
+  async persist(row: IssueRow, opts?: { touch?: boolean }): Promise<IssueProjection> {
     return await this.persistWith(row, undefined, opts)
   }
 
@@ -1245,7 +1038,7 @@ export class IssueStore {
         | readonly EntityChangeSpec[]
         | (() => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
     },
-  ): Promise<IssueWire> {
+  ): Promise<IssueProjection> {
     // DRAFT-THEN-INSTALL (#247 rebuilt for the async store, POD-3259). `row` is
     // a DRAFT — a copy pinned to the revision it was cut from — never the
     // map-owned object, which is what {@link refuseMapOwnedRow} enforces. There
@@ -1281,36 +1074,19 @@ export class IssueStore {
             row,
             pin === undefined ? undefined : { expectedRevision: pin },
           )
-          // toWire never looks `row` itself up in the map (children/blocked scan
-          // OTHER rows), so it is safe to serialize before the map install below.
-          const committedWire = await this.toWire(row)
-          committedProjectionChanges = await this.companionChanges(row)
+          // The projection depends only on the committed draft and its labels.
+          const committedWire = await this.projection(row)
+          committedProjectionChanges = await this.companionChanges(row, committedWire)
           committedExtraChanges =
             typeof opts?.extraChanges === 'function'
               ? await opts.extraChanges()
               : (opts?.extraChanges ?? [])
           return committedWire
         },
-        // Both kinds are declared by the SAME commit, so they land in one
-        // transact span: a cap client and a legacy client can never observe an
-        // issue at two different truths, and neither feed can record a write
-        // the other rolled back. The projection is built from `row` (post-write,
-        // so it carries the revision upsertIssue just assigned — the same
-        // ordering `w` depends on), not from `w`.
-        changes: (w) => [
-          { entity: 'issue', id: row.id, op: 'upsert', value: w },
-          ...committedProjectionChanges,
-          ...committedExtraChanges,
-        ],
+        // Own facts and companions commit and roll back together.
+        changes: () => [...committedProjectionChanges, ...committedExtraChanges],
       })
     ).result
-    // The commit changed an issue-side input feeding toWire (row / label / dep /
-    // comment via extraWrite, or read state) — invalidate the wire memo
-    // [POD-723]. LOST IN THE POD-1246 MERGE and restored here: without it a
-    // label or dep write served the previous payload from cache, which no test
-    // outside `wire-memo.test.ts` could see because every other suite reads the
-    // single-issue path that bypasses the memo.
-    this.bumpIssueInputs()
     // Install into the map only AFTER the commit succeeded (#247): a throw in
     // the transact span (write or change append) rolls the durable state back,
     // and the map must not keep a row the store never accepted — a phantom row
@@ -1330,17 +1106,21 @@ export class IssueStore {
     rows: IssueRow[],
     write: () => T | Promise<T>,
     extraChanges: (result: T) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>,
-    events: (result: T) => readonly {
-      kind: string
-      subject: string
-      payload: Record<string, unknown>
-    }[] | Promise<readonly {
-      kind: string
-      subject: string
-      payload: Record<string, unknown>
-    }[]> = () => [],
+    events: (result: T) =>
+      | readonly {
+          kind: string
+          subject: string
+          payload: Record<string, unknown>
+        }[]
+      | Promise<
+          readonly {
+            kind: string
+            subject: string
+            payload: Record<string, unknown>
+          }[]
+        > = () => [],
     opts?: { touch?: boolean },
-  ): Promise<{ issues: IssueWire[]; result: T }> {
+  ): Promise<{ issues: IssueProjection[]; result: T }> {
     // DRAFT-THEN-INSTALL, same model as {@link persistWith} (POD-3259): every
     // row here is a draft pinned to the revision it was cut from, so the
     // backup-and-restore loop this replaced has nothing left to undo.
@@ -1357,7 +1137,7 @@ export class IssueStore {
     // issue is going rather than where it was.
     const drafted = new Map<string, IssueRow>(rows.map((row) => [row.id, row] as const))
     let result!: T
-    let wires!: IssueWire[]
+    let wires!: IssueProjection[]
     let eventIds: number[] = []
     let committedProjectionChanges: readonly EntityChangeSpec[][] = []
     let committedExtraChanges: readonly EntityChangeSpec[] = []
@@ -1374,17 +1154,9 @@ export class IssueStore {
               pin === undefined ? undefined : { expectedRevision: pin },
             )
           }
-          // Beyond a handful of rows the per-row joins dominate — see
-          // `wireBatch`. Built HERE, after `write` and the upserts, so it can
-          // never serve a projection from before the mutation it describes; the
-          // threshold keeps the shipping paths (a few rows) off an
-          // O(all issues) prefetch they would not amortize.
-          const batch = rows.length > 8 ? await this.wireBatch() : undefined
-          wires = await Promise.all(
-            rows.map(async (row) => await this.toWire(row, undefined, batch)),
-          )
+          wires = await Promise.all(rows.map((row) => this.projection(row)))
           committedProjectionChanges = await Promise.all(
-            rows.map(async (row) => await this.companionChanges(row)),
+            rows.map(async (row, index) => await this.companionChanges(row, wires[index])),
           )
           committedExtraChanges = await extraChanges(result)
           const committedEvents = await events(result)
@@ -1408,23 +1180,11 @@ export class IssueStore {
           )
           return { result, wires }
         },
-        changes: ({ result: value, wires: committedWires }) => [
-          ...rows.flatMap((row, index) => [
-            {
-              entity: 'issue' as const,
-              id: row.id,
-              op: 'upsert' as const,
-              value: committedWires[index]!,
-            },
-            ...(committedProjectionChanges[index] ?? []),
-          ]),
-          ...committedExtraChanges,
-        ],
+        changes: () => [...committedProjectionChanges.flat(), ...committedExtraChanges],
       })
     ).result
     result = committed.result
     wires = committed.wires
-    this.bumpIssueInputs()
     for (const row of rows) this.installDraft(row, pins.get(row.id))
     // THE ANNOUNCEMENT WAITS FOR THE OUTERMOST COMMIT [POD-3366]. `appendEvent`
     // routes its own announcement through `afterCommit` (spec §3.3 mechanism 3)
@@ -1441,57 +1201,9 @@ export class IssueStore {
     return { issues: wires, result }
   }
 
-  /** Full-list broadcast for mutations with cross-issue effects (see persist).
-   *  No repository write of its own. Runs a ledger RECONCILE over the full wire
-   *  list rather than per-write declarations because the full-list path exists
-   *  exactly to catch DERIVED ripples: closing issue X flips ready/blocked on
-   *  its dependents' wire rows (and childDoneCount on its parent) without any
-   *  write touching those rows — a per-write declaration alone would miss
-   *  them. Every site that mutates-then-broadcastLists keeps exactly this
-   *  shape ([spec:SP-3fe2] #255). The reconciled rows ARE the rows the snapshot
-   *  carries — local only, with no publisher-side union left since POD-309
-   *  retired the hub mirror — so the change log records exactly what legacy
-   *  clients see. */
-  async broadcastList(): Promise<void> {
-    // Cross-issue derived ripples (a close flipping dependents' blocked/ready,
-    // a re-parent moving childCount) change OTHER rows' wire output without a
-    // write on them — bump BEFORE allWire so the memo rebuilds every row against
-    // the new generation and no ripple is served from stale cache [POD-723].
-    this.bumpIssueInputs()
-    await this.reconcileAndPublish(this.deps.publishSpecs.issuesChanged(await this.allWire()))
-  }
-
-  /** Cross-issue legacy fields still require a full-list transitional emit. */
-  async broadcastListForDerivedRipple(): Promise<void> {
-    await this.broadcastList()
-  }
-
-  /** Publish one write-less derived issue update (for example ephemeral Git
-   * state). Unlike broadcastList this does not rebuild every issue merely
-   * because one row's computed field changed. The reconcile keeps delta clients
-   * and the durable change log aligned with the legacy single-row snapshot. */
+  /** A git observation changes only its independently keyed companion. */
   async broadcastIssue(row: IssueRow): Promise<void> {
-    // Same restoration as in persist: the write-less derived publish (git state)
-    // changes a computed field with no row write behind it, so nothing else bumps
-    // the generation and the next list() would serve the stale payload.
-    this.bumpIssueInputs()
-    const spec = this.deps.publishSpecs.issueUpdated(await this.toWire(row))
-    // capture, NOT reconcile: reconcile treats its rows as the FULL truth for
-    // the entity kind and diffs removes against the whole baseline — fed a
-    // single row it would journal a remove for every OTHER issue, which the
-    // next full-list broadcast re-upserts (the POD-210 ledger flapping: ~185
-    // remove+upsert pairs per targeted git-state publish). capture dedups the
-    // one row against the baseline and never diffs the list.
-    const companions = await this.companionChanges(row)
-    await this.deps.ledger.capture([
-      ...spec.rows.map((r) => ({
-        entity: 'issue' as const,
-        id: r.id,
-        op: 'upsert' as const,
-        value: r.value,
-      })),
-      ...companions,
-    ])
+    await this.deps.ledger.capture([this.gitStateChange(row)])
   }
 
   /** @internal */
@@ -1501,7 +1213,7 @@ export class IssueStore {
     return r
   }
   /** @internal */
-  async persistRow(row: IssueRow): Promise<IssueWire> {
+  async persistRow(row: IssueRow): Promise<IssueProjection> {
     return await this.persist(row)
   }
   /** @internal */

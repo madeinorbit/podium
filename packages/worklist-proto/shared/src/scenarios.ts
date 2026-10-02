@@ -1,3 +1,7 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
+import { IssueProjection as IssueProjectionSchema } from '@podium/model'
+import { fixtureGitStates, fixtureMarkers } from '../../harness/src/fixture/normalized-issues'
+
 /**
  * POD-4444 / POD-4550 — the scenario replay library (methodology §5.8), over
  * the ONE corpus.
@@ -45,10 +49,8 @@
  * | coldBootstrap | #12 | full once | 1 update, discovery lanes only; arms snapshot (finding) |
  * | rescopeGrowth | #13 | full each | 2 replaces |
  *
- * DUAL-WRITE. Issue writes update wire AND projection rows together, as the
- * authority does during the normalized migration: a projection change always
- * arrives with its wire change in the same batch and dedupes to one `issue`
- * row (see `row-source.ts`).
+ * Issue writes update normalized facts and, when needed, personal markers or
+ * git observations. The row source joins these into one render input.
  *
  * EVICT. `evictWithoutRevision` drops the rows from the cache and fires
  * `evicted` (not `removed`): an authority snapshot omitting the row. Evict
@@ -77,25 +79,30 @@
  * silent afterwards.
  */
 
-import type { EntityRecord } from '@podium/sync/replica'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { type CoarseClock, createClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
+import {
+  type CoarseClock,
+  createClientRuntime,
+  openKernelEngineOutbox,
+} from '@podium/client-core/engine'
 import type { OnlineEvents } from '@podium/client-core/outbox'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   createKernelReplica,
   createSideCache,
-  memoryStorage,
   type KernelCacheRead,
   type KernelEntity,
+  memoryStorage,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
-import { asIssueId, asUserId, type SessionMeta } from '@podium/model'
-import { InMemoryOutboxStore } from '@podium/sync/outbox'
-import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { asIssueId, asUserId, issueUserStateRowId, sessionUserStateRowId, type SessionMeta } from '@podium/model'
+import { InMemoryOutboxStore } from '@podium/sync/outbox'
+import type { EntityRecord } from '@podium/sync/replica'
+import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
 import type { RowSourceEvent } from './stats'
+import { fixtureSessionHomes, stripSessionLegacy } from '../../harness/src/fixture/session-homes'
 
 // ------------------------------------------------------------------ corpus
 
@@ -168,10 +175,16 @@ export function seedCacheFromCorpus(
   const cache = new ScenarioCache()
   const own = <T>(value: T): T => (options.ownRows === true ? structuredClone(value) : value)
   const rows: { entity: KernelEntity; entityId: string; value: unknown }[] = []
-  for (const issue of corpus.issues)
-    rows.push({ entity: 'issue', entityId: issue.id, value: own(issue) })
   for (const projection of corpus.issueProjections)
     rows.push({ entity: 'issueProjection', entityId: projection.id, value: own(projection) })
+  for (const state of corpus.issueUserStates ?? fixtureMarkers(corpus.issues))
+    rows.push({
+      entity: 'issueUserState',
+      entityId: issueUserStateRowId(state.userId, state.entityId),
+      value: own(state),
+    })
+  for (const git of corpus.issueGitStates ?? fixtureGitStates(corpus.issues))
+    rows.push({ entity: 'issueGitState', entityId: git.id, value: own(git) })
   for (const session of corpus.sessions)
     rows.push({ entity: 'session', entityId: session.sessionId, value: own(session) })
   for (const repo of corpus.repoProjections)
@@ -231,7 +244,11 @@ function fakeRouterWindow(): RouterWindow {
  * `rejectNextMarkRead`).
  */
 export interface ScenarioServer {
-  issueUpdate?: (input: { id: string; patch: Record<string, unknown>; mutationId: string }) => Promise<unknown>
+  issueUpdate?: (input: {
+    id: string
+    patch: Record<string, unknown>
+    mutationId: string
+  }) => Promise<unknown>
   issueMarkRead?: (input: { id: string; mutationId: string }) => Promise<unknown>
 }
 
@@ -465,8 +482,7 @@ export function targetRules(corpus: FixtureCorpus): {
   // The family is every session bound to the issue (`issue.sessions`, the
   // schema's R2 membership: headless sessions excepted).
   const familyOf = (id: string): number =>
-    (sessionsOf.get(id) ?? []).filter((s) => (s as { headless?: boolean }).headless !== true)
-      .length
+    (sessionsOf.get(id) ?? []).filter((s) => (s as { headless?: boolean }).headless !== true).length
   const openRoot = (id: string): boolean => {
     const i = byId.get(id)
     return i !== undefined && isOpenHuman(i) && !i.parentId && !i.pinned
@@ -612,7 +628,10 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
       })
       .sort((a, b) => numericId(a.sessionId) - numericId(b.sessionId))[0] ??
     fail('session on a closed agent root')
-  const burstIssueIds = issues.filter((i) => openHuman(i)).slice(0, 50).map((i) => i.id)
+  const burstIssueIds = issues
+    .filter((i) => openHuman(i))
+    .slice(0, 50)
+    .map((i) => i.id)
   if (burstIssueIds.length < 50) fail('50 open human issues for the burst')
   const repo = corpus.repos[0] ?? fail('repo for the new issue')
 
@@ -710,7 +729,32 @@ export async function startEngineOnCorpus(
   corpus: FixtureCorpus,
   opts: EngineOptions = {},
 ): Promise<ScenarioEngine> {
-  const cache = seedCacheFromCorpus(corpus, { ownRows: opts.ownRows === true })
+  const principal = opts.principal ?? 'u-bench'
+  const homes = fixtureSessionHomes(corpus, principal)
+  const cache = seedCacheFromCorpus(
+    {
+      ...corpus,
+      sessions: homes.sessions.map(stripSessionLegacy),
+      issueUserStates: (corpus.issueUserStates ?? fixtureMarkers(corpus.issues)).map((row) => ({
+        ...row,
+        userId: asUserId(principal),
+      })),
+    },
+    { ownRows: opts.ownRows === true },
+  )
+  // The current server publishes these homes alongside each raw session.
+  // An old corpus without them exercises a cold offline gap, not steady-state work.
+  const own = <T>(value: T): T => opts.ownRows ? structuredClone(value) : value
+  cache.install([
+    ...homes.userStates.map(state => ({
+      entity: 'sessionUserState' as const,
+      entityId: sessionUserStateRowId(state.userId, state.sessionId),
+      value: own(state),
+    })),
+    ...homes.machines.map(machine => ({
+      entity: 'machine' as const, entityId: machine.id, value: own(machine),
+    })),
+  ])
   await opts.stage?.('cache')
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   const newReplica = () => createKernelReplica({ cache, side })
@@ -727,7 +771,6 @@ export async function startEngineOnCorpus(
     ...(opts.server ? { server: opts.server } : {}),
   })
   const clock = manualClock(corpus.fixedNow)
-  const principal = opts.principal ?? 'operator'
   const outboxStore = opts.outbox === 'kernel' ? new InMemoryOutboxStore() : null
   const boot = async (replica: ReturnType<typeof createKernelReplica>) => {
     const hub = new FakeHub()
@@ -754,7 +797,9 @@ export async function startEngineOnCorpus(
       createHub: () => hub as unknown as SocketHub,
       coarseClock: clock,
       ...(createOutboxFn ? { createOutboxFn } : {}),
-      ...(opts.network ? { isOnline: opts.network.isOnline, onlineEvents: opts.network.onlineEvents } : {}),
+      ...(opts.network
+        ? { isOnline: opts.network.isOnline, onlineEvents: opts.network.onlineEvents }
+        : {}),
     })
     return { engine, hub }
   }
@@ -828,13 +873,15 @@ export interface ScenarioSnapshot {
 export function captureSnapshot(engine: ScenarioEngine['engine']): ScenarioSnapshot {
   const snap = engine.getSnapshot()
   return {
-    issues: snap.issues.map((i) => ({
-      id: i.id,
-      title: (i as { title?: unknown }).title as string,
-      stage: (i as { stage?: unknown }).stage as string,
-      archived: Boolean((i as { archived?: unknown }).archived),
-      readAt: (i as { readAt?: unknown }).readAt ?? null,
-    })),
+    issues: allIssueViewModels(engine.replica, snap.issueProjections, snap.issueUserStates).map(
+      (i) => ({
+        id: i.id,
+        title: (i as { title?: unknown }).title as string,
+        stage: (i as { stage?: unknown }).stage as string,
+        archived: Boolean((i as { archived?: unknown }).archived),
+        readAt: (i as { readAt?: unknown }).readAt ?? null,
+      }),
+    ),
     sessions: snap.sessions.map((s) => ({
       sessionId: s.sessionId,
       lastActiveAt: s.lastActiveAt,
@@ -994,6 +1041,47 @@ export function upsert(
   } as never)
 }
 
+/** Fixture authority write: facts, personal markers, and git observations have
+ * independent homes, just as they do on the server. No materialized view is cached. */
+export function upsertIssue(
+  ctx: ScenarioEngine,
+  id: string,
+  input: unknown,
+  seq = 2,
+  readmitted = false,
+): void {
+  const value = input as Record<string, unknown>
+  const previous = ctx.cache.read('issueProjection', id)?.value as object | undefined
+  const facts = Object.fromEntries(
+    Object.entries(value).filter(([key]) => Object.hasOwn(IssueProjectionSchema.shape, key)),
+  )
+  if (typeof facts.description === 'string') facts.description = { value: facts.description }
+  if (typeof facts.notes === 'string') facts.notes = { value: facts.notes }
+  ctx.replica.batch(() => {
+    upsert(
+      ctx,
+      'issueProjection',
+      id,
+      {
+        description: { value: '' },
+        intentOrigin: 'human',
+        isDraftVessel: false,
+        ...previous,
+        ...facts,
+        id,
+      },
+      seq,
+      readmitted,
+    )
+    const markers = Object.fromEntries(
+      Object.entries(value).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key)),
+    )
+    if (Object.keys(markers).length) patchIssueMarkers(ctx, id, markers, seq)
+    if (value.gitState)
+      upsert(ctx, 'issueGitState', id, { ...(value.gitState as object), id }, seq, readmitted)
+  })
+}
+
 /** The authority's snapshot omitted the row: `evicted`, not `removed`. */
 export function evict(ctx: ScenarioEngine, entity: KernelEntity, entityId: string): void {
   ctx.cache.drop(entity, entityId)
@@ -1013,33 +1101,59 @@ export function remove(ctx: ScenarioEngine, entity: KernelEntity, entityId: stri
 // generator does, gen/run.ts). The cache also keeps every resume twin the
 // snapshot's session list collapses.
 
-function patchSession(ctx: ScenarioEngine, sessionId: string, patch: Record<string, unknown>): void {
+function patchSession(
+  ctx: ScenarioEngine,
+  sessionId: string,
+  patch: Record<string, unknown>,
+): void {
   const current = ctx.cache.read('session', sessionId)?.value as object | undefined
   if (!current) throw new Error(`session ${sessionId} missing from the server cache`)
   upsert(ctx, 'session', sessionId, { ...current, ...patch })
 }
 
-/** Dual-write an issue change across wire + projection in one replica batch. */
+/** Apply own facts and personal markers through their independent feed rows. */
 function patchIssue(
   ctx: ScenarioEngine,
   id: string,
-  wirePatch: Record<string, unknown>,
+  modelPatch: Record<string, unknown>,
   projectionPatch: Record<string, unknown> = {},
 ): void {
-  const wire = ctx.cache.read('issue', id)?.value as object | undefined
-  if (!wire) throw new Error(`issue ${id} missing from the server cache`)
   const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
+  if (!projection) throw new Error(`issue ${id} missing from the server cache`)
   ctx.replica.batch(() => {
-    upsert(ctx, 'issue', id, { ...wire, ...wirePatch })
-    upsert(ctx, 'issueProjection', id, { ...(projection ?? {}), ...projectionPatch })
+    upsert(ctx, 'issueProjection', id, { ...projection, ...projectionPatch })
+    const markers = Object.fromEntries(
+      Object.entries(modelPatch).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key)),
+    )
+    if (Object.keys(markers).length) patchIssueMarkers(ctx, id, markers)
   })
 }
-
+function patchIssueMarkers(
+  ctx: ScenarioEngine,
+  id: string,
+  patch: Record<string, unknown>,
+  seq = 2,
+): void {
+  const rowId = issueUserStateRowId(ctx.engine.principal.userId, asIssueId(id))
+  const state = ctx.cache.read('issueUserState', rowId)?.value as object | undefined
+  upsert(
+    ctx,
+    'issueUserState',
+    rowId,
+    {
+      userId: ctx.engine.principal.userId,
+      entityId: id,
+      readAt: null,
+      tuckedAt: null,
+      pinned: false,
+      ...state,
+      ...patch,
+    },
+    seq,
+  )
+}
 function evictIssueRows(ctx: ScenarioEngine, id: string): void {
-  ctx.replica.batch(() => {
-    evict(ctx, 'issue', id)
-    evict(ctx, 'issueProjection', id)
-  })
+  evict(ctx, 'issueProjection', id)
 }
 
 function liveSession(
@@ -1117,7 +1231,10 @@ function freshIssue(
 // awaits). One body per write.
 
 /** #1 — heartbeat on a session of a row the worklist never shows. */
-export function applyHeartbeat(ctx: ScenarioEngine, sessionId = ctx.targets.heartbeatSessionId): string {
+export function applyHeartbeat(
+  ctx: ScenarioEngine,
+  sessionId = ctx.targets.heartbeatSessionId,
+): string {
   patchSession(ctx, sessionId, { lastActiveAt: ctx.stamp() })
   return sessionId
 }
@@ -1138,7 +1255,12 @@ export async function writePhaseChange(ctx: ScenarioEngine): Promise<string> {
 }
 
 /** The ledger entities an optimistic write can paint. */
-const OVERLAY_ENTITIES = ['sessions', 'issues', 'issueProjections'] as const
+const OVERLAY_ENTITIES = [
+  'sessions',
+  'sessionUserStates',
+  'issueUserStates',
+  'issueProjections',
+] as const
 
 /**
  * The rows the runtime's optimism ledger still holds a write for — queued,
@@ -1160,9 +1282,7 @@ export function pendingWrites(ctx: ScenarioEngine): string[] {
 
 /** The server echoes an issue's read cursor at its own clock. */
 function echoIssueRead(ctx: ScenarioEngine, id: string, readAt: string, seq = 2): void {
-  const wire = ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
-  if (!wire) throw new Error(`issue ${id} missing from the server cache`)
-  upsert(ctx, 'issue', id, { ...wire, readAt }, seq)
+  patchIssueMarkers(ctx, id, { readAt }, seq)
 }
 
 /** #3 — a selection click: locals, plus the eager mark-read of the clicked
@@ -1208,7 +1328,10 @@ export function applyStageMove(ctx: ScenarioEngine, id = ctx.targets.stageMoveId
   return id
 }
 
-export async function writeStageMove(ctx: ScenarioEngine, id = ctx.targets.stageMoveId): Promise<string> {
+export async function writeStageMove(
+  ctx: ScenarioEngine,
+  id = ctx.targets.stageMoveId,
+): Promise<string> {
   applyStageMove(ctx, id)
   await settled(ctx)
   return id
@@ -1224,7 +1347,7 @@ export async function writeNewIssue(ctx: ScenarioEngine, id = 'i-new'): Promise<
     title: 'Session new',
   })
   ctx.replica.batch(() => {
-    upsert(ctx, 'issue', id, wire)
+    patchIssueMarkers(ctx, id, { readAt: wire.readAt ?? null, pinned: wire.pinned ?? false })
     upsert(ctx, 'issueProjection', id, projection)
     upsert(ctx, 'session', sessionId, session)
   })
@@ -1233,14 +1356,20 @@ export async function writeNewIssue(ctx: ScenarioEngine, id = 'i-new'): Promise<
 }
 
 /** #6b — an issue is archived. */
-export async function writeArchiveIssue(ctx: ScenarioEngine, id = ctx.targets.archiveId): Promise<string> {
+export async function writeArchiveIssue(
+  ctx: ScenarioEngine,
+  id = ctx.targets.archiveId,
+): Promise<string> {
   patchIssue(ctx, id, { archived: true }, { archived: true })
   await settled(ctx)
   return id
 }
 
 /** #6c — the authority snapshot omits a row (`evicted`, not `removed`). */
-export async function writeEvictIssue(ctx: ScenarioEngine, id = ctx.targets.evictId): Promise<string> {
+export async function writeEvictIssue(
+  ctx: ScenarioEngine,
+  id = ctx.targets.evictId,
+): Promise<string> {
   evictIssueRows(ctx, id)
   await settled(ctx)
   return id
@@ -1278,7 +1407,10 @@ export async function writeClockTick(ctx: ScenarioEngine, ms = 60_000): Promise<
 
 /** #9 press — optimistic mark-read through the engine. Resolves after the
  *  server confirms (or the kernel rolls back on rejection). */
-export async function writeOptimisticPress(ctx: ScenarioEngine, id = ctx.targets.markReadId): Promise<void> {
+export async function writeOptimisticPress(
+  ctx: ScenarioEngine,
+  id = ctx.targets.markReadId,
+): Promise<void> {
   await ctx.engine.getSnapshot().markIssueRead(asIssueId(id))
   // Not `settled`: the press stays awaiting truth; #9b is its echo.
   await settle(ctx.settleMs)
@@ -1288,7 +1420,10 @@ export async function writeOptimisticPress(ctx: ScenarioEngine, id = ctx.targets
 /** #9 echo — the server confirms the mark-read with its own timestamp. */
 export const OPTIMISTIC_ECHO_READ_AT = '2026-07-09T00:00:00.000Z'
 
-export async function writeOptimisticEcho(ctx: ScenarioEngine, id = ctx.targets.markReadId): Promise<void> {
+export async function writeOptimisticEcho(
+  ctx: ScenarioEngine,
+  id = ctx.targets.markReadId,
+): Promise<void> {
   echoIssueRead(ctx, id, OPTIMISTIC_ECHO_READ_AT, 3)
   await settled(ctx)
 }
@@ -1325,7 +1460,8 @@ export async function writeRescopeGrow(ctx: ScenarioEngine): Promise<void> {
   ctx.replica.batch(() => {
     for (let n = 0; n < 10; n += 1) {
       const { wire, projection } = freshIssue(ctx, `i-grow-${n}`, base + n + 1, `Grown ${n}`)
-      ctx.cache.put('issue', wire.id as string, wire)
+      const marker = fixtureMarkers([wire as never])[0]!
+      ctx.cache.put('issueUserState', issueUserStateRowId(marker.userId, marker.entityId), marker)
       ctx.cache.put('issueProjection', projection.id as string, projection)
     }
   })
@@ -1337,7 +1473,10 @@ export async function writeRescopeGrow(ctx: ScenarioEngine): Promise<void> {
 export async function writeRescopeBack(ctx: ScenarioEngine): Promise<void> {
   ctx.replica.batch(() => {
     for (let n = 0; n < 10; n += 1) {
-      ctx.cache.drop('issue', `i-grow-${n}`)
+      ctx.cache.drop(
+        'issueUserState',
+        issueUserStateRowId(asUserId('u-bench'), asIssueId(`i-grow-${n}`)),
+      )
       ctx.cache.drop('issueProjection', `i-grow-${n}`)
     }
   })
@@ -1411,7 +1550,9 @@ export function evictWithoutRevision(scale: FixtureScale = 1): Promise<ScenarioR
  *  so the parent must leave the visible set with it. A missing keeper-seat
  *  cleanup keeps a ghost parent and fails parity; #6c cannot fail that way. */
 export function evictKeeperWithoutRevision(scale: FixtureScale = 1): Promise<ScenarioResult> {
-  return scenario('#6d evictKeeperWithoutRevision', '#6d', scale, (ctx) => writeEvictKeeperIssue(ctx))
+  return scenario('#6d evictKeeperWithoutRevision', '#6d', scale, (ctx) =>
+    writeEvictKeeperIssue(ctx),
+  )
 }
 
 /** #7 — a parent reassignment moves a subtree between chains. */

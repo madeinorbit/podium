@@ -78,6 +78,26 @@ import type { ReadableTable, TableSet } from './tables'
 
 type Row = Readonly<Record<string, unknown>>
 
+/**
+ * POD-4708 — lower bound by id in a sorted seat list (default `.sort()`
+ * order, UTF-16 code units via `<`): first index with `list[i] >= id`.
+ * Insert there to keep id order; remove there when it holds `id`.
+ * Family-small: binary search + splice shifting is trivial.
+ */
+function sortedIndex(list: { readonly length: number; readonly [i: number]: string }, id: string): number {
+  let lo = 0
+  let hi = list.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if ((list[mid] as string) < id) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+/** POD-4708 — no seats (shared frozen, never written). */
+const EMPTY_SEAT_LIST: readonly string[] = Object.freeze([])
+
 function specOf(schema: ModelSchema, from: EntityName, relation: string): RelationSpec {
   const spec = schema[from].relations[relation]
   if (spec === undefined) throw new Error(`[pool] ${from}.${relation} is not a declared relation`)
@@ -218,6 +238,17 @@ export class PoolRelations implements RelationReader {
    */
   private readonly summaryFields = new Map<EntityName, readonly string[]>()
   private readonly summaries = new Map<EntityName, Map<string, Row>>()
+  /**
+   * POD-4708 — each issue's explicit seats (`issue.sessions`), maintained
+   * SORTED from the relation's own bucket deltas (one element per move:
+   * binary search + splice at its id-order position, never the family).
+   * The rule is declared once in the schema (`issue.sessions`); this mirror
+   * follows the engine's delta in the same action that moved the bucket
+   * (`point`). Immutable arrays (a new array per change, never mutated in
+   * place) so a cell holding the old list never sees it move underneath.
+   * Family-small (avg 1.7, max 8): splice shifting is trivial.
+   */
+  private readonly seatSorted = new Map<string, readonly string[]>()
   /** The answer for a key no bucket holds (per engine: the lint refuses module state). */
   private readonly none: ReadonlySet<string> = new Set()
 
@@ -406,6 +437,29 @@ export class PoolRelations implements RelationReader {
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) throw new Error(`[pool] ${from}.${relation} is not a collection`)
     return link.buckets.get(id) ?? this.none
+  }
+
+  /**
+   * POD-4708 — an issue's explicit seats (`issue.sessions`), maintained
+   * SORTED from the relation's own bucket deltas (see `point`). Tracked on
+   * the same slot derivations read (`issue.sessions:${id}`), so a membership
+   * change dirties exactly the cells that read it — but counted NOWHERE via
+   * the reads fence (the fence counts `many`/`subset` yields; this returns
+   * the maintained array without yielding through it). A membership change
+   * thus yields the new member only (its own row reads, already counted
+   * there), never the family. Immutable: a new array per change, so a cell
+   * holding the old list never sees it move.
+   */
+  seatList(issueId: string): readonly string[] {
+    this.options.read?.('issue.sessions', issueId)
+    return this.seatSorted.get(issueId) ?? EMPTY_SEAT_LIST
+  }
+
+  /** POD-4708 — seat lists held (tests: bootstrap census, burst budget). */
+  seatFootprint(): { readonly lists: number; readonly members: number } {
+    let members = 0
+    for (const list of this.seatSorted.values()) members += list.length
+    return { lists: this.seatSorted.size, members }
   }
 
   /** Whether `id`'s row is collapsed away by its entity's rule. */
@@ -619,6 +673,7 @@ export class PoolRelations implements RelationReader {
       collapse.collapsed.clear()
     }
     for (const held of this.summaries.values()) held.clear()
+    this.seatSorted.clear()
     this.lastWrites.length = 0
   }
 
@@ -803,6 +858,7 @@ export class PoolRelations implements RelationReader {
       link.forward.delete(id)
       this.touched(2)
       this.wrote(link.collection, old)
+      if (link.collection === 'issue.sessions') this.dropSeat(old, id)
     }
     if (target !== null) {
       let bucket = link.buckets.get(target)
@@ -814,8 +870,41 @@ export class PoolRelations implements RelationReader {
       link.forward.set(id, target)
       this.touched(2)
       this.wrote(link.collection, target)
+      if (link.collection === 'issue.sessions') this.addSeat(target, id)
     }
     this.wrote(link.relation, id)
+  }
+
+  /**
+   * POD-4708 — file one seat into its issue's maintained SORTED list, in the
+   * same action that moved the bucket (see `point`). Binary search by id
+   * (default `.sort()` order) + splice at its position. Immutable: a new
+   * array per change. Family-small: the copy + shift is trivial.
+   *
+   * Not counted in `indexUpdates` (the bucket move already counts its two
+   * elements there): the list follows the bucket, it is not a second index.
+   * The `Map.set` itself is one plain-structure op, like the bucket's own.
+   */
+  private addSeat(target: string, id: string): void {
+    const held = this.seatSorted.get(target) ?? EMPTY_SEAT_LIST
+    const at = sortedIndex(held, id)
+    if (at < held.length && held[at] === id) return
+    const next = [...held.slice(0, at), id, ...held.slice(at)]
+    this.seatSorted.set(target, Object.freeze(next) as readonly string[])
+  }
+
+  /** POD-4708 — drop one seat from its issue's maintained SORTED list (see `addSeat`). */
+  private dropSeat(target: string, id: string): void {
+    const held = this.seatSorted.get(target)
+    if (held === undefined) return
+    const at = sortedIndex(held, id)
+    if (at >= held.length || held[at] !== id) return
+    if (held.length === 1) {
+      this.seatSorted.delete(target)
+    } else {
+      const next = [...held.slice(0, at), ...held.slice(at + 1)]
+      this.seatSorted.set(target, Object.freeze(next) as readonly string[])
+    }
   }
 
   /** Index `id` under every ancestor of its normalized source path (prefix links). */

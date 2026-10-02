@@ -3,7 +3,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsDraft } from '../readers'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -219,9 +219,10 @@ function TelegramSetupStatus({
  *  the server settings blob): it's about THIS machine's speakers. Flipping it
  *  on plays the "done" cue — a preview that doubles as the user gesture
  *  WKWebView needs to unlock audio. */
+const parseSounds = (raw: string | null): boolean => raw !== 'false'
+const serializeSounds = (value: boolean): string => String(value)
 function SoundsRow(): JSX.Element {
-  const uiState = useStoreSelector((s) => s.uiState)
-  const [enabled, setEnabled] = useState(() => uiState.get(SOUNDS_ENABLED_KEY) !== 'false')
+  const [enabled, setEnabled] = useSettingsDraft(SOUNDS_ENABLED_KEY, parseSounds, serializeSounds)
   // The sentence explaining the cues is a DESCRIPTION, and it used to sit in the
   // control cell — right-aligned, wrapped into 240px, and touching the switch.
   return (
@@ -232,7 +233,6 @@ function SoundsRow(): JSX.Element {
       <Switch
         checked={enabled}
         onCheckedChange={(checked) => {
-          uiState.set(SOUNDS_ENABLED_KEY, String(checked))
           setEnabled(checked)
           if (checked) play(CUE_SOUNDS.done)
         }}

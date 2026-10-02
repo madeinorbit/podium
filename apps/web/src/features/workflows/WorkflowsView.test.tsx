@@ -15,9 +15,12 @@
  *     invisible run subject renders as an OPAQUE REFERENCE rather than as
  *     loading or deleted.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeIssue } from '@/lib/test-issue'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 
+let subjects: ReturnType<typeof makeIssue>[] = []
 const list = vi.fn()
 const get = vi.fn()
 const bindings = vi.fn<() => Promise<unknown[]>>(async () => [])
@@ -54,31 +57,32 @@ const detailOf = (id: string) => ({
 })
 
 vi.mock('@/app/store', () => {
-  const useStore = () => ({
-    machines: [],
-    issues: [],
-    sessions: [],
-    trpc: {
-      workflows: {
-        list: { query: list },
-        get: { query: get },
-        bindings: { query: bindings },
-        profiles: { query: profiles },
-        runs: { query: runs },
-        publish: { mutate: publish },
+  const fixtureState = () =>
+    normalizedFixtureStore({
+      machines: [],
+      issues: subjects,
+      sessions: [],
+      trpc: {
+        workflows: {
+          list: { query: list },
+          get: { query: get },
+          bindings: { query: bindings },
+          profiles: { query: profiles },
+          runs: { query: runs },
+          publish: { mutate: publish },
+        },
       },
-    },
-  })
+    })
   return {
-    useStore,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useStore: fixtureState,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(fixtureState() as never),
     useSession: (id: string | undefined) =>
       id === undefined
         ? undefined
-        : (useStore().sessions as Array<{ sessionId: string }>).find(
+        : (fixtureState().sessions as Array<{ sessionId: string }>).find(
             (session) => session.sessionId === id,
           ),
-    useReplicaIssues: () => [],
+    useReplicaIssues: () => normalizedFixtureIssues({ issues: subjects }),
   }
 })
 
@@ -87,6 +91,7 @@ const { WorkflowsView } = await import('./WorkflowsView')
 
 beforeEach(() => {
   vi.clearAllMocks()
+  subjects = []
   list.mockResolvedValue([workflow('wf-1', 'One')])
   get.mockImplementation(async ({ id }: { id: string }) => detailOf(id))
   runs.mockResolvedValue([])
@@ -154,6 +159,16 @@ describe('run progress', () => {
     startedAt: '2026-01-01T00:00:00.000Z',
     completedAt: null,
     ...over,
+  })
+
+  it('renders a present subject with only normalized replica rows', async () => {
+    subjects = [makeIssue({ id: 'iss-visible', title: 'Projection subject' })]
+    const world = normalizedFixtureStore({ issues: subjects })
+    runs.mockResolvedValue([run({ subjectId: 'iss-visible' })])
+    render(<WorkflowsView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Progress' }))
+    expect(await screen.findByText('issue · iss-visible')).toBeTruthy()
+    expect(screen.queryByText(/iss-visible · no access/)).toBeNull()
   })
 
   it('renders an invisible subject as an opaque reference, not as loading or deleted', async () => {

@@ -1,13 +1,24 @@
+import { clientSessionViews } from './test-support/session-views'
 import {
   asMachineId,
+  asRepoId,
   asSessionId,
   asUserId,
   firstAdminMemberId,
   type SessionMeta,
+  shipLaneId,
 } from '@podium/model'
-import { type MetadataChange, type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import {
+  asCapabilityRef,
+  asDeviceId,
+  CLIENT_WIRE_VERSION,
+  type MetadataChange,
+  type Principal,
+  type ServerMessage,
+} from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
@@ -19,6 +30,50 @@ type ProjectionEvent = {
   changes: MetadataChange[]
   ledgerCursor: number
 }
+
+describe('shipping lane compatibility snapshots', () => {
+  it('includes lane rows from the caller-scoped snapshot and omits lanes hidden from another principal', async () => {
+    const repoId = asRepoId('repo-a')
+    const lane = {
+      id: shipLaneId(repoId, 'local:main'),
+      repoId,
+      destination: 'local:main',
+      trains: [{ orderIds: ['shared-order', 'private-order'] }],
+      blockedOrderIds: [],
+    }
+    const principal = (id: string): Principal => ({
+      kind: 'user',
+      user: asUserId(id),
+      device: asDeviceId(`device:${id}`),
+      capability: asCapabilityRef(`cap:${id}`),
+    })
+    const reader = principal('reader')
+    const stranger = principal('stranger')
+    const snapshot = vi.fn(async (viewer: Principal) =>
+      viewer === reader
+        ? [{ seq: 1, entity: 'shipLane', id: lane.id, op: 'upsert', value: lane }]
+        : [],
+    )
+    const context = {
+      funnel: {
+        cursor: async () => 1,
+        feedIdentity: async () => ({ feedId: 'feed-a', epoch: 'epoch-a' }),
+        minAvailableSeq: async () => 0,
+        changesSince: async () => null,
+        snapshot,
+      },
+    } as unknown as SessionLifecycle
+    const forReader = await SessionLifecycle.prototype.syncChangesSince.call(context, null, reader)
+    expect(forReader).toMatchObject({ kind: 'snapshot', shipLanes: [lane] })
+    const forStranger = await SessionLifecycle.prototype.syncChangesSince.call(
+      context,
+      null,
+      stranger,
+    )
+    expect(forStranger).toMatchObject({ kind: 'snapshot', shipLanes: [] })
+    expect(snapshot.mock.calls.map(([viewer]) => viewer)).toEqual([reader, stranger])
+  })
+})
 
 /**
  * Session writes on the write-seam Ledger ([spec:SP-3fe2] #256): persist()
@@ -47,14 +102,23 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('awaits metadata persistence and propagates issue attachment failures', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     // The issue's repo is reported only AFTER the spawn, as before 2b803efb5: a
     // session born inside a reported repo takes a draft ref at spawn, and this
     // test is about the issue ref the attachment allocates.
     await registry.sessionStore.repos.addRepo('/w', registry.sessionStore.hostMachineId)
-    const issue = await registry.issues.create({ repoPath: '/w', title: 'Attachment', startNow: false })
+    const issue = await registry.issues.create({
+      repoPath: '/w',
+      title: 'Attachment',
+      startNow: false,
+    })
     const sessions = registry.modules.sessions
-    const append = vi.spyOn(registry.sessionStore.sync, 'appendChanges').mockRejectedValueOnce(new Error('attach failed'))
+    const append = vi
+      .spyOn(registry.sessionStore.sync, 'appendChanges')
+      .mockRejectedValueOnce(new Error('attach failed'))
     await expect(sessions.setSessionIssueId(sessionId, issue.id)).rejects.toThrow('attach failed')
     expect(sessions.getSessionIssueId(sessionId)).toBeNull()
     append.mockRestore()
@@ -69,16 +133,29 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('resolves the trusted principal for snooze and read operations', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     const sessions = registry.modules.sessions
     await sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
-    expect(await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toHaveProperty(sessionId)
+    expect(await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toHaveProperty(
+      sessionId,
+    )
     await sessions.clearSnooze(firstAdminMemberId(), sessionId)
-    expect(await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId())).not.toHaveProperty(sessionId)
+    expect(
+      await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId()),
+    ).not.toHaveProperty(sessionId)
     await sessions.markSessionRead(firstAdminMemberId(), sessionId)
-    expect((await sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)?.readAt).toBeTruthy()
+    expect(
+      (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)
+        ?.readAt,
+    ).toBeTruthy()
     await sessions.markSessionUnread(firstAdminMemberId(), sessionId)
-    expect((await sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)?.readAt).toBeNull()
+    expect(
+      (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)
+        ?.readAt,
+    ).toBeNull()
   })
 
   async function deltaClient(registry: SessionRegistry): Promise<{ inbox: ServerMessage[] }> {
@@ -171,7 +248,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(b) an agentState persist yields a durable ledger change (the staleness-gap fix)', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     const cursor = await cursorOf(registry)
     await registry.gateway.routeDaemonFrame('m1', {
       type: 'agentState',
@@ -189,7 +269,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(b2) a title persist yields a durable ledger change', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     const cursor = await cursorOf(registry)
     await registry.gateway.routeDaemonFrame('m1', {
       type: 'title',
@@ -209,7 +292,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     const delta = await deltaClient(registry)
     const before = delta.inbox.length
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     await registry.issues.create({ repoPath: '/r', title: 'interleaved', startNow: false })
     await registry.modules.sessions.renameSession({ sessionId, name: 'renamed-mid-stream' })
     await registry.modules.sessions.flushBroadcasts() // drain the coalesced pipeline
@@ -217,7 +303,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       const received = batches(delta.inbox.slice(before)).flatMap((b) => b.changes)
       expect(received.length).toBeGreaterThanOrEqual(2)
       expect(received.some((c) => c.entity === 'session')).toBe(true)
-      expect(received.some((c) => c.entity === 'issue')).toBe(true)
+      expect(received.some((c) => c.entity === 'issueProjection')).toBe(true)
       // Strict seq order, and gap-free: the stream carries EVERY seq in its range.
       const seqs = received.map((c) => c.seq)
       for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBe((seqs[i - 1] as number) + 1)
@@ -226,14 +312,16 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
         expect(b.changes.at(-1)?.seq).toBe(b.seq)
       }
     })
-
   })
 
   it('(d) one appended batch reaches a delta client exactly once (no double emission via publishComputed)', async () => {
     const registry = await makeRegistry()
     const delta = await deltaClient(registry)
     const before = delta.inbox.length
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     await registry.modules.sessions.flushBroadcasts()
     await vi.waitFor(() => {
       const seen = sessionChanges(delta.inbox.slice(before)).filter((c) => c.id === sessionId)
@@ -248,12 +336,14 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       // ...and delta clients never get the full-list snapshot rebroadcast.
       expect(delta.inbox.slice(before).some((m) => m.type === 'sessionsChanged')).toBe(false)
     })
-
   })
 
   it('(e) kill commits a remove in the same transaction as the row tombstone', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     const cursor = await cursorOf(registry)
     const delta = await deltaClient(registry)
     const before = delta.inbox.length
@@ -288,7 +378,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await attachHostDaemon(first, () => {})
-    const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await first.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     await first.dispose()
     const cursor = (await first.modules.sessions.syncChangesSince(null)).cursor
     // Offline mutation: rename the row behind the server's back.
@@ -326,7 +419,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.bus.on('oplog.appended', () => {
       if (reentered) return
       reentered = true
-      void registry.modules.sessions.renameSession({ sessionId: b.sessionId, name: 'inner-commit' })
+      void registry.modules.sessions
+        .renameSession({ sessionId: b.sessionId, name: 'inner-commit' })
         .then(resolveInner, rejectInner)
     })
     await Promise.all([
@@ -342,63 +436,40 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       // Strict append (= seq) order, gap-free — the client gap rule's invariant.
       for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBe((seqs[i - 1] as number) + 1)
     })
-
   })
 
-  it('(i) startup adoption and a machine rename re-capture machineId/machineName; a revoke keeps the name (#247)', async () => {
+  it('(i) enrollment and rename publish machine rows without recapturing sessions; revoke keeps the label', async () => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
-    const cursor = await cursorOf(registry)
-    // The session was created ON this host already (POD-318: no placeholder, no
-    // adoption). What `ensureHostMachine` changes is the machine ROW's name, and the
-    // machine seam captures the derived machineName flip WITHOUT a session persist.
     const host = registry.modules.machines.hostMachineId
-    await registry.modules.machines.ensureHostMachine('adopting-host')
-    await registry.modules.sessions.flushBroadcasts()
-    const afterAdopt = await registry.modules.sessions.syncChangesSince(cursor)
-    expect(afterAdopt.kind).toBe('delta')
-    if (afterAdopt.kind !== 'delta') return
-    const adopted = afterAdopt.changes.find(
-      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
-    ) as { value?: SessionMeta } | undefined
-    expect(adopted?.value?.machineId).toBe(host)
-    expect(adopted?.value?.machineName).toBe('adopting-host')
-    // Rename: machineName is stamped at wire time, no session row changes.
-    await registry.modules.machines.renameMachine(host, 'renamed-host')
-    await registry.modules.sessions.flushBroadcasts()
-    const afterRename = await registry.modules.sessions.syncChangesSince(afterAdopt.cursor)
-    expect(afterRename.kind).toBe('delta')
-    if (afterRename.kind !== 'delta') return
-    const renamed = afterRename.changes.find(
-      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
-    ) as { value?: SessionMeta } | undefined
-    expect(renamed?.value?.machineName).toBe('renamed-host')
-    // Revoke: the machine row is RETAINED as a revoked tombstone (23e55a7c2,
-    // POD-4143 — it fences credential replacement), so it keeps its name and
-    // the derived machineName does NOT fall back to the raw id, as it did when
-    // revoke deleted the row. No session change may carry the id fallback, and
-    // the projection still names the machine.
+    let cursor = await cursorOf(registry)
+    for (const name of ['adopting-host', 'renamed-host']) {
+      if (name === 'adopting-host') await registry.modules.machines.ensureHostMachine(name)
+      else await registry.modules.machines.renameMachine(host, name)
+      await registry.modules.sessions.flushBroadcasts()
+      const delta = await registry.modules.sessions.syncChangesSince(cursor)
+      expect(delta.kind).toBe('delta')
+      if (delta.kind !== 'delta') throw new Error('expected delta')
+      expect(delta.changes.filter(row => row.entity === 'session')).toEqual([])
+      expect(delta.changes.filter(row => row.entity === 'machine')).toEqual([
+        expect.objectContaining({ id: host, value: expect.objectContaining({ id: host, name }) }),
+      ])
+      expect((await clientSessionViews(registry)).find(row => row.sessionId === sessionId)?.machineName).toBe(name)
+      cursor = delta.cursor
+    }
     await registry.modules.machines.revokeMachine(host)
     await registry.modules.sessions.flushBroadcasts()
-    expect((await registry.sessionStore.machines.getMachine(host))?.revokedAt).toEqual(
-      expect.any(String),
-    )
-    const afterRevoke = await registry.modules.sessions.syncChangesSince(afterRename.cursor)
-    expect(afterRevoke.kind).toBe('delta')
-    if (afterRevoke.kind !== 'delta') return
-    const revokedNames = afterRevoke.changes
-      .filter((c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert')
-      .map((c) => (c as { value?: SessionMeta }).value?.machineName)
-    expect(revokedNames.filter((name) => name !== 'renamed-host')).toEqual([])
-    expect((await registry.modules.sessions.sessionById(sessionId))?.machineName).toBe(
-      'renamed-host',
-    )
+    expect((await registry.sessionStore.machines.getMachine(host))?.revokedAt).toEqual(expect.any(String))
+    expect((await clientSessionViews(registry)).find(row => row.sessionId === sessionId)?.machineName).toBe('renamed-host')
   })
 
   it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     // The host daemon attaches under the id the session is already attributed to.
     const host = registry.modules.machines.hostMachineId
     await registry.gateway.attachDaemon(host, () => {})
@@ -422,7 +493,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     reconcile.mockClear()
 
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     const clientId = attachTestClient(registry.clientGateway, () => {})
     await registry.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     await registry.clientGateway.routeClientFrame(clientId, {
@@ -464,7 +538,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     const events: ProjectionEvent[] = []
     const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     const afterCreate = registry.modules.sessions.sessionsGeneration()
 
     await registry.gateway.routeDaemonFrame('m1', {
@@ -495,12 +572,18 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.clientGateway.routeClientFrame(secondClientId, { type: 'attach', sessionId })
     await registry.modules.sessions.flushBroadcasts()
     const afterSecondAttach = registry.modules.sessions.sessionsGeneration()
-    await registry.clientGateway.routeClientFrame(secondClientId, { type: 'requestControl', sessionId })
+    await registry.clientGateway.routeClientFrame(secondClientId, {
+      type: 'requestControl',
+      sessionId,
+    })
     await registry.modules.sessions.flushBroadcasts()
     const afterControl = registry.modules.sessions.sessionsGeneration()
     // A no-op repeat must not fabricate work.
     const eventCountBeforeNoop = events.length
-    await registry.clientGateway.routeClientFrame(secondClientId, { type: 'requestControl', sessionId })
+    await registry.clientGateway.routeClientFrame(secondClientId, {
+      type: 'requestControl',
+      sessionId,
+    })
     await registry.modules.sessions.flushBroadcasts()
     expect(events).toHaveLength(eventCountBeforeNoop)
     await registry.clientGateway.routeClientFrame(secondClientId, { type: 'detach', sessionId })
@@ -524,15 +607,22 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       expect(event.changes.every((change) => change.entity === 'session')).toBe(true)
       expect(event.ledgerCursor).toBe(event.changes.at(-1)?.seq)
     }
-    expect((await registry.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty('generation')
-    expect((await registry.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty('revision')
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty(
+      'generation',
+    )
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty(
+      'revision',
+    )
   })
 
   it('resets the internal generation across restart without disturbing durable ledger order', async () => {
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await attachHostDaemon(first, () => {})
-    const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await first.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     const clientId = attachTestClient(first.clientGateway, () => {})
     await first.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     await first.clientGateway.routeClientFrame(clientId, {
@@ -574,18 +664,25 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       cursor: cursorAfterRecovery,
       changes: [],
     })
-    expect((await second.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty('generation')
-    expect((await second.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty('revision')
+    expect((await second.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty(
+      'generation',
+    )
+    expect((await second.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty(
+      'revision',
+    )
   })
 
   it('publishes the final state when coalesced changes revert to identical bytes', async () => {
     const registry = await makeRegistry()
     const current = await deltaClient(registry)
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     await registry.modules.sessions.flushBroadcasts()
-    const originalSession = (await registry.modules.sessions
-      .listSessions(undefined, 'rpc'))
-      .find((session) => session.sessionId === sessionId)
+    const originalSession = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (session) => session.sessionId === sessionId,
+    )
     expect(originalSession).toBeDefined()
     const original = originalSession?.name
     current.inbox.length = 0
@@ -609,7 +706,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('coalesces a burst of size reports into one async capture and one projection event', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     const clientId = attachTestClient(registry.clientGateway, () => {})
     await registry.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     await registry.clientGateway.routeClientFrame(clientId, {
@@ -654,7 +754,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('prepares room grants without admitting unauthorized viewers or counting duplicate tabs', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     const room = { kind: 'session' as const, id: sessionId }
     const viewer = asUserId('room-viewer')
     const stranger = asUserId('room-stranger')
@@ -664,33 +767,56 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const owner = attachTestClient(registry.clientGateway, (msg) => ownerMessages.push(msg))
     const tab = attachTestClient(registry.clientGateway, () => {})
     const granted = attachTestClient(registry.clientGateway, {
-      userId: viewer, userRole: 'member', send: (msg) => viewerMessages.push(msg),
+      userId: viewer,
+      userRole: 'member',
+      send: (msg) => viewerMessages.push(msg),
     })
     const denied = attachTestClient(registry.clientGateway, {
-      userId: stranger, userRole: 'member', send: (msg) => deniedMessages.push(msg),
+      userId: stranger,
+      userRole: 'member',
+      send: (msg) => deniedMessages.push(msg),
     })
     await registry.sessionStore.grants.upsert({
-      resourceKind: 'session', resourceId: sessionId, grantee: viewer, verb: 'read',
-      owner: firstAdminMemberId(), visibility: 'personal', createdAt: new Date().toISOString(),
-      actorKind: 'user', actorId: firstAdminMemberId(), onBehalfOf: null,
+      resourceKind: 'session',
+      resourceId: sessionId,
+      grantee: viewer,
+      verb: 'read',
+      owner: firstAdminMemberId(),
+      visibility: 'personal',
+      createdAt: new Date().toISOString(),
+      actorKind: 'user',
+      actorId: firstAdminMemberId(),
+      onBehalfOf: null,
     })
     for (const id of [owner, tab, granted]) {
       await registry.clientGateway.routeClientFrame(id, { type: 'presenceSubscribe', room })
     }
-    expect(ownerMessages).toContainEqual(expect.objectContaining({ type: 'presenceRoomState', room }))
-    expect(viewerMessages).toContainEqual(expect.objectContaining({
-      type: 'presenceRoomState', room,
-      members: [
-        expect.objectContaining({ identity: { kind: 'user', user: firstAdminMemberId() } }),
-        expect.objectContaining({ identity: { kind: 'user', user: viewer } }),
-      ],
-    }))
+    expect(ownerMessages).toContainEqual(
+      expect.objectContaining({ type: 'presenceRoomState', room }),
+    )
+    expect(viewerMessages).toContainEqual(
+      expect.objectContaining({
+        type: 'presenceRoomState',
+        room,
+        members: [
+          expect.objectContaining({ identity: { kind: 'user', user: firstAdminMemberId() } }),
+          expect.objectContaining({ identity: { kind: 'user', user: viewer } }),
+        ],
+      }),
+    )
     deniedMessages.length = 0
-    await registry.clientGateway.routeClientFrame(denied, { type: 'presenceSubscribe', room, token: 'denied' })
+    await registry.clientGateway.routeClientFrame(denied, {
+      type: 'presenceSubscribe',
+      room,
+      token: 'denied',
+    })
     expect(deniedMessages).toEqual([{ type: 'presenceRoomClosed', room, token: 'denied' }])
     await registry.modules.sessions.flushBroadcasts()
-    expect((await registry.modules.sessions.listSessions(undefined, 'rpc'))
-      .find((row) => row.sessionId === sessionId)?.clientCount).toBe(2)
+    expect(
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (row) => row.sessionId === sessionId,
+      )?.clientCount,
+    ).toBe(2)
 
     // A fresh join must read current grants, never reuse the earlier allowance.
     await registry.clientGateway.routeClientFrame(granted, { type: 'presenceUnsubscribe', room })
@@ -699,12 +825,19 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.clientGateway.routeClientFrame(granted, { type: 'presenceSubscribe', room })
     expect(viewerMessages).toEqual([{ type: 'presenceRoomClosed', room }])
     await registry.clientGateway.routeClientFrame(denied, { type: 'attach', sessionId })
-    expect(deniedMessages).toContainEqual({ type: 'terminalOutcome', sessionId, outcome: 'unauthorized' })
+    expect(deniedMessages).toContainEqual({
+      type: 'terminalOutcome',
+      sessionId,
+      outcome: 'unauthorized',
+    })
   })
 
   it('retains dirty live-view and machine patches across one append failure', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     await registry.modules.machines.ensureHostMachine('first-host')
     await registry.modules.sessions.flushBroadcasts()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
@@ -712,13 +845,24 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
     const sync = registry.sessionStore.sync
 
-    const failAndHeal = async (trigger: () => void | Promise<void>, assertValue: (value: SessionMeta) => void) => {
+    const failAndHeal = async (
+      trigger: () => void | Promise<void>,
+      assertValue: (value: SessionMeta) => void,
+    ) => {
       const before = events.length
-      const append = vi.spyOn(sync, 'appendChanges').mockImplementationOnce(() => {
-        throw new Error('transient session capture failure')
+      const originalAppend = sync.appendChanges.bind(sync)
+      const sessionAppend = vi.fn()
+      const append = vi.spyOn(sync, 'appendChanges').mockImplementation((changes, stampedAt) => {
+        // S1's machine record now commits before the compatibility-only session
+        // refresh. Plant this failure at the session boundary the test owns.
+        if (changes.some((change) => change.entity === 'session')) {
+          sessionAppend()
+          throw new Error('transient session capture failure')
+        }
+        return originalAppend(changes, stampedAt)
       })
       await trigger()
-      expect(append).not.toHaveBeenCalled()
+      expect(sessionAppend).not.toHaveBeenCalled()
       await expect(registry.modules.sessions.flushBroadcasts()).rejects.toThrow(
         'transient session capture failure',
       )
@@ -772,14 +916,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       // First principal still in the room; controller reverts to first connection.
       (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
     )
-    await failAndHeal(
-      () =>
-        registry.modules.machines.renameMachine(
-          registry.modules.machines.hostMachineId,
-          'healed-host',
-        ),
-      (value) => expect(value.machineName).toBe('healed-host'),
-    )
     off()
   })
 
@@ -789,7 +925,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       Array.from(
         { length: 588 },
         async (_, i) =>
-          (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: `/w/` })).sessionId,
+          (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: `/w/` }))
+            .sessionId,
       ),
     )
     const clientId = attachTestClient(registry.clientGateway, () => {})
@@ -811,7 +948,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.clientGateway.detachClient(clientId)
     await detached.mock.results[0]?.value
     expect(append).not.toHaveBeenCalled()
-    await expect(registry.modules.sessions.flushBroadcasts()).rejects.toThrow('disconnect batch failed')
+    await expect(registry.modules.sessions.flushBroadcasts()).rejects.toThrow(
+      'disconnect batch failed',
+    )
     expect(append).toHaveBeenCalledTimes(1)
     expect(events).toEqual([])
 
@@ -830,7 +969,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('rolls back live rename state when the durable append fails', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
     const events: ProjectionEvent[] = []
@@ -846,7 +988,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).rejects.toThrow('rename append failed')
     append.mockRestore()
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.name,
+      (await clientSessionViews(registry)).find(
+        (s) => s.sessionId === sessionId,
+      )?.name,
     ).toBeUndefined()
     expect(
       (await registry.sessionStore.sessions.loadSessions()).find((row) => row.id === sessionId)
@@ -858,7 +1002,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.broadcastSessions()
     await registry.modules.sessions.flushBroadcasts()
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.name,
+      (await clientSessionViews(registry)).find(
+        (s) => s.sessionId === sessionId,
+      )?.name,
     ).toBeUndefined()
     expect(await registry.modules.sessions.syncChangesSince(cursor)).toMatchObject({
       kind: 'delta',
@@ -874,11 +1020,12 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('rolls back live and SQLite snooze state when the durable append fails', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
-    const events: ProjectionEvent[] = []
-    registry.modules.sessions.onSessionProjection((event) => events.push(event))
     const append = vi
       .spyOn(registry.sessionStore.sync, 'appendChanges')
       .mockImplementationOnce(() => {
@@ -905,18 +1052,22 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).rejects.toThrow('snooze append failed')
     append.mockRestore()
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.snoozedUntil,
+      (await clientSessionViews(registry)).find(
+        (s) => s.sessionId === sessionId,
+      )?.snoozedUntil,
     ).toBeUndefined()
     expect(
       await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId()),
     ).not.toHaveProperty(sessionId)
     expect(await cursorOf(registry)).toBe(cursor)
-    expect(events).toEqual([])
+    expect(await registry.changeLedger.changesSince(cursor)).toEqual([])
 
     registry.modules.sessions.broadcastSessions()
     await registry.modules.sessions.flushBroadcasts()
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.snoozedUntil,
+      (await clientSessionViews(registry)).find(
+        (s) => s.sessionId === sessionId,
+      )?.snoozedUntil,
     ).toBeUndefined()
     expect(await registry.modules.sessions.syncChangesSince(cursor)).toMatchObject({
       kind: 'delta',
@@ -931,11 +1082,17 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       sessionId,
       until: '2999-07-20T12:00:00.000Z',
     })
-    expect(events).toHaveLength(1)
-    expect(events[0]?.changes).toHaveLength(1)
-    expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.snoozedUntil).toBe(
-      '2999-07-20T12:00:00.000Z',
-    )
+    const delta = await registry.modules.sessions.syncChangesSince(cursor, {
+      kind: 'user', user: firstAdminMemberId(),
+      device: asDeviceId('snooze-reader'), capability: asCapabilityRef('snooze-reader'),
+    })
+    expect(delta.kind).toBe('delta')
+    if (delta.kind !== 'delta') throw new Error('expected personal delta')
+    expect(delta.changes).toHaveLength(1)
+    expect(delta.changes[0]).toMatchObject({
+      entity: 'sessionUserState',
+      value: { snoozedUntil: '2999-07-20T12:00:00.000Z' },
+    })
   })
 
   it.each([
@@ -973,19 +1130,26 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(k) a failed change append on kill leaves the session fully live (#247)', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
     const spy = vi.spyOn(registry.sessionStore.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
-    await expect(registry.modules.sessions.killSession({ sessionId })).rejects.toThrow('append failed')
+    await expect(registry.modules.sessions.killSession({ sessionId })).rejects.toThrow(
+      'append failed',
+    )
     spy.mockRestore()
     // Memory truth survived: the session is still listed; the store rolled the
     // tombstone write back inside the same transact span.
-    expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some((s) => s.sessionId === sessionId)).toBe(
-      true,
-    )
+    expect(
+      (await clientSessionViews(registry)).some(
+        (s) => s.sessionId === sessionId,
+      ),
+    ).toBe(true)
     expect(
       (await registry.sessionStore.sessions.loadSessions()).some((r) => r.id === sessionId),
     ).toBe(true)
@@ -999,9 +1163,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(healed.changes.filter((c) => c.entity === 'session')).toEqual([])
     // And the kill still works once the append path recovers.
     await registry.modules.sessions.killSession({ sessionId })
-    expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some((s) => s.sessionId === sessionId)).toBe(
-      false,
-    )
+    expect(
+      (await clientSessionViews(registry)).some(
+        (s) => s.sessionId === sessionId,
+      ),
+    ).toBe(false)
     expect(await registry.sessionStore.sessions.loadDeletedSessions()).toEqual([
       expect.objectContaining({ id: sessionId, deletionSource: 'standalone' }),
     ])
@@ -1050,7 +1216,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
     await registry.modules.sessions.flushBroadcasts()
 
-    const listed = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const listed = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(listed).toBeDefined()
 
     const after = await registry.modules.sessions.syncChangesSince(cursor)
@@ -1067,12 +1235,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // the moment the mapper gains a key, which is exactly the drift being deleted.
     expect(listed).toEqual(broadcast)
 
-    // And pin the stamp the mapper owns, so mutating it inside sessionWire() is a
-    // kill rather than a survivor. Resolved against the session's OWN machineId,
-    // which since POD-318 is this host's minted id from the moment the session is
-    // created — there is no placeholder phase to get wrong.
-    expect(listed?.machineName).toBe(await registry.modules.machines.machineName(listed?.machineId ?? ''))
-    expect(listed?.machineName).not.toBe(undefined)
+    // The mapper sends source identity; the client joins the display name.
+    expect(listed?.machineId).toBe(registry.sessionStore.hostMachineId)
+    expect(listed).not.toHaveProperty('machineName')
   })
 })
 
@@ -1097,7 +1262,10 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
   }
 
   /** A client whose hello advertises exactly `caps`. */
-  async function client(registry: SessionRegistry, caps: string[]): Promise<{ inbox: ServerMessage[] }> {
+  async function client(
+    registry: SessionRegistry,
+    caps: string[],
+  ): Promise<{ inbox: ServerMessage[] }> {
     const inbox: ServerMessage[] = []
     const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     await registry.clientGateway.routeClientFrame(id, {

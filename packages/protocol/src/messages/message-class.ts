@@ -52,8 +52,6 @@ export const SERVER_PLANE_CLASS = {
   // the one pipeline rather than a second pipeline beside it, and they are
   // deleted when that adapter expires.
   sessionsChanged: 'control.entity',
-  issuesChanged: 'control.entity',
-  issueUpdated: 'control.entity',
   conversationsChanged: 'control.entity',
   automationsChanged: 'control.entity',
   automationRunsChanged: 'control.entity',

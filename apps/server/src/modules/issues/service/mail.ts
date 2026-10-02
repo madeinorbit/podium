@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueWire, IssueId, SessionId } from '@podium/model'
+import type { IssueId, IssueProjection, SessionId } from '@podium/model'
 import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import type { IssueStore } from './core'
@@ -36,20 +36,27 @@ export class IssueCommentsMailModule {
    * compile error, and `addComment-principal.test.ts` beside this file fails
    * the BUILD (not just the run) if a default comes back.
    */
-  async addComment(id: string, author: string, body: string, principal: CommandPrincipal): Promise<IssueWire> {
+  async addComment(
+    id: string,
+    author: string,
+    body: string,
+    principal: CommandPrincipal,
+  ): Promise<IssueProjection> {
     const issueId = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(issueId)
     const attribution = attributionOf(principal)
-    return await this.store.persistWith(row, async () =>
-      await this.store.deps.store.issues.addIssueComment({
-        id: `cmt_${randomUUID()}`,
-        issueId,
-        author,
-        body,
-        createdAt: this.store.now(),
-        actor: attribution.actor,
-        onBehalfOf: attribution.onBehalfOf,
-      }),
+    return await this.store.persistWith(
+      row,
+      async () =>
+        await this.store.deps.store.issues.addIssueComment({
+          id: `cmt_${randomUUID()}`,
+          issueId,
+          author,
+          body,
+          createdAt: this.store.now(),
+          actor: attribution.actor,
+          onBehalfOf: attribution.onBehalfOf,
+        }),
     )
   }
 
@@ -61,7 +68,11 @@ export class IssueCommentsMailModule {
    * and integrate dedupe on those names, so a client that could choose its
    * author could also suppress their notes.
    */
-  async addCallerComment(id: string, body: string, principal: CommandPrincipal): Promise<IssueWire> {
+  async addCallerComment(
+    id: string,
+    body: string,
+    principal: CommandPrincipal,
+  ): Promise<IssueProjection> {
     return await this.addComment(id, await this.authorOf(principal), body, principal)
   }
 
@@ -70,7 +81,9 @@ export class IssueCommentsMailModule {
   private async authorOf(principal: CommandPrincipal): Promise<string> {
     switch (principal.kind) {
       case 'user':
-        return (await this.store.deps.store.users.get(principal.user))?.displayName || principal.user
+        return (
+          (await this.store.deps.store.users.get(principal.user))?.displayName || principal.user
+        )
       case 'agent': {
         const scope = principal.capability.scope
         if (scope.kind !== 'subtree') return 'agent'
@@ -134,7 +147,7 @@ export class IssueCommentsMailModule {
             // PER-USER read markers (POD-1076): `status` is the mail's shared
             // delivery state, `read_at` is a fact about THIS reader.
             await this.store.deps.store.issues.markIssueMessagesRead(
-              (await this.store.broadcastViewer()),
+              await this.store.broadcastViewer(),
               id,
               unreadIds,
               at,
@@ -194,7 +207,11 @@ export class IssueCommentsMailModule {
             this.store.now(),
           )
         if (opts?.sessionId) {
-          await this.store.deps.store.messages.recordRead(messageId, opts.sessionId, this.store.now())
+          await this.store.deps.store.messages.recordRead(
+            messageId,
+            opts.sessionId,
+            this.store.now(),
+          )
         }
         return won
       },

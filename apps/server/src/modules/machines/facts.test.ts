@@ -62,7 +62,7 @@ async function fleet(
     instanceId: 'default',
     store,
     hostMachineId: store.hostMachineId,
-    sessionsChangedForMachine: () => {},
+
     clients: () => [],
     machinesForPrincipal: async () => [],
     ...deps,

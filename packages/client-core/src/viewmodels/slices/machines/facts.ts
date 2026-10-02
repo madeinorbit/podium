@@ -1,3 +1,4 @@
+import type { SessionView } from '../../../session-values'
 /**
  * MACHINES SLICE — the FACTS about a machine (POD-330).
  *
@@ -32,9 +33,7 @@ import {
   type MachineId,
   normalizeOriginUrl,
   repoNameFromOrigin,
-  type SessionMeta,
-  type SessionStatus,
-} from '@podium/model'
+  type SessionStatus} from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
 
 /** Path containment (POSIX) — same rule as dock-panel's cwdInWorktree, local so
@@ -369,9 +368,9 @@ export function hostLoadView(
 
 /** Sessions whose process is resident on this machine (not working-count). */
 export function residentSessionsOnMachine(
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   machineId: MachineId | undefined,
-): SessionMeta[] {
+): SessionView[] {
   if (!machineId) return []
   return sessions.filter(
     (s) => s.machineId === machineId && RESIDENT_STATUSES.has(s.status) && !s.archived,
@@ -389,7 +388,7 @@ export function residentSessionsOnMachine(
  * Sorted, so two renders that describe the same occupancy compare equal
  * whatever order the store happens to hold the sessions in.
  */
-export function residentWorktreeKey(sessions: readonly SessionMeta[]): string {
+export function residentWorktreeKey(sessions: readonly SessionView[]): string {
   const cwds: string[] = []
   for (const s of sessions) if (RESIDENT_STATUSES.has(s.status)) cwds.push(s.cwd)
   return cwds.sort().join('\n')
@@ -419,13 +418,13 @@ export interface HostAgentsView {
  * working, errored, starting or reconnecting sessions.
  *
  * The server can additionally count long-quiet sessions whose phase is unknown;
- * their input/output timestamps are intentionally not on SessionMeta, so this
+ * their input/output timestamps are intentionally not on SessionView, so this
  * view names its numerator as observed idle rather than claiming an exact policy
  * count. It is nevertheless a safe lower bound: every phase counted here is in
  * the server's idle-live set.
  */
 export function hostAgentsView(
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   machineId: MachineId | undefined,
   maxIdleSessions: number | null,
   hostname: string,
@@ -469,7 +468,7 @@ export function hostAgentsViewFromCounts(
 
 /** Split idle-live sessions into parkable vs protected (needs_user / no resume). */
 export function idleSessionSplit(
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   machineId: MachineId | undefined,
 ): { parkable: number; protected: number; idle: number } {
   if (!machineId) return { parkable: 0, protected: 0, idle: 0 }
@@ -588,7 +587,7 @@ export function placeReclaimable(
 
 /** Phase breakdown for an AGT tooltip (working ≠ resident). */
 export function residencyBreakdown(
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   machineId: MachineId | undefined,
 ): { working: number; idle: number; waiting: number; other: number } {
   let working = 0

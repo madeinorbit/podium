@@ -46,7 +46,7 @@ const runN = async (n: number): Promise<number> => {
       operations: [
         {
           kind: 'upsert',
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: `POD-${i}`,
           value: value(i),
           revision: i,

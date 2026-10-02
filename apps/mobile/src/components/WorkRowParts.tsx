@@ -1,10 +1,11 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   deriveFleetPresence,
   deriveGitStamp,
   FLEET_KIND_LIMIT,
   type MissionProgress,
 } from '@podium/client-core/viewmodels'
-import type { IssueGitState, SessionMeta } from '@podium/model'
+import type { IssueGitState } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, space } from '../theme/theme'
@@ -41,7 +42,7 @@ const FLEET_TILE = 19
  * phone used to filter hibernation out exactly as the sidebar did, so a fleet
  * the memory reaper had put to sleep read as an empty one.
  */
-export function FleetSummary({ sessions }: { sessions: readonly SessionMeta[] }) {
+export function FleetSummary({ sessions }: { sessions: readonly SessionView[] }) {
   const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
   if (present.length === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)

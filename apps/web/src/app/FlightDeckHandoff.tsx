@@ -1,3 +1,5 @@
+import type { SessionView } from '@podium/client-core/session-values'
+import { useStoreHandle } from '@podium/client-core/react'
 import {
   deriveHandoffNext,
   deriveHandoffNow,
@@ -8,7 +10,7 @@ import {
   type HandoffTranscriptPair,
   type IssueNavigationModel,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionId, SessionMeta } from '@podium/model/browser'
+import type { IssueId, SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -16,7 +18,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { useHandoffTranscript } from './use-handoff-transcript'
-import { useStoreSelector } from './store'
+import type { Trpc } from './trpc'
 
 const INITIAL_ROWS = 8
 const reviewReturnCache = new Map<string, number>()
@@ -33,7 +35,7 @@ function formatStamp(value: string | null | undefined): string | null {
   })
 }
 
-function sessionRef(session: SessionMeta): string {
+function sessionRef(session: SessionView): string {
   return session.displayRef?.trim() || session.sessionId
 }
 
@@ -82,7 +84,7 @@ function TranscriptCard({
   onOpen,
 }: {
   label: string
-  session: SessionMeta
+  session: SessionView
   item: HandoffTranscriptPair['prompt']['item']
   legacy?: boolean
   fresh?: boolean
@@ -114,7 +116,7 @@ function useReviewReturns(
   entries: readonly HandoffNowEntry[],
   issues: readonly IssueNavigationModel[],
 ): ReadonlyMap<string, number> {
-  const trpc = useStoreSelector((store) => store.trpc)
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
   const ids = useMemo(() => entries.map((entry) => entry.issueId), [entries])
   const [counts, setCounts] = useState<ReadonlyMap<string, number>>(() => new Map())
 
@@ -174,7 +176,7 @@ function HandoffEntry({
   onOpen,
 }: {
   issue: IssueNavigationModel
-  session?: SessionMeta
+  session?: SessionView
   state: string
   attention?: boolean
   tone?: 'working' | 'review' | 'attention' | 'done'
@@ -246,7 +248,7 @@ export function FlightDeckHandoff({
 }: {
   rootIssue: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
-  sessions: readonly SessionMeta[]
+  sessions: readonly SessionView[]
   visitReadAt: string | null
   proposed: ReactNode
   onOpenTranscript: (sessionId: SessionId, itemKey: string) => void

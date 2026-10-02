@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUE_STAGE_LABELS } from '@podium/client-core/viewmodels'
-import type { IssueWire } from '@podium/model'
+
 import { StyleSheet, Text, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
@@ -29,7 +30,7 @@ export function IssueBanners({
   commands,
   onRestored,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssueCommands
   onRestored: () => void

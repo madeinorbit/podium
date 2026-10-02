@@ -8,6 +8,7 @@ import {
 import type {
   DeliveryReceipt,
   ShipHoldAction,
+  ShipLaneProjection,
   ShipOrderId,
   ShipOrderProjection,
   ShipOrderState,
@@ -31,6 +32,7 @@ export interface ShippingPanelCommands {
 
 interface ShippingPanelProps {
   orders: readonly ShipOrderProjection[]
+  lanes?: readonly ShipLaneProjection[]
   issues: readonly IssueViewModel[]
   repoId: string | null
   now: number
@@ -122,7 +124,7 @@ function ElapsedWait({ queuedAt, now }: { queuedAt: string; now: number }): JSX.
 }
 
 function WaitingState({ row, now }: { row: ShippingPanelRow; now: number }): JSX.Element {
-  const rank = row.order.queueRank
+  const rank = row.queueRank
   return (
     <span className="ml-auto flex-none text-right font-mono shell-type-micro tabular-nums text-text-dim">
       <span>{rank === 1 ? 'Next' : rank ? `#${rank}` : 'Waiting'} · </span>
@@ -163,9 +165,9 @@ function ShippingRow({
             className="flex size-4 flex-none items-center justify-center rounded-full border border-border font-mono text-[8px] tabular-nums text-text-dim"
             aria-hidden="true"
           >
-            {row.order.queueRank ?? waitingPosition}
+            {waitingPosition}
           </span>
-          <span className="sr-only">Position {row.order.queueRank ?? waitingPosition}</span>
+          <span className="sr-only">Position {waitingPosition}</span>
         </>
       )}
       <IssueIdentity row={row} />
@@ -506,8 +508,8 @@ function ShipmentDetail({
           {order.humanState === 'waiting' ? null : shippingActivityLabel(order.activity)}
           {order.humanState === 'waiting' && (
             <>
-              {order.queueRank === 1 ? 'Next' : order.queueRank ? `#${order.queueRank}` : 'Waiting'}{' '}
-              · <ElapsedWait queuedAt={order.queuedAt} now={now} />
+              {row.queueRank === 1 ? 'Next' : row.queueRank ? `#${row.queueRank}` : 'Waiting'} ·{' '}
+              <ElapsedWait queuedAt={order.queuedAt} now={now} />
             </>
           )}
         </div>
@@ -646,7 +648,7 @@ function WaitingLane({
             <ShippingRow
               row={row}
               now={now}
-              waitingPosition={row.order.queueRank}
+              waitingPosition={row.queueRank}
               setRef={(node) => rowRef(row.order.id, node)}
               onOpen={() => onOpen(row)}
             />
@@ -659,12 +661,16 @@ function WaitingLane({
 
 export function ShippingPanel({
   orders,
+  lanes,
   issues,
   repoId,
   now,
   commands,
 }: ShippingPanelProps): JSX.Element {
-  const model = useMemo(() => shippingPanelModel(orders, issues, repoId), [issues, orders, repoId])
+  const model = useMemo(
+    () => shippingPanelModel(orders, issues, repoId, lanes),
+    [issues, orders, repoId, lanes],
+  )
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [returnFocusId, setReturnFocusId] = useState<string | null>(null)
   const backRef = useRef<HTMLButtonElement>(null)

@@ -37,8 +37,7 @@ const count = (source: string): number => {
   const literals = literalFieldLists(source).filter((l) => {
     if (!l.keys.has('op')) return false
     return (
-      [...l.keys].filter((k) => k !== 'op' && CHANGE_ROW_KEYS.has(k)).length >=
-      CHANGE_ROW_THRESHOLD
+      [...l.keys].filter((k) => k !== 'op' && CHANGE_ROW_KEYS.has(k)).length >= CHANGE_ROW_THRESHOLD
     )
   }).length
   return blocks + literals
@@ -87,9 +86,7 @@ describe('the detector fires on every spelling of a restatement', () => {
   })
 
   it('a plain object TYPE literal', () => {
-    expect(
-      count("let row: { seq: number; entity: string; entityId: string; op: string }"),
-    ).toBe(1)
+    expect(count('let row: { seq: number; entity: string; entityId: string; op: string }')).toBe(1)
   })
 
   it('an interface body', () => {
@@ -175,18 +172,16 @@ describe('a construction site is a USE of the type, not a restatement', () => {
   it('does not fire on a CAST construction, even though the cast contains a union', () => {
     // Anchored at the start of the value for exactly this case: the text after
     // `op:` contains `'upsert' | 'remove'`, and it is still a construction.
-    expect(
-      count("const c = { seq: r.seq, id: r.entityId, op: r.op as 'upsert' | 'remove' }"),
-    ).toBe(0)
+    expect(count("const c = { seq: r.seq, id: r.entityId, op: r.op as 'upsert' | 'remove' }")).toBe(
+      0,
+    )
   })
 
   it('fires on the same shape written as a DECLARATION', () => {
     // The counterfactual for the three above: same field list, declared. Without
     // this the construction assertions would pass against a detector that had
     // simply stopped matching anything at all.
-    expect(
-      count("interface C { seq: number; entityId: string; op: 'upsert' | 'remove' }"),
-    ).toBe(1)
+    expect(count("interface C { seq: number; entityId: string; op: 'upsert' | 'remove' }")).toBe(1)
   })
 })
 
@@ -204,7 +199,7 @@ describe('the detector leaves composition alone', () => {
         z.object({ seq: ChangeSeqField, entity, id: ChangeEntityIdField, op: MetadataChangeOp, value: value.optional() })
       export const Union = z.discriminatedUnion('entity', [
         arm(z.literal('session'), SessionMeta),
-        arm(z.literal('issue'), IssueWire),
+        arm(z.literal('issueProjection'), IssueProjection),
         arm(z.literal('conversation'), ConversationSummaryWire),
       ])`
     expect(count(source)).toBe(1)
@@ -260,10 +255,10 @@ export const MetadataChange = z.discriminatedUnion('entity', [
   }),
   z.object({
     seq: z.number().int().positive(),
-    entity: z.literal('issue'),
+    entity: z.literal('issueProjection'),
     id: z.string(),
     op: MetadataChangeOp,
-    value: IssueWire.optional(),
+    value: IssueProjection.optional(),
   }),
   z.object({
     seq: z.number().int().positive(),
@@ -302,7 +297,7 @@ const metadataChangeArm = (entity, value) =>
   })
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
-  metadataChangeArm(z.literal('issue'), IssueWire),
+  metadataChangeArm(z.literal('issueProjection'), IssueProjection),
   metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
 ])
 export const UnknownMetadataChange = metadataChangeArm(z.string(), z.unknown())
@@ -341,8 +336,7 @@ describe('changeRowRestatements', () => {
       ctx([
         {
           file: 'packages/sync/src/a.ts',
-          stripped:
-            '\n\ninterface R {\n  seq: number\n  entity: string\n  op: string\n}\n',
+          stripped: '\n\ninterface R {\n  seq: number\n  entity: string\n  op: string\n}\n',
         },
       ]),
     )

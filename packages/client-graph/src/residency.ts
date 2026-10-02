@@ -75,6 +75,7 @@
  */
 
 import { _isComputingDerivation, createAtom, type IAtom } from 'mobx'
+import { debugName } from './debug-name'
 import {
   type ColdContext,
   coldByRule,
@@ -100,6 +101,8 @@ export type LoadableEntity = 'issue' | 'session'
 
 /** A per-row read: the row's current value, or undefined when it is gone. */
 export type LoadRow = (entity: LoadableEntity, id: string) => object | undefined
+
+export type ResolveIssueReferences = (refs: readonly string[]) => Promise<readonly { ref: string; id: string | null }[]>
 
 /** Arms a timer; returns its cancel. Tests pass a manual one. */
 export type Schedule = (run: () => void, ms: number) => () => void
@@ -196,9 +199,12 @@ export class Residency {
   private readonly dependents = new Map<EntityName, Map<string, Set<string>>>()
   /** `via` entities by the entity they inherit from. */
   private readonly inheritors = new Map<EntityName, EntityName[]>()
+  /** Header-only catalog subscriptions, ids only, released when unobserved. */
+  private readonly idAtoms = new Map<EntityName, IAtom>()
   /** One atom per `entity:id` a derivation has asked about, while observed. */
   private readonly atoms = new Map<string, IAtom>()
   private readonly queue = new Map<LoadableEntity, Set<string>>()
+  private readonly referenceQueue = new Set<string>()
   private cancel: (() => void) | null = null
   /** Runs a closed window's batch (the pool's action). */
   private due: () => void = () => {}
@@ -280,7 +286,20 @@ export class Residency {
   }
 
   /** Cold ids of `entity` (the gate's partition check). */
-  ids(entity: EntityName): readonly string[] {
+  ids(entity: EntityName, tracked = false): readonly string[] {
+    if (tracked && _isComputingDerivation()) {
+      let atom = this.idAtoms.get(entity)
+      let fresh = false
+      if (!atom) {
+        const created = createAtom(debugName(() => `residency.ids.${entity}`) ?? 'Atom', undefined, () => {
+          if (this.idAtoms.get(entity) === created) this.idAtoms.delete(entity)
+        })
+        atom = created
+        this.idAtoms.set(entity, atom)
+        fresh = true
+      }
+      if (!atom.reportObserved() && fresh) this.idAtoms.delete(entity)
+    }
     return [...(this.cold.get(entity)?.keys() ?? [])]
   }
 
@@ -446,13 +465,38 @@ export class Residency {
     }
     if (ids.has(id)) return false
     ids.add(id)
+    this.arm()
+    return true
+  }
+
+  /** Unknown reference identities share the existing row-load window. */
+  requestReference(ref: string): boolean {
+    if (this.referenceQueue.has(ref)) return false
+    this.referenceQueue.add(ref)
+    this.arm()
+    return true
+  }
+
+  private arm(): void {
     if (this.cancel === null) {
       this.cancel = this.schedule(() => {
         this.cancel = null
         this.due()
       }, this.windowMs)
     }
-    return true
+  }
+
+  /** One bounded identity query per closed window, without walking the rest
+   * of the queue. Remaining references join the next existing load window. */
+  takeReferences(): string[] {
+    const batch: string[] = []
+    for (const ref of this.referenceQueue) {
+      this.referenceQueue.delete(ref)
+      batch.push(ref)
+      if (batch.length === 200) break
+    }
+    if (this.referenceQueue.size) this.arm()
+    return batch
   }
 
   /** Close the window now: the queued rows, cleared. */
@@ -602,10 +646,14 @@ export class Residency {
 
   /** Forget everything (the pool's dispose). */
   clear(): void {
+    this.referenceQueue.clear()
     this.cancel?.()
     this.cancel = null
     this.queue.clear()
-    for (const ids of this.cold.values()) ids.clear()
+    for (const [entity, ids] of this.cold) {
+      if (ids.size) this.idAtoms.get(entity)?.reportChanged()
+      ids.clear()
+    }
     for (const byTarget of this.dependents.values()) byTarget.clear()
     this.keeps.clear()
     this.keeperKey.clear()
@@ -886,9 +934,11 @@ export class Residency {
 
   private register(entity: EntityName, id: string, row: object): void {
     const ids = this.cold.get(entity) as Map<string, string | null>
+    const added = !ids.has(id)
     const before = ids.get(id) ?? null
     const after = viaTargetOf(this.schema, entity, row)?.id ?? null
     ids.set(id, after)
+    if (added) this.idAtoms.get(entity)?.reportChanged()
     const key = `${entity}:${id}`
     if (this.schema[entity].cold.kind === 'unlessShown') {
       const spec = this.schema[entity].cold
@@ -922,6 +972,7 @@ export class Residency {
     if (ids === undefined || !ids.has(id)) return
     const before = ids.get(id) ?? null
     ids.delete(id)
+    this.idAtoms.get(entity)?.reportChanged()
     this.finish.delete(`${entity}:${id}`)
     this.summaries.delete(`${entity}:${id}`)
     const byTarget = this.dependents.get(entity)
@@ -942,7 +993,7 @@ export class Residency {
     let atom = this.atoms.get(key)
     let fresh = false
     if (atom === undefined) {
-      const created = createAtom(`pool.cold.${key}`, undefined, () => {
+      const created = createAtom(debugName(() => `pool.cold.${key}`) ?? 'Atom', undefined, () => {
         if (this.atoms.get(key) === created) this.atoms.delete(key)
       })
       this.atoms.set(key, created)

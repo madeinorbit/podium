@@ -1,16 +1,26 @@
 // @vitest-environment happy-dom
+import { dedupeSessions } from '@podium/client-core/engine'
+import {
+  allIssueViewModels,
+  createKernelReplica,
+  createSideCache,
+  memoryStorage,
+} from '@podium/client-core/replica'
+import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
   FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
-import type { SessionMeta } from '@podium/model'
+import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/viewmodels'
+
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
+import { seedCacheFromCorpus } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { DOUBLE_CLICK_MS } from './click-intent'
-import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeckWaterfall'
 import {
   briefCutoffLayout,
   continuationPresenceLine,
@@ -23,6 +33,7 @@ import {
   writeBriefCutoff,
   writeFolds,
 } from './FlightDeck'
+import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeckWaterfall'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
@@ -156,6 +167,12 @@ vi.mock('./store', () => ({
   useSessionDraft: () => '',
 }))
 
+// WorkerLabel reads served harness descriptors through the real provider;
+// this fixture supplies bundled descriptors alongside its local store stub.
+vi.mock('@/lib/use-harness-descriptors', () => ({
+  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' }),
+}))
+
 const developerFeature = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => developerFeature.enabled,
@@ -185,7 +202,7 @@ const issue = (id: string, over: Issue = {}): Issue => ({
 
 /** Fixtures are shaped, not branded: the ids here are plain strings, so the
  *  overrides come in loose and the cast happens once, at the boundary. */
-const session = (id: string, over: Record<string, unknown> = {}): SessionMeta =>
+const session = (id: string, over: Record<string, unknown> = {}): SessionView =>
   ({
     sessionId: id,
     agentKind: 'claude-code',
@@ -198,7 +215,7 @@ const session = (id: string, over: Record<string, unknown> = {}): SessionMeta =>
     lastActiveAt: '2026-01-01T00:00:00.000Z',
     createdAt: '2026-01-01T00:00:00.000Z',
     ...over,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 /** An agent mid-turn — what `Working` asks about, once per agent (POD-1452). */
 const WORKING = { phase: 'working', since: '2026-01-01T00:00:00.000Z' } as const
@@ -327,6 +344,71 @@ afterEach(() => {
   else Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight')
 })
 
+describe('mission key uniqueness', () => {
+  it('keeps header controls distinct when switching missions with no duplicate members', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    harness.issues = [issue('root'), issue('next')]
+    harness.sessions = []
+    const rendered = deck()
+    expect(screen.getByRole('button', { name: 'Add agent to mission' })).toBeTruthy()
+
+    harness.selectedIssueId = 'next'
+    rendered.rerender(<DeckHarness />)
+    expect(screen.getByRole('button', { name: 'Add agent to mission' })).toBeTruthy()
+    expect(
+      errors.mock.calls.filter(([message]) =>
+        String(message).includes('Encountered two children with the same key'),
+      ),
+    ).toEqual([])
+  })
+
+  it('keeps baseline corpus mission membership and deck rows unique', () => {
+    // Use the original buildCorpus(1, 1), normalized replica and runtime session
+    // order. The fixture's resume twins remain intact in the input corpus.
+    const corpus = buildCorpus(1, 1)
+    const replica = createKernelReplica({
+      cache: seedCacheFromCorpus(corpus),
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const models = allIssueViewModels(replica)
+    const sessions = dedupeSessions(
+      sessionViews([...replica.rows('sessions')], {
+        userId: 'operator',
+        userStates: [...replica.rows('sessionUserStates')],
+        machines: [...replica.rows('machines')],
+        repos: [...replica.rows('repos')],
+      }),
+    )
+    expect(corpus.issues).toHaveLength(4867)
+    expect(new Set(corpus.issues.map((row) => row.id)).size).toBe(corpus.issues.length)
+    expect(corpus.sessions).toHaveLength(4304)
+    expect(sessions).toHaveLength(4302)
+    expect(models).toHaveLength(corpus.issues.length)
+    expect(new Set(models.map((row) => row.id)).size).toBe(models.length)
+
+    for (const [rootId, rowCount] of [
+      ['i1884', 362],
+      ['i3777', 135],
+      ['i1313', 1],
+    ] as const) {
+      const members = [...missionIssueIds(models, rootId, sessions)]
+      const rows = buildFlightDeckRows(models, sessions, rootId)
+      const rowIds = rows.map((row) => row.issue.id)
+      expect(new Set(members).size, rootId).toBe(members.length)
+      expect(new Set(rowIds).size, rootId).toBe(rowIds.length)
+      expect(rows, rootId).toHaveLength(rowCount)
+      expect(
+        rows.filter((row) => row.issue.id === rootId),
+        rootId,
+      ).toHaveLength(1)
+      expect(
+        rowIds.every((id) => members.includes(id)),
+        rootId,
+      ).toBe(true)
+    }
+  })
+})
+
 const chevron = (title: string): HTMLElement =>
   screen.getByRole('button', { name: new RegExp(`^(Expand|Collapse) ${title}$`) })
 
@@ -393,6 +475,9 @@ function measuredBrief(): {
   })
 
   deck()
+  const callback = resize as ResizeObserverCallback | null
+  if (!callback) throw new Error('brief ResizeObserver was not installed')
+  act(() => callback([], {} as ResizeObserver))
   return {
     observed,
     reflowHeader(nextTop: number): void {
@@ -522,14 +607,10 @@ describe('mission brief cutoff interaction', () => {
   })
 })
 
-describe('mission brief measure frequency (POD-4439)', () => {
-  /* One measure is three layout reads (deck, body, end) plus a scrollHeight
-     that costs nothing. The legacy wiring spent three measures per issue
-     switch — a direct measure, the observer's initial delivery after
-     re-observing the same nodes on [html], and the body's own resize once the
-     cutoff's max-height landed on it — for values the first measure already
-     held. These tests pin the fixed wiring at one measure per switch with the
-     same limits, and fail against the legacy wiring. */
+describe('mission brief measurement after layout', () => {
+  // Each observation starts with a browser-delivered size report after layout.
+  // No geometry read may happen during the commit, on mount or content change.
+  // Only the deck/header are observed; the body's height is their output.
 
   /** Browser-faithful observer plus layout that answers like one: an initial
    *  delivery per newly observed target, then one callback per flush whose
@@ -540,6 +621,7 @@ describe('mission brief measure frequency (POD-4439)', () => {
     readonly observed: Set<Element>
     readonly setContentHeight: (height: number) => void
     readonly setDeckHeight: (height: number) => void
+    readonly unmountObservations: () => boolean
     readonly briefRectReads: () => number
     readonly flushResizes: (changed?: Element[]) => number
   } {
@@ -616,6 +698,9 @@ describe('mission brief measure frequency (POD-4439)', () => {
       setDeckHeight(height: number): void {
         deckHeight = height
       },
+      unmountObservations(): boolean {
+        return observed.size === 0 && initial.size === 0
+      },
       briefRectReads(): number {
         return rectReads
       },
@@ -641,7 +726,10 @@ describe('mission brief measure frequency (POD-4439)', () => {
 
   const twoMissions = (): void => {
     harness.issues = [
-      issue('m1', { title: 'Alpha', description: `Alpha brief. ${'Long enough to bind the cap. '.repeat(20)}` }),
+      issue('m1', {
+        title: 'Alpha',
+        description: `Alpha brief. ${'Long enough to bind the cap. '.repeat(20)}`,
+      }),
       issue('m2', { title: 'Beta', description: 'Beta brief.' }),
     ]
     harness.sessions = []
@@ -652,6 +740,7 @@ describe('mission brief measure frequency (POD-4439)', () => {
     harness.selectedIssueId = 'm1'
     const gauges = countedBrief()
     const view = deck()
+    expect(gauges.briefRectReads()).toBe(0)
     // Settle the mount the way the browser would: the initial observer
     // delivery, then the body's own resize once the cutoff clamps it.
     gauges.flushResizes()
@@ -664,6 +753,7 @@ describe('mission brief measure frequency (POD-4439)', () => {
     gauges.setContentHeight(50)
     harness.selectedIssueId = 'm2'
     view.rerender(<DeckHarness />)
+    expect(gauges.briefRectReads()).toBe(before)
     // The browser delivers what changed: initial reports for re-observed
     // boxes, then the body's own resize. Name exactly those.
     gauges.flushResizes()
@@ -672,9 +762,7 @@ describe('mission brief measure frequency (POD-4439)', () => {
 
     // CONTROL first: the same content measures the same limit in both arms.
     expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
-    // Then the cost: one measure, three rects. The legacy wiring (observer
-    // re-created on [html] over three targets, body included) spends three
-    // measures — nine rects — on the same switch and fails here.
+    // One measure, three rects, all from delivery after the browser's layout.
     expect(switchReads).toBe(3)
   })
 
@@ -711,6 +799,96 @@ describe('mission brief measure frequency (POD-4439)', () => {
     // must still be there to say so.
     expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('110px')
   })
+
+  it('refreshes clipped content even when both observed boxes keep their size', () => {
+    twoMissions()
+    harness.selectedIssueId = 'm1'
+    const gauges = countedBrief()
+    const view = deck()
+    gauges.flushResizes()
+    fireEvent.click(screen.getByTestId('deck-brief-more'))
+    expect(screen.getByTestId('deck-brief').dataset.open).toBe('true')
+
+    // Both contents still overflow the same cutoff. No ancestor resize is
+    // available to tell us that the intrinsic content height changed.
+    gauges.setContentHeight(90)
+    harness.selectedIssueId = 'm2'
+    const before = gauges.briefRectReads()
+    view.rerender(<DeckHarness />)
+    expect(gauges.briefRectReads()).toBe(before)
+    expect(gauges.flushResizes()).toBe(1)
+    expect(screen.getByTestId('deck-brief').dataset.open).toBeUndefined()
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+    fireEvent.click(screen.getByTestId('deck-brief-more'))
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('90px')
+  })
+
+  it('keeps a saved cutoff through content changes and deck resizing', () => {
+    twoMissions()
+    harness.selectedIssueId = 'm1'
+    harness.ui.set(FLIGHT_DECK_BRIEF_CUTOFF_KEY, '0.4500')
+    const gauges = countedBrief()
+    const view = deck()
+    gauges.flushResizes()
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('90px')
+
+    harness.selectedIssueId = 'm2'
+    view.rerender(<DeckHarness />)
+    gauges.flushResizes()
+    gauges.setDeckHeight(500)
+    gauges.flushResizes([screen.getByTestId('flight-deck-scroller')])
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('135px')
+    expect(screen.getByRole('separator').getAttribute('aria-valuenow')).toBe('45')
+    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4500')
+  })
+
+  it('waits for a hidden deck to acquire a box and disconnects on unmount', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    const gauges = countedBrief()
+    gauges.setDeckHeight(0)
+    const view = deck()
+    gauges.flushResizes()
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('')
+    gauges.setDeckHeight(400)
+    gauges.flushResizes([screen.getByTestId('flight-deck-scroller')])
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+    view.unmount()
+    expect(gauges.unmountObservations()).toBe(true)
+  })
+
+  it('defers the no-observer fallback until after the animation frame and cancels it', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    const gauges = countedBrief()
+    vi.stubGlobal('ResizeObserver', undefined)
+    vi.useFakeTimers()
+    const frames = new Map<number, FrameRequestCallback>()
+    let frameId = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++frameId, callback)
+      return frameId
+    })
+    const cancel = vi.fn((id: number) => frames.delete(id))
+    vi.stubGlobal('cancelAnimationFrame', cancel)
+    const view = deck()
+    expect(gauges.briefRectReads()).toBe(0)
+    act(() => frames.get(frameId)?.(0))
+    expect(gauges.briefRectReads()).toBe(0)
+    act(() => vi.runOnlyPendingTimers())
+    expect(gauges.briefRectReads()).toBe(3)
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+    view.unmount()
+    expect(cancel).toHaveBeenCalledWith(frameId)
+
+    // A queued task belonging to an unmounted brief must never read geometry.
+    const next = deck()
+    act(() => frames.get(frameId)?.(0))
+    const before = gauges.briefRectReads()
+    next.unmount()
+    act(() => vi.runOnlyPendingTimers())
+    expect(gauges.briefRectReads()).toBe(before)
+  })
 })
 
 describe('the cold deck (POD-1112)', () => {
@@ -718,7 +896,7 @@ describe('the cold deck (POD-1112)', () => {
    *  to live. After a reload the selection can still point at one whose session
    *  never started. */
   const vessel = (over: Issue = {}): Issue =>
-    issue('v1', { title: 'Draft', stage: 'backlog', draft: true, ...over })
+    issue('v1', { title: 'Draft', stage: 'backlog', isDraftVessel: true, ...over })
 
   it('shows the empty state for a selection left on an empty draft vessel', () => {
     harness.issues = [vessel()]
@@ -847,7 +1025,7 @@ describe('the developer Flight Deck views', () => {
         : candidate,
     )
     harness.sessions = harness.sessions.map((candidate) =>
-      (candidate as SessionMeta).sessionId === 's1'
+      (candidate as SessionView).sessionId === 's1'
         ? session('s1', {
             issueId: 't1',
             displayRef: 'POD-1-A',
@@ -1141,9 +1319,9 @@ describe('flight deck fold state (POD-710 §4.2)', () => {
   })
 
   it('defaults a lone-session task closed and everything else with a payload open', () => {
-    const lone = { descendantIds: [], sessions: [{}] as SessionMeta[] }
-    const pair = { descendantIds: [], sessions: [{}, {}] as SessionMeta[] }
-    const branch = { descendantIds: ['x'], sessions: [{}] as SessionMeta[] }
+    const lone = { descendantIds: [], sessions: [{}] as SessionView[] }
+    const pair = { descendantIds: [], sessions: [{}, {}] as SessionView[] }
+    const branch = { descendantIds: ['x'], sessions: [{}] as SessionView[] }
     expect(defaultFolded(lone)).toBe(true)
     expect(defaultFolded(pair)).toBe(false)
     expect(defaultFolded(branch)).toBe(false)
@@ -1281,7 +1459,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 
   it('advances active bar geometry with the shared clock while Now stays anchored', () => {
     harness.sessions = harness.sessions.map((raw) => {
-      const candidate = raw as SessionMeta
+      const candidate = raw as SessionView
       return candidate.sessionId === 's2'
         ? { ...candidate, createdAt: '2026-01-01T00:05:00.000Z' }
         : candidate
@@ -1409,7 +1587,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 
   it('uses amber alone for a session that needs attention', () => {
     harness.sessions = harness.sessions.map((raw) => {
-      const item = raw as SessionMeta
+      const item = raw as SessionView
       return item.sessionId === 's2'
         ? session('s2', {
             issueId: 't2',
@@ -2023,11 +2201,11 @@ describe('flight deck task menu (POD-771)', () => {
   it('uses the shared draft name in the strip and its rename editor', () => {
     harness.issues = harness.issues.map((candidate) =>
       (candidate as Issue).id === 't1'
-        ? { ...(candidate as Issue), title: 'Draft', draft: true }
+        ? { ...(candidate as Issue), title: 'Draft', isDraftVessel: true }
         : candidate,
     )
     harness.sessions = harness.sessions.map((candidate) => {
-      const meta = candidate as SessionMeta
+      const meta = candidate as SessionView
       return meta.sessionId === 's1'
         ? { ...meta, name: undefined, title: 'Unrelated older conversation' }
         : meta
@@ -2045,7 +2223,7 @@ describe('flight deck task menu (POD-771)', () => {
     // The draft's visible name can move while the uncontrolled editor is open.
     // Its seed and no-op comparison must stay on the title the operator opened.
     harness.sessions = harness.sessions.map((candidate) => {
-      const meta = candidate as SessionMeta
+      const meta = candidate as SessionView
       return meta.sessionId === 's1' ? { ...meta, name: 'Agent renamed while open' } : meta
     })
     view.rerender(<DeckHarness />)
@@ -2085,7 +2263,7 @@ describe('flight deck spine (POD-758)', () => {
   // The ref is the handle the operator types and pastes, so the row prints it.
   it('prints a session’s permanent ref on its agent row', () => {
     harness.sessions = harness.sessions.map((raw) => {
-      const meta = raw as SessionMeta
+      const meta = raw as SessionView
       return meta.sessionId === 's2' ? { ...meta, displayRef: 'POD-2-A' } : meta
     })
     deck()
@@ -2300,7 +2478,7 @@ describe('flight deck spine geometry (POD-1226)', () => {
 
   it('marks an asking agent with a gutter tick, never a rule on the row', () => {
     harness.sessions = harness.sessions.map((raw) => {
-      const meta = raw as SessionMeta
+      const meta = raw as SessionView
       return meta.sessionId === 's1'
         ? { ...meta, agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' } }
         : meta

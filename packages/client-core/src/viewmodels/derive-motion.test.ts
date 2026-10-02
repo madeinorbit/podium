@@ -1,10 +1,12 @@
-import type { AgentRuntimeState, IssueWire, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { AgentRuntimeState } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView, SessionViewInput } from '../session-values'
 import { formatClock, motionPhase, motionTiming } from './index'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
-function sess(over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: 's1',
     cwd: '/r/acme',
@@ -15,7 +17,7 @@ function sess(over: Partial<SessionMetaInput> = {}): SessionMeta {
     archived: false,
     title: 'some title',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function agentState(over: Partial<AgentRuntimeState>): AgentRuntimeState {
@@ -51,7 +53,9 @@ describe('motionPhase — the four phases of the motion grammar', () => {
     // keeps the finished ✓ and says "todos open" quietly, instead of joining the
     // amber needs-you stillness a whole fleet would otherwise land in.
     expect(
-      motionPhase(sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'open_todos' } }) })),
+      motionPhase(
+        sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'open_todos' } }) }),
+      ),
     ).toBe('done')
   })
 
@@ -79,7 +83,9 @@ describe('motionPhase — the four phases of the motion grammar', () => {
       },
       agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
     })
-    expect(motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueWire)).toBe('done')
+    expect(motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueViewModel)).toBe(
+      'done',
+    )
   })
 
   it('a finished run (idle done / ended) is done', () => {

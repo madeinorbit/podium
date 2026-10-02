@@ -117,33 +117,9 @@ export interface WorklistSlice {
   now: number
 }
 
-/**
- * The issues the worklist renders.
- *
- * Unread left `IssueWire` (POD-797) and is derived on the replica from `readAt`
- * versus issue/session activity. Flight Deck already reads those view models
- * via `useReplicaIssues`. The published worklist must use the same builder —
- * `store.issues` no longer carries `unread`, so row emphasis and the read/
- * unread menu would otherwise stay stuck on "read" (POD-843).
- *
- * IT READS THE SHARED CACHE, NOT THE BUILDER (POD-1053). This used to call
- * `issueViewModelsFromReplica` directly, which re-derived the whole issue world
- * from the replica AND rebuilt every model — a second, uncached copy of the work
- * `useReplicaIssues` had already done for the same three inputs on the same
- * store snapshot. `allIssueViewModels` is the imperative reader over that memo:
- * the same function, one generation, shared. It is imported from
- * `replica/issue-view-cache.ts` rather than the hook module precisely so this
- * platform-neutral slice keeps its promise not to import React.
- *
- * Stubs without a replica or projections keep the legacy array so clock-only
- * slice tests and surface fixtures that inject `unread` still derive.
- */
+/** The published worklist shares the normalized render-model cache with React. */
 function buildIssuesOf<TApi extends PodiumClientApi>(store: Store<TApi>): IssueNavigationModel[] {
-  const replica = store.replica
-  const projections = store.issueProjections
-  if (!replica || !projections || projections.length === 0) return store.issues
-  const models = allIssueViewModels(replica, projections, store.issues)
-  return models.length > 0 ? models : store.issues
+  return store.replica ? allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates) : []
 }
 
 /**

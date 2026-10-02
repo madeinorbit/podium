@@ -1,3 +1,4 @@
+import { resetLevels, resetLogging, setProcessContext } from '@podium/logger'
 import { asSessionId, type SessionId, type SessionMeta } from '@podium/model'
 import {
   createDispatcher,
@@ -5,7 +6,6 @@ import {
   encode,
   type ServerMessage,
 } from '@podium/protocol'
-import { resetLevels, resetLogging, setProcessContext } from '@podium/logger'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLevelController, setActiveLevelController } from '../logging/level-command'
 import { type SessionScopedServerMessage, SocketHub, type WebSocketLike } from './socket-hub'
@@ -53,8 +53,6 @@ const meta = (sessionId: SessionId): SessionMeta => ({
   lastActiveAt: '2026-07-01T00:00:00.000Z',
   origin: { kind: 'spawn' },
   archived: false,
-  readAt: null,
-  unread: false,
 })
 
 // The hub's ServerMessage dispatch is compile-checked total [spec:SP-3fe2]:
@@ -92,8 +90,6 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     attentionEvent: noop,
     transcriptDelta: noop,
     turnPreview: noop,
-    issuesChanged: noop,
-    issueUpdated: noop,
     metadataDelta: noop,
     headlessActivity: noop,
     sessionOpenUrl: noop,
@@ -243,25 +239,6 @@ describe('SocketHub subscription seam (on/emit)', () => {
     expect(approvals).toEqual([[]])
     expect(runs).toEqual([[]])
     hub.dispose()
-  })
-
-  it('unsubscribe actually unsubscribes (seam and wrapper), and is idempotent', () => {
-    const { sock, hub } = setup()
-    const seam: number[] = []
-    const wrapper: number[] = []
-    const offSeam = hub.on('issues', (issues) => seam.push(issues.length))
-    const offWrapper = hub.onIssues((issues) => wrapper.push(issues.length))
-    hub.connect()
-    sock.open()
-    sock.recv({ type: 'issuesChanged', issues: [] })
-    expect(seam).toEqual([0])
-    expect(wrapper).toEqual([0, 0]) // replay + update
-    offSeam()
-    offSeam() // double-unsubscribe is a no-op
-    offWrapper()
-    sock.recv({ type: 'issuesChanged', issues: [] })
-    expect(seam).toEqual([0])
-    expect(wrapper).toEqual([0, 0])
   })
 
   it('unsubscribing one handler leaves other handlers of the same kind subscribed', () => {

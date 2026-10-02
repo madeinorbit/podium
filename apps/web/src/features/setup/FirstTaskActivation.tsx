@@ -1,4 +1,3 @@
-import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
   type ActivationAgentReadiness,
@@ -21,9 +20,10 @@ import {
   LoaderCircle,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsClient } from '@/features/settings/stable-access'
+import { useSettingsCatalog, useSettingsDraft } from '@/features/settings/readers'
 import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import {
   ISSUE_AGENT_KINDS,
@@ -36,7 +36,7 @@ import {
 import { cn } from '@/lib/utils'
 import { ActivationShell } from './ActivationShell'
 import type { ActivationRoute } from './activation-route'
-import { persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
+import { serializeFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
 
 /**
@@ -121,23 +121,14 @@ export function FirstTaskActivation({
   onRouteChange: (route: ActivationRoute) => void
   onComplete: () => void
 }): JSX.Element {
-  const { trpc, repos, machines, uiState } = useStoreSelector(
-    (store) => ({
-      trpc: store.trpc,
-      repos: store.repos,
-      machines: store.machines,
-      uiState: store.uiState,
-    }),
-    shallowEqual,
-  )
+  const { trpc } = useSettingsClient()
+  const { repos, machines } = useSettingsCatalog()
   const repoChoices = useMemo(
     () =>
       repos.filter((repo) => repo.kind !== 'worktree').sort((a, b) => a.path.localeCompare(b.path)),
     [repos],
   )
-  const [draft, setDraftState] = useState(() =>
-    readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
-  )
+  const [draft, setDraft] = useSettingsDraft(FIRST_TASK_ACTIVATION_DRAFT_KEY, readFirstTaskDraft, serializeFirstTaskDraft)
   const [configuredAgent, setConfiguredAgent] = useState<IssueAgentKind | null>(null)
   const [loginBusyAgent, setLoginBusyAgent] = useState<IssueAgentKind | null>(null)
   const [loginSessionId, setLoginSessionId] = useState<SessionId | null>(null)
@@ -148,14 +139,6 @@ export function FirstTaskActivation({
   const [crashTelemetry, setCrashTelemetry] = useState(false)
   const [finishBusy, setFinishBusy] = useState(false)
   const [finishError, setFinishError] = useState<string | null>(null)
-
-  const setDraft = useCallback(
-    (next: typeof draft) => {
-      setDraftState(next)
-      persistFirstTaskDraft(uiState, next)
-    },
-    [uiState],
-  )
 
   useEffect(() => {
     let cancelled = false

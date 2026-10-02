@@ -1,3 +1,5 @@
+import '@/test-support/mock-core-store-handle'
+import { allIssueViewModels } from '@podium/client-core/replica'
 /**
  * ATTRIBUTION, OWNERSHIP AND THE NEEDS-HUMAN ASKER, RENDERED THROUGH THE REAL
  * PAGE (POD-646).
@@ -16,8 +18,13 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import { normalizedFixtureStore } from '@/test-support/normalized-issues'
 import '@/test-support/model-catalog-mock'
 import { IssuePage } from './IssuePage'
+
+const world = vi.hoisted(() => ({
+  current: null as ReturnType<typeof normalizedFixtureStore> | null,
+}))
 
 vi.mock('@/app/store', () => {
   const state = () =>
@@ -37,6 +44,7 @@ vi.mock('@/app/store', () => {
       machines: [],
       sessions: [],
       issues: [],
+      ...world.current,
       httpOrigin: 'http://localhost',
       openArtifact: vi.fn(),
       openFileInWorktree: vi.fn(),
@@ -45,14 +53,27 @@ vi.mock('@/app/store', () => {
   return {
     useStore: () => state(),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(state()),
-    useReplicaIssues: () => [],
+    useReplicaIssues: () => (world.current ? allIssueViewModels(world.current.replica) : []),
   }
 })
 
 afterEach(cleanup)
 
 const show = (over: Parameters<typeof makeIssue>[0]) => {
-  const issue = makeIssue({ id: 'i-1', repoPath: '/r', ...over })
+  world.current = normalizedFixtureStore({
+    issues: [
+      makeIssue({
+        id: 'i-1',
+        repoPath: '/r',
+        createdBy: undefined,
+        owner: undefined,
+        visibility: undefined,
+        ...over,
+      }),
+    ],
+    sessions: [],
+  })
+  const issue = allIssueViewModels(world.current.replica)[0]!
   render(<IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />)
 }
 
@@ -151,7 +172,7 @@ describe('the Origin block says who made this, in words', () => {
     // A row that predates per-write attribution still carries `origin`, which
     // genuinely says "a person" or "an agent" and claims nothing more. Printing
     // a name here would be the synthesis §3.1.3 A3 forbids.
-    show({ origin: 'agent', owner: 'alice' })
+    show({ intentOrigin: 'agent', owner: 'alice' })
     const line = screen.getAllByTestId('about-created-by')[0]
     expect(line?.textContent).toBe('An agent')
     expect(line?.textContent).not.toContain('alice')

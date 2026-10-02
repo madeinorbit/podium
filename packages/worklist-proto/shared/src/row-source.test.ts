@@ -10,7 +10,11 @@
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { createClientRuntime, type PendingOverlay } from '@podium/client-core/engine'
+import {
+  createClientRuntime,
+  type OverlayTarget,
+  type PendingOverlay,
+} from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   createKernelReplica,
@@ -19,17 +23,19 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import { asIssueId, asUserId } from '@podium/model'
-import type { EntityRecord } from '@podium/sync/replica'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { legacyDerivationFromStore } from '../../harness/src/oracle/index'
 import {
   createRowSource,
   type RowSourceMode,
   type RowSourceReplica,
   type RowSourceRuntime,
 } from '@podium/client-graph/shared/row-source'
+import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
+import type { EntityRecord } from '@podium/sync/replica'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { legacyDerivationFromStore } from '../../harness/src/oracle/index'
 import type { RowSourceEvent } from './stats'
+
+const markerKey = (id: string) => issueUserStateRowId(asUserId('operator'), asIssueId(id))
 
 // ------------------------------------------------------------------ fakes
 
@@ -63,7 +69,7 @@ const sessionValue = (id: string, extra: Record<string, unknown> = {}) =>
 const issueValue = (id: string, extra: Record<string, unknown> = {}) =>
   ({ id, ...extra }) as unknown as { id: string }
 
-type Entity = 'sessions' | 'issues' | 'issueProjections'
+type Entity = OverlayTarget
 
 /** Controllable runtime: the test sets the ledger's pending overlays by row,
  *  then publishes. Entity rows are NOT here — the row source reads them from
@@ -77,7 +83,8 @@ function fakeRuntime(
   const repos = initial.repos ?? []
   const pending: Record<Entity, Map<string, PendingOverlay[]>> = {
     sessions: new Map(),
-    issues: new Map(),
+    sessionUserStates: new Map(),
+    issueUserStates: new Map(),
     issueProjections: new Map(),
   }
   const listeners = new Set<() => void>()
@@ -140,6 +147,58 @@ afterEach(() => {
 // ------------------------------------------------------------ Part A: seam
 
 describe('row-source over the real facade (fake runtime)', () => {
+  it('publishes headless draft occupancy for exited seats and clears it on archive or rehome', () => {
+    const { cache, replica } = fixture()
+    for (const id of ['draft', 'other']) cache.put('issueProjection', id, issueValue(id))
+    cache.put(
+      'session',
+      'normal',
+      sessionValue('normal', {
+        issueId: 'draft',
+        status: 'exited',
+        lastActiveAt: '2026-10-02T00:00:00Z',
+      }),
+    )
+    const headless = sessionValue('headless', {
+      issueId: 'draft',
+      headless: true,
+      status: 'exited',
+      lastActiveAt: '2026-10-01T00:00:00Z',
+    })
+    cache.put('session', 'headless', headless)
+    const runtime = fakeRuntime()
+    const handle = createRowSource(runtime, replica, { mode: 'truth' })
+    const facts = (id: string) =>
+      (
+        handle.source.row?.('issue', id) as {
+          sessionFacts: {
+            tipActivityAt?: string
+            headlessStaffed: boolean
+            headlessOccupied: boolean
+          }
+        }
+      ).sessionFacts
+    try {
+      expect(facts('draft')).toMatchObject({ headlessOccupied: true, headlessStaffed: false })
+      const tip = facts('draft').tipActivityAt
+      cache.put('session', 'headless', { ...headless, archived: true })
+      replica.onKernelEvent(upserted('session', 'headless'))
+      runtime.publish()
+      handle.flush()
+      // The normal parked row still contributes raw activity. Occupancy
+      // changes independently, and the issue's memoized summary must move.
+      expect(facts('draft')).toMatchObject({ headlessOccupied: false, tipActivityAt: tip })
+      cache.put('session', 'headless', { ...headless, issueId: 'other' })
+      replica.onKernelEvent(upserted('session', 'headless'))
+      runtime.publish()
+      handle.flush()
+      expect(facts('draft').headlessOccupied).toBe(false)
+      expect(facts('other').headlessOccupied).toBe(true)
+    } finally {
+      handle.dispose()
+    }
+  })
+
   it('refuses a replica without row() or the addressed seam', () => {
     const runtime = fakeRuntime()
     const bare = { rows: () => [] } as unknown as RowSourceReplica
@@ -160,13 +219,15 @@ describe('row-source over the real facade (fake runtime)', () => {
     it(`${mode}: a press ${mode === 'overlaid' ? 'paints' : 'does not paint'}; a remote value for the pending field ${mode === 'overlaid' ? 'stays masked' : 'arrives unmasked'}`, () => {
       const { cache, replica } = fixture()
       const server = issueValue('i1', { title: 'Server' })
-      cache.put('issue', 'i1', server)
+      cache.put('issueProjection', 'i1', server)
       const runtime = fakeRuntime()
       const handle = createRowSource(runtime, replica, { mode })
       const events: RowSourceEvent[] = []
       const off = handle.source.subscribe((e) => events.push(e))
       try {
-        runtime.setPending('issues', 'i1', [patch('issues', 'i1', { title: 'Local' })])
+        runtime.setPending('issueProjections', 'i1', [
+          patch('issueProjections', 'i1', { title: 'Local' }),
+        ])
         runtime.publish()
         const press = handle.flush()
         if (mode === 'overlaid') {
@@ -177,15 +238,15 @@ describe('row-source over the real facade (fake runtime)', () => {
           expect(events).toHaveLength(0)
         }
         const remote = issueValue('i1', { title: 'Remote' })
-        cache.put('issue', 'i1', remote)
-        replica.onKernelEvent(upserted('issue', 'i1'))
+        cache.put('issueProjection', 'i1', remote)
+        replica.onKernelEvent(upserted('issueProjection', 'i1'))
         runtime.publish()
         const arrived = handle.flush()
         expect(arrived?.rows).toHaveLength(1)
         if (mode === 'overlaid') {
           expect((arrived?.rows[0]?.value as { title: string }).title).toBe('Local')
         } else {
-          expect(arrived?.rows[0]?.value).toBe(remote)
+          expect(arrived?.rows[0]?.value).toMatchObject(remote)
         }
         expect(events).toHaveLength(mode === 'overlaid' ? 2 : 1)
       } finally {
@@ -292,31 +353,66 @@ describe('row-source over the real facade (fake runtime)', () => {
     }
   })
 
-  it('wire and projection of one issue in one batch are one row', () => {
+  it('projection, markers, git and repo in one batch produce one normalized issue row', () => {
     const { cache, replica } = fixture()
-    const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(fakeRuntime(), replica, { mode: 'overlaid' })
     try {
-      const wire = issueValue('i1', { title: 'wire', pinned: true, readAt: 'read', repoPath: '/repo', commentCount: 3 })
       replica.batch(() => {
-        cache.put('issue', 'i1', wire)
-        replica.onKernelEvent(upserted('issue', 'i1'))
-        cache.put('issueProjection', 'i1', issueValue('i1', { title: 'projection' }))
-        replica.onKernelEvent(upserted('issueProjection', 'i1'))
+        for (const [kind, key, value] of [
+          [
+            'issueProjection',
+            'i1',
+            issueValue('i1', {
+              title: 'projection',
+              repoId: 'r1',
+              asked: { question: 'Ship?', options: ['Yes'], at: 'asked-at', by: 's1' },
+              intentOrigin: 'agent',
+              isDraftVessel: true,
+            }),
+          ],
+          [
+            'issueUserState',
+            markerKey('i1'),
+            { userId: 'operator', entityId: 'i1', pinned: true, readAt: 'read', tuckedAt: 'tuck' },
+          ],
+          ['issueGitState', 'i1', { id: 'i1', ahead: 3 }],
+          ['repo', 'r1', { id: 'r1', repoPath: '/repo' }],
+        ] as const) {
+          cache.put(kind, key, value)
+          replica.onKernelEvent(upserted(kind, key))
+        }
       })
       const event = handle.flush()
-      expect(event?.rows.map(row => [row.kind, row.id])).toEqual([['issue', 'i1']])
-      expect(event?.rows[0]?.value).toMatchObject({ id: 'i1', title: 'projection',
-        pinned: true, readAt: 'read', repoPath: '/repo', commentCount: 3 })
-      expect(handle.stats.rowsVisited).toBe(1)
-      expect(handle.source.row?.('issue', 'i1')).toBe(event?.rows[0]?.value)
+      const issue = event?.rows.find((row) => row.kind === 'issue')
+      expect(event?.rows.filter((row) => row.kind === 'issue')).toHaveLength(1)
+      expect(issue?.value).toMatchObject({
+        title: 'projection',
+        pinned: true,
+        readAt: 'read',
+        tuckedAt: 'tuck',
+        repoPath: '/repo',
+        gitState: { ahead: 3 },
+        asked: { question: 'Ship?' },
+        intentOrigin: 'agent',
+        isDraftVessel: true,
+      })
+      expect(issue?.value).not.toHaveProperty('commentCount')
+      expect(handle.source.row?.('issue', 'i1')).toBe(issue?.value)
       handle.stats.reset()
-      cache.put('issueProjection', 'i1', issueValue('i1', { title: 'Projection-only update' }))
+      cache.put(
+        'issueProjection',
+        'i1',
+        issueValue('i1', { title: 'Projection-only update', repoId: 'r1' }),
+      )
       replica.onKernelEvent(upserted('issueProjection', 'i1'))
       const updated = handle.flush()
       expect(updated?.rows).toHaveLength(1)
-      expect(updated?.rows[0]?.value).toMatchObject({ title: 'Projection-only update',
-        pinned: true, readAt: 'read', repoPath: '/repo', commentCount: 3 })
+      expect(updated?.rows[0]?.value).toMatchObject({
+        title: 'Projection-only update',
+        pinned: true,
+        readAt: 'read',
+        repoPath: '/repo',
+      })
       expect(handle.stats.rowsVisited).toBe(1)
       expect(handle.stats.enumerations).toBe(0)
     } finally {
@@ -327,7 +423,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('bootstrap and rescope emit replace with all rows, one enumeration each', () => {
     const { cache, replica } = fixture()
     cache.put('session', 's1', sessionValue('s1'))
-    cache.put('issue', 'i1', issueValue('i1'))
+    cache.put('issueProjection', 'i1', issueValue('i1'))
     const runtime = fakeRuntime()
     const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
@@ -399,16 +495,23 @@ describe('row-source over the real facade (fake runtime)', () => {
 
   it('an optimistic-only overlay emits one update; dropping it restores the replica object', () => {
     const { cache, replica } = fixture()
-    const before = issueValue('i1', { readAt: null })
-    cache.put('issue', 'i1', before)
+    const projection = issueValue('i1')
+    cache.put('issueProjection', 'i1', projection)
+    cache.put('issueUserState', markerKey('i1'), {
+      userId: 'operator',
+      entityId: 'i1',
+      readAt: null,
+    })
     const runtime = fakeRuntime()
     const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const before = handle.source.row?.('issue', 'i1')
+    handle.stats.reset()
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
       // Press: no kernel address, the ledger alone names the row.
-      runtime.setPending('issues', 'i1', [
-        patch('issues', 'i1', { readAt: '2026-09-20T12:00:01Z' }),
+      runtime.setPending('issueUserStates', 'i1', [
+        patch('issueUserStates', 'i1', { readAt: '2026-09-20T12:00:01Z' }),
       ])
       runtime.publish()
       const press = handle.flush()
@@ -418,13 +521,13 @@ describe('row-source over the real facade (fake runtime)', () => {
       expect(pressed.readAt).toBe('2026-09-20T12:00:01Z')
       expect(press?.rows[0]?.value).not.toBe(before)
       // The same paint recomposed (a durable commit) keeps identity: no event.
-      runtime.setPending('issues', 'i1', [
-        patch('issues', 'i1', { readAt: '2026-09-20T12:00:01Z' }),
+      runtime.setPending('issueUserStates', 'i1', [
+        patch('issueUserStates', 'i1', { readAt: '2026-09-20T12:00:01Z' }),
       ])
       runtime.publish()
       expect(handle.flush()).toBeNull()
       // Rejection: the overlay is gone; the row is the replica's object again.
-      runtime.setPending('issues', 'i1', null)
+      runtime.setPending('issueUserStates', 'i1', null)
       runtime.publish()
       const restored = handle.flush()
       expect(restored?.rows[0]?.value).toBe(before)
@@ -469,15 +572,21 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('row() serves one row as snapshot() would, per mode, enumerating nothing (POD-4567)', () => {
     for (const mode of ['overlaid', 'truth'] as const) {
       const { cache, replica } = fixture()
-      const truth = issueValue('i1', { readAt: null })
-      cache.put('issue', 'i1', truth)
+      const projection = issueValue('i1')
+      cache.put('issueProjection', 'i1', projection)
+      cache.put('issueUserState', markerKey('i1'), {
+        userId: 'operator',
+        entityId: 'i1',
+        readAt: null,
+      })
       const session = sessionValue('s1')
       cache.put('session', 's1', session)
       const runtime = fakeRuntime()
       const handle = createRowSource(runtime, replica, { mode })
+      const truth = handle.source.row?.('issue', 'i1')
       try {
-        runtime.setPending('issues', 'i1', [
-          patch('issues', 'i1', { readAt: '2026-09-20T12:00:01Z' }),
+        runtime.setPending('issueUserStates', 'i1', [
+          patch('issueUserStates', 'i1', { readAt: '2026-09-20T12:00:01Z' }),
         ])
         handle.stats.reset()
         const one = handle.source.row?.('issue', 'i1')
@@ -508,12 +617,12 @@ describe('row-source over the real facade (fake runtime)', () => {
     const s = sessionValue('s1')
     const i = issueValue('i1')
     cache.put('session', 's1', s)
-    cache.put('issue', 'i1', i)
+    cache.put('issueProjection', 'i1', i)
     const runtime = fakeRuntime()
     const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     try {
       expect(handle.source.snapshot('session')).toEqual([{ kind: 'session', id: 's1', value: s }])
-      expect(handle.source.snapshot('issue')).toEqual([{ kind: 'issue', id: 'i1', value: i }])
+      expect(handle.source.snapshot('issue')).toMatchObject([{ kind: 'issue', id: 'i1', value: i }])
     } finally {
       handle.dispose()
     }
@@ -670,7 +779,13 @@ describe('row-source over the real runtime (optimism identity)', () => {
         createdAt: '2026-07-01T00:00:00.000Z',
         updatedAt: '2026-07-01T00:00:00.000Z',
       }
-      const wire = { id: 'iss_1', readAt: null, updatedAt: projection.updatedAt }
+      const wire = {
+        userId: 'operator',
+        entityId: 'iss_1',
+        readAt: null,
+        tuckedAt: null,
+        pinned: false,
+      }
       cache.put('issueProjection', 'iss_1', projection)
       replica.onKernelEvent({
         type: 'upserted',
@@ -682,10 +797,15 @@ describe('row-source over the real runtime (optimism identity)', () => {
         },
         readmitted: false,
       } as never)
-      cache.put('issue', 'iss_1', wire)
+      cache.put('issueUserState', markerKey('iss_1'), wire)
       replica.onKernelEvent({
         type: 'upserted',
-        record: { entity: 'issue', entityId: 'iss_1', value: wire, provenance: { seq: 1 } },
+        record: {
+          entity: 'issueUserState',
+          entityId: markerKey('iss_1'),
+          value: wire,
+          provenance: { seq: 1 },
+        },
         readmitted: false,
       } as never)
       await settle(40)
@@ -694,7 +814,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
       const events: RowSourceEvent[] = []
       const off = handle.source.subscribe((e) => events.push(e))
       try {
-        const before = engine.getSnapshot().issues.find((i) => i.id === 'iss_1')
+        const before = handle.source.row?.('issue', 'iss_1') as { readAt: unknown }
         expect(before?.readAt).toBeNull()
 
         // Press: optimistic paint, no kernel address yet.
@@ -714,10 +834,15 @@ describe('row-source over the real runtime (optimism identity)', () => {
         // flush delivers it during the settle; assert off the event log.
         const echoCount = events.length
         const echoWire = { ...wire, readAt: '2026-07-09T00:00:00.000Z' }
-        cache.put('issue', 'iss_1', echoWire)
+        cache.put('issueUserState', markerKey('iss_1'), echoWire)
         replica.onKernelEvent({
           type: 'upserted',
-          record: { entity: 'issue', entityId: 'iss_1', value: echoWire, provenance: { seq: 2 } },
+          record: {
+            entity: 'issueUserState',
+            entityId: markerKey('iss_1'),
+            value: echoWire,
+            provenance: { seq: 2 },
+          },
           readmitted: false,
         } as never)
         await settle(40)
@@ -790,11 +915,24 @@ describe('row-source truth mode over the real runtime', () => {
     engine.start()
     await settle(40)
     try {
-      const wire = { id: 'iss_1', readAt: null, updatedAt: '2026-07-01T00:00:00.000Z' }
-      cache.put('issue', 'iss_1', wire)
+      const wire = {
+        userId: 'operator',
+        entityId: 'iss_1',
+        readAt: null,
+        tuckedAt: null,
+        pinned: false,
+      }
+      cache.put('issueProjection', 'iss_1', { id: 'iss_1', updatedAt: '2026-07-01T00:00:00.000Z' })
+      replica.onKernelEvent(upserted('issueProjection', 'iss_1'))
+      cache.put('issueUserState', markerKey('iss_1'), wire)
       replica.onKernelEvent({
         type: 'upserted',
-        record: { entity: 'issue', entityId: 'iss_1', value: wire, provenance: { seq: 1 } },
+        record: {
+          entity: 'issueUserState',
+          entityId: markerKey('iss_1'),
+          value: wire,
+          provenance: { seq: 1 },
+        },
         readmitted: false,
       } as never)
       await settle(40)
@@ -804,7 +942,9 @@ describe('row-source truth mode over the real runtime', () => {
       try {
         const pressPromise = engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
         // The runtime painted the press; the truth feed did not.
-        expect(engine.getSnapshot().issues.find((i) => i.id === 'iss_1')?.readAt).not.toBeNull()
+        expect(
+          engine.getSnapshot().issueUserStates.find((i) => i.entityId === 'iss_1')?.readAt,
+        ).not.toBeNull()
         expect(handle.flush()).toBeNull()
         await pressPromise
         await settle(40)
@@ -812,16 +952,23 @@ describe('row-source truth mode over the real runtime', () => {
         expect(events).toHaveLength(0)
 
         const remote = { ...wire, readAt: '2026-07-09T00:00:00.000Z' }
-        cache.put('issue', 'iss_1', remote)
+        cache.put('issueUserState', markerKey('iss_1'), remote)
         replica.onKernelEvent({
           type: 'upserted',
-          record: { entity: 'issue', entityId: 'iss_1', value: remote, provenance: { seq: 2 } },
+          record: {
+            entity: 'issueUserState',
+            entityId: markerKey('iss_1'),
+            value: remote,
+            provenance: { seq: 2 },
+          },
           readmitted: false,
         } as never)
         await settle(40)
         handle.flush()
         expect(events).toHaveLength(1)
-        expect(events[0]?.rows).toEqual([{ kind: 'issue', id: 'iss_1', value: remote }])
+        expect(events[0]?.rows).toMatchObject([
+          { kind: 'issue', id: 'iss_1', value: { readAt: remote.readAt } },
+        ])
       } finally {
         off()
         handle.dispose()
@@ -904,9 +1051,12 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
           events.push(e)
           for (const row of e.rows) {
             if (row.kind !== 'worktree') continue
-            const value = row.value as { path?: string; repoPath: string; repoId?: string | null } | undefined
+            const value = row.value as
+              | { path?: string; repoPath: string; repoId?: string | null }
+              | undefined
             if (value === undefined) held.delete(row.id)
-            else if (typeof value.path === 'string') held.set(row.id, { repoPath: value.repoPath, repoId: value.repoId ?? null })
+            else if (typeof value.path === 'string')
+              held.set(row.id, { repoPath: value.repoPath, repoId: value.repoId ?? null })
           }
         })
         const discover = async (repos: unknown[]) => {
@@ -937,8 +1087,18 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
             {
               kind: 'worktree',
               id: '/repo-a',
-              value: { path: '/repo-a', repoId: 'r1', repoPath: '/repo-a', repoName: 'repo-a', prefix: 'POD',
-                branch: 'main', isMain: true, projectIndex: 0, projectAliases: ['r1', '/repo-a'], projectRoot: true },
+              value: {
+                path: '/repo-a',
+                repoId: 'r1',
+                repoPath: '/repo-a',
+                repoName: 'repo-a',
+                prefix: 'POD',
+                branch: 'main',
+                isMain: true,
+                projectIndex: 0,
+                projectAliases: ['r1', '/repo-a'],
+                projectRoot: true,
+              },
             },
           ])
           expect(events, 'one discovery, one event').toHaveLength(1)
@@ -946,7 +1106,12 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
 
           // 2. A worktree under it: only the new lane; the root is unchanged.
           const withWorktree = [
-            { path: '/repo-a', repoId: 'r1', branch: 'main', worktrees: [{ path: '/wt/a1', branch: 'task' }] },
+            {
+              path: '/repo-a',
+              repoId: 'r1',
+              branch: 'main',
+              worktrees: [{ path: '/wt/a1', branch: 'task' }],
+            },
           ]
           const rows2 = await discover(withWorktree)
           expect(heldLanes()).toEqual(legacyLanes(engine))
@@ -971,18 +1136,35 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
           const rows4 = await discover(second)
           expect(heldLanes()).toEqual(legacyLanes(engine))
           expect(rows4).toEqual([
-            { kind: 'worktree', id: '/repo-b', value: { path: '/repo-b', repoPath: '/repo-b', repoName: 'repo-b',
-              branch: 'main', isMain: true, projectIndex: 1, projectAliases: ['/repo-b'], projectRoot: true } },
+            {
+              kind: 'worktree',
+              id: '/repo-b',
+              value: {
+                path: '/repo-b',
+                repoPath: '/repo-b',
+                repoName: 'repo-b',
+                branch: 'main',
+                isMain: true,
+                projectIndex: 1,
+                projectAliases: ['/repo-b'],
+                projectRoot: true,
+              },
+            },
           ])
 
           // 5. Fresh but equal discovery objects emit nothing. A displayed
           //    branch change then updates only the affected root lanes.
-          expect(await discover(second.map(r => ({ ...r, worktrees: [...r.worktrees] })))).toEqual([])
+          expect(
+            await discover(second.map((r) => ({ ...r, worktrees: [...r.worktrees] }))),
+          ).toEqual([])
           const rows5 = await discover(
             second.map((r) => ({ ...r, branch: 'other', worktrees: [...r.worktrees] })),
           )
-          expect(rows5.map(row => row.id).sort()).toEqual(['/repo-a', '/repo-b'])
-          expect(rows5.map(row => (row.value as { branch: string }).branch)).toEqual(['other', 'other'])
+          expect(rows5.map((row) => row.id).sort()).toEqual(['/repo-a', '/repo-b'])
+          expect(rows5.map((row) => (row.value as { branch: string }).branch)).toEqual([
+            'other',
+            'other',
+          ])
           expect(events).toHaveLength(1)
           expect(heldLanes()).toEqual(legacyLanes(engine))
 
@@ -996,7 +1178,9 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
           expect(heldLanes()).toEqual(legacyLanes(engine))
 
           // 7. Discovery emits only lanes: no issue or session row rode along.
-          expect([...rows1, ...rows2, ...rows4, ...rows6].every((r) => r.kind === 'worktree')).toBe(true)
+          expect([...rows1, ...rows2, ...rows4, ...rows6].every((r) => r.kind === 'worktree')).toBe(
+            true,
+          )
         } finally {
           off()
           handle.dispose()
@@ -1055,7 +1239,12 @@ class KeyedCache implements KernelCacheRead {
  *  worktree (which the scan also reports as a standalone entry, dropped), and
  *  an originless root. Three lanes. */
 const FENCE_DISCOVERY = (): unknown[] => [
-  { path: '/fence-a', repoId: 'rf', branch: 'main', worktrees: [{ path: '/fence-a/wt', branch: 'task' }] },
+  {
+    path: '/fence-a',
+    repoId: 'rf',
+    branch: 'main',
+    worktrees: [{ path: '/fence-a/wt', branch: 'task' }],
+  },
   { path: '/fence-a/wt', repoId: 'rf', branch: 'task', worktrees: [] },
   { path: '/fence-b', branch: 'main', worktrees: [] },
 ]
@@ -1081,7 +1270,13 @@ function seedFence(cache: KeyedCache, spec: { issues: number; sessions: number }
       createdAt: at(i * 1000),
       updatedAt: at(i * 1000 + 500),
     }
-    cache.put('issue', id, { ...common, readAt: i === 0 ? null : at(i * 1000), unread: i === 0 })
+    cache.put('issueUserState', markerKey(id), {
+      userId: 'operator',
+      entityId: id,
+      readAt: i === 0 ? null : at(i * 1000),
+      tuckedAt: null,
+      pinned: false,
+    })
     cache.put('issueProjection', id, { ...common, description: { value: '' } })
   }
   cache.put('issueDep', 'dep0', { id: 'dep0', fromId: 'i1', toId: 'i0', type: 'discovered-from' })
@@ -1125,7 +1320,13 @@ function countingWrappers(
     return proxy
   }
   const snapshots = new WeakMap<object, unknown>()
-  const ENTITY_ARRAYS = new Set(['sessions', 'issues', 'issueProjections', 'repos'])
+  const ENTITY_ARRAYS = new Set([
+    'sessions',
+    'issueProjections',
+    'issueUserStates',
+    'issueGitStates',
+    'repos',
+  ])
   const runtime = {
     subscribe: engine.subscribe,
     pendingOverlaysByRow: engine.pendingOverlaysByRow,
@@ -1205,9 +1406,9 @@ async function runFence(
   engine.start()
   await settle(100)
   // The scale is real: the replica and the runtime hold the whole corpus.
-  expect(replica.rows('issues')).toHaveLength(spec.issues)
+  expect(replica.rows('issueProjections')).toHaveLength(spec.issues)
   expect(replica.rows('sessions')).toHaveLength(spec.sessions)
-  expect(engine.getSnapshot().issues).toHaveLength(spec.issues)
+  expect(engine.getSnapshot().issueProjections).toHaveLength(spec.issues)
   const wrapped = countingWrappers(engine, replica)
   const handle = createRowSource(wrapped.runtime, wrapped.replica, { mode })
   let rowsEmitted = 0
@@ -1240,12 +1441,12 @@ async function runFence(
     } as never)
   }
   const session = (n: number) => replica.row?.('sessions', `s${n}`) as object
-  const issue = (n: number) => replica.row?.('issues', `i${n}`) as object
+  const issue = (n: number) => replica.row?.('issueProjections', `i${n}`) as object
   try {
     await step('heartbeat', () => upsert('session', 's0', { ...session(0), lastActiveAt: at(9e9) }))
     await step('rename (wire+projection)', () =>
       replica.batch(() => {
-        upsert('issue', 'i3', { ...issue(3), title: 'Renamed' })
+        upsert('issueProjection', 'i3', { ...issue(3), title: 'Renamed' })
         upsert('issueProjection', 'i3', {
           ...(replica.row?.('issueProjections', 'i3') as object),
           title: 'Renamed',
@@ -1260,7 +1461,10 @@ async function runFence(
           toId: 'i2',
           type: 'discovered-from',
         })
-        upsert('issue', 'i1', { ...issue(1), deps: [{ id: 'i2', type: 'discovered-from' }] })
+        upsert('issueProjection', 'i1', {
+          ...issue(1),
+          deps: [{ id: 'i2', type: 'discovered-from' }],
+        })
       }),
     )
     await step('burst of 50', () =>
@@ -1273,13 +1477,23 @@ async function runFence(
       await engine.getSnapshot().markIssueRead(asIssueId('i0'))
       await waitFor(
         () =>
-          engine.outbox.pending().length === 0 && engine.pendingOverlaysByRow('issues').has('i0'),
+          engine.outbox.pending().length === 0 &&
+          engine.pendingOverlaysByRow('issueUserStates').has('i0'),
         'press to drain into awaiting truth',
       )
     })
     await step('echo retires the overlay', async () => {
-      upsert('issue', 'i0', { ...issue(0), readAt: '2026-07-09T00:00:00.000Z', unread: false })
-      await waitFor(() => !engine.pendingOverlaysByRow('issues').has('i0'), 'echo to retire')
+      upsert('issueUserState', markerKey('i0'), {
+        userId: 'operator',
+        entityId: 'i0',
+        readAt: '2026-07-09T00:00:00.000Z',
+        tuckedAt: null,
+        pinned: false,
+      })
+      await waitFor(
+        () => !engine.pendingOverlaysByRow('issueUserStates').has('i0'),
+        'echo to retire',
+      )
     })
     await step('heartbeat after settle', () =>
       upsert('session', 's0', { ...session(0), lastActiveAt: at(9e9 + 99) }),
@@ -1332,9 +1546,13 @@ describe('visited-per-publication fence at 1x and 4x (real runtime)', () => {
             // corpus) in one pass; every lane it names is visited.
             const answer = FENCE_DISCOVERY().length
             expect(cost.elementReads, `${where}: reads bounded by the answer`).toBeGreaterThan(0)
-            expect(cost.elementReads, `${where}: reads bounded by the answer`).toBeLessThanOrEqual(2 * answer)
+            expect(cost.elementReads, `${where}: reads bounded by the answer`).toBeLessThanOrEqual(
+              2 * answer,
+            )
             expect(cost.enumerations, `${where}: one pass over the answer`).toBe(1)
-            expect(cost.visited, `${where}: visited == the answer's lanes`).toBe(FENCE_DISCOVERY_LANES)
+            expect(cost.visited, `${where}: visited == the answer's lanes`).toBe(
+              FENCE_DISCOVERY_LANES,
+            )
             expect(cost.rowsEmitted, `${where}: lanes that moved`).toBe(
               name === 'discovery' ? FENCE_DISCOVERY_LANES : 0,
             )

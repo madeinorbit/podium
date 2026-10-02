@@ -29,7 +29,7 @@ describe('mobile performance boundaries', () => {
       'utf8',
     )
 
-    expect(workScreen).toContain('missionProgress(issues, allSessions, issue.id)')
+    expect(workScreen).toContain('missionProgress(issues, sessionsAll, r.issue.id)')
     expect(workScreen).not.toMatch(/missionProgress\(\[\.\.\./)
     expect(workScreen).not.toMatch(/issueDisplayTitle\([^\n]*\[\.\.\./)
   })

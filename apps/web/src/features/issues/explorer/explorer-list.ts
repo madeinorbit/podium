@@ -1,11 +1,10 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { filterBoardScope, issueIsActionable } from '@podium/client-core/viewmodels'
 import {
   ISSUE_STATUS_LABELS,
   type IssueStage,
   issueStatusOf,
-  issueStatusOutcome,
-  type SessionMeta,
-} from '@podium/model/browser'
+  issueStatusOutcome} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 
@@ -70,13 +69,13 @@ export function explorerTabOf(issue: IssueViewModel): ExplorerTab | null {
  *  whole list pass — the per-issue helper is O(sessions) and this is O(n·m). */
 function sessionsByIssue(
   issues: readonly IssueViewModel[],
-  sessions: readonly SessionMeta[],
-): Map<string, SessionMeta[]> {
+  sessions: readonly SessionView[],
+): Map<string, SessionView[]> {
   const memberOf = new Map<string, string>()
   for (const issue of issues) {
     for (const sessionId of issue.memberSessionIds ?? []) memberOf.set(sessionId, issue.id)
   }
-  const byIssue = new Map<string, SessionMeta[]>()
+  const byIssue = new Map<string, SessionView[]>()
   for (const session of sessions) {
     if (session.archived) continue
     const owner = session.issueId ?? memberOf.get(session.sessionId)
@@ -137,7 +136,7 @@ export function matchesQuery(issue: IssueViewModel, query: string): boolean {
  */
 export function explorerRows(
   issues: readonly IssueViewModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   opts: { tab: ExplorerTab; query: string },
 ): IssueViewModel[] {
   const scoped = inScope(issues)
@@ -185,7 +184,7 @@ export function explorerRows(
  *  TASK needs me", and a bare session is not one. */
 export function explorerCounts(
   issues: readonly IssueViewModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): Record<ExplorerTab, number> {
   const scoped = inScope(issues)
   const byIssue = sessionsByIssue(scoped, sessions)

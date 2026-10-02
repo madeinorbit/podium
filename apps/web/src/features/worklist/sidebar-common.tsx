@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * Shared sidebar building blocks (extracted from the retired classic
  * Sidebar.tsx): the resizable aside shell, persisted collapse state, the
@@ -12,7 +13,7 @@ import {
   isSessionWorking,
   sessionIssueLinkage,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { idleVerdictFinishedTurn, isSnoozed, returnedFromSnooze } from '@podium/model/browser'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type {
@@ -482,8 +483,8 @@ export function StaleSection({
   render,
   dense = false,
 }: {
-  sessions: SessionMeta[]
-  render: (session: SessionMeta) => JSX.Element
+  sessions: SessionView[]
+  render: (session: SessionView) => JSX.Element
   dense?: boolean
 }): JSX.Element | null {
   const [open, setOpen] = useState(false)
@@ -632,8 +633,9 @@ function PanelRowInner({
   stub = false,
   issueDisplayRef,
   guardWorking,
+  snoozeState,
 }: {
-  session: SessionMeta
+  session: SessionView
   active: boolean
   onSelect: () => void
   /** True only for the NEEDS YOUR ATTENTION rows: shows the snooze control
@@ -663,6 +665,8 @@ function PanelRowInner({
   issueDisplayRef?: string
   /** Pool-supplied fact: the guard reads actions without the legacy roster. */
   guardWorking?: boolean
+  /** Pool clock verdicts change only when this session's snooze expires. */
+  snoozeState?: { readonly snoozed: boolean; readonly returned: boolean }
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
@@ -692,11 +696,13 @@ function PanelRowInner({
   // Sub-minute timers are deliberately NOT on this clock: `WorkingTimer` in
   // time-indicators.tsx ticks per second and keeps its own interval so the
   // second-hand never re-renders the whole sidebar.
-  const now = useStoreSelector((s) => s.coarseNow)
-  const snoozed = isSnoozed(session, now)
+  // Pool rows observe their deadline, rather than every clock publication.
+  // The legacy path keeps the same shared clock and snooze predicates.
+  const now = useStoreSelector((s) => (snoozeState === undefined ? s.coarseNow : 0))
+  const snoozed = snoozeState?.snoozed ?? isSnoozed(session, now)
   // A timed snooze that has lapsed but isn't cleared yet → the session just came
   // back into the queue; mark it (compareRecency already lifts it by its deadline).
-  const backFromSnooze = returnedFromSnooze(session, now)
+  const backFromSnooze = snoozeState?.returned ?? returnedFromSnooze(session, now)
   const idleDone =
     session.agentState?.phase === 'idle' && idleVerdictFinishedTurn(session.agentState.idle?.kind)
   // A service restart can park a delegate after its harness has authoritatively
@@ -854,7 +860,7 @@ function PanelRowInner({
             </span>
           )}
           {/* Nested remote-subagent rows: surface the child's own issue linkage
-              (sub-issue) when SessionMeta carries displayRef or issueId. */}
+              (sub-issue) when SessionView carries displayRef or issueId. */}
           {issueLinkage && (
             <span
               className="shell-type-micro flex-none font-mono text-text-dim tabular-nums"

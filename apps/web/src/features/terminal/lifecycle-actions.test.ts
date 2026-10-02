@@ -1,8 +1,9 @@
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { hibernateAction, recoveryAction } from './lifecycle-actions'
 
-function meta(over: Partial<SessionMetaInput>): SessionMeta {
+function meta(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -22,7 +23,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     transcriptAvailable: true,
     resumable: true,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 describe('recoveryAction', () => {

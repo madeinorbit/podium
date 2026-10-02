@@ -70,7 +70,8 @@ const loops: MeasuredLoop[] = [
     name: 'ConversationIndexRepository.upsert',
     targetSql: 'insert into "conversations"',
     repository: (store) => store.conversations.index,
-    run: async (store, n) => await store.conversations.index.upsert(conversationRows(n, store.hostMachineId)),
+    run: async (store, n) =>
+      await store.conversations.index.upsert(conversationRows(n, store.hostMachineId)),
   },
   {
     name: 'SyncRepository.applyLatestChangeStates',
@@ -79,7 +80,7 @@ const loops: MeasuredLoop[] = [
     run: async (store, n) => {
       await store.sync.appendChanges(
         Array.from({ length: n }, (_, i) => ({
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: `issue-${i}`,
           op: 'upsert' as const,
           payload: '{}',

@@ -1,12 +1,13 @@
+import { useSettingsTab } from './readers'
+import { useSettingsClient } from './stable-access'
 import { MembersSection } from './sections/members'
-import { shallowEqual } from '@podium/client-core/store'
 import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
 import type { HostMetricsWire, ServerSecretKey } from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
-import { useHostMetrics, useStoreSelector } from '@/app/store'
+import { useHostMetrics } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
@@ -257,14 +258,8 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
  */
 export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element {
   const hostMetrics = useHostMetrics()
-  const { trpc, settingsTab, setSettingsTab } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      settingsTab: s.settingsTab,
-      setSettingsTab: s.setSettingsTab,
-    }),
-    shallowEqual,
-  )
+  const { trpc, setSettingsTab } = useSettingsClient()
+  const settingsTab = useSettingsTab()
   const notificationsEnabled = useFeature('notifications')
   // The nav filter is experimental (off by default) — Settings → Experimental.
   const searchEnabled = useFeature('settings-search')

@@ -1,3 +1,7 @@
+import { SettingsSource, type SettingsOwner } from './settings-source'
+import { isSettingsEntity, SETTINGS_SCHEMA, SETUP_SESSION_SUMMARY_FIELDS, setupSessionSummary, type SetupSession } from './settings-schema'
+import { createSettingsViews } from './settings-views'
+import { PoolSources, mergePoolSummaries, type PoolSourceRows, type PoolSummaryFields, type SourceEntity } from './source-registry'
 /**
  * POD-4565 (Ma1) — the MobX pool: one per principal. Entity tables from the
  * declared schema (`tables.ts`), models built on first access (`models.ts`),
@@ -44,6 +48,10 @@
  * never configures MobX.
  */
 
+import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { debugName } from './debug-name'
+import { PreferenceSource } from './preference-source'
+import type { PreferenceRow } from './preference-schema'
 import { SidebarIndex } from './worklist/sidebar'
 import { SidebarRosterIndex } from './worklist/sidebar-roster'
 import { overlayRow } from './shared/overlay-row'
@@ -60,6 +68,10 @@ import {
 } from 'mobx'
 import type { RelationReader } from './shared/relation-reader'
 import { relationLinks } from './shared/links'
+import { createHeaderViews } from './header-views'
+import { HEADER_ISSUE_SUMMARY_FIELDS, HEADER_SESSION_SUMMARY_FIELDS } from './header-schema'
+import { createHeaderEntities } from './header-entities'
+import { isHeaderEntity, type HeaderEntity } from './header-schema'
 import { COLD_SESSION_FIELDS, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import type {
   LocalsKey,
@@ -84,7 +96,8 @@ import {
   type SessionModel,
 } from './models'
 import { PoolRelations, type ReadableTables } from './relations'
-import { type LoadRow, Residency, type Schedule } from './residency'
+import { type LoadRow, Residency, type ResolveIssueReferences, type Schedule } from './residency'
+import { IssueReferences } from './issue-reference'
 import {
   createObservableTables,
   ENTITIES,
@@ -146,6 +159,12 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   readonly load: LoadRow
+  readonly resolveReferences?: ResolveIssueReferences
+  /** Add the header's declared cold summaries only for its startup switch. */
+  readonly header?: boolean
+  readonly settings?: boolean
+  /** Additional named cold fields, declared before the first row ingest. */
+  readonly summaries?: PoolSummaryFields
   readonly windowMs?: number
   readonly schedule?: Schedule
 }
@@ -176,9 +195,11 @@ export interface WriteSeam {
  *   must not arm the window);
  * - `peek`: the row's current value, read by id through the feed and counted,
  *   nothing queued (the visibility parts decide a cold row without loading it).
+ * - `summary`: the resident row or the declared cold fields, with pending
+ *   edits overlaid; a missing cold summary queues the normal batched load.
  * Unknown rows answer undefined in every mode.
  */
-export type AbsentRead = 'load' | 'mark' | 'peek'
+export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary'
 
 /** Where a row stands, for a reader that asked for it by id (tracked). */
 export type Residence = 'resident' | 'loading' | 'absent'
@@ -193,6 +214,17 @@ export class MobxPool {
   /** The tables: every read and write in the pool goes here. */
   readonly sidebar: SidebarIndex
   readonly sidebarRosters: SidebarRosterIndex
+  private preferenceSource: PreferenceSource | undefined
+  readonly sources = new PoolSources()
+  private settingsSequence = 0
+  private readonly settingsEnabled: boolean
+  readonly settingsViews = createSettingsViews(this)
+  private readonly firstTaskCount = observable.box(0)
+  private readonly firstTaskPending = observable.box(0)
+  private headerState: ReturnType<typeof createHeaderEntities> | undefined
+  /** Off means no extra observable maps, relations or sidebar census objects. */
+  get header() { return this.headerState ??= createHeaderEntities() }
+  readonly headerViews = createHeaderViews(this)
   readonly tables: PoolTables
   readonly relations: RelationReader
   /** The relation engine itself. */
@@ -232,6 +264,17 @@ export class MobxPool {
    * Functions are skipped by the sweep; closures stay a review item.
    */
   private readonly clearSeats: () => void
+  private referenceReader: IssueReferences | undefined
+  private readonly resolveReferences: ResolveIssueReferences | undefined
+  private disposed = false
+
+  /** Built only for a screen that uses references. Its identity index covers
+   * resident rows; cold identities are resolved through the same load window. */
+  get references(): IssueReferences {
+    return this.referenceReader ??= new IssueReferences(this, ref => {
+      if (!this.disposed) this.residency?.requestReference(ref)
+    })
+  }
 
   constructor(
     locals: SliceLocals,
@@ -239,6 +282,8 @@ export class MobxPool {
     lazy?: PoolLazyOptions,
     writes?: WriteSeam,
   ) {
+    this.resolveReferences = lazy?.resolveReferences
+    this.settingsEnabled = lazy?.settings === true
     this.writes = writes ?? null
     this.tables = createObservableTables()
     const tables = this.tables
@@ -252,13 +297,18 @@ export class MobxPool {
               const row = this.row(entity, id, 'mark')
               return row === LOADING ? undefined : row
             },
-            load: lazy.load,
+            load: (entity, id) => {
+              const row = lazy.load(entity, id)
+              if (!lazy.settings || entity !== 'session' || !row) return row
+              const order = this.residency?.summary('session', id)?.['setupOrder']
+              return overlayRow(row, { setupOrder: typeof order === 'number' ? order : ++this.settingsSequence })
+            },
             // Read at ingest, after the constructor has built the clock.
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             // What visibility reads of a hidden issue (POD-4753), never the row.
-            summaries: { issue: HIDDEN_ISSUE_FIELDS, session: COLD_SESSION_FIELDS },
+            summaries: mergePoolSummaries({ issue: lazy.header ? [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS] : HIDDEN_ISSUE_FIELDS, session: [...COLD_SESSION_FIELDS, ...(lazy.header ? HEADER_SESSION_SUMMARY_FIELDS : []), ...(lazy.settings ? SETUP_SESSION_SUMMARY_FIELDS : [])] }, lazy.summaries ?? {}),
             // The rule's lane source (R3, POD-4745) reads the engine, built below.
             lanes: () => this.graph,
           })
@@ -278,7 +328,7 @@ export class MobxPool {
      */
     const seats = observable.map<string, IObservableArray<string>>(undefined, {
       deep: false,
-      name: 'pool.seats',
+      name: debugName(() => 'pool.seats'),
     })
     this.clearSeats = () => {
       seats.clear()
@@ -315,7 +365,7 @@ export class MobxPool {
           if (list === undefined) {
             list = observable.array<string>([], {
               deep: false,
-              name: 'pool.seats.bucket',
+              name: debugName(() => 'pool.seats.bucket'),
             })
             seats.set(target, list)
           }
@@ -346,11 +396,11 @@ export class MobxPool {
     this.relations = this.graph
     this.selection = observable.map<string, true>(undefined, {
       deep: false,
-      name: 'pool.selection',
+      name: debugName(() => 'pool.selection'),
     })
     this.readStates = observable.map<string, string | null>(undefined, {
       deep: false,
-      name: 'pool.reads',
+      name: debugName(() => 'pool.reads'),
     })
     this.clock = new DeadlineClock(locals.coarseNow)
     this.models = Object.fromEntries(
@@ -436,7 +486,7 @@ export class MobxPool {
       fileSidebarOwner: (id, owner) => this.sidebarRosters.fileOwner(id, owner),
     })
     this.foldLatch = observable.box(locals.selectedIssueWasFolded === true, {
-      name: 'pool.foldLatch',
+      name: debugName(() => 'pool.foldLatch'),
     })
     this.groups = new WorklistGroups({
       node: (id) => this.knownIssue(id),
@@ -447,17 +497,48 @@ export class MobxPool {
     makeObservable<
       MobxPool,
       | 'models'
+      | 'headerState'
+      | 'preferenceSource'
+      | 'settingsSequence'
+      | 'settingsEnabled'
+      | 'firstTaskCount'
+      | 'firstTaskPending'
+      | 'firstTaskState'
+      | 'updateFirstTaskCount'
       | 'target'
       | 'selectedId'
       | 'select'
       | 'followTable'
       | 'clearSeats'
+      | 'referenceReader'
+      | 'resolveReferences'
+      | 'disposed'
       | 'object'
       | 'release'
     >(this, {
       sidebar: false,
+      references: false,
+      referenceReader: false,
+      resolveReferences: false,
+      disposed: false,
       sidebarRosters: false,
       tables: false,
+      header: false,
+      headerState: false,
+      preferenceSource: false,
+      sources: false,
+      settingsSequence: false,
+      settingsEnabled: false,
+      settingsViews: false,
+      firstTaskCount: false,
+      firstTaskPending: false,
+      firstTaskState: false,
+      updateFirstTaskCount: false,
+      attachSettings: false,
+      attachPreferences: false,
+      preferenceKeys: false,
+      preferenceCounts: false,
+      headerViews: false,
       relations: false,
       graph: false,
       selection: false,
@@ -473,6 +554,7 @@ export class MobxPool {
       object: false,
       issueObject: false,
       knownIssue: false,
+      hasFirstTask: false,
       release: false,
       edit: false,
       row: false,
@@ -523,21 +605,69 @@ export class MobxPool {
    * residency's per-id atom, which reports every relink and the load.
    * Unknown rows answer undefined. Never blocks.
    */
+  attachPreferences(ui: RoutedUiState): void {
+    if (this.preferenceSource) throw new Error('Preferences already attached to this pool')
+    this.preferenceSource = new PreferenceSource(ui)
+  }
+
+  preferenceKeys(): readonly string[] { return this.preferenceSource?.keys() ?? [] }
+  preferenceCounts() { return this.preferenceSource?.counts ?? null }
+
+  attachSettings(owner: SettingsOwner): void {
+    this.sources.register(Object.keys(SETTINGS_SCHEMA).filter(isSettingsEntity), new SettingsSource(owner))
+  }
+
+  row<E extends SourceEntity>(entity: E, id: string): Loaded<PoolSourceRows[E]>
+  row(entity: 'setupSession', id: string): Loaded<SetupSession>
+  row(entity: 'preference', id: string): Loaded<PreferenceRow>
+  row(entity: HeaderEntity, id: string): object | undefined
   row(entity: EntityName, id: string, absent: 'peek'): object | undefined
-  row(entity: EntityName, id: string, absent?: 'load' | 'mark'): Loaded<object>
-  row(entity: EntityName, id: string, absent: AbsentRead = 'load'): Loaded<object> {
-    let server = this.tables[entity].get(id) as object | undefined
+  row(entity: EntityName, id: string, absent?: 'load' | 'mark' | 'summary'): Loaded<object>
+  row(entity: EntityName | HeaderEntity | SourceEntity | 'setupSession' | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
+    if (entity === 'setupSession') {
+      const row = this.row('session', id, 'summary')
+      return row && row !== LOADING ? setupSessionSummary(row as Readonly<Record<string, unknown>>) : row
+    }
+    if (entity === 'preference') return this.preferenceSource?.read(id) ?? LOADING
+    if (isHeaderEntity(entity)) return this.header.get(entity, id)
+    if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id)
+    const core = entity as EntityName
+    let server = this.tables[core].get(id) as object | undefined
     if (server === undefined) {
       const residency = this.residency
       if (residency === null) return undefined
-      if (absent === 'load') return residency.loading(entity, id) ? LOADING : undefined
-      if (!residency.known(entity, id)) return undefined
+      if (absent === 'load') return residency.loading(core, id) ? LOADING : undefined
+      if (!residency.known(core, id)) return undefined
       if (absent === 'mark') return LOADING
-      server = entity === 'session' ? residency.summary(entity, id) ?? residency.read(entity, id) : residency.read(entity, id)
+      if (absent === 'summary') {
+        server = residency.summary(core, id)
+        if (server === undefined) return residency.loading(core, id) ? LOADING : undefined
+      } else server = core === 'session' ? residency.summary(core, id) ?? residency.read(core, id) : residency.read(core, id)
       if (server === undefined) return undefined
     }
-    const pending = this.writes?.pending(entity, id)
+    const pending = this.writes?.pending(core, id)
     return pending === undefined ? server : overlayRow(server, pending)
+  }
+
+  /** Scalar maintained at issue deltas and hydration, including archived and
+   * draft rows. Getter cost is independent of both hot and cold history. */
+  get hasFirstTask(): Loaded<boolean> {
+    return this.firstTaskCount.get() > 0 ? true : this.firstTaskPending.get() > 0 ? LOADING : false
+  }
+
+  private firstTaskState(id: string): Loaded<boolean> {
+    const resident = this.row('issue', id, 'mark') as Loaded<SliceIssue>
+    if (resident !== LOADING) return resident && !resident.deletedAt
+    const summary = this.hidden('issue', id)
+    if (summary && 'stage' in summary) return !summary['deletedAt']
+    // Missing declared summary: the existing window loads it in one batch.
+    void this.row('issue', id)
+    return LOADING
+  }
+
+  private updateFirstTaskCount(before: Loaded<boolean>, after: Loaded<boolean>): void {
+    this.firstTaskCount.set(this.firstTaskCount.get() + Number(after === true) - Number(before === true))
+    this.firstTaskPending.set(this.firstTaskPending.get() + Number(after === LOADING) - Number(before === LOADING))
   }
 
   rosterCandidates(path: string): Iterable<string> { return this.sidebarRosters.candidates(path) }
@@ -675,11 +805,28 @@ export class MobxPool {
     const residency = this.residency
     if (residency === null) return 0
     const batch = residency.take()
+    const refs = residency.takeReferences()
+    const referenceGeneration = this.referenceReader?.generation
+    if (refs.length && this.resolveReferences) {
+      try {
+        void this.resolveReferences(refs).then(replies => {
+          if (this.disposed || referenceGeneration !== this.referenceReader?.generation) return
+          runInAction(() => {
+            for (const { ref, id } of replies) this.referenceReader?.resolved(ref, id)
+          })
+        }).catch(() => {
+          // The reference stays LOADING; failure never fabricates an absent
+          // row or falls back to a legacy list/peek.
+        })
+      } catch { /* A synchronous transport failure has the same LOADING answer. */ }
+    }
     if (batch.length === 0) return 0
     const out = ingestOut()
     this.graph.begin()
     return runInAction(() => {
+      const before = new Map<string, Loaded<boolean>>(batch.filter(([entity]) => entity === 'issue').map(([, id]) => [id, this.firstTaskState(id)]))
       const rows = residency.install(this.target, batch, out)
+      for (const [id, previous] of before) this.updateFirstTaskCount(previous, this.firstTaskState(id))
       this.graph.flush()
       this.sidebarRosters.flush()
       return rows
@@ -690,8 +837,30 @@ export class MobxPool {
   apply(event: RowSourceEvent): void {
     const out = ingestOut()
     this.graph.begin()
+    if (this.settingsEnabled) {
+      if (event.type === 'replace') this.settingsSequence = 0
+      const rows = event.rows.map((record) => {
+        if (record.kind !== 'session' || !record.value) return record
+        const previous = event.type === 'replace' ? undefined : this.row('setupSession', record.id)
+        const order = previous && previous !== LOADING ? previous.setupOrder : undefined
+        return { ...record, value: overlayRow(record.value, { setupOrder: typeof order === 'number' ? order : ++this.settingsSequence }) }
+      })
+      event = { ...event, rows }
+    }
     runInAction(() => {
-      if (event.type === 'replace') reseed(this.target, event.rows, out)
+      // Only this publication's ids are retained, until its action finishes.
+      // Cold values come from the declared summary; no all-issue index.
+      const before = new Map<string, Loaded<boolean>>()
+      for (const record of event.rows) {
+        if (record.kind === 'issue' && !before.has(record.id)) before.set(record.id,
+          event.type === 'replace' ? undefined : this.firstTaskState(record.id))
+      }
+      if (event.type === 'replace') {
+        this.firstTaskCount.set(0)
+        this.firstTaskPending.set(0)
+        this.referenceReader?.resetUnresolved()
+        reseed(this.target, event.rows, out)
+      }
       else {
         // POD-4753: a row this update carries is installed from it; any
         // other row it warms is asked for (the load window).
@@ -701,6 +870,7 @@ export class MobxPool {
         // shown warms it, once every row of the update is in.
         this.residency?.settle(this.target, out)
       }
+      for (const [id, previous] of before) this.updateFirstTaskCount(previous, this.firstTaskState(id))
       this.graph.flush()
       for (const record of event.rows) {
         if (record.kind === 'session') this.sidebarRosters.queueSession(record.id)
@@ -750,15 +920,24 @@ export class MobxPool {
 
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
+    this.disposed = true
+    this.preferenceSource?.dispose()
+    this.sources.dispose()
+    this.settingsViews.clear()
+    this.referenceReader?.dispose()
     runInAction(() => {
       this.worklist.clear()
       this.groups.clear()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
+      this.headerState?.clear()
+      this.headerViews.clear()
       this.clearSeats()
       this.selection.clear()
       this.readStates.clear()
       this.sidebarRosters.clear()
+      this.firstTaskCount.set(0)
+      this.firstTaskPending.set(0)
     })
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()

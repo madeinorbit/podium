@@ -1,11 +1,6 @@
-import {
-  asIssueId,
-  asSessionId,
-  type IssueWire,
-  type IssueWireInput,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -47,7 +42,7 @@ vi.mock('./BottomSheet', () => ({
 
 const { IssueCloseSheet } = await import('./IssueCloseSheet')
 
-const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
+const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
   ({
     id: asIssueId('task'),
     repoPath: '/src/podium',
@@ -65,9 +60,9 @@ const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
     parentBranch: 'main',
     archived: false,
     ...partial,
-  }) as IssueWire
+  }) as IssueViewModel
 
-const session = (partial: Partial<SessionMetaInput> = {}): SessionMeta =>
+const session = (partial: Partial<SessionViewInput> = {}): SessionView =>
   ({
     sessionId: asSessionId('s'),
     issueId: asIssueId('task'),
@@ -86,7 +81,7 @@ const session = (partial: Partial<SessionMetaInput> = {}): SessionMeta =>
     readAt: null,
     unread: false,
     ...partial,
-  }) as SessionMeta
+  }) as SessionView
 
 const dirtyBranch = {
   updatedAt: '2026-07-23T10:00:00.000Z',
@@ -123,7 +118,12 @@ describe('IssueCloseSheet', () => {
     open({
       issue: issue({
         needsHuman: true,
-        humanQuestion: 'Which direction should we ship?',
+        asked: {
+          question: 'Which direction should we ship?',
+          at: '',
+          by: 'asking-session' as never,
+          attribution: {} as never,
+        },
         childCount: 3,
         childDoneCount: 1,
         gitState: dirtyBranch,

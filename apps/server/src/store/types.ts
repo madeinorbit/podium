@@ -10,7 +10,6 @@ import type {
   HarnessRefEntry,
   IssueColorSlot,
   IssueId,
-  MachineComponent,
   MachineId,
   MachinePresenceSource,
   MachineServiceAssignment,
@@ -197,7 +196,7 @@ export interface SessionRow {
    *
    * `null` = a row from before this column, or one whose daemon never reported
    * a selection. Never backfilled.
-  */
+   */
   selectedDriverId?: string | null
   /** Concrete per-session driver preference, preserved independently of fallback. */
   requestedDriverId?: string | null
@@ -480,6 +479,7 @@ export interface IssueRow {
   humanQuestionAskedBy?: SessionId | null
   /** ISO time the needs-human flag was raised (issue #53). */
   humanQuestionAskedAt?: string | null
+  humanQuestionAttribution?: Attribution | null
   /** Agent-published human-facing panel, stored as raw JSON (parsed in IssueService).
    *  Optional so pre-existing row literals (tests, ingest) stay valid; absent = none. */
   panel?: string | null

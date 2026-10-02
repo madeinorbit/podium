@@ -1,3 +1,4 @@
+import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row PLACEMENT: which lane a row occupies once it
  * exists and has been ordered — the PINNED section, a project group, or one of
@@ -7,7 +8,7 @@
  * changes sibling order — the incoming order is preserved in every bucket
  * except the closed fold, which is history ordered by the moment it was tucked.
  */
-import { type IssueId, type IssueWire, isIssueDeferred } from '@podium/model'
+import { type IssueId, isIssueDeferred } from '@podium/model'
 import {
   isClosedTopLevelIssue,
   issueAbandoned,
@@ -72,7 +73,7 @@ export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is Unifi
  *  there. It used to be a per-browser ui-state key the server never saw. The
  *  pressing client sees it instantly through the outbox overlay, which paints
  *  `tuckedAt` over server truth until the mutation lands. */
-function issueTucked(issue: IssueWire): boolean {
+function issueTucked(issue: IssueNavigationModel): boolean {
   return issue.tuckedAt != null
 }
 
@@ -80,7 +81,7 @@ function issueTucked(issue: IssueWire): boolean {
  * cancelled and age-folded rows have no tuck stamp, so their finish time remains
  * the honest fallback instead of manufacturing one. */
 export function issueClosedFoldAt(
-  issue: Pick<IssueWire, 'tuckedAt' | 'closedAt' | 'updatedAt'>,
+  issue: Pick<IssueNavigationModel, 'tuckedAt' | 'closedAt' | 'updatedAt'>,
 ): string {
   return issue.tuckedAt ?? issue.closedAt ?? issue.updatedAt
 }

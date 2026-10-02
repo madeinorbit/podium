@@ -81,8 +81,6 @@ describe('shared schemas', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
       archived: false,
-      readAt: null,
-      unread: false,
       contextUsagePercent: 42.5,
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
@@ -115,8 +113,6 @@ describe('shared schemas', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
       archived: false,
-      readAt: null,
-      unread: false,
       spawnedBy: 'issue:iss_abc',
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
@@ -139,8 +135,6 @@ describe('shared schemas', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'resume' as const, conversationId: 'conv-9' },
       archived: true,
-      readAt: null,
-      unread: false,
       workState: 'done' as const,
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
@@ -161,15 +155,12 @@ describe('shared schemas', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
       archived: false,
-      readAt: null,
-      unread: false,
       name: 'soft keyboard work',
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
   })
 
-  // Unread state (issue #124): readAt + unread are additive, defaulted so pre-field
-  // cached payloads still validate (readAt → null, unread → false).
+  // S6 retires personal markers from the shared row. Old caches still parse.
   const baseMeta = {
     sessionId: asSessionId('s_unread'),
     agentKind: 'claude-code' as const,
@@ -186,26 +177,26 @@ describe('shared schemas', () => {
     archived: false,
   }
 
-  it('SessionMeta defaults readAt=null and unread=false for a pre-field payload', () => {
+  it('SessionMeta has no personal defaults for an older payload', () => {
     const parsed = SessionMeta.parse(baseMeta)
-    expect(parsed.readAt).toBeNull()
-    expect(parsed.unread).toBe(false)
+    expect(parsed).not.toHaveProperty('readAt')
+    expect(parsed).not.toHaveProperty('unread')
   })
 
-  it('SessionMeta carries readAt + unread when present', () => {
+  it('SessionMeta strips cached readAt and unread', () => {
     const parsed = SessionMeta.parse({
       ...baseMeta,
       readAt: '2026-06-03T01:00:00.000Z',
       unread: true,
     })
-    expect(parsed.readAt).toBe('2026-06-03T01:00:00.000Z')
-    expect(parsed.unread).toBe(true)
+    expect(parsed).not.toHaveProperty('readAt')
+    expect(parsed).not.toHaveProperty('unread')
   })
 
-  it('SessionMeta tolerates malformed cached readAt/unread via catch', () => {
+  it('SessionMeta ignores malformed retired cache fields', () => {
     const parsed = SessionMeta.parse({ ...baseMeta, readAt: 123, unread: 'yes' })
-    expect(parsed.readAt).toBeNull()
-    expect(parsed.unread).toBe(false)
+    expect(parsed).not.toHaveProperty('readAt')
+    expect(parsed).not.toHaveProperty('unread')
   })
 
   // Agent action offer [spec:SP-c7f1]: additive overlay — absent by default,
@@ -327,8 +318,6 @@ describe('ServerMessage', () => {
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' as const },
     archived: false,
-    readAt: null,
-    unread: false,
   }
   const conversation = {
     id: 'conv-1',
@@ -1226,7 +1215,7 @@ describe('agent runtime state', () => {
     ).toBeUndefined()
   })
 
-  it('SessionMeta carries an optional, nullable snoozedUntil', () => {
+  it('SessionMeta ignores every retired snooze state', () => {
     const base = {
       sessionId: asSessionId('s1'),
       agentKind: 'claude-code',
@@ -1242,11 +1231,11 @@ describe('agent runtime state', () => {
       origin: { kind: 'spawn' },
       archived: false,
     } as const
-    expect(SessionMeta.parse(base).snoozedUntil).toBeUndefined()
-    expect(SessionMeta.parse({ ...base, snoozedUntil: null }).snoozedUntil).toBeNull()
+    expect(SessionMeta.parse(base)).not.toHaveProperty('snoozedUntil')
+    expect(SessionMeta.parse({ ...base, snoozedUntil: null })).not.toHaveProperty('snoozedUntil')
     expect(
-      SessionMeta.parse({ ...base, snoozedUntil: '2026-06-19T06:00:00.000Z' }).snoozedUntil,
-    ).toBe('2026-06-19T06:00:00.000Z')
+      SessionMeta.parse({ ...base, snoozedUntil: '2026-06-19T06:00:00.000Z' }),
+    ).not.toHaveProperty('snoozedUntil')
   })
 
   it('SessionMeta carries the additive upstream-mirror flags (node⇄hub sync)', () => {

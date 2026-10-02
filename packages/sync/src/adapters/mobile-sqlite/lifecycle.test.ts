@@ -96,7 +96,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
             operations: [
               {
                 kind: 'upsert',
-                entity: 'issue',
+                entity: 'issueProjection',
                 entityId: 'ADA-1',
                 value: { v: 0 },
                 provenance: { seq: 1 },
@@ -130,7 +130,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'ADA-2',
             value: { v: 9 },
             provenance: { seq: 4 },
@@ -173,7 +173,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'ADA-3',
             value: { v: 1 },
             provenance: { seq: 1 },
@@ -207,7 +207,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
             operations: [
               {
                 kind: 'upsert',
-                entity: 'issue',
+                entity: 'issueProjection',
                 entityId: 'ADA-1',
                 value: { v: 7 },
                 provenance: { seq: 1 },
@@ -225,7 +225,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
       const relaunched = await open()
       const cold = relaunched.viewFor(PRINCIPAL)
       expect(relaunched.durability()).toBe('durable')
-      expect(cold.cache.read('issue', 'ADA-1')?.value).toEqual({ v: 7 })
+      expect(cold.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 7 })
       expect(cold.cache.readCursor()).toEqual(CURSOR_1)
       expect((await cold.outbox.read()).map((r) => r.mutationId)).toEqual([M1])
       relaunched.close()
@@ -277,7 +277,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'ADA-1',
             value: { v: 1 },
             provenance: { seq: 1 },
@@ -308,7 +308,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'ADA-1',
             value: { v: 2 },
             provenance: { seq: 1 },
@@ -328,7 +328,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'ADA-1',
             value: { v: 'from the future' },
             provenance: { seq: 1 },
@@ -360,7 +360,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'ADA-1',
             value: { v: 'current' },
             provenance: { seq: 1 },
@@ -369,7 +369,7 @@ describe('mobile SQLite adapter — lifecycle (ADR 6 D4.7)', () => {
       })
       again.close()
       const third = await open()
-      expect(third.viewFor(PRINCIPAL).cache.read('issue', 'ADA-1')?.value).toEqual({
+      expect(third.viewFor(PRINCIPAL).cache.read('issueProjection', 'ADA-1')?.value).toEqual({
         v: 'current',
       })
       third.close()

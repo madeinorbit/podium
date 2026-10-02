@@ -1,5 +1,6 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SessionView } from '../session-values'
 import { isSessionWorking } from './session-status'
+import type { IssueNavigationModel } from './slices/issues'
 
 /**
  * WHAT A CLOSE WOULD COST, DERIVED ONCE FOR EVERY SURFACE [POD-1129].
@@ -36,13 +37,13 @@ export interface IssueCloseConcern {
  * The issue fields the guard reads, and only those.
  *
  * Spelled as a `Pick` rather than the web's `IssueViewModel` so the phone can
- * pass a bare `IssueWire` and the desktop can keep passing its richer model:
+ * pass a bare `IssueNavigationModel` and the desktop can keep passing its richer model:
  * both satisfy this, and neither surface gets to quietly widen what a close
  * decision is allowed to depend on.
  */
 export type IssueCloseSubject = Pick<
-  IssueWire,
-  'needsHuman' | 'humanQuestion' | 'childCount' | 'childDoneCount' | 'parentBranch' | 'gitState'
+  IssueNavigationModel,
+  'needsHuman' | 'asked' | 'childCount' | 'childDoneCount' | 'parentBranch' | 'gitState'
 >
 
 /**
@@ -60,7 +61,7 @@ export type IssueCloseSubject = Pick<
  */
 export function issueCloseConcerns(
   issue: IssueCloseSubject,
-  members: readonly SessionMeta[] = [],
+  members: readonly SessionView[] = [],
 ): IssueCloseConcern[] {
   const concerns: IssueCloseConcern[] = []
   const live = members.filter((session) => !session.archived)
@@ -80,7 +81,7 @@ export function issueCloseConcerns(
     concerns.push({
       key: 'question',
       label: 'Human input is still needed',
-      detail: issue.humanQuestion || 'A question or approval is still waiting for a response.',
+      detail: issue.asked?.question || 'A question or approval is still waiting for a response.',
       blocking: true,
       icon: 'attention',
     })

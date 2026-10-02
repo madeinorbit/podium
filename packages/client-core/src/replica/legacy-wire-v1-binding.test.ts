@@ -5,8 +5,8 @@
  * the outbox survives a discard. These tests pin identity replacement and durable-outbox preservation at the Replica seam.
  */
 
-import { asMutationId } from '@podium/model'
 import { addSink } from '@podium/logger'
+import { asMutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { COLD_CURSOR } from './feed'
@@ -29,8 +29,7 @@ const lists = (
   issues: Array<{ id: string; title: string }>,
 ): Omit<LegacyMetadataAppliedState, 'cursor'> => ({
   sessions: [],
-  issues: issues as unknown as LegacyMetadataAppliedState['issues'],
-  issueProjections: [],
+  issueProjections: issues as unknown as LegacyMetadataAppliedState['issueProjections'],
   issueDeps: [],
   repos: [],
   conversations: [],
@@ -56,7 +55,7 @@ describe('onMetadataApplied — the cursor is the triple (ADR 2 D1)', () => {
     const { replica, apply } = setup()
     apply({ cursor: 5, ...lists([{ id: 'i1', title: 'one' }]) })
     expect(replica.getFeedCursor()).toEqual({ ...COLD_CURSOR, seq: 5 })
-    expect(replica.rows('issues')).toHaveLength(1)
+    expect(replica.rows('issueProjections')).toHaveLength(1)
   })
 
   it('an UNSTAMPED batch does not blank an identity already established', () => {
@@ -84,7 +83,7 @@ describe('onMetadataApplied — rung 4 is wired, not just implemented', () => {
         epoch: 'epoch_1',
       })
       replica.outboxStorage().save([userWrite])
-      expect(replica.rows('issues').map((i) => i.id)).toEqual(['phantom'])
+      expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['phantom'])
 
       // The authority was restored from a backup: same feed, new epoch.
       apply({
@@ -97,7 +96,7 @@ describe('onMetadataApplied — rung 4 is wired, not just implemented', () => {
       // The phantom is gone — and gone because it was DISCARDED, not because a
       // snapshot happened to overwrite it. A lower cursor (3 < 77) is exactly
       // what a restored authority looks like.
-      expect(replica.rows('issues').map((i) => i.id)).toEqual(['real'])
+      expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['real'])
       expect(replica.getFeedCursor()).toEqual({ feedId: 'feed_1', epoch: 'epoch_2', seq: 3 })
       // The user's unsent write is not a cache.
       expect(replica.outboxStorage().load()).toEqual([userWrite])
@@ -122,7 +121,9 @@ describe('onMetadataApplied — rung 4 is wired, not just implemented', () => {
       })
 
       const seen: number[] = []
-      replica.subscribeRows('issues', () => seen.push(replica.rows('issues').length))
+      replica.subscribeRows('issueProjections', () =>
+        seen.push(replica.rows('issueProjections').length),
+      )
       apply({
         cursor: 3,
         ...lists([{ id: 'new', title: 'new' }]),
@@ -133,7 +134,7 @@ describe('onMetadataApplied — rung 4 is wired, not just implemented', () => {
       // Never an observed zero — the resetCache empties, the install refills,
       // and no subscriber wakes in between.
       expect(seen).not.toContain(0)
-      expect(replica.rows('issues').map((i) => i.id)).toEqual(['new'])
+      expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['new'])
     } finally {
       warn.mockRestore()
     }
@@ -151,7 +152,7 @@ describe('onMetadataApplied — rung 4 is wired, not just implemented', () => {
       feedId: 'feed_1',
       epoch: 'epoch_1',
     })
-    expect(replica.rows('issues').map((i) => i.id)).toEqual(['i1', 'i2'])
+    expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['i1', 'i2'])
     expect(replica.getFeedCursor().seq).toBe(6)
   })
 })

@@ -28,12 +28,13 @@
  */
 import {
   DRAFT_ISSUE_TITLE,
-  type IssueWire,
+  type IssueProjection,
   isHeadlessSession,
   issueStatusOf,
   issueStatusOutcome,
-  type SessionMeta,
 } from '@podium/model'
+import type { IssueViewModel } from '../../replica/issue-view-models'
+import type { SessionView } from '../../session-values'
 import {
   type ReferentExit,
   type ReferentResolution,
@@ -48,8 +49,7 @@ import { sortSessionsForSidebar } from '../session-urgency'
 // The issue nav model, and the sub-issue tree.
 // ---------------------------------------------------------------------------
 
-export type IssueNavigationModel = Omit<IssueWire, 'commentCount'> & {
-  memberSessionIds?: string[]
+export type IssueNavigationModel = IssueViewModel & {
   unread?: boolean
   sessionSummary?: { total: number; byPhase: Record<string, number> }
 }
@@ -59,7 +59,7 @@ export type IssueNavigationModel = Omit<IssueWire, 'commentCount'> & {
  *  archived) rather than dropping them, so archiving a child doesn't silently
  *  vanish it from its parent. Scoped to the subissue list — the main board's
  *  default hide-archived behavior is unchanged. */
-export function subIssuesOf<T extends Pick<IssueWire, 'parentId' | 'deletedAt' | 'seq'>>(
+export function subIssuesOf<T extends Pick<IssueViewModel, 'parentId' | 'deletedAt' | 'seq'>>(
   issues: readonly T[],
   parentId: string,
 ): T[] {
@@ -77,10 +77,13 @@ export function subIssuesOf<T extends Pick<IssueWire, 'parentId' | 'deletedAt' |
  *  see" is an existence fact and therefore a §3.1.2 policy question, not a
  *  default this function may take. */
 export function branchRollup(
-  issues: readonly IssueWire[],
+  issues: readonly Pick<
+    IssueNavigationModel,
+    'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'closedReason'
+  >[],
   rootId: string,
 ): { total: number; done: number } {
-  const childrenOf = new Map<string, IssueWire[]>()
+  const childrenOf = new Map<string, (typeof issues)[number][]>()
   for (const issue of issues) {
     if (issue.archived || issue.deletedAt || !issue.parentId) continue
     const list = childrenOf.get(issue.parentId) ?? []
@@ -122,17 +125,17 @@ export type CrossBoundaryPolicy = 'hidden' | 'opaque'
  *
  *  `'pending'` renders as neither: it has not arrived YET and is the one state a
  *  spinner is correct for. */
-export interface IssueEdge {
-  readonly resolution: ReferentResolution<IssueWire>
+export interface IssueEdge<T extends IssueNavigationModel = IssueNavigationModel> {
+  readonly resolution: ReferentResolution<T>
   readonly render: 'issue' | 'opaque' | 'hidden' | 'pending'
 }
 
-export function resolveIssueEdge(
+export function resolveIssueEdge<T extends IssueNavigationModel>(
   targetId: string | undefined | null,
-  lookup: (id: string) => IssueWire | undefined,
+  lookup: (id: string) => T | undefined,
   policy: CrossBoundaryPolicy,
   exitOf: (id: string) => ReferentExit | undefined = () => undefined,
-): IssueEdge {
+): IssueEdge<T> {
   const resolution = resolveReferent(targetId, lookup, exitOf)
   switch (resolution.state) {
     case 'present':
@@ -156,7 +159,7 @@ export function resolveIssueEdge(
 export interface IssueNavView {
   issue: IssueNavigationModel
   repoName: string
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   activityAt: number
 }
 
@@ -166,7 +169,7 @@ export interface IssueNavView {
  *  issues with no sessions fall back to their updatedAt. */
 export function issueNavList(
   issues: IssueNavigationModel[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   now: number = Date.now(),
 ): IssueNavView[] {
   const views = issues
@@ -212,7 +215,7 @@ export function filterIssueNav(list: IssueNavView[], query: string): IssueNavVie
  *  advertise work the user never started here. Wait for the real name instead. */
 export function draftIssueLabel(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   allWorktreePaths: readonly string[],
 ): string {
   const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
@@ -235,7 +238,7 @@ export function draftIssueLabel(
  *  untouched: their title IS their name. */
 export function issueDisplayTitle(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   allWorktreePaths: readonly string[],
 ): string {
   return isUnnamedDraft(issue) ? draftIssueLabel(issue, sessions, allWorktreePaths) : issue.title
@@ -244,7 +247,7 @@ export function issueDisplayTitle(
 /** A draft NOBODY HAS NAMED — still wearing the minted placeholder, or wearing
  *  nothing at all.
  *
- *  Not just `issue.draft`, and the difference is one round trip wide. Naming a
+ *  Not just `issue.isDraftVessel`, and the difference is one round trip wide. Naming a
  *  draft is what promotes it (`IssueCrud.update`: a non-empty title patch
  *  clears the flag), but the rename's OPTIMISTIC overlay carries the title
  *  alone — the flag flips only when the server's row comes back. Reading the
@@ -260,7 +263,7 @@ export function issueDisplayTitle(
  *  a task with NO NAME AT ALL, which is strictly worse than the placeholder
  *  this function exists to replace. Nobody named it, so it reads as unnamed. */
 function isUnnamedDraft(issue: IssueNavigationModel): boolean {
-  if (!issue.draft) return false
+  if (!issueDraftVessel(issue)) return false
   const title = issue.title.trim()
   return title === DRAFT_ISSUE_TITLE || title === ''
 }
@@ -270,8 +273,11 @@ function isUnnamedDraft(issue: IssueNavigationModel): boolean {
  *  IS the agent (clicking opens the session, nothing folds out beneath it), so
  *  it can never parent real work either. Both the nesting decision and the row
  *  rendering read this one predicate so they cannot drift apart (POD-282). */
-export function isDraftAgentVessel(issue: IssueWire, sessions: readonly SessionMeta[]): boolean {
-  return Boolean(issue.draft) && !issue.worktreePath && sessions.length > 0
+export function isDraftAgentVessel(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionView[],
+): boolean {
+  return issueDraftVessel(issue) && !issue.worktreePath && sessions.length > 0
 }
 
 /**
@@ -287,10 +293,10 @@ export function isDraftAgentVessel(issue: IssueWire, sessions: readonly SessionM
  * one of these rather than dressing it up as a mission (POD-1112).
  */
 export function isEmptyDraftVessel(
-  issue: Pick<IssueWire, 'id' | 'draft' | 'worktreePath'>,
-  sessions: readonly SessionMeta[],
+  issue: Pick<IssueNavigationModel, 'id' | 'worktreePath' | 'isDraftVessel'>,
+  sessions: readonly SessionView[],
 ): boolean {
-  if (!issue.draft || issue.worktreePath) return false
+  if (!issueDraftVessel(issue) || issue.worktreePath) return false
   // Attachment only, deliberately: a vessel has no worktree, so cwd
   // containment — the fallback `sessionsForIssueNav` uses — cannot put a
   // session in one. Archived sessions do not count as content; an emptied
@@ -307,7 +313,7 @@ export function isEmptyDraftVessel(
  *
  *  Published (not private, as it was inside derive.ts) because the worklist's
  *  closed fold and waiting-age stamp both anchor on it. */
-export function issueFinishedAt(issue: Pick<IssueWire, 'closedAt' | 'updatedAt'>): number {
+export function issueFinishedAt(issue: Pick<IssueViewModel, 'closedAt' | 'updatedAt'>): number {
   return Date.parse(issue.closedAt ?? issue.updatedAt) || 0
 }
 
@@ -316,7 +322,7 @@ export function issueFinishedAt(issue: Pick<IssueWire, 'closedAt' | 'updatedAt'>
  * deliberately narrower than `stage === 'done'`: done children keep the
  * acknowledgment decay introduced by POD-100. */
 export function isClosedTopLevelIssue(
-  issue: Pick<IssueWire, 'closedReason' | 'parentId' | 'audience'>,
+  issue: Pick<IssueViewModel, 'closedReason' | 'parentId' | 'audience'>,
 ): boolean {
   return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
 }
@@ -345,7 +351,7 @@ export function issueAbandoned(
  *  The explicit ahead check keeps a never-moved/empty branch out, while
  *  `merged !== true` reuses the cleanup guard's ancestry verdict.
  *  Unknown/computing git state stays conservative (not actionable). */
-function issueHasUnmergedDelivery(issue: IssueWire): boolean {
+function issueHasUnmergedDelivery(issue: IssueNavigationModel): boolean {
   const git = issue.gitState
   return (
     Boolean(issue.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
@@ -366,7 +372,7 @@ function issueHasUnmergedDelivery(issue: IssueWire): boolean {
  * gesture available to dismiss it. Completion is the only ending that leaves a
  * merge outstanding.
  */
-export function issueAwaitingMerge(issue: IssueWire): boolean {
+export function issueAwaitingMerge(issue: IssueNavigationModel): boolean {
   const finished = issue.stage === 'done' || issue.closedReason != null
   return finished && !issueAbandoned(issue) && issueHasUnmergedDelivery(issue)
 }
@@ -388,7 +394,7 @@ export function issueAwaitingMerge(issue: IssueWire): boolean {
  *  reasoning as the tray's review backstop, POD-118). */
 export type IssuePendingDecision = 'merge' | 'review'
 
-export function issuePendingDecision(issue: IssueWire): IssuePendingDecision | null {
+export function issuePendingDecision(issue: IssueNavigationModel): IssuePendingDecision | null {
   const finished = issue.stage === 'done' || issue.closedReason != null
   if (!finished && issue.stage !== 'review') return null
   // `blocked` is derived from open outgoing `blocks` edges by the replica. Such
@@ -405,7 +411,7 @@ export function issuePendingDecision(issue: IssueWire): IssuePendingDecision | n
 
 /** How many commits the merge would land — the one number that makes "ready to
  *  merge" a fact instead of a label. Absent unless the decision is a merge. */
-export function issuePendingMergeCommits(issue: IssueWire): number {
+export function issuePendingMergeCommits(issue: IssueNavigationModel): number {
   return issuePendingDecision(issue) === 'merge' ? (issue.gitState?.ahead ?? 0) : 0
 }
 
@@ -415,7 +421,7 @@ export function issuePendingMergeCommits(issue: IssueWire): number {
  *  "· 2" under a branch glyph reads as commits. {@link pendingDecisionTitle}
  *  spells it out on hover. */
 export function pendingDecisionLabel(
-  issue: IssueWire,
+  issue: IssueNavigationModel,
   decision: IssuePendingDecision = 'review',
 ): string {
   if (decision !== 'merge') return 'needs review'
@@ -426,7 +432,7 @@ export function pendingDecisionLabel(
 /** The unabbreviated sentence behind {@link pendingDecisionLabel} — hover copy,
  *  and the accessible name where the row has no room to say it. */
 export function pendingDecisionTitle(
-  issue: IssueWire,
+  issue: IssueNavigationModel,
   decision: IssuePendingDecision = 'review',
 ): string {
   if (decision !== 'merge') return 'Waiting on your review'
@@ -435,4 +441,11 @@ export function pendingDecisionTitle(
   return commits > 0
     ? `${commits} commit${commits === 1 ? '' : 's'} ready to land on ${target}`
     : `Ready to land on ${target}`
+}
+
+export function issueDraftVessel(issue: Pick<IssueProjection, 'isDraftVessel'>): boolean {
+  return issue.isDraftVessel === true
+}
+export function issueAsked(issue: Pick<IssueProjection, 'asked'>): IssueProjection['asked'] {
+  return issue.asked
 }

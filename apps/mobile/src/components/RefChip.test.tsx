@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { render, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import type { View as RNView } from 'react-native'
@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { STAGE_COLOR, STAGE_UNKNOWN } from '../theme/stage'
 import { color } from '../theme/theme'
 
-let issues: IssueWire[] = []
+let issues: IssueViewModel[] = []
 vi.mock('../client/hooks', () => ({ useIssues: () => issues }))
 
 // The web build resolves react-native-svg's `.web.js` entry through Metro's
@@ -21,7 +21,7 @@ vi.mock('react-native-svg', async () => {
 
 const { RefChip } = await import('./RefChip')
 
-function issue(seq: number, stage: IssueWire['stage']): IssueWire {
+function issue(seq: number, stage: IssueViewModel['stage']): IssueViewModel {
   return {
     id: `issue-${seq}`,
     seq,
@@ -29,7 +29,7 @@ function issue(seq: number, stage: IssueWire['stage']): IssueWire {
     displayRef: `POD-${seq}`,
     title: `Task ${seq}`,
     stage,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 function inkOf(label: RegExp): string {

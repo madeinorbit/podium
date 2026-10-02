@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   type CollapsedSummary,
   type DeckIssueState,
@@ -6,8 +7,7 @@ import {
   type SessionRole,
   sessionSettled,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueStage, SessionId, SessionMeta } from '@podium/model'
-import { ChevronDown } from './icons'
+import type { AgentKind, IssueStage, SessionId } from '@podium/model'
 import { Animated, StyleSheet, Text, View } from 'react-native'
 import Svg, { Line } from 'react-native-svg'
 import { alpha } from '../theme/mix'
@@ -15,6 +15,7 @@ import { stageColor } from '../theme/stage'
 import { color, font, mono, radius, sans, space, tracking } from '../theme/theme'
 import { HarnessChip } from './AgentMark'
 import { Icon } from './Icon'
+import { ChevronDown } from './icons'
 import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
 import { WorkingMark } from './WorkingMark'
@@ -136,7 +137,7 @@ const CREW_SHOWN = 4
  * is hidden by default — and the whole line rides on the row's accessible name,
  * which is where the phone keeps what a desktop puts on a tooltip.
  */
-function CrewCensus({ crew }: { crew: readonly SessionMeta[] }) {
+function CrewCensus({ crew }: { crew: readonly SessionView[] }) {
   const shown = crew.slice(0, CREW_SHOWN)
   const extra = crew.length - shown.length
   return (
@@ -506,7 +507,7 @@ function stripLabel({
   state: DeckIssueState
   word: string
   seat: PresenceNote | null
-  census: readonly SessionMeta[]
+  census: readonly SessionView[]
   context: boolean
 }): string {
   const parts = [`${displayRef} ${title}`]

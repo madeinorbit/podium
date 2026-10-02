@@ -14,7 +14,6 @@ import {
   type SessionMeta,
   type SessionOffer,
   type SessionOrigin,
-  type SessionUserOverlay,
   type UserId,
   type WorkState,
   WorkState as WorkStateSchema,
@@ -153,7 +152,7 @@ export interface SessionInit {
 }
 
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
-export type SessionVolatileField = 'status' | 'machineId' | 'handoffTarget'
+export type SessionVolatileField = 'status' | 'machineId' | 'handoffTargetMachineId'
 
 /**
  * THE DURABLE HALF AS A VALUE [POD-3330].
@@ -210,7 +209,7 @@ export interface SessionDurableState {
   requestedEffort: string | undefined
   contextUsagePercent: number | undefined
   queuedMessageCount: number
-  handoffTarget: string | undefined
+  handoffTargetMachineId: MachineId | undefined
   conversationPodiumId: ConversationId | undefined
   draftUpdatedAt: string | undefined
   offer: SessionOffer | undefined
@@ -389,7 +388,7 @@ export class Session {
    *  table is the truth; SessionView reads it directly for display. */
   queuedMessageCount = 0
   /** Transient UI overlay while the canonical row moves machines ([spec:SP-3f7a]). */
-  handoffTarget: string | undefined
+  handoffTargetMachineId: MachineId | undefined
   /** Stable Podium conversation identity (conversation registry). Stamped by the
    *  registry when the linkage is learned (resume ref observed/rolled, boot
    *  lookup); transient here — the conversation_segments table is the truth. */
@@ -884,7 +883,7 @@ export class Session {
       requestedEffort: this.requestedEffort,
       contextUsagePercent: this.contextUsagePercent,
       queuedMessageCount: this.queuedMessageCount,
-      handoffTarget: this.handoffTarget,
+      handoffTargetMachineId: this.handoffTargetMachineId,
       conversationPodiumId: this.conversationPodiumId,
       draftUpdatedAt: this.draftUpdatedAt,
       offer: this.offer ? structuredClone(this.offer) : undefined,
@@ -958,7 +957,9 @@ export class Session {
     this.requestedEffort = state.requestedEffort
     this.contextUsagePercent = state.contextUsagePercent
     this.queuedMessageCount = state.queuedMessageCount
-    if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
+    if (!preserve.has('handoffTargetMachineId')) {
+      this.handoffTargetMachineId = state.handoffTargetMachineId
+    }
     this.conversationPodiumId = state.conversationPodiumId
     this.draftUpdatedAt = state.draftUpdatedAt
     this.offer = state.offer ? structuredClone(state.offer) : undefined
@@ -1058,20 +1059,12 @@ export class Session {
   }
 
   /**
-   * Project this session for ONE READER (POD-1076).
+   * Project shared session facts (S6).
    *
-   * `overlay` carries the caller's per-user markers — `readAt` from
-   * `session_user_state`, `snoozedUntil` from `snoozes` — because both are facts
-   * about a reader and neither is a field of the session. It is REQUIRED, not
-   * optional with an empty default: an optional overlay is a mirror field with
-   * extra steps, and "whoever forgot to pass it sees everything as unread" is the
-   * failure mode this argument exists to make unreachable silently.
-   *
-   * The feed is still unscoped (ADR 2 D2), so today every caller passes the
-   * broadcast viewer's overlay. POD-1077 passes the request's principal; the
-   * signature does not change.
+   * Per-user markers and machine/repo labels are joined by the client from
+   * their own records. This projection carries only session facts.
    */
-  toMeta(overlay: SessionUserOverlay, d: SessionDurableFields = this): SessionMeta {
+  toMeta(d: SessionDurableFields = this): SessionMeta {
     // BOUND WINS OVER SELECTED, and both beat nothing (POD-2290). The selection
     // is what the daemon decided before it started the harness; the binding is
     // what it ended up with. They agree on every path that works, and where
@@ -1107,18 +1100,9 @@ export class Session {
         : {}),
       origin: this.origin,
       archived: d.archived,
-      // Email-style read state (issue #124). unread = there is activity the operator
-      // hasn't seen: never opened (readAt null), or lastActiveAt postdates readAt.
-      // Both are ISO-8601, so the lexical compare is chronological.
-      readAt: overlay.readAt,
       ...(d.stoppedAt ? { stoppedAt: d.stoppedAt } : {}),
       ...(d.stopReason ? { stopReason: d.stopReason } : {}),
-      unread: overlay.readAt == null || d.lastActiveAt > overlay.readAt,
-      // The registry overwrites machineName in listSessions() from the machines
-      // table; an empty default keeps toMeta() self-contained for callers that
-      // read it directly (e.g. tests on a Session in isolation).
       machineId: d.machineId,
-      machineName: '',
       ...(d.workState ? { workState: d.workState } : {}),
       ...(d.resume ? { resumable: true, resume: d.resume } : {}),
       // ONLY when proven. A recovery surface reads this to offer starting the
@@ -1140,11 +1124,10 @@ export class Session {
       ...(d.contextUsagePercent !== undefined
         ? { contextUsagePercent: d.contextUsagePercent }
         : {}),
-      ...(overlay.snoozedUntil !== undefined ? { snoozedUntil: overlay.snoozedUntil } : {}),
       ...(d.draftUpdatedAt !== undefined ? { draftUpdatedAt: d.draftUpdatedAt } : {}),
       ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),
       ...(d.offer !== undefined ? { offer: d.offer } : {}), // [spec:SP-c7f1]
-      ...(d.handoffTarget ? { handoffTarget: d.handoffTarget } : {}),
+      ...(d.handoffTargetMachineId ? { handoffTargetMachineId: d.handoffTargetMachineId } : {}),
       ...(this.driverId ? { driverId: this.driverId } : {}),
       ...(d.requestedDriverId ? { requestedDriverId: d.requestedDriverId } : {}),
       // The bound driver's FAMILY, so a client can pick a surface without

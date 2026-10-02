@@ -20,8 +20,8 @@
  */
 
 import { createRequire } from 'node:module'
+import type { IssueProjection, SessionMeta } from '@podium/model'
 import { asMutationId } from '@podium/model'
-import type { IssueWire, SessionMeta } from '@podium/model'
 import type {
   PersistedCollectionPersistence,
   SQLiteDriver,
@@ -76,8 +76,8 @@ function session(id: string): SessionMeta {
   } as unknown as SessionMeta
 }
 
-const issue = (id: string, extra: Record<string, unknown> = {}): IssueWire =>
-  ({ id, title: id, ...extra }) as unknown as IssueWire
+const issue = (id: string, extra: Record<string, unknown> = {}): IssueProjection =>
+  ({ id, title: id, ...extra }) as unknown as IssueProjection
 
 /** Serialized SQLiteDriver over bun:sqlite — the same contract the Tauri
  *  driver implements (one FIFO queue; BEGIN IMMEDIATE transactions). `hooks`
@@ -199,7 +199,7 @@ describe('sqlite-persisted replica (POD-789)', () => {
     await a.hydrate()
     expect(a.persistent).toBe(true)
     a.applySnapshot('sessions', [session('s1'), session('s2')])
-    a.applyChanges('issues', [issue('i1')], [])
+    a.applyChanges('issueProjections', [issue('i1')], [])
     a.putTranscriptWindow('conv1', [{ kind: 'text', text: 'hello' } as never])
     a.setCursor(42)
     await a.flush()
@@ -207,7 +207,7 @@ describe('sqlite-persisted replica (POD-789)', () => {
     const b = h.make()
     const snap = await b.hydrate()
     expect(snap.sessions.map((s) => s.sessionId).sort()).toEqual(['s1', 's2'])
-    expect(snap.issues.map((i) => i.id)).toEqual(['i1'])
+    expect(snap.issueProjections.map((i) => i.id)).toEqual(['i1'])
     expect(snap.cursor).toBe(42)
     expect(b.transcriptWindow('conv1')?.items).toEqual([{ kind: 'text', text: 'hello' }])
   })
@@ -216,15 +216,15 @@ describe('sqlite-persisted replica (POD-789)', () => {
     const h = sqliteReplicaHarness()
     const a = h.make()
     await a.hydrate()
-    a.applyChanges('issues', [issue('i1', { deferUntil: 1234, note: 'x' })], [])
+    a.applyChanges('issueProjections', [issue('i1', { deferUntil: 1234, note: 'x' })], [])
     // The wire row now omits deferUntil (cleared server-side): the update
     // draft must drop it via undefined-assignment (delete is untracked).
-    a.applyChanges('issues', [issue('i1', { note: 'x' })], [])
+    a.applyChanges('issueProjections', [issue('i1', { note: 'x' })], [])
     await a.flush()
 
     const b = h.make()
     const snap = await b.hydrate()
-    const row = snap.issues[0] as unknown as Record<string, unknown>
+    const row = snap.issueProjections[0] as unknown as Record<string, unknown>
     expect(row.id).toBe('i1')
     expect(row.note).toBe('x')
     expect('deferUntil' in row).toBe(false)

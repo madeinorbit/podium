@@ -1,11 +1,12 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { ActivityComment, IssueEvent } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
   type IssueCloseReason,
   type IssueId,
-  type IssueWire,
+  type IssueReport,
   parseIssueStatusValue,
-  type SessionMeta,
 } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 import { issueCloseBlockers } from './issue-close'
@@ -71,7 +72,7 @@ interface IssueDetailProcs {
     mailInbox: Mutate<{ id: string }, IssueMailMessage[]>
     create: Mutate<
       { repoPath: string; title: string; parentId?: string; startNow: boolean },
-      IssueWire
+      IssueReport
     >
     supersede: Mutate<{ oldId: string; newId: string }>
     duplicate: Mutate<{ id: string; canonicalId: string }>
@@ -119,9 +120,9 @@ export function issueCommands({
   requestClose,
 }: {
   trpc: MobileTrpc
-  issue: IssueWire
+  issue: IssueViewModel
   /** The session roster, for the close guard's blocker check (POD-1129). */
-  sessions?: readonly SessionMeta[]
+  sessions?: readonly SessionView[]
   run: RunMutation
   actions: IssueWriteActions
   /** Hand a GUARDED close back to the host so it can raise `IssueCloseSheet`

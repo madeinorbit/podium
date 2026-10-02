@@ -1,3 +1,5 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
+
 // @vitest-environment happy-dom
 /**
  * POD-4587 (Hc2) — receipts, remote updates and rebuild with pending edits.
@@ -17,16 +19,10 @@
  *
  * Truth feed (W12): server rows arrive without the kernel's ledger overlay,
  * so a remote value on a pending field is visible to the log. Server writes
- * go through the replica facade (wire + projection dual-write, as
+ * go through the replica facade (projection + companion update, as
  * `gen/run.ts` does), so the feed emits them like any other server row.
  */
 
-import { describe, expect, it } from 'vitest'
-import { asMutationId } from '@podium/model'
-import { mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
-import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
-import { snapshotFromStore } from '../../../../harness/src/oracle/index'
-import { startScenarioEngine, upsert, type ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type {
   EditableStage,
@@ -36,10 +32,16 @@ import type {
   WriteEvent,
   WriteTransport,
 } from '@podium/client-graph/shared/write-contract'
+import { asMutationId } from '@podium/model'
+import { describe, expect, it } from 'vitest'
 import {
-  harnessWritableHandPoolArm,
   type HarnessWritableHandPoolHandle,
+  harnessWritableHandPoolArm,
 } from '../../../../harness/src/adapters/hand-pool'
+import { mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
+import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
+import { snapshotFromStore } from '../../../../harness/src/oracle/index'
+import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
 
 interface FakeTransport extends WriteTransport {
   readonly sent: { txId: TxId; command: KernelCommand }[]
@@ -81,7 +83,7 @@ function serverWrite(
   patch: { title?: string; stage?: string },
   opts: { stamp?: boolean } = {},
 ): void {
-  const wire = ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+  const wire = ctx.cache.read('issueProjection', id)?.value as Record<string, unknown> | undefined
   if (!wire) throw new Error(`issue ${id} missing from the server cache`)
   const projection = (ctx.cache.read('issueProjection', id)?.value ?? {}) as Record<string, unknown>
   // An echo carries the pending value; the stamp is an independent server
@@ -89,8 +91,7 @@ function serverWrite(
   // echo-equality steps preserve it to isolate the settle rule.
   const updatedAt = opts.stamp === false ? wire['updatedAt'] : ctx.stamp()
   ctx.replica.batch(() => {
-    upsert(ctx, 'issue', id, { ...wire, ...patch, updatedAt })
-    upsert(ctx, 'issueProjection', id, { ...projection, ...patch, updatedAt })
+    upsertIssue(ctx, id, { ...wire, ...patch, updatedAt })
   })
 }
 
@@ -393,7 +394,7 @@ describe('Hc2 hand receipts and remote updates', () => {
         expected: baseline,
       })
       const server = (handle.pool.tables.issue.get(id) as SliceIssue | undefined)?.readAt ?? null
-      expect(((handle.pool.inputs.issue(id) as SliceIssue | undefined)?.readAt ?? null)).toBe(server)
+      expect((handle.pool.inputs.issue(id) as SliceIssue | undefined)?.readAt ?? null).toBe(server)
       expect(write.log.size).toBe(0)
     } finally {
       mounted.unmount()
@@ -488,7 +489,9 @@ describe('Hc2 hand receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const id = ctx.targets.visibleRootId
-    const serverTitle = ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+    const serverTitle = ctx.cache.read('issueProjection', id)?.value as
+      | Record<string, unknown>
+      | undefined
     expect(typeof serverTitle?.['title']).toBe('string')
 
     // The outbox still holds the queued rename under its mutation id; the

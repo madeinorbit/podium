@@ -54,18 +54,17 @@ import {
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
-  ChangeEntityIdField,
-  ChangeSeqField,
   ConversationSummaryWire,
   IssueDepProjection,
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  IssueWire,
+  MachineProjection,
   RepoProjection,
   SessionMeta,
+  SessionUserStateWire,
 } from '@podium/model'
-import { ShipOrderProjection } from '@podium/model/shipping-projection'
+import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
 import { FeedEpochField, ScopedChangeOp } from '../planes/scoped-feed'
 import { changeRowArm } from './change-row'
@@ -90,15 +89,17 @@ const feedChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E
 
 export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('session'), SessionMeta),
-  feedChangeArm(z.literal('issue'), IssueWire),
   feedChangeArm(z.literal('issueProjection'), IssueProjection),
   feedChangeArm(z.literal('issueDep'), IssueDepProjection),
   feedChangeArm(z.literal('repo'), RepoProjection),
   feedChangeArm(z.literal('shipOrder'), ShipOrderProjection),
+  feedChangeArm(z.literal('shipLane'), ShipLaneProjection),
   feedChangeArm(z.literal('conversation'), ConversationSummaryWire),
   feedChangeArm(z.literal('automation'), AutomationWire),
   feedChangeArm(z.literal('automationRun'), AutomationRunWire),
   feedChangeArm(z.literal('issueUserState'), IssueUserStateWire),
+  feedChangeArm(z.literal('sessionUserState'), SessionUserStateWire),
+  feedChangeArm(z.literal('machine'), MachineProjection),
   feedChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
 ])
 export type FeedChange = z.infer<typeof FeedChange>

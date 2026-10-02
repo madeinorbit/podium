@@ -1,3 +1,4 @@
+import type { SessionView, SessionViewInput } from '../session-values'
 // POD-516 — the flight deck's pure mission projection.
 //
 // Everything here is the client-side derivation over an issue slice + a session
@@ -6,13 +7,7 @@
 // provenance, but never a `discovered-from` spin-off), ancestor-preserving mode
 // filters, and the per-row operational state that drives the status column.
 
-import {
-  asIssueId,
-  ISSUE_STAGES,
-  type SessionMeta,
-  type SessionMetaInput,
-  type UnbrandIds,
-} from '@podium/model'
+import { asIssueId, ISSUE_STAGES, type UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildFlightDeckRows,
@@ -88,14 +83,14 @@ function issue(
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
-    origin: 'human' as const,
+    intentOrigin: 'human' as const,
     audience: 'human' as const,
-    draft: false,
+    isDraftVessel: false,
     ...over,
-  } as IssueNavigationModel
+  } as unknown as IssueNavigationModel
 }
 
-function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(id: string, over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: id,
     title: id,
@@ -107,12 +102,12 @@ function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
     createdAt: '2026-07-01T00:00:00.000Z',
     lastActiveAt: '2026-07-01T01:00:00.000Z',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 // The harness-state shapes the deck reads. Annotated (not inferred) so a phase
 // or verdict that no longer exists in the model is a compile error here.
-type AgentState = NonNullable<SessionMetaInput['agentState']>
+type AgentState = NonNullable<SessionViewInput['agentState']>
 
 const SINCE = '2026-07-01T01:00:00.000Z'
 
@@ -140,7 +135,7 @@ const finishedState: AgentState = {
   nativeSubagentCount: 0,
   idle: { kind: 'done' },
 }
-const offer: NonNullable<SessionMetaInput['offer']> = {
+const offer: NonNullable<SessionViewInput['offer']> = {
   message: 'Ready to merge',
   actions: [],
   createdAt: SINCE,
@@ -163,7 +158,7 @@ const rowFor = (rows: readonly FlightDeckRow[], id: string): FlightDeckRow => {
  *        │     └ g2         (g2 is SESSIONLESS — a task with no agent yet)
  *        └─ c2
  */
-function mission(): { issues: IssueNavigationModel[]; sessions: SessionMeta[] } {
+function mission(): { issues: IssueNavigationModel[]; sessions: SessionView[] } {
   return {
     issues: [
       issue('root'),
@@ -363,9 +358,7 @@ describe('missionRootFor', () => {
     const builds = missionIndexStats().builds
     // Archiving c1 (g2's parent) must surface g2 itself, not the archived root
     // path — and the flip must be visible, i.e. a rebuild.
-    const archived = issues.map((row) =>
-      row.id === 'c1' ? { ...row, archived: true } : row,
-    )
+    const archived = issues.map((row) => (row.id === 'c1' ? { ...row, archived: true } : row))
     expect(missionRootFor(archived, asIssueId('g2'))?.id).toBe('g2')
     expect(missionIndexStats().builds - builds).toBe(1)
     const builds2 = missionIndexStats().builds
@@ -397,7 +390,7 @@ describe('missionRootFor', () => {
 // ---------------------------------------------------------------------------
 
 describe('selectedMissionRoot', () => {
-  const vessel = issue('vessel', { draft: true, title: 'Draft', stage: 'backlog' })
+  const vessel = issue('vessel', { isDraftVessel: true, title: 'Draft', stage: 'backlog' })
 
   it('resolves an ordinary selection exactly as missionRootFor does', () => {
     const { issues, sessions } = mission()
@@ -419,7 +412,7 @@ describe('selectedMissionRoot', () => {
   })
 
   it('keeps a draft that grew a worktree of its own', () => {
-    const real = issue('vessel', { draft: true, worktreePath: '/r/acme/.worktrees/v' })
+    const real = issue('vessel', { isDraftVessel: true, worktreePath: '/r/acme/.worktrees/v' })
     expect(selectedMissionRoot([real], [], asIssueId('vessel'))?.id).toBe('vessel')
   })
 
@@ -482,7 +475,7 @@ describe('deckDestinationFor', () => {
   it('is undefined when the mission is an empty draft vessel', () => {
     // Same cold case `selectedMissionRoot` answers: the deck renders its empty
     // state, so there is nothing for the jump to arrive at.
-    const vessel = issue('vessel', { draft: true, title: 'Draft', stage: 'backlog' })
+    const vessel = issue('vessel', { isDraftVessel: true, title: 'Draft', stage: 'backlog' })
     expect(deckDestinationFor([vessel], [], asIssueId('vessel'))).toBeUndefined()
   })
 
@@ -1307,7 +1300,7 @@ describe('missionProgress', () => {
   // the work. Where it is omitted nothing is staffed, so a started task reads as
   // `stall` rather than `run` (POD-1314) — that is the arithmetic, not an
   // oversight, and the split itself is exercised in its own block below.
-  const cases: Array<[string, IssueNavigationModel[], MissionProgress, SessionMeta[]?]> = [
+  const cases: Array<[string, IssueNavigationModel[], MissionProgress, SessionView[]?]> = [
     [
       'no mission at all',
       [],
@@ -1434,7 +1427,7 @@ describe('missionProgress', () => {
       string,
       IssueNavigationModel[],
       MissionProgress,
-      SessionMeta[] | undefined,
+      SessionView[] | undefined,
     ]
     expect(missionProgress(issues, sessions ?? [], issues[0]?.id ?? null)).toEqual(expected)
   })
@@ -1807,7 +1800,7 @@ describe('missionProgress', () => {
 
   it('recomputes when either slice is republished, so the meter can never go stale', () => {
     const issues = [issue('root'), issue('c1', { parentId: 'root', stage: 'in_progress' })]
-    const sessions: SessionMeta[] = []
+    const sessions: SessionView[] = []
     expect(missionProgress(issues, sessions, 'root')).toEqual({
       total: 1,
       done: 0,
@@ -1831,7 +1824,7 @@ describe('missionProgress', () => {
     })
     // And the other way round: same sessions, a republished issue slice.
     const closed = [
-      issues[0] as IssueNavigationModel,
+      issues[0] as unknown as IssueNavigationModel,
       issue('c1', { parentId: 'root', stage: 'done' }),
     ]
     expect(missionProgress(closed, staffed, 'root').done).toBe(1)
@@ -2042,7 +2035,7 @@ describe('collapsedSummary', () => {
 // ---------------------------------------------------------------------------
 
 describe('sessionNeedsHuman', () => {
-  const cases: Array<[string, SessionMeta, boolean]> = [
+  const cases: Array<[string, SessionView, boolean]> = [
     ['stopped on a question', sess('a', { agentState: needsUserState }), true],
     ['errored but retryable', sess('a', { agentState: erroredState(true) }), true],
     // WAS `false`, AND THAT WAS THE BUG (POD-1601). Retryability decides which
@@ -2060,7 +2053,7 @@ describe('sessionNeedsHuman', () => {
 })
 
 describe('issueNeedsHuman', () => {
-  const cases: Array<[string, IssueNavigationModel, SessionMeta[], boolean]> = [
+  const cases: Array<[string, IssueNavigationModel, SessionView[], boolean]> = [
     ['the flag is set', issue('i', { needsHuman: true }), [], true],
     ['it is in review', issue('i', { stage: 'review' }), [], true],
     [
@@ -2130,7 +2123,7 @@ describe('sessionAsksOnIssue', () => {
 })
 
 describe('deckSessions', () => {
-  const row = (over: Parameters<typeof issue>[1], sessions: SessionMeta[], matched = true) =>
+  const row = (over: Parameters<typeof issue>[1], sessions: SessionView[], matched = true) =>
     ({ issue: issue('i', over), sessions, matched }) as Pick<
       FlightDeckRow,
       'issue' | 'sessions' | 'matched'
@@ -2229,7 +2222,7 @@ describe('deckViewEmptyLine', () => {
 // ---------------------------------------------------------------------------
 
 describe('operationalState', () => {
-  type Case = [string, IssueNavigationModel, SessionMeta[], OperationalState]
+  type Case = [string, IssueNavigationModel, SessionView[], OperationalState]
 
   const states: Case[] = [
     [
@@ -2516,7 +2509,7 @@ describe('operationalState', () => {
 // ---------------------------------------------------------------------------
 
 describe('coordinatorCount', () => {
-  const rowsFor = (issues: IssueNavigationModel[], sessions: SessionMeta[]): FlightDeckRow[] =>
+  const rowsFor = (issues: IssueNavigationModel[], sessions: SessionView[]): FlightDeckRow[] =>
     buildFlightDeckRows(issues, sessions, 'root')
 
   it('counts the designated coordinator of every issue in the mission', () => {
@@ -2581,7 +2574,7 @@ describe('presenceNote', () => {
   // The artifact's table, verbatim. A blank where an agent row would be is the
   // one thing the deck must never render: "no session" is several situations
   // and only one of them is a problem.
-  const table: Array<[string, IssueNavigationModel, SessionMeta[], PresenceKind, string]> = [
+  const table: Array<[string, IssueNavigationModel, SessionView[], PresenceKind, string]> = [
     [
       'a session that handed the work on',
       issue('a', { stage: 'in_progress' }),

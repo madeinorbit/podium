@@ -7,18 +7,18 @@ import {
   asMachineId,
   asShipAttemptId,
   firstAdminMemberId,
-  type IssueWire,
+  type IssueReport,
   type MachineId,
 } from '@podium/model'
-import { shippingJobRequestFingerprint, type ControlMessage } from '@podium/protocol/daemon'
+import { type ControlMessage, shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
-import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'
 import { IssueService } from '../../../../server/src/modules/issues/service'
+import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'
 import {
   CompatibilityShippingPolicyResolver,
-  ShippingService,
   type ShippingEvidencePort,
+  ShippingService,
 } from '../../../../server/src/modules/shipping'
 import { SessionStore } from '../../../../server/src/store'
 
@@ -32,7 +32,7 @@ const ledger = new Ledger({
   now: Date.now,
   transact: (fn) => store.transact(fn),
 })
-const issues = IssueService.create({
+const issues = await IssueService.create({
   store,
   sessionFacts: () => [],
   sessionById: async () => undefined,
@@ -51,10 +51,6 @@ const issues = IssueService.create({
   repoOp: async () => ({ ok: true, output: '' }),
   funnel: { run: (op) => op.write() },
   ledger,
-  publishSpecs: {
-    issueUpdated: (issue) => ({ rows: [{ id: issue.id, value: issue }] }),
-    issuesChanged: (rows) => ({ rows: rows.map((issue) => ({ id: issue.id, value: issue })) }),
-  },
 })
 await issues.boot()
 
@@ -78,7 +74,7 @@ replies.on('line', (line) => {
 })
 
 const issuePort = {
-  async get(id: string): Promise<IssueWire> {
+  async get(id: string): Promise<IssueReport> {
     const issue = await issues.get(id)
     if (!issue) throw new Error(`unknown issue ${id}`)
     return issue
@@ -97,7 +93,7 @@ const recoveryPolicy = {
   // restart-recovery test measures -- so the test could not prove recovery.
   // TypeScript does not object because a spread of a Promise structurally
   // preserves its methods in the type, even though nothing is copied at runtime.
-  resolve: async (issue: IssueWire) => ({
+  resolve: async (issue: IssueReport) => ({
     ...(await compatibilityPolicy.resolve(issue)),
     validationProfileId: 'recovery-proof',
     validationProfile: {

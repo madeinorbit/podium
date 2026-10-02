@@ -1,8 +1,8 @@
+import { useStoreHandle } from '@podium/client-core/react'
 import type { FileScope } from '@podium/client-core/viewmodels'
 import { ExternalLink } from 'lucide-react'
 import type { JSX } from 'react'
 import { toast } from 'sonner'
-import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { openInSystemBrowser } from '@/lib/nativeDesktop'
 import { rawFileUrl } from './open-in-browser'
@@ -30,7 +30,7 @@ export function OpenInBrowserButton({
   /** Warn when the tab would show the on-disk bytes, not what's in the editor. */
   dirty: boolean
 }): JSX.Element | null {
-  const httpOrigin = useStoreSelector((s) => s.httpOrigin)
+  const { httpOrigin } = useStoreHandle().getSnapshot()
   const origin = httpOrigin || (typeof window === 'undefined' ? '' : window.location.origin)
   const url = rawFileUrl({ httpOrigin: origin, scope, path })
   if (!url) return null

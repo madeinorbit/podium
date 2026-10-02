@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { IssueWire, SessionId } from '@podium/model'
+import type { IssueProjection, SessionId } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { completeForRole } from '../../../llm-roles'
 import type { IssueStore } from './core'
@@ -75,11 +75,11 @@ export class IssueAssistantDigestModule {
     )
   }
 
-  async refreshAssistant(id: string): Promise<IssueWire> {
+  async refreshAssistant(id: string): Promise<IssueProjection> {
     // `let`, because this draft does NOT survive the awaits below — the status/log
     // probes and the LLM completion — and is re-cut after them (POD-3375).
     let row = await this.store.draftOrThrow(id)
-    if (!row.worktreePath) return await this.store.toWire(row)
+    if (!row.worktreePath) return await this.store.projection(row)
     const settings = await this.store.d.getSettings()
     const members = (await this.store.sessionsFor(row)).map((s) => ({
       agentKind: s.agentKind,
@@ -151,7 +151,7 @@ export class IssueAssistantDigestModule {
      * row rather than a wire built from a spent draft.
      */
     row = await this.store.draftOrThrow(id)
-    if (!result) return await this.store.toWire(row) // leave prior state intact on any LLM/parse failure
+    if (!result) return await this.store.projection(row) // leave prior state intact on any LLM/parse failure
     row.activityNotes = result.activityNotes || row.activityNotes
     row.notesUpdatedAt = this.store.now()
     row.blockedBy = result.blockedBy

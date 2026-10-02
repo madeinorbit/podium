@@ -1,4 +1,5 @@
-import { asArtifactId, asIssueId, type IssuePanelArtifact, type IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asArtifactId, asIssueId, type IssuePanelArtifact } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   endAtTagBoundary,
@@ -8,7 +9,7 @@ import {
   issueArtifactPreview,
 } from './issue-artifacts'
 
-function issue(overrides: Partial<IssueWire> = {}): IssueWire {
+function issue(overrides: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id: asIssueId('iss_art'),
     seq: 1,
@@ -16,7 +17,7 @@ function issue(overrides: Partial<IssueWire> = {}): IssueWire {
     repoPath: '/repo',
     worktreePath: '/repo/.worktrees/POD-1',
     ...overrides,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 const shot: IssuePanelArtifact = {

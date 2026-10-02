@@ -1,3 +1,4 @@
+import { fixtureViewModels } from './normalized-issues'
 /**
  * POD-4552 — export an anonymised snapshot of a running Podium server and
  * compare its shape with the fixture at 1x.
@@ -15,8 +16,9 @@
  * minted for the CLI in `~/.podium/cli-session.json`. The bootstrap is read
  * once, as one stream (the live corpus is ~5,000 issues).
  *
- * The export is written under `harness/.live/` (gitignored). Never commit it;
- * attach it to the issue. The hashing key is random per run and never stored.
+ * The export is written under `harness/.live/` (gitignored). It never leaves
+ * ludovico and is never attached, committed or mailed. The hashing key is
+ * random per run and never stored.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -24,7 +26,14 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import type { PodiumClientApi } from '@podium/client-core/api'
+import { sessionViews } from '@podium/client-core/session-values'
 import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
+import type {
+  MachineProjection,
+  RepoProjection,
+  SessionMeta,
+  SessionUserStateWire,
+} from '@podium/model'
 import { expectedSnapshot } from '../oracle/index'
 import { buildCorpus } from './index'
 import {
@@ -99,15 +108,19 @@ function clientApi(
   }
 }
 
-const EXPORTED_ENTITIES: Record<string, keyof LiveCollections> = {
+const EXPORTED_ENTITIES = {
+  sessionUserState: 'sessionUserStates',
+  machine: 'machineProjections',
   issue: 'issues',
   issueProjection: 'issueProjections',
+  issueUserState: 'issueUserStates',
+  issueGitState: 'issueGitStates',
   session: 'sessions',
   repo: 'repoProjections',
   issueDep: 'issueDeps',
 }
 
-async function readLive(origin: string): Promise<{
+export async function readLive(origin: string): Promise<{
   raw: LiveCollections
   snapshotSeq: number
   bootstrapEntityCounts: Record<string, number>
@@ -138,17 +151,28 @@ async function readLive(origin: string): Promise<{
   const api = clientApi(origin, cookie)
   const scan = await api.discovery.refreshRepos.mutate()
   const pins = await api.pins.list.query()
+  const userStates = rowsOf<SessionUserStateWire>('sessionUserState')
+  const raw = {
+    issues: [],
+    issueProjections: rowsOf('issueProjection'),
+    issueUserStates: rowsOf('issueUserState'),
+    issueGitStates: rowsOf('issueGitState'),
+    sessions: sessionViews(rowsOf<SessionMeta>('session'), {
+      // Visibility admits only the authenticated principal's personal rows.
+      userId: userStates[0]?.userId ?? '',
+      userStates,
+      machines: rowsOf<MachineProjection>('machine'),
+      repos: rowsOf<RepoProjection>('repo'),
+    }),
+    repoProjections: rowsOf('repo'),
+    issueDeps: rowsOf('issueDep'),
+    repos: scan.repositories,
+    machines: scan.machines,
+    pins,
+  } as LiveCollections
+  raw.issues = fixtureViewModels(raw)
   return {
-    raw: {
-      issues: rowsOf('issue'),
-      issueProjections: rowsOf('issueProjection'),
-      sessions: rowsOf('session'),
-      repoProjections: rowsOf('repo'),
-      issueDeps: rowsOf('issueDep'),
-      repos: scan.repositories,
-      machines: scan.machines,
-      pins,
-    },
+    raw,
     snapshotSeq,
     bootstrapEntityCounts,
   }

@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { ONBOARDING_VPS_SERVER_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'

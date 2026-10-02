@@ -1,4 +1,3 @@
-import type { WorldIndexReader } from '../../world-index'
 import type {
   AccountId,
   ArtifactId,
@@ -6,7 +5,6 @@ import type {
   IssueTree,
   IssueTreeNode,
   IssueTreeSession,
-  IssueWire,
   MachineId,
   SessionId,
   SessionMeta,
@@ -21,10 +19,10 @@ import type {
   LedgerCommitResult,
 } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
-import type { SessionFacts } from '../../sessions/facts'
 import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
-import type { PublishSpec } from '../publish'
+import type { SessionFacts } from '../../sessions/facts'
+import type { WorldIndexReader } from '../../world-index'
 
 /**
  * The write-funnel face IssueService mutations run through (issue #190): the
@@ -34,12 +32,8 @@ import type { PublishSpec } from '../publish'
  * happens UPSTREAM (router / issue-commands authz) — service-level ops pass no
  * `authorize` stage of their own.
  *
- * ONE MEMBER NOW. `publishComputed` — the legacy full-list snapshot tail every
- * issue fan-out also called — was deleted at the serving-path cutover
- * (POD-1203). The change rows this feature declares at its write seam ARE the
- * fan-out; a legacy client's `issuesChanged` is built from them at the
- * connection boundary. Nothing was moved into this interface to replace it,
- * because there is nothing left for the feature to do after it has committed.
+ * Committed change rows are the publication boundary. The feature does not
+ * perform a separate snapshot fan-out after committing.
  */
 export interface IssueFunnel {
   run<T>(op: { authorize?: () => Promise<void>; write: () => Promise<T> }): Promise<T>
@@ -52,32 +46,13 @@ export interface IssueFunnel {
  *  so tests can fake it. */
 export interface IssueLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-  /** 'issueProjection' is the NORMALIZED kind [POD-796] — a SECOND kind
-   *  alongside 'issue', reconciled from the same truth in the same pass, never a
-   *  reshaping of it (the ledger stores one value per (kind, id), so 'issue'
-   *  cannot carry two payload shapes at once). 'issueDep' and 'repo' are the two
-   *  kinds the replica joins the projection against [POD-822] — the dependency
-   *  edges and the repo prefixes the projection cannot carry (see model's
-   *  `issue/dep.ts`, `repo/fields.ts`). All three reconcile the same way and are
-   *  emitted only under the same flag. */
+  /** Reconcile normalized issues, their companions and repository facts. */
   reconcile(
-    entity: 'issue' | 'issueProjection' | 'issueUserState' | 'issueGitState' | 'issueDep' | 'repo',
+    entity: 'issueProjection' | 'issueUserState' | 'issueGitState' | 'issueDep' | 'repo',
     rows: { id: string; value: unknown }[],
   ): Promise<MetadataChange[]>
   /** Append partial truth without diffing unrelated baseline rows (POD-210). */
   capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
-}
-
-/** Publish-spec factory for the two issue wire shapes. The relay implements it
- *  with IssuePublisher, which builds the specs and nothing else: it used to
- *  union hub-mirrored issues into the list snapshot (node-hub-issues §2.1) and
- *  to own a publish tail of its own, and POD-309 and POD-1576 removed those in
- *  turn. The service reconciles and fans out these specs itself. */
-export interface IssuePublishSpecs {
-  /** Single-issue delta (issue #22) — the issueUpdated legacy snapshot. */
-  issueUpdated(issue: IssueWire): PublishSpec
-  /** Full-list snapshot (membership / cross-issue derived changes). */
-  issuesChanged(localIssues: IssueWire[]): PublishSpec
 }
 
 /** Read-gated auto-archive window (issue #127): a done+read issue auto-archives
@@ -196,13 +171,12 @@ export interface IssueDeps {
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, WIRED [POD-1639] — for the two reads
    *  whose output carries the sessions to a client (`issues.get`, the tree). */
-  listSessionsForIssue(
-    worktreePath: string | null,
-    issueId: IssueId,
-  ): Promise<SessionMeta[]>
+  listSessionsForIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
   /** A KNOWN SET of sessions, wired [POD-2322]. The issue tree selects member
    *  ids across the whole subtree from facts, then projects only those. */
   sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>
+  /** Current label from MachinesService; omitted by fixtures that only know ids. */
+  machineName?(machineId: MachineId): Promise<string>
   getSettings(): Promise<PodiumSettings>
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —
@@ -291,7 +265,6 @@ export interface IssueDeps {
    *  change rows atomically with the row write; derived ripples reconcile. */
   ledger: IssueLedger
   /** Publish-spec factory (modules/issues/publish) for the funnel's tail. */
-  publishSpecs: IssuePublishSpecs
   now?(): string
   /** The session's explicit issue attachment (issue-as-workspace). Injected by
    *  the relay; optional so existing test deps literals stay valid. */
@@ -507,6 +480,7 @@ export type IssuePatch = Partial<
     | 'humanQuestionOptions'
     | 'humanQuestionAskedBy'
     | 'humanQuestionAskedAt'
+    | 'humanQuestionAttribution'
     | 'coordinatorSessionId'
   >
 > & {

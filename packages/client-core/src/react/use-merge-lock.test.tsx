@@ -13,7 +13,7 @@ type TestTrpc = {
 let trpc: TestTrpc
 
 vi.mock('./provider', () => ({
-  useStoreSelector: (select: (state: { trpc: TestTrpc }) => unknown) => select({ trpc }),
+  useStoreHandle: () => ({ getSnapshot: () => ({ trpc }) }),
 }))
 
 const { LOCK_POLL_MS, MERGE_LOCK_NAME, useLockState, useRepoLocks } = await import(

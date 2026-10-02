@@ -37,18 +37,13 @@
  * should be read as the second-account check.
  */
 
+import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import { type DeltaFrame, Replica, type ReplicaEvent } from '@podium/sync/replica'
 import {
   ConformanceAuthority,
   type ConformancePrincipal,
   conformanceUser,
 } from '@podium/sync/testing'
-import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
-import {
-  type BootstrapChunk,
-  type DeltaFrame,
-  Replica,
-  type ReplicaEvent,
-} from '@podium/sync/replica'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FeedServerFrame } from '../../socket-transport'
@@ -149,7 +144,7 @@ describe('POD-376 divergence matrix', () => {
     const view = store.viewFor('default')
     const events: ReplicaEvent[] = []
     let bootstrapRequests = 0
-  const port = authority.portFor(principal)
+    const port = authority.portFor(principal)
     const replica = new Replica({
       store: view.cache,
       // The heal half is the CONFORMANCE authority's own port — the same
@@ -218,11 +213,16 @@ describe('POD-376 divergence matrix', () => {
     const alice = await openClient(ALICE)
     await online(alice)
     const at = alice.replica.cursor?.seq ?? 0
-    authority.append({ entity: 'issue', entityId: 'i1', op: 'upsert', payload: { id: 'i1' } })
-    authority.grant('user:alice', 'issue', 'i1')
+    authority.append({
+      entity: 'issueProjection',
+      entityId: 'i1',
+      op: 'upsert',
+      payload: { id: 'i1' },
+    })
+    authority.grant('user:alice', 'issueProjection', 'i1')
     alice.pushDelta(at)
     await alice.replica.settled()
-    expect(alice.keys()).toEqual(['issue:i1', 'session:s1'])
+    expect(alice.keys()).toEqual(['issueProjection:i1', 'session:s1'])
   })
 
   // ── 2: cold-start paint from durable state ────────────────────────────────

@@ -263,7 +263,7 @@ describe('ingest', () => {
     const all = observeAll(r.handle.pool)
     try {
       const { pool } = r.handle
-      const id = openIssues.find((issue) => !issue.draft)!.id
+      const id = openIssues.find((issue) => !issue.isDraftVessel)!.id
       const before = new Map(all.views)
       pool.stats.reset()
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Renamed by the test' })] })
@@ -331,7 +331,7 @@ describe('ingest', () => {
       const origins = new Set(
         corpus.sliceIssues.flatMap((issue) => (issue.deps ?? []).map((dep) => dep.id)),
       )
-      const id = openIssues.find((issue) => !issue.draft && !origins.has(issue.id))!.id
+      const id = openIssues.find((issue) => !issue.isDraftVessel && !origins.has(issue.id))!.id
       const titles: (string | undefined)[] = [pool.view(id)?.title]
       const off = pool.subscribe(id, () => titles.push(pool.view(id)?.title))
       expect(pool.record('issue', id)?.title).toBe(titles[0])

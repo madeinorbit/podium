@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../shared/src/scenarios'
 /**
  * POD-4445 — shared web-entry wiring. Every arm/control page mounts the same
  * way over a kernel seeded at the `?scale=` corpus and exposes the same
@@ -17,11 +18,11 @@
  *   same one-field change of the same row. A click never selects the row.
  *   Heartbeat and visible heartbeat together price "a session nobody sees"
  *   against "a session on screen".
- * - `rename`: title dual-write on a DRAWN open root (#4), from its server
+ * - `rename`: title update on a DRAWN open root (#4), from its server
  *   title to `<title> (renamed)`; the next `prepare` restores its server rows
  *   untimed, so every sample is the same rename of the same row and titles
  *   never grow (POD-4559).
- * - `stagemove`: stage dual-write (open → done/tucked) on a DRAWN childless
+ * - `stagemove`: stage and personal-state update (open → done/tucked) on a DRAWN childless
  *   open root (#5); the next `prepare` reopens it untimed (its server rows
  *   restored), so every sample is the same move of the same row.
  * - `clock`: advance the clock 60 s with no row change, through the runtime's
@@ -119,16 +120,17 @@
 
 import { issueActivityAt, MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
 import { activityAfterRead } from '@podium/client-core/viewmodels'
+import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
+import { createRowSource, type RowSourceHandle } from '@podium/client-graph/shared/row-source'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { asIssueId } from '@podium/model'
 import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
-import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
 import {
   type CommitLog,
   createCommitLog,
   withCommitLog,
   withCommitLogAsync,
 } from '../../shared/src/row-shell'
-import { createRowSource, type RowSourceHandle } from '@podium/client-graph/shared/row-source'
 import {
   applyHeartbeat,
   applyStageMove,
@@ -140,9 +142,7 @@ import {
   type ScenarioEngine,
   startEngineOnCorpus,
   targetRules,
-  upsert,
 } from '../../shared/src/scenarios'
-import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { createEngineLocals, localsOfEngine } from '../src/engine-locals'
 import {
   buildCorpus,
@@ -707,18 +707,17 @@ export function mountPage(options: MountPageOptions): void {
   const visibleHeartbeat = pickVisibleHeartbeat(rules, bootWindow)
   /** The row's server rows now, restored by the returned undo (untimed, next `prepare`). */
   function restorer(id: string): () => void {
-    const wire = boot.cache.read('issue', id)?.value
+    const wire = boot.cache.read('issueProjection', id)?.value
     const projection = boot.cache.read('issueProjection', id)?.value
     if (wire === undefined) throw new Error(`[proto] ${id} missing from the cache`)
     return () =>
       boot.replica.batch(() => {
-        upsert(boot, 'issue', id, wire)
-        if (projection !== undefined) upsert(boot, 'issueProjection', id, projection)
+        upsertIssue(boot, id, wire)
       })
   }
   /** Same title every sample: the server title, then `(renamed)`, undone before the next change. */
   function rename(id: string): void {
-    const wire = boot.cache.read('issue', id)?.value as { title?: string } | undefined
+    const wire = boot.cache.read('issueProjection', id)?.value as { title?: string } | undefined
     if (wire?.title === undefined) throw new Error(`[proto] issue ${id} missing`)
     applyTitleRename(boot, id, `${wire.title} (renamed)`)
   }
@@ -760,9 +759,12 @@ export function mountPage(options: MountPageOptions): void {
    *  unread one. */
   function unread(id: string): boolean {
     const store = engine.getSnapshot()
-    const issue = store.issues.find((candidate) => candidate.id === id)
+    const issue = store.issueProjections.find((candidate) => candidate.id === id)
     if (issue === undefined) return false
-    return activityAfterRead(issue.readAt, issueActivityAt(issue, store.sessions, store.issues))
+    return activityAfterRead(
+      store.issueUserStates.find((row) => row.entityId === id)?.readAt ?? null,
+      issueActivityAt(issue, store.sessions, store.issueProjections),
+    )
   }
 
   /** The page clock: the runtime's own tick (POD-4550). The control derives

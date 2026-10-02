@@ -11,7 +11,8 @@ import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness/br
 import { createLogger } from '@podium/logger'
 import {
   type AccountId,
-  type AgentKind,
+  AgentKind,
+  type MachineProjection,
   agentCapabilityRejection,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
@@ -277,7 +278,7 @@ export interface MachinesDeps {
   /** Awaited derived-state work that must complete before inventory observers run. */
   onInventoryRecorded?(): Promise<void>
   /** Compatibility-only for isolated fixtures without a bus. */
-  sessionsChangedForMachine?(machineId: MachineId): void
+  publishMachineProjection?(id: MachineId, value: MachineProjection): Promise<void>
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
   /** Principal-scoped projection supplied by the command-policy composition boundary. */
@@ -963,6 +964,7 @@ export class MachinesService {
       ...(this.presenceReadOnly ? { verifyOnly: true } : {}),
     })
     if (!result.ok) return result
+    if (frame.type === 'pair') await this.publishDisplayProjection(result.machineId)
     return {
       ...result,
       ...(bindingConfirmations === undefined ? {
@@ -1065,8 +1067,14 @@ export class MachinesService {
       if (passwordHash) await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
       return enrollSetupMachine(this.deps.store, this.deps.installationId!, request, actor)
     })
-    await requestParentEnrollment({ action: 'confirm', agentExecution,
-      setupRequestId: receipt.requestId, publicKey: receipt.publicKey, installationId: receipt.installationId })
+    await this.publishDisplayProjection(this.deps.hostMachineId)
+    await requestParentEnrollment({
+      action: 'confirm',
+      agentExecution,
+      setupRequestId: receipt.requestId,
+      publicKey: receipt.publicKey,
+      installationId: receipt.installationId,
+    })
   }
 
   async grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean> {
@@ -1541,6 +1549,33 @@ export class MachinesService {
    * A machine it was not built from answers "not known" — never a default that
    * reads like a live, named, logged-in host.
    */
+  /** Small offline-replicated display record. No fleet listing or operational
+   * details are copied into the authority row. */
+  private displayProjection(machine: MachineRecord): MachineProjection {
+    return {
+      id: machine.id,
+      name: machine.name,
+      loggedOutHarnesses: AgentKind.options.filter((kind) =>
+        machine.inventory?.agents.some(
+          (agent) => agent.kind === kind && agent.installed === true && agent.login.state === 'out',
+        ),
+      ),
+    }
+  }
+
+  async projectionRows(): Promise<{ id: MachineId; value: MachineProjection }[]> {
+    return (await this.machineRecords()).map((machine) => ({
+      id: machine.id,
+      value: this.displayProjection(machine),
+    }))
+  }
+
+  private async publishDisplayProjection(id: MachineId): Promise<void> {
+    if (!this.deps.publishMachineProjection) return
+    const machine = await this.deps.store.machines.getMachine(id)
+    if (machine) await this.deps.publishMachineProjection(id, this.displayProjection(machine))
+  }
+
   async factsSnapshot(): Promise<MachineFactsSnapshot> {
     const fleetChannel = this.fleetChannel()
     const byId = new Map<
@@ -1647,18 +1682,9 @@ export class MachinesService {
     inventoryJson: string,
     descriptors: HarnessDescriptorWire[] = [],
   ): Promise<void> {
-    // A REPEATED, IDENTICAL REPORT MUST NOT RE-PROJECT EVERY SESSION ON THE MACHINE.
-    // The daemon re-reports on a timer and the gateway polls it every 10 s for
-    // three minutes after each attach (POD-4259). `machine.metadataChanged` makes
-    // the sessions module re-wire every session it holds for this machine —
-    // thousands on a long-lived instance, hibernated and exited rows included —
-    // and almost all of those captures dedup to nothing. On ludovico that cost
-    // ~3 s of the server's main thread per report; overlapping settle windows
-    // starved the daemon's hello acknowledgement, the link flapped, each attach
-    // opened another window, and the machine read as "(no access)" for as long as
-    // the loop ran. The row write and the waiters still happen — the memo only
-    // gates the fan-out, and it is dropped with the incarnation so the first
-    // report of a new daemon always publishes.
+    // Repeated inventory still settles waiters and persists the source, but
+    // only a changed report republishes the machine and notifies login readers.
+    // Sessions join machine display facts on the client (POD-4974 S6).
     const unchanged = this.lastInventoryJsonByMachine.get(machineId) === inventoryJson
     this.lastInventoryJsonByMachine.set(machineId, inventoryJson)
     this.harnessDescriptorsByMachine.set(machineId, descriptors)
@@ -1667,8 +1693,8 @@ export class MachinesService {
     this.settleInventoryWaiters(machineId)
     await this.deps.onInventoryRecorded?.()
     if (unchanged) return
+    await this.publishDisplayProjection(machineId)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
-    else this.deps.sessionsChangedForMachine?.(machineId)
     await this.broadcastMachines()
   }
 
@@ -1708,8 +1734,8 @@ export class MachinesService {
 
   async renameMachine(id: MachineId, name: string): Promise<void> {
     await this.deps.store.machines.renameMachine(id, name)
+    await this.publishDisplayProjection(id)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-    else this.deps.sessionsChangedForMachine?.(id)
     await this.broadcastMachines()
   }
 
@@ -1729,8 +1755,6 @@ export class MachinesService {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine || machine.revokedAt) throw new Error(`unknown or revoked machine '${id}'`)
     await this.deps.store.machines.setUpdateChannel(id, channel)
-    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-    else this.deps.sessionsChangedForMachine?.(id)
     await this.broadcastMachines()
   }
 
@@ -1805,8 +1829,8 @@ export class MachinesService {
         })
       })
       this.retireIncarnation(id)
+      await this.publishDisplayProjection(id)
       if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-      else this.deps.sessionsChangedForMachine?.(id)
       await this.broadcastMachines()
     })
   }
@@ -1836,8 +1860,8 @@ export class MachinesService {
     // where it first becomes known (before it, the projection falls back to the raw
     // id). Same seam a rename uses — the derived field has one way to be refreshed,
     // not one for boot and one for later.
+    await this.publishDisplayProjection(id)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-    else this.deps.sessionsChangedForMachine?.(id)
     return id
   }
 

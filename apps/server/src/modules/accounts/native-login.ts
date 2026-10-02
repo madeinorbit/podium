@@ -1,14 +1,22 @@
-import type { HarnessAgent, MachineId, SessionId, SessionMeta, UserId } from '@podium/model'
+import type {
+  HarnessAgent,
+  MachineId,
+  MachineProjection,
+  SessionId,
+  SessionMeta,
+  UserId,
+} from '@podium/model'
 import { asMachineId } from '@podium/model'
+import { withReadScope } from '../../store/executor/read-scope'
 import type { EventBus } from '../bus'
 import type { MachinesService } from '../machines/service'
 import type { SessionLifecycle } from '../sessions/lifecycle'
-import { withReadScope } from '../../store/executor/read-scope'
 
 export type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed'
 
 export type NativeLoginAttempt = Pick<SessionMeta, 'sessionId'> &
-  Required<Pick<SessionMeta, 'machineId' | 'machineName'>> & {
+  Required<Pick<SessionMeta, 'machineId'>> & {
+    machineName: MachineProjection['name']
     status: NativeLoginAttemptStatus
     error?: string
   }
@@ -70,15 +78,11 @@ export class NativeLoginService {
     if (existing && (existing.status === 'running' || existing.status === 'refreshing'))
       return existing
 
-    const candidates = (await this.deps.machines
-      .listMachines())
-      .filter(
-        (machine) =>
-          machine.online &&
-          machine.inventory?.agents.some(
-            (agent) => agent.kind === input.harness && agent.installed,
-          ),
-      )
+    const candidates = (await this.deps.machines.listMachines()).filter(
+      (machine) =>
+        machine.online &&
+        machine.inventory?.agents.some((agent) => agent.kind === input.harness && agent.installed),
+    )
     // The owner row is read once for the scan (rule 18), while the grant
     // checks use the explicit read scope opened by start() (rule 46). Candidate
     // filtering and the selected-machine recheck therefore share one lease

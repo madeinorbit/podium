@@ -161,7 +161,7 @@ describe('POD-4743 the one row reader, not in memory', () => {
     // itself is drawn (POD-4754), so a held-out row with one would defer it.
     const target = Object.keys(want.rowsById).find(
       (id) =>
-        corpus.sliceIssues.find((issue) => issue.id === id)?.draft !== true &&
+        corpus.sliceIssues.find((issue) => issue.id === id)?.isDraftVessel !== true &&
         !corpus.sliceIssues.some((issue) => issue.parentId === id),
     )
     expect(target).toBeDefined()

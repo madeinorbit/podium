@@ -1,8 +1,14 @@
 import { relativeTime } from '@podium/client-core/focus'
+import { recordChipWork } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
-import { formatLong, truncateTitle } from '@podium/protocol'
+import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
+import type { MobxPool } from '@podium/client-graph'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { chipsDataLayer } from '@/lib/chips-data-layer'
+import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import {
   ArchiveRestore,
   Check,
@@ -51,7 +57,7 @@ import {
   sessionWorkingIssueRef,
 } from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
-import { IssueReference } from './IssueReference'
+import { IssueReference, LiveIssueReference } from './IssueReference'
 
 /**
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
@@ -60,18 +66,91 @@ import { IssueReference } from './IssueReference'
  *  - rendering the <RefCard> when a ref is open and resolvable.
  */
 export function RefMiniviewHost(): JSX.Element | null {
+  return chipsDataLayer() === 'pool' ? <PoolRefMiniviewHost /> : <LegacyRefMiniviewHost />
+}
+
+function LegacyRefMiniviewHost(): JSX.Element {
   const issues = useReplicaIssues()
-  const { trpc, sessions, setOpenIssueId, setView, navigateToSession, machines } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      sessions: s.sessions,
-      setOpenIssueId: s.setOpenIssueId,
-      setView: s.setView,
-      navigateToSession: s.navigateToSession,
-      machines: s.machines,
-    }),
-    shallowEqual,
-  )
+  recordChipWork(useStoreHandle(), 'legacyScans')
+  return <RefMiniviewContents issues={issues} resolveIssue={(token) => resolveRef(token, issues, [])} />
+}
+
+function PoolRefMiniviewHost(): JSX.Element {
+  const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
+  const pool = useWorklistPool()
+  const sessions = useStoreSelector(s => s.sessions)
+  const read = useCallback((pool: MobxPool) => {
+    if (!state) return { issues: [] as RefIssueLike[], loading: false }
+    const parsed = parseAnyRef(state.ref)
+    const id = parsed?.kind === 'issue' ? pool.references.id(state.ref) : sessions.find(s => s.displayRef === state.ref)?.issueId
+    if (typeof id === 'symbol') return { issues: [] as RefIssueLike[], loading: true }
+    const issues: RefIssueLike[] = []
+    const seen = new Set<string>()
+    let next = id
+    let loading = false
+    // The open issue and its ancestry only, for the existing session action.
+    // Each row is read through the pool. No issue list or peek is available.
+    while (next && !seen.has(next)) {
+      seen.add(next)
+      const row = pool.row('issue', next)
+      if (typeof row === 'symbol') { loading = true; break }
+      if (!row) break
+      const model = pool.references.readById(next)
+      const issue = row as RefIssueLike
+      const description = (row as { description?: string | { value?: string } }).description
+      let childCount = 0, childDoneCount = 0
+      // The card's enrichment reads only the declared raw child relation.
+      // Archived children count too, matching the existing card projection.
+      for (const childId of pool.relations.many('issue', next, 'treeChildren')) {
+        const child = pool.row('issue', childId)
+        if (typeof child === 'symbol') { loading = true; continue }
+        if (!child) continue
+        childCount++
+        if ((child as { stage: string }).stage === 'done') childDoneCount++
+      }
+      issues.push({ ...issue, description: typeof description === 'string' ? description : description?.value ?? '',
+        childCount, childDoneCount,
+        ...(model && typeof model !== 'symbol' ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix } : {}) })
+      next = pool.relations.one('issue', next, 'treeParent')
+    }
+    return { issues, loading }
+  }, [sessions, state])
+  const data = useWorklistPoolProjection(read, { issues: [] as RefIssueLike[], loading: !!state })
+  const resolveIssue = (token: string): ResolvedRef | null => {
+    const parsed = parseAnyRef(token)
+    if (!pool || parsed?.kind !== 'issue') return null
+    const id = pool.references.id(token)
+    if (!id || typeof id === 'symbol') return null
+    const row = pool.row('issue', id)
+    return row && typeof row !== 'symbol' ? { kind: 'issue', ref: parsed, issue: row as RefIssueLike } : null
+  }
+  return <>
+    <IssueChipLiveness root={document.body} />
+    <RefMiniviewContents issues={data.issues} resolveIssue={(token) => {
+      const parsed = parseAnyRef(token)
+      const issue = data.issues[0]
+      return token === state?.ref && issue && parsed?.kind === 'issue' ? { kind: 'issue', ref: parsed, issue } : resolveIssue(token)
+    }} loading={data.loading} />
+  </>
+}
+
+function RefMiniviewContents({ issues, resolveIssue, loading = false }: {
+  issues: readonly RefIssueLike[]
+  resolveIssue: (ref: string) => ResolvedRef | null
+  loading?: boolean
+}): JSX.Element | null {
+  const { trpc, sessions, setOpenIssueId, setView, navigateToSession, machines } =
+    useStoreSelector(
+      (s) => ({
+        trpc: s.trpc,
+        sessions: s.sessions,
+        setOpenIssueId: s.setOpenIssueId,
+        setView: s.setView,
+        navigateToSession: s.navigateToSession,
+        machines: s.machines,
+      }),
+      shallowEqual,
+    )
   const { retarget } = useIssueExplorer()
   const loadComments = useCallback((id: IssueId) => trpc.issues.comments.query({ id }), [trpc])
 
@@ -106,7 +185,7 @@ export function RefMiniviewHost(): JSX.Element | null {
         openMiniview(ref, anchor)
         return
       }
-      const target = resolveRef(ref, issues, sessions)
+      const target = parseAnyRef(ref)?.kind === 'issue' ? resolveIssue(ref) : resolveRef(ref, [], sessions)
       if (!target) {
         openMiniview(ref, anchor) // nothing to navigate to — fall back to the card (shows "not found")
         return
@@ -120,7 +199,7 @@ export function RefMiniviewHost(): JSX.Element | null {
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
   if (!state) return null
 
-  const target = resolveRef(state.ref, issues, sessions)
+  const target = parseAnyRef(state.ref)?.kind === 'issue' ? resolveIssue(state.ref) : resolveRef(state.ref, [], sessions)
 
   return createPortal(
     <RefCard
@@ -128,6 +207,7 @@ export function RefMiniviewHost(): JSX.Element | null {
       refToken={state.ref}
       anchor={state.anchor}
       target={target}
+      loading={loading}
       issues={issues}
       sessions={sessions}
       machines={machines}
@@ -189,10 +269,12 @@ export function RefCard({
   onStart,
   onPromote,
   loadComments,
+  loading = false,
 }: {
   refToken: string
   anchor?: { x: number; y: number }
   target: ResolvedRef | null
+  loading?: boolean
   issues: readonly RefIssueLike[]
   /** Live sessions, for the "Go to session" action. Absent = no such action. */
   sessions?: readonly RefSessionLike[]
@@ -250,7 +332,7 @@ export function RefCard({
         ? target.session.name || target.session.title || ''
         : ''
   const issueRefModel: IssueReferenceModel | null =
-    target?.kind === 'issue'
+    chipsDataLayer() === 'legacy' && target?.kind === 'issue'
       ? target.issue.stage
         ? issueReferenceModel({
             id: target.issue.id,
@@ -339,7 +421,7 @@ export function RefCard({
                 same mono voice, and reads first. */}
             <div className="mb-2.5 flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
-                {issueRefModel && <IssueReference model={issueRefModel} showTitle={false} />}
+                {chipsDataLayer() === 'pool' ? <LiveIssueReference token={refToken} showTitle={false} /> : issueRefModel && <IssueReference model={issueRefModel} showTitle={false} />}
                 {target.issue.priority !== undefined && (
                   <span
                     className="flex flex-none items-center gap-1"
@@ -444,7 +526,7 @@ export function RefCard({
           </div>
           <div className="px-3 py-2.5 text-[13px]">
             {!target ? (
-              <p className="text-muted-foreground">Reference not found.</p>
+              <p className="text-muted-foreground">{loading ? 'Loading reference…' : 'Reference not found.'}</p>
             ) : (
               <SessionSummary session={target.session} issues={issues} />
             )}
@@ -464,7 +546,30 @@ export function RefCard({
  * settings prefix editor). Mounted once at app root; renders nothing.
  * Linkification is inert until this runs (an empty prefix set disables it).
  */
-export function RefPrefixSync(): null {
+export function RefPrefixSync(): JSX.Element {
+  return chipsDataLayer() === 'pool' ? <PoolRefPrefixSync /> : <LegacyRefPrefixSync />
+}
+
+function LegacyRefPrefixSync(): JSX.Element {
+  const issues = useReplicaIssues()
+  recordChipWork(useStoreHandle(), 'legacyScans')
+  return <RefPrefixSyncContents issuePrefixKey={[...collectRefPrefixes(issues)].sort().join(',')} />
+}
+
+function PoolRefPrefixSync(): JSX.Element {
+  const read = useCallback((pool: MobxPool) => {
+    const prefixes = new Set<string>()
+    for (const id of pool.tables.repo.keys()) {
+      const repo = pool.row('repo', id) as { prefix?: string } | undefined
+      if (repo?.prefix) prefixes.add(repo.prefix)
+    }
+    return [...prefixes].sort().join(',')
+  }, [])
+  const issuePrefixKey = useWorklistPoolProjection(read, '')
+  return <RefPrefixSyncContents issuePrefixKey={issuePrefixKey} />
+}
+
+function RefPrefixSyncContents({ issuePrefixKey }: { issuePrefixKey: string }): null {
   const { trpc, repoKey } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
@@ -476,8 +581,6 @@ export function RefPrefixSync(): null {
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
-  const issuePrefixKey = [...collectRefPrefixes(issues)].sort().join(',')
   const [repoPrefixes, setRepoPrefixes] = useState<string[]>([])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: repoKey is a deliberate refetch trigger — repos changing means the prefix set may have too.

@@ -17,7 +17,7 @@
 
 import { type LockWire, mergeLockName } from '@podium/protocol'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useStoreSelector } from './provider'
+import { useStoreHandle } from './provider'
 
 /**
  * The two conventional leases the workspace serializes on. They are the two the
@@ -87,7 +87,7 @@ const messageFor = (cause: unknown): string =>
  * — to every lock in the repository.
  */
 function useLockQuery(repoPath: string | null, lockName: string | null): QueryState {
-  const trpc = useStoreSelector((state) => state.trpc)
+  const trpc = useStoreHandle().getSnapshot().trpc
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY)
   const loadRef = useRef<() => void>(() => {})
   const refresh = useCallback(() => loadRef.current(), [])

@@ -16,11 +16,18 @@ import { legacySidebarRow, legacySidebarSections, poolStatusLine, sidebarCompara
 
 export interface CheckRow {
   readonly id: string
+  /** Only payload comparisons wait for this row's batched loads. */
+  readonly pending?: boolean
+  /** An incomplete worktree roster can change membership and sort order.
+   * Defer this ID in both sequences; all other IDs retain their relative order. */
+  readonly placementPending?: boolean
   readonly fields: Readonly<Record<string, unknown>>
 }
 export interface CheckSection {
   readonly key: string
   readonly fields: Readonly<Record<string, unknown>>
+  /** Header facts whose inputs are explicitly awaiting a batched load. */
+  readonly pendingFields?: readonly string[]
   readonly rows: readonly CheckRow[]
 }
 export interface SidebarSnapshot {
@@ -58,7 +65,9 @@ function differingField(expected: unknown, actual: unknown, path = ''): string |
   return path || 'value'
 }
 
-/** Compare in display order. An extra pool row is as much a failure as a missing row. */
+/** Compare known membership in display order, and payloads once settled.
+ * A global pending count never suppresses a mismatch. Provisional roster IDs
+ * rejoin the complete structural comparison as soon as their loads settle. */
 export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: SidebarSnapshot, onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
   let differences = 0, first: SidebarDifference | null = null
   const flag = (difference: SidebarDifference): void => { differences += 1; first ??= difference; onDifference?.(difference) }
@@ -66,12 +75,20 @@ export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: Sideb
     const e = expected.sections[sectionIndex], a = actual.sections[sectionIndex]
     const location = { section: e?.key ?? a?.key ?? '', sectionIndex, rowIndex: null, expectedId: e?.key ?? null, actualId: a?.key ?? null }
     if (!e || !a || e.key !== a.key) { flag({ ...location, field: 'section' }); continue }
-    const field = differingField(e.fields, a.fields)
+    const pendingFields = new Set([...(e.pendingFields ?? []), ...(a.pendingFields ?? [])])
+    const settledFields = (fields: CheckSection['fields']) => Object.fromEntries(Object.entries(fields).filter(([key]) => !pendingFields.has(key)))
+    const field = differingField(settledFields(e.fields), settledFields(a.fields))
     if (field !== null) flag({ ...location, field })
-    for (let rowIndex = 0; rowIndex < Math.max(e.rows.length, a.rows.length); rowIndex += 1) {
-      const er = e.rows[rowIndex], ar = a.rows[rowIndex]
+    const provisional = new Set([...e.rows, ...a.rows].filter(row => row.placementPending).map(row => row.id))
+    const expectedRows = e.rows.map((row, index) => ({ row, index })).filter(({ row }) => !provisional.has(row.id))
+    const actualRows = a.rows.map((row, index) => ({ row, index })).filter(({ row }) => !provisional.has(row.id))
+    for (let index = 0; index < Math.max(expectedRows.length, actualRows.length); index += 1) {
+      const expectedRow = expectedRows[index], actualRow = actualRows[index]
+      const er = expectedRow?.row, ar = actualRow?.row
+      const rowIndex = expectedRow?.index ?? actualRow!.index
       const rowLocation = { ...location, rowIndex, expectedId: er?.id ?? null, actualId: ar?.id ?? null }
       if (!er || !ar || er.id !== ar.id) { flag({ ...rowLocation, field: 'id' }); continue }
+      if (er.pending || ar.pending) continue
       const rowField = differingField(er.fields, ar.fields)
       if (rowField !== null) flag({ ...rowLocation, field: rowField })
     }
@@ -85,8 +102,14 @@ function sectionSnapshot(sections: SidebarSections, issue: (id: string) => Check
     { key: 'pinned', fields: { collapsed: sections.pinnedCollapsed, foldKey: sections.pinnedFoldKey }, rows: sections.pinnedIds.map(issue) },
     ...sections.bands.flatMap(band => {
       const { rowIds, worktreeIds, snoozedIds, closedIds, ...fields } = band
+      const worktreeRows = worktreeIds.map(worktree)
+      // The empty-project affordance depends on whether any work survives.
+      // Issue membership is known from placement summaries; a provisional
+      // worktree-only lane cannot decide this fact until its roster settles.
+      const pendingFields = !rowIds.length && !snoozedIds.length && !closedIds.length
+        && worktreeRows.length > 0 && worktreeRows.every(row => row.placementPending) ? ['startFirstTask'] : []
       return [
-        { key: `${band.key}:open`, fields, rows: [...rowIds.map(issue), ...worktreeIds.map(worktree)] },
+        { key: `${band.key}:open`, fields, pendingFields, rows: [...rowIds.map(issue), ...worktreeRows] },
         { key: `${band.key}:snoozed`, fields: {}, rows: snoozedIds.map(issue) },
         { key: `${band.key}:closed`, fields: {}, rows: closedIds.map(issue) },
       ]
@@ -138,7 +161,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
     if (!value) {
       const row = pool.sidebar.row(id)
       if (row === LOADING) pending += 1
-      value = { id, fields: row === LOADING ? { loading: true } : row === undefined ? { absent: true } : {
+      value = { id, pending: row === LOADING, fields: row === LOADING ? { loading: true } : row === undefined ? { absent: true } : {
         ...sidebarComparable(row), statusLine: poolStatusLine(row, pool.issue(id)?.activityAt ?? 0, pool.clock.current),
       } }
       issues.set(id, value)
@@ -150,7 +173,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
     if (!row) return { id: path, fields: { absent: true } }
     pending += row.pending
     const ownerIds = new Set(row.sessions.flatMap(session => session.issueId ? [session.issueId] : []))
-    return { id: path, fields: { sessions: row.sessions.map(sessionComparable), visible: row.visible.map(sessionComparable), stale: row.stale.map(sessionComparable),
+    return { id: path, pending: row.pending > 0, placementPending: row.pending > 0, fields: { sessions: row.sessions.map(sessionComparable), visible: row.visible.map(sessionComparable), stale: row.stale.map(sessionComparable),
       activityAt: row.activityAt, branch: row.worktree.branch ?? null, repoName: row.worktree.repoName, active: row.active,
       owners: [...ownerIds].map(id => ownerComparable(row.issues.find(owner => owner.id === id))),
     } }

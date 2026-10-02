@@ -29,6 +29,7 @@ import { readIssue, readIssues } from './modules/world-index/issue-reader'
 import {
   asIssueId,
   asUserId,
+  canonicalShippingDestination,
   type IssueId,
   parseInteractionRowId,
   parseIssueDepId,
@@ -37,7 +38,9 @@ import {
   parseLayoutRowId,
   parseMessageRecordRowId,
   parseReadPositionRowId,
-  type SessionId,
+  parseSessionUserStateRowId,
+  type RepoId,
+  shipLaneId,
   type UserId,
 } from '@podium/model'
 import type { Principal } from '@podium/protocol'
@@ -47,11 +50,10 @@ import type {
   VisibilityAnchorPort,
   VisibilityStatePort,
 } from '@podium/sync'
+import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
-import type { GrantRow } from './hot-path-ports'
 import type { WorldIndexReader } from './modules/world-index'
-import type { IssueRow, SessionRow, FeedVisibilityStore } from './hot-path-ports'
 
 /**
  * The store reads a feed bootstrap can cause, named so each is separately
@@ -65,6 +67,7 @@ type BootstrapReadPhase =
   | 'visibility.automation.ownerOf'
   | 'visibility.automationRun.runOwnerOf'
   | 'visibility.shipOrder.issueIdForOrder'
+  | 'visibility.shipLane.memberIssueIds'
 
 interface BootstrapReadTrace {
   readonly phases: Map<BootstrapReadPhase, number>
@@ -79,6 +82,10 @@ type BootstrapVisibilityPrefetch = {
   readonly issues: ReadonlyMap<string, IssueRow>
   readonly shipOrderIds: ReadonlySet<string>
   readonly issueIdsByShipOrder: ReadonlyMap<string, string>
+  /** POD-4974 O2: each prefetched lane's member issues, read from the lane's
+   * queued orders after the commit. */
+  readonly shipLaneIds: ReadonlySet<string>
+  readonly issueIdsByShipLane: ReadonlyMap<string, readonly string[]>
   readonly sessionIds: ReadonlySet<string>
   readonly sessions: ReadonlyMap<string, SessionRow>
   readonly resumeValues: ReadonlySet<string>
@@ -105,11 +112,19 @@ type ShipOrderSubject = {
   entityId: string
 }
 
+type ShipLaneSubject = {
+  entity: 'shipLane'
+  entityId: string
+}
+
 type BootstrapReadCache = {
   generation: number
   latestByRef: Map<string, Map<string, ChangeLogReadRow>>
   issueDepsByFromId: Map<string, IssueDepSubject[]>
   shipOrdersByIssueId: Map<string, ShipOrderSubject[]>
+  /** The lane of each issue's QUEUED order, from the latest order rows: a grant
+   * on the issue moves who may read that lane (POD-4974 decision 2). */
+  shipLanesByIssueId: Map<string, ShipLaneSubject[]>
   /**
    * The sessions bound to each anchorable issue, filled in ONE query [POD-3261].
    *
@@ -187,10 +202,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const { store, worldIndex } = deps
 
   const traces: BootstrapReadTrace[] = []
-  const measure = async <T>(
-    phase: BootstrapReadPhase,
-    fn: () => T | Promise<T>,
-  ): Promise<T> => {
+  const measure = async <T>(phase: BootstrapReadPhase, fn: () => T | Promise<T>): Promise<T> => {
     const trace = traces[traces.length - 1]
     if (trace === undefined) return await fn()
     const startedAt = performance.now()
@@ -217,19 +229,15 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
   const sessionGrantAdmits = (edge: GrantRow, userId: string): boolean =>
     edge.grantee === userId && edge.verb === 'read'
-  const mayReadIssue = async (
-    userId: UserId,
-    issueId: IssueId,
-  ): Promise<boolean> => {
+  const mayReadIssue = async (userId: UserId, issueId: IssueId): Promise<boolean> => {
     // The repository commit installs the owned row map before publication.
     // Open mutation spans still read their own writes through the live fallback.
-    const row = await measure('visibility.issue.getIssue', async () =>
-      await readIssue(store.issues, issueId),
+    const row = await measure(
+      'visibility.issue.getIssue',
+      async () => await readIssue(store.issues, issueId),
     )
     if (row?.ownerUserId === userId) return true
-    return worldIndex.grantsFor('issue', issueId).some((edge) =>
-      issueGrantAdmits(edge, userId),
-    )
+    return worldIndex.grantsFor('issue', issueId).some((edge) => issueGrantAdmits(edge, userId))
   }
 
   const mayReadIssueFromSnapshot = (
@@ -240,9 +248,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     if (!snapshot.issueIds.has(issueId)) return false
     if (snapshot.issues.get(issueId)?.ownerUserId === userId) return true
 
-    return (snapshot.issueGrants.get(issueId) ?? []).some((edge) =>
-      issueGrantAdmits(edge, userId),
-    )
+    return (snapshot.issueGrants.get(issueId) ?? []).some((edge) => issueGrantAdmits(edge, userId))
   }
 
   const makeVisibilityState = (prefetch?: BootstrapVisibilityPrefetch): VisibilityStatePort => {
@@ -261,7 +267,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     }
     return {
       classOf: (entity) => {
-        if (entity === 'repo') return 'deployment-substrate'
+        if (entity === 'repo' || entity === 'machine') return 'deployment-substrate'
         // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
         // filter. Must NOT fall through to personal or unclassified.
         if (entity === 'userLayout') return 'per-user-state'
@@ -270,10 +276,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // state" is not a verb — it is the privacy defect this member exists to
         // avoid.
         if (entity === 'userReadPosition') return 'per-user-state'
-        if (entity === 'issueUserState') return 'per-user-state'
+        if (entity === 'issueUserState' || entity === 'sessionUserState') return 'per-user-state'
         if (
           entity === 'session' ||
-          entity === 'issue' ||
           entity === 'issueProjection' ||
           entity === 'issueGitState' ||
           entity === 'issueDep' ||
@@ -291,6 +296,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           // named in its row id — see the `message` arm of `mayRead`.
           entity === 'message' ||
           entity === 'shipOrder' ||
+          // A delivery lane (POD-4974 O2). `personal`: readable by whoever may
+          // read at least one order in it (decision 2), the `mayRead` arm below.
+          entity === 'shipLane' ||
           entity === 'conversation' ||
           entity === 'automation' ||
           entity === 'automationRun'
@@ -303,11 +311,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // An unresolved root policy, or a ref outside this pass, denies. The
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false
-        if (
-          ref.entity === 'issue' ||
-          ref.entity === 'issueProjection' ||
-          ref.entity === 'issueGitState'
-        ) {
+        if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
           return mayReadIssueFromSnapshot(userId, ref.entityId, prefetch)
         }
         if (ref.entity === 'issueDep') {
@@ -329,6 +333,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           if (!prefetch.shipOrderIds.has(ref.entityId)) return false
           const issueId = prefetch.issueIdsByShipOrder.get(ref.entityId)
           return issueId !== undefined && mayReadIssueFromSnapshot(userId, issueId, prefetch)
+        }
+        if (ref.entity === 'shipLane') {
+          if (!prefetch.shipLaneIds.has(ref.entityId)) return false
+          return (prefetch.issueIdsByShipLane.get(ref.entityId) ?? []).some((issueId) =>
+            mayReadIssueFromSnapshot(userId, issueId, prefetch),
+          )
         }
         if (ref.entity === 'pendingInteraction') {
           try {
@@ -378,6 +388,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         return false
       },
       keyedUserOf: (ref) => {
+        if (ref.entity === 'sessionUserState') {
+          try {
+            return parseSessionUserStateRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
         if (ref.entity === 'issueUserState') {
           try {
             return parseIssueUserStateRowId(ref.entityId).userId
@@ -432,16 +449,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const prepareOver = async (refs: readonly EntityRef[]): Promise<VisibilityStatePort> => {
     const issueIds = new Set<string>()
     const shipOrderIds = new Set<string>()
+    const shipLaneIds = new Set<string>()
     const sessionIds = new Set<string>()
     const resumeValues = new Set<string>()
     const automationIds = new Set<string>()
     const automationRunIds = new Set<string>()
     for (const ref of refs) {
-      if (
-        ref.entity === 'issue' ||
-        ref.entity === 'issueProjection' ||
-        ref.entity === 'issueGitState'
-      ) {
+      if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
         issueIds.add(ref.entityId)
       } else if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)
@@ -471,6 +485,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         }
       } else if (ref.entity === 'shipOrder') {
         shipOrderIds.add(ref.entityId)
+      } else if (ref.entity === 'shipLane') {
+        shipLaneIds.add(ref.entityId)
       } else if (ref.entity === 'session') {
         sessionIds.add(ref.entityId)
       } else if (ref.entity === 'conversation') {
@@ -484,25 +500,42 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const issueIdsByShipOrder =
       shipOrderIds.size === 0
         ? new Map<string, string>()
-        : await measure('visibility.shipOrder.issueIdForOrder', async () =>
-            await store.shipping.issueIdsForOrders([...shipOrderIds]),
+        : await measure(
+            'visibility.shipOrder.issueIdForOrder',
+            async () => await store.shipping.issueIdsForOrders([...shipOrderIds]),
           )
     for (const issueId of issueIdsByShipOrder.values()) issueIds.add(issueId)
+    // Lanes are few (one per repository and destination), so one lane-scoped
+    // read each; like ship orders, they resolve to issues before the grant read.
+    const issueIdsByShipLane = new Map<string, readonly string[]>()
+    for (const laneId of shipLaneIds) {
+      const members = await measure(
+        'visibility.shipLane.memberIssueIds',
+        async () => await store.shipping.laneMemberIssueIds(laneId),
+      )
+      issueIdsByShipLane.set(laneId, members)
+      for (const issueId of members) issueIds.add(issueId)
+    }
     const issues =
       issueIds.size === 0
         ? new Map<string, IssueRow>()
-        : await measure('visibility.issue.getIssue', async () => await readIssues(store.issues, [...issueIds]))
+        : await measure(
+            'visibility.issue.getIssue',
+            async () => await readIssues(store.issues, [...issueIds]),
+          )
     const sessions =
       sessionIds.size === 0
         ? new Map<string, SessionRow>()
-        : await measure('visibility.session.getSession', async () =>
-            await store.sessions.getSessions([...sessionIds]),
+        : await measure(
+            'visibility.session.getSession',
+            async () => await store.sessions.getSessions([...sessionIds]),
           )
     const sessionsByResumeValue =
       resumeValues.size === 0
         ? new Map<string, SessionRow>()
-        : await measure('visibility.conversation.findSessionByResumeValue', async () =>
-            await store.sessions.findSessionsByResumeValues([...resumeValues]),
+        : await measure(
+            'visibility.conversation.findSessionByResumeValue',
+            async () => await store.sessions.findSessionsByResumeValues([...resumeValues]),
           )
     // The session ids a grant question can be asked about: the ones named
     // directly, plus the ones a conversation resolved to.
@@ -512,8 +545,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     for (const id of automationIds) {
       automationOwners.set(
         id,
-        await measure('visibility.automation.ownerOf', async () =>
-          await store.automations.ownerOf(id),
+        await measure(
+          'visibility.automation.ownerOf',
+          async () => await store.automations.ownerOf(id),
         ),
       )
     }
@@ -521,14 +555,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     for (const id of automationRunIds) {
       automationRunOwners.set(
         id,
-        await measure('visibility.automationRun.runOwnerOf', async () =>
-          await store.automations.runOwnerOf(id),
+        await measure(
+          'visibility.automationRun.runOwnerOf',
+          async () => await store.automations.runOwnerOf(id),
         ),
       )
     }
-    const issueGrants = new Map(
-      [...issueIds].map((id) => [id, worldIndex.grantsFor('issue', id)]),
-    )
+    const issueGrants = new Map([...issueIds].map((id) => [id, worldIndex.grantsFor('issue', id)]))
     const sessionGrants = new Map(
       [...grantedSessionIds].map((id) => [id, worldIndex.grantsFor('session', id)]),
     )
@@ -537,6 +570,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       issues,
       shipOrderIds,
       issueIdsByShipOrder,
+      shipLaneIds,
+      issueIdsByShipLane,
       sessionIds,
       sessions,
       resumeValues,
@@ -569,6 +604,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const latestByRef = new Map<string, Map<string, ChangeLogReadRow>>()
     const issueDepsByFromId = new Map<string, IssueDepSubject[]>()
     const shipOrdersByIssueId = new Map<string, ShipOrderSubject[]>()
+    const shipLanesByIssueId = new Map<string, ShipLaneSubject[]>()
     for (const row of await store.sync.latestChangeStates()) {
       const byEntity = latestByRef.get(row.entity) ?? new Map<string, ChangeLogReadRow>()
       byEntity.set(row.entityId, row)
@@ -583,11 +619,33 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       }
       if (row.entity === 'shipOrder' && row.op === 'upsert' && row.payload !== null) {
         try {
-          const payload = JSON.parse(row.payload) as { issueId?: unknown }
+          const payload = JSON.parse(row.payload) as {
+            issueId?: unknown
+            repoId?: unknown
+            destination?: unknown
+            targetBranch?: unknown
+            state?: unknown
+          }
           if (typeof payload.issueId !== 'string') continue
           const subjects = shipOrdersByIssueId.get(payload.issueId) ?? []
           subjects.push({ entity: 'shipOrder', entityId: row.entityId })
           shipOrdersByIssueId.set(payload.issueId, subjects)
+          if (
+            payload.state === 'queued' &&
+            typeof payload.repoId === 'string' &&
+            typeof payload.destination === 'string' &&
+            typeof payload.targetBranch === 'string'
+          ) {
+            const lanes = shipLanesByIssueId.get(payload.issueId) ?? []
+            lanes.push({
+              entity: 'shipLane',
+              entityId: shipLaneId(
+                payload.repoId as RepoId,
+                canonicalShippingDestination(payload.destination, payload.targetBranch),
+              ),
+            })
+            shipLanesByIssueId.set(payload.issueId, lanes)
+          }
         } catch {
           // A malformed change cannot supply a visibility anchor.
         }
@@ -598,6 +656,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       latestByRef,
       issueDepsByFromId,
       shipOrdersByIssueId,
+      shipLanesByIssueId,
     }
   }
   /**
@@ -609,7 +668,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    * refill because refilling would re-read every anchorable issue to learn about
    * one.
    */
-  const sessionsForIssue = async (cache: BootstrapReadCache, issueId: string): Promise<SessionRow[]> => {
+  const sessionsForIssue = async (
+    cache: BootstrapReadCache,
+    issueId: string,
+  ): Promise<SessionRow[]> => {
     // Anchors resolve concurrently; share the pending session query as well.
     if (cache.sessionsByIssue === undefined) {
       cache.sessionsByIssue = (async () => {
@@ -646,7 +708,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     return rows
   }
 
-  const durableChangeValueOf = async (ref: { entity: string; entityId: string }): Promise<unknown> => {
+  const durableChangeValueOf = async (ref: {
+    entity: string
+    entityId: string
+  }): Promise<unknown> => {
     const row = (await currentBootstrapReadCache()).latestByRef.get(ref.entity)?.get(ref.entityId)
     if (row?.op !== 'upsert' || row.payload === null) return undefined
     try {
@@ -656,15 +721,52 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     }
   }
 
+  /**
+   * WHO LOST A LANE when this order left its queue (POD-4974 O2).
+   *
+   * A lane is readable by whoever may read one of its queued orders, so an order
+   * that ships, starts, is held or is cancelled can take the LAST readable
+   * member away from someone. The lane's own change cannot reach them — they no
+   * longer pass `mayRead` — so the order's change anchors an evict for exactly
+   * the people who could read this order and can read no order left in the
+   * lane. Everyone else is left out of the audience: telling them the lane moved
+   * would only re-send a row they already receive.
+   */
+  const laneDepartureEdge = async (
+    orderId: string,
+  ): Promise<{ audience: readonly string[]; subjects: readonly ShipLaneSubject[] } | null> => {
+    const order = await store.shipping.getOrder(orderId)
+    if (!order || order.state === 'queued') return null
+    const owner = (await readIssue(store.issues, order.issueId))?.ownerUserId
+    const candidates = [
+      ...new Set([...(owner ? [owner] : []), ...(await deps.audienceFor('issue', order.issueId))]),
+    ]
+    if (candidates.length === 0) return null
+    const laneId = shipLaneId(
+      order.repoId,
+      canonicalShippingDestination(order.destination, order.targetBranch),
+    )
+    const members = await store.shipping.laneMemberIssueIds(laneId)
+    const audience: string[] = []
+    for (const userId of candidates) {
+      let readable = false
+      for (const issueId of members) {
+        if (await mayReadIssue(asUserId(userId), asIssueId(issueId))) {
+          readable = true
+          break
+        }
+      }
+      if (!readable) audience.push(userId)
+    }
+    return audience.length === 0
+      ? null
+      : { audience, subjects: [{ entity: 'shipLane', entityId: laneId }] }
+  }
+
   const anchors: VisibilityAnchorPort = {
     visibilityEdge: async (ref) => {
-      // KEYED ON THE NORMALIZED RECORD (POD-4971). A share or unshare commits
-      // through the issue's own write, which declares its `issueProjection`
-      // beside the old `issue` record, so this kind sees every audience move.
-      // Keying on both would anchor every subject twice per write; keying on the
-      // old record alone would stop re-admission when step 7 of POD-4949 stops
-      // sending it. The subjects below still name `issue`: a released client
-      // reads only that record, and is re-admitted to it until step 7.
+      if (ref.entity === 'shipOrder') return await laneDepartureEdge(ref.entityId)
+      // An issue write is the audience-change edge for its normalized companions.
       if (ref.entity !== 'issueProjection') return null
       const audience = await deps.audienceFor('issue', ref.entityId)
       if (audience.length === 0) return null
@@ -673,7 +775,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       // arm learned at POD-1614. See {@link BootstrapReadCache.sessionsByIssue}.
       const issueSessions = await sessionsForIssue(cache, ref.entityId)
       const subjects = [
-        { entity: 'issue' as const, entityId: ref.entityId },
         { entity: 'issueProjection' as const, entityId: ref.entityId },
         { entity: 'issueGitState' as const, entityId: ref.entityId },
         ...issueSessions.map((session) => ({
@@ -696,6 +797,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // chat pane that starts at the moment they were let in.
         ...(deps.issueEventSubjects?.(asIssueId(ref.entityId)) ?? []),
         ...(cache.shipOrdersByIssueId.get(ref.entityId) ?? []),
+        // The lanes of its queued orders: a grant can make a lane readable and a
+        // revoke can take the last readable order in it away (POD-4974 O2).
+        ...(cache.shipLanesByIssueId.get(ref.entityId) ?? []),
       ]
       return { audience, subjects }
     },

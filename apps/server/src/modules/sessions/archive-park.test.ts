@@ -1,3 +1,4 @@
+import { clientSessionViews } from '../../test-support/session-views'
 /**
  * Archive stops the session process (POD-108): setArchived parks a running
  * session (kill sent, status hibernated/exited, resume ref kept) instead of
@@ -60,7 +61,7 @@ async function bindLive(
 }
 
 async function meta(reg: SessionRegistry, sessionId: SessionId) {
-  return (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+  return (await clientSessionViews(reg)).find((s) => s.sessionId === sessionId)
 }
 
 describe('archive parks the session process [POD-108]', () => {

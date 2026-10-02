@@ -1,7 +1,13 @@
 import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { hidesDraftDot } from './SessionCard'
+
+// Haptics are an iOS boundary; the draft-dot gate has no native host here.
+vi.mock('expo-haptics', () => ({
+  ImpactFeedbackStyle: { Light: 'light' },
+  impactAsync: vi.fn(async () => {}),
+}))
 
 /**
  * What this file guards is the DRAFT-DOT GATE: a draft chat that has never
@@ -20,8 +26,8 @@ function session(over: Record<string, unknown> = {}): SessionMeta {
   } as unknown as SessionMeta
 }
 
-const draft = { draft: true }
-const promoted = { draft: false }
+const draft = { isDraftVessel: true }
+const promoted = { isDraftVessel: false }
 
 describe('hidesDraftDot', () => {
   it('hides the dot on a draft chat that never started a turn', () => {

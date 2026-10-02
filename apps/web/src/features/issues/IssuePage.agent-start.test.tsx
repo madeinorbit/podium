@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'

@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { JSON_MODE_MAP_KEY } from '@podium/client-core/ui-state'
 import { asSessionId } from '@podium/model'

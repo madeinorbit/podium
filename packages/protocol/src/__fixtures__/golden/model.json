@@ -1,6 +1,6 @@
 {
   "family": "model",
-  "note": "Golden wire fixtures (POD-360). Generated \u2014 regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
       "schema": "AccountId",
@@ -1706,6 +1706,32 @@
       "encoded": "\"\""
     },
     {
+      "schema": "DeploymentPreferences",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "DeploymentPreferences",
+      "variant": "full",
+      "wire": {
+        "authOpenMode": true,
+        "updateChannel": "stable",
+        "connectEnabled": true,
+        "telemetryUsage": "on",
+        "telemetryCrash": "on",
+        "telemetryInstallId": "telemetryInstallId",
+        "telemetrySince": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"authOpenMode\":true,\"updateChannel\":\"stable\",\"connectEnabled\":true,\"telemetryUsage\":\"on\",\"telemetryCrash\":\"on\",\"telemetryInstallId\":\"telemetryInstallId\",\"telemetrySince\":1}"
+    },
+    {
       "schema": "DescendantTip",
       "variant": "minimal",
       "wire": {
@@ -1860,6 +1886,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"cycles\":[[\"cycles[0][0]\"]],\"danglingDeps\":[{\"from\":\"danglingDeps[0].from\",\"to\":\"danglingDeps[0].to\",\"type\":\"danglingDeps[0].type\"}],\"lintCount\":1,\"staleCount\":1}"
+    },
+    {
+      "schema": "DriverFamilyWire",
+      "variant": "minimal",
+      "wire": "server",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"server\""
+    },
+    {
+      "schema": "DriverFamilyWire",
+      "variant": "full",
+      "wire": "server",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"server\""
     },
     {
       "schema": "DuplicateCandidate",
@@ -2787,6 +2831,53 @@
       "encoded": "\"x\""
     },
     {
+      "schema": "HarnessRef",
+      "variant": "minimal",
+      "wire": [],
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "[]"
+    },
+    {
+      "schema": "HarnessRef",
+      "variant": "full",
+      "wire": [
+        {
+          "kind": "[0].kind",
+          "id": "[0].id"
+        }
+      ],
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "[{\"kind\":\"[0].kind\",\"id\":\"[0].id\"}]"
+    },
+    {
+      "schema": "HarnessRefEntry",
+      "variant": "minimal",
+      "wire": {
+        "kind": "kind",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"kind\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "HarnessRefEntry",
+      "variant": "full",
+      "wire": {
+        "kind": "kind",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"kind\",\"id\":\"id\"}"
+    },
+    {
       "schema": "HibernationPolicy",
       "variant": "minimal",
       "wire": {},
@@ -2796,12 +2887,12 @@
         "loadPerCore": 1.5,
         "maxIdleSessions": 8,
         "idleMinutes": 30,
-        "idleShellMinutes": 1,
+        "idleShellMinutes": 60,
         "backstopMinutes": 2880
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":1,\"backstopMinutes\":2880}"
+      "encoded": "{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":60,\"backstopMinutes\":2880}"
     },
     {
       "schema": "HibernationPolicy",
@@ -2931,6 +3022,7 @@
           "reason": "daemonReadiness.reason",
           "quarantinedBindings": 1
         },
+        "quarantinedBindings": 1,
         "hostname": "hostname",
         "machineId": "machineId",
         "name": "name",
@@ -2978,13 +3070,14 @@
             }
           },
           "coverage": 1,
-          "nestedBuckets": ["loop.nestedBuckets[0]"]
+          "nestedBuckets": ["loop.nestedBuckets[0]"],
+          "inclusive": ["loop.inclusive[0]"]
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1},\"loop\":{\"at\":\"loop.at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"loop.buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"loop.nestedBuckets[0]\"]}}"
+      "encoded": "{\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"quarantinedBindings\":1,\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1},\"loop\":{\"at\":\"loop.at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"loop.buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"loop.nestedBuckets[0]\"],\"inclusive\":[\"loop.inclusive[0]\"]}}"
     },
     {
       "schema": "HumanSettableIssueStage",
@@ -3038,7 +3131,7 @@
           "loadPerCore": 1.5,
           "maxIdleSessions": 8,
           "idleMinutes": 30,
-          "idleShellMinutes": 1,
+          "idleShellMinutes": 60,
           "backstopMinutes": 2880
         },
         "gitWorkflow": {
@@ -3057,11 +3150,12 @@
           "mode": "propose",
           "afterDays": 14
         },
-        "transcripts": {}
+        "transcripts": {},
+        "deployment": {}
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":1,\"backstopMinutes\":2880},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14},\"transcripts\":{}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":60,\"backstopMinutes\":2880},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14},\"transcripts\":{},\"deployment\":{}}"
     },
     {
       "schema": "InstancePreferences",
@@ -3096,12 +3190,21 @@
         },
         "transcripts": {
           "mirror": true
+        },
+        "deployment": {
+          "authOpenMode": true,
+          "updateChannel": "stable",
+          "connectEnabled": true,
+          "telemetryUsage": "on",
+          "telemetryCrash": "on",
+          "telemetryInstallId": "deployment.telemetryInstallId",
+          "telemetrySince": 1
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1},\"transcripts\":{\"mirror\":true}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1},\"transcripts\":{\"mirror\":true},\"deployment\":{\"authOpenMode\":true,\"updateChannel\":\"stable\",\"connectEnabled\":true,\"telemetryUsage\":\"on\",\"telemetryCrash\":\"on\",\"telemetryInstallId\":\"deployment.telemetryInstallId\",\"telemetrySince\":1}}"
     },
     {
       "schema": "IntegrationSecrets",
@@ -3173,7 +3276,7 @@
           {
             "harness": "claude-code",
             "id": "runtimeDrivers[0].id",
-            "family": "terminal"
+            "family": "server"
           }
         ],
         "tools": [
@@ -3192,7 +3295,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
+      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
     },
     {
       "schema": "InviteId",
@@ -5895,385 +5998,6 @@
       "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\",\"tuckedAt\":\"tuckedAt\",\"pinned\":true}"
     },
     {
-      "schema": "IssueWire",
-      "variant": "minimal",
-      "wire": {
-        "id": "id",
-        "repoPath": "repoPath",
-        "seq": 1,
-        "title": "title",
-        "description": "description",
-        "stage": "proposed",
-        "worktreePath": null,
-        "branch": null,
-        "parentBranch": "parentBranch",
-        "defaultAgent": "defaultAgent",
-        "defaultModel": "defaultModel",
-        "defaultEffort": "defaultEffort",
-        "priority": 1,
-        "type": "task",
-        "pinned": true,
-        "needsHuman": true,
-        "labels": [],
-        "deps": [],
-        "dependents": [],
-        "ready": true,
-        "blocked": true,
-        "deferred": true,
-        "childCount": 1,
-        "childDoneCount": 1,
-        "createdAt": "createdAt",
-        "updatedAt": "updatedAt",
-        "archived": true
-      },
-      "parseAdded": {
-        "blockedByNotes": [],
-        "readAt": null,
-        "origin": "human",
-        "audience": "human",
-        "draft": false
-      },
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoPath\":\"repoPath\",\"seq\":1,\"title\":\"title\",\"description\":\"description\",\"stage\":\"proposed\",\"worktreePath\":null,\"branch\":null,\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"blockedByNotes\":[],\"priority\":1,\"type\":\"task\",\"pinned\":true,\"needsHuman\":true,\"labels\":[],\"deps\":[],\"dependents\":[],\"ready\":true,\"blocked\":true,\"deferred\":true,\"childCount\":1,\"childDoneCount\":1,\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"archived\":true,\"readAt\":null,\"origin\":\"human\",\"audience\":\"human\",\"draft\":false}"
-    },
-    {
-      "schema": "IssueWire",
-      "variant": "full",
-      "wire": {
-        "id": "id",
-        "repoPath": "repoPath",
-        "repoId": "repoId",
-        "prefix": "prefix",
-        "displayRef": "displayRef",
-        "seq": 1,
-        "title": "title",
-        "description": "description",
-        "brief": "brief",
-        "stage": "proposed",
-        "worktreePath": "worktreePath",
-        "branch": "branch",
-        "parentBranch": "parentBranch",
-        "defaultAgent": "defaultAgent",
-        "defaultModel": "defaultModel",
-        "defaultEffort": "defaultEffort",
-        "machineId": "machineId",
-        "linearId": "linearId",
-        "linearIdentifier": "linearIdentifier",
-        "linearUrl": "linearUrl",
-        "activityNotes": "activityNotes",
-        "notesUpdatedAt": "notesUpdatedAt",
-        "suggestedStage": "proposed",
-        "suggestedReason": "suggestedReason",
-        "blockedByNotes": ["blockedByNotes[0]"],
-        "dependencyNote": "dependencyNote",
-        "prUrl": "prUrl",
-        "priority": 1,
-        "type": "task",
-        "assignee": "assignee",
-        "parentId": "parentId",
-        "design": "design",
-        "acceptance": "acceptance",
-        "notes": "notes",
-        "dueAt": "dueAt",
-        "deferUntil": "deferUntil",
-        "closedReason": "closedReason",
-        "closedAt": "closedAt",
-        "tuckedAt": "tuckedAt",
-        "supersededBy": "supersededBy",
-        "duplicateOf": "duplicateOf",
-        "pinned": true,
-        "sortKey": "sortKey",
-        "color": "rose",
-        "estimateMin": 1,
-        "needsHuman": true,
-        "humanQuestion": "humanQuestion",
-        "humanQuestionOptions": ["humanQuestionOptions[0]"],
-        "humanQuestionAskedBy": "humanQuestionAskedBy",
-        "humanQuestionAskedAt": "humanQuestionAskedAt",
-        "panel": {
-          "todos": [
-            {
-              "text": "panel.todos[0].text",
-              "done": true
-            }
-          ],
-          "artifacts": [
-            {
-              "path": "panel.artifacts[0].path",
-              "title": "panel.artifacts[0].title",
-              "addedAt": "panel.artifacts[0].addedAt",
-              "sourceKind": "terminal-evidence",
-              "artifactId": "panel.artifacts[0].artifactId",
-              "entry": "panel.artifacts[0].entry",
-              "files": [
-                {
-                  "path": "panel.artifacts[0].files[0].path",
-                  "size": 1
-                }
-              ],
-              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
-              "tracking": "tracked",
-              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
-            }
-          ],
-          "deferred": [
-            {
-              "text": "panel.deferred[0].text",
-              "addedAt": "panel.deferred[0].addedAt"
-            }
-          ]
-        },
-        "labels": ["labels[0]"],
-        "deps": [
-          {
-            "id": "deps[0].id",
-            "type": "deps[0].type"
-          }
-        ],
-        "dependents": [
-          {
-            "id": "dependents[0].id",
-            "type": "dependents[0].type"
-          }
-        ],
-        "comments": [
-          {
-            "id": "comments[0].id",
-            "author": "comments[0].author",
-            "body": "comments[0].body",
-            "createdAt": "comments[0].createdAt"
-          }
-        ],
-        "commentCount": 1,
-        "ready": true,
-        "blocked": true,
-        "deferred": true,
-        "childCount": 1,
-        "childDoneCount": 1,
-        "createdAt": "createdAt",
-        "updatedAt": "updatedAt",
-        "archived": true,
-        "deletedAt": "deletedAt",
-        "readAt": "readAt",
-        "origin": "human",
-        "audience": "human",
-        "draft": true,
-        "gitState": {
-          "updatedAt": "gitState.updatedAt",
-          "computing": true,
-          "branch": "gitState.branch",
-          "shared": true,
-          "ahead": 1,
-          "dirtyFiles": 1,
-          "dirtyOwn": 1,
-          "commits": ["gitState.commits[0]"],
-          "lastCommitAt": "gitState.lastCommitAt",
-          "unpushed": 1,
-          "merged": true,
-          "fallback": true
-        },
-        "viaHub": true,
-        "upstreamStale": true,
-        "pendingSync": true,
-        "revision": 1,
-        "coordinatorSessionId": "coordinatorSessionId",
-        "startedBySession": "startedBySession"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoPath\":\"repoPath\",\"repoId\":\"repoId\",\"prefix\":\"prefix\",\"displayRef\":\"displayRef\",\"seq\":1,\"title\":\"title\",\"description\":\"description\",\"brief\":\"brief\",\"stage\":\"proposed\",\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"machineId\":\"machineId\",\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"suggestedStage\":\"proposed\",\"suggestedReason\":\"suggestedReason\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"dependencyNote\":\"dependencyNote\",\"prUrl\":\"prUrl\",\"priority\":1,\"type\":\"task\",\"assignee\":\"assignee\",\"parentId\":\"parentId\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"notes\":\"notes\",\"dueAt\":\"dueAt\",\"deferUntil\":\"deferUntil\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"tuckedAt\":\"tuckedAt\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"pinned\":true,\"sortKey\":\"sortKey\",\"color\":\"rose\",\"estimateMin\":1,\"needsHuman\":true,\"humanQuestion\":\"humanQuestion\",\"humanQuestionOptions\":[\"humanQuestionOptions[0]\"],\"humanQuestionAskedBy\":\"humanQuestionAskedBy\",\"humanQuestionAskedAt\":\"humanQuestionAskedAt\",\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"tracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"labels\":[\"labels[0]\"],\"deps\":[{\"id\":\"deps[0].id\",\"type\":\"deps[0].type\"}],\"dependents\":[{\"id\":\"dependents[0].id\",\"type\":\"dependents[0].type\"}],\"comments\":[{\"id\":\"comments[0].id\",\"author\":\"comments[0].author\",\"body\":\"comments[0].body\",\"createdAt\":\"comments[0].createdAt\"}],\"commentCount\":1,\"ready\":true,\"blocked\":true,\"deferred\":true,\"childCount\":1,\"childDoneCount\":1,\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"readAt\":\"readAt\",\"origin\":\"human\",\"audience\":\"human\",\"draft\":true,\"gitState\":{\"updatedAt\":\"gitState.updatedAt\",\"computing\":true,\"branch\":\"gitState.branch\",\"shared\":true,\"ahead\":1,\"dirtyFiles\":1,\"dirtyOwn\":1,\"commits\":[\"gitState.commits[0]\"],\"lastCommitAt\":\"gitState.lastCommitAt\",\"unpushed\":1,\"merged\":true,\"fallback\":true},\"viaHub\":true,\"upstreamStale\":true,\"pendingSync\":true,\"revision\":1,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\"}"
-    },
-    {
-      "schema": "IssueWireEntity",
-      "variant": "minimal",
-      "wire": {
-        "id": "id",
-        "repoPath": "repoPath",
-        "seq": 1,
-        "title": "title",
-        "description": "description",
-        "stage": "proposed",
-        "worktreePath": null,
-        "branch": null,
-        "parentBranch": "parentBranch",
-        "defaultAgent": "defaultAgent",
-        "defaultModel": "defaultModel",
-        "defaultEffort": "defaultEffort",
-        "priority": 1,
-        "type": "task",
-        "pinned": true,
-        "needsHuman": true,
-        "labels": [],
-        "deps": [],
-        "dependents": [],
-        "ready": true,
-        "blocked": true,
-        "deferred": true,
-        "childCount": 1,
-        "childDoneCount": 1,
-        "createdAt": "createdAt",
-        "updatedAt": "updatedAt",
-        "archived": true
-      },
-      "parseAdded": {
-        "blockedByNotes": [],
-        "readAt": null,
-        "origin": "human",
-        "audience": "human",
-        "draft": false
-      },
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoPath\":\"repoPath\",\"seq\":1,\"title\":\"title\",\"description\":\"description\",\"stage\":\"proposed\",\"worktreePath\":null,\"branch\":null,\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"blockedByNotes\":[],\"priority\":1,\"type\":\"task\",\"pinned\":true,\"needsHuman\":true,\"labels\":[],\"deps\":[],\"dependents\":[],\"ready\":true,\"blocked\":true,\"deferred\":true,\"childCount\":1,\"childDoneCount\":1,\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"archived\":true,\"readAt\":null,\"origin\":\"human\",\"audience\":\"human\",\"draft\":false}"
-    },
-    {
-      "schema": "IssueWireEntity",
-      "variant": "full",
-      "wire": {
-        "id": "id",
-        "repoPath": "repoPath",
-        "repoId": "repoId",
-        "prefix": "prefix",
-        "displayRef": "displayRef",
-        "seq": 1,
-        "title": "title",
-        "description": "description",
-        "brief": "brief",
-        "stage": "proposed",
-        "worktreePath": "worktreePath",
-        "branch": "branch",
-        "parentBranch": "parentBranch",
-        "defaultAgent": "defaultAgent",
-        "defaultModel": "defaultModel",
-        "defaultEffort": "defaultEffort",
-        "machineId": "machineId",
-        "linearId": "linearId",
-        "linearIdentifier": "linearIdentifier",
-        "linearUrl": "linearUrl",
-        "activityNotes": "activityNotes",
-        "notesUpdatedAt": "notesUpdatedAt",
-        "suggestedStage": "proposed",
-        "suggestedReason": "suggestedReason",
-        "blockedByNotes": ["blockedByNotes[0]"],
-        "dependencyNote": "dependencyNote",
-        "prUrl": "prUrl",
-        "priority": 1,
-        "type": "task",
-        "assignee": "assignee",
-        "parentId": "parentId",
-        "design": "design",
-        "acceptance": "acceptance",
-        "notes": "notes",
-        "dueAt": "dueAt",
-        "deferUntil": "deferUntil",
-        "closedReason": "closedReason",
-        "closedAt": "closedAt",
-        "tuckedAt": "tuckedAt",
-        "supersededBy": "supersededBy",
-        "duplicateOf": "duplicateOf",
-        "pinned": true,
-        "sortKey": "sortKey",
-        "color": "rose",
-        "estimateMin": 1,
-        "needsHuman": true,
-        "humanQuestion": "humanQuestion",
-        "humanQuestionOptions": ["humanQuestionOptions[0]"],
-        "humanQuestionAskedBy": "humanQuestionAskedBy",
-        "humanQuestionAskedAt": "humanQuestionAskedAt",
-        "panel": {
-          "todos": [
-            {
-              "text": "panel.todos[0].text",
-              "done": true
-            }
-          ],
-          "artifacts": [
-            {
-              "path": "panel.artifacts[0].path",
-              "title": "panel.artifacts[0].title",
-              "addedAt": "panel.artifacts[0].addedAt",
-              "sourceKind": "terminal-evidence",
-              "artifactId": "panel.artifacts[0].artifactId",
-              "entry": "panel.artifacts[0].entry",
-              "files": [
-                {
-                  "path": "panel.artifacts[0].files[0].path",
-                  "size": 1
-                }
-              ],
-              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
-              "tracking": "tracked",
-              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
-            }
-          ],
-          "deferred": [
-            {
-              "text": "panel.deferred[0].text",
-              "addedAt": "panel.deferred[0].addedAt"
-            }
-          ]
-        },
-        "labels": ["labels[0]"],
-        "deps": [
-          {
-            "id": "deps[0].id",
-            "type": "deps[0].type"
-          }
-        ],
-        "dependents": [
-          {
-            "id": "dependents[0].id",
-            "type": "dependents[0].type"
-          }
-        ],
-        "comments": [
-          {
-            "id": "comments[0].id",
-            "author": "comments[0].author",
-            "body": "comments[0].body",
-            "createdAt": "comments[0].createdAt"
-          }
-        ],
-        "commentCount": 1,
-        "ready": true,
-        "blocked": true,
-        "deferred": true,
-        "childCount": 1,
-        "childDoneCount": 1,
-        "createdAt": "createdAt",
-        "updatedAt": "updatedAt",
-        "archived": true,
-        "deletedAt": "deletedAt",
-        "readAt": "readAt",
-        "origin": "human",
-        "audience": "human",
-        "draft": true,
-        "gitState": {
-          "updatedAt": "gitState.updatedAt",
-          "computing": true,
-          "branch": "gitState.branch",
-          "shared": true,
-          "ahead": 1,
-          "dirtyFiles": 1,
-          "dirtyOwn": 1,
-          "commits": ["gitState.commits[0]"],
-          "lastCommitAt": "gitState.lastCommitAt",
-          "unpushed": 1,
-          "merged": true,
-          "fallback": true
-        },
-        "revision": 1,
-        "coordinatorSessionId": "coordinatorSessionId",
-        "startedBySession": "startedBySession"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoPath\":\"repoPath\",\"repoId\":\"repoId\",\"prefix\":\"prefix\",\"displayRef\":\"displayRef\",\"seq\":1,\"title\":\"title\",\"description\":\"description\",\"brief\":\"brief\",\"stage\":\"proposed\",\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"machineId\":\"machineId\",\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"suggestedStage\":\"proposed\",\"suggestedReason\":\"suggestedReason\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"dependencyNote\":\"dependencyNote\",\"prUrl\":\"prUrl\",\"priority\":1,\"type\":\"task\",\"assignee\":\"assignee\",\"parentId\":\"parentId\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"notes\":\"notes\",\"dueAt\":\"dueAt\",\"deferUntil\":\"deferUntil\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"tuckedAt\":\"tuckedAt\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"pinned\":true,\"sortKey\":\"sortKey\",\"color\":\"rose\",\"estimateMin\":1,\"needsHuman\":true,\"humanQuestion\":\"humanQuestion\",\"humanQuestionOptions\":[\"humanQuestionOptions[0]\"],\"humanQuestionAskedBy\":\"humanQuestionAskedBy\",\"humanQuestionAskedAt\":\"humanQuestionAskedAt\",\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"tracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"labels\":[\"labels[0]\"],\"deps\":[{\"id\":\"deps[0].id\",\"type\":\"deps[0].type\"}],\"dependents\":[{\"id\":\"dependents[0].id\",\"type\":\"dependents[0].type\"}],\"comments\":[{\"id\":\"comments[0].id\",\"author\":\"comments[0].author\",\"body\":\"comments[0].body\",\"createdAt\":\"comments[0].createdAt\"}],\"commentCount\":1,\"ready\":true,\"blocked\":true,\"deferred\":true,\"childCount\":1,\"childDoneCount\":1,\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"readAt\":\"readAt\",\"origin\":\"human\",\"audience\":\"human\",\"draft\":true,\"gitState\":{\"updatedAt\":\"gitState.updatedAt\",\"computing\":true,\"branch\":\"gitState.branch\",\"shared\":true,\"ahead\":1,\"dirtyFiles\":1,\"dirtyOwn\":1,\"commits\":[\"gitState.commits[0]\"],\"lastCommitAt\":\"gitState.lastCommitAt\",\"unpushed\":1,\"merged\":true,\"fallback\":true},\"revision\":1,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\"}"
-    },
-    {
       "schema": "IssueWorkspace",
       "variant": "minimal",
       "wire": {
@@ -6427,6 +6151,24 @@
       "encoded": "{\"id\":\"id\",\"seq\":1,\"findings\":[\"findings[0]\"]}"
     },
     {
+      "schema": "LoginEmail",
+      "variant": "minimal",
+      "wire": "fixture@example.test",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"fixture@example.test\""
+    },
+    {
+      "schema": "LoginEmail",
+      "variant": "full",
+      "wire": "fixture@example.test",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"fixture@example.test\""
+    },
+    {
       "schema": "LoopBucketCostWire",
       "variant": "minimal",
       "wire": {
@@ -6516,12 +6258,13 @@
           }
         },
         "coverage": 1,
-        "nestedBuckets": ["nestedBuckets[0]"]
+        "nestedBuckets": ["nestedBuckets[0]"],
+        "inclusive": ["inclusive[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"nestedBuckets[0]\"]}"
+      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"nestedBuckets[0]\"],\"inclusive\":[\"inclusive[0]\"]}"
     },
     {
       "schema": "LoopProfileLevelWire",
@@ -6686,6 +6429,32 @@
       "encoded": "\"supervisor\""
     },
     {
+      "schema": "MachineProjection",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "name": "name",
+        "loggedOutHarnesses": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"loggedOutHarnesses\":[]}"
+    },
+    {
+      "schema": "MachineProjection",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "name": "name",
+        "loggedOutHarnesses": ["claude-code"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"loggedOutHarnesses\":[\"claude-code\"]}"
+    },
+    {
       "schema": "MachineQuotaWire",
       "variant": "minimal",
       "wire": {
@@ -6795,12 +6564,17 @@
           "observedAt": "agentExecution.observedAt"
         },
         "agentExecutionLockout": true,
-        "crashOwner": "crashOwner"
+        "crashOwner": "crashOwner",
+        "topology": {
+          "persistence": "systemd",
+          "legacyUnits": ["topology.legacyUnits[0]"],
+          "parentUnit": "active"
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"server.reason\",\"observedAt\":\"server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"agentExecution.reason\",\"observedAt\":\"agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"crashOwner\"}"
+      "encoded": "{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"server.reason\",\"observedAt\":\"server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"agentExecution.reason\",\"observedAt\":\"agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}}"
     },
     {
       "schema": "MachineServiceStatus",
@@ -6828,6 +6602,32 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"reason\",\"observedAt\":\"observedAt\"}"
+    },
+    {
+      "schema": "MachineTopology",
+      "variant": "minimal",
+      "wire": {
+        "persistence": "systemd",
+        "legacyUnits": [],
+        "parentUnit": "active"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"persistence\":\"systemd\",\"legacyUnits\":[],\"parentUnit\":\"active\"}"
+    },
+    {
+      "schema": "MachineTopology",
+      "variant": "full",
+      "wire": {
+        "persistence": "systemd",
+        "legacyUnits": ["legacyUnits[0]"],
+        "parentUnit": "active"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"persistence\":\"systemd\",\"legacyUnits\":[\"legacyUnits[0]\"],\"parentUnit\":\"active\"}"
     },
     {
       "schema": "MachineUseDecision",
@@ -6866,6 +6666,7 @@
       "schema": "MachineWire",
       "variant": "full",
       "wire": {
+        "revokedAt": "revokedAt",
         "supersededBy": "supersededBy",
         "supersedable": true,
         "daemonReadiness": {
@@ -6903,14 +6704,28 @@
             "observedAt": "services.agentExecution.observedAt"
           },
           "agentExecutionLockout": true,
-          "crashOwner": "services.crashOwner"
+          "crashOwner": "services.crashOwner",
+          "topology": {
+            "persistence": "systemd",
+            "legacyUnits": ["services.topology.legacyUnits[0]"],
+            "parentUnit": "active"
+          }
         },
         "serviceAssignment": {
           "server": true,
           "agentExecution": true
         },
+        "availability": {
+          "epoch": "availability.epoch",
+          "server": true,
+          "daemon": true,
+          "supervisor": true
+        },
         "use": "granted",
         "owned": true,
+        "transferable": true,
+        "unowned": true,
+        "adoptable": true,
         "podiumManaged": true,
         "components": ["daemon"],
         "inventory": {
@@ -6943,7 +6758,7 @@
             {
               "harness": "claude-code",
               "id": "inventory.runtimeDrivers[0].id",
-              "family": "terminal"
+              "family": "server"
             }
           ],
           "tools": [
@@ -6977,7 +6792,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"supersededBy\":\"supersededBy\",\"supersedable\":true,\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\"},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
+      "encoded": "{\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"supersedable\":true,\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
     },
     {
       "schema": "MemberId",
@@ -7014,6 +6829,170 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv\""
+    },
+    {
+      "schema": "MessageDeliveryStatus",
+      "variant": "minimal",
+      "wire": "stored",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"stored\""
+    },
+    {
+      "schema": "MessageDeliveryStatus",
+      "variant": "full",
+      "wire": "stored",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"stored\""
+    },
+    {
+      "schema": "MessageDeliveryStatusOnWire",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {
+        "": {
+          "wire": "",
+          "parsed": "typed"
+        }
+      },
+      "parseDropped": {},
+      "encoded": "\"typed\""
+    },
+    {
+      "schema": "MessageDeliveryStatusOnWire",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {
+        "": {
+          "wire": "",
+          "parsed": "typed"
+        }
+      },
+      "parseDropped": {},
+      "encoded": "\"typed\""
+    },
+    {
+      "schema": "MessageHeld",
+      "variant": "minimal",
+      "wire": "memory",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"memory\""
+    },
+    {
+      "schema": "MessageHeld",
+      "variant": "full",
+      "wire": "memory",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"memory\""
+    },
+    {
+      "schema": "MessageId",
+      "variant": "minimal",
+      "wire": "msg_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"msg_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70\""
+    },
+    {
+      "schema": "MessageId",
+      "variant": "full",
+      "wire": "msg_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"msg_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70\""
+    },
+    {
+      "schema": "MessageRecordAttachment",
+      "variant": "minimal",
+      "wire": {
+        "filename": "filename",
+        "mediaType": "mediaType",
+        "kind": "image"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"filename\":\"filename\",\"mediaType\":\"mediaType\",\"kind\":\"image\"}"
+    },
+    {
+      "schema": "MessageRecordAttachment",
+      "variant": "full",
+      "wire": {
+        "filename": "filename",
+        "mediaType": "mediaType",
+        "kind": "image"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"filename\":\"filename\",\"mediaType\":\"mediaType\",\"kind\":\"image\"}"
+    },
+    {
+      "schema": "MessageRecordWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "senderUserId": "senderUserId",
+        "body": "body",
+        "createdAt": "createdAt",
+        "status": "status"
+      },
+      "parseAdded": {},
+      "parseChanged": {
+        "status": {
+          "wire": "status",
+          "parsed": "typed"
+        }
+      },
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"senderUserId\":\"senderUserId\",\"body\":\"body\",\"createdAt\":\"createdAt\",\"status\":\"typed\"}"
+    },
+    {
+      "schema": "MessageRecordWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "senderUserId": "senderUserId",
+        "body": "body",
+        "attachments": [
+          {
+            "filename": "attachments[0].filename",
+            "mediaType": "attachments[0].mediaType",
+            "kind": "image"
+          }
+        ],
+        "createdAt": "createdAt",
+        "status": "status",
+        "reason": "reason",
+        "transcriptItem": {
+          "id": "transcriptItem.id",
+          "cursor": "transcriptItem.cursor"
+        },
+        "retractRequestedAt": "retractRequestedAt",
+        "noticeDismissedAt": "noticeDismissedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {
+        "status": {
+          "wire": "status",
+          "parsed": "typed"
+        }
+      },
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"senderUserId\":\"senderUserId\",\"body\":\"body\",\"attachments\":[{\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}],\"createdAt\":\"createdAt\",\"status\":\"typed\",\"reason\":\"reason\",\"transcriptItem\":{\"id\":\"transcriptItem.id\",\"cursor\":\"transcriptItem.cursor\"},\"retractRequestedAt\":\"retractRequestedAt\",\"noticeDismissedAt\":\"noticeDismissedAt\"}"
     },
     {
       "schema": "MutationId",
@@ -9717,13 +9696,10 @@
         },
         "archived": true
       },
-      "parseAdded": {
-        "readAt": null,
-        "unread": false
-      },
+      "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"cwd\":\"cwd\",\"status\":\"starting\",\"controllerId\":null,\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"origin\":{\"kind\":\"spawn\"},\"archived\":true,\"readAt\":null,\"unread\":false}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"cwd\":\"cwd\",\"status\":\"starting\",\"controllerId\":null,\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"origin\":{\"kind\":\"spawn\"},\"archived\":true}"
     },
     {
       "schema": "SessionMeta",
@@ -9811,12 +9787,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": true,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "self",
-        "unread": true,
         "workState": "planning",
         "resumable": true,
         "resume": {
@@ -9835,8 +9808,6 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 1,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": true,
         "driverId": "driverId",
@@ -9857,7 +9828,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -9867,7 +9838,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 1,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 1,
         "headless": true,
         "delegation": {
           "actor": "delegation.actor",
@@ -9891,7 +9863,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"user\",\"cwd\":\"cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":1,\"displayRef\":\"displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"user\",\"cwd\":\"cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":1,\"refRepoId\":\"refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}"
     },
     {
       "schema": "SessionMeta",
@@ -9980,12 +9952,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": false,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "parent",
-        "unread": false,
         "workState": "implementing",
         "resumable": false,
         "resume": {
@@ -10004,13 +9973,11 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 2,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": false,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
-        "driverFamily": "embedded",
+        "driverFamily": "terminal",
         "configureFields": ["configureFields[0]"],
         "attachKinds": ["client"],
         "queuedMessageCount": 2,
@@ -10026,7 +9993,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -10036,7 +10003,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 2,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 2,
         "headless": false,
         "delegation": {
           "actor": "delegation.actor",
@@ -10060,7 +10028,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":2,\"rows\":2},\"geometryState\":\"unknown\",\"requestsGated\":2,\"requestsDuplicate\":2,\"requestsUnanswered\":2,\"epoch\":2,\"clientCount\":2,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"working\",\"since\":\"agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":false},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":false,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"poll\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":false,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"parent\",\"unread\":false,\"workState\":\"implementing\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":false,\"harnessHandoff\":false,\"harnessPromptModeHints\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":2,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"embedded\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":2,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":2,\"displayRef\":\"displayRef\",\"headless\":false,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":2},\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":false,\"upstreamStale\":false}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":2,\"rows\":2},\"geometryState\":\"unknown\",\"requestsGated\":2,\"requestsDuplicate\":2,\"requestsUnanswered\":2,\"epoch\":2,\"clientCount\":2,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"working\",\"since\":\"agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":false},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":false,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"poll\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":false,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"parent\",\"workState\":\"implementing\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":false,\"harnessHandoff\":false,\"harnessPromptModeHints\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":2,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"terminal\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":2,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":2,\"refRepoId\":\"refRepoId\",\"refSeq\":2,\"headless\":false,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":2},\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":false,\"upstreamStale\":false}"
     },
     {
       "schema": "SessionMeta",
@@ -10149,12 +10117,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": true,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "forced",
-        "unread": true,
         "workState": "testing",
         "resumable": true,
         "resume": {
@@ -10173,13 +10138,11 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 3,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": true,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
-        "driverFamily": "terminal",
+        "driverFamily": "embedded",
         "configureFields": ["configureFields[0]"],
         "attachKinds": ["client"],
         "queuedMessageCount": 3,
@@ -10195,7 +10158,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -10205,7 +10168,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 3,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 3,
         "headless": true,
         "delegation": {
           "actor": "delegation.actor",
@@ -10228,9 +10192,14 @@
         "upstreamStale": true
       },
       "parseAdded": {},
-      "parseChanged": {},
+      "parseChanged": {
+        "driverFamily": {
+          "wire": "embedded",
+          "parsed": "server"
+        }
+      },
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"grok\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"reconnecting\",\"exitCode\":3,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":3,\"rows\":3},\"geometryState\":\"absent\",\"requestsGated\":3,\"requestsDuplicate\":3,\"requestsUnanswered\":3,\"epoch\":3,\"clientCount\":3,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"idle\",\"since\":\"agentState.since\",\"workingMsTotal\":3,\"nativeSubagentCount\":3,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"approval\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"forced\",\"unread\":true,\"workState\":\"testing\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":3,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"terminal\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":3,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":3,\"displayRef\":\"displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"delegation.grantedScope.rootId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":3},\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"grok\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"reconnecting\",\"exitCode\":3,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":3,\"rows\":3},\"geometryState\":\"absent\",\"requestsGated\":3,\"requestsDuplicate\":3,\"requestsUnanswered\":3,\"epoch\":3,\"clientCount\":3,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"idle\",\"since\":\"agentState.since\",\"workingMsTotal\":3,\"nativeSubagentCount\":3,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"approval\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"forced\",\"workState\":\"testing\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":3,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":3,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":3,\"refRepoId\":\"refRepoId\",\"refSeq\":3,\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"delegation.grantedScope.rootId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":3},\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}"
     },
     {
       "schema": "SessionMeta",
@@ -10319,12 +10288,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": false,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "exited",
-        "unread": false,
         "workState": "done",
         "resumable": false,
         "resume": {
@@ -10343,13 +10309,11 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 4,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": false,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
-        "driverFamily": "terminal",
+        "driverFamily": "embedded",
         "configureFields": ["configureFields[0]"],
         "attachKinds": ["client"],
         "queuedMessageCount": 4,
@@ -10365,7 +10329,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -10375,7 +10339,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 4,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 4,
         "headless": false,
         "delegation": {
           "actor": "delegation.actor",
@@ -10398,9 +10363,14 @@
         "upstreamStale": false
       },
       "parseAdded": {},
-      "parseChanged": {},
+      "parseChanged": {
+        "driverFamily": {
+          "wire": "embedded",
+          "parsed": "server"
+        }
+      },
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"opencode\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"hibernated\",\"exitCode\":4,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":4,\"rows\":4},\"geometryState\":\"absent\",\"requestsGated\":4,\"requestsDuplicate\":4,\"requestsUnanswered\":4,\"epoch\":4,\"clientCount\":4,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"needs_user\",\"since\":\"agentState.since\",\"workingMsTotal\":4,\"nativeSubagentCount\":4,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"open_todos\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":false},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":false,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":false,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"exited\",\"unread\":false,\"workState\":\"done\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":false,\"harnessHandoff\":false,\"harnessPromptModeHints\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":4,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"terminal\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":4,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":4,\"displayRef\":\"displayRef\",\"headless\":false,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":4},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":false,\"upstreamStale\":false}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"opencode\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"hibernated\",\"exitCode\":4,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":4,\"rows\":4},\"geometryState\":\"absent\",\"requestsGated\":4,\"requestsDuplicate\":4,\"requestsUnanswered\":4,\"epoch\":4,\"clientCount\":4,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"needs_user\",\"since\":\"agentState.since\",\"workingMsTotal\":4,\"nativeSubagentCount\":4,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"open_todos\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":false},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":false,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":false,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"exited\",\"workState\":\"done\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":false,\"harnessHandoff\":false,\"harnessPromptModeHints\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":4,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":4,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":4,\"refRepoId\":\"refRepoId\",\"refSeq\":4,\"headless\":false,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":4},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":false,\"upstreamStale\":false}"
     },
     {
       "schema": "SessionMeta",
@@ -10489,12 +10459,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": true,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "oom",
-        "unread": true,
         "workState": "icebox",
         "resumable": true,
         "resume": {
@@ -10513,13 +10480,11 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 5,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": true,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
-        "driverFamily": "terminal",
+        "driverFamily": "embedded",
         "configureFields": ["configureFields[0]"],
         "attachKinds": ["client"],
         "queuedMessageCount": 5,
@@ -10535,7 +10500,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -10545,7 +10510,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 5,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 5,
         "headless": true,
         "delegation": {
           "actor": "delegation.actor",
@@ -10568,9 +10534,14 @@
         "upstreamStale": true
       },
       "parseAdded": {},
-      "parseChanged": {},
+      "parseChanged": {
+        "driverFamily": {
+          "wire": "embedded",
+          "parsed": "server"
+        }
+      },
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"cursor\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"exited\",\"exitCode\":5,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":5,\"rows\":5},\"geometryState\":\"absent\",\"requestsGated\":5,\"requestsDuplicate\":5,\"requestsUnanswered\":5,\"epoch\":5,\"clientCount\":5,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"errored\",\"since\":\"agentState.since\",\"workingMsTotal\":5,\"nativeSubagentCount\":5,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"oom\",\"unread\":true,\"workState\":\"icebox\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":5,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"terminal\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":5,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":5,\"displayRef\":\"displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":5},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"cursor\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"exited\",\"exitCode\":5,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":5,\"rows\":5},\"geometryState\":\"absent\",\"requestsGated\":5,\"requestsDuplicate\":5,\"requestsUnanswered\":5,\"epoch\":5,\"clientCount\":5,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"errored\",\"since\":\"agentState.since\",\"workingMsTotal\":5,\"nativeSubagentCount\":5,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"oom\",\"workState\":\"icebox\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":5,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":5,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":5,\"refRepoId\":\"refRepoId\",\"refSeq\":5,\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":5},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}"
     },
     {
       "schema": "SessionMetaEntity",
@@ -10595,13 +10566,10 @@
         },
         "archived": true
       },
-      "parseAdded": {
-        "readAt": null,
-        "unread": false
-      },
+      "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"cwd\":\"cwd\",\"status\":\"starting\",\"controllerId\":null,\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"origin\":{\"kind\":\"spawn\"},\"archived\":true,\"readAt\":null,\"unread\":false}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"cwd\":\"cwd\",\"status\":\"starting\",\"controllerId\":null,\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"origin\":{\"kind\":\"spawn\"},\"archived\":true}"
     },
     {
       "schema": "SessionMetaEntity",
@@ -10689,12 +10657,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": true,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "self",
-        "unread": true,
         "workState": "planning",
         "resumable": true,
         "resume": {
@@ -10713,8 +10678,6 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 1,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": true,
         "driverId": "driverId",
@@ -10735,7 +10698,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -10745,7 +10708,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 1,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 1,
         "headless": true,
         "delegation": {
           "actor": "delegation.actor",
@@ -10767,7 +10731,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"user\",\"cwd\":\"cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":1,\"displayRef\":\"displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"user\",\"cwd\":\"cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":1,\"refRepoId\":\"refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
     },
     {
       "schema": "SessionMetaEntity",
@@ -10856,12 +10820,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": false,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "parent",
-        "unread": false,
         "workState": "implementing",
         "resumable": false,
         "resume": {
@@ -10880,13 +10841,11 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 2,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": false,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
-        "driverFamily": "embedded",
+        "driverFamily": "terminal",
         "configureFields": ["configureFields[0]"],
         "attachKinds": ["client"],
         "queuedMessageCount": 2,
@@ -10902,7 +10861,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -10912,7 +10871,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 2,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 2,
         "headless": false,
         "delegation": {
           "actor": "delegation.actor",
@@ -10934,7 +10894,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":2,\"rows\":2},\"geometryState\":\"unknown\",\"requestsGated\":2,\"requestsDuplicate\":2,\"requestsUnanswered\":2,\"epoch\":2,\"clientCount\":2,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"working\",\"since\":\"agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":false},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":false,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"poll\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":false,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"parent\",\"unread\":false,\"workState\":\"implementing\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":false,\"harnessHandoff\":false,\"harnessPromptModeHints\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":2,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"embedded\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":2,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":2,\"displayRef\":\"displayRef\",\"headless\":false,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":2},\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":2,\"rows\":2},\"geometryState\":\"unknown\",\"requestsGated\":2,\"requestsDuplicate\":2,\"requestsUnanswered\":2,\"epoch\":2,\"clientCount\":2,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"working\",\"since\":\"agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":false},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":false,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"poll\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":false,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"parent\",\"workState\":\"implementing\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":false,\"harnessHandoff\":false,\"harnessPromptModeHints\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":2,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"terminal\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":2,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":2,\"refRepoId\":\"refRepoId\",\"refSeq\":2,\"headless\":false,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":2},\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
     },
     {
       "schema": "SessionMetaEntity",
@@ -11023,12 +10983,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": true,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "forced",
-        "unread": true,
         "workState": "testing",
         "resumable": true,
         "resume": {
@@ -11047,13 +11004,11 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 3,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": true,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
-        "driverFamily": "terminal",
+        "driverFamily": "embedded",
         "configureFields": ["configureFields[0]"],
         "attachKinds": ["client"],
         "queuedMessageCount": 3,
@@ -11069,7 +11024,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -11079,7 +11034,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 3,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 3,
         "headless": true,
         "delegation": {
           "actor": "delegation.actor",
@@ -11100,9 +11056,14 @@
         }
       },
       "parseAdded": {},
-      "parseChanged": {},
+      "parseChanged": {
+        "driverFamily": {
+          "wire": "embedded",
+          "parsed": "server"
+        }
+      },
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"grok\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"reconnecting\",\"exitCode\":3,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":3,\"rows\":3},\"geometryState\":\"absent\",\"requestsGated\":3,\"requestsDuplicate\":3,\"requestsUnanswered\":3,\"epoch\":3,\"clientCount\":3,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"idle\",\"since\":\"agentState.since\",\"workingMsTotal\":3,\"nativeSubagentCount\":3,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"approval\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"forced\",\"unread\":true,\"workState\":\"testing\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":3,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"terminal\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":3,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":3,\"displayRef\":\"displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"delegation.grantedScope.rootId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":3},\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"grok\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"reconnecting\",\"exitCode\":3,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":3,\"rows\":3},\"geometryState\":\"absent\",\"requestsGated\":3,\"requestsDuplicate\":3,\"requestsUnanswered\":3,\"epoch\":3,\"clientCount\":3,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"idle\",\"since\":\"agentState.since\",\"workingMsTotal\":3,\"nativeSubagentCount\":3,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"approval\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"forced\",\"workState\":\"testing\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":3,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":3,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":3,\"refRepoId\":\"refRepoId\",\"refSeq\":3,\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"delegation.grantedScope.rootId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":3},\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
     },
     {
       "schema": "SessionMetaEntity",
@@ -11191,12 +11152,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": false,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "exited",
-        "unread": false,
         "workState": "done",
         "resumable": false,
         "resume": {
@@ -11215,13 +11173,11 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 4,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": false,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
-        "driverFamily": "terminal",
+        "driverFamily": "embedded",
         "configureFields": ["configureFields[0]"],
         "attachKinds": ["client"],
         "queuedMessageCount": 4,
@@ -11237,7 +11193,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -11247,7 +11203,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 4,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 4,
         "headless": false,
         "delegation": {
           "actor": "delegation.actor",
@@ -11268,9 +11225,14 @@
         }
       },
       "parseAdded": {},
-      "parseChanged": {},
+      "parseChanged": {
+        "driverFamily": {
+          "wire": "embedded",
+          "parsed": "server"
+        }
+      },
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"opencode\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"hibernated\",\"exitCode\":4,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":4,\"rows\":4},\"geometryState\":\"absent\",\"requestsGated\":4,\"requestsDuplicate\":4,\"requestsUnanswered\":4,\"epoch\":4,\"clientCount\":4,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"needs_user\",\"since\":\"agentState.since\",\"workingMsTotal\":4,\"nativeSubagentCount\":4,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"open_todos\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":false},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":false,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":false,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"exited\",\"unread\":false,\"workState\":\"done\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":false,\"harnessHandoff\":false,\"harnessPromptModeHints\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":4,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"terminal\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":4,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":4,\"displayRef\":\"displayRef\",\"headless\":false,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":4},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"opencode\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"hibernated\",\"exitCode\":4,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":4,\"rows\":4},\"geometryState\":\"absent\",\"requestsGated\":4,\"requestsDuplicate\":4,\"requestsUnanswered\":4,\"epoch\":4,\"clientCount\":4,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"needs_user\",\"since\":\"agentState.since\",\"workingMsTotal\":4,\"nativeSubagentCount\":4,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"open_todos\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":false},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":false,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":false,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"exited\",\"workState\":\"done\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":false,\"harnessHandoff\":false,\"harnessPromptModeHints\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":4,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":4,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":4,\"refRepoId\":\"refRepoId\",\"refSeq\":4,\"headless\":false,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":4},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
     },
     {
       "schema": "SessionMetaEntity",
@@ -11359,12 +11321,9 @@
           "stateConfidence": 1,
           "stateObservedAt": "agentState.stateObservedAt"
         },
-        "condition": "logged-out",
         "archived": true,
-        "readAt": "readAt",
         "stoppedAt": "stoppedAt",
         "stopReason": "oom",
-        "unread": true,
         "workState": "icebox",
         "resumable": true,
         "resume": {
@@ -11383,13 +11342,11 @@
         "requestedEffort": "requestedEffort",
         "contextUsagePercent": 5,
         "machineId": "machineId",
-        "machineName": "machineName",
-        "snoozedUntil": "snoozedUntil",
         "draftUpdatedAt": "draftUpdatedAt",
         "draftSyncEngine": true,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
-        "driverFamily": "terminal",
+        "driverFamily": "embedded",
         "configureFields": ["configureFields[0]"],
         "attachKinds": ["client"],
         "queuedMessageCount": 5,
@@ -11405,7 +11362,7 @@
           "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
-        "handoffTarget": "handoffTarget",
+        "handoffTargetMachineId": "handoffTargetMachineId",
         "conversationPodiumId": "conversationPodiumId",
         "spawnedBy": "spawnedBy",
         "workflowRunId": "workflowRunId",
@@ -11415,7 +11372,8 @@
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
         "refDraft": 5,
-        "displayRef": "displayRef",
+        "refRepoId": "refRepoId",
+        "refSeq": 5,
         "headless": true,
         "delegation": {
           "actor": "delegation.actor",
@@ -11436,9 +11394,14 @@
         }
       },
       "parseAdded": {},
-      "parseChanged": {},
+      "parseChanged": {
+        "driverFamily": {
+          "wire": "embedded",
+          "parsed": "server"
+        }
+      },
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"cursor\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"exited\",\"exitCode\":5,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":5,\"rows\":5},\"geometryState\":\"absent\",\"requestsGated\":5,\"requestsDuplicate\":5,\"requestsUnanswered\":5,\"epoch\":5,\"clientCount\":5,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"errored\",\"since\":\"agentState.since\",\"workingMsTotal\":5,\"nativeSubagentCount\":5,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"oom\",\"unread\":true,\"workState\":\"icebox\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":5,\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"terminal\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":5,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":5,\"displayRef\":\"displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":5},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"cursor\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"exited\",\"exitCode\":5,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":5,\"rows\":5},\"geometryState\":\"absent\",\"requestsGated\":5,\"requestsDuplicate\":5,\"requestsUnanswered\":5,\"epoch\":5,\"clientCount\":5,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"errored\",\"since\":\"agentState.since\",\"workingMsTotal\":5,\"nativeSubagentCount\":5,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"oom\",\"workState\":\"icebox\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"contextUsagePercent\":5,\"machineId\":\"machineId\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"client\"],\"queuedMessageCount\":5,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTargetMachineId\":\"handoffTargetMachineId\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":5,\"refRepoId\":\"refRepoId\",\"refSeq\":5,\"headless\":true,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":5},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
     },
     {
       "schema": "SessionNaming",
@@ -11961,6 +11924,33 @@
       "encoded": "{\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"deleted.by.actor.job\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"}}"
     },
     {
+      "schema": "SessionUserStateWire",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "sessionId": "sessionId",
+        "readAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"sessionId\":\"sessionId\",\"readAt\":null}"
+    },
+    {
+      "schema": "SessionUserStateWire",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "sessionId": "sessionId",
+        "readAt": "readAt",
+        "snoozedUntil": "snoozedUntil"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"sessionId\":\"sessionId\",\"readAt\":\"readAt\",\"snoozedUntil\":\"snoozedUntil\"}"
+    },
+    {
       "schema": "SessionWorkflowLink",
       "variant": "minimal",
       "wire": {},
@@ -12251,6 +12241,40 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"\""
+    },
+    {
+      "schema": "ShipLaneProjection",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "destination": "destination",
+        "trains": [],
+        "blockedOrderIds": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"destination\":\"destination\",\"trains\":[],\"blockedOrderIds\":[]}"
+    },
+    {
+      "schema": "ShipLaneProjection",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "destination": "destination",
+        "trains": [
+          {
+            "orderIds": ["trains[0].orderIds[0]"]
+          }
+        ],
+        "blockedOrderIds": ["blockedOrderIds[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"destination\":\"destination\",\"trains\":[{\"orderIds\":[\"trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"blockedOrderIds[0]\"]}"
     },
     {
       "schema": "ShipOrder",
@@ -14247,6 +14271,295 @@
       "encoded": "{\"id\":\"id\",\"role\":\"user\",\"text\":\"text\"}"
     },
     {
+      "schema": "TranscriptItem",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "cursor": "cursor",
+        "role": "user",
+        "promptEntry": true,
+        "harnessRef": [
+          {
+            "kind": "harnessRef[0].kind",
+            "id": "harnessRef[0].id"
+          }
+        ],
+        "queued": true,
+        "dropped": true,
+        "ts": "ts",
+        "text": "text",
+        "toolName": "toolName",
+        "toolInput": "toolInput",
+        "toolTitle": "toolTitle",
+        "toolInputJson": "toolInputJson",
+        "toolResult": "toolResult",
+        "toolEffects": [
+          {
+            "kind": "file-edit",
+            "edit": {
+              "kind": "file-edit",
+              "path": "toolEffects[0].edit.path",
+              "mode": "replace",
+              "hunks": [
+                {
+                  "path": "toolEffects[0].edit.hunks[0].path",
+                  "oldText": "toolEffects[0].edit.hunks[0].oldText",
+                  "newText": "toolEffects[0].edit.hunks[0].newText"
+                }
+              ],
+              "patch": "toolEffects[0].edit.patch",
+              "added": 1,
+              "removed": 1,
+              "changedFileCount": 1,
+              "moreFiles": 1,
+              "unavailable": true,
+              "truncated": true
+            },
+            "userModified": true
+          }
+        ],
+        "toolUseId": "toolUseId",
+        "tags": [
+          {
+            "kind": "image",
+            "label": "tags[0].label"
+          }
+        ],
+        "toolPaths": ["toolPaths[0]"],
+        "event": "interrupt",
+        "answer": true,
+        "systemKind": "recap",
+        "durationMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"cursor\":\"cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"toolEffects[0].edit.hunks[0].path\",\"oldText\":\"toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}"
+    },
+    {
+      "schema": "TranscriptItem",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "cursor": "cursor",
+        "role": "assistant",
+        "promptEntry": false,
+        "harnessRef": [
+          {
+            "kind": "harnessRef[0].kind",
+            "id": "harnessRef[0].id"
+          }
+        ],
+        "queued": false,
+        "dropped": false,
+        "ts": "ts",
+        "text": "text",
+        "toolName": "toolName",
+        "toolInput": "toolInput",
+        "toolTitle": "toolTitle",
+        "toolInputJson": "toolInputJson",
+        "toolResult": "toolResult",
+        "toolEffects": [
+          {
+            "kind": "git-operation",
+            "operation": {
+              "commit": {
+                "sha": "toolEffects[0].operation.commit.sha",
+                "kind": "toolEffects[0].operation.commit.kind",
+                "branch": "toolEffects[0].operation.commit.branch"
+              },
+              "branch": {
+                "ref": "toolEffects[0].operation.branch.ref",
+                "action": "toolEffects[0].operation.branch.action"
+              }
+            }
+          }
+        ],
+        "toolUseId": "toolUseId",
+        "tags": [
+          {
+            "kind": "file",
+            "label": "tags[0].label"
+          }
+        ],
+        "toolPaths": ["toolPaths[0]"],
+        "event": "interrupt",
+        "answer": false,
+        "systemKind": "duration",
+        "durationMs": 2
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"cursor\":\"cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"toolEffects[0].operation.commit.sha\",\"kind\":\"toolEffects[0].operation.commit.kind\",\"branch\":\"toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"toolEffects[0].operation.branch.ref\",\"action\":\"toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}"
+    },
+    {
+      "schema": "TranscriptItem",
+      "variant": "full/arm2",
+      "wire": {
+        "id": "id",
+        "cursor": "cursor",
+        "role": "tool",
+        "promptEntry": true,
+        "harnessRef": [
+          {
+            "kind": "harnessRef[0].kind",
+            "id": "harnessRef[0].id"
+          }
+        ],
+        "queued": true,
+        "dropped": true,
+        "ts": "ts",
+        "text": "text",
+        "toolName": "toolName",
+        "toolInput": "toolInput",
+        "toolTitle": "toolTitle",
+        "toolInputJson": "toolInputJson",
+        "toolResult": "toolResult",
+        "toolEffects": [
+          {
+            "kind": "background-task",
+            "taskId": "toolEffects[0].taskId"
+          }
+        ],
+        "toolUseId": "toolUseId",
+        "tags": [
+          {
+            "kind": "file",
+            "label": "tags[0].label"
+          }
+        ],
+        "toolPaths": ["toolPaths[0]"],
+        "event": "interrupt",
+        "answer": true,
+        "systemKind": "duration",
+        "durationMs": 3
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"cursor\":\"cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"toolEffects[0].taskId\"}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}"
+    },
+    {
+      "schema": "TranscriptItem",
+      "variant": "full/arm3",
+      "wire": {
+        "id": "id",
+        "cursor": "cursor",
+        "role": "system",
+        "promptEntry": false,
+        "harnessRef": [
+          {
+            "kind": "harnessRef[0].kind",
+            "id": "harnessRef[0].id"
+          }
+        ],
+        "queued": false,
+        "dropped": false,
+        "ts": "ts",
+        "text": "text",
+        "toolName": "toolName",
+        "toolInput": "toolInput",
+        "toolTitle": "toolTitle",
+        "toolInputJson": "toolInputJson",
+        "toolResult": "toolResult",
+        "toolEffects": [
+          {
+            "kind": "termination",
+            "interrupted": true,
+            "timedOutAfterMs": 4,
+            "interpretation": "toolEffects[0].interpretation"
+          }
+        ],
+        "toolUseId": "toolUseId",
+        "tags": [
+          {
+            "kind": "file",
+            "label": "tags[0].label"
+          }
+        ],
+        "toolPaths": ["toolPaths[0]"],
+        "event": "interrupt",
+        "answer": false,
+        "systemKind": "duration",
+        "durationMs": 4
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"cursor\":\"cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"toolEffects[0].interpretation\"}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":4}"
+    },
+    {
+      "schema": "TranscriptItem",
+      "variant": "full/arm4",
+      "wire": {
+        "id": "id",
+        "cursor": "cursor",
+        "role": "system",
+        "promptEntry": true,
+        "harnessRef": [
+          {
+            "kind": "harnessRef[0].kind",
+            "id": "harnessRef[0].id"
+          }
+        ],
+        "queued": true,
+        "dropped": true,
+        "ts": "ts",
+        "text": "text",
+        "toolName": "toolName",
+        "toolInput": "toolInput",
+        "toolTitle": "toolTitle",
+        "toolInputJson": "toolInputJson",
+        "toolResult": "toolResult",
+        "toolEffects": [
+          {
+            "kind": "unknown",
+            "key": "toolEffects[0].key"
+          }
+        ],
+        "toolUseId": "toolUseId",
+        "tags": [
+          {
+            "kind": "file",
+            "label": "tags[0].label"
+          }
+        ],
+        "toolPaths": ["toolPaths[0]"],
+        "event": "interrupt",
+        "answer": true,
+        "systemKind": "duration",
+        "durationMs": 5
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"cursor\":\"cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"toolEffects[0].key\"}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":5}"
+    },
+    {
+      "schema": "TranscriptItemRef",
+      "variant": "minimal",
+      "wire": {
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\"}"
+    },
+    {
+      "schema": "TranscriptItemRef",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "cursor": "cursor"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"cursor\":\"cursor\"}"
+    },
+    {
       "schema": "TranscriptPolicy",
       "variant": "minimal",
       "wire": {},
@@ -14306,6 +14619,115 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"kind\":\"image\",\"label\":\"label\"}"
+    },
+    {
+      "schema": "TranscriptToolEffect",
+      "variant": "minimal",
+      "wire": {
+        "kind": "file-edit",
+        "edit": {
+          "kind": "file-edit",
+          "mode": "replace",
+          "hunks": [],
+          "added": 1,
+          "removed": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"mode\":\"replace\",\"hunks\":[],\"added\":1,\"removed\":1}}"
+    },
+    {
+      "schema": "TranscriptToolEffect",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "file-edit",
+        "edit": {
+          "kind": "file-edit",
+          "path": "edit.path",
+          "mode": "replace",
+          "hunks": [
+            {
+              "path": "edit.hunks[0].path",
+              "oldText": "edit.hunks[0].oldText",
+              "newText": "edit.hunks[0].newText"
+            }
+          ],
+          "patch": "edit.patch",
+          "added": 1,
+          "removed": 1,
+          "changedFileCount": 1,
+          "moreFiles": 1,
+          "unavailable": true,
+          "truncated": true
+        },
+        "userModified": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"edit.hunks[0].path\",\"oldText\":\"edit.hunks[0].oldText\",\"newText\":\"edit.hunks[0].newText\"}],\"patch\":\"edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}"
+    },
+    {
+      "schema": "TranscriptToolEffect",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "git-operation",
+        "operation": {
+          "commit": {
+            "sha": "operation.commit.sha",
+            "kind": "operation.commit.kind",
+            "branch": "operation.commit.branch"
+          },
+          "branch": {
+            "ref": "operation.branch.ref",
+            "action": "operation.branch.action"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"operation.commit.sha\",\"kind\":\"operation.commit.kind\",\"branch\":\"operation.commit.branch\"},\"branch\":{\"ref\":\"operation.branch.ref\",\"action\":\"operation.branch.action\"}}}"
+    },
+    {
+      "schema": "TranscriptToolEffect",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "background-task",
+        "taskId": "taskId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"background-task\",\"taskId\":\"taskId\"}"
+    },
+    {
+      "schema": "TranscriptToolEffect",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "termination",
+        "interrupted": true,
+        "timedOutAfterMs": 4,
+        "interpretation": "interpretation"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"interpretation\"}"
+    },
+    {
+      "schema": "TranscriptToolEffect",
+      "variant": "full/arm4",
+      "wire": {
+        "kind": "unknown",
+        "key": "key"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"unknown\",\"key\":\"key\"}"
     },
     {
       "schema": "UpdateChannel",

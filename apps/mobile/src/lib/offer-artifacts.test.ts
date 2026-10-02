@@ -1,10 +1,5 @@
-import {
-  asArtifactId,
-  asIssueId,
-  type IssuePanelArtifact,
-  type IssueWire,
-  type SessionOffer,
-} from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asArtifactId, asIssueId, type IssuePanelArtifact, type SessionOffer } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { offerArtifactRows, resolveOfferArtifacts } from './offer-artifacts'
 
@@ -14,7 +9,7 @@ import { offerArtifactRows, resolveOfferArtifacts } from './offer-artifacts'
 
 const ORIGIN = 'https://podium.local'
 
-function issue(artifacts: IssuePanelArtifact[]): IssueWire {
+function issue(artifacts: IssuePanelArtifact[]): IssueViewModel {
   return {
     id: asIssueId('iss_offer'),
     seq: 1,
@@ -22,7 +17,7 @@ function issue(artifacts: IssuePanelArtifact[]): IssueWire {
     repoPath: '/repo',
     worktreePath: '/repo/.worktrees/POD-1',
     panel: { todos: [], artifacts, deferred: [] },
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 const art = (

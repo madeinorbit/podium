@@ -154,6 +154,19 @@ export interface ViewInputs {
    * cached contribution, so a seat's change re-reads that seat only.
    */
   retainedSeats(id: string): readonly string[]
+  /**
+   * POD-4708 (plant/old) — the explicit seats as the mirror IS the relation:
+   * every yielded id counts, exactly as `many()` yields do.
+   * `[...seats].sort()` re-reads the whole family and must FAIL #10.
+   * Optional (the lean arm builds these inputs without it).
+   */
+  seats?(id: string): Iterable<string>
+  /**
+   * POD-4708 (O(1) real) — the maintained SORTED seat list itself, returned
+   * without iterating it. `sessionIds` reads it, never `seats()` nor `many()`.
+   * Optional (the lean arm falls back to the re-list).
+   */
+  seatList?(id: string): readonly string[]
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
   /** `coarseNow >= t`. */
@@ -206,7 +219,7 @@ export function displayTitleOf(
   firstMemberOf: () => SliceSession | undefined,
 ): string {
   const title = issue.title.trim()
-  if (issue.draft !== true || (title !== '' && title !== DRAFT_TITLE)) return issue.title
+  if (issue.isDraftVessel !== true || (title !== '' && title !== DRAFT_TITLE)) return issue.title
   const firstMember = firstMemberOf()
   if (firstMember === undefined) return 'New agent'
   const kind = firstMember.agentKind ?? 'undefined'
@@ -362,7 +375,10 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
   },
   /** `issue.sessions`, sorted: the order a draft's title needs, applied at view time. */
   sessionIds(input, id) {
-    return [...input.relations.many('issue', id, 'sessions')].sort()
+    // POD-4708 (O(1) real): the maintained SORTED list itself, returned
+    // without iterating it. Never `seats()` (fenced, plant/old) nor `many()`.
+    // The lean arm falls back to the re-list.
+    return input.seatList?.(id) ?? [...input.relations.many('issue', id, 'sessions')].sort()
   },
   /**
    * Max `lastActiveAt` of the row's retained seats, else own `updatedAt`,

@@ -17,6 +17,7 @@
  */
 
 import { type ObservableMap, observable } from 'mobx'
+import { debugName } from '../debug-name'
 import type { EntityName } from '../shared/schema'
 import {
   type EditPatch,
@@ -36,7 +37,7 @@ export class PendingOverlay implements WriteSeam {
   private readonly entries: ObservableMap<string, IssueOverlay> = observable.map<
     string,
     IssueOverlay
-  >(undefined, { deep: false, name: 'write.overlays' })
+  >(undefined, { deep: false, name: debugName(() => 'write.overlays') })
   /** The write api that owns this overlay (`createMobxWriteApi` joins it), else null. */
   private editor: Editor | null = null
 

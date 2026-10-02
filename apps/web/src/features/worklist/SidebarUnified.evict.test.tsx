@@ -1,3 +1,5 @@
+import '@/test-support/mock-core-store-handle'
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 /**
  * EVICT: A ROW LEAVES WITHOUT A DELETION (POD-407, readiness §3.1 item 2 /
@@ -116,7 +118,7 @@ vi.mock('@/app/store', () => {
     useReplicaIssues: () => currentIssues,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
   }
 })
 

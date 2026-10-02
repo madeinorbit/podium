@@ -60,9 +60,9 @@ const cohortRows = [
 
 let answer: TaskCostWire = wire()
 
-vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (state: unknown) => unknown) =>
-    select({
+vi.mock('@podium/client-core/react', () => ({
+  useStoreHandle: () => ({
+    getSnapshot: () => ({
       trpc: {
         cost: {
           task: { query: () => Promise.resolve(answer) },
@@ -70,6 +70,7 @@ vi.mock('@/app/store', () => ({
         },
       },
     }),
+  }),
 }))
 
 afterEach(() => {

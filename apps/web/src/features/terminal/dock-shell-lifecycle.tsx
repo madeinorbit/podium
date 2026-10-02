@@ -1,10 +1,11 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId} from '@podium/model'
 import { useEffect, useRef } from 'react'
 import { useStoreSelector } from '@/app/store'
 
 type DockShellLifecycleSession = Pick<
-  SessionMeta,
+  SessionView,
   'sessionId' | 'agentKind' | 'archived' | 'status'
 >
 

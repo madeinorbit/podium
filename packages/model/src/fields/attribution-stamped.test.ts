@@ -130,7 +130,7 @@ describe('NeedsHuman.asked, the declared deviation', () => {
   // still speaks `asked.attribution` fails to parse.
   it('keeps its own spelling, and still names the ONE Attribution instance', () => {
     expect(Object.keys(ASKED.shape)).toEqual(['question', 'options', 'at', 'by', 'attribution'])
-    expect(ASKED.shape.attribution).toBe(Attribution)
+    expect(ASKED.shape.attribution.unwrap()).toBe(Attribution)
     expect(ASKED.shape.at).not.toBe(StampedAttribution.shape.at)
   })
 })
@@ -139,7 +139,7 @@ describe('NeedsHuman.asked, the declared deviation', () => {
 // The census — what makes a FOURTH site visible
 // ---------------------------------------------------------------------------
 
-export interface StampedSiteViolation {
+interface StampedSiteViolation {
   readonly path: string
   readonly kind: 'not-composed'
   readonly detail: string
@@ -246,7 +246,7 @@ function stampedSites(roots: readonly (readonly [string, z.ZodTypeAny])[]): {
  * carrying a look-alike and watch it fail. A check that could only ever run over
  * the real, correct exports would be a check nobody has seen say no.
  */
-export function stampedAttributionViolations(
+function stampedAttributionViolations(
   roots: readonly (readonly [string, z.ZodTypeAny])[],
 ): StampedSiteViolation[] {
   const out: StampedSiteViolation[] = []

@@ -1,3 +1,4 @@
+import type { SessionView } from '../../../session-values'
 /**
  * WORKLIST SLICE — how a row's sessions are bucketed and nested (POD-330).
  *
@@ -23,20 +24,18 @@ import {
   isHeadlessSession,
   isSnoozed,
   type SessionId,
-  type SessionMeta,
-  spawnedByParentSessionId,
-} from '@podium/model'
+  spawnedByParentSessionId} from '@podium/model'
 import { attentionGroup, compareRecency } from '../../../focus'
 import { isConsumedChild, sessionHasNativeSubagents } from '../../session-status'
 import { STALE_INACTIVE_MS } from '../../session-urgency'
 
 export interface WorkItemPartition {
   /** Sessions needing the user's attention: blocked, finished-idle, errored, or exited. */
-  attention: SessionMeta[]
+  attention: SessionView[]
   /** Sessions actively running without needing the user. */
-  working: SessionMeta[]
+  working: SessionView[]
   /** Pinned sessions — also listed in attention/working when their state warrants it. */
-  pinnedPanels: SessionMeta[]
+  pinnedPanels: SessionView[]
 }
 
 /**
@@ -51,13 +50,13 @@ export interface WorkItemPartition {
  * Archived sessions are excluded entirely.
  */
 export function partitionWorkItems(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   pinnedSessionIds: Set<string>,
   now: number = Date.now(),
 ): WorkItemPartition {
-  const attention: SessionMeta[] = []
-  const working: SessionMeta[] = []
-  const pinnedPanels: SessionMeta[] = []
+  const attention: SessionView[] = []
+  const working: SessionView[] = []
+  const pinnedPanels: SessionView[] = []
 
   for (const s of sessions) {
     if (s.archived || isHeadlessSession(s)) continue
@@ -84,9 +83,9 @@ export function partitionWorkItems(
 /** A session is "stale" when it's been inactive longer than this. */
 export interface StalePartition {
   /** Sessions to render normally. */
-  visible: SessionMeta[]
+  visible: SessionView[]
   /** Sessions sunk into the collapsed "Stale" subsection at the bottom. */
-  stale: SessionMeta[]
+  stale: SessionView[]
 }
 
 /**
@@ -98,10 +97,10 @@ export interface StalePartition {
  * visible; only the rest collapse. Working sessions are never collapsed.
  */
 export function partitionStaleSessions(
-  sorted: SessionMeta[],
+  sorted: SessionView[],
   now: number = Date.now(),
 ): StalePartition {
-  const isCandidate = (s: SessionMeta): boolean =>
+  const isCandidate = (s: SessionView): boolean =>
     attentionGroup(s) !== 'working' && now - Date.parse(s.lastActiveAt) > STALE_INACTIVE_MS
   const candidates = sorted.filter(isCandidate)
   if (sorted.length <= 5 || candidates.length <= 3) return { visible: sorted, stale: [] }
@@ -120,15 +119,15 @@ export function partitionStaleSessions(
  *  the UI). Children split into `children` (live/attention-worthy) and
  *  `consumed` (exited — auto-tucked behind a disclosure). */
 export interface SessionGroup {
-  session: SessionMeta
-  children: SessionMeta[]
-  consumed: SessionMeta[]
+  session: SessionView
+  children: SessionView[]
+  consumed: SessionView[]
 }
 
 /** The spawning parent, read through the ONE `spawnedBy` reader (POD-1133).
  *  This used to be a local regex — the second of two hand-rolled parsers of a
  *  tag that seven other sites rebuilt by hand to compare. */
-const spawnedByParentId = (s: SessionMeta): SessionId | undefined =>
+const spawnedByParentId = (s: SessionView): SessionId | undefined =>
   spawnedByParentSessionId(s.spawnedBy)
 
 /**
@@ -142,7 +141,7 @@ const spawnedByParentId = (s: SessionMeta): SessionId | undefined =>
  *   indicator is visible.
  * - Unrelated multi-agent rows keep expanding as before.
  */
-export function sessionsNeedChildRows(sessions: SessionMeta[]): boolean {
+export function sessionsNeedChildRows(sessions: SessionView[]): boolean {
   if (sessions.length === 0) return false
   // Native Task subagents: expand even for a lone parent session so the
   // nested "N subagents" indicator is visible under the parent row.
@@ -160,10 +159,10 @@ export function sessionsNeedChildRows(sessions: SessionMeta[]): boolean {
  * session whose spawner isn't listed stays top-level. Input order is preserved
  * on both levels.
  */
-export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
+export function groupSessionsByParent(sessions: SessionView[]): SessionGroup[] {
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
   // Topmost listed ancestor (cycle-guarded); null = top-level.
-  const anchorOf = (s: SessionMeta): SessionId | null => {
+  const anchorOf = (s: SessionView): SessionId | null => {
     let cur = s
     let anchor: SessionId | null = null
     const seen = new Set<string>([s.sessionId])

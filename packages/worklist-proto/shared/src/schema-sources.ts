@@ -14,21 +14,30 @@
  * directly.
  */
 
+import type { ReplicaKind } from '@podium/client-core/replica'
+import {
+  type ModelSchema,
+  type ModelSchemaName,
+  type RowArrival,
+  SCHEMA,
+} from '@podium/client-graph/shared/schema'
 import {
   AgentRuntimeState,
   GitRepositoryWire,
   GitWorktreeWire,
+  IssueDepProjection,
   IssueDepWire,
+  IssueDerived,
   IssueGitState,
+  IssueGitStateProjection,
   IssueProjection,
-  IssueWire,
+  IssueUserStateWire,
   RepoProjection,
   ResumeRef,
   SessionMeta,
   SessionOffer,
+  SessionUserStateWire,
 } from '@podium/model'
-import type { ReplicaKind } from '@podium/client-core/replica'
-import { SCHEMA, type ModelSchema, type ModelSchemaName, type RowArrival } from '@podium/client-graph/shared/schema'
 
 /** The minimum a zod object exposes that the validator needs. */
 export interface ShapeCarrier {
@@ -40,12 +49,16 @@ export interface ShapeCarrier {
  * typecheck, so the citation vocabulary cannot drift from the model.
  */
 export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
-  IssueWire,
+  IssueUserStateWire,
+  IssueGitStateProjection,
+  IssueDerived,
   IssueProjection,
   IssueDepWire,
+  IssueDepProjection,
   SessionMeta,
   AgentRuntimeState,
   SessionOffer,
+  SessionUserStateWire,
   ResumeRef,
   RepoProjection,
   GitRepositoryWire,
@@ -112,7 +125,7 @@ export function validateSources(schema: ModelSchema = SCHEMA): string[] {
 
     // A relation name must not shadow a property the composed row carries,
     // even one this schema does not declare as a field: the pool holds the
-    // whole row. `IssueWire.origin` is why the R4 relation is named
+    // whole row. `IssueViewModel.origin` is why the R4 relation is named
     // `discoveredFrom`.
     for (const relationName of Object.keys(entity.relations)) {
       const carrier = composed.get(relationName)

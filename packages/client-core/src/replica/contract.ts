@@ -65,11 +65,13 @@ import type {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  IssueWire,
   LayoutWire,
+  MachineProjection,
   MessageRecordWire,
   RepoProjection,
   SessionMeta,
+  SessionUserStateWire,
+  ShipLaneProjection,
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
@@ -93,11 +95,9 @@ export type StorageEventApi = {
 
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
+  sessionUserStates: SessionUserStateWire
+  machines: MachineProjection
   sessions: SessionMeta
-  /** The LEGACY embedded issue wire. Still held for compatibility consumers: the
-   *  rich issue UI reads some supplements from it while normalized projections
-   *  become the sole durable source. Its eventual retirement has one merger seam. */
-  issues: IssueWire
   /** The NORMALIZED issue projection [POD-796] — the issue's own durable row,
    *  nothing derived. The replica-side issue VIEWS read this, joined against the
    *  two kinds below (see `readViewInputs`). Empty unless the authority's flag is
@@ -135,6 +135,8 @@ export interface ReplicaRows {
   messageRecords: MessageRecordWire
   /** Compact Shipping rows, keyed by order and joined locally through issueId. */
   shipOrders: ShipOrderProjection
+  /** Canonical shipping lanes, carrying server-owned train positions. */
+  shipLanes: ShipLaneProjection
   conversations: ConversationSummaryWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
@@ -159,8 +161,9 @@ export interface ReplicaRows {
 export type ReplicaKind = keyof ReplicaRows
 
 export interface ReplicaHydrateResult {
+  sessionUserStates: SessionUserStateWire[]
+  machines: MachineProjection[]
   sessions: SessionMeta[]
-  issues: IssueWire[]
   /** The three POD-796/POD-822 kinds, persisted like every other collection so a
    *  warm reload paints the views from local data and re-seeds the hub's
    *  in-memory lists (see `seedMetadata`). Empty until the cap flips. */
@@ -173,6 +176,7 @@ export interface ReplicaHydrateResult {
   pendingInteractions: PendingInteractionWire[]
   messageRecords: MessageRecordWire[]
   shipOrders: ShipOrderProjection[]
+  shipLanes: ShipLaneProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
@@ -213,7 +217,10 @@ export interface UiState {
  * an empty scope; an absent row may still carry a changed exit record. */
 export type ReplicaAddressedBatch =
   | { readonly type: 'replace'; readonly reason: 'bootstrap' | 'rescope' }
-  | { readonly type: 'update'; readonly rows: readonly { readonly kind: ReplicaKind; readonly id: string }[] }
+  | {
+      readonly type: 'update'
+      readonly rows: readonly { readonly kind: ReplicaKind; readonly id: string }[]
+    }
 
 export interface Replica {
   /** False when durable storage is unusable (private mode, quota). The replica
@@ -229,6 +236,8 @@ export interface Replica {
   applySnapshot<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]): void
   /** Delta semantics: upsert + remove by id. Idempotent. */
   applyChanges<K extends ReplicaKind>(kind: K, upserts: ReplicaRows[K][], removeIds: string[]): void
+  /** Sparse personal session rows are complete after this principal catches up. */
+  sessionUserStatesLoaded?(): boolean
   getCursor(): number | null
   /** Persist the cursor AFTER the entity writes issued before this call have
    *  landed (spec invariant 3) — a crash between = idempotent re-apply, never a gap. */

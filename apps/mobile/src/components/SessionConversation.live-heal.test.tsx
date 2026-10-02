@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE PHONE'S TRANSCRIPT DOES NOT WAIT FOR A RELOAD [POD-4643].
  *
@@ -13,7 +14,7 @@
  * frame, so the only way the answer can appear is the phone reading it.
  */
 
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import type { TranscriptItem } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -88,7 +89,7 @@ const working = {
   title: 'Agent',
   lastActiveAt: '2026-09-23T07:47:56.000Z',
   agentState: { phase: 'working', since: '2026-09-23T07:47:56.000Z' },
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 function entry(
   id: string,
@@ -118,9 +119,9 @@ function authority(initial?: TranscriptItem[]) {
   return { written, transcriptRead }
 }
 
-let moveRow: (next: SessionMeta) => void = () => {}
+let moveRow: (next: SessionView) => void = () => {}
 
-function Screen({ initial }: { initial: SessionMeta }) {
+function Screen({ initial }: { initial: SessionView }) {
   const [session, setSession] = useState(initial)
   moveRow = setSession
   return <SessionConversation session={session} issue={undefined} />
@@ -152,12 +153,12 @@ describe('phone transcript over a live stream that went quiet', () => {
     fireEvent.click(screen.getByLabelText('Load history'))
     expect(await screen.findByText('Message 20')).toBeTruthy()
     io.written.push(entry('new', 'c180', 'assistant', 'New live answer'))
-    act(() => moveRow({ ...working, lastActiveAt: '2026-09-23T07:49:00.000Z' } as SessionMeta))
+    act(() => moveRow({ ...working, lastActiveAt: '2026-09-23T07:49:00.000Z' } as SessionView))
     expect(await screen.findByText('New live answer')).toBeTruthy()
     expect(screen.getByText('Message 20')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('Follow newest'))
     io.written.push(entry('later', 'c181', 'assistant', 'Later answer'))
-    act(() => moveRow({ ...working, lastActiveAt: '2026-09-23T07:50:00.000Z' } as SessionMeta))
+    act(() => moveRow({ ...working, lastActiveAt: '2026-09-23T07:50:00.000Z' } as SessionView))
     expect(await screen.findByText('Later answer')).toBeTruthy()
     expect(screen.queryByText('Message 20')).toBeNull()
   })
@@ -169,7 +170,7 @@ describe('phone transcript over a live stream that went quiet', () => {
         ...working,
         lastActiveAt: '2026-09-23T07:47:58.313Z',
         agentState: { phase: 'idle', since: '2026-09-23T07:47:58.313Z' },
-      } as unknown as SessionMeta),
+      } as unknown as SessionView),
     )
     expect(await screen.findByText('49 LEMON', {}, { timeout: 3000 })).toBeTruthy()
   })

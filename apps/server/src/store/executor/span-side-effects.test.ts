@@ -44,7 +44,7 @@ async function openWiredStore(): Promise<{ store: SessionStore; ledger: Ledger }
 }
 
 const upsert = (id: string, value: unknown) =>
-  [{ entity: 'issue' as const, id, op: 'upsert' as const, value }] as const
+  [{ entity: 'issueProjection' as const, id, op: 'upsert' as const, value }] as const
 
 describe('a nested ledger.commit publishes after the OUTER commit', () => {
   it('does not deliver while the enclosing transaction is still open', async () => {
@@ -112,13 +112,19 @@ describe('a subscriber that commits from inside its own notification', () => {
         for (const change of changes) seen.push(`${name}:${change.id}`)
         if (name === 'A' && !reentered) {
           reentered = true
-          reentrantCommit = ledger.commit({ write: async () => 'ok', changes: () => [...upsert('second', { v: 1 })] })
+          reentrantCommit = ledger.commit({
+            write: async () => 'ok',
+            changes: () => [...upsert('second', { v: 1 })],
+          })
         }
       })
     }
 
     await store.transact(async () => {
-      await ledger.commit({ write: async () => 'ok', changes: () => [...upsert('first', { v: 1 })] })
+      await ledger.commit({
+        write: async () => 'ok',
+        changes: () => [...upsert('first', { v: 1 })],
+      })
     })
 
     // Notification listeners are synchronous; the test owns the async commit

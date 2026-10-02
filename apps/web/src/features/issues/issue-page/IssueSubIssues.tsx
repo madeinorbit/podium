@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The sub-task list — one flat list in slice order, plus an inline add-row.
  * Split out of IssuePage.tsx (POD-646).
@@ -25,7 +26,7 @@
  * `branchRollup` note says the same thing about counts, since a count IS an
  * existence fact and §3.1.2 leaves that policy open.
  */
-import type { IssueId, SessionMeta } from '@podium/model/browser'
+import type { IssueId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from 'lucide-react'
 import { type JSX, useMemo } from 'react'
@@ -137,7 +138,7 @@ export function IssueSubIssues({
    *  that does not render its React children is the one thing React's own
    *  vocabulary reserves, and biome's noChildrenProp is right to refuse it. */
   subIssues: IssueViewModel[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   now: number
   busy: boolean
   addingChild: boolean

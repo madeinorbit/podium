@@ -1,3 +1,5 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE CHAT 3-DOTS, DRAFT VS ACTIVE (2026-08-27 device review).
  *
@@ -8,9 +10,9 @@
  * sheet's standard Cancel. An active session keeps the session-scoped verbs,
  * including transcript search.
  */
-import type { IssueWire, SessionMeta } from '@podium/model'
-import { asIssueId, asSessionId } from '@podium/model'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+
+import { asIssueId, asSessionId, asUserId } from '@podium/model'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -92,11 +94,11 @@ vi.mock('../components/BottomSheet', async () => {
 
 const { renderWithMobileStore } = await import('../client/test-support')
 const { SessionScreen } = await import('./SessionScreen')
-const { useStoreSelector } = await import('../client/hooks')
+const { useIssues } = await import('../client/hooks')
 
 const vesselId = asIssueId('vessel')
 
-const session = (patch: Partial<SessionMeta> = {}): SessionMeta =>
+const session = (patch: Partial<SessionView> = {}): SessionView =>
   ({
     agentKind: 'claude-code',
     cwd: '/home/dev/podium',
@@ -113,9 +115,9 @@ const session = (patch: Partial<SessionMeta> = {}): SessionMeta =>
     issueId: vesselId,
     sessionId: asSessionId('sess_menu'),
     ...patch,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
-const vessel = (patch: Partial<IssueWire> = {}): IssueWire =>
+const vessel = (patch: Partial<IssueViewModel> = {}): IssueViewModel =>
   ({
     id: vesselId,
     repoPath: '/src/podium',
@@ -132,12 +134,12 @@ const vessel = (patch: Partial<IssueWire> = {}): IssueWire =>
     childDoneCount: 0,
     archived: false,
     pinned: false,
-    draft: true,
+    isDraftVessel: true,
     worktreePath: null,
     ...patch,
-  }) as unknown as IssueWire
+  }) as unknown as IssueViewModel
 
-async function openMenu(issue: IssueWire) {
+async function openMenu(issue: IssueViewModel) {
   const result = await renderWithMobileStore(<SessionScreen />, {
     sessions: [session()],
     issues: [issue],
@@ -150,9 +152,9 @@ async function openMenu(issue: IssueWire) {
 /** The live store's issues, watched through the real selector — the Delete
  *  confirm resolves into `deleteIssue`, whose optimistic overlay stamps
  *  `deletedAt` on the vessel. A Cancel must leave it unstamped. */
-function IssueProbe({ seen }: { seen: { issues: IssueWire[] } }) {
-  const issues = useStoreSelector((s) => s.issues)
-  seen.issues = issues as IssueWire[]
+function IssueProbe({ seen }: { seen: { issues: IssueViewModel[] } }) {
+  const issues = useIssues()
+  seen.issues = issues
   return null
 }
 
@@ -163,7 +165,7 @@ const threeSessions = () => [
 ]
 
 async function openDraftMenuWithSessions() {
-  const seen: { issues: IssueWire[] } = { issues: [] }
+  const seen: { issues: IssueViewModel[] } = { issues: [] }
   const result = await renderWithMobileStore(
     <>
       <SessionScreen />
@@ -176,11 +178,8 @@ async function openDraftMenuWithSessions() {
   return { ...result, seen }
 }
 
-function vesselDeletedAt(seen: { issues: IssueWire[] }): string | null | undefined {
-  return seen.issues.find((issue) => issue.id === vesselId)?.deletedAt as
-    | string
-    | null
-    | undefined
+function vesselDeletedAt(seen: { issues: IssueViewModel[] }): string | null | undefined {
+  return seen.issues.find((issue) => issue.id === vesselId)?.deletedAt as string | null | undefined
 }
 
 describe('the draft chat menu', () => {
@@ -248,7 +247,7 @@ describe('the draft chat menu', () => {
 
 describe('the active-session chat menu', () => {
   it('keeps transcript search and the session verbs', async () => {
-    await openMenu(vessel({ draft: false, worktreePath: '/tmp/wt/vessel' }))
+    await openMenu(vessel({ isDraftVessel: false, worktreePath: '/tmp/wt/vessel' }))
 
     expect(screen.getByLabelText('Find in transcript')).toBeTruthy()
     expect(screen.queryByLabelText('Delete')).toBeNull()
@@ -256,5 +255,66 @@ describe('the active-session chat menu', () => {
     expect(screen.getByLabelText('Archive')).toBeTruthy()
     expect(screen.getByLabelText('Set work state…')).toBeTruthy()
     expect(screen.getByLabelText('Kill session')).toBeTruthy()
+  })
+})
+
+describe('session menu snooze from the acting user home', () => {
+  const active = vessel({ isDraftVessel: false, worktreePath: '/tmp/wt/vessel' })
+  const personal = (snoozedUntil?: string | null) => ({
+    userId: asUserId('user:test'),
+    sessionId: asSessionId('sess_menu'),
+    readAt: null,
+    ...(snoozedUntil !== undefined ? { snoozedUntil } : {}),
+  })
+
+  it.each([
+    false,
+    true,
+  ])('shows null snooze and hides it when cleared, stripped=%s', async (stripped) => {
+    const raw = session({ snoozedUntil: '2099-01-01T00:00:00.000Z' })
+    if (stripped) Reflect.deleteProperty(raw, 'snoozedUntil')
+    const clear = vi.fn(async () => {})
+    const { replica } = await renderWithMobileStore(<SessionScreen />, {
+      sessions: [raw],
+      issues: [active],
+      sessionUserStates: [personal(null)],
+      api: { snoozes: { clear: { mutate: clear } } },
+    })
+    const stored = replica.rows('sessions')[0]
+    fireEvent.click(await screen.findByLabelText('Session actions'))
+    expect(await screen.findByLabelText('Clear snooze')).toBeTruthy()
+    await act(async () => {
+      replica.applyChanges('sessionUserStates', [personal()], [])
+    })
+    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    await act(async () => {
+      replica.applyChanges('sessionUserStates', [personal(null)], [])
+    })
+    fireEvent.click(await screen.findByLabelText('Clear snooze'))
+    await waitFor(() => expect(clear).toHaveBeenCalled())
+    fireEvent.click(await screen.findByLabelText('Session actions'))
+    expect(await screen.findByLabelText('Cancel')).toBeTruthy()
+    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    expect(replica.rows('sessions')[0]).toBe(stored)
+  })
+
+  it('does not substitute another user’s snooze for the acting user’s cleared row', async () => {
+    await renderWithMobileStore(<SessionScreen />, {
+      sessions: [session({ snoozedUntil: null })],
+      issues: [active],
+      sessionUserStates: [personal(), { ...personal(null), userId: asUserId('user:other') }],
+    })
+    fireEvent.click(await screen.findByLabelText('Session actions'))
+    expect(await screen.findByLabelText('Snooze until next message')).toBeTruthy()
+    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+  })
+
+  it('shows the legacy snooze before any personal home arrives', async () => {
+    await renderWithMobileStore(<SessionScreen />, {
+      sessions: [session({ snoozedUntil: null })],
+      issues: [active],
+    })
+    fireEvent.click(await screen.findByLabelText('Session actions'))
+    expect(await screen.findByLabelText('Clear snooze')).toBeTruthy()
   })
 })

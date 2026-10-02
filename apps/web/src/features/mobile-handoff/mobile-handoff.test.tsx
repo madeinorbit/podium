@@ -1,3 +1,5 @@
+import '@/test-support/mock-core-store-handle'
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 /**
  * The two mobile-handoff surfaces, against the three rules that define them
@@ -50,9 +52,9 @@ const fixture = vi.hoisted(() => {
 })
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => fixture.issues,
+  useReplicaIssues: () => normalizedFixtureIssues({ issues: fixture.issues }),
   useStoreSelector: (selector: (store: unknown) => unknown) =>
-    selector({
+    selector(normalizedFixtureStore({
       uiState: fixture.uiState,
       trpc: fixture.trpc,
       httpOrigin: 'https://local.example',
@@ -64,12 +66,12 @@ vi.mock('@/app/store', () => ({
       paneB: null,
       split: false,
       focusedPane: 'A',
-    }),
+    })),
 }))
 
 import { MobileHandoffChip } from './MobileHandoffChip'
 import { MobilePromoCard } from './MobilePromoCard'
-import { mobileHandoffUrl, useMobileHandoffUrl } from './mobile-handoff'
+import { mobileHandoffUrl, useHasFirstTask, useMobileHandoffUrl } from './mobile-handoff'
 
 beforeEach(() => {
   fixture.issues = []
@@ -95,6 +97,16 @@ const withOneTask = (): void => {
 }
 
 describe('the first task is the gate', () => {
+  it.each([
+    ['archived', { archived: true }, true],
+    ['draft', { isDraftVessel: true }, true],
+    ['deleted', { deletedAt: '2026-10-01T08:00:00Z' }, false],
+  ] as const)('keeps the OFF predicate for an %s-only shell', (_name, patch, expected) => {
+    fixture.issues = [makeIssue(patch)]
+    const { result } = renderHook(useHasFirstTask)
+    expect(result.current).toBe(expected)
+  })
+
   it('shows neither surface on a shell with no task', () => {
     render(
       <>

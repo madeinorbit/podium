@@ -26,25 +26,14 @@
  * `loginTestClient` and passes `Cookie` on every handshake.
  *
  * ---------------------------------------------------------------------------
- * THE THREE PEERS, under today's composition
+ * THE SUPPORTED BUILD AND REFUSED PEERS
  * ---------------------------------------------------------------------------
  *
- * Production names `GrantEdgeVisibilityPolicy` (relay.ts) — grade
- * `per-principal`. That makes TWO independent refusal arms live on the same
- * edge (POD-376): the version window, and the scoping gate.
- *
- *   1. A STALE PWA. `hello` carries caps but NO `wireVersion` field (pre-cutover
- *      builds). Absence means wire 1. Wire 1 cannot express `evict`, so against
- *      a per-principal authority the peer is refused at admission with
- *      `scoping-requires-eviction` — silence on the entity plane. The advertised
- *      window still includes 1 (`MIN_CLIENT_WIRE_VERSION`); what refuses it is this
- *      deployment's visibility grade, not the version floor. (Under
- *      `device-unscoped` the same peer would be admitted; that arm is covered by
- *      `wire-feed-edge.test.ts`, not by a real-server integration.)
- *   2. A CURRENT BUILD, announcing wire 2. Served the canonical frames.
- *   3. A PEER OUTSIDE THE WINDOW, announcing a version this server does not
- *      support. Refused with `unsupported-version`: no entity frames after
- *      `hello`, control plane still works (`welcome`).
+ * A hello without a version means wire 1. The previous bundled build announces
+ * wire 3. Both are below the new floor and receive no entity frames. The minimum
+ * supported build receives bootstrap and live updates; a future version is
+ * refused too. Authentication and welcome remain available to refused peers so
+ * their version guard can display the update state.
  *
  * The refusing arms depend on facts this file sets directly — a missing
  * `wireVersion` (→ 1) and a `wireVersion` outside
@@ -58,7 +47,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
-import { CAP_METADATA_DELTA, MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { CAP_METADATA_DELTA, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { noJanitorWorkerForTests } from '../janitor-host'
@@ -69,7 +58,6 @@ const CLIENT_PASSWORD = 'wire-window-client-password'
 
 const ENTITY_FRAMES = new Set([
   'sessionsChanged',
-  'issuesChanged',
   'conversationsChanged',
   'automationsChanged',
   'automationRunsChanged',
@@ -158,14 +146,23 @@ describe('the wire window, over real sockets', () => {
     }
   }
 
-  it('serves a current build; refuses wire-1 under per-principal scoping and peers beyond the window', async () => {
-    // 1. THE STALE PWA — no `wireVersion` in its hello. Under production
-    //    `GrantEdgeVisibilityPolicy` this is refused at admission (see header).
+  it('serves the minimum supported build and refuses stale, previous and future builds', async () => {
+    // Both an unversioned shell and the previous bundled build are refused.
     const stale = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'] })
-    // 2. THE CURRENT BUILD.
-    const current = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: CLIENT_WIRE_VERSION })
+    const previous = await connect({
+      caps: [CAP_METADATA_DELTA, 'sync.http.v1'],
+      wireVersion: MIN_CLIENT_WIRE_VERSION - 1,
+    })
+    // The minimum supported build uses the canonical projection vocabulary.
+    const current = await connect({
+      caps: [CAP_METADATA_DELTA, 'sync.http.v1'],
+      wireVersion: MIN_CLIENT_WIRE_VERSION,
+    })
     // 3. BEYOND THE WINDOW.
-    const beyond = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: CLIENT_WIRE_VERSION + 1 })
+    const beyond = await connect({
+      caps: [CAP_METADATA_DELTA, 'sync.http.v1'],
+      wireVersion: CLIENT_WIRE_VERSION + 1,
+    })
 
     // Control plane works for every admitted socket (auth + welcome), including
     // the two peers the entity plane will refuse. Wait on current's world first
@@ -173,6 +170,7 @@ describe('the wire window, over real sockets', () => {
     // spinning until the deadline.
     await Promise.all([
       stale.nextMatching((m) => m.type === 'welcome'),
+      previous.nextMatching((m) => m.type === 'welcome'),
       current.nextMatching((m) => m.type === 'welcome'),
       beyond.nextMatching((m) => m.type === 'welcome'),
     ])
@@ -185,14 +183,22 @@ describe('the wire window, over real sockets', () => {
       headers: { Cookie: cookieHeader },
     })
     expect(response.status).toBe(200)
-    const records = (await response.text()).trim().split('\n').map(line => JSON.parse(line))
-    const changes = records.filter(record => record.type === 'feedBootstrap').flatMap(record => record.changes)
-    expect(changes.some(c => c.entity === 'session' && c.value?.cwd === '/repo/before-the-deploy')).toBe(true)
+    const records = (await response.text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    const changes = records
+      .filter((record) => record.type === 'feedBootstrap')
+      .flatMap((record) => record.changes)
+    expect(
+      changes.some((c) => c.entity === 'session' && c.value?.cwd === '/repo/before-the-deploy'),
+    ).toBe(true)
 
     // Snapshot refused peers AFTER the admitted peer has been fully served: by
     // then their hellos have been processed (connect order is stale → current →
     // beyond, and current's bootstrap only runs after its own hello).
     const staleAfterHello = stale.frames.length
+    const previousAfterHello = previous.frames.length
     const beyondAfterHello = beyond.frames.length
 
     // A write AFTER all three connected.
@@ -222,7 +228,7 @@ describe('the wire window, over real sockets', () => {
     // moment each peer announced a version this server will not serve on the
     // entity plane, it receives NO entity frame in either wire's vocabulary.
     //
-    //   stale  → scoping-requires-eviction (wire 1 + per-principal)
+    //   stale / previous → unsupported-version (below the floor)
     //   beyond → unsupported-version (outside [min, wire])
     //
     // There is no `426` ServerMessage for either — client-mux leaves the peer
@@ -234,6 +240,12 @@ describe('the wire window, over real sockets', () => {
       stale
         .types()
         .slice(staleAfterHello)
+        .filter((t) => ENTITY_FRAMES.has(t)),
+    ).toEqual([])
+    expect(
+      previous
+        .types()
+        .slice(previousAfterHello)
         .filter((t) => ENTITY_FRAMES.has(t)),
     ).toEqual([])
     expect(
@@ -251,7 +263,7 @@ describe('the wire window, over real sockets', () => {
     // fetches exactly this and hard-reloads when its own CLIENT_WIRE_VERSION is below
     // `minSupportedVersion` or differs from `wireVersion`, which is the working
     // half of the 426 backstop for a browser holding a cached bundle.
-    // `feedScoping` is why wire 1 is refused here even though min is still 1.
+    // The floor refuses every build that required the retired record.
     const version = (await (await fetch(`http://127.0.0.1:${handle.port}/version`)).json()) as {
       wireVersion: number
       minSupportedVersion: number
@@ -262,10 +274,8 @@ describe('the wire window, over real sockets', () => {
       minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
       feedScoping: 'per-principal',
     })
-    // The floor still admits 1 in the advertised window — the stale refusal is
-    // the scoping gate, not a raised MIN_CLIENT_WIRE_VERSION.
-    expect(version.minSupportedVersion).toBeLessThanOrEqual(1)
+    expect(version.minSupportedVersion).toBe(4)
 
-    for (const peer of [stale, current, beyond]) peer.ws.close()
+    for (const peer of [stale, previous, current, beyond]) peer.ws.close()
   })
 })

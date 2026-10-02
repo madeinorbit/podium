@@ -22,6 +22,8 @@ vi.mock('@/app/store', () => ({
   useReplicaIssues: () => fixture.issues as IssueReferenceSource[],
 }))
 
+vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => fixture }))
+
 function LivenessBeforeHost(): JSX.Element {
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   return (

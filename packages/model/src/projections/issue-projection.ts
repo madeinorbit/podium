@@ -1,71 +1,3 @@
-/**
- * **R4 — the Issue wire / read projection** [ADR 4 D2], and the NORMALIZED
- * successor to `../entities/issue.ts`'s `IssueWire`.
- *
- * PORTED FROM MAIN at the POD-1246 catch-up (main's `issue/wire.ts`), and this
- * is the one ported file whose CONTENT is not main's. Main derived it from main's
- * `issueDurableShape`; here it is derived from `IssueAggregate` — THIS tree's
- * canonical R1, the collapse of POD-364's seventeen issue representations. Both
- * branches state the same rule (R4 = the durable shape under the wire
- * nullability convention, plus wire-only tolerance); taking main's field list
- * instead would have imported a second issue vocabulary beside the one
- * `fields/issue.ts` exists to be, which is the drift both branches are deleting.
- *
- * WHAT THAT MEANS FOR CONSUMERS: main's server-side producers and its client-side
- * readers of `IssueProjection` were written against main's key spelling, and this
- * tree's vocabulary renamed several of those keys ON COMPOSITION (`blockedBy` →
- * `blockedByNotes`, `origin` → `intentOrigin`, `draft` → `isDraftVessel`) and
- * nested the needs-human pair under `asked`. Those consumers are in the merge's
- * remaining issues-vertical tranche and must be reconciled against THIS shape,
- * not against main's. That is a rename sweep, not a modelling question.
- *
- * Named `IssueProjection` rather than `IssueWire2`/`IssueWireV2` on purpose: the
- * two coexist until the POD-796 cutover deletes the old one, and a version suffix
- * would outlive the transition it describes.
- *
- * ---------------------------------------------------------------------------
- * WHY THIS IS NOT JUST "IssueWire MINUS A FIELD"
- * ---------------------------------------------------------------------------
- *
- * `IssueWire` embeds `sessions: SessionMeta[]` — a derived array of ANOTHER
- * entity's full projection. That is the canonical ADR 4 D7.1 non-compliance, and
- * it is not a cosmetic one: because every issue's payload contains every member
- * session's payload, a one-field change to a single session forces an O(world)
- * rebuild of every issue's wire payload (POD-701/POD-772 entry 1 measured p50
- * 711ms ×2 per switch at 530-session scale). D7.1 makes that shape
- * unrepresentable:
- *
- *   > A replicated entity references other entities by **branded id only**. An R4
- *   > wire/read projection MUST NOT embed another entity's projection.
- *
- * So: `sessions: SessionMeta[]` → nothing at all. The client already holds the
- * session world and indexes it by `issueId` locally (D7.3). The intermediate step
- * — carrying `memberSessionIds: SessionId[]` — existed briefly on main and was
- * deleted at the POD-796 cutover.
- *
- * Every derived field `IssueWire` carries and this does not — `sessionSummary`,
- * `unread`, `ready`, `blocked`, `deferred`, `childCount`, `childDoneCount`,
- * `commentCount`, `displayRef`, `prefix`, `repoPath`, `gitState` — is already
- * named ONCE in this tree, on `IssueDerived` (`../fields/issue.ts`), precisely so
- * it can be kept OUT of R1 and therefore out of here. The through-line is D7.2:
- * **a change to entity X may trigger recomputation only of projections of X.**
- * Each of those is a function of something other than this issue's own durable
- * row, so computing it here would put cross-entity work on the fan-out path.
- * `blocked` in particular reads OTHER issues' stages through `issue_deps`; it
- * moves replica-side, over the `IssueDep` edges the feed now carries
- * (`../entities/issue-dep.ts`), and `prefix` over the `Repo` rows it now carries
- * (`../entities/repo.ts`). Those two entities exist BECAUSE this projection does
- * not carry these fields.
- *
- * THERE ARE NO DERIVED WIRE FIELDS, and that is the load-bearing property: with
- * no derived input, `toWire(issue)` is a pure function of the issue's own row, so
- * a session change cannot dirty an issue projection — not as an optimization the
- * publish path remembers to apply, but because the data to do otherwise is not
- * reachable from the signature. If a future field wants to live here, it is
- * almost certainly a D7.3 replica-side view or a D7.4 materialized entity
- * instead.
- */
-
 import { z } from 'zod'
 import { IssueAggregate } from '../aggregates/issue'
 import { dropNullValues, wireShape } from '../shape'
@@ -92,7 +24,7 @@ export const IssueProjection = z.object({
   // Main tolerated a second field here, `humanQuestionOptions`. It has no
   // counterpart to tolerate: this tree nests the needs-human pair as
   // `asked: { question, options, at, by, attribution }` (`fields/issue.ts`,
-  // NeedsHuman) precisely so "when" cannot arrive without "who", and `options` is
+  // NeedsHuman) with optional historical attribution, and `options` is
   // a plain `z.array(z.string()).optional()` inside it with no closed vocabulary
   // a newer peer could widen. The tolerance existed for main's enum-typed slot
   // list; it would be decoration here.

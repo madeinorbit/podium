@@ -6,7 +6,7 @@ import { RELAY } from './_harness'
  * relay. Covers the browser-only flow that unit tests cannot: the Sidebar "Issues"
  * nav button switching the main view, the kanban rendering one column per lifecycle
  * stage, the New Issue dialog creating a worktree-less (startNow=false) issue that
- * lands in Backlog via the live `issuesChanged` broadcast (no manual refetch), and
+ * lands in Backlog via the live normalized issue feed (no manual refetch), and
  * the detail panel's Stage selector moving a card across columns.
  *
  * The committed _harness `openApp`/`gotoWorkspace` helpers enter a worktree
@@ -198,7 +198,7 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   // The dialog closes on success...
   await expect(dialog).toBeHidden({ timeout: 15_000 })
 
-  // ...and the new card appears under Backlog (live via the issuesChanged broadcast).
+  // ...and the new card appears under Backlog (live via the normalized issue feed).
   // Scope to the actual column container (each is a fixed-width column) rather
   // than any ancestor div with a matching heading, so "not in Backlog" is exact.
   // Scoped by the column's own test id (POD-591) rather than by its width
@@ -525,7 +525,7 @@ test('issue page: add a comment and it appears in the activity feed', async ({ p
   await issuePage.getByLabel('Add a comment').fill(body)
   await issuePage.getByRole('button', { name: 'Post', exact: true }).click({ timeout: 10_000 })
 
-  // The comment lands in the activity feed live (via the issuesChanged broadcast)
+  // The comment lands in the activity feed live (via the normalized issue feed)
   // and the compose box clears. Scope to the feed: while the post is in flight the
   // same text still sits in the (disabled) compose textarea, which would otherwise
   // trip the strict-mode locator.
@@ -583,7 +583,7 @@ test('issue page: add a sub-issue inline and the child row appears with a 0/1 co
   await input.fill(childTitle)
   await input.press('Enter')
 
-  // The child row appears live (via the issuesChanged broadcast), the input clears
+  // The child row appears live (via the normalized issue feed), the input clears
   // but stays open for rapid entry, and the section header shows the 0/1 count.
   await expect(
     subIssues.getByRole('button', { name: new RegExp(childTitle) }),

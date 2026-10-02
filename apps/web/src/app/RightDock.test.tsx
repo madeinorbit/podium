@@ -1,6 +1,7 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 // @vitest-environment happy-dom
 
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -13,7 +14,7 @@ const selectedIssue = {
   repoPath: '/repo',
   worktreePath: null,
   machineId: 'machine-selected',
-} as IssueWire
+} as IssueViewModel
 const otherIssue = {
   id: 'other',
   seq: 22,
@@ -22,7 +23,7 @@ const otherIssue = {
   repoId: 'repo-other',
   repoPath: '/other',
   worktreePath: '/other/wt',
-} as IssueWire
+} as IssueViewModel
 const otherSession = {
   sessionId: asSessionId('other-session'),
   cwd: '/other/wt',
@@ -46,6 +47,7 @@ const state = {
   issues: [selectedIssue, otherIssue],
   selectedIssueId: selectedIssue.id,
   shipOrders: [],
+  shipLanes: [],
   coarseNow: Date.parse('2026-08-13T12:00:00.000Z'),
   setSelectedIssueId: vi.fn(),
   trpc: {

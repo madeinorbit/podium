@@ -1,4 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { type SessionView, sessionValues } from '@podium/client-core/session-values'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   buildFlightDeckRows,
@@ -14,6 +16,7 @@ import {
   flightDeckRowIsFolded,
   formatClock,
   type IssueContinuation,
+  type IssueNavigationModel,
   isCoordinatorSession,
   issueAbandoned,
   issueContinuation,
@@ -29,16 +32,16 @@ import {
   treeGuides,
   writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { memo, useCallback, useEffect, useMemo } from 'react'
-import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from './icons'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { applyFolds, deckContentHeight } from '../lib/deck-rows'
 import { stageColor } from '../theme/stage'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from './icons'
 import { PressableScale } from './PressableScale'
 import {
   DeckSection,
@@ -116,18 +119,18 @@ export const MissionDeck = memo(function MissionDeck({
   onOpenDeparture,
   onContentHeight,
 }: {
-  root: IssueWire
-  issues: readonly IssueWire[]
-  sessions: readonly SessionMeta[]
+  root: IssueViewModel
+  issues: readonly IssueViewModel[]
+  sessions: readonly SessionView[]
   allWorktreePaths: string[]
   /** The mission's own accent — what the lead rail and every tick are drawn in. */
   accent: string
   /** The session the conversation underneath is showing — the deck marks it so
    *  the panel answers "where am I" as well as "what else is there". */
   currentSessionId: SessionId | undefined
-  onOpenSession: (session: SessionMeta) => void
-  onOpenTask: (issue: IssueWire) => void
-  onOpenTaskMenu?: (issue: IssueWire) => void
+  onOpenSession: (session: SessionView) => void
+  onOpenTask: (issue: IssueNavigationModel) => void
+  onOpenTaskMenu?: (issue: IssueNavigationModel) => void
   onLaunchAgent: () => void
   onTuckRoot: () => void
   onFileRoot: () => void
@@ -250,10 +253,11 @@ export const MissionDeck = memo(function MissionDeck({
    *  and ask it why. Unresolvable (a human create, or an agent long gone) means
    *  no author line rather than a raw session id. */
   const authorOf = useCallback(
-    (issue: IssueWire): string | null => {
+    (issue: IssueNavigationModel): string | null => {
       const id = issue.startedBySession
       if (!id) return null
-      return sessions.find((s) => s.sessionId === id)?.displayRef?.trim() || null
+      const author = sessions.find((s) => s.sessionId === id)
+      return author ? sessionValues(author).displayRef?.trim() || null : null
     },
     [sessions],
   )
@@ -558,14 +562,14 @@ function SpineRow({
    *  block and the next row instead of stopping at the last agent's elbow. */
   childFollows: boolean
   mode: FlightDeckMode
-  byId: ReadonlyMap<string, IssueWire>
+  byId: ReadonlyMap<string, IssueViewModel>
   nameOf: (sessionId: SessionId) => string | undefined
   folded: boolean
   currentSessionId: SessionId | undefined
   onToggleFold: () => void
-  onOpenTask: (i: IssueWire) => void
-  onOpenTaskMenu?: (i: IssueWire) => void
-  onOpenSession: (s: SessionMeta) => void
+  onOpenTask: (i: IssueNavigationModel) => void
+  onOpenTaskMenu?: (i: IssueNavigationModel) => void
+  onOpenSession: (s: SessionView) => void
 }) {
   const state = deckIssueState(row.issue, row.sessions, byId)
   const context = mode !== 'full' && !row.matched
@@ -648,7 +652,7 @@ function Band({
   onPress,
 }: {
   row: FlightDeckRow
-  session: SessionMeta
+  session: SessionView
   depth: number
   carries: readonly boolean[]
   rails: readonly RailTone[]
@@ -676,7 +680,7 @@ function Band({
       accent={accent}
       stops={stops}
       name={sessionTitle(session)}
-      displayRef={session.displayRef?.trim() || undefined}
+      displayRef={sessionValues(session).displayRef?.trim() || undefined}
       role={role}
       roleText={roleLabel(role, nameOf)}
       kind={session.agentKind}
@@ -705,7 +709,7 @@ function ContinuationSignpost({
   continuation: IssueContinuation
   state: string | null
   finished: boolean
-  sessions: readonly SessionMeta[]
+  sessions: readonly SessionView[]
   onOpen: (issueId: IssueId) => void
   onFile: () => void
 }) {
@@ -831,7 +835,7 @@ function RetiredSignpost({ abandoned, onTuck }: { abandoned: boolean; onTuck: ()
  * queued — the dimmed row already says it.
  */
 function stamp(
-  session: SessionMeta,
+  session: SessionView,
   phase: ReturnType<typeof motionPhase>,
   working: boolean,
   asking: boolean,

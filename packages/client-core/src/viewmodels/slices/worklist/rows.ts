@@ -1,3 +1,5 @@
+import type { SessionView } from '../../../session-values'
+import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row CONSTRUCTION: which work earns a row, how
  * provenance nests it, and the WORKING move-out split.
@@ -8,10 +10,7 @@
  */
 import {
   type IssueId,
-  type IssueWire,
-  isSystemOwnedIssueStage,
-  type SessionMeta,
-} from '@podium/model'
+  isSystemOwnedIssueStage} from '@podium/model'
 import { indexMissionSessions, issueContinuation, missionRollup } from '../../mission'
 import {
   issueIdOwningSession,
@@ -21,7 +20,6 @@ import {
 import { isSessionWorking } from '../../session-status'
 import { elevateCoordinatorSession, sortSessionsForSidebar } from '../../session-urgency'
 import {
-  type IssueNavigationModel,
   isClosedTopLevelIssue,
   isDraftAgentVessel,
   issueAwaitingMerge,
@@ -51,14 +49,14 @@ import {
 function buildUnifiedRows(
   sections: SidebarSections,
   issues: IssueNavigationModel[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   allWorktreePaths: string[],
   now: number,
   ownership?: SessionOwnershipIndex,
 ): UnifiedWorkRow[] {
   const sessionIndex = indexMissionSessions(sessions)
   const rows: UnifiedWorkRow[] = []
-  const retainedSessionsByIssue = new Map<string, SessionMeta[]>()
+  const retainedSessionsByIssue = new Map<string, SessionView[]>()
   for (const issue of issues) {
     if (
       issue.archived ||
@@ -158,7 +156,7 @@ function buildUnifiedRows(
   }
   // WHERE THE WORK WENT, STAMPED ONCE (POD-1193). Whether a row's work carried
   // on elsewhere needs the whole issue graph and every session in the replica,
-  // which neither a row nor `IssueWire` carries — so it is answered here, where
+  // which neither a row nor `IssueNavigationModel` carries — so it is answered here, where
   // both are in hand, and read from the row everywhere after. Stamped BEFORE
   // nesting so `attach`'s spread carries it onto descendant rows too: a parent
   // sums attention over its branch, and a vacated child must not contribute an
@@ -253,9 +251,9 @@ function sidebarWorktrees(sections: SidebarSections): WorktreeNavView[] {
  */
 export function nestStartedByIssues(
   rows: UnifiedWorkRow[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   allWorktreePaths: string[],
-  allIssues: readonly IssueWire[] = rows
+  allIssues: readonly IssueNavigationModel[] = rows
     .filter((row): row is UnifiedIssueRow => row.kind === 'issue')
     .map((row) => row.issue),
   ownership?: SessionOwnershipIndex,
@@ -368,7 +366,7 @@ export function nestStartedByIssues(
 export function unifiedWorkList(
   sections: SidebarSections,
   issues: IssueNavigationModel[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   allWorktreePaths: string[],
   now: number = Date.now(),
 ): UnifiedWorkRow[] {
@@ -384,7 +382,7 @@ export function unifiedWorkList(
 export type WorkingEntry =
   | { kind: 'issue'; row: Extract<UnifiedWorkRow, { kind: 'issue' }> }
   | { kind: 'worktree'; row: Extract<UnifiedWorkRow, { kind: 'worktree' }> }
-  | { kind: 'session'; session: SessionMeta }
+  | { kind: 'session'; session: SessionView }
 
 export interface UnifiedWorkPartition {
   /** WORKING rows/sessions, preserving the unified list's manual row order. */
@@ -395,7 +393,7 @@ export interface UnifiedWorkPartition {
 
 /** Rebuild a WORK row around a filtered session set, recomputing its activity
  *  so ordering stays coherent after working sessions are lifted out. */
-function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[]): UnifiedWorkRow {
+function rowWithSessions(row: UnifiedWorkRow, keep: SessionView[]): UnifiedWorkRow {
   const activityAt = keep.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
   if (row.kind === 'issue') {
     // Recompute the bubbled aggregate too — a stale aggregate would keep
@@ -436,7 +434,7 @@ function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[]): UnifiedWorkR
 export function partitionUnifiedWork(
   sections: SidebarSections,
   issues: IssueNavigationModel[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   allWorktreePaths: string[],
   now: number = Date.now(),
 ): UnifiedWorkPartition {

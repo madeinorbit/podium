@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * A MESSAGE THE SERVER GAVE UP ON STAYS VISIBLE IN THE SESSION CHAT [POD-4704].
  *
@@ -8,7 +9,7 @@
  * delivery failed, never as a vanished target, while a causeless one still
  * reads target gone — and its way on is "Send again", a new message.
  */
-import { asSessionId, type MessageRecordWire, type SessionMeta } from '@podium/model'
+import { asSessionId, type MessageRecordWire } from '@podium/model'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -51,10 +52,7 @@ vi.mock('./TranscriptList', () => ({
   TranscriptList: ({ pendingTurns }: { pendingTurns?: readonly PendingTurn[] }) => (
     <div>
       {(pendingTurns ?? []).map((turn) => (
-        <div
-          key={turn.id}
-          data-testid={turn.notice ? 'not-delivered-chat-message' : 'pending'}
-        >
+        <div key={turn.id} data-testid={turn.notice ? 'not-delivered-chat-message' : 'pending'}>
           {turn.failed ? `${turn.text} · ${turn.failed}` : turn.text}
         </div>
       ))}
@@ -70,7 +68,7 @@ const live = {
   cwd: '/repo',
   status: 'live',
   title: 'Agent',
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 function failedRecord(over: Partial<MessageRecordWire> = {}): MessageRecordWire {
   return {

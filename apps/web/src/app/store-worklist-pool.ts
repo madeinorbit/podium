@@ -1,15 +1,14 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { reportSidebarPool } from '@podium/client-core/perf'
+import { chipCheckFor, chipPerf, reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool, WorklistPoolHandle } from '@podium/client-graph'
 import type { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
-import {
-  initializeSidebarDataLayer,
-  sidebarCheckRequested,
-  sidebarDataLayer,
-} from '@/lib/sidebar-data-layer'
+import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
+import { chipsPerfRequested } from '@/lib/chips-data-layer'
+import { attachPoolScreens, screenOptions } from './pool-screen-registry'
+import { poolBackedScreens } from './pool-screens'
 
 interface PoolSlot {
   handle: WorklistPoolHandle | null
@@ -66,75 +65,54 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   runtime: ClientRuntime<TApi>,
   onError: (error: Error) => void,
 ): () => void {
-  initializeSidebarDataLayer(runtime.ui)
-  if (sidebarDataLayer() !== 'pool') return () => {}
+  // Structural legacy/test runtimes without UI state request no pool screen.
+  if (!runtime.ui) return () => {}
+  for (const screen of poolBackedScreens) screen.initialize(runtime.ui)
+  if (sidebarDataLayer() === 'pool') runtime.enablePoolRuntimeWork?.()
+  let stopCensus = (): void => {}
+  if (chipsPerfRequested() && typeof window !== 'undefined') {
+    chipPerf.enable()
+    const owner = new WeakRef(runtime)
+    const census = { reset: chipPerf.reset,
+      read: () => { const current = owner.deref(); return current ? chipPerf.read(current) : null },
+      check: () => { const current = owner.deref(); return current ? chipCheckFor(current) : null },
+    }
+    Object.assign(window, { __chipPerf: census })
+    stopCensus = () => { if (Reflect.get(window, '__chipPerf') === census) Reflect.deleteProperty(window, '__chipPerf') }
+  }
+  if (!poolBackedScreens.some((screen) => screen.enabled())) return stopCensus
   reportSidebarPool(runtime, null, false)
   const slot = slotFor(runtime)
   slot.error = null
   let disposed = false
-  let stopCheck: (() => void) | undefined
+  let stopScreens: (() => void) | undefined
+  const fail = (cause: unknown): void => {
+    if (disposed) return
+    slot.error = cause instanceof Error ? cause : new Error(String(cause))
+    onError(slot.error)
+    notify(slot)
+  }
   if (import.meta.env.DEV && typeof window !== 'undefined') {
     Object.assign(window, { __sidebarPool: { survivors: worklistPoolSurvivors } })
   }
   void import('@podium/client-graph/runtime-pool')
     .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
       if (disposed) return
-      slot.handle = createRuntimeWorklistPool(runtime)
+      const options = screenOptions(poolBackedScreens, runtime)
+      slot.handle = Object.keys(options).length
+        ? createRuntimeWorklistPool(runtime, options)
+        : createRuntimeWorklistPool(runtime)
+      stopScreens = attachPoolScreens(poolBackedScreens, runtime, slot.handle.pool, fail)
       slot.project = createPoolProjection
       notify(slot)
-      if (sidebarCheckRequested()) {
-        const pool = slot.handle.pool
-        void import('@podium/client-graph/diagnostics/runtime-check')
-          .then(({ startSidebarCheck }) => {
-            if (disposed) return
-            stopCheck = startSidebarCheck(runtime, pool, {
-              state: (store) => {
-                const base = {
-                  pinnedRepos: store.pins.repos,
-                  pinnedWorktrees: store.pins.worktrees,
-                  projectOrder: store.sidebarSettings.repoOrder,
-                }
-                const keys = [
-                  'podium:sidebar:pinned-fold',
-                  ...pool.sidebar
-                    .sections(base)
-                    .bands.flatMap((band) => [
-                      band.foldKey,
-                      band.snoozedFoldKey,
-                      band.closedFoldKey,
-                    ]),
-                ]
-                return {
-                  pinnedRepos: store.pins.repos,
-                  pinnedWorktrees: store.pins.worktrees,
-                  projectOrder: store.sidebarSettings.repoOrder,
-                  paneA: store.paneA,
-                  selectedWorktree: store.selectedWorktree,
-                  collapsed: Object.fromEntries(
-                    keys.flatMap((key) => {
-                      const raw = runtime.ui.get(key)
-                      return raw === null ? [] : [[key, raw === 'true']]
-                    }),
-                  ),
-                }
-              },
-            })
-          })
-          .catch(() => {
-            /* Optional diagnostics must not take down the sidebar. */
-          })
-      }
     })
-    .catch((cause: unknown) => {
-      if (disposed) return
-      slot.error = cause instanceof Error ? cause : new Error(String(cause))
-      onError(slot.error)
-    })
+    .catch(fail)
   return () => {
     if (disposed) return
     disposed = true
-    stopCheck?.()
-    stopCheck = undefined
+    stopCensus()
+    stopScreens?.()
+    stopScreens = undefined
     const handle = slot.handle
     slot.handle = null
     slot.project = null

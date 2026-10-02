@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import type { ChatActivity, ChatRow } from '@podium/client-core/viewmodels'
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import type { TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -15,7 +16,7 @@ let root: Root
 function mount(
   activity: ChatActivity | null,
   since?: string,
-  session?: SessionMeta,
+  session?: SessionView,
   lastRow?: ChatRow,
 ): void {
   act(() => {
@@ -28,8 +29,8 @@ function mount(
 const toolRow = (item: TranscriptItem): ChatRow =>
   ({ kind: 'tools', blocks: [{ item }], blockIndices: [0], title: 'Ran a tool' }) as ChatRow
 
-const session = (agentState: SessionMeta['agentState']): SessionMeta =>
-  ({ agentState }) as unknown as SessionMeta
+const session = (agentState: SessionView['agentState']): SessionView =>
+  ({ agentState }) as unknown as SessionView
 
 const tail = (): HTMLElement | null => host.querySelector('[data-testid="feed-tail"]')
 const figure = (): string | undefined => host.querySelector('.feed-tail-figure')?.textContent ?? ''

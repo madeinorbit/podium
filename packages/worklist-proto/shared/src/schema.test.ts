@@ -59,13 +59,9 @@ describe('the declared schema', () => {
   it('declares four entities, with the issue projection as a component rather than a fifth', () => {
     expect(Object.keys(SCHEMA).sort()).toEqual(['issue', 'repo', 'session', 'worktree'])
     // The projection is composed into `issue` by id, not a separate entity.
-    expect(Object.keys(SCHEMA.issue.components).sort()).toEqual(['issue', 'issueProjection'])
+    expect(Object.keys(SCHEMA.issue.components).sort()).toEqual(['issueProjection'])
     expect(SCHEMA.issue.components.issueProjection?.joinKey).toBe('id')
     expect(SCHEMA.issue.components.issueProjection?.arrivesOn).toBe('replica:issueProjections')
-    // The normalized projection owns durable facts; the wire is one temporary input.
-    expect(SCHEMA.issue.components.issueProjection!.precedence).toBeLessThan(
-      SCHEMA.issue.components.issue!.precedence,
-    )
   })
 
   it('gives every field a type and a source', () => {
@@ -220,19 +216,20 @@ describe('validateStructure', () => {
   })
 
   it('counts a where-less twin of a filtered edge as a different edge (POD-4757)', () => {
+    // The raw twin is now declared for mission provenance (headless included).
+    // Adding a third copy would correctly fail duplicate-edge validation.
+    expect(relationsOf('session').issue?.where).toBeDefined()
+    expect(relationsOf('session').missionIssue?.where).toBeUndefined()
+    expect(validateStructure(SCHEMA).join('\n')).not.toMatch(/declares the same edge/)
     const schema = clone()
-    const { where: _where, ...unfiltered } = relationsOf('session').issue as RelationSpec & {
-      where?: unknown
-    }
     ;(schema.session.relations as Record<string, RelationSpec>).anyIssue = {
-      ...unfiltered,
-      inverse: 'anySessions',
+      ...relationsOf('session').missionIssue!, inverse: 'anySessions',
     } as RelationSpec
     ;(schema.issue.relations as Record<string, RelationSpec>).anySessions = {
-      ...relationsOf('issue').sessions!,
-      inverse: 'anyIssue',
+      ...relationsOf('issue').missionSessions!, inverse: 'anyIssue',
     } as RelationSpec
-    expect(validateStructure(schema).join('\n')).not.toMatch(/declares the same edge/)
+    expect(validateStructure(schema).join('\n')).toMatch(/declares the same edge as session\.missionIssue/)
+
   })
 
   it('fires when a relation name collides with a declared field name', () => {
@@ -403,17 +400,17 @@ describe('validateSources', () => {
     )
   })
 
-  it('fires when a relation name shadows an undeclared property of the row (the `origin` trap)', () => {
+  it('fires when a relation name shadows an undeclared property of the row (the `intentOrigin` trap)', () => {
     const schema = clone()
     const relations = schema.issue.relations as Record<string, RelationSpec>
-    relations.origin = { ...relationsOf('issue').children!, inverse: 'parent' } as RelationSpec
-    // `IssueWire.origin` is a real field ('human' | 'agent'). The schema does
+    relations.intentOrigin = { ...relationsOf('issue').children!, inverse: 'parent' } as RelationSpec
+    // `IssueProjection.intentOrigin` is a real field ('human' | 'agent'). The schema does
     // not declare it, but the composed row still carries it, so the name is
-    // taken — which is why R4 is `discoveredFrom`, not `origin`.
-    expect(fieldsOf('IssueWire')).toContain('origin')
-    expect(Object.keys(SCHEMA.issue.fields)).not.toContain('origin')
+    // taken — which is why R4 is `discoveredFrom`, not `intentOrigin`.
+    expect(fieldsOf('IssueProjection')).toContain('intentOrigin')
+    expect(Object.keys(SCHEMA.issue.fields)).not.toContain('intentOrigin')
     expect(validateSources(schema).join('\n')).toMatch(
-      /issue\.origin: relation name shadows IssueWire\.origin/,
+      /issue\.intentOrigin: relation name shadows IssueProjection\.intentOrigin/,
     )
   })
 
@@ -446,7 +443,7 @@ describe('validateSources', () => {
     // and `issue.prefix` arrives by joining the repo — reached here as
     // `issue.repo.prefix`. Neither is a property of the issue's own rows.
     expect(fieldsOf('IssueProjection')).not.toContain('unread')
-    expect(fieldsOf('IssueWire')).not.toContain('unread')
+    expect(fieldsOf('IssueProjection')).not.toContain('unread')
     expect(Object.keys(SCHEMA.issue.fields)).not.toContain('unread')
     expect(Object.keys(SCHEMA.issue.fields)).not.toContain('prefix')
     expect(Object.keys(SCHEMA.repo.fields)).toContain('prefix')

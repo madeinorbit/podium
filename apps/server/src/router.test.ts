@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
-
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
@@ -12,6 +11,7 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { clientSessionViews } from './test-support/session-views'
 
 const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
@@ -41,7 +41,11 @@ describe('appRouter', () => {
     })
     await attachHostDaemon(registry, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const superagent = await SuperagentService.create(
+      registry.modules,
+      repos,
+      registry.sessionStore,
+    )
     const call = appRouter.createCaller({
       registry,
       repos,
@@ -69,7 +73,11 @@ describe('appRouter', () => {
     const daemon: unknown[] = []
     await attachHostDaemon(registry, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const superagent = await SuperagentService.create(
+      registry.modules,
+      repos,
+      registry.sessionStore,
+    )
     const call = appRouter.createCaller({
       registry,
       repos,
@@ -330,10 +338,10 @@ describe('markRead mutations (#124)', () => {
       cwd: '/p',
     })
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.unread,
+      (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)?.unread,
     ).toBe(true)
     await call.sessions.markRead({ sessionId })
-    const s = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === sessionId)
+    const s = (await clientSessionViews(registry)).find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(false)
     expect(s?.readAt).not.toBeNull()
   })
@@ -354,10 +362,10 @@ describe('markRead mutations (#124)', () => {
     })
     await call.sessions.markRead({ sessionId })
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.unread,
+      (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)?.unread,
     ).toBe(false)
     await call.sessions.markUnread({ sessionId })
-    const s = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === sessionId)
+    const s = (await clientSessionViews(registry)).find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(true)
     expect(s?.readAt).toBeNull()
   })

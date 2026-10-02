@@ -1,12 +1,13 @@
+import type { SessionView } from '@podium/client-core/session-values'
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   blockingCloseConcerns,
   type IssueCloseConcern,
   issueCloseConcerns,
 } from '@podium/client-core/viewmodels'
-import { ISSUE_STATUS_LABELS, type IssueCloseReason, type SessionMeta } from '@podium/model/browser'
+import { ISSUE_STATUS_LABELS, type IssueCloseReason} from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
 import {
   AlertDialog,
@@ -48,9 +49,9 @@ export { type IssueCloseConcern, issueCloseConcerns }
  * deciding to interrupt at all (POD-1212).
  */
 export function issueMemberSessions(
-  issue: IssueViewModel,
-  sessions: readonly SessionMeta[],
-): SessionMeta[] {
+  issue: IssueNavigationModel,
+  sessions: readonly SessionView[],
+): SessionView[] {
   const memberIds = new Set(issue.memberSessionIds ?? [])
   return sessions.filter((session) => memberIds.has(session.sessionId))
 }
@@ -80,7 +81,7 @@ export function issueMemberSessions(
  * is being closed until the press — the palette closes whatever the command was
  * run against, the menu is mounted over a selection.
  */
-export function useIssueCloseGuard(): (issue: IssueViewModel) => boolean {
+export function useIssueCloseGuard(): (issue: IssueNavigationModel) => boolean {
   const sessions = useStoreSelector((store) => store.sessions) ?? []
   return (issue) =>
     blockingCloseConcerns(issueCloseConcerns(issue, issueMemberSessions(issue, sessions))).length >
@@ -92,7 +93,7 @@ export function useIssueCloseGuard(): (issue: IssueViewModel) => boolean {
 export interface IssueBulkCloseSummary {
   /** `lead` is the first of `concerns` — the icon the row is drawn with, carried
    *  rather than re-indexed so the row cannot be rendered from an empty list. */
-  flagged: Array<{ issue: IssueViewModel; lead: IssueCloseConcern; concerns: IssueCloseConcern[] }>
+  flagged: Array<{ issue: IssueNavigationModel; lead: IssueCloseConcern; concerns: IssueCloseConcern[] }>
   /** Issues in the batch with nothing unresolved — a count, not a list: they are
    *  the ordinary case and naming forty of them would bury the ones that matter. */
   clear: number
@@ -104,8 +105,8 @@ export interface IssueBulkCloseSummary {
  * that still hold unresolved work and counts the rest.
  */
 export function issueBulkCloseSummary(
-  issues: readonly IssueViewModel[],
-  sessions: readonly SessionMeta[] = [],
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionView[] = [],
 ): IssueBulkCloseSummary {
   const flagged: IssueBulkCloseSummary['flagged'] = []
   let clear = 0
@@ -135,7 +136,7 @@ export function IssueCloseDialog({
   onOpenChange,
   onConfirm,
 }: {
-  issue: IssueViewModel
+  issue: IssueNavigationModel
   reason: IssueCloseReason | null
   busy?: boolean
   onOpenChange: (open: boolean) => void
@@ -239,7 +240,7 @@ export function IssueBulkCloseDialog({
   onOpenChange,
   onConfirm,
 }: {
-  issues: readonly IssueViewModel[]
+  issues: readonly IssueNavigationModel[]
   reason: IssueCloseReason | null
   busy?: boolean
   onOpenChange: (open: boolean) => void

@@ -1,4 +1,5 @@
-import { asIssueId, type IssueCloseReason, type IssueId, type IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asIssueId, type IssueCloseReason, type IssueId } from '@podium/model'
 
 /**
  * Proposal screening (POD-277) — the pure half of the phone's "Screen proposed"
@@ -29,12 +30,12 @@ export interface ScreeningCommands {
 }
 
 /** Is this issue a proposal the operator can still screen? */
-function isScreenable(issue: IssueWire): boolean {
+function isScreenable(issue: IssueViewModel): boolean {
   return (
     issue.stage === 'proposed' &&
     !issue.archived &&
     !issue.deletedAt &&
-    !issue.draft &&
+    !issue.isDraftVessel &&
     issue.audience !== 'agent'
   )
 }
@@ -51,9 +52,9 @@ function isScreenable(issue: IssueWire): boolean {
  * Order mirrors the Tasks list (priority ascending, newest first) so the deck
  * and the board agree on what "next" means.
  */
-export function buildScreeningQueue(issues: IssueWire[]): IssueWire[] {
+export function buildScreeningQueue(issues: IssueViewModel[]): IssueViewModel[] {
   const byId = new Map(issues.map((issue) => [issue.id, issue]))
-  const underProposal = (issue: IssueWire): boolean => {
+  const underProposal = (issue: IssueViewModel): boolean => {
     const seen = new Set<string>([issue.id])
     let parentId = issue.parentId
     while (parentId && !seen.has(parentId)) {
@@ -80,7 +81,7 @@ export function buildScreeningQueue(issues: IssueWire[]): IssueWire[] {
 export function reconcileScreeningOrder(
   order: IssueId[],
   index: number,
-  issues: IssueWire[],
+  issues: IssueViewModel[],
 ): { order: IssueId[]; index: number } {
   const queue = buildScreeningQueue(issues)
   const screenable = new Set(queue.map((issue) => issue.id))

@@ -1,5 +1,7 @@
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView } from '../session-values'
 import { type DotTone, panelLabel, sessionDotTone } from './session-status'
 
 export interface SessionCardModel {
@@ -14,7 +16,7 @@ export interface SessionCardModel {
   queuedCount?: number
 }
 
-export function sessionTitle(session: SessionMeta): string {
+export function sessionTitle(session: SessionView): string {
   const named = session.name?.trim() || session.title?.trim()
   if (named) return named
   const cwdName = session.cwd.split('/').filter(Boolean).pop()
@@ -22,8 +24,8 @@ export function sessionTitle(session: SessionMeta): string {
 }
 
 export function sessionCardModel(
-  session: SessionMeta,
-  issue: IssueWire | undefined,
+  session: SessionView,
+  issue: Pick<IssueViewModel, 'seq' | 'title'> | undefined,
   now: number,
 ): SessionCardModel {
   return {

@@ -10,14 +10,14 @@
  * satisfied. The cursor assertion below is the one that catches it.
  */
 
+import type { IssueProjection, SessionMeta } from '@podium/model'
 import { asMutationId } from '@podium/model'
-import type { IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { COLD_CURSOR } from './feed'
 import { createReplica, memoryStorage, parseFeedCursor, serializeFeedCursor } from './replica'
 
-const issue = (id: string): IssueWire => ({ id, title: id }) as unknown as IssueWire
+const issue = (id: string): IssueProjection => ({ id, title: id }) as unknown as IssueProjection
 const session = (id: string): SessionMeta => ({ sessionId: id }) as unknown as SessionMeta
 
 const userWrite: OutboxEntry = {
@@ -31,14 +31,14 @@ describe('resetCache — discard the cache, keep the outbox', () => {
   it('clears entities AND the cursor, and keeps the outbox (the D7 pin)', () => {
     const storage = memoryStorage()
     const replica = createReplica({ storage })
-    replica.applySnapshot('issues', [issue('i1'), issue('i2')])
+    replica.applySnapshot('issueProjections', [issue('i1'), issue('i2')])
     replica.applySnapshot('sessions', [session('s1')])
     replica.setFeedCursor({ feedId: 'feed_1', epoch: 'epoch_1', seq: 77 })
     replica.outboxStorage().save([userWrite])
 
     replica.resetCache()
 
-    expect(replica.rows('issues')).toHaveLength(0)
+    expect(replica.rows('issueProjections')).toHaveLength(0)
     expect(replica.rows('sessions')).toHaveLength(0)
     // THE assertion. A collection-scoped reset passes every line above and
     // fails this one.
@@ -50,7 +50,7 @@ describe('resetCache — discard the cache, keep the outbox', () => {
 
   it('a reset replica re-bootstraps from null rather than healing over the hole', () => {
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [issue('i1')])
+    replica.applySnapshot('issueProjections', [issue('i1')])
     replica.setFeedCursor({ feedId: 'feed_1', epoch: 'epoch_1', seq: 77 })
     replica.resetCache()
     // getCursor() is what the sync driver passes to changesSince. null = "send
@@ -66,7 +66,7 @@ describe('resetCache — discard the cache, keep the outbox', () => {
     // itself, and only on a reload would anyone find out.
     const storage = memoryStorage()
     const replica = createReplica({ storage })
-    replica.applySnapshot('issues', [issue('i1')])
+    replica.applySnapshot('issueProjections', [issue('i1')])
     replica.setFeedCursor({ feedId: 'feed_1', epoch: 'epoch_1', seq: 77 })
     replica.resetCache()
     // Let every parked write drain.
@@ -75,7 +75,7 @@ describe('resetCache — discard the cache, keep the outbox', () => {
     expect(parseFeedCursor(storage.getItem('podium.replica.cursor.v1'))).toEqual(COLD_CURSOR)
     const reloaded = createReplica({ storage })
     const result = await reloaded.hydrate()
-    expect(result.issues).toHaveLength(0)
+    expect(result.issueProjections).toHaveLength(0)
     expect(result.cursor).toBeNull()
   })
 
@@ -95,8 +95,8 @@ describe('rung 5 — a poisoned replica cold-starts, and its cursor goes with it
     const replica = createReplica({ storage })
     replica.setFeedCursor({ feedId: 'feed_1', epoch: 'epoch_1', seq: 77 })
     // Poison the load.
-    storage.setItem('podium.replica.issues.v1', '{ not json')
-    const cols = replica.collection('issues') as { preload: () => Promise<void> }
+    storage.setItem('podium.replica.issueProjections.v1', '{ not json')
+    const cols = replica.collection('issueProjections') as { preload: () => Promise<void> }
     cols.preload = () => Promise.reject(new Error('poisoned'))
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -132,7 +132,7 @@ describe('cursor triple persistence (ADR 2 D1)', () => {
   it('hydrate reports the triple a previous session persisted', async () => {
     const storage = memoryStorage()
     const first = createReplica({ storage })
-    first.applySnapshot('issues', [issue('i1')])
+    first.applySnapshot('issueProjections', [issue('i1')])
     first.setFeedCursor({ feedId: 'feed_1', epoch: 'epoch_1', seq: 5 })
     await first.hydrate()
 
@@ -181,7 +181,7 @@ describe('schema version gate (ADR 2 D7 rung 6) — it must not fail open', () =
   it('discards a cache written by another schema version, keeping the outbox', async () => {
     const storage = memoryStorage()
     const first = createReplica({ storage })
-    first.applySnapshot('issues', [issue('i1'), issue('i2')])
+    first.applySnapshot('issueProjections', [issue('i1'), issue('i2')])
     first.setFeedCursor({ feedId: 'feed_1', epoch: 'epoch_1', seq: 77 })
     first.outboxStorage().save([userWrite])
     await first.hydrate()
@@ -192,7 +192,7 @@ describe('schema version gate (ADR 2 D7 rung 6) — it must not fail open', () =
     const second = createReplica({ storage })
     const result = await second.hydrate()
     expect(result.schemaReset).toBe(true)
-    expect(result.issues).toHaveLength(0)
+    expect(result.issueProjections).toHaveLength(0)
     expect(result.feedCursor).toEqual(COLD_CURSOR)
     expect(result.cursor).toBeNull()
     expect(second.outboxStorage().load()).toEqual([userWrite])
@@ -201,7 +201,7 @@ describe('schema version gate (ADR 2 D7 rung 6) — it must not fail open', () =
   it('an UNSTAMPED cache is not a mismatch — v1 is the version the stamp arrived at', async () => {
     const storage = memoryStorage()
     const first = createReplica({ storage })
-    first.applySnapshot('issues', [issue('i1')])
+    first.applySnapshot('issueProjections', [issue('i1')])
     first.setFeedCursor({ feedId: 'feed_1', epoch: 'epoch_1', seq: 9 })
     await first.hydrate()
     storage.removeItem('podium.replica.schema.v1')
@@ -209,7 +209,7 @@ describe('schema version gate (ADR 2 D7 rung 6) — it must not fail open', () =
     const second = createReplica({ storage })
     const result = await second.hydrate()
     expect(result.schemaReset).toBe(false)
-    expect(result.issues).toHaveLength(1)
+    expect(result.issueProjections).toHaveLength(1)
     expect(result.cursor).toBe(9)
   })
 })

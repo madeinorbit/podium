@@ -1,3 +1,4 @@
+import { upsertIssue } from '../scenarios'
 /**
  * POD-4555 (L4a) — applies generated changes through the real scenario engine.
  *
@@ -16,7 +17,7 @@
  * Row changes are server truth: they read the CACHE (the replica's server
  * rows), never the runtime's folded snapshot, which carries the pending
  * overlay — writing a heartbeat from the folded row would broadcast our own
- * pending title as the server's. Issue writes dual-write wire and projection
+ * pending title as the server's. Issue writes update projections and their companions
  * in one `replica.batch()`, as the scenarios do.
  *
  * Edits go through the runtime ACTIONS (`updateIssue`, `markIssueRead`), so
@@ -36,16 +37,10 @@
 
 import type { OnlineEvents } from '@podium/client-core/outbox'
 import { createRowSource, type RowSourceHandle } from '@podium/client-graph/shared/row-source'
-import {
-  evict,
-  remove,
-  type ScenarioEngine,
-  startEngineOnCorpus,
-  upsert,
-} from '../scenarios'
-import type { RowSourceEvent } from '../stats'
-import type { FixtureCorpus } from '../../../harness/src/fixture/index'
 import type { TxId } from '@podium/client-graph/shared/write-contract'
+import type { FixtureCorpus } from '../../../harness/src/fixture/index'
+import { evict, remove, type ScenarioEngine, startEngineOnCorpus, upsert } from '../scenarios'
+import type { RowSourceEvent } from '../stats'
 import type { ArmEditPatch } from './arm-edits'
 import { type Change, genCorpus, ROW_KINDS, type RowChange } from './changes'
 
@@ -62,7 +57,9 @@ interface HeldCall {
 
 /** A definitive refusal the kernel dead-letters (D10: zero retries). */
 export function refusal(): Error {
-  return Object.assign(new Error('generated refusal'), { data: { code: 'CONFLICT', httpStatus: 409 } })
+  return Object.assign(new Error('generated refusal'), {
+    data: { code: 'CONFLICT', httpStatus: 409 },
+  })
 }
 
 /**
@@ -208,7 +205,8 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
     network: { isOnline: () => online, onlineEvents },
   })
   const mode = opts.feedMode ?? 'truth'
-  const makeFeed = opts.feed ?? ((c: ScenarioEngine) => createRowSource(c.engine, c.replica, { mode }))
+  const makeFeed =
+    opts.feed ?? ((c: ScenarioEngine) => createRowSource(c.engine, c.replica, { mode }))
 
   let publications = 0
   let offEngine = ctx.engine.subscribe(() => {
@@ -233,7 +231,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   const edits = new Map<string, EditRecord>()
   const byMutation = new Map<string, EditRecord>()
   const known = new Set<string>()
-  const evicted = new Map<string, { wire: unknown; projection: unknown }>()
+  const evicted = new Map<string, Record<string, unknown>>()
   let index = 0
 
   const outboxIds = (): string[] => [
@@ -266,34 +264,42 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   const readRow = (entity: string, id: string): Record<string, unknown> | undefined =>
     ctx.cache.read(entity, id)?.value as Record<string, unknown> | undefined
 
-  /** Dual-write an issue change onto SERVER truth (wire + projection). */
+  /** Publish normalized server facts and their affected companions. */
   const patchIssue = (id: string, patch: Record<string, unknown>): string | null => {
-    const wire = readRow('issue', id)
-    if (!wire) return `issue ${id} not in scope`
-    const projection = readRow('issueProjection', id) ?? {}
+    const projection = readRow('issueProjection', id)
+    if (!projection) return `issue ${id} not in scope`
     const updatedAt = ctx.stamp()
     ctx.replica.batch(() => {
-      upsert(ctx, 'issue', id, { ...wire, ...patch, updatedAt })
-      upsert(ctx, 'issueProjection', id, { ...projection, ...patch, updatedAt })
+      upsertIssue(ctx, id, { ...projection, ...patch, updatedAt })
     })
     return null
   }
 
-  const patchSession = (sessionId: string, patch: (s: Record<string, unknown>) => Record<string, unknown>): string | null => {
+  const patchSession = (
+    sessionId: string,
+    patch: (s: Record<string, unknown>) => Record<string, unknown>,
+  ): string | null => {
     const s = readRow('session', sessionId)
     if (!s) return `session ${sessionId} not in scope`
     upsert(ctx, 'session', sessionId, patch({ ...s }))
     return null
   }
 
-  const newSession = (sessionId: string, issueId: string, phase: string): Record<string, unknown> => {
+  const newSession = (
+    sessionId: string,
+    issueId: string,
+    phase: string,
+  ): Record<string, unknown> => {
     const now = ctx.stamp()
-    const issue = readRow('issue', issueId)
+    const issue = readRow('issueProjection', issueId)
     return {
       sessionId,
       issueId,
       agentKind: 'codex',
-      cwd: (issue?.['worktreePath'] as string | undefined) ?? (issue?.['repoPath'] as string | undefined) ?? '/repo-0',
+      cwd:
+        (issue?.['worktreePath'] as string | undefined) ??
+        (issue?.['repoPath'] as string | undefined) ??
+        '/repo-0',
       title: `Session ${sessionId}`,
       status: 'live',
       controllerId: `c-${sessionId}`,
@@ -315,10 +321,10 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   const applyRow = (c: RowChange): string | null => {
     switch (c.kind) {
       case 'newIssue': {
-        if (readRow('issue', c.id)) return `issue ${c.id} exists`
-        const parent = c.parentId ? readRow('issue', c.parentId) : undefined
+        if (readRow('issueProjection', c.id)) return `issue ${c.id} exists`
+        const parent = c.parentId ? readRow('issueProjection', c.parentId) : undefined
         if (c.parentId && !parent) return `parent ${c.parentId} not in scope`
-        const repo = parent ?? readRow('issue', ctx.targets.visibleRootId)
+        const repo = parent ?? readRow('issueProjection', ctx.targets.visibleRootId)
         const now = ctx.stamp()
         const seq = corpus.issues.length + Number(c.id.replace(/\D/g, ''))
         const common = {
@@ -334,7 +340,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           repoId: repo?.['repoId'] ?? ctx.targets.newIssueRepo.repoId,
         }
         ctx.replica.batch(() => {
-          upsert(ctx, 'issue', c.id, {
+          upsertIssue(ctx, c.id, {
             ...common,
             repoPath: repo?.['repoPath'] ?? ctx.targets.newIssueRepo.repoPath,
             readAt: null,
@@ -342,13 +348,12 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             needsHuman: false,
             blocked: false,
           })
-          upsert(ctx, 'issueProjection', c.id, { ...common, description: { value: '' }, priority: 2, type: 'task' })
         })
         return null
       }
       case 'newSession': {
         if (readRow('session', c.sessionId)) return `session ${c.sessionId} exists`
-        if (!readRow('issue', c.issueId)) return `issue ${c.issueId} not in scope`
+        if (!readRow('issueProjection', c.issueId)) return `issue ${c.issueId} not in scope`
         upsert(ctx, 'session', c.sessionId, newSession(c.sessionId, c.issueId, c.phase))
         return null
       }
@@ -357,7 +362,11 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       case 'phaseChange': {
         return patchSession(c.sessionId, (s) => {
           const now = ctx.stamp()
-          return { ...s, lastActiveAt: now, agentState: { ...(s['agentState'] as object), phase: c.phase, since: now } }
+          return {
+            ...s,
+            lastActiveAt: now,
+            agentState: { ...(s['agentState'] as object), phase: c.phase, since: now },
+          }
         })
       }
       case 'offerChange': {
@@ -375,15 +384,15 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           remove(ctx, 'session', c.id)
           return null
         }
-        if (!readRow('issue', c.id)) return `issue ${c.id} not in scope`
+        if (!readRow('issueProjection', c.id)) return `issue ${c.id} not in scope`
         ctx.replica.batch(() => {
-          remove(ctx, 'issue', c.id)
           remove(ctx, 'issueProjection', c.id)
         })
         return null
       }
       case 'reparent': {
-        if (c.parentId && !readRow('issue', c.parentId)) return `parent ${c.parentId} not in scope`
+        if (c.parentId && !readRow('issueProjection', c.parentId))
+          return `parent ${c.parentId} not in scope`
         return patchIssue(c.id, { parentId: c.parentId })
       }
       case 'stageChange': {
@@ -391,18 +400,22 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           const now = ctx.stamp()
           return patchIssue(c.id, { stage: 'done', closedAt: now, closedReason: 'done' })
         }
-        return patchIssue(c.id, { stage: c.stage, closedAt: null, closedReason: null, tuckedAt: null })
+        return patchIssue(c.id, {
+          stage: c.stage,
+          closedAt: null,
+          closedReason: null,
+          tuckedAt: null,
+        })
       }
       case 'archive':
         return patchIssue(c.id, { archived: c.archived })
       case 'rankMove':
         return patchIssue(c.id, { sortKey: c.sortKey })
       case 'evict': {
-        const wire = readRow('issue', c.id)
+        const wire = readRow('issueProjection', c.id)
         if (!wire) return `issue ${c.id} not in scope`
-        evicted.set(c.id, { wire, projection: readRow('issueProjection', c.id) })
+        evicted.set(c.id, wire)
         ctx.replica.batch(() => {
-          evict(ctx, 'issue', c.id)
           evict(ctx, 'issueProjection', c.id)
         })
         return null
@@ -410,11 +423,10 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       case 'reAdd': {
         const rows = evicted.get(c.id)
         if (!rows) return `issue ${c.id} was not evicted`
-        if (readRow('issue', c.id)) return `issue ${c.id} already back`
+        if (readRow('issueProjection', c.id)) return `issue ${c.id} already back`
         evicted.delete(c.id)
         ctx.replica.batch(() => {
-          upsert(ctx, 'issue', c.id, rows.wire, 2, true)
-          if (rows.projection) upsert(ctx, 'issueProjection', c.id, rows.projection, 2, true)
+          upsertIssue(ctx, c.id, rows, 2, true)
         })
         return null
       }
@@ -425,7 +437,10 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         if (at < 0) return `repo ${c.repoId} not discovered`
         const repos = [...ctx.discovery.repos] as { worktrees?: unknown[] }[]
         const repo = repos[at] as { worktrees?: unknown[] }
-        repos[at] = { ...repo, worktrees: [...(repo.worktrees ?? []), { path: c.path, branch: 'gen' }] }
+        repos[at] = {
+          ...repo,
+          worktrees: [...(repo.worktrees ?? []), { path: c.path, branch: 'gen' }],
+        }
         ctx.discovery.repos = repos
         // The server's push; the runtime refreshes discovery itself.
         ctx.hub.emit('worktreesChanged')
@@ -433,7 +448,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       }
       case 'newOrphanSession': {
         if (readRow('session', c.sessionId)) return `session ${c.sessionId} exists`
-        const owner = readRow('issue', c.ownerId)
+        const owner = readRow('issueProjection', c.ownerId)
         if (!owner) return `issue ${c.ownerId} not in scope`
         const wt = owner['worktreePath'] as string | undefined
         if (!wt) return `issue ${c.ownerId} has no worktree`
@@ -459,7 +474,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         return null
       }
       case 'newDraftIssue': {
-        if (readRow('issue', c.id)) return `issue ${c.id} exists`
+        if (readRow('issueProjection', c.id)) return `issue ${c.id} exists`
         const now = ctx.stamp()
         const seq = corpus.issues.length + Number(c.id.replace(/\D/g, ''))
         const common = {
@@ -472,11 +487,12 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           updatedAt: now,
           archived: false,
           audience: 'agent',
-          draft: true,
+          isDraftVessel: true,
+          intentOrigin: 'agent',
           repoId: ctx.targets.newIssueRepo.repoId,
         }
         ctx.replica.batch(() => {
-          upsert(ctx, 'issue', c.id, {
+          upsertIssue(ctx, c.id, {
             ...common,
             repoPath: ctx.targets.newIssueRepo.repoPath,
             readAt: null,
@@ -484,7 +500,6 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             needsHuman: false,
             blocked: false,
           })
-          upsert(ctx, 'issueProjection', c.id, { ...common, description: { value: '' }, priority: 2, type: 'task' })
         })
         return null
       }
@@ -493,9 +508,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       case 'setStartedBy':
         return patchIssue(c.id, { startedBySession: c.sessionId })
       case 'setBranch':
-        // `patchIssue` dual-writes wire and projection, as the authority
-        // does for `branch` (POD-4940): the app reads the verdict off the
-        // projection's branch and the wire's git state.
+        // Patch the branch fact and its git observation together.
         return patchIssue(c.id, {
           branch: c.branch,
           gitState: {
@@ -510,15 +523,33 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const now = ctx.engine.getSnapshot().coarseNow
         const stamp = new Date(now).toISOString()
         const patches: Record<string, unknown>[] = [
-          { pinned: true, readAt: stamp, commentCount: 3, color: 'violet', linearIdentifier: 'EXT-42' },
+          {
+            pinned: true,
+            readAt: stamp,
+            commentCount: 3,
+            color: 'violet',
+            linearIdentifier: 'EXT-42',
+          },
           { pinned: false, deferUntil: new Date(now + 60_000).toISOString() },
           { deferUntil: new Date(now - 60_000).toISOString(), readAt: null },
-          { deferUntil: 'next-message', needsHuman: true, humanQuestion: 'Which path?', humanQuestionOptions: ['A', 'B'],
-            asked: { question: 'Which path?', options: ['A', 'B'], at: stamp, by: 'sidebar-asker' } },
-          { deferUntil: null, needsHuman: false, humanQuestion: null, humanQuestionOptions: null, asked: null, tuckedAt: stamp },
-          { tuckedAt: null, branch: 'issue/sidebar-facts', gitState: { shared: false, merged: false, ahead: 4, dirtyFiles: 2, updatedAt: stamp } },
-          { gitState: { shared: true, merged: true, ahead: 0, dirtyFiles: 0, updatedAt: stamp }, commentCount: 5, color: 'blue', linearIdentifier: null },
-          { audience: 'agent', draft: true, isDraftVessel: true, origin: 'agent', intentOrigin: 'agent', worktreePath: null },
+          {
+            deferUntil: 'next-message',
+            needsHuman: true,
+            asked: { question: 'Which path?', options: ['A', 'B'], at: stamp, by: 'sidebar-asker' },
+          },
+          { deferUntil: null, needsHuman: false, asked: undefined, tuckedAt: stamp },
+          {
+            tuckedAt: null,
+            branch: 'issue/sidebar-facts',
+            gitState: { shared: false, merged: false, ahead: 4, dirtyFiles: 2, updatedAt: stamp },
+          },
+          {
+            gitState: { shared: true, merged: true, ahead: 0, dirtyFiles: 0, updatedAt: stamp },
+            commentCount: 5,
+            color: 'blue',
+            linearIdentifier: null,
+          },
+          { audience: 'agent', isDraftVessel: true, intentOrigin: 'agent', worktreePath: null },
         ]
         return patchIssue(c.id, patches[c.variant % patches.length]!)
       }
@@ -526,32 +557,102 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const now = ctx.engine.getSnapshot().coarseNow
         const stamp = new Date(now).toISOString()
         const patches: Record<string, unknown>[] = [
-          { name: 'Named seat', agentKind: 'claude-code', status: 'live', agentColor: '#8b5cf6',
+          {
+            name: 'Named seat',
+            agentKind: 'claude-code',
+            status: 'live',
+            agentColor: '#8b5cf6',
             createdBy: { actor: { kind: 'user', id: 'u-sidebar' }, onBehalfOf: 'u-sidebar' },
-            agentState: { phase: 'working', since: stamp, workingMsTotal: 1200, nativeSubagentCount: 3 } },
+            agentState: {
+              phase: 'working',
+              since: stamp,
+              workingMsTotal: 1200,
+              nativeSubagentCount: 3,
+            },
+          },
           { name: null, title: 'New seat', snoozedUntil: null, draftUpdatedAt: stamp },
-          { snoozedUntil: new Date(now - 60_000).toISOString(), agentState: { phase: 'needs_user', since: stamp, workingMsTotal: 1800, nativeSubagentCount: 2 } },
-          { snoozedUntil: new Date(now + 60_000).toISOString(), agentState: { phase: 'errored', since: stamp, error: { class: 'auth', retryable: true }, nativeSubagentCount: 0 } },
-          { status: 'hibernated', stoppedAt: stamp, stopReason: 'parent', agentState: { phase: 'idle', since: stamp, idle: { kind: 'done', summary: 'Turn finished' }, workingMsTotal: 2000, nativeSubagentCount: 4 } },
-          { status: 'exited', stoppedAt: stamp, stopReason: 'oom', agentState: { phase: 'ended', since: stamp, workingMsTotal: 2300 } },
-          { status: 'live', snoozedUntil: undefined, stoppedAt: undefined, stopReason: undefined, agentColor: '#3b82f6',
+          {
+            snoozedUntil: new Date(now - 60_000).toISOString(),
+            agentState: {
+              phase: 'needs_user',
+              since: stamp,
+              workingMsTotal: 1800,
+              nativeSubagentCount: 2,
+            },
+          },
+          {
+            snoozedUntil: new Date(now + 60_000).toISOString(),
+            agentState: {
+              phase: 'errored',
+              since: stamp,
+              error: { class: 'auth', retryable: true },
+              nativeSubagentCount: 0,
+            },
+          },
+          {
+            status: 'hibernated',
+            stoppedAt: stamp,
+            stopReason: 'parent',
+            agentState: {
+              phase: 'idle',
+              since: stamp,
+              idle: { kind: 'done', summary: 'Turn finished' },
+              workingMsTotal: 2000,
+              nativeSubagentCount: 4,
+            },
+          },
+          {
+            status: 'exited',
+            stoppedAt: stamp,
+            stopReason: 'oom',
+            agentState: { phase: 'ended', since: stamp, workingMsTotal: 2300 },
+          },
+          {
+            status: 'live',
+            snoozedUntil: undefined,
+            stoppedAt: undefined,
+            stopReason: undefined,
+            agentColor: '#3b82f6',
             createdBy: { actor: { kind: 'session', id: c.sessionId }, onBehalfOf: 'u-sidebar' },
-            agentKind: 'codex', name: null, title: 'Codex', agentState: { phase: 'idle', since: stamp, idle: { kind: 'open_todos', summary: '' } } },
-          { status: 'live', name: null, title: 'Codex', agentState: { phase: 'idle', since: stamp, idle: { kind: 'done', summary: '' }, workingMsTotal: 2500, nativeSubagentCount: 0 } },
+            agentKind: 'codex',
+            name: null,
+            title: 'Codex',
+            agentState: { phase: 'idle', since: stamp, idle: { kind: 'open_todos', summary: '' } },
+          },
+          {
+            status: 'live',
+            name: null,
+            title: 'Codex',
+            agentState: {
+              phase: 'idle',
+              since: stamp,
+              idle: { kind: 'done', summary: '' },
+              workingMsTotal: 2500,
+              nativeSubagentCount: 0,
+            },
+          },
         ]
-        return patchSession(c.sessionId, s => ({ ...s, ...patches[c.variant % patches.length], lastActiveAt: stamp }))
+        return patchSession(c.sessionId, (s) => ({
+          ...s,
+          ...patches[c.variant % patches.length],
+          lastActiveAt: stamp,
+        }))
       }
     }
   }
 
   // --------------------------------------------------------------- write path
 
-  const editFor = (handle: string): EditRecord | string => edits.get(handle) ?? `edit ${handle} never enqueued`
+  const editFor = (handle: string): EditRecord | string =>
+    edits.get(handle) ?? `edit ${handle} never enqueued`
 
   /** Server truth for one edit's field (echo, remote value, stale repeat). */
   const serverWrite = (edit: EditRecord, value: string | null): string | null => {
     const v = edit.field === 'readAt' ? ctx.stamp() : value
-    return patchIssue(edit.issueId, { [edit.field]: v, ...(edit.field === 'readAt' ? { unread: false } : {}) })
+    return patchIssue(edit.issueId, {
+      [edit.field]: v,
+      ...(edit.field === 'readAt' ? { unread: false } : {}),
+    })
   }
 
   /**
@@ -566,7 +667,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   const applyWrite = async (c: Change, detail: Record<string, unknown>): Promise<string | null> => {
     switch (c.kind) {
       case 'edit': {
-        if (!readRow('issue', c.id)) return `issue ${c.id} not in scope`
+        if (!readRow('issueProjection', c.id)) return `issue ${c.id} not in scope`
         const actions = ctx.engine.getSnapshot()
         const field = 'title' in c.patch ? 'title' : 'stage' in c.patch ? 'stage' : 'readAt'
         if (opts.editViaArm) {
@@ -591,14 +692,21 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const mutationId = claimNewMutation()
         if (!mutationId) return 'no outbox entry (deduped by the action)'
         const value = 'title' in c.patch ? c.patch.title : 'stage' in c.patch ? c.patch.stage : null
-        const record: EditRecord = { handle: c.handle, issueId: c.id, field, value, mutationId, echoed: false }
+        const record: EditRecord = {
+          handle: c.handle,
+          issueId: c.id,
+          field,
+          value,
+          mutationId,
+          echoed: false,
+        }
         edits.set(c.handle, record)
         byMutation.set(mutationId, record)
         detail['mutationId'] = mutationId
         return null
       }
       case 'supersede': {
-        if (!readRow('issue', c.id)) return `issue ${c.id} not in scope`
+        if (!readRow('issueProjection', c.id)) return `issue ${c.id} not in scope`
         const ids: string[] = []
         const armTxIds: string[] = []
         for (const handle of c.handles) {
@@ -613,7 +721,14 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           await quiesce()
           const mutationId = claimNewMutation()
           if (!mutationId) continue
-          const record: EditRecord = { handle, issueId: c.id, field: 'readAt', value: null, mutationId, echoed: false }
+          const record: EditRecord = {
+            handle,
+            issueId: c.id,
+            field: 'readAt',
+            value: null,
+            mutationId,
+            echoed: false,
+          }
           edits.set(handle, record)
           byMutation.set(mutationId, record)
           ids.push(mutationId)
@@ -621,7 +736,8 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         detail['mutationIds'] = ids
         if (armTxIds.length > 0) detail['armTxIds'] = armTxIds
         const queued = new Set(ctx.engine.outbox.pending().map((e) => e.mutationId as string))
-        detail['collapsed'] = ids.length === 2 && !queued.has(ids[0] as string) && queued.has(ids[1] as string)
+        detail['collapsed'] =
+          ids.length === 2 && !queued.has(ids[0] as string) && queued.has(ids[1] as string)
         return ids.length === 0 ? 'no outbox entry' : null
       }
       case 'accept':
@@ -629,14 +745,16 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const edit = editFor(c.handle)
         if (typeof edit === 'string') return edit
         detail['mutationId'] = edit.mutationId
-        const ok = c.kind === 'accept' ? server.accept(edit.mutationId) : server.reject(edit.mutationId)
+        const ok =
+          c.kind === 'accept' ? server.accept(edit.mutationId) : server.reject(edit.mutationId)
         return ok ? null : `edit ${c.handle} not held at the server`
       }
       case 'echo': {
         const edit = editFor(c.handle)
         if (typeof edit === 'string') return edit
         const atServer = server.held.has(edit.mutationId) || server.applied.has(edit.mutationId)
-        if (!atServer || server.refused.has(edit.mutationId)) return `edit ${c.handle} not applied at the server`
+        if (!atServer || server.refused.has(edit.mutationId))
+          return `edit ${c.handle} not applied at the server`
         if (edit.echoed) return `edit ${c.handle} already echoed`
         const skip = serverWrite(edit, edit.value)
         if (skip) return skip
@@ -654,7 +772,8 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         detail['mutationId'] = edit.mutationId
         // Unanswered: the edit's call has no receipt or refusal yet (S3);
         // otherwise it lands after the receipt (the W8 overtake window).
-        detail['unanswered'] = !server.applied.has(edit.mutationId) && !server.refused.has(edit.mutationId)
+        detail['unanswered'] =
+          !server.applied.has(edit.mutationId) && !server.refused.has(edit.mutationId)
         return serverWrite(edit, c.value)
       }
       case 'staleRepeat': {
@@ -715,7 +834,8 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             }
           })
         })
-        skipped = reasons.length === change.changes.length ? `all skipped: ${reasons.join('; ')}` : null
+        skipped =
+          reasons.length === change.changes.length ? `all skipped: ${reasons.join('; ')}` : null
         if (reasons.length > 0) {
           detail['skippedMembers'] = skippedMembers
           detail['reasons'] = reasons

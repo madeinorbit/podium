@@ -183,14 +183,14 @@ export function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
           <span title={fact.title}>{fact.text}</span>
         </span>
       ))}
-      {issue.draft && <StatusChip tone="sky">draft</StatusChip>}
+      {issue.isDraftVessel && <StatusChip tone="sky">draft</StatusChip>}
       {issue.pinned && (
         <StatusChip tone="amber">
           <Pin size={9} aria-hidden="true" /> pinned
         </StatusChip>
       )}
       {issue.archived && <StatusChip>archived</StatusChip>}
-      {issue.origin === 'agent' && (
+      {issue.intentOrigin === 'agent' && (
         <StatusChip tone="violet" title="Created by an agent">
           agent-created
         </StatusChip>

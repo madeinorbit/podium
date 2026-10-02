@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  firstAdminMemberId,
   asIssueId,
   asSessionId,
   asUserId,
+  firstAdminMemberId,
   type IssueId,
   type SessionId,
   type SessionMeta,
@@ -50,14 +50,19 @@ async function harness(
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     resolveMachine: vi.fn(async () => store.hostMachineId),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-06T00:00:00.000Z',
     getSessionIssueId: (sessionId) => issueBySession.get(sessionId) ?? null,
-    setSessionIssueId: (sessionId, issueId) => { issueBySession.set(sessionId, issueId) },
+    setSessionIssueId: (sessionId, issueId) => {
+      issueBySession.set(sessionId, issueId)
+    },
   }
   return { store, deps, issueBySession, svc: await IssueService.create(deps) }
 }
@@ -83,8 +88,8 @@ describe('origin/draft on create + wire', () => {
   it('defaults origin=human draft=false; honors explicit values', async () => {
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect(a.origin).toBe('human')
-    expect(a.draft).toBe(false)
+    expect(a.intentOrigin).toBe('human')
+    expect(a.isDraftVessel).toBe(false)
     const b = await svc.create({
       repoPath: '/r',
       title: 'Draft',
@@ -93,8 +98,8 @@ describe('origin/draft on create + wire', () => {
       audience: 'agent',
       draft: true,
     })
-    expect(b.origin).toBe('agent')
-    expect(b.draft).toBe(true)
+    expect(b.intentOrigin).toBe('agent')
+    expect(b.isDraftVessel).toBe(true)
   })
 
   it('round-trips origin/draft through the store', async () => {
@@ -119,10 +124,10 @@ describe('origin/draft on create + wire', () => {
   it('retitling a draft clears draft; other updates do not', async () => {
     const { svc } = await harness()
     const d = await svc.createDraftFor('/r')
-    expect(d.draft).toBe(true)
+    expect(d.isDraftVessel).toBe(true)
     expect(d.stage).toBe('backlog')
-    expect((await svc.update(d.id, { priority: 1 })).draft).toBe(true)
-    expect((await svc.update(d.id, { title: 'Real work' })).draft).toBe(false)
+    expect((await svc.update(d.id, { priority: 1 })).isDraftVessel).toBe(true)
+    expect((await svc.update(d.id, { title: 'Real work' })).isDraftVessel).toBe(false)
   })
 })
 
@@ -174,13 +179,15 @@ describe('attachSession', () => {
     issueBySession.set(asSessionId('s2'), real.id)
     const other = await svc.create({ repoPath: '/r', title: 'O', startNow: false })
 
-    await expect(svc.attachSession({ sessionId: asSessionId('s1'), targetId: other.id })).rejects.toThrow(
-      /attach blocked/,
-    )
+    await expect(
+      svc.attachSession({ sessionId: asSessionId('s1'), targetId: other.id }),
+    ).rejects.toThrow(/attach blocked/)
     expect(issueBySession.get(asSessionId('s1'))).toBe(real.id) // unmoved
 
     // Self-attach stays a no-op without confirmation.
-    expect((await svc.attachSession({ sessionId: asSessionId('s1'), targetId: real.id })).id).toBe(real.id)
+    expect((await svc.attachSession({ sessionId: asSessionId('s1'), targetId: real.id })).id).toBe(
+      real.id,
+    )
 
     const unconfirmed = async () =>
       await svc.attachSession({
@@ -230,8 +237,8 @@ describe('attachSession', () => {
     })
     expect(w.title).toBe('Side quest')
     expect(w.parentId).toBe(parent.id)
-    expect(w.origin).toBe('human')
-    expect(w.draft).toBe(false)
+    expect(w.intentOrigin).toBe('human')
+    expect(w.isDraftVessel).toBe(false)
     expect(issueBySession.get(asSessionId('s1'))).toBe(w.id)
     expect(await svc.get(parent.id)).not.toBeNull()
   })
@@ -272,7 +279,10 @@ describe('attachSession', () => {
     expect(w.title).toBe('Adjacent discovery')
     // Provenance, not containment: no parent, but a discovered-from edge back.
     expect(w.parentId ?? null).toBeNull()
-    expect(w.deps).toContainEqual({ id: origin.id, type: 'discovered-from' })
+    expect((await svc.commandResult(w)).deps).toContainEqual({
+      id: origin.id,
+      type: 'discovered-from',
+    })
     expect(issueBySession.get(asSessionId('s1'))).toBe(w.id)
     // Agent-created but immediately worked: NOT proposed — the session is on it.
     expect(w.stage).not.toBe('proposed')
@@ -287,7 +297,11 @@ describe('attachSession', () => {
       sess(asSessionId('s2'), '/r/.worktrees/child'),
       sess(asSessionId('s3'), '/r/.worktrees/parent'),
     ])
-    const parent = await svc.create({ repoPath: '/r', title: 'Integration parent', startNow: false })
+    const parent = await svc.create({
+      repoPath: '/r',
+      title: 'Integration parent',
+      startNow: false,
+    })
     await svc.update(parent.id, { worktreePath: '/r/.worktrees/parent' })
     for (const id of ['s1', 's2', 's3']) issueBySession.set(asSessionId(id), parent.id)
 
@@ -309,7 +323,11 @@ describe('attachSession', () => {
 
   it('async predicate regression: an unmatched spinoff never reuses the first issue', async () => {
     const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
-    const unrelated = await svc.create({ repoPath: '/elsewhere', title: 'Unrelated', startNow: false })
+    const unrelated = await svc.create({
+      repoPath: '/elsewhere',
+      title: 'Unrelated',
+      startNow: false,
+    })
     const origin = await svc.create({ repoPath: '/r', title: 'Origin', startNow: false })
     issueBySession.set(asSessionId('s1'), origin.id)
     const attached = await svc.attachSession({
@@ -320,7 +338,10 @@ describe('attachSession', () => {
     expect(attached.id).not.toBe(unrelated.id)
     expect(attached.id).not.toBe(origin.id)
     expect(attached.title).toBe('A title matching nothing')
-    expect(attached.deps).toContainEqual({ id: origin.id, type: 'discovered-from' })
+    expect((await svc.commandResult(attached)).deps).toContainEqual({
+      id: origin.id,
+      type: 'discovered-from',
+    })
   })
 
   it('reuses accepted discovered work instead of minting a duplicate successor', async () => {
@@ -346,7 +367,9 @@ describe('attachSession', () => {
       confirmRehome: true,
     })
     expect(attached.id).toBe(accepted.id)
-    expect((await svc.list('/r')).filter((issue) => issue.title === 'Accepted successor')).toHaveLength(1)
+    expect(
+      (await svc.list('/r')).filter((issue) => issue.title === 'Accepted successor'),
+    ).toHaveLength(1)
   })
 
   it('newSpinoff demands the same rehome confirmation and rejects --subissue combos', async () => {
@@ -457,7 +480,9 @@ describe('attachSession', () => {
 
   it('throws without --id/--subissue and on unknown target', async () => {
     const { svc } = await harness([sess(asSessionId('s1'))])
-    await expect(svc.attachSession({ sessionId: asSessionId('s1') })).rejects.toThrow(/attach needs/)
+    await expect(svc.attachSession({ sessionId: asSessionId('s1') })).rejects.toThrow(
+      /attach needs/,
+    )
     await expect(
       svc.attachSession({ sessionId: asSessionId('s1'), targetId: 'iss_nope' }),
     ).rejects.toThrow()
@@ -632,7 +657,9 @@ describe('prime draft/attach variants', () => {
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     expect((await svc.get(a.id))?.stage).toBe('backlog')
-    expect(await svc.prime({ boundIssueId: a.id })).toContain('still in `backlog` but you are working it')
+    expect(await svc.prime({ boundIssueId: a.id })).toContain(
+      'still in `backlog` but you are working it',
+    )
   })
 
   it('bound issue past backlog is not nagged about its stage', async () => {

@@ -7,7 +7,7 @@
  * styles.css for the full argument and the geometry.
  */
 import type { JSX, MouseEvent as ReactMouseEvent, RefObject, WheelEvent } from 'react'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PinnedBrief as PinnedBriefState } from './use-transcript-scroll'
 
 /** However long the brief, the shelf stops here and scrolls — it is drawn OVER
@@ -85,6 +85,7 @@ export function PinnedBrief({
    */
   const textRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState<{ content: number; clamp: number }>({ content: 0, clamp: 0 })
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new brief or changed HTML must remeasure the committed DOM even when its box does not resize.
   useLayoutEffect(() => {
     const el = textRef.current
     if (!el) return
@@ -114,6 +115,11 @@ export function PinnedBrief({
   // pixel of slack is the difference between "the brief has a fourth line" and
   // "the browser rounded" — without it the control blinks on a brief that fits.
   const clipped = size.content > size.clamp + 1
+
+  // React assigns innerHTML when this prop object changes, even if its string
+  // is identical. Keep it stable across fleet updates and shelf gestures so
+  // the existing text nodes, selection and live issue anchors survive.
+  const bodyHtml = useMemo(() => ({ __html: brief?.html ?? '' }), [brief?.html])
 
   if (!brief) return null
 
@@ -174,7 +180,7 @@ export function PinnedBrief({
           // way back is a pause before anything moves.
           style={open ? { maxHeight: `${Math.min(size.content, OPEN_MAX)}px` } : undefined}
           // biome-ignore lint/security/noDangerouslySetInnerHtml: lifted verbatim from the row's own body, which renderMarkdown already sanitized
-          dangerouslySetInnerHTML={{ __html: brief.html }}
+          dangerouslySetInnerHTML={bodyHtml}
         />
         <div className="brief-shelf-side">
           {brief.time !== '' && <span className="brief-shelf-time">{brief.time}</span>}

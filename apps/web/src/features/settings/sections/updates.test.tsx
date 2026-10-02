@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'

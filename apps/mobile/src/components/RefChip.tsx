@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { type IssueReferenceModel, resolveIssueReference } from '@podium/client-core/viewmodels'
-import type { IssueWire } from '@podium/model'
+
 import { useMemo } from 'react'
 import { StyleSheet, Text } from 'react-native'
 import { useIssues } from '../client/hooks'
@@ -37,7 +38,7 @@ import { StageGlyph, UnknownRefGlyph } from './StageGlyph'
  */
 const resolutions = new WeakMap<object, Map<string, IssueReferenceModel | null>>()
 
-function resolveOnce(issues: readonly IssueWire[], token: string): IssueReferenceModel | null {
+function resolveOnce(issues: readonly IssueViewModel[], token: string): IssueReferenceModel | null {
   let cache = resolutions.get(issues)
   if (!cache) {
     cache = new Map()
@@ -62,7 +63,7 @@ const prefixes = new WeakMap<object, ReadonlySet<string>>()
  * projection therefore chips nothing, which is the honest state during the
  * first moments of a cold boot rather than a wrong one.
  */
-function knownPrefixes(issues: readonly IssueWire[]): ReadonlySet<string> {
+function knownPrefixes(issues: readonly IssueViewModel[]): ReadonlySet<string> {
   const hit = prefixes.get(issues)
   if (hit) return hit
   const set = new Set<string>()

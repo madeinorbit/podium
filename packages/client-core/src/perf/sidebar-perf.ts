@@ -5,12 +5,14 @@ export interface SidebarWork {
   derivations: number
   mainThreadMs: number
 }
-export type SidebarCheckState = 'off' | 'waiting' | 'checking' | 'match' | 'different' | 'error'
+export type SidebarCheckState = 'off' | 'ready' | 'queued' | 'waiting' | 'checking' | 'match' | 'different' | 'error'
 export interface SidebarCheckReport {
   state: SidebarCheckState
   differences: number
   checkedAt: number | null
   checks?: number
+  /** Last comparison duration, retained after the rolling work window expires. */
+  durationMs?: number
   first?: { section: string; sectionIndex: number; rowIndex: number | null; expectedId: string | null; actualId: string | null; field: string } | null
 }
 interface WorkEntry {
@@ -100,6 +102,9 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
         entries.shift()
         overflowAt = at
       }
+    },
+    inputPending(): boolean {
+      return inputs.size > 0
     },
     /** Input attribution lasts through the paint boundary, including deferred React work. */
     beginInput(): number {
@@ -206,6 +211,7 @@ export type SidebarPerfSnapshot = ReturnType<SidebarPerf['read']>
 let sink: { owner: object; perf: SidebarPerf; afterPaint: (done: () => void) => void } | null = null
 const poolReports = new WeakMap<object, { rows: number | null; connected: boolean }>()
 const checkReports = new WeakMap<object, SidebarCheckReport>()
+const checkRequests = new WeakMap<object, () => boolean>()
 const bindingListeners = new WeakMap<object, Set<(perf: SidebarPerf | null) => void>>()
 
 /** An outside work meter lives only while this owner's panel is open. */
@@ -282,4 +288,15 @@ export function reportSidebarCheck(owner: object, report: SidebarCheckReport): v
 }
 export function beginSidebarCheck(owner: object): () => void {
   return sidebarPerfFor(owner)?.beginCheck() ?? (() => {})
+}
+
+/** The diagnostic owns this callback; the panel only requests work, never reads a pool. */
+export function bindSidebarCheckRequest(owner: object, request: () => boolean): () => void {
+  checkRequests.set(owner, request)
+  return () => {
+    if (checkRequests.get(owner) === request) checkRequests.delete(owner)
+  }
+}
+export function requestSidebarCheck(owner: object): boolean {
+  return checkRequests.get(owner)?.() ?? false
 }

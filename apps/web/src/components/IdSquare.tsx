@@ -1,4 +1,5 @@
-import { ISSUE_COLOR_HEX, type IssueColorSlot, type IssueWire } from '@podium/model/browser'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { ISSUE_COLOR_HEX, type IssueColorSlot, } from '@podium/model/browser'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -37,7 +38,7 @@ function clamp(value: number, min: number, max: number): number {
  *  fallback (POD-85): the square is the row's ONE identity mark, so it must
  *  carry the prefix humans actually cite. */
 export function idSquareLabel(
-  issue: Pick<IssueWire, 'linearIdentifier' | 'seq'> & { displayRef?: string },
+  issue: Pick<IssueViewModel, 'linearIdentifier' | 'seq'> & { displayRef?: string },
 ): IdSquareLabel {
   const identifier = issue.linearIdentifier?.trim() || issue.displayRef?.trim()
   const match = identifier?.match(/^(.+?)[-_\s]+(\d+)$/)
@@ -71,7 +72,7 @@ export function IdSquare({
   radius,
   numberOnly = false,
 }: {
-  issue: Pick<IssueWire, 'linearIdentifier' | 'seq' | 'color' | 'title' | 'parentId'>
+  issue: Pick<IssueViewModel, 'linearIdentifier' | 'seq' | 'color' | 'title' | 'parentId'>
   state: IdSquareState
   selected?: boolean
   /** Square edge in px. Desktop rows run 30 for a readable prefix/number

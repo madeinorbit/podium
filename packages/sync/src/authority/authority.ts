@@ -82,14 +82,13 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { MetadataEntityKind } from '@podium/protocol'
-import { type Principal, principalRoutingId } from '@podium/protocol'
+import { MetadataEntityKind, type Principal, principalRoutingId } from '@podium/protocol'
 import {
   type BaselineFold,
   ChangeBaseline,
   type ChangeLogStore,
-  detectionKey,
   ChangeRangeBootstrapRequired,
+  detectionKey,
 } from '../change-log'
 import type {
   FeedScopingGrade,
@@ -102,22 +101,22 @@ import type {
   AuthorityClock,
   AuthorityCommit,
   AuthorityCommitOutcome,
-  BaselineFoldPort,
   AuthorityPort,
+  BaselineFoldPort,
   ChangeSubscriber,
   PostCommitFollowUpPort,
   TransactPort,
 } from './ports'
 import {
   DEFAULT_RESCOPE_THRESHOLD,
-  type ScopedBootstrap,
-  type ScopedDelivery,
   type PreparedBatch,
   prepareBatch,
-  scopeBatch,
-  scopeChangesRange,
-  scopeBootstrap,
+  type ScopedBootstrap,
+  type ScopedDelivery,
   type ScopingDeps,
+  scopeBatch,
+  scopeBootstrap,
+  scopeChangesRange,
 } from './scoping'
 
 /** Both hosts, one namespace — see the note on `sync:ledger`. */
@@ -352,7 +351,14 @@ export class Authority implements AuthorityPort {
     pageRows: number,
   ): AsyncIterable<ScopedDelivery & { readonly fromSeq: number }> {
     await this.ready
-    yield* scopeChangesRange(this.deps.store, this.scopingDeps(), principal, from, through, pageRows)
+    yield* scopeChangesRange(
+      this.deps.store,
+      this.scopingDeps(),
+      principal,
+      from,
+      through,
+      pageRows,
+    )
   }
 
   async cursor(): Promise<number> {
@@ -390,7 +396,12 @@ export class Authority implements AuthorityPort {
     await this.ready
     const state: SequencedChange[] = []
     for (const row of await this.deps.store.latestChangeStates()) {
-      if (row.op !== 'upsert' || row.payload === null) continue
+      if (
+        row.op !== 'upsert' ||
+        row.payload === null ||
+        !MetadataEntityKind.safeParse(row.entity).success
+      )
+        continue
       try {
         state.push({
           seq: row.seq,

@@ -1,3 +1,4 @@
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { discoveredPlacement, type ProposalShape } from '@podium/client-core/viewmodels'
 import {
   canonicalIssueCloseReason,
@@ -9,7 +10,6 @@ import {
   type SessionId,
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import type { IssueViewModel } from '@/app/store'
 import {
   ISSUE_AGENT_KINDS,
   issueAgentDefaultLabel,
@@ -115,9 +115,9 @@ export interface IssueHandoffMenuData {
 }
 
 export interface IssueMenuData {
-  first: IssueViewModel
-  issues: readonly IssueViewModel[]
-  allIssues: readonly IssueViewModel[]
+  first: IssueNavigationModel
+  issues: readonly IssueNavigationModel[]
+  allIssues: readonly IssueNavigationModel[]
   eligibility: IssueMenuEligibility
   surface: IssueMenuSurface
   renameEnabled: boolean
@@ -450,8 +450,8 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
 
 /** Build the data passed to the shared tree; hosts only supply environment-specific handoff data. */
 export function createIssueMenuData(input: {
-  issues: readonly IssueViewModel[]
-  allIssues: readonly IssueViewModel[]
+  issues: readonly IssueNavigationModel[]
+  allIssues: readonly IssueNavigationModel[]
   eligibility: IssueMenuEligibility
   surface?: IssueMenuSurface
   renameEnabled?: boolean

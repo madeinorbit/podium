@@ -273,8 +273,9 @@ finished land.
 - Track durable, discovered, or cross-session work as issues — not markdown TODO files or a parallel list.
   (An in-session scratch todo for the current micro-steps is fine.)
 - Never reuse an existing issue for something completely different — an issue keeps its identity. New work
-  gets a new issue. Attach yourself to it only on the human's push; otherwise file it
-  (`podium issue create`) for another agent to implement.
+  gets a new issue. Attach yourself to it only on the human's push, or when your coordinator assigns it
+  to you in writing (issue mail or a pinned comment on your issue, naming the issue and the order);
+  otherwise file it (`podium issue create`) for another agent to implement.
 - Spin-off vs subissue — the litmus test: could your current issue close honestly, today, with the
   new work untouched? **Yes** → it is a spin-off, not a subtask: `podium issue attach --spinoff "<title>"
   --confirm-rehome` creates a top-level issue with a `discovered-from` edge back to the origin (the

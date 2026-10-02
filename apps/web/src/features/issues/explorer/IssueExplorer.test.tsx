@@ -1,14 +1,21 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { type JSX, useEffect, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { LOADING, MobxPool } from '@podium/client-graph'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
+import { missionIssueIds, selectedMissionRoot } from '@podium/client-core/viewmodels'
+import { dedupeSessionsByResume } from '@podium/model'
+import { poolMissionContains } from '@/features/worklist/use-pool-unified-work'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
 import { makeIssue } from '@/lib/test-issue'
 import { ISSUE_VIRTUAL_MAX_ITEMS } from '../use-bounded-virtual-list'
 import {
   EXPLORER_SCROLL_CACHE_LIMIT,
   IssueExplorerProvider,
+  poolExplorerTarget,
   useIssueExplorer,
 } from './explorer-context'
 import { IssueExplorer, IssueExplorerCrumbs } from './IssueExplorer'
@@ -36,6 +43,13 @@ const SPINOFF = makeIssue({
 })
 const BASE_ISSUES = [EPIC, CHILD, STRANGER, ARCHIVED, SPINOFF]
 const ROOT_SESSION = { sessionId: 'sess-p', issueId: 'p' } as never
+const poolMode = vi.hoisted(() => ({ enabled: false, pool: null as MobxPool | null }))
+const legacyIssueRead = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/sidebar-data-layer', () => ({ sidebarDataLayer: () => poolMode.enabled ? 'pool' : 'legacy' }))
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => poolMode.pool,
+  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => poolMode.pool ? read(poolMode.pool) : empty,
+}))
 
 const state = {
   selectedIssueId: null as string | null,
@@ -52,7 +66,7 @@ const state = {
 vi.mock('@/app/store', () => ({
   useStore: () => state as never,
   useStoreSelector: (sel: (s: unknown) => unknown) => sel(state),
-  useReplicaIssues: () => state.issues,
+  useReplicaIssues: () => { legacyIssueRead(); return state.issues },
 }))
 
 // The detail is IssuePanelView's job and has its own tests; what this file is
@@ -152,6 +166,9 @@ afterEach(() => {
   state.selectedIssueId = null
   state.issues = BASE_ISSUES
   state.sessions = [] as never[]
+  poolMode.enabled = false
+  poolMode.pool?.dispose()
+  poolMode.pool = null
   vi.clearAllMocks()
 })
 
@@ -543,3 +560,109 @@ function Closeable(): JSX.Element {
     </>
   )
 }
+
+function poolIssue(id: string, over: Partial<SliceIssue> = {}): SliceIssue {
+  return { id, title: id, seq: 1, repoPath: '/synthetic', stage: 'in_progress',
+    createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', ...over }
+}
+function explorerPool(issues: SliceIssue[], sessions: SliceSession[] = []): MobxPool {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-02T00:00:00Z') })
+  pool.apply({ type: 'replace', rows: [
+    ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
+    ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
+  ] })
+  return pool
+}
+
+describe('pool explorer target', () => {
+  it('matches legacy formal/provenance membership without a corpus enumeration', () => {
+    const rows = [poolIssue('root'), poolIssue('child', { parentId: 'root' }),
+      poolIssue('spin', { startedBySession: 'sender', stage: 'backlog' }),
+      poolIssue('spin-child', { parentId: 'spin' }),
+      poolIssue('chain', { startedBySession: 'spin-sender' }),
+      poolIssue('departed', { startedBySession: 'sender', deps: [{ id: 'root', type: 'discovered-from' }] }),
+      poolIssue('formal-departed', { parentId: 'root', startedBySession: 'sender', deps: [{ id: 'root', type: 'discovered-from' }] }),
+      poolIssue('archived', { parentId: 'root', archived: true }),
+      poolIssue('deleted', { parentId: 'root', deletedAt: '2026-10-02T00:00:00Z' }),
+      poolIssue('deleted-spin', { startedBySession: 'sender', deletedAt: '2026-10-02T00:00:00Z' }),
+      ...Array.from({ length: 500 }, (_, i) => poolIssue(`other-${i}`))]
+    const sessions = [
+      { sessionId: 'sender', issueId: 'root', cwd: '/synthetic', headless: true, archived: true },
+      { sessionId: 'spin-sender', issueId: 'spin', cwd: '/synthetic' },
+    ] as SliceSession[]
+    const pool = explorerPool(rows, sessions)
+    const oracle = missionIssueIds(rows.map(row => makeIssue({ ...row } as Parameters<typeof makeIssue>[0])), 'root' as never, sessions as never)
+    // A planted full scan fails even when it produces the right target.
+    const scan = vi.spyOn(pool.tables.issue, 'keys').mockImplementation(() => { throw new Error('Target enumerated all issues') })
+    const sessionScan = vi.spyOn(pool.tables.session, 'keys').mockImplementation(() => { throw new Error('Target enumerated all sessions') })
+    try {
+      for (const row of rows) expect(poolMissionContains(pool, 'root', row.id), row.id).toBe(oracle.has(row.id))
+      const reader = vi.spyOn(pool, 'row')
+      expect(poolExplorerTarget(pool, 'child', 'chain')).toBe('chain')
+      expect(reader.mock.calls.length).toBeLessThan(20)
+      expect(poolExplorerTarget(pool, 'child', 'departed')).toBe('root')
+      expect(poolExplorerTarget(pool, 'child', 'deleted-spin')).toBe('root')
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'chain', value: undefined }] })
+      expect(poolExplorerTarget(pool, 'child', 'chain')).toBe('root')
+      reader.mockRestore()
+    } finally { scan.mockRestore(); sessionScan.mockRestore(); pool.dispose() }
+  })
+
+  it('uses the collapsed roster and headless occupancy summary for an empty draft', () => {
+    const draft = poolIssue('draft', { isDraftVessel: true, worktreePath: null, sessionFacts: { tipActivityAt: '2026-10-02T00:00:00Z' } })
+    const other = poolIssue('other')
+    const sessions = [
+      { sessionId: 'parked', issueId: 'draft', status: 'exited', lastActiveAt: '2026-10-01T00:00:00Z', resume: { kind: 'codex', value: 'twin' } },
+      { sessionId: 'retained', issueId: 'other', status: 'hibernated', lastActiveAt: '2026-10-02T00:00:00Z', resume: { kind: 'codex', value: 'twin' } },
+    ] as SliceSession[]
+    const pool = explorerPool([draft, other], sessions)
+    try {
+      const legacy = selectedMissionRoot([makeIssue({ ...draft } as never), makeIssue({ ...other } as never)], dedupeSessionsByResume(sessions as never), 'draft' as never)
+      expect(legacy).toBeUndefined()
+      expect(poolExplorerTarget(pool, 'draft', null)).toBe(null)
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'draft', value: { ...draft,
+        sessionFacts: { ...draft.sessionFacts, headlessOccupied: true } } }] })
+      // An exited non-archived headless attachment survives resume collapse.
+      const headless = { sessionId: 'headless', issueId: 'draft', headless: true, status: 'exited', lastActiveAt: '2026-10-02T00:00:00Z' }
+      expect(selectedMissionRoot([makeIssue({ ...draft } as never)], [headless] as never, 'draft' as never)?.id).toBe('draft')
+      expect(poolExplorerTarget(pool, 'draft', null)).toBe('draft')
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'draft', value: draft }] })
+      expect(poolExplorerTarget(pool, 'draft', null)).toBe(null)
+    } finally { pool.dispose() }
+  })
+
+  it('answers LOADING for a cold focus and reads it only through the deferred loader', () => {
+    const cold = poolIssue('cold', { stage: 'done', archived: true, startedBySession: 'sender', closedAt: '2026-09-01T00:00:00Z' })
+    const jobs: Array<() => void> = []
+    const load = vi.fn((_entity: string, id: string) => id === 'cold' ? cold : undefined)
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-02T00:00:00Z') }, undefined,
+      { load, schedule: fn => { jobs.push(fn); return () => {} } })
+    try {
+      pool.apply({ type: 'replace', rows: [
+        { kind: 'issue', id: 'root', value: poolIssue('root') },
+        { kind: 'issue', id: 'cold', value: cold },
+        { kind: 'session', id: 'sender', value: { sessionId: 'sender', issueId: 'root', cwd: '/synthetic', headless: true } as SliceSession },
+      ] })
+      expect(poolExplorerTarget(pool, 'root', 'cold')).toBe(LOADING)
+      expect(poolExplorerTarget(pool, 'root', 'cold')).toBe(LOADING)
+      expect(load).not.toHaveBeenCalled()
+      while (jobs.length) jobs.shift()!()
+      expect(load).toHaveBeenCalledTimes(1)
+      expect(poolExplorerTarget(pool, 'root', 'cold')).toBe('cold')
+    } finally { pool.dispose() }
+  })
+
+  it('keeps the closed-dock pointer behavior without calling the legacy issue hook', () => {
+    poolMode.enabled = true
+    poolMode.pool = explorerPool([poolIssue('p'), poolIssue('c', { parentId: 'p' })])
+    state.selectedIssueId = 'p'
+    const view = mount('p', false)
+    expect(screen.getByTestId('pointer').getAttribute('data-current')).toBe('p')
+    fireEvent.click(screen.getByRole('button', { name: 'deck: c' }))
+    expect(screen.getByTestId('pointer').getAttribute('data-current')).toBe('c')
+    poolMode.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'c', value: undefined }] })
+    view.rerender(tree('p', false))
+    expect(screen.getByTestId('pointer').getAttribute('data-current')).toBe('p')
+    expect(legacyIssueRead).not.toHaveBeenCalled()
+  })
+})

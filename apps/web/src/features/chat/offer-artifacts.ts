@@ -1,4 +1,5 @@
-import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/model/browser'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 
 /**
  * Offer→artifact resolution [POD-120]: which of the issue's published artifacts
@@ -15,7 +16,7 @@ import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/model/
  */
 export function resolveOfferArtifacts(args: {
   offer: SessionOffer
-  issue: IssueWire | undefined
+  issue: IssueViewModel | undefined
   /** ISO time of the session's last human input (SessionMeta.lastInputAt). */
   lastInputAt?: string
 }): IssuePanelArtifact[] {

@@ -131,7 +131,7 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
       operations: [
         {
           kind: 'upsert',
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'i1',
           value: { id: 'i1' },
           provenance: { seq: 1, originId: 'o', causationId: 'c', mutationId: asMutationId('m') },
@@ -170,7 +170,7 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
       operations: [
         {
           kind: 'upsert',
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'i1',
           value: { id: 'i1' },
           provenance: { seq: 1, originId: 'o', causationId: 'c', mutationId: asMutationId('m') },

@@ -47,10 +47,14 @@
  * typed as total, so adding a name here without wiring it fails typecheck.
  */
 export type ModelSchemaName =
-  | 'IssueWire'
   | 'IssueProjection'
+  | 'IssueUserStateWire'
+  | 'IssueGitStateProjection'
+  | 'IssueDerived'
   | 'IssueDepWire'
+  | 'IssueDepProjection'
   | 'SessionMeta'
+  | 'SessionUserStateWire'
   | 'AgentRuntimeState'
   | 'SessionOffer'
   | 'ResumeRef'
@@ -70,9 +74,11 @@ export type ModelSchemaName =
  * (`shared/src/row-source.ts:308-323`).
  */
 export type RowArrival =
-  | 'replica:issues'
+  | 'replica:issueUserStates'
+  | 'replica:issueGitStates'
   | 'replica:issueProjections'
   | 'replica:sessions'
+  | 'replica:sessionUserStates'
   | 'replica:repos'
   | 'replica:issueDeps'
   | 'engine:repos'
@@ -463,9 +469,9 @@ const edge = <const S extends Opts<EdgeSpec>>(spec: S) => ({ kind: 'edge' as con
 // Reusable source shorthands
 // ---------------------------------------------------------------------------
 
-const wire = (property?: string): FieldSource => ({
-  schema: 'IssueWire',
-  arrivesOn: 'replica:issues',
+const derived = (property?: string): FieldSource => ({
+  schema: 'IssueDerived',
+  arrivesOn: 'replica:issueProjections',
   ...(property === undefined ? {} : { property }),
 })
 const projection = (property?: string): FieldSource => ({
@@ -473,6 +479,8 @@ const projection = (property?: string): FieldSource => ({
   arrivesOn: 'replica:issueProjections',
   ...(property === undefined ? {} : { property }),
 })
+const sessionValue = (property: string): FieldSource => ({ schema: 'SessionUserStateWire', arrivesOn: 'replica:sessionUserStates', property })
+
 const meta = (property?: string): FieldSource => ({
   schema: 'SessionMeta',
   arrivesOn: 'replica:sessions',
@@ -687,6 +695,20 @@ const SESSION_KEEP_FIELDS = ['archived', 'agentKind', 'stoppedAt', 'agentState',
 /** What visibility reads of a cold session, without loading the full row. */
 export const COLD_SESSION_FIELDS = [...SESSION_KEEP_FIELDS, 'issueId', 'status', 'lastActiveAt'] as const
 
+/** The row-source's small ownership summary supplements the collapsed R2
+ * roster. Headless seats never participate in resume collapse, including
+ * exited seats; archived seats leave an otherwise empty draft unoccupied. */
+export const ISSUE_SESSION_FACTS_SUMMARY = {
+  field: 'sessionFacts',
+  source: 'session',
+  ownerKey: 'issueId',
+  headlessOccupied: {
+    fields: ['headless', 'archived'],
+    test: (row: Readonly<Record<string, unknown>>) => row['headless'] === true && row['archived'] !== true,
+    why: 'Draft occupancy uses non-archived attachments, regardless of status (isEmptyDraftVessel). R2 excludes headless seats.',
+  },
+} as const
+
 /**
  * How long a session can keep its issue shown (`sessionRetainsWorklistRow`,
  * `visibility.ts:44-70`): a shell or an archived session never
@@ -717,26 +739,19 @@ function sessionKeep(row: Readonly<Record<string, unknown>>): MemberKeep {
 
 const DECLARED = defineSchema({
   /**
-   * An issue: the wire row joined with its normalized projection row by `id`
-   * (slice §1). Both spellings are held; the join key is always `id`.
+   * An issue: its normalized projection joined with personal markers, checkout
+   * observations and repository facts at the row-source boundary.
    */
   issue: {
     key: 'id',
     why: 'The unit of work the worklist draws one row per.',
     components: {
-      issue: {
-        schema: 'IssueWire',
-        arrivesOn: 'replica:issues',
-        joinKey: 'id',
-        precedence: 1,
-        why: 'One declared temporary input supplies readAt, tuckedAt, pinned, gitState, repoPath and commentCount (temporary-issue-input.ts, POD-4953).',
-      },
       issueProjection: {
         schema: 'IssueProjection',
         arrivesOn: 'replica:issueProjections',
         joinKey: 'id',
         precedence: 0,
-        why: 'The normalized durable row owns issue facts. The feed adapts its asked, intentOrigin and isDraftVessel spellings (POD-4953).',
+        why: 'The normalized durable row owns issue facts and keeps its asked, intentOrigin and isDraftVessel spellings.',
       },
     },
     fields: {
@@ -751,20 +766,20 @@ const DECLARED = defineSchema({
       stage: { type: 'string', source: projection(), note: 'Vocabulary in model/src/predicates/issue-stage.ts; the value set is a view rule (L1b), not a schema rule.' },
       closedReason: { type: 'string', optional: true, nullable: true, source: projection() },
       audience: { type: 'enum', values: ['human', 'agent'], optional: true, source: projection(), note: 'Who the issue is FOR (entities/issue.ts:289).' },
-      draft: { type: 'boolean', optional: true, source: projection('isDraftVessel') },
-      pinned: { type: 'boolean', optional: true, source: wire() },
+      isDraftVessel: { type: 'boolean', optional: true, source: projection('isDraftVessel') },
+      pinned: { type: 'boolean', optional: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' } },
       sortKey: { type: 'string', optional: true, nullable: true, source: projection() },
       deferUntil: { type: 'isoDate', optional: true, nullable: true, source: projection() },
-      tuckedAt: { type: 'isoDate', optional: true, nullable: true, source: wire() },
+      tuckedAt: { type: 'isoDate', optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' } },
       repoId: { type: 'id', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `repo` relation.' },
-      repoPath: { type: 'string', source: wire(), note: 'On the wire only — IssueProjection does not carry it. The repo identity when repoId is absent.' },
+      repoPath: { type: 'string', source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: 'Joined through the projection repoId; absent repository facts have not loaded yet.' },
       worktreePath: { type: 'string', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `worktree` relation.' },
       branch: { type: 'string', optional: true, nullable: true, source: projection(), note: 'The private checkout branch; with an unlanded `gitState` it keeps a finished row shown (`awaitingMergeOf`).' },
       gitState: {
         type: 'object',
         optional: true,
-        source: wire(),
-        note: 'The checkout merge axis, derived server-side at serialization (never persisted); only the merge-axis properties are in scope.',
+        source: { ...derived(), arrivesOn: 'replica:issueGitStates' },
+        note: 'The checkout observation comes from issueGitState and is composed without its issue id; absent observations remain unknown.',
         parts: {
           shared: { type: 'boolean', source: { schema: 'IssueGitState' }, why: 'True = multi-task checkout: the merge axis is suppressed.' },
           merged: { type: 'boolean', optional: true, source: { schema: 'IssueGitState' }, why: 'Authoritative landed verdict; absent when false.' },
@@ -775,7 +790,7 @@ const DECLARED = defineSchema({
       startedBySession: { type: 'id', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `startedBy` relation: the worklist nests a parentless issue under the one its starter session belongs to.' },
       deps: {
         type: 'depEdgeList',
-        source: wire(),
+        source: { schema: 'IssueDepProjection', property: 'toId', arrivesOn: 'replica:issueDeps' },
         note: 'The compatibility edge-list shape is composed from normalized issueDeps rows at the feed boundary. An edge change names its owner without requiring a companion wire update (POD-4953).',
         parts: {
           id: { type: 'id', source: { schema: 'IssueDepWire' }, why: 'The other endpoint.' },
@@ -783,9 +798,21 @@ const DECLARED = defineSchema({
         },
       },
       needsHuman: { type: 'boolean', optional: true, source: projection() },
-      blocked: { type: 'boolean', optional: true, source: wire(), note: 'The compatibility boolean is derived at the feed boundary from normalized edges and server-truth target stages, matching replica blocking (POD-4953).' },
-      readAt: { type: 'isoDate', optional: true, nullable: true, source: wire(), note: "The per-user cursor. `unread` is NOT a field: it is a rollup over this issue's sessions (issue-views.ts:391-410) and belongs to L1b." },
+      blocked: { type: 'boolean', optional: true, source: derived(), note: 'The compatibility boolean is derived at the feed boundary from normalized edges and server-truth target stages, matching replica blocking (POD-4953).' },
+      readAt: { type: 'isoDate', optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' }, note: "The per-user cursor. `unread` is NOT a field: it is a rollup over this issue's sessions (issue-views.ts:391-410) and belongs to L1b." },
       title: { type: 'string', source: projection() },
+      // The one open reference card, through the same normalized row reader.
+      priority: { type: 'number', source: projection() },
+      assignee: { type: 'id', optional: true, source: projection() },
+      description: { type: 'object', source: projection(), note: 'The materialized document value is rendered by the reference card.' },
+      activityNotes: { type: 'string', optional: true, source: projection() },
+      notesUpdatedAt: { type: 'isoDate', optional: true, source: projection() },
+      blockedByNotes: { type: 'object', source: projection() },
+      panel: { type: 'object', optional: true, source: projection() },
+      defaultAgent: { type: 'string', source: projection() },
+      defaultModel: { type: 'string', source: projection() },
+      defaultEffort: { type: 'string', source: projection() },
+      machineId: { type: 'id', optional: true, source: projection() },
     },
     relations: {
       parent: belongsTo({
@@ -831,6 +858,26 @@ const DECLARED = defineSchema({
         lazy: true,
         why: "The session that started this issue: the nest fallback for a parentless issue that is not a spin-off (nestStartedByIssues, rows.ts:288-305).",
       }),
+      missionStartedBy: belongsTo({
+        to: 'session',
+        foreignKey: 'startedBySession',
+        targetKey: 'sessionId',
+        inverse: 'missionStartedIssues',
+        lazy: true,
+        why: 'Mission provenance, including archived/deleted candidates, while they have not left the originating mission.',
+        where: {
+          fields: ['stage', 'deps'],
+          test: row => row['stage'] === 'proposed' || row['stage'] === 'backlog' ||
+            (row['deps'] as readonly { id: string; type: string }[] | undefined)?.find(dep => dep.type === 'discovered-from')?.id == null,
+          why: 'missionIssueIds / hasLeftMission: a started spin-off departs even when its origin row is absent.',
+        },
+      }),
+      missionSessions: hasMany({
+        to: 'session',
+        inverse: 'missionIssue',
+        lazy: true,
+        why: 'Every explicit mission sender, including headless and archived sessions; never cwd-only seats.',
+      }),
       sessions: hasMany({
         to: 'session',
         inverse: 'issue',
@@ -848,7 +895,7 @@ const DECLARED = defineSchema({
         inverse: 'spinOffs',
         lazy: true,
         slice: 'R4',
-        why: "The spin-off's origin (spinOffOriginId, mission.ts:479-483). NOT named `origin`: IssueWire already has an `origin` field (entities/issue.ts:288).",
+        why: "The spin-off's origin (spinOffOriginId, mission.ts:479-483). NOT named `origin`: IssueProjection already has an `origin` field (entities/issue.ts:288).",
       }),
       spinOffs: edge({
         to: 'issue',
@@ -951,8 +998,8 @@ const DECLARED = defineSchema({
       archived: { type: 'boolean', optional: true, source: meta(), note: 'Read-side filter (L1b), NOT a membership filter: the unread rollup must see the same seats (arms/hand/indexes.ts:26).' },
       lastActiveAt: { type: 'isoDate', source: meta() },
       stoppedAt: { type: 'isoDate', optional: true, nullable: true, source: meta() },
-      readAt: { type: 'isoDate', optional: true, nullable: true, source: meta() },
-      unread: { type: 'boolean', optional: true, source: meta(), note: "A real field on SessionMeta, unlike the issue's rollup of the same name." },
+      readAt: { type: 'isoDate', optional: true, nullable: true, source: sessionValue('readAt') },
+      unread: { type: 'boolean', optional: true, source: sessionValue('readAt'), note: 'Derived from the personal read cursor and session activity at the row-source boundary; legacy only while the companion is absent.' },
       agentState: {
         type: 'object',
         optional: true,
@@ -989,6 +1036,20 @@ const DECLARED = defineSchema({
         inverse: 'startedBy',
         lazy: true,
         why: "The issues this session started: a present issue finds the ones its sessions started, nested under it by the started-by fallback.",
+      }),
+      missionStartedIssues: hasMany({
+        to: 'issue',
+        inverse: 'missionStartedBy',
+        lazy: true,
+        why: 'Eligible mission provenance candidates, maintained from the declared starter edge.',
+      }),
+      missionIssue: belongsTo({
+        to: 'issue',
+        foreignKey: 'issueId',
+        targetKey: 'id',
+        inverse: 'missionSessions',
+        lazy: true,
+        why: 'missionSessionIndex uses explicit issueId ownership, including headless and archived sessions.',
       }),
       issue: belongsTo({
         to: 'issue',

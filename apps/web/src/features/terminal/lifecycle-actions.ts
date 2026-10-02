@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE PANEL'S LIFECYCLE ACTIONS, AS DATA (POD-408).
  *
@@ -24,7 +25,7 @@
  * the server) says no.
  */
 import type { ExitedAction } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 
 /** What the action does, not what it is called — the label is presentation. */
@@ -136,7 +137,7 @@ export function recoveryAction(kind: 'parked' | 'ended', action: ExitedAction): 
  * the mid-turn rule in, so "applies at all" is that predicate OR'd with the one
  * state it excludes.
  */
-export function hibernateAction(session: SessionMeta | undefined): LifecycleAction | null {
+export function hibernateAction(session: SessionView | undefined): LifecycleAction | null {
   if (!session) return null
   const { canHibernate } = sessionMenuEligibility(session)
   const phase = session.agentState?.phase

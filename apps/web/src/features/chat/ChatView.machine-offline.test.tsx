@@ -1,11 +1,6 @@
-import {
-  asMachineId,
-  asSessionId,
-  type SessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-  type TranscriptItem,
-} from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { sessionView } from '@podium/client-core/session-values'
+import { asMachineId, asSessionId, type SessionId, type TranscriptItem } from '@podium/model'
 import { waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -84,7 +79,7 @@ const fakeReplica = {
   },
 }
 
-let storeSessions: SessionMeta[] = []
+let storeSessions: SessionView[] = []
 let storeMachines: Array<{ id: string; name: string; online: boolean; availability?: { daemon: boolean } }> = []
 
 vi.mock('@/app/store', () => {
@@ -124,7 +119,7 @@ vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` 
 
 const { ChatView } = await import('./ChatView')
 
-function meta(over: Partial<SessionMetaInput>): SessionMeta {
+function meta(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -142,7 +137,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 let container: HTMLDivElement
@@ -339,4 +334,20 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     await waitFor(() => expect(container.textContent).toContain('reconnected history'))
     expect(container.querySelector('[data-testid="transcript-machine-offline"]')).toBeNull()
   })
+})
+
+
+it('the live offline banner uses the replicated session machine name', async () => {
+  const raw = meta({ status: 'live', machineId: asMachineId('m1'), machineName: 'Old session name',
+    agentState: { phase: 'working', since: new Date(Date.now() - 149_380).toISOString(), nativeSubagentCount: 0 } })
+  storeSessions = [sessionView(raw, { machine: { name: 'Renamed home', loggedOutHarnesses: [] } })]
+  storeMachines = [{ id: 'm1', name: 'Stale live frame', online: false }]
+  act(() => { root.render(<ChatView sessionId={asSessionId('s1')} />) })
+  await act(async () => { reads[0]?.resolve({ items: [{ id: 'tool-home', cursor: 'c-home', role: 'tool',
+    text: '', toolName: 'Bash', toolInput: 'pwd', ts: new Date(Date.now() - 149_380).toISOString() } as TranscriptItem],
+    head: 'c-home', tail: 'c-home', hasMore: false }) })
+  await flush()
+  const marker = container.querySelector('[data-testid="transcript-machine-offline"]')
+  expect(marker?.textContent).toContain('Renamed home')
+  expect(marker?.textContent).not.toContain('Stale live frame')
 })

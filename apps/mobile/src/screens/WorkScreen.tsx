@@ -12,7 +12,7 @@ import {
   worklistSlice,
   reuseUnifiedWorkRows,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import {
   canonicalIssueCloseReason,
   ISSUE_STATUS_LABELS,
@@ -103,7 +103,7 @@ const usesNativeHeader = process.env.EXPO_OS !== 'web'
 
 /** How a folded row ended, in one dim mono word — twin of the desktop's
  *  `foldedMarker`. Nothing here is an ask, so none of it takes the accent. */
-function foldedMarker(issue: IssueWire, lane: 'closed' | 'snoozed', now: number): string {
+function foldedMarker(issue: IssueNavigationModel, lane: 'closed' | 'snoozed', now: number): string {
   if (lane === 'snoozed') {
     const until = issue.deferUntil ? Date.parse(issue.deferUntil) : Number.NaN
     if (!Number.isFinite(until)) return 'snoozed'
@@ -283,7 +283,7 @@ export function WorkScreen() {
    * desktop's second column draws.
    */
   const openIssue = useCallback(
-    (issue: IssueWire) => {
+    (issue: IssueNavigationModel) => {
       setPendingNav(issue.id)
       router.push(`/mission/${encodeURIComponent(issue.id)}`)
       // Mark-read AFTER the push is dispatched: the outbox enqueue and its
@@ -666,7 +666,7 @@ function Fold({
   displayTitleFor: (issue: IssueNavigationModel) => string
   lane: 'closed' | 'snoozed'
   now: number
-  onOpen: (issue: IssueWire) => void
+  onOpen: (issue: IssueNavigationModel) => void
   onLongPress: (row: UnifiedIssueRow) => void
 }) {
   const [collapsed, toggle] = useCollapsed(storageKey, true)

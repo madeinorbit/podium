@@ -1,3 +1,5 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueUserStateWire } from '@podium/model'
 /**
  * TUCK FAN-OUT PROBE (POD-1053) — throwaway diagnostic, not a CI gate.
  *
@@ -29,12 +31,7 @@
 // belong to the working tree it is run in.
 
 import type { IssueProjection } from '@podium/model'
-import {
-  type GitRepositoryWire,
-  ISSUE_STAGES,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model/browser'
+import { type GitRepositoryWire, ISSUE_STAGES, type SessionMeta } from '@podium/model/browser'
 import { describe, it } from 'vitest'
 import {
   foldOverlays,
@@ -67,7 +64,7 @@ function worktreePath(index: number): string {
   return slot === 0 ? `/srv/repos/repo-${repo}` : `/srv/worktrees/wt-${index}`
 }
 
-function issueAt(index: number): IssueWire {
+function issueAt(index: number): IssueViewModel {
   const stage = ISSUE_STAGES[index % ISSUE_STAGES.length] ?? 'backlog'
   const worktree = index % (SCALE.repositories * SCALE.worktreesPerRepository)
   return {
@@ -89,7 +86,7 @@ function issueAt(index: number): IssueWire {
     needsHuman: index % 19 === 0,
     origin: index % 7 === 0 ? 'agent' : 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     priority: index % 5,
@@ -98,16 +95,16 @@ function issueAt(index: number): IssueWire {
     labels: [`area-${index % 8}`, `lane-${index % 3}`],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
     readAt: null,
     tuckedAt: null,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
-function projectionOf(issue: IssueWire): IssueProjection {
+function projectionOf(issue: IssueViewModel): IssueProjection {
   return {
     id: issue.id,
     seq: issue.seq,
@@ -183,25 +180,45 @@ describe('tuck fan-out probe', () => {
     const issues = Array.from({ length: SCALE.issues }, (_, index) => issueAt(index))
     const sessions = Array.from({ length: SCALE.sessions }, (_, index) => sessionAt(index))
     const repos = repositories()
-    replica.applySnapshot('issues', issues)
+    replica.applySnapshot(
+      'issueUserStates',
+      issues.map(
+        (issue) =>
+          ({
+            userId: 'operator',
+            entityId: issue.id,
+            readAt: issue.readAt ?? null,
+            tuckedAt: issue.tuckedAt ?? null,
+            pinned: issue.pinned,
+          }) as IssueUserStateWire,
+      ),
+    )
     replica.applySnapshot('issueProjections', issues.map(projectionOf))
     replica.applySnapshot('sessions', sessions)
     replica.applySnapshot(
       'repos',
-      repos.map((repo) => ({ id: `repo_${repo.path}`, path: repo.path, prefix: 'POD' })) as never[],
+      repos.map((repo) => ({
+        id: `repo_${repo.path}`,
+        repoPath: repo.path,
+        prefix: 'POD',
+      })) as never[],
     )
 
     const machines: never[] = []
     const pins = { panels: [], worktrees: [], repos: [] }
-    const baseIssues = replica.rows('issues')
+    const baseIssues = replica.rows('issueUserStates')
     const baseProjections = replica.rows('issueProjections')
     // biome-ignore lint/suspicious/noExplicitAny: probe fixture — the slice reads a documented subset
-    const storeWith = (rows: readonly IssueWire[], projections = baseProjections): any => ({
+    const storeWith = (
+      rows: readonly IssueUserStateWire[],
+      projections = baseProjections,
+    ): any => ({
       repos,
       machines,
       sessions,
       pins,
-      issues: rows,
+      issues: [],
+      issueUserStates: rows,
       issueProjections: projections,
       replica,
       coarseNow: NOW,
@@ -221,7 +238,7 @@ describe('tuck fan-out probe', () => {
     const tuckOverlay = (index: number): PendingOverlay[] => [
       {
         op: 'patch',
-        entity: 'issues',
+        entity: 'issueUserStates',
         id: `issue-${String(index).padStart(4, '0')}`,
         key: `mutation-${index}`,
         patch: { tuckedAt: new Date(NOW).toISOString() },
@@ -236,9 +253,13 @@ describe('tuck fan-out probe', () => {
     const echoSlice: number[] = []
     for (let press = 0; press < PRESSES; press++) {
       const target = 500 + press
-      const pressBase = replica.rows('issues')
+      const pressBase = replica.rows('issueUserStates')
       const projections = replica.rows('issueProjections')
-      const { rows } = foldOverlays(pressBase as IssueWire[], tuckOverlay(target), (r) => r.id)
+      const { rows } = foldOverlays(
+        pressBase as IssueUserStateWire[],
+        tuckOverlay(target),
+        (r) => r.entityId,
+      )
 
       // THE OPTIMISTIC PAINT. The overlay fold hands the store a new array with
       // one new row; a row genuinely moved, so the worklist genuinely re-derives.
@@ -256,12 +277,12 @@ describe('tuck fan-out probe', () => {
       // from after the replica write: that is the authority's cost, not the
       // projection's.
       replica.applySnapshot(
-        'issues',
+        'issueUserStates',
         rows.map((row) => ({ ...row })),
       )
-      store = storeWith(replica.rows('issues'), replica.rows('issueProjections'))
+      store = storeWith(replica.rows('issueUserStates'), replica.rows('issueProjections'))
       const echoModelsStarted = performance.now()
-      allIssueViewModels(replica, store.issueProjections, store.issues)
+      allIssueViewModels(replica, store.issueProjections, store.issueUserStates)
       echoModels.push(performance.now() - echoModelsStarted)
       const echoSliceStarted = performance.now()
       publisher.read(worklistSlice)
@@ -274,9 +295,9 @@ describe('tuck fan-out probe', () => {
     for (let press = 0; press < PRESSES; press++) {
       const target = 500 + press
       const { rows } = foldOverlays(
-        replica.rows('issues') as IssueWire[],
+        replica.rows('issueUserStates') as IssueUserStateWire[],
         tuckOverlay(target),
-        (r) => r.id,
+        (r) => r.entityId,
       )
       const started = performance.now()
       // `useReplicaIssues` rebuilt every model for the new array identity…
@@ -285,7 +306,7 @@ describe('tuck fan-out probe', () => {
       // …and `published.ts::issuesOf` built them all again, uncached…
       const models = issueViewModelsFromReplica(replica, projections, rows)
       // …and the slice re-derived, because `previous.issues !== next.issues`.
-      worklistSlice.derive(storeWith([...models.values()] as unknown as IssueWire[], projections))
+      worklistSlice.derive(storeWith(rows, projections))
       beforePaint.push(performance.now() - started)
     }
 

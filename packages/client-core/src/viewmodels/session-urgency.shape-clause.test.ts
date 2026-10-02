@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
 // QUESTION CLAUSE HAD NOT CONSIDERED. POD-1503 moved `elevateCoordinatorSession`
 // here to delete the `worklist -> terminal` edge, and argued it against F3's
 // invariant verbatim — correctly, on the shape. The function next to it,
-// `isCoordinatorSession`, was refused on sight because it takes an `IssueWire`.
+// `isCoordinatorSession`, was refused on sight because it takes an `IssueViewModel`.
 // Two adjacent symbols, one claimed and one refused, arbitrated by the SHAPE
 // while the question was never consulted. Map §4e.1.
 //
@@ -63,7 +63,7 @@ describe('F3 session-urgency: the SHAPE clause (the checkable half of the invari
       (line) => (line.match(/from '([^']+)'$/) as string[])[1] as string,
     )
     expect(froms.length).toBeGreaterThan(0)
-    expect([...froms].sort()).toEqual(['../focus', '@podium/model'])
+    expect([...froms].sort()).toEqual(['../focus', '../session-values', '@podium/model'])
   })
 
   it('every export is about sessions — the collection question, not membership or presentation', () => {
@@ -71,7 +71,7 @@ describe('F3 session-urgency: the SHAPE clause (the checkable half of the invari
     // that took neither a session nor a collection of them would belong to one
     // of those instead.
     for (const { name, params } of exportedSignatures(SOURCE)) {
-      expect(`${name}:${params}`).toMatch(/SessionMeta/)
+      expect(`${name}:${params}`).toMatch(/SessionView/)
     }
   })
 })

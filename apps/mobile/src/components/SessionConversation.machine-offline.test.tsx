@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * PHONE SESSION PAGE NAMES ITS OFFLINE MACHINE (this issue).
  *
@@ -11,7 +12,8 @@
  * the machine; back online -> gone. Both offline shapes count: supervisor
  * loss (online false) and supervised daemon loss (online true, daemon false).
  */
-import type { MachineWire, SessionMeta } from '@podium/model'
+import type { MachineWire } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
@@ -53,6 +55,7 @@ vi.mock('./TranscriptList', () => ({
 }))
 
 const { SessionConversation } = await import('./SessionConversation')
+const { useSession } = await import('../client/hooks')
 
 const session = {
   sessionId: 'sess-offline',
@@ -62,7 +65,7 @@ const session = {
   title: 'Agent',
   machineId: 'm1',
   machineName: 'desk',
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 function machine(over: Partial<MachineWire>): MachineWire {
   return {
@@ -76,10 +79,28 @@ function machine(over: Partial<MachineWire>): MachineWire {
   } as unknown as MachineWire
 }
 
-const ONLINE = [machine({ online: true, availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true } as unknown as MachineWire['availability'] })]
+const ONLINE = [
+  machine({
+    online: true,
+    availability: {
+      epoch: 'boot-1',
+      server: false,
+      daemon: true,
+      supervisor: true,
+    } as unknown as MachineWire['availability'],
+  }),
+]
 const OFFLINE_SUPERVISOR = [machine({ online: false })]
 const OFFLINE_DAEMON = [
-  machine({ online: true, availability: { epoch: 'boot-1', server: false, daemon: false, supervisor: true } as unknown as MachineWire['availability'] }),
+  machine({
+    online: true,
+    availability: {
+      epoch: 'boot-1',
+      server: false,
+      daemon: false,
+      supervisor: true,
+    } as unknown as MachineWire['availability'],
+  }),
 ]
 
 async function renderLive(initial: MachineWire[]) {
@@ -164,5 +185,55 @@ describe('phone session offline banner (POD-4873)', () => {
     })
 
     await waitFor(() => expect(screen.queryByTestId('machine-offline-banner')).toBeNull())
+  })
+})
+
+describe('phone offline machine label from session homes', () => {
+  function LiveConversation() {
+    const row = useSession(session.sessionId)
+    return row ? <SessionConversation session={row} issue={undefined} /> : null
+  }
+
+  it.each([
+    false,
+    true,
+  ])('uses the replicated name and observes a rename, stripped=%s', async (stripped) => {
+    const row = { ...session, machineName: 'Stale session label' }
+    if (stripped) Reflect.deleteProperty(row, 'machineName')
+    const { replica } = await renderWithMobileStore(<LiveConversation />, {
+      sessions: [row],
+      machines: [machine({ online: false, name: 'Stale live label' })],
+      machineProjections: [
+        { id: asMachineId('m1'), name: 'Replicated desk', loggedOutHarnesses: [] },
+      ],
+    })
+    const stored = replica.rows('sessions')[0]
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Replicated desk')
+    expect(screen.getByTestId('machine-offline-banner').textContent).not.toContain('Stale')
+    await act(async () => {
+      replica.applyChanges(
+        'machines',
+        [{ id: asMachineId('m1'), name: 'Renamed desk', loggedOutHarnesses: [] }],
+        [],
+      )
+    })
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Renamed desk')
+    expect(replica.rows('sessions')[0]).toBe(stored)
+    await act(async () => {
+      replica.applyChanges(
+        'machines',
+        [{ id: asMachineId('m1'), name: '', loggedOutHarnesses: [] }],
+        [],
+      )
+    })
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('This machine')
+  })
+
+  it('falls back to the legacy session label before the machine home arrives', async () => {
+    await renderWithMobileStore(<LiveConversation />, {
+      sessions: [session],
+      machines: OFFLINE_SUPERVISOR,
+    })
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('desk')
   })
 })

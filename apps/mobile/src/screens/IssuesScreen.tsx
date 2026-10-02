@@ -1,4 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
+import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type BoardFilter,
   clearChip,
@@ -10,11 +12,9 @@ import {
   taskStateWord,
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/viewmodels'
-import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type IssueBoardStage,
   type IssueCloseReason,
-  type IssueWire,
   issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
@@ -24,12 +24,12 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useBooting, useIssues, useStoreSelector, useSessions } from '../client/hooks'
+import { useBooting, useIssues, useSessions, useStoreSelector } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
-import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
+import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
 import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
@@ -97,11 +97,11 @@ export function IssuesScreen() {
   const [filter, setFilter] = useState<BoardFilter>({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [rowMenu, setRowMenu] = useState<{
-    issue: IssueWire
+    issue: IssueViewModel
     kind: 'actions' | 'status'
   } | null>(null)
   const [closeIntent, setCloseIntent] = useState<{
-    issue: IssueWire
+    issue: IssueViewModel
     reason: IssueCloseReason
   } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -331,7 +331,7 @@ export function IssuesScreen() {
     )
   }
 
-  function selectStatus(issue: IssueWire, value: string): void {
+  function selectStatus(issue: IssueViewModel, value: string): void {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'stage') {
@@ -355,7 +355,7 @@ interface Section {
   title: string
   /** How many TASKS this stage holds — its roots, not its rendered rows. */
   total: number
-  data: IssueRow<IssueWire>[]
+  data: IssueRow<IssueViewModel>[]
 }
 
 /**
@@ -384,8 +384,8 @@ function StageSections({
   onRemoveFilter,
   onOpenActions,
 }: {
-  board: { stage: IssueBoardStage; title: string; rows: IssueRow<IssueWire>[] }[]
-  issues: readonly IssueWire[]
+  board: { stage: IssueBoardStage; title: string; rows: IssueRow<IssueViewModel>[] }[]
+  issues: readonly IssueViewModel[]
   workingByIssue: ReadonlyMap<string, number>
   progressByIssue: ReadonlyMap<string, TaskProgress | null>
   listRef: RefreshableTab['listRef']
@@ -402,7 +402,7 @@ function StageSections({
   onOpen: (id: string) => void
   onToggleExpanded: (id: string) => void
   onRemoveFilter: (key: keyof BoardFilter) => void
-  onOpenActions: (issue: IssueWire) => void
+  onOpenActions: (issue: IssueViewModel) => void
 }) {
   // Keys come from `../lib/fold-keys` — the ui-state classifier is default-closed
   // and THROWS on an unregistered key, so an invented `tasks.stage.<stage>` took
@@ -626,13 +626,13 @@ function TaskRow({
   onToggleExpanded,
   onOpenActions,
 }: {
-  row: IssueRow<IssueWire>
-  issues: readonly IssueWire[]
+  row: IssueRow<IssueViewModel>
+  issues: readonly IssueViewModel[]
   workingAgents: number
   progress?: TaskProgress | null
   onOpen: (id: string) => void
   onToggleExpanded: (id: string) => void
-  onOpenActions: (issue: IssueWire) => void
+  onOpenActions: (issue: IssueViewModel) => void
 }) {
   const issue = row.issue
   const hex = issueColorHex(issue.color)

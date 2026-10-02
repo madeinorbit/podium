@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * ONE BOARD CARD — three slots, in this order, always:
  *
@@ -30,7 +31,7 @@
  * did to every card the mouse crossed and which spends The Signal Rule's one
  * voice on a mouse position.
  */
-import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
+import type { IssueId, IssueStage} from '@podium/model/browser'
 import { Flag, ShieldAlert } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { memo } from 'react'
@@ -201,7 +202,7 @@ function IssueCardLeaf({
 }: {
   issue: IssueViewModel
   /** This issue's member sessions, resolved by the board — the fleet stack. */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   badges: IssuesDisplay['badges']
   stageCounts?: { stage: IssueStage; count: number }[]
   progress?: EpicProgress | null
@@ -294,7 +295,7 @@ function IssueCardLeaf({
               {issue.type}
             </span>
           )}
-          {issue.origin === 'agent' && (
+          {issue.intentOrigin === 'agent' && (
             <span
               className="font-mono shell-type-micro text-text-faint"
               role="img"

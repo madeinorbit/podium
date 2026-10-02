@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { buildFlightDeckRows, type IssueNavigationModel } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+
 import { describe, expect, it } from 'vitest'
 import {
   fitWaterfallViewport,
@@ -26,8 +27,8 @@ const NOW = Date.parse('2026-08-31T12:00:00.000Z')
 
 function session(
   id: string,
-  over: Record<string, unknown> & { status?: SessionMeta['status'] } = {},
-): SessionMeta {
+  over: Record<string, unknown> & { status?: SessionView['status'] } = {},
+): SessionView {
   return {
     sessionId: id,
     title: id,
@@ -38,7 +39,7 @@ function session(
     createdAt: '2026-08-31T10:00:00.000Z',
     lastActiveAt: '2026-08-31T11:30:00.000Z',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 describe('Flight Deck waterfall rows', () => {

@@ -1,5 +1,6 @@
-import { asIssueId, asSessionId, isHeadlessSession, type SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, isHeadlessSession } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView } from '../session-values'
 import {
   type IssueMembershipRef,
   sessionOwnershipStats,
@@ -22,7 +23,7 @@ import {
 // slice, not once per issue.
 // ---------------------------------------------------------------------------
 
-function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -41,7 +42,7 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function ref(id: string, memberSessionIds: string[]): IssueMembershipRef {
@@ -51,9 +52,9 @@ function ref(id: string, memberSessionIds: string[]): IssueMembershipRef {
 /** The body this replaced, kept verbatim as the oracle. */
 function byFilter(
   issue: IssueMembershipRef,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   includeShells: boolean,
-): SessionMeta[] {
+): SessionView[] {
   const ids = new Set(issue.memberSessionIds ?? [])
   return sessions.filter((s) => {
     if (s.archived || isHeadlessSession(s)) return false
@@ -67,7 +68,7 @@ const slice = [
   session('s-1', { issueId: asIssueId('i-1') }),
   session('s-shell', { agentKind: 'shell', issueId: asIssueId('i-1') }),
   session('s-gone', { archived: true, issueId: asIssueId('i-1') }),
-  session('s-headless', { headless: true, issueId: asIssueId('i-1') } as Partial<SessionMeta>),
+  session('s-headless', { headless: true, issueId: asIssueId('i-1') } as Partial<SessionView>),
   session('s-2', { issueId: asIssueId('i-1') }),
   session('s-other', { issueId: asIssueId('i-2') }),
 ]

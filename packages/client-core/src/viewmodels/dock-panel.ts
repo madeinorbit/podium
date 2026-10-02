@@ -1,12 +1,7 @@
+import type { ArtifactId, IssueId, MachineId, SessionId } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
 import { sessionById } from '../session-index'
-import type {
-  ArtifactId,
-  IssueId,
-  IssueWire,
-  MachineId,
-  SessionId,
-  SessionMeta,
-} from '@podium/model'
+import type { SessionView } from '../session-values'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
@@ -68,7 +63,7 @@ export function cwdInWorktree(cwd: string, root: string): boolean {
 export function resolveActiveWorktree(args: {
   paneA: string | null
   fileTabs: FileTab[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
 }): ActiveWorktree | null {
   const { paneA, fileTabs, sessions } = args
   if (paneA != null) {
@@ -82,7 +77,7 @@ export function resolveActiveWorktree(args: {
     }
   }
   // Fall back to the most recently active non-archived session.
-  let best: SessionMeta | null = null
+  let best: SessionView | null = null
   for (const s of sessions) {
     if (s.archived) continue
     if (!best || s.lastActiveAt > best.lastActiveAt) best = s
@@ -95,7 +90,10 @@ export function resolveActiveWorktree(args: {
  *  match, the deepest containing worktreePath wins (a repo-root worktree must
  *  not swallow `.worktrees/*` checkouts), and equal depths tie-break on lowest
  *  seq — never on broadcast array order (#243). */
-type IssuePanelLike = Omit<IssueWire, 'sessions'>
+type IssuePanelLike = Pick<
+  IssueViewModel,
+  'id' | 'worktreePath' | 'archived' | 'deletedAt' | 'seq' | 'parentId' | 'panel'
+>
 
 export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string): T | null {
   let best: T | null = null
@@ -113,7 +111,7 @@ export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string):
 }
 
 /** The issue the dock's Issue tab should show. The active session's explicit
- *  attachment (`SessionMeta.issueId`) wins — it names exactly the issue the
+ *  attachment (`SessionView.issueId`) wins — it names exactly the issue the
  *  session works on, so subissue sessions running in the parent's worktree and
  *  re-homed sessions resolve to THEIR issue, not the worktree owner's (#243).
  *  A known session WITHOUT an attached issue resolves to no issue at all —
@@ -123,7 +121,7 @@ export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string):
  *  fallback applies only to file tabs / panes with no resolvable session. */
 export function issueForPanel<T extends IssuePanelLike>(args: {
   issues: T[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   cwd: string
   sessionId?: SessionId
   /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441; every explorer
@@ -142,9 +140,7 @@ export function issueForPanel<T extends IssuePanelLike>(args: {
     const explicit = args.issues.find((i) => i.id === args.issueId && !i.deletedAt)
     if (explicit) return explicit
   }
-  const session = args.sessionId
-    ? sessionById(args.sessions).get(args.sessionId)
-    : undefined
+  const session = args.sessionId ? sessionById(args.sessions).get(args.sessionId) : undefined
   if (session) {
     const id = session.issueId
     if (id === undefined) return null

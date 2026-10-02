@@ -71,24 +71,19 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  ConformanceAuthority,
-  type ConformancePrincipal,
-  conformanceUser,
-  requireHuman,
-} from '@podium/sync/testing'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   type SqlDatabaseLike,
   SqliteSyncStore,
   type SqlValue,
 } from '@podium/sync/adapters/mobile-sqlite'
+import { type DeltaFrame, Replica, type ReplicaEvent } from '@podium/sync/replica'
 import {
-  type BootstrapChunk,
-  type DeltaFrame,
-  Replica,
-  type ReplicaEvent,
-} from '@podium/sync/replica'
+  ConformanceAuthority,
+  type ConformancePrincipal,
+  conformanceUser,
+  requireHuman,
+} from '@podium/sync/testing'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FeedServerFrame } from '../socket-transport'
@@ -171,7 +166,6 @@ function asWireDelta(frame: DeltaFrame): FeedServerFrame {
     ),
   } as FeedServerFrame
 }
-
 
 /**
  * The two shipped client storage backends, behind one seam.
@@ -325,7 +319,7 @@ describe.each(
   async function openClient(principal: ConformancePrincipal, id: string): Promise<Client> {
     const opened = await backend.open(id)
     const events: ReplicaEvent[] = []
-  const port = authority.portFor(principal)
+    const port = authority.portFor(principal)
     // Assembled in the SAME ORDER as the two shipped composition roots
     // (`apps/web/src/lib/kernelReplica.ts`, `apps/mobile`): the facade comes
     // first because the kernel Replica needs its `onKernelEvent`, so the facade
@@ -342,7 +336,6 @@ describe.each(
       authority: {
         changesRange: (cursor, signal, target) => port.changesRange(cursor, signal, target),
         bootstrap: (signal) => {
-
           return port.bootstrap(signal)
         },
       },
@@ -605,21 +598,21 @@ describe.each(
     // key as "unchanged" keeps the stale value forever, and the UI keeps showing
     // a snooze the user cleared — with no event left to correct it.
     authority.append({
-      entity: 'issue',
+      entity: 'issueProjection',
       entityId: 'i1',
       op: 'upsert',
       payload: { id: 'i1', title: 'i1', deferUntil: '2026-07-07T00:00:00.000Z' },
     })
-    authority.grant(requireHuman(BOB), 'issue', 'i1')
+    authority.grant(requireHuman(BOB), 'issueProjection', 'i1')
     const bob = await openClient(BOB, 'bob')
     await online(bob)
-    expect((bob.replica.view('issue', 'i1') as Record<string, unknown>).deferUntil).toBe(
+    expect((bob.replica.view('issueProjection', 'i1') as Record<string, unknown>).deferUntil).toBe(
       '2026-07-07T00:00:00.000Z',
     )
 
     const from = authority.head()
     authority.append({
-      entity: 'issue',
+      entity: 'issueProjection',
       entityId: 'i1',
       op: 'upsert',
       payload: { id: 'i1', title: 'i1' },
@@ -629,20 +622,20 @@ describe.each(
 
     // THE ROW SURVIVES — this is not a removal, and a fix that dropped the row
     // would satisfy a naive "deferUntil is gone" assertion.
-    expect(bob.keys()).toContain('issue:i1')
-    expect(bob.replica.exitKind('issue', 'i1')).toBeUndefined()
+    expect(bob.keys()).toContain('issueProjection:i1')
+    expect(bob.replica.exitKind('issueProjection', 'i1')).toBeUndefined()
 
     // KEY SET, not value. `toEqual` treats an undefined-valued key as absent, so
     // a value assertion passes just as well against a row that still carries the
     // field set to undefined — and a JSON round trip through storage would then
     // resurrect nothing, but an in-place merge on the NEXT delta would.
-    const view = bob.replica.view('issue', 'i1') as Record<string, unknown>
+    const view = bob.replica.view('issueProjection', 'i1') as Record<string, unknown>
     expect(Object.keys(view).sort()).toEqual(['id', 'title'])
     expect('deferUntil' in view).toBe(false)
 
     // And after a reload, through a store that never saw the first payload.
     const durable = await backend.reopen('bob')
-    const row = durable.find((r) => r.entity === 'issue' && r.entityId === 'i1')
+    const row = durable.find((r) => r.entity === 'issueProjection' && r.entityId === 'i1')
     expect(row).toBeDefined()
     expect(Object.keys(row?.value as Record<string, unknown>).sort()).toEqual(['id', 'title'])
   })

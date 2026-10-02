@@ -43,17 +43,18 @@
  * is a frozen UI rather than a missed watchdog. Same rule, different loop.
  */
 
-import type { SessionId } from '@podium/model'
-import type { MetadataChangeLenient } from '@podium/protocol'
+import type { MetadataChangeLenient, SyncChangesSinceResultLenient } from '@podium/protocol'
 import { isKnownMetadataChange } from '@podium/protocol'
 import type { FeedCursor } from './feed'
+import { entityForKind, retainReplicaEntity, rowKey } from './kernel/kinds'
 import type { Replica, ReplicaKind, ReplicaRows } from './replica'
 
 /** Wire entity kind → replica collection kind. The feed says `session`, the
  *  replica says `sessions`; this is the only place the two vocabularies meet. */
 const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   session: 'sessions',
-  issue: 'issues',
+  sessionUserState: 'sessionUserStates',
+  machine: 'machines',
   // The three POD-796/POD-822 kinds the replica holds. Mapped here so a
   // bootstrap/heal that carries them installs them into the right collection
   // rather than dropping them (a kind absent from this map is silently skipped
@@ -65,10 +66,35 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   issueDep: 'issueDeps',
   repo: 'repos',
   shipOrder: 'shipOrders',
+  shipLane: 'shipLanes',
   conversation: 'conversations',
   automation: 'automations',
   automationRun: 'automationRuns',
 }
+
+type SnapshotKind = Extract<
+  keyof Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>,
+  ReplicaKind
+>
+
+/** Only the collections covered by the authoritative snapshot arm. Omitted
+ *  optional arrays mean empty, including on older authorities. Other replica
+ *  kinds have separate loading paths and cannot be cleared by this snapshot. */
+const SNAPSHOT_KINDS: readonly SnapshotKind[] = [
+  'sessions',
+  'sessionUserStates',
+  'machines',
+  'issueProjections',
+  'issueUserStates',
+  'issueGitStates',
+  'issueDeps',
+  'repos',
+  'shipOrders',
+  'shipLanes',
+  'conversations',
+  'automations',
+  'automationRuns',
+]
 
 /** One chunk of the bootstrap stream: ordered rows in the SAME change shape the
  *  delta path uses (D6 — "one shape, one code path"). A new entity kind is free
@@ -107,6 +133,7 @@ export class BootstrapSession {
   private readonly staged = new Map<ReplicaKind, Map<string, unknown>>()
   /** Deltas that landed with `seq > snapshotSeq` while we streamed. */
   private readonly buffered: MetadataChangeLenient[] = []
+  private bufferedSeq = 0
   private done = false
 
   /** @param cursor the `(feedId, epoch, snapshotSeq)` the authority read at. */
@@ -114,7 +141,16 @@ export class BootstrapSession {
     private readonly replica: Replica,
     readonly cursor: FeedCursor,
     private readonly opts: BootstrapOptions = {},
-  ) {}
+  ) {
+    // Absence is authoritative only at commit. Seed empty staging so a kind
+    // with zero upserts still replaces its old rows, without touching live
+    // state or the outbox if this load is later aborted.
+    for (const kind of SNAPSHOT_KINDS) {
+      if (retainReplicaEntity(entityForKind(kind))) {
+        this.staged.set(kind, new Map())
+      }
+    }
+  }
 
   /** Stage one chunk, yielding between batches so we never own the loop. */
   async install(chunk: BootstrapChunk): Promise<void> {
@@ -142,7 +178,11 @@ export class BootstrapSession {
   bufferDelta(seq: number, changes: MetadataChangeLenient[]): boolean {
     if (this.done || seq <= this.cursor.seq) return false
     for (const change of changes) {
-      if (change.seq > this.cursor.seq) this.buffered.push(change)
+      if (change.seq <= this.cursor.seq) continue
+      this.bufferedSeq = Math.max(this.bufferedSeq, change.seq)
+      if (retainReplicaEntity(change.entity)) {
+        this.buffered.push(change)
+      }
     }
     return true
   }
@@ -172,28 +212,33 @@ export class BootstrapSession {
       }
       // Then the changes that happened WHILE we streamed, in seq order.
       const sorted = [...this.buffered].sort((a, b) => a.seq - b.seq)
-      const upserts = new Map<ReplicaKind, unknown[]>()
-      const removes = new Map<ReplicaKind, string[]>()
-      let seq = this.cursor.seq
+      const upserts = new Map<ReplicaKind, Map<string, unknown>>()
+      const removes = new Map<ReplicaKind, Set<string>>()
+      let seq = Math.max(this.cursor.seq, this.bufferedSeq)
       for (const change of sorted) {
         seq = Math.max(seq, change.seq)
         const kind = KIND_BY_ENTITY[change.entity]
         if (kind === undefined || !isKnownMetadataChange(change)) continue
+        // Keep the last valid operation per row, in sequence order. Grouping
+        // deletes and upserts without cancelling the earlier operation would
+        // resurrect a row whose final change was a delete.
         if (change.op === 'remove') {
-          const list = removes.get(kind) ?? []
-          list.push(change.id)
-          removes.set(kind, list)
+          upserts.get(kind)?.delete(change.id)
+          const ids = removes.get(kind) ?? new Set<string>()
+          ids.add(change.id)
+          removes.set(kind, ids)
         } else if (change.value !== undefined) {
-          const list = upserts.get(kind) ?? []
-          list.push(change.value)
-          upserts.set(kind, list)
+          removes.get(kind)?.delete(change.id)
+          const rows = upserts.get(kind) ?? new Map<string, unknown>()
+          rows.set(change.id, change.value)
+          upserts.set(kind, rows)
         }
       }
       for (const kind of new Set([...upserts.keys(), ...removes.keys()])) {
         this.replica.applyChanges(
           kind,
-          (upserts.get(kind) ?? []) as ReplicaRows[ReplicaKind][],
-          removes.get(kind) ?? [],
+          [...(upserts.get(kind)?.values() ?? [])] as ReplicaRows[ReplicaKind][],
+          [...(removes.get(kind) ?? [])],
         )
       }
       // Cursor LAST — see the note above.
@@ -211,6 +256,7 @@ export class BootstrapSession {
   }
 
   private stage(change: MetadataChangeLenient): void {
+    if (!retainReplicaEntity(change.entity)) return
     const kind = KIND_BY_ENTITY[change.entity]
     // An unknown entity kind from a newer authority: ignore the row, keep the
     // bootstrap (D4's additive rule — a new kind must not quarantine an older
@@ -239,37 +285,23 @@ export class BootstrapSession {
  * transfer's own pacing needs the server's chunked stream and arrives with it.
  */
 export function snapshotToChunks(
-  snapshot: {
-    sessions?: unknown[]
-    issues?: unknown[]
-    issueProjections?: unknown[]
-    issueDeps?: unknown[]
-    repos?: unknown[]
-    shipOrders?: unknown[]
-    conversations?: unknown[]
-    automations?: unknown[]
-    automationRuns?: unknown[]
-  },
+  snapshot: Partial<Record<SnapshotKind, unknown[]>>,
   chunkRows = BOOTSTRAP_BATCH_ROWS,
 ): BootstrapChunk[] {
-  const entities: Array<[string, unknown[] | undefined, (row: unknown) => string]> = [
-    ['session', snapshot.sessions, (r) => (r as { sessionId: SessionId }).sessionId],
-    ['issue', snapshot.issues, (r) => (r as { id: string }).id],
-    ['issueProjection', snapshot.issueProjections, (r) => (r as { id: string }).id],
-    ['issueDep', snapshot.issueDeps, (r) => (r as { id: string }).id],
-    ['repo', snapshot.repos, (r) => (r as { id: string }).id],
-    ['shipOrder', snapshot.shipOrders, (r) => (r as { id: string }).id],
-    ['conversation', snapshot.conversations, (r) => (r as { id: string }).id],
-    ['automation', snapshot.automations, (r) => (r as { id: string }).id],
-    ['automationRun', snapshot.automationRuns, (r) => (r as { id: string }).id],
-  ]
   const changes: MetadataChangeLenient[] = []
-  for (const [entity, rows, keyOf] of entities) {
-    for (const row of rows ?? []) {
+  for (const kind of SNAPSHOT_KINDS) {
+    const entity = entityForKind(kind)
+    for (const row of snapshot[kind] ?? []) {
       // `seq: 1` is a placeholder with no meaning on this path and the installer
       // never reads it: a snapshot's rows are not feed positions, they are the
       // state AS OF `snapshotSeq`, which the session already holds on its cursor.
-      changes.push({ seq: 1, entity, id: keyOf(row), op: 'upsert', value: row })
+      changes.push({
+        seq: 1,
+        entity,
+        id: rowKey(kind, row as ReplicaRows[typeof kind]),
+        op: 'upsert',
+        value: row,
+      })
     }
   }
   const chunks: BootstrapChunk[] = []

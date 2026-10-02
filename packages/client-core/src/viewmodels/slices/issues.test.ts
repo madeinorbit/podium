@@ -1,5 +1,7 @@
-import { asIssueId, asSessionId, type IssueWire, type SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../../replica/issue-view-models'
+import type { SessionView } from '../../session-values'
 import type { ReferentExit } from '../session-ownership'
 import {
   branchRollup,
@@ -30,7 +32,7 @@ import {
 //     collapses into `removed`.
 // ---------------------------------------------------------------------------
 
-function issue(id: string, over: Partial<IssueWire> = {}): IssueWire {
+function issue(id: string, over: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id: asIssueId(id),
     repoPath: '/repo/podium',
@@ -47,20 +49,20 @@ function issue(id: string, over: Partial<IssueWire> = {}): IssueWire {
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
     audience: 'human',
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     deps: [],
     ...over,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 function navIssue(id: string, over: Partial<IssueNavigationModel> = {}): IssueNavigationModel {
-  return issue(id, over as Partial<IssueWire>) as unknown as IssueNavigationModel
+  return issue(id, over as Partial<IssueViewModel>) as unknown as IssueNavigationModel
 }
 
-function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -79,7 +81,7 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 const unmerged = {
@@ -196,7 +198,10 @@ describe('sub-issues and roll-up', () => {
   })
 
   it('leaves ARCHIVED descendants out of the k/m — history is the count, not the archive', () => {
-    const withArchived = [...tree, issue('POD-14', { parentId: asIssueId('POD-10'), archived: true })]
+    const withArchived = [
+      ...tree,
+      issue('POD-14', { parentId: asIssueId('POD-10'), archived: true }),
+    ]
     expect(branchRollup(withArchived, 'POD-10')).toEqual({ total: 3, done: 1 })
   })
 
@@ -256,12 +261,12 @@ describe('issue nav list', () => {
       navIssue('POD-40', {
         worktreePath: '/repo/a',
         updatedAt: '2026-07-01T00:00:00.000Z',
-        memberSessionIds: ['s-old'],
+        memberSessionIds: [asSessionId('s-old')],
       }),
       navIssue('POD-41', {
         worktreePath: '/repo/b',
         updatedAt: '2026-07-02T00:00:00.000Z',
-        memberSessionIds: ['s-new'],
+        memberSessionIds: [asSessionId('s-new')],
       }),
       navIssue('POD-42', { worktreePath: '/repo/c', updatedAt: '2026-07-09T00:00:00.000Z' }),
     ]
@@ -300,7 +305,9 @@ describe('issue nav list', () => {
   })
 
   it('leaves an evicted member session out with no tombstone row', () => {
-    const i = navIssue('POD-47', { memberSessionIds: ['s-kept', 's-evicted'] })
+    const i = navIssue('POD-47', {
+      memberSessionIds: [asSessionId('s-kept'), asSessionId('s-evicted')],
+    })
     const view = issueNavList([i], [session('s-kept')], now)[0]
     expect(view?.sessions.map((s) => s.sessionId)).toEqual(['s-kept'])
     // Nothing stands in for the evicted row — the issue simply has one session.

@@ -51,6 +51,7 @@
  */
 
 import { type ObservableMap, observable } from 'mobx'
+import { debugName } from './debug-name'
 import { ingestWorktreeRecord } from './shared/repo-from-lane'
 import { type EntityName, SCHEMA } from './shared/schema'
 import type { RowRecord } from './shared/source'
@@ -85,7 +86,7 @@ function tablesOf<T extends WritableTable>(make: (entity: EntityName) => T): Tab
 /** The live pool's tables: shallow observable maps, one per schema entity. */
 export function createObservableTables(): PoolTables {
   return tablesOf((entity) =>
-    observable.map<string, StoredRow>(undefined, { deep: false, name: `pool.${entity}` }),
+    observable.map<string, StoredRow>(undefined, { deep: false, name: debugName(() => `pool.${entity}`) }),
   )
 }
 

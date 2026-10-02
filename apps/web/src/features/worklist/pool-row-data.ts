@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   errorPhrase,
   type IssueNavigationModel,
@@ -6,7 +7,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues, SidebarTiming } from '@podium/client-graph/worklist/sidebar-row'
-import { issueStatusLabel, type SessionMeta } from '@podium/model/browser'
+import { issueStatusLabel} from '@podium/model/browser'
 
 /** The real row's displayed extension of ROW_DISPLAYED_FIELDS. Placement
  * keys, the raw roster and menu-only records do not repaint a flat mission. */
@@ -33,8 +34,7 @@ export function poolIssuePaint(value: SidebarRowValues) {
       closedReason: issue.closedReason,
       closedAt: issue.closedAt,
       needsHuman: issue.needsHuman,
-      humanQuestion: issue.humanQuestion,
-      humanQuestionOptions: issue.humanQuestionOptions,
+      asked: issue.asked,
     },
   }
 }
@@ -53,8 +53,7 @@ export interface PoolIssueDisplay {
   fleet: SidebarRowValues['fleet']
 }
 
-/** The feed borrows the runtime's compatibility record. This is the one UI
- * type boundary, never a new issue record or a lookup in the legacy store. */
+/** The pool supplies normalized facts through the shared navigation port. */
 export function navigationIssue(value: SidebarRowValues['issue']): IssueNavigationModel {
   return value as unknown as IssueNavigationModel
 }
@@ -63,8 +62,8 @@ export function poolIssueRow(value: SidebarRowValues): UnifiedIssueRow {
   return {
     kind: 'issue',
     issue: navigationIssue(value.issue),
-    sessions: value.sessions as SessionMeta[],
-    aggregateSessions: value.aggregateSessions as SessionMeta[],
+    sessions: value.sessions as SessionView[],
+    aggregateSessions: value.aggregateSessions as SessionView[],
     activityAt: value.timing.sinceMs,
     ...(value.continuation
       ? { continuation: `${value.continuation.kind} · ${value.continuation.ref}` }
@@ -81,7 +80,7 @@ export function poolWorktreeRow(
     worktree: {
       ...value.worktree,
       isMain: value.worktree.isMain === true,
-      sessions: value.sessions as SessionMeta[],
+      sessions: value.sessions as SessionView[],
       issues: value.issues as unknown as IssueNavigationModel[],
     } as Extract<UnifiedWorkRow, { kind: 'worktree' }>['worktree'],
   }
@@ -143,7 +142,7 @@ export function poolIssueHaystack(value: SidebarRowValues): string {
 
 /** PanelRow's displayed extension: transport geometry and bookkeeping do not
  * redraw a guest. The pool retains the borrowed row for its existing menu. */
-export function poolSessionPaint(s: SessionMeta) {
+export function poolSessionPaint(s: SessionView) {
   return {
     sessionId: s.sessionId,
     agentKind: s.agentKind,

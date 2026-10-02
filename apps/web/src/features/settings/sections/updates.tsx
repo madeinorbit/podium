@@ -1,11 +1,11 @@
 import { MachineFailureReason, type FailureReason } from '@/features/updates/MachineFailureReason'
-import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire } from '@podium/model/browser'
 import type { Operation, ReleaseProposal } from '@podium/protocol'
 import { parseOperation, ReleaseProposal as ReleaseProposalSchema } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsTrpc } from '../stable-access'
+import { useSettingsCatalog } from '../readers'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/clipboard'
 import { pageBuildDigest, pageBuildVersion } from '@/lib/logging/build-version'
@@ -108,10 +108,8 @@ export const SETTINGS_RELEASE_PROPOSAL_POLL_MS = 5_000
  * inlined so the web bundle never imports @podium/runtime (node:fs).
  */
 export function UpdatesSection(): JSX.Element {
-  const { trpc, machines } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, machines: s.machines }),
-    shallowEqual,
-  )
+  const trpc = useSettingsTrpc()
+  const { machines } = useSettingsCatalog()
   const developing = useFeature('podium-development')
   const [channel, setChannel] = useState<FleetChannel | null>(null)
   // PODIUM_UPDATE_CHANNEL in the deployment's environment beats config.json, and

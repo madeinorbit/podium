@@ -1,3 +1,5 @@
+import { headerDataLayer } from '@/lib/header-data-layer'
+import { usePoolHeaderConnection } from '@/app/header-data'
 import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import { Wifi, WifiOff } from 'lucide-react'
 import type { JSX } from 'react'
@@ -11,11 +13,20 @@ import { cn } from '@/lib/utils'
  * (~2.5s) and putting it in the store context would re-render every consumer.
  * Only the components that show the indicator subscribe.
  */
-export function useConnectionHealth(): ConnectionHealth {
+function useLegacyConnectionHealth(): ConnectionHealth {
   const hub = useStoreSelector((s) => s.hub)
   const [health, setHealth] = useState<ConnectionHealth>(() => hub.connectionHealth())
   useEffect(() => hub.onConnectionHealth(setHealth), [hub])
   return health
+}
+
+const WAITING_CONNECTION: ConnectionHealth = { status: 'ok', rttMs: null, since: 0 }
+function usePoolConnectionHealth(): ConnectionHealth {
+  return usePoolHeaderConnection() ?? WAITING_CONNECTION
+}
+export function useConnectionHealth(): ConnectionHealth {
+  const useRead = headerDataLayer() === 'pool' ? usePoolConnectionHealth : useLegacyConnectionHealth
+  return useRead()
 }
 
 // Best practice for a flaky signal: hysteresis. A bad state must persist briefly

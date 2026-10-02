@@ -1,4 +1,6 @@
-import type { SessionId, SessionMeta, SessionOffer } from '@podium/model'
+import type { SessionView } from '../session-values'
+import { issueAsked } from './slices/issues'
+import type { SessionId, SessionOffer } from '@podium/model'
 import type { IssueNavigationModel } from './slices/issues'
 import { attentionGroup } from '../focus'
 
@@ -25,7 +27,7 @@ export type TrayItem = {
   since: string
 } & (
   | { kind: 'question'; text: string }
-  | { kind: 'offer'; session: SessionMeta; offer: SessionOffer }
+  | { kind: 'offer'; session: SessionView; offer: SessionOffer }
   // Deterministic review backstop [POD-118]: an issue sitting in stage=review
   // whose sessions carry NO live offer still gets a minimal card, so review
   // visibility never depends on the offer surviving (a stop-hook or mail wake
@@ -42,14 +44,14 @@ const live = (issue: IssueNavigationModel): boolean => !issue.archived && !issue
 
 export function deriveTrayItems(
   issues: IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   /** Offers optimistically consumed by a button click, keyed by
    *  {@link offerKey} — hidden until the server's cleared meta arrives
    *  (the same pattern as ChatView's dismissedOfferAt). */
   dismissedOffers?: ReadonlySet<string>,
 ): TrayItem[] {
   const items: TrayItem[] = []
-  const sessionById = new Map<string, SessionMeta>(
+  const sessionById = new Map<string, SessionView>(
     sessions.map((session) => [session.sessionId, session]),
   )
   for (const issue of issues.filter(live)) {
@@ -63,7 +65,7 @@ export function deriveTrayItems(
       items.push({
         kind: 'question',
         issue,
-        text: issue.humanQuestion?.trim() || 'Needs your input.',
+        text: issueAsked(issue)?.question?.trim() || 'Needs your input.',
         since: issue.updatedAt,
       })
     }
@@ -109,10 +111,10 @@ export function deriveTrayItems(
  */
 export function workingSessionCount(
   issues: IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): number {
   const seen = new Set<string>()
-  const sessionById = new Map<string, SessionMeta>(
+  const sessionById = new Map<string, SessionView>(
     sessions.map((session) => [session.sessionId, session]),
   )
   for (const issue of issues.filter(live)) {
@@ -129,7 +131,7 @@ export function workingSessionCount(
  *  (spec §6.11 working assumption), not the waiting-session count. */
 export function trayCount(
   issues: IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   dismissedOffers?: ReadonlySet<string>,
 ): number {
   return deriveTrayItems(issues, sessions, dismissedOffers).length

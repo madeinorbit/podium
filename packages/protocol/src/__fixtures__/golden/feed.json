@@ -119,12 +119,9 @@
                 "stateConfidence": 1,
                 "stateObservedAt": "changes[0].value.agentState.stateObservedAt"
               },
-              "condition": "logged-out",
               "archived": true,
-              "readAt": "changes[0].value.readAt",
               "stoppedAt": "changes[0].value.stoppedAt",
               "stopReason": "self",
-              "unread": true,
               "workState": "planning",
               "resumable": true,
               "resume": {
@@ -143,8 +140,6 @@
               "requestedEffort": "changes[0].value.requestedEffort",
               "contextUsagePercent": 1,
               "machineId": "changes[0].value.machineId",
-              "machineName": "changes[0].value.machineName",
-              "snoozedUntil": "changes[0].value.snoozedUntil",
               "draftUpdatedAt": "changes[0].value.draftUpdatedAt",
               "draftSyncEngine": true,
               "driverId": "changes[0].value.driverId",
@@ -165,7 +160,7 @@
                 "artifacts": ["changes[0].value.offer.artifacts[0]"],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
-              "handoffTarget": "changes[0].value.handoffTarget",
+              "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
               "conversationPodiumId": "changes[0].value.conversationPodiumId",
               "spawnedBy": "changes[0].value.spawnedBy",
               "workflowRunId": "changes[0].value.workflowRunId",
@@ -175,7 +170,8 @@
               "refIssueId": "changes[0].value.refIssueId",
               "refLetter": "changes[0].value.refLetter",
               "refDraft": 1,
-              "displayRef": "changes[0].value.displayRef",
+              "refRepoId": "changes[0].value.refRepoId",
+              "refSeq": 1,
               "headless": true,
               "delegation": {
                 "actor": "changes[0].value.delegation.actor",
@@ -207,7 +203,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"changes[0].value.readAt\",\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"machineName\":\"changes[0].value.machineName\",\"snoozedUntil\":\"changes[0].value.snoozedUntil\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTarget\":\"changes[0].value.handoffTarget\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"executionProfileId\":\"changes[0].value.executionProfileId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"displayRef\":\"changes[0].value.displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}],\"last\":true,\"totalRows\":1,\"countsByEntity\":{\"countsByEntity.key\":1}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"executionProfileId\":\"changes[0].value.executionProfileId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}],\"last\":true,\"totalRows\":1,\"countsByEntity\":{\"countsByEntity.key\":1}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -222,60 +218,86 @@
         "changes": [
           {
             "seq": 2,
-            "entity": "issue",
+            "entity": "issueProjection",
             "entityId": "changes[0].entityId",
             "op": "remove",
             "value": {
               "id": "changes[0].value.id",
-              "repoPath": "changes[0].value.repoPath",
               "repoId": "changes[0].value.repoId",
-              "prefix": "changes[0].value.prefix",
-              "displayRef": "changes[0].value.displayRef",
               "seq": 2,
               "title": "changes[0].value.title",
-              "description": "changes[0].value.description",
               "brief": "changes[0].value.brief",
-              "stage": "backlog",
-              "worktreePath": "changes[0].value.worktreePath",
-              "branch": "changes[0].value.branch",
-              "parentBranch": "changes[0].value.parentBranch",
-              "defaultAgent": "changes[0].value.defaultAgent",
-              "defaultModel": "changes[0].value.defaultModel",
-              "defaultEffort": "changes[0].value.defaultEffort",
-              "machineId": "changes[0].value.machineId",
-              "linearId": "changes[0].value.linearId",
-              "linearIdentifier": "changes[0].value.linearIdentifier",
-              "linearUrl": "changes[0].value.linearUrl",
+              "design": "changes[0].value.design",
+              "acceptance": "changes[0].value.acceptance",
               "activityNotes": "changes[0].value.activityNotes",
               "notesUpdatedAt": "changes[0].value.notesUpdatedAt",
-              "suggestedStage": "backlog",
-              "suggestedReason": "changes[0].value.suggestedReason",
-              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
               "dependencyNote": "changes[0].value.dependencyNote",
-              "prUrl": "changes[0].value.prUrl",
+              "suggestedReason": "changes[0].value.suggestedReason",
+              "description": {
+                "value": "changes[0].value.description.value",
+                "revision": 2,
+                "opsTail": [
+                  {
+                    "unknownFixture": "changes[0].value.description.opsTail[0]"
+                  }
+                ]
+              },
+              "notes": {
+                "value": "changes[0].value.notes.value",
+                "revision": 2,
+                "opsTail": [
+                  {
+                    "unknownFixture": "changes[0].value.notes.opsTail[0]"
+                  }
+                ]
+              },
+              "stage": "backlog",
+              "suggestedStage": "backlog",
+              "closedReason": "changes[0].value.closedReason",
+              "closedAt": "changes[0].value.closedAt",
+              "deferUntil": "changes[0].value.deferUntil",
+              "archived": false,
+              "deletedAt": "changes[0].value.deletedAt",
+              "lastLifecycleActor": {
+                "actor": {
+                  "kind": "agent",
+                  "id": "changes[0].value.lastLifecycleActor.actor.id"
+                },
+                "onBehalfOf": "changes[0].value.lastLifecycleActor.onBehalfOf"
+              },
               "priority": 2,
               "type": "bug",
               "assignee": "changes[0].value.assignee",
-              "parentId": "changes[0].value.parentId",
-              "design": "changes[0].value.design",
-              "acceptance": "changes[0].value.acceptance",
-              "notes": "changes[0].value.notes",
+              "labels": ["changes[0].value.labels[0]"],
+              "estimateMin": 2,
+              "color": "pink",
+              "sortKey": "changes[0].value.sortKey",
               "dueAt": "changes[0].value.dueAt",
-              "deferUntil": "changes[0].value.deferUntil",
-              "closedReason": "changes[0].value.closedReason",
-              "closedAt": "changes[0].value.closedAt",
-              "tuckedAt": "changes[0].value.tuckedAt",
+              "parentId": "changes[0].value.parentId",
               "supersededBy": "changes[0].value.supersededBy",
               "duplicateOf": "changes[0].value.duplicateOf",
-              "pinned": false,
-              "sortKey": "changes[0].value.sortKey",
-              "color": "pink",
-              "estimateMin": 2,
+              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
+              "worktreePath": "changes[0].value.worktreePath",
+              "branch": "changes[0].value.branch",
+              "parentBranch": "changes[0].value.parentBranch",
+              "machineId": "changes[0].value.machineId",
+              "defaultAgent": "changes[0].value.defaultAgent",
+              "defaultModel": "changes[0].value.defaultModel",
+              "defaultEffort": "changes[0].value.defaultEffort",
               "needsHuman": false,
-              "humanQuestion": "changes[0].value.humanQuestion",
-              "humanQuestionOptions": ["changes[0].value.humanQuestionOptions[0]"],
-              "humanQuestionAskedBy": "changes[0].value.humanQuestionAskedBy",
-              "humanQuestionAskedAt": "changes[0].value.humanQuestionAskedAt",
+              "asked": {
+                "question": "changes[0].value.asked.question",
+                "options": ["changes[0].value.asked.options[0]"],
+                "at": "changes[0].value.asked.at",
+                "by": "changes[0].value.asked.by",
+                "attribution": {
+                  "actor": {
+                    "kind": "agent",
+                    "id": "changes[0].value.asked.attribution.actor.id"
+                  },
+                  "onBehalfOf": "changes[0].value.asked.attribution.onBehalfOf"
+                }
+              },
               "panel": {
                 "todos": [
                   {
@@ -309,61 +331,27 @@
                   }
                 ]
               },
-              "labels": ["changes[0].value.labels[0]"],
-              "deps": [
-                {
-                  "id": "changes[0].value.deps[0].id",
-                  "type": "changes[0].value.deps[0].type"
-                }
-              ],
-              "dependents": [
-                {
-                  "id": "changes[0].value.dependents[0].id",
-                  "type": "changes[0].value.dependents[0].type"
-                }
-              ],
-              "comments": [
-                {
-                  "id": "changes[0].value.comments[0].id",
-                  "author": "changes[0].value.comments[0].author",
-                  "body": "changes[0].value.comments[0].body",
-                  "createdAt": "changes[0].value.comments[0].createdAt"
-                }
-              ],
-              "commentCount": 2,
-              "ready": false,
-              "blocked": false,
-              "deferred": false,
-              "childCount": 2,
-              "childDoneCount": 2,
-              "createdAt": "changes[0].value.createdAt",
-              "updatedAt": "changes[0].value.updatedAt",
-              "archived": false,
-              "deletedAt": "changes[0].value.deletedAt",
-              "readAt": "changes[0].value.readAt",
-              "origin": "agent",
+              "intentOrigin": "agent",
               "audience": "agent",
-              "draft": false,
-              "gitState": {
-                "updatedAt": "changes[0].value.gitState.updatedAt",
-                "computing": false,
-                "branch": "changes[0].value.gitState.branch",
-                "shared": false,
-                "ahead": 2,
-                "dirtyFiles": 2,
-                "dirtyOwn": 2,
-                "commits": ["changes[0].value.gitState.commits[0]"],
-                "lastCommitAt": "changes[0].value.gitState.lastCommitAt",
-                "unpushed": 2,
-                "merged": false,
-                "fallback": false
-              },
-              "viaHub": false,
-              "upstreamStale": false,
-              "pendingSync": false,
-              "revision": 2,
+              "isDraftVessel": false,
               "coordinatorSessionId": "changes[0].value.coordinatorSessionId",
-              "startedBySession": "changes[0].value.startedBySession"
+              "startedBySession": "changes[0].value.startedBySession",
+              "createdBy": {
+                "actor": {
+                  "kind": "agent",
+                  "id": "changes[0].value.createdBy.actor.id"
+                },
+                "onBehalfOf": "changes[0].value.createdBy.onBehalfOf"
+              },
+              "linearId": "changes[0].value.linearId",
+              "linearIdentifier": "changes[0].value.linearIdentifier",
+              "linearUrl": "changes[0].value.linearUrl",
+              "prUrl": "changes[0].value.prUrl",
+              "revision": 2,
+              "owner": "changes[0].value.owner",
+              "visibility": "per-user-state",
+              "createdAt": "changes[0].value.createdAt",
+              "updatedAt": "changes[0].value.updatedAt"
             }
           }
         ],
@@ -376,7 +364,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"issue\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"repoPath\":\"changes[0].value.repoPath\",\"repoId\":\"changes[0].value.repoId\",\"prefix\":\"changes[0].value.prefix\",\"displayRef\":\"changes[0].value.displayRef\",\"seq\":2,\"title\":\"changes[0].value.title\",\"description\":\"changes[0].value.description\",\"brief\":\"changes[0].value.brief\",\"stage\":\"backlog\",\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"machineId\":\"changes[0].value.machineId\",\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"suggestedStage\":\"backlog\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"dependencyNote\":\"changes[0].value.dependencyNote\",\"prUrl\":\"changes[0].value.prUrl\",\"priority\":2,\"type\":\"bug\",\"assignee\":\"changes[0].value.assignee\",\"parentId\":\"changes[0].value.parentId\",\"design\":\"changes[0].value.design\",\"acceptance\":\"changes[0].value.acceptance\",\"notes\":\"changes[0].value.notes\",\"dueAt\":\"changes[0].value.dueAt\",\"deferUntil\":\"changes[0].value.deferUntil\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"tuckedAt\":\"changes[0].value.tuckedAt\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"pinned\":false,\"sortKey\":\"changes[0].value.sortKey\",\"color\":\"pink\",\"estimateMin\":2,\"needsHuman\":false,\"humanQuestion\":\"changes[0].value.humanQuestion\",\"humanQuestionOptions\":[\"changes[0].value.humanQuestionOptions[0]\"],\"humanQuestionAskedBy\":\"changes[0].value.humanQuestionAskedBy\",\"humanQuestionAskedAt\":\"changes[0].value.humanQuestionAskedAt\",\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"labels\":[\"changes[0].value.labels[0]\"],\"deps\":[{\"id\":\"changes[0].value.deps[0].id\",\"type\":\"changes[0].value.deps[0].type\"}],\"dependents\":[{\"id\":\"changes[0].value.dependents[0].id\",\"type\":\"changes[0].value.dependents[0].type\"}],\"comments\":[{\"id\":\"changes[0].value.comments[0].id\",\"author\":\"changes[0].value.comments[0].author\",\"body\":\"changes[0].value.comments[0].body\",\"createdAt\":\"changes[0].value.comments[0].createdAt\"}],\"commentCount\":2,\"ready\":false,\"blocked\":false,\"deferred\":false,\"childCount\":2,\"childDoneCount\":2,\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"archived\":false,\"deletedAt\":\"changes[0].value.deletedAt\",\"readAt\":\"changes[0].value.readAt\",\"origin\":\"agent\",\"audience\":\"agent\",\"draft\":false,\"gitState\":{\"updatedAt\":\"changes[0].value.gitState.updatedAt\",\"computing\":false,\"branch\":\"changes[0].value.gitState.branch\",\"shared\":false,\"ahead\":2,\"dirtyFiles\":2,\"dirtyOwn\":2,\"commits\":[\"changes[0].value.gitState.commits[0]\"],\"lastCommitAt\":\"changes[0].value.gitState.lastCommitAt\",\"unpushed\":2,\"merged\":false,\"fallback\":false},\"viaHub\":false,\"upstreamStale\":false,\"pendingSync\":false,\"revision\":2,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\"}}],\"last\":false,\"totalRows\":2,\"countsByEntity\":{\"countsByEntity.key\":2}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":2,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"design\":\"changes[0].value.design\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"notes\":{\"value\":\"changes[0].value.notes.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.notes.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":false,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"bug\",\"assignee\":\"changes[0].value.assignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":2,\"color\":\"pink\",\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":2,\"owner\":\"changes[0].value.owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"}}],\"last\":false,\"totalRows\":2,\"countsByEntity\":{\"countsByEntity.key\":2}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -391,140 +379,14 @@
         "changes": [
           {
             "seq": 3,
-            "entity": "issueProjection",
+            "entity": "issueDep",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
-              "repoId": "changes[0].value.repoId",
-              "seq": 3,
-              "title": "changes[0].value.title",
-              "brief": "changes[0].value.brief",
-              "design": "changes[0].value.design",
-              "acceptance": "changes[0].value.acceptance",
-              "activityNotes": "changes[0].value.activityNotes",
-              "notesUpdatedAt": "changes[0].value.notesUpdatedAt",
-              "dependencyNote": "changes[0].value.dependencyNote",
-              "suggestedReason": "changes[0].value.suggestedReason",
-              "description": {
-                "value": "changes[0].value.description.value",
-                "revision": 3,
-                "opsTail": [
-                  {
-                    "unknownFixture": "changes[0].value.description.opsTail[0]"
-                  }
-                ]
-              },
-              "notes": {
-                "value": "changes[0].value.notes.value",
-                "revision": 3,
-                "opsTail": [
-                  {
-                    "unknownFixture": "changes[0].value.notes.opsTail[0]"
-                  }
-                ]
-              },
-              "stage": "planning",
-              "suggestedStage": "planning",
-              "closedReason": "changes[0].value.closedReason",
-              "closedAt": "changes[0].value.closedAt",
-              "deferUntil": "changes[0].value.deferUntil",
-              "archived": true,
-              "deletedAt": "changes[0].value.deletedAt",
-              "lastLifecycleActor": {
-                "actor": {
-                  "kind": "machine",
-                  "id": "changes[0].value.lastLifecycleActor.actor.id"
-                },
-                "onBehalfOf": "changes[0].value.lastLifecycleActor.onBehalfOf"
-              },
-              "priority": 3,
-              "type": "feature",
-              "assignee": "changes[0].value.assignee",
-              "labels": ["changes[0].value.labels[0]"],
-              "estimateMin": 3,
-              "color": "fuchsia",
-              "sortKey": "changes[0].value.sortKey",
-              "dueAt": "changes[0].value.dueAt",
-              "parentId": "changes[0].value.parentId",
-              "supersededBy": "changes[0].value.supersededBy",
-              "duplicateOf": "changes[0].value.duplicateOf",
-              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
-              "worktreePath": "changes[0].value.worktreePath",
-              "branch": "changes[0].value.branch",
-              "parentBranch": "changes[0].value.parentBranch",
-              "machineId": "changes[0].value.machineId",
-              "defaultAgent": "changes[0].value.defaultAgent",
-              "defaultModel": "changes[0].value.defaultModel",
-              "defaultEffort": "changes[0].value.defaultEffort",
-              "needsHuman": true,
-              "asked": {
-                "question": "changes[0].value.asked.question",
-                "options": ["changes[0].value.asked.options[0]"],
-                "at": "changes[0].value.asked.at",
-                "by": "changes[0].value.asked.by",
-                "attribution": {
-                  "actor": {
-                    "kind": "machine",
-                    "id": "changes[0].value.asked.attribution.actor.id"
-                  },
-                  "onBehalfOf": "changes[0].value.asked.attribution.onBehalfOf"
-                }
-              },
-              "panel": {
-                "todos": [
-                  {
-                    "text": "changes[0].value.panel.todos[0].text",
-                    "done": true
-                  }
-                ],
-                "artifacts": [
-                  {
-                    "path": "changes[0].value.panel.artifacts[0].path",
-                    "title": "changes[0].value.panel.artifacts[0].title",
-                    "addedAt": "changes[0].value.panel.artifacts[0].addedAt",
-                    "sourceKind": "terminal-evidence",
-                    "artifactId": "changes[0].value.panel.artifacts[0].artifactId",
-                    "entry": "changes[0].value.panel.artifacts[0].entry",
-                    "files": [
-                      {
-                        "path": "changes[0].value.panel.artifacts[0].files[0].path",
-                        "size": 3
-                      }
-                    ],
-                    "sourcePaths": ["changes[0].value.panel.artifacts[0].sourcePaths[0]"],
-                    "tracking": "unknown",
-                    "untrackedPaths": ["changes[0].value.panel.artifacts[0].untrackedPaths[0]"]
-                  }
-                ],
-                "deferred": [
-                  {
-                    "text": "changes[0].value.panel.deferred[0].text",
-                    "addedAt": "changes[0].value.panel.deferred[0].addedAt"
-                  }
-                ]
-              },
-              "intentOrigin": "agent",
-              "audience": "agent",
-              "isDraftVessel": true,
-              "coordinatorSessionId": "changes[0].value.coordinatorSessionId",
-              "startedBySession": "changes[0].value.startedBySession",
-              "createdBy": {
-                "actor": {
-                  "kind": "machine",
-                  "id": "changes[0].value.createdBy.actor.id"
-                },
-                "onBehalfOf": "changes[0].value.createdBy.onBehalfOf"
-              },
-              "linearId": "changes[0].value.linearId",
-              "linearIdentifier": "changes[0].value.linearIdentifier",
-              "linearUrl": "changes[0].value.linearUrl",
-              "prUrl": "changes[0].value.prUrl",
-              "revision": 3,
-              "owner": "changes[0].value.owner",
-              "visibility": "owned-compute",
-              "createdAt": "changes[0].value.createdAt",
-              "updatedAt": "changes[0].value.updatedAt"
+              "fromId": "changes[0].value.fromId",
+              "toId": "changes[0].value.toId",
+              "type": "changes[0].value.type"
             }
           }
         ],
@@ -537,7 +399,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":3,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"design\":\"changes[0].value.design\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"notes\":{\"value\":\"changes[0].value.notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":true,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"assignee\":\"changes[0].value.assignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":3}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":3,\"owner\":\"changes[0].value.owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"}}],\"last\":true,\"totalRows\":3,\"countsByEntity\":{\"countsByEntity.key\":3}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"}}],\"last\":true,\"totalRows\":3,\"countsByEntity\":{\"countsByEntity.key\":3}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -552,14 +414,13 @@
         "changes": [
           {
             "seq": 4,
-            "entity": "issueDep",
+            "entity": "repo",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
-              "fromId": "changes[0].value.fromId",
-              "toId": "changes[0].value.toId",
-              "type": "changes[0].value.type"
+              "prefix": "changes[0].value.prefix",
+              "repoPath": "changes[0].value.repoPath"
             }
           }
         ],
@@ -572,7 +433,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"}}],\"last\":false,\"totalRows\":4,\"countsByEntity\":{\"countsByEntity.key\":4}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"repoPath\":\"changes[0].value.repoPath\"}}],\"last\":false,\"totalRows\":4,\"countsByEntity\":{\"countsByEntity.key\":4}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -587,13 +448,40 @@
         "changes": [
           {
             "seq": 5,
-            "entity": "repo",
+            "entity": "shipOrder",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
-              "prefix": "changes[0].value.prefix",
-              "repoPath": "changes[0].value.repoPath"
+              "issueId": "changes[0].value.issueId",
+              "repoId": "changes[0].value.repoId",
+              "targetBranch": "changes[0].value.targetBranch",
+              "destination": "changes[0].value.destination",
+              "state": "repairing",
+              "humanState": "shipped",
+              "activity": "repairing",
+              "queuedAt": "changes[0].value.queuedAt",
+              "stateChangedAt": "changes[0].value.stateChangedAt",
+              "queueRank": 5,
+              "train": {
+                "id": "changes[0].value.train.id",
+                "index": 5,
+                "size": 5
+              },
+              "waitEstimate": {
+                "lowerBoundMs": 5,
+                "upperBoundMs": 5,
+                "sampleSize": 5,
+                "basis": "lane-history"
+              },
+              "hold": {
+                "id": "changes[0].value.hold.id",
+                "generation": 5,
+                "reasonCode": "policy:fixture-hold",
+                "headline": "changes[0].value.hold.headline",
+                "actions": ["policy:fixture-action"]
+              },
+              "receiptId": "changes[0].value.receiptId"
             }
           }
         ],
@@ -606,7 +494,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"repoPath\":\"changes[0].value.repoPath\"}}],\"last\":true,\"totalRows\":5,\"countsByEntity\":{\"countsByEntity.key\":5}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"repairing\",\"humanState\":\"shipped\",\"activity\":\"repairing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":5,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":5,\"size\":5},\"waitEstimate\":{\"lowerBoundMs\":5,\"upperBoundMs\":5,\"sampleSize\":5,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":5,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}],\"last\":true,\"totalRows\":5,\"countsByEntity\":{\"countsByEntity.key\":5}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -621,40 +509,19 @@
         "changes": [
           {
             "seq": 6,
-            "entity": "shipOrder",
+            "entity": "shipLane",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
-              "issueId": "changes[0].value.issueId",
               "repoId": "changes[0].value.repoId",
-              "targetBranch": "changes[0].value.targetBranch",
               "destination": "changes[0].value.destination",
-              "state": "landing",
-              "humanState": "shipped",
-              "activity": "landing",
-              "queuedAt": "changes[0].value.queuedAt",
-              "stateChangedAt": "changes[0].value.stateChangedAt",
-              "queueRank": 6,
-              "train": {
-                "id": "changes[0].value.train.id",
-                "index": 6,
-                "size": 6
-              },
-              "waitEstimate": {
-                "lowerBoundMs": 6,
-                "upperBoundMs": 6,
-                "sampleSize": 6,
-                "basis": "lane-history"
-              },
-              "hold": {
-                "id": "changes[0].value.hold.id",
-                "generation": 6,
-                "reasonCode": "policy:fixture-hold",
-                "headline": "changes[0].value.hold.headline",
-                "actions": ["policy:fixture-action"]
-              },
-              "receiptId": "changes[0].value.receiptId"
+              "trains": [
+                {
+                  "orderIds": ["changes[0].value.trains[0].orderIds[0]"]
+                }
+              ],
+              "blockedOrderIds": ["changes[0].value.blockedOrderIds[0]"]
             }
           }
         ],
@@ -667,7 +534,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"landing\",\"humanState\":\"shipped\",\"activity\":\"landing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":6,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":6,\"size\":6},\"waitEstimate\":{\"lowerBoundMs\":6,\"upperBoundMs\":6,\"sampleSize\":6,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":6,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}],\"last\":false,\"totalRows\":6,\"countsByEntity\":{\"countsByEntity.key\":6}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipLane\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"destination\":\"changes[0].value.destination\",\"trains\":[{\"orderIds\":[\"changes[0].value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"changes[0].value.blockedOrderIds[0]\"]}}],\"last\":false,\"totalRows\":6,\"countsByEntity\":{\"countsByEntity.key\":6}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -888,12 +755,9 @@
                 "stateConfidence": 1,
                 "stateObservedAt": "changes[0].value.agentState.stateObservedAt"
               },
-              "condition": "logged-out",
               "archived": true,
-              "readAt": "changes[0].value.readAt",
               "stoppedAt": "changes[0].value.stoppedAt",
               "stopReason": "self",
-              "unread": true,
               "workState": "planning",
               "resumable": true,
               "resume": {
@@ -912,8 +776,6 @@
               "requestedEffort": "changes[0].value.requestedEffort",
               "contextUsagePercent": 1,
               "machineId": "changes[0].value.machineId",
-              "machineName": "changes[0].value.machineName",
-              "snoozedUntil": "changes[0].value.snoozedUntil",
               "draftUpdatedAt": "changes[0].value.draftUpdatedAt",
               "draftSyncEngine": true,
               "driverId": "changes[0].value.driverId",
@@ -934,7 +796,7 @@
                 "artifacts": ["changes[0].value.offer.artifacts[0]"],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
-              "handoffTarget": "changes[0].value.handoffTarget",
+              "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
               "conversationPodiumId": "changes[0].value.conversationPodiumId",
               "spawnedBy": "changes[0].value.spawnedBy",
               "workflowRunId": "changes[0].value.workflowRunId",
@@ -944,7 +806,8 @@
               "refIssueId": "changes[0].value.refIssueId",
               "refLetter": "changes[0].value.refLetter",
               "refDraft": 1,
-              "displayRef": "changes[0].value.displayRef",
+              "refRepoId": "changes[0].value.refRepoId",
+              "refSeq": 1,
               "headless": true,
               "delegation": {
                 "actor": "changes[0].value.delegation.actor",
@@ -976,7 +839,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"changes[0].value.readAt\",\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"machineName\":\"changes[0].value.machineName\",\"snoozedUntil\":\"changes[0].value.snoozedUntil\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTarget\":\"changes[0].value.handoffTarget\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"executionProfileId\":\"changes[0].value.executionProfileId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"displayRef\":\"changes[0].value.displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}],\"last\":true,\"totalRows\":1,\"countsByEntity\":{\"countsByEntity.key\":1}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"executionProfileId\":\"changes[0].value.executionProfileId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}],\"last\":true,\"totalRows\":1,\"countsByEntity\":{\"countsByEntity.key\":1}}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -1307,12 +1170,9 @@
             "stateConfidence": 1,
             "stateObservedAt": "value.agentState.stateObservedAt"
           },
-          "condition": "logged-out",
           "archived": true,
-          "readAt": "value.readAt",
           "stoppedAt": "value.stoppedAt",
           "stopReason": "self",
-          "unread": true,
           "workState": "planning",
           "resumable": true,
           "resume": {
@@ -1331,8 +1191,6 @@
           "requestedEffort": "value.requestedEffort",
           "contextUsagePercent": 1,
           "machineId": "value.machineId",
-          "machineName": "value.machineName",
-          "snoozedUntil": "value.snoozedUntil",
           "draftUpdatedAt": "value.draftUpdatedAt",
           "draftSyncEngine": true,
           "driverId": "value.driverId",
@@ -1353,7 +1211,7 @@
             "artifacts": ["value.offer.artifacts[0]"],
             "createdAt": "value.offer.createdAt"
           },
-          "handoffTarget": "value.handoffTarget",
+          "handoffTargetMachineId": "value.handoffTargetMachineId",
           "conversationPodiumId": "value.conversationPodiumId",
           "spawnedBy": "value.spawnedBy",
           "workflowRunId": "value.workflowRunId",
@@ -1363,7 +1221,8 @@
           "refIssueId": "value.refIssueId",
           "refLetter": "value.refLetter",
           "refDraft": 1,
-          "displayRef": "value.displayRef",
+          "refRepoId": "value.refRepoId",
+          "refSeq": 1,
           "headless": true,
           "delegation": {
             "actor": "value.delegation.actor",
@@ -1388,67 +1247,93 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":1,\"entity\":\"session\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"value.title\",\"name\":\"value.name\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"accountId\":\"value.accountId\",\"nameSource\":\"user\",\"cwd\":\"value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"value.spawnFailure\",\"controllerId\":\"value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"value.createdAt\",\"lastActiveAt\":\"value.lastActiveAt\",\"lastInputAt\":\"value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"value.agentState.nativeSubagents[0].id\",\"type\":\"value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.need.summary\",\"ask\":{\"toolName\":\"value.agentState.need.ask.toolName\",\"detail\":\"value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.need.interview.questions[0].question\",\"header\":\"value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.error.class\",\"retryable\":true,\"detail\":\"value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"value.agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"value.readAt\",\"stoppedAt\":\"value.stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"value.agentColor\",\"observedModel\":\"value.observedModel\",\"observedEffort\":\"value.observedEffort\",\"requestedModel\":\"value.requestedModel\",\"requestedEffort\":\"value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"value.machineId\",\"machineName\":\"value.machineName\",\"snoozedUntil\":\"value.snoozedUntil\",\"draftUpdatedAt\":\"value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"value.driverId\",\"requestedDriverId\":\"value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"value.offer.message\",\"actions\":[{\"label\":\"value.offer.actions[0].label\",\"prompt\":\"value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"value.offer.artifacts[0]\"],\"createdAt\":\"value.offer.createdAt\"},\"handoffTarget\":\"value.handoffTarget\",\"conversationPodiumId\":\"value.conversationPodiumId\",\"spawnedBy\":\"value.spawnedBy\",\"workflowRunId\":\"value.workflowRunId\",\"workflowStepId\":\"value.workflowStepId\",\"executionProfileId\":\"value.executionProfileId\",\"issueId\":\"value.issueId\",\"refIssueId\":\"value.refIssueId\",\"refLetter\":\"value.refLetter\",\"refDraft\":1,\"displayRef\":\"value.displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"value.delegation.actor\",\"onBehalfOf\":\"value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}"
+      "encoded": "{\"seq\":1,\"entity\":\"session\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"value.title\",\"name\":\"value.name\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"accountId\":\"value.accountId\",\"nameSource\":\"user\",\"cwd\":\"value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"value.spawnFailure\",\"controllerId\":\"value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"value.createdAt\",\"lastActiveAt\":\"value.lastActiveAt\",\"lastInputAt\":\"value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"value.agentState.nativeSubagents[0].id\",\"type\":\"value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.need.summary\",\"ask\":{\"toolName\":\"value.agentState.need.ask.toolName\",\"detail\":\"value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.need.interview.questions[0].question\",\"header\":\"value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.error.class\",\"retryable\":true,\"detail\":\"value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"value.agentColor\",\"observedModel\":\"value.observedModel\",\"observedEffort\":\"value.observedEffort\",\"requestedModel\":\"value.requestedModel\",\"requestedEffort\":\"value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"value.machineId\",\"draftUpdatedAt\":\"value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"value.driverId\",\"requestedDriverId\":\"value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"value.offer.message\",\"actions\":[{\"label\":\"value.offer.actions[0].label\",\"prompt\":\"value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"value.offer.artifacts[0]\"],\"createdAt\":\"value.offer.createdAt\"},\"handoffTargetMachineId\":\"value.handoffTargetMachineId\",\"conversationPodiumId\":\"value.conversationPodiumId\",\"spawnedBy\":\"value.spawnedBy\",\"workflowRunId\":\"value.workflowRunId\",\"workflowStepId\":\"value.workflowStepId\",\"executionProfileId\":\"value.executionProfileId\",\"issueId\":\"value.issueId\",\"refIssueId\":\"value.refIssueId\",\"refLetter\":\"value.refLetter\",\"refDraft\":1,\"refRepoId\":\"value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"value.delegation.actor\",\"onBehalfOf\":\"value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}"
     },
     {
       "schema": "FeedChange",
       "variant": "full/arm1",
       "wire": {
         "seq": 2,
-        "entity": "issue",
+        "entity": "issueProjection",
         "entityId": "entityId",
         "op": "remove",
         "value": {
           "id": "value.id",
-          "repoPath": "value.repoPath",
           "repoId": "value.repoId",
-          "prefix": "value.prefix",
-          "displayRef": "value.displayRef",
           "seq": 2,
           "title": "value.title",
-          "description": "value.description",
           "brief": "value.brief",
-          "stage": "backlog",
-          "worktreePath": "value.worktreePath",
-          "branch": "value.branch",
-          "parentBranch": "value.parentBranch",
-          "defaultAgent": "value.defaultAgent",
-          "defaultModel": "value.defaultModel",
-          "defaultEffort": "value.defaultEffort",
-          "machineId": "value.machineId",
-          "linearId": "value.linearId",
-          "linearIdentifier": "value.linearIdentifier",
-          "linearUrl": "value.linearUrl",
+          "design": "value.design",
+          "acceptance": "value.acceptance",
           "activityNotes": "value.activityNotes",
           "notesUpdatedAt": "value.notesUpdatedAt",
-          "suggestedStage": "backlog",
-          "suggestedReason": "value.suggestedReason",
-          "blockedByNotes": ["value.blockedByNotes[0]"],
           "dependencyNote": "value.dependencyNote",
-          "prUrl": "value.prUrl",
+          "suggestedReason": "value.suggestedReason",
+          "description": {
+            "value": "value.description.value",
+            "revision": 2,
+            "opsTail": [
+              {
+                "unknownFixture": "value.description.opsTail[0]"
+              }
+            ]
+          },
+          "notes": {
+            "value": "value.notes.value",
+            "revision": 2,
+            "opsTail": [
+              {
+                "unknownFixture": "value.notes.opsTail[0]"
+              }
+            ]
+          },
+          "stage": "backlog",
+          "suggestedStage": "backlog",
+          "closedReason": "value.closedReason",
+          "closedAt": "value.closedAt",
+          "deferUntil": "value.deferUntil",
+          "archived": false,
+          "deletedAt": "value.deletedAt",
+          "lastLifecycleActor": {
+            "actor": {
+              "kind": "agent",
+              "id": "value.lastLifecycleActor.actor.id"
+            },
+            "onBehalfOf": "value.lastLifecycleActor.onBehalfOf"
+          },
           "priority": 2,
           "type": "bug",
           "assignee": "value.assignee",
-          "parentId": "value.parentId",
-          "design": "value.design",
-          "acceptance": "value.acceptance",
-          "notes": "value.notes",
+          "labels": ["value.labels[0]"],
+          "estimateMin": 2,
+          "color": "pink",
+          "sortKey": "value.sortKey",
           "dueAt": "value.dueAt",
-          "deferUntil": "value.deferUntil",
-          "closedReason": "value.closedReason",
-          "closedAt": "value.closedAt",
-          "tuckedAt": "value.tuckedAt",
+          "parentId": "value.parentId",
           "supersededBy": "value.supersededBy",
           "duplicateOf": "value.duplicateOf",
-          "pinned": false,
-          "sortKey": "value.sortKey",
-          "color": "pink",
-          "estimateMin": 2,
+          "blockedByNotes": ["value.blockedByNotes[0]"],
+          "worktreePath": "value.worktreePath",
+          "branch": "value.branch",
+          "parentBranch": "value.parentBranch",
+          "machineId": "value.machineId",
+          "defaultAgent": "value.defaultAgent",
+          "defaultModel": "value.defaultModel",
+          "defaultEffort": "value.defaultEffort",
           "needsHuman": false,
-          "humanQuestion": "value.humanQuestion",
-          "humanQuestionOptions": ["value.humanQuestionOptions[0]"],
-          "humanQuestionAskedBy": "value.humanQuestionAskedBy",
-          "humanQuestionAskedAt": "value.humanQuestionAskedAt",
+          "asked": {
+            "question": "value.asked.question",
+            "options": ["value.asked.options[0]"],
+            "at": "value.asked.at",
+            "by": "value.asked.by",
+            "attribution": {
+              "actor": {
+                "kind": "agent",
+                "id": "value.asked.attribution.actor.id"
+              },
+              "onBehalfOf": "value.asked.attribution.onBehalfOf"
+            }
+          },
           "panel": {
             "todos": [
               {
@@ -1482,194 +1367,14 @@
               }
             ]
           },
-          "labels": ["value.labels[0]"],
-          "deps": [
-            {
-              "id": "value.deps[0].id",
-              "type": "value.deps[0].type"
-            }
-          ],
-          "dependents": [
-            {
-              "id": "value.dependents[0].id",
-              "type": "value.dependents[0].type"
-            }
-          ],
-          "comments": [
-            {
-              "id": "value.comments[0].id",
-              "author": "value.comments[0].author",
-              "body": "value.comments[0].body",
-              "createdAt": "value.comments[0].createdAt"
-            }
-          ],
-          "commentCount": 2,
-          "ready": false,
-          "blocked": false,
-          "deferred": false,
-          "childCount": 2,
-          "childDoneCount": 2,
-          "createdAt": "value.createdAt",
-          "updatedAt": "value.updatedAt",
-          "archived": false,
-          "deletedAt": "value.deletedAt",
-          "readAt": "value.readAt",
-          "origin": "agent",
-          "audience": "agent",
-          "draft": false,
-          "gitState": {
-            "updatedAt": "value.gitState.updatedAt",
-            "computing": false,
-            "branch": "value.gitState.branch",
-            "shared": false,
-            "ahead": 2,
-            "dirtyFiles": 2,
-            "dirtyOwn": 2,
-            "commits": ["value.gitState.commits[0]"],
-            "lastCommitAt": "value.gitState.lastCommitAt",
-            "unpushed": 2,
-            "merged": false,
-            "fallback": false
-          },
-          "viaHub": false,
-          "upstreamStale": false,
-          "pendingSync": false,
-          "revision": 2,
-          "coordinatorSessionId": "value.coordinatorSessionId",
-          "startedBySession": "value.startedBySession"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"seq\":2,\"entity\":\"issue\",\"entityId\":\"entityId\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"repoPath\":\"value.repoPath\",\"repoId\":\"value.repoId\",\"prefix\":\"value.prefix\",\"displayRef\":\"value.displayRef\",\"seq\":2,\"title\":\"value.title\",\"description\":\"value.description\",\"brief\":\"value.brief\",\"stage\":\"backlog\",\"worktreePath\":\"value.worktreePath\",\"branch\":\"value.branch\",\"parentBranch\":\"value.parentBranch\",\"defaultAgent\":\"value.defaultAgent\",\"defaultModel\":\"value.defaultModel\",\"defaultEffort\":\"value.defaultEffort\",\"machineId\":\"value.machineId\",\"linearId\":\"value.linearId\",\"linearIdentifier\":\"value.linearIdentifier\",\"linearUrl\":\"value.linearUrl\",\"activityNotes\":\"value.activityNotes\",\"notesUpdatedAt\":\"value.notesUpdatedAt\",\"suggestedStage\":\"backlog\",\"suggestedReason\":\"value.suggestedReason\",\"blockedByNotes\":[\"value.blockedByNotes[0]\"],\"dependencyNote\":\"value.dependencyNote\",\"prUrl\":\"value.prUrl\",\"priority\":2,\"type\":\"bug\",\"assignee\":\"value.assignee\",\"parentId\":\"value.parentId\",\"design\":\"value.design\",\"acceptance\":\"value.acceptance\",\"notes\":\"value.notes\",\"dueAt\":\"value.dueAt\",\"deferUntil\":\"value.deferUntil\",\"closedReason\":\"value.closedReason\",\"closedAt\":\"value.closedAt\",\"tuckedAt\":\"value.tuckedAt\",\"supersededBy\":\"value.supersededBy\",\"duplicateOf\":\"value.duplicateOf\",\"pinned\":false,\"sortKey\":\"value.sortKey\",\"color\":\"pink\",\"estimateMin\":2,\"needsHuman\":false,\"humanQuestion\":\"value.humanQuestion\",\"humanQuestionOptions\":[\"value.humanQuestionOptions[0]\"],\"humanQuestionAskedBy\":\"value.humanQuestionAskedBy\",\"humanQuestionAskedAt\":\"value.humanQuestionAskedAt\",\"panel\":{\"todos\":[{\"text\":\"value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"value.panel.artifacts[0].path\",\"title\":\"value.panel.artifacts[0].title\",\"addedAt\":\"value.panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"value.panel.artifacts[0].artifactId\",\"entry\":\"value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"value.panel.deferred[0].text\",\"addedAt\":\"value.panel.deferred[0].addedAt\"}]},\"labels\":[\"value.labels[0]\"],\"deps\":[{\"id\":\"value.deps[0].id\",\"type\":\"value.deps[0].type\"}],\"dependents\":[{\"id\":\"value.dependents[0].id\",\"type\":\"value.dependents[0].type\"}],\"comments\":[{\"id\":\"value.comments[0].id\",\"author\":\"value.comments[0].author\",\"body\":\"value.comments[0].body\",\"createdAt\":\"value.comments[0].createdAt\"}],\"commentCount\":2,\"ready\":false,\"blocked\":false,\"deferred\":false,\"childCount\":2,\"childDoneCount\":2,\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"archived\":false,\"deletedAt\":\"value.deletedAt\",\"readAt\":\"value.readAt\",\"origin\":\"agent\",\"audience\":\"agent\",\"draft\":false,\"gitState\":{\"updatedAt\":\"value.gitState.updatedAt\",\"computing\":false,\"branch\":\"value.gitState.branch\",\"shared\":false,\"ahead\":2,\"dirtyFiles\":2,\"dirtyOwn\":2,\"commits\":[\"value.gitState.commits[0]\"],\"lastCommitAt\":\"value.gitState.lastCommitAt\",\"unpushed\":2,\"merged\":false,\"fallback\":false},\"viaHub\":false,\"upstreamStale\":false,\"pendingSync\":false,\"revision\":2,\"coordinatorSessionId\":\"value.coordinatorSessionId\",\"startedBySession\":\"value.startedBySession\"}}"
-    },
-    {
-      "schema": "FeedChange",
-      "variant": "full/arm2",
-      "wire": {
-        "seq": 3,
-        "entity": "issueProjection",
-        "entityId": "entityId",
-        "op": "evict",
-        "value": {
-          "id": "value.id",
-          "repoId": "value.repoId",
-          "seq": 3,
-          "title": "value.title",
-          "brief": "value.brief",
-          "design": "value.design",
-          "acceptance": "value.acceptance",
-          "activityNotes": "value.activityNotes",
-          "notesUpdatedAt": "value.notesUpdatedAt",
-          "dependencyNote": "value.dependencyNote",
-          "suggestedReason": "value.suggestedReason",
-          "description": {
-            "value": "value.description.value",
-            "revision": 3,
-            "opsTail": [
-              {
-                "unknownFixture": "value.description.opsTail[0]"
-              }
-            ]
-          },
-          "notes": {
-            "value": "value.notes.value",
-            "revision": 3,
-            "opsTail": [
-              {
-                "unknownFixture": "value.notes.opsTail[0]"
-              }
-            ]
-          },
-          "stage": "planning",
-          "suggestedStage": "planning",
-          "closedReason": "value.closedReason",
-          "closedAt": "value.closedAt",
-          "deferUntil": "value.deferUntil",
-          "archived": true,
-          "deletedAt": "value.deletedAt",
-          "lastLifecycleActor": {
-            "actor": {
-              "kind": "machine",
-              "id": "value.lastLifecycleActor.actor.id"
-            },
-            "onBehalfOf": "value.lastLifecycleActor.onBehalfOf"
-          },
-          "priority": 3,
-          "type": "feature",
-          "assignee": "value.assignee",
-          "labels": ["value.labels[0]"],
-          "estimateMin": 3,
-          "color": "fuchsia",
-          "sortKey": "value.sortKey",
-          "dueAt": "value.dueAt",
-          "parentId": "value.parentId",
-          "supersededBy": "value.supersededBy",
-          "duplicateOf": "value.duplicateOf",
-          "blockedByNotes": ["value.blockedByNotes[0]"],
-          "worktreePath": "value.worktreePath",
-          "branch": "value.branch",
-          "parentBranch": "value.parentBranch",
-          "machineId": "value.machineId",
-          "defaultAgent": "value.defaultAgent",
-          "defaultModel": "value.defaultModel",
-          "defaultEffort": "value.defaultEffort",
-          "needsHuman": true,
-          "asked": {
-            "question": "value.asked.question",
-            "options": ["value.asked.options[0]"],
-            "at": "value.asked.at",
-            "by": "value.asked.by",
-            "attribution": {
-              "actor": {
-                "kind": "machine",
-                "id": "value.asked.attribution.actor.id"
-              },
-              "onBehalfOf": "value.asked.attribution.onBehalfOf"
-            }
-          },
-          "panel": {
-            "todos": [
-              {
-                "text": "value.panel.todos[0].text",
-                "done": true
-              }
-            ],
-            "artifacts": [
-              {
-                "path": "value.panel.artifacts[0].path",
-                "title": "value.panel.artifacts[0].title",
-                "addedAt": "value.panel.artifacts[0].addedAt",
-                "sourceKind": "terminal-evidence",
-                "artifactId": "value.panel.artifacts[0].artifactId",
-                "entry": "value.panel.artifacts[0].entry",
-                "files": [
-                  {
-                    "path": "value.panel.artifacts[0].files[0].path",
-                    "size": 3
-                  }
-                ],
-                "sourcePaths": ["value.panel.artifacts[0].sourcePaths[0]"],
-                "tracking": "unknown",
-                "untrackedPaths": ["value.panel.artifacts[0].untrackedPaths[0]"]
-              }
-            ],
-            "deferred": [
-              {
-                "text": "value.panel.deferred[0].text",
-                "addedAt": "value.panel.deferred[0].addedAt"
-              }
-            ]
-          },
           "intentOrigin": "agent",
           "audience": "agent",
-          "isDraftVessel": true,
+          "isDraftVessel": false,
           "coordinatorSessionId": "value.coordinatorSessionId",
           "startedBySession": "value.startedBySession",
           "createdBy": {
             "actor": {
-              "kind": "machine",
+              "kind": "agent",
               "id": "value.createdBy.actor.id"
             },
             "onBehalfOf": "value.createdBy.onBehalfOf"
@@ -1678,9 +1383,9 @@
           "linearIdentifier": "value.linearIdentifier",
           "linearUrl": "value.linearUrl",
           "prUrl": "value.prUrl",
-          "revision": 3,
+          "revision": 2,
           "owner": "value.owner",
-          "visibility": "owned-compute",
+          "visibility": "per-user-state",
           "createdAt": "value.createdAt",
           "updatedAt": "value.updatedAt"
         }
@@ -1688,13 +1393,13 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":3,\"entity\":\"issueProjection\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"repoId\":\"value.repoId\",\"seq\":3,\"title\":\"value.title\",\"brief\":\"value.brief\",\"design\":\"value.design\",\"acceptance\":\"value.acceptance\",\"activityNotes\":\"value.activityNotes\",\"notesUpdatedAt\":\"value.notesUpdatedAt\",\"dependencyNote\":\"value.dependencyNote\",\"suggestedReason\":\"value.suggestedReason\",\"description\":{\"value\":\"value.description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"value.description.opsTail[0]\"}]},\"notes\":{\"value\":\"value.notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"value.notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"value.closedReason\",\"closedAt\":\"value.closedAt\",\"deferUntil\":\"value.deferUntil\",\"archived\":true,\"deletedAt\":\"value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"value.lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"assignee\":\"value.assignee\",\"labels\":[\"value.labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"value.sortKey\",\"dueAt\":\"value.dueAt\",\"parentId\":\"value.parentId\",\"supersededBy\":\"value.supersededBy\",\"duplicateOf\":\"value.duplicateOf\",\"blockedByNotes\":[\"value.blockedByNotes[0]\"],\"worktreePath\":\"value.worktreePath\",\"branch\":\"value.branch\",\"parentBranch\":\"value.parentBranch\",\"machineId\":\"value.machineId\",\"defaultAgent\":\"value.defaultAgent\",\"defaultModel\":\"value.defaultModel\",\"defaultEffort\":\"value.defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"value.asked.question\",\"options\":[\"value.asked.options[0]\"],\"at\":\"value.asked.at\",\"by\":\"value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"value.asked.attribution.actor.id\"},\"onBehalfOf\":\"value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"value.panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"value.panel.artifacts[0].path\",\"title\":\"value.panel.artifacts[0].title\",\"addedAt\":\"value.panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"value.panel.artifacts[0].artifactId\",\"entry\":\"value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"value.panel.artifacts[0].files[0].path\",\"size\":3}],\"sourcePaths\":[\"value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"value.panel.deferred[0].text\",\"addedAt\":\"value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"value.coordinatorSessionId\",\"startedBySession\":\"value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"linearId\":\"value.linearId\",\"linearIdentifier\":\"value.linearIdentifier\",\"linearUrl\":\"value.linearUrl\",\"prUrl\":\"value.prUrl\",\"revision\":3,\"owner\":\"value.owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\"}}"
+      "encoded": "{\"seq\":2,\"entity\":\"issueProjection\",\"entityId\":\"entityId\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"repoId\":\"value.repoId\",\"seq\":2,\"title\":\"value.title\",\"brief\":\"value.brief\",\"design\":\"value.design\",\"acceptance\":\"value.acceptance\",\"activityNotes\":\"value.activityNotes\",\"notesUpdatedAt\":\"value.notesUpdatedAt\",\"dependencyNote\":\"value.dependencyNote\",\"suggestedReason\":\"value.suggestedReason\",\"description\":{\"value\":\"value.description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"value.description.opsTail[0]\"}]},\"notes\":{\"value\":\"value.notes.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"value.notes.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"value.closedReason\",\"closedAt\":\"value.closedAt\",\"deferUntil\":\"value.deferUntil\",\"archived\":false,\"deletedAt\":\"value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"value.lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"bug\",\"assignee\":\"value.assignee\",\"labels\":[\"value.labels[0]\"],\"estimateMin\":2,\"color\":\"pink\",\"sortKey\":\"value.sortKey\",\"dueAt\":\"value.dueAt\",\"parentId\":\"value.parentId\",\"supersededBy\":\"value.supersededBy\",\"duplicateOf\":\"value.duplicateOf\",\"blockedByNotes\":[\"value.blockedByNotes[0]\"],\"worktreePath\":\"value.worktreePath\",\"branch\":\"value.branch\",\"parentBranch\":\"value.parentBranch\",\"machineId\":\"value.machineId\",\"defaultAgent\":\"value.defaultAgent\",\"defaultModel\":\"value.defaultModel\",\"defaultEffort\":\"value.defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"value.asked.question\",\"options\":[\"value.asked.options[0]\"],\"at\":\"value.asked.at\",\"by\":\"value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"value.asked.attribution.actor.id\"},\"onBehalfOf\":\"value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"value.panel.artifacts[0].path\",\"title\":\"value.panel.artifacts[0].title\",\"addedAt\":\"value.panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"value.panel.artifacts[0].artifactId\",\"entry\":\"value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"value.panel.deferred[0].text\",\"addedAt\":\"value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"value.coordinatorSessionId\",\"startedBySession\":\"value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"linearId\":\"value.linearId\",\"linearIdentifier\":\"value.linearIdentifier\",\"linearUrl\":\"value.linearUrl\",\"prUrl\":\"value.prUrl\",\"revision\":2,\"owner\":\"value.owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\"}}"
     },
     {
       "schema": "FeedChange",
-      "variant": "full/arm3",
+      "variant": "full/arm2",
       "wire": {
-        "seq": 4,
+        "seq": 3,
         "entity": "issueDep",
         "entityId": "entityId",
         "op": "evict",
@@ -1708,13 +1413,13 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":4,\"entity\":\"issueDep\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"fromId\":\"value.fromId\",\"toId\":\"value.toId\",\"type\":\"value.type\"}}"
+      "encoded": "{\"seq\":3,\"entity\":\"issueDep\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"fromId\":\"value.fromId\",\"toId\":\"value.toId\",\"type\":\"value.type\"}}"
     },
     {
       "schema": "FeedChange",
-      "variant": "full/arm4",
+      "variant": "full/arm3",
       "wire": {
-        "seq": 5,
+        "seq": 4,
         "entity": "repo",
         "entityId": "entityId",
         "op": "evict",
@@ -1727,13 +1432,13 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"prefix\":\"value.prefix\",\"repoPath\":\"value.repoPath\"}}"
+      "encoded": "{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"prefix\":\"value.prefix\",\"repoPath\":\"value.repoPath\"}}"
     },
     {
       "schema": "FeedChange",
-      "variant": "full/arm5",
+      "variant": "full/arm4",
       "wire": {
-        "seq": 6,
+        "seq": 5,
         "entity": "shipOrder",
         "entityId": "entityId",
         "op": "evict",
@@ -1743,26 +1448,26 @@
           "repoId": "value.repoId",
           "targetBranch": "value.targetBranch",
           "destination": "value.destination",
-          "state": "landing",
+          "state": "repairing",
           "humanState": "shipped",
-          "activity": "landing",
+          "activity": "repairing",
           "queuedAt": "value.queuedAt",
           "stateChangedAt": "value.stateChangedAt",
-          "queueRank": 6,
+          "queueRank": 5,
           "train": {
             "id": "value.train.id",
-            "index": 6,
-            "size": 6
+            "index": 5,
+            "size": 5
           },
           "waitEstimate": {
-            "lowerBoundMs": 6,
-            "upperBoundMs": 6,
-            "sampleSize": 6,
+            "lowerBoundMs": 5,
+            "upperBoundMs": 5,
+            "sampleSize": 5,
             "basis": "lane-history"
           },
           "hold": {
             "id": "value.hold.id",
-            "generation": 6,
+            "generation": 5,
             "reasonCode": "policy:fixture-hold",
             "headline": "value.hold.headline",
             "actions": ["policy:fixture-action"]
@@ -1773,7 +1478,32 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":6,\"entity\":\"shipOrder\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"issueId\":\"value.issueId\",\"repoId\":\"value.repoId\",\"targetBranch\":\"value.targetBranch\",\"destination\":\"value.destination\",\"state\":\"landing\",\"humanState\":\"shipped\",\"activity\":\"landing\",\"queuedAt\":\"value.queuedAt\",\"stateChangedAt\":\"value.stateChangedAt\",\"queueRank\":6,\"train\":{\"id\":\"value.train.id\",\"index\":6,\"size\":6},\"waitEstimate\":{\"lowerBoundMs\":6,\"upperBoundMs\":6,\"sampleSize\":6,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"value.hold.id\",\"generation\":6,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"value.receiptId\"}}"
+      "encoded": "{\"seq\":5,\"entity\":\"shipOrder\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"issueId\":\"value.issueId\",\"repoId\":\"value.repoId\",\"targetBranch\":\"value.targetBranch\",\"destination\":\"value.destination\",\"state\":\"repairing\",\"humanState\":\"shipped\",\"activity\":\"repairing\",\"queuedAt\":\"value.queuedAt\",\"stateChangedAt\":\"value.stateChangedAt\",\"queueRank\":5,\"train\":{\"id\":\"value.train.id\",\"index\":5,\"size\":5},\"waitEstimate\":{\"lowerBoundMs\":5,\"upperBoundMs\":5,\"sampleSize\":5,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"value.hold.id\",\"generation\":5,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"value.receiptId\"}}"
+    },
+    {
+      "schema": "FeedChange",
+      "variant": "full/arm5",
+      "wire": {
+        "seq": 6,
+        "entity": "shipLane",
+        "entityId": "entityId",
+        "op": "evict",
+        "value": {
+          "id": "value.id",
+          "repoId": "value.repoId",
+          "destination": "value.destination",
+          "trains": [
+            {
+              "orderIds": ["value.trains[0].orderIds[0]"]
+            }
+          ],
+          "blockedOrderIds": ["value.blockedOrderIds[0]"]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"seq\":6,\"entity\":\"shipLane\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"repoId\":\"value.repoId\",\"destination\":\"value.destination\",\"trains\":[{\"orderIds\":[\"value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"value.blockedOrderIds[0]\"]}}"
     },
     {
       "schema": "FeedChange",
@@ -1952,12 +1682,9 @@
             "stateConfidence": 1,
             "stateObservedAt": "value.agentState.stateObservedAt"
           },
-          "condition": "logged-out",
           "archived": true,
-          "readAt": "value.readAt",
           "stoppedAt": "value.stoppedAt",
           "stopReason": "self",
-          "unread": true,
           "workState": "planning",
           "resumable": true,
           "resume": {
@@ -1976,8 +1703,6 @@
           "requestedEffort": "value.requestedEffort",
           "contextUsagePercent": 1,
           "machineId": "value.machineId",
-          "machineName": "value.machineName",
-          "snoozedUntil": "value.snoozedUntil",
           "draftUpdatedAt": "value.draftUpdatedAt",
           "draftSyncEngine": true,
           "driverId": "value.driverId",
@@ -1998,7 +1723,7 @@
             "artifacts": ["value.offer.artifacts[0]"],
             "createdAt": "value.offer.createdAt"
           },
-          "handoffTarget": "value.handoffTarget",
+          "handoffTargetMachineId": "value.handoffTargetMachineId",
           "conversationPodiumId": "value.conversationPodiumId",
           "spawnedBy": "value.spawnedBy",
           "workflowRunId": "value.workflowRunId",
@@ -2008,7 +1733,8 @@
           "refIssueId": "value.refIssueId",
           "refLetter": "value.refLetter",
           "refDraft": 1,
-          "displayRef": "value.displayRef",
+          "refRepoId": "value.refRepoId",
+          "refSeq": 1,
           "headless": true,
           "delegation": {
             "actor": "value.delegation.actor",
@@ -2033,7 +1759,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":1,\"entity\":\"session\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"value.title\",\"name\":\"value.name\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"accountId\":\"value.accountId\",\"nameSource\":\"user\",\"cwd\":\"value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"value.spawnFailure\",\"controllerId\":\"value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"value.createdAt\",\"lastActiveAt\":\"value.lastActiveAt\",\"lastInputAt\":\"value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"value.agentState.nativeSubagents[0].id\",\"type\":\"value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.need.summary\",\"ask\":{\"toolName\":\"value.agentState.need.ask.toolName\",\"detail\":\"value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.need.interview.questions[0].question\",\"header\":\"value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.error.class\",\"retryable\":true,\"detail\":\"value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"value.agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"value.readAt\",\"stoppedAt\":\"value.stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"value.agentColor\",\"observedModel\":\"value.observedModel\",\"observedEffort\":\"value.observedEffort\",\"requestedModel\":\"value.requestedModel\",\"requestedEffort\":\"value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"value.machineId\",\"machineName\":\"value.machineName\",\"snoozedUntil\":\"value.snoozedUntil\",\"draftUpdatedAt\":\"value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"value.driverId\",\"requestedDriverId\":\"value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"value.offer.message\",\"actions\":[{\"label\":\"value.offer.actions[0].label\",\"prompt\":\"value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"value.offer.artifacts[0]\"],\"createdAt\":\"value.offer.createdAt\"},\"handoffTarget\":\"value.handoffTarget\",\"conversationPodiumId\":\"value.conversationPodiumId\",\"spawnedBy\":\"value.spawnedBy\",\"workflowRunId\":\"value.workflowRunId\",\"workflowStepId\":\"value.workflowStepId\",\"executionProfileId\":\"value.executionProfileId\",\"issueId\":\"value.issueId\",\"refIssueId\":\"value.refIssueId\",\"refLetter\":\"value.refLetter\",\"refDraft\":1,\"displayRef\":\"value.displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"value.delegation.actor\",\"onBehalfOf\":\"value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}"
+      "encoded": "{\"seq\":1,\"entity\":\"session\",\"entityId\":\"entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"value.title\",\"name\":\"value.name\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"accountId\":\"value.accountId\",\"nameSource\":\"user\",\"cwd\":\"value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"value.spawnFailure\",\"controllerId\":\"value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"value.createdAt\",\"lastActiveAt\":\"value.lastActiveAt\",\"lastInputAt\":\"value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"value.agentState.nativeSubagents[0].id\",\"type\":\"value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"value.agentState.need.summary\",\"ask\":{\"toolName\":\"value.agentState.need.ask.toolName\",\"detail\":\"value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"value.agentState.need.interview.questions[0].question\",\"header\":\"value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"value.agentState.error.class\",\"retryable\":true,\"detail\":\"value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"value.agentColor\",\"observedModel\":\"value.observedModel\",\"observedEffort\":\"value.observedEffort\",\"requestedModel\":\"value.requestedModel\",\"requestedEffort\":\"value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"value.machineId\",\"draftUpdatedAt\":\"value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"value.driverId\",\"requestedDriverId\":\"value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"value.offer.message\",\"actions\":[{\"label\":\"value.offer.actions[0].label\",\"prompt\":\"value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"value.offer.artifacts[0]\"],\"createdAt\":\"value.offer.createdAt\"},\"handoffTargetMachineId\":\"value.handoffTargetMachineId\",\"conversationPodiumId\":\"value.conversationPodiumId\",\"spawnedBy\":\"value.spawnedBy\",\"workflowRunId\":\"value.workflowRunId\",\"workflowStepId\":\"value.workflowStepId\",\"executionProfileId\":\"value.executionProfileId\",\"issueId\":\"value.issueId\",\"refIssueId\":\"value.refIssueId\",\"refLetter\":\"value.refLetter\",\"refDraft\":1,\"refRepoId\":\"value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"value.delegation.actor\",\"onBehalfOf\":\"value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"value.createdBy.actor.id\"},\"onBehalfOf\":\"value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -2296,12 +2022,9 @@
                 "stateConfidence": 1,
                 "stateObservedAt": "changes[0].value.agentState.stateObservedAt"
               },
-              "condition": "logged-out",
               "archived": true,
-              "readAt": "changes[0].value.readAt",
               "stoppedAt": "changes[0].value.stoppedAt",
               "stopReason": "self",
-              "unread": true,
               "workState": "planning",
               "resumable": true,
               "resume": {
@@ -2320,8 +2043,6 @@
               "requestedEffort": "changes[0].value.requestedEffort",
               "contextUsagePercent": 1,
               "machineId": "changes[0].value.machineId",
-              "machineName": "changes[0].value.machineName",
-              "snoozedUntil": "changes[0].value.snoozedUntil",
               "draftUpdatedAt": "changes[0].value.draftUpdatedAt",
               "draftSyncEngine": true,
               "driverId": "changes[0].value.driverId",
@@ -2342,7 +2063,7 @@
                 "artifacts": ["changes[0].value.offer.artifacts[0]"],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
-              "handoffTarget": "changes[0].value.handoffTarget",
+              "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
               "conversationPodiumId": "changes[0].value.conversationPodiumId",
               "spawnedBy": "changes[0].value.spawnedBy",
               "workflowRunId": "changes[0].value.workflowRunId",
@@ -2352,7 +2073,8 @@
               "refIssueId": "changes[0].value.refIssueId",
               "refLetter": "changes[0].value.refLetter",
               "refDraft": 1,
-              "displayRef": "changes[0].value.displayRef",
+              "refRepoId": "changes[0].value.refRepoId",
+              "refSeq": 1,
               "headless": true,
               "delegation": {
                 "actor": "changes[0].value.delegation.actor",
@@ -2379,7 +2101,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"changes[0].value.readAt\",\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"machineName\":\"changes[0].value.machineName\",\"snoozedUntil\":\"changes[0].value.snoozedUntil\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTarget\":\"changes[0].value.handoffTarget\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"executionProfileId\":\"changes[0].value.executionProfileId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"displayRef\":\"changes[0].value.displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"executionProfileId\":\"changes[0].value.executionProfileId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2394,60 +2116,86 @@
         "changes": [
           {
             "seq": 2,
-            "entity": "issue",
+            "entity": "issueProjection",
             "entityId": "changes[0].entityId",
             "op": "remove",
             "value": {
               "id": "changes[0].value.id",
-              "repoPath": "changes[0].value.repoPath",
               "repoId": "changes[0].value.repoId",
-              "prefix": "changes[0].value.prefix",
-              "displayRef": "changes[0].value.displayRef",
               "seq": 2,
               "title": "changes[0].value.title",
-              "description": "changes[0].value.description",
               "brief": "changes[0].value.brief",
-              "stage": "backlog",
-              "worktreePath": "changes[0].value.worktreePath",
-              "branch": "changes[0].value.branch",
-              "parentBranch": "changes[0].value.parentBranch",
-              "defaultAgent": "changes[0].value.defaultAgent",
-              "defaultModel": "changes[0].value.defaultModel",
-              "defaultEffort": "changes[0].value.defaultEffort",
-              "machineId": "changes[0].value.machineId",
-              "linearId": "changes[0].value.linearId",
-              "linearIdentifier": "changes[0].value.linearIdentifier",
-              "linearUrl": "changes[0].value.linearUrl",
+              "design": "changes[0].value.design",
+              "acceptance": "changes[0].value.acceptance",
               "activityNotes": "changes[0].value.activityNotes",
               "notesUpdatedAt": "changes[0].value.notesUpdatedAt",
-              "suggestedStage": "backlog",
-              "suggestedReason": "changes[0].value.suggestedReason",
-              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
               "dependencyNote": "changes[0].value.dependencyNote",
-              "prUrl": "changes[0].value.prUrl",
+              "suggestedReason": "changes[0].value.suggestedReason",
+              "description": {
+                "value": "changes[0].value.description.value",
+                "revision": 2,
+                "opsTail": [
+                  {
+                    "unknownFixture": "changes[0].value.description.opsTail[0]"
+                  }
+                ]
+              },
+              "notes": {
+                "value": "changes[0].value.notes.value",
+                "revision": 2,
+                "opsTail": [
+                  {
+                    "unknownFixture": "changes[0].value.notes.opsTail[0]"
+                  }
+                ]
+              },
+              "stage": "backlog",
+              "suggestedStage": "backlog",
+              "closedReason": "changes[0].value.closedReason",
+              "closedAt": "changes[0].value.closedAt",
+              "deferUntil": "changes[0].value.deferUntil",
+              "archived": false,
+              "deletedAt": "changes[0].value.deletedAt",
+              "lastLifecycleActor": {
+                "actor": {
+                  "kind": "agent",
+                  "id": "changes[0].value.lastLifecycleActor.actor.id"
+                },
+                "onBehalfOf": "changes[0].value.lastLifecycleActor.onBehalfOf"
+              },
               "priority": 2,
               "type": "bug",
               "assignee": "changes[0].value.assignee",
-              "parentId": "changes[0].value.parentId",
-              "design": "changes[0].value.design",
-              "acceptance": "changes[0].value.acceptance",
-              "notes": "changes[0].value.notes",
+              "labels": ["changes[0].value.labels[0]"],
+              "estimateMin": 2,
+              "color": "pink",
+              "sortKey": "changes[0].value.sortKey",
               "dueAt": "changes[0].value.dueAt",
-              "deferUntil": "changes[0].value.deferUntil",
-              "closedReason": "changes[0].value.closedReason",
-              "closedAt": "changes[0].value.closedAt",
-              "tuckedAt": "changes[0].value.tuckedAt",
+              "parentId": "changes[0].value.parentId",
               "supersededBy": "changes[0].value.supersededBy",
               "duplicateOf": "changes[0].value.duplicateOf",
-              "pinned": false,
-              "sortKey": "changes[0].value.sortKey",
-              "color": "pink",
-              "estimateMin": 2,
+              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
+              "worktreePath": "changes[0].value.worktreePath",
+              "branch": "changes[0].value.branch",
+              "parentBranch": "changes[0].value.parentBranch",
+              "machineId": "changes[0].value.machineId",
+              "defaultAgent": "changes[0].value.defaultAgent",
+              "defaultModel": "changes[0].value.defaultModel",
+              "defaultEffort": "changes[0].value.defaultEffort",
               "needsHuman": false,
-              "humanQuestion": "changes[0].value.humanQuestion",
-              "humanQuestionOptions": ["changes[0].value.humanQuestionOptions[0]"],
-              "humanQuestionAskedBy": "changes[0].value.humanQuestionAskedBy",
-              "humanQuestionAskedAt": "changes[0].value.humanQuestionAskedAt",
+              "asked": {
+                "question": "changes[0].value.asked.question",
+                "options": ["changes[0].value.asked.options[0]"],
+                "at": "changes[0].value.asked.at",
+                "by": "changes[0].value.asked.by",
+                "attribution": {
+                  "actor": {
+                    "kind": "agent",
+                    "id": "changes[0].value.asked.attribution.actor.id"
+                  },
+                  "onBehalfOf": "changes[0].value.asked.attribution.onBehalfOf"
+                }
+              },
               "panel": {
                 "todos": [
                   {
@@ -2481,61 +2229,27 @@
                   }
                 ]
               },
-              "labels": ["changes[0].value.labels[0]"],
-              "deps": [
-                {
-                  "id": "changes[0].value.deps[0].id",
-                  "type": "changes[0].value.deps[0].type"
-                }
-              ],
-              "dependents": [
-                {
-                  "id": "changes[0].value.dependents[0].id",
-                  "type": "changes[0].value.dependents[0].type"
-                }
-              ],
-              "comments": [
-                {
-                  "id": "changes[0].value.comments[0].id",
-                  "author": "changes[0].value.comments[0].author",
-                  "body": "changes[0].value.comments[0].body",
-                  "createdAt": "changes[0].value.comments[0].createdAt"
-                }
-              ],
-              "commentCount": 2,
-              "ready": false,
-              "blocked": false,
-              "deferred": false,
-              "childCount": 2,
-              "childDoneCount": 2,
-              "createdAt": "changes[0].value.createdAt",
-              "updatedAt": "changes[0].value.updatedAt",
-              "archived": false,
-              "deletedAt": "changes[0].value.deletedAt",
-              "readAt": "changes[0].value.readAt",
-              "origin": "agent",
+              "intentOrigin": "agent",
               "audience": "agent",
-              "draft": false,
-              "gitState": {
-                "updatedAt": "changes[0].value.gitState.updatedAt",
-                "computing": false,
-                "branch": "changes[0].value.gitState.branch",
-                "shared": false,
-                "ahead": 2,
-                "dirtyFiles": 2,
-                "dirtyOwn": 2,
-                "commits": ["changes[0].value.gitState.commits[0]"],
-                "lastCommitAt": "changes[0].value.gitState.lastCommitAt",
-                "unpushed": 2,
-                "merged": false,
-                "fallback": false
-              },
-              "viaHub": false,
-              "upstreamStale": false,
-              "pendingSync": false,
-              "revision": 2,
+              "isDraftVessel": false,
               "coordinatorSessionId": "changes[0].value.coordinatorSessionId",
-              "startedBySession": "changes[0].value.startedBySession"
+              "startedBySession": "changes[0].value.startedBySession",
+              "createdBy": {
+                "actor": {
+                  "kind": "agent",
+                  "id": "changes[0].value.createdBy.actor.id"
+                },
+                "onBehalfOf": "changes[0].value.createdBy.onBehalfOf"
+              },
+              "linearId": "changes[0].value.linearId",
+              "linearIdentifier": "changes[0].value.linearIdentifier",
+              "linearUrl": "changes[0].value.linearUrl",
+              "prUrl": "changes[0].value.prUrl",
+              "revision": 2,
+              "owner": "changes[0].value.owner",
+              "visibility": "per-user-state",
+              "createdAt": "changes[0].value.createdAt",
+              "updatedAt": "changes[0].value.updatedAt"
             }
           }
         ]
@@ -2543,7 +2257,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"issue\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"repoPath\":\"changes[0].value.repoPath\",\"repoId\":\"changes[0].value.repoId\",\"prefix\":\"changes[0].value.prefix\",\"displayRef\":\"changes[0].value.displayRef\",\"seq\":2,\"title\":\"changes[0].value.title\",\"description\":\"changes[0].value.description\",\"brief\":\"changes[0].value.brief\",\"stage\":\"backlog\",\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"machineId\":\"changes[0].value.machineId\",\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"suggestedStage\":\"backlog\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"dependencyNote\":\"changes[0].value.dependencyNote\",\"prUrl\":\"changes[0].value.prUrl\",\"priority\":2,\"type\":\"bug\",\"assignee\":\"changes[0].value.assignee\",\"parentId\":\"changes[0].value.parentId\",\"design\":\"changes[0].value.design\",\"acceptance\":\"changes[0].value.acceptance\",\"notes\":\"changes[0].value.notes\",\"dueAt\":\"changes[0].value.dueAt\",\"deferUntil\":\"changes[0].value.deferUntil\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"tuckedAt\":\"changes[0].value.tuckedAt\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"pinned\":false,\"sortKey\":\"changes[0].value.sortKey\",\"color\":\"pink\",\"estimateMin\":2,\"needsHuman\":false,\"humanQuestion\":\"changes[0].value.humanQuestion\",\"humanQuestionOptions\":[\"changes[0].value.humanQuestionOptions[0]\"],\"humanQuestionAskedBy\":\"changes[0].value.humanQuestionAskedBy\",\"humanQuestionAskedAt\":\"changes[0].value.humanQuestionAskedAt\",\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"labels\":[\"changes[0].value.labels[0]\"],\"deps\":[{\"id\":\"changes[0].value.deps[0].id\",\"type\":\"changes[0].value.deps[0].type\"}],\"dependents\":[{\"id\":\"changes[0].value.dependents[0].id\",\"type\":\"changes[0].value.dependents[0].type\"}],\"comments\":[{\"id\":\"changes[0].value.comments[0].id\",\"author\":\"changes[0].value.comments[0].author\",\"body\":\"changes[0].value.comments[0].body\",\"createdAt\":\"changes[0].value.comments[0].createdAt\"}],\"commentCount\":2,\"ready\":false,\"blocked\":false,\"deferred\":false,\"childCount\":2,\"childDoneCount\":2,\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"archived\":false,\"deletedAt\":\"changes[0].value.deletedAt\",\"readAt\":\"changes[0].value.readAt\",\"origin\":\"agent\",\"audience\":\"agent\",\"draft\":false,\"gitState\":{\"updatedAt\":\"changes[0].value.gitState.updatedAt\",\"computing\":false,\"branch\":\"changes[0].value.gitState.branch\",\"shared\":false,\"ahead\":2,\"dirtyFiles\":2,\"dirtyOwn\":2,\"commits\":[\"changes[0].value.gitState.commits[0]\"],\"lastCommitAt\":\"changes[0].value.gitState.lastCommitAt\",\"unpushed\":2,\"merged\":false,\"fallback\":false},\"viaHub\":false,\"upstreamStale\":false,\"pendingSync\":false,\"revision\":2,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":2,\"seq\":2,\"minAvailableSeq\":2,\"changes\":[{\"seq\":2,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":2,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"design\":\"changes[0].value.design\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"notes\":{\"value\":\"changes[0].value.notes.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.notes.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":false,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"bug\",\"assignee\":\"changes[0].value.assignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":2,\"color\":\"pink\",\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":2,\"owner\":\"changes[0].value.owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"}}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2558,162 +2272,6 @@
         "changes": [
           {
             "seq": 3,
-            "entity": "issueProjection",
-            "entityId": "changes[0].entityId",
-            "op": "evict",
-            "value": {
-              "id": "changes[0].value.id",
-              "repoId": "changes[0].value.repoId",
-              "seq": 3,
-              "title": "changes[0].value.title",
-              "brief": "changes[0].value.brief",
-              "design": "changes[0].value.design",
-              "acceptance": "changes[0].value.acceptance",
-              "activityNotes": "changes[0].value.activityNotes",
-              "notesUpdatedAt": "changes[0].value.notesUpdatedAt",
-              "dependencyNote": "changes[0].value.dependencyNote",
-              "suggestedReason": "changes[0].value.suggestedReason",
-              "description": {
-                "value": "changes[0].value.description.value",
-                "revision": 3,
-                "opsTail": [
-                  {
-                    "unknownFixture": "changes[0].value.description.opsTail[0]"
-                  }
-                ]
-              },
-              "notes": {
-                "value": "changes[0].value.notes.value",
-                "revision": 3,
-                "opsTail": [
-                  {
-                    "unknownFixture": "changes[0].value.notes.opsTail[0]"
-                  }
-                ]
-              },
-              "stage": "planning",
-              "suggestedStage": "planning",
-              "closedReason": "changes[0].value.closedReason",
-              "closedAt": "changes[0].value.closedAt",
-              "deferUntil": "changes[0].value.deferUntil",
-              "archived": true,
-              "deletedAt": "changes[0].value.deletedAt",
-              "lastLifecycleActor": {
-                "actor": {
-                  "kind": "machine",
-                  "id": "changes[0].value.lastLifecycleActor.actor.id"
-                },
-                "onBehalfOf": "changes[0].value.lastLifecycleActor.onBehalfOf"
-              },
-              "priority": 3,
-              "type": "feature",
-              "assignee": "changes[0].value.assignee",
-              "labels": ["changes[0].value.labels[0]"],
-              "estimateMin": 3,
-              "color": "fuchsia",
-              "sortKey": "changes[0].value.sortKey",
-              "dueAt": "changes[0].value.dueAt",
-              "parentId": "changes[0].value.parentId",
-              "supersededBy": "changes[0].value.supersededBy",
-              "duplicateOf": "changes[0].value.duplicateOf",
-              "blockedByNotes": ["changes[0].value.blockedByNotes[0]"],
-              "worktreePath": "changes[0].value.worktreePath",
-              "branch": "changes[0].value.branch",
-              "parentBranch": "changes[0].value.parentBranch",
-              "machineId": "changes[0].value.machineId",
-              "defaultAgent": "changes[0].value.defaultAgent",
-              "defaultModel": "changes[0].value.defaultModel",
-              "defaultEffort": "changes[0].value.defaultEffort",
-              "needsHuman": true,
-              "asked": {
-                "question": "changes[0].value.asked.question",
-                "options": ["changes[0].value.asked.options[0]"],
-                "at": "changes[0].value.asked.at",
-                "by": "changes[0].value.asked.by",
-                "attribution": {
-                  "actor": {
-                    "kind": "machine",
-                    "id": "changes[0].value.asked.attribution.actor.id"
-                  },
-                  "onBehalfOf": "changes[0].value.asked.attribution.onBehalfOf"
-                }
-              },
-              "panel": {
-                "todos": [
-                  {
-                    "text": "changes[0].value.panel.todos[0].text",
-                    "done": true
-                  }
-                ],
-                "artifacts": [
-                  {
-                    "path": "changes[0].value.panel.artifacts[0].path",
-                    "title": "changes[0].value.panel.artifacts[0].title",
-                    "addedAt": "changes[0].value.panel.artifacts[0].addedAt",
-                    "sourceKind": "terminal-evidence",
-                    "artifactId": "changes[0].value.panel.artifacts[0].artifactId",
-                    "entry": "changes[0].value.panel.artifacts[0].entry",
-                    "files": [
-                      {
-                        "path": "changes[0].value.panel.artifacts[0].files[0].path",
-                        "size": 3
-                      }
-                    ],
-                    "sourcePaths": ["changes[0].value.panel.artifacts[0].sourcePaths[0]"],
-                    "tracking": "unknown",
-                    "untrackedPaths": ["changes[0].value.panel.artifacts[0].untrackedPaths[0]"]
-                  }
-                ],
-                "deferred": [
-                  {
-                    "text": "changes[0].value.panel.deferred[0].text",
-                    "addedAt": "changes[0].value.panel.deferred[0].addedAt"
-                  }
-                ]
-              },
-              "intentOrigin": "agent",
-              "audience": "agent",
-              "isDraftVessel": true,
-              "coordinatorSessionId": "changes[0].value.coordinatorSessionId",
-              "startedBySession": "changes[0].value.startedBySession",
-              "createdBy": {
-                "actor": {
-                  "kind": "machine",
-                  "id": "changes[0].value.createdBy.actor.id"
-                },
-                "onBehalfOf": "changes[0].value.createdBy.onBehalfOf"
-              },
-              "linearId": "changes[0].value.linearId",
-              "linearIdentifier": "changes[0].value.linearIdentifier",
-              "linearUrl": "changes[0].value.linearUrl",
-              "prUrl": "changes[0].value.prUrl",
-              "revision": 3,
-              "owner": "changes[0].value.owner",
-              "visibility": "owned-compute",
-              "createdAt": "changes[0].value.createdAt",
-              "updatedAt": "changes[0].value.updatedAt"
-            }
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueProjection\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"seq\":3,\"title\":\"changes[0].value.title\",\"brief\":\"changes[0].value.brief\",\"design\":\"changes[0].value.design\",\"acceptance\":\"changes[0].value.acceptance\",\"activityNotes\":\"changes[0].value.activityNotes\",\"notesUpdatedAt\":\"changes[0].value.notesUpdatedAt\",\"dependencyNote\":\"changes[0].value.dependencyNote\",\"suggestedReason\":\"changes[0].value.suggestedReason\",\"description\":{\"value\":\"changes[0].value.description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.description.opsTail[0]\"}]},\"notes\":{\"value\":\"changes[0].value.notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"changes[0].value.notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"changes[0].value.closedReason\",\"closedAt\":\"changes[0].value.closedAt\",\"deferUntil\":\"changes[0].value.deferUntil\",\"archived\":true,\"deletedAt\":\"changes[0].value.deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"changes[0].value.lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"assignee\":\"changes[0].value.assignee\",\"labels\":[\"changes[0].value.labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"changes[0].value.sortKey\",\"dueAt\":\"changes[0].value.dueAt\",\"parentId\":\"changes[0].value.parentId\",\"supersededBy\":\"changes[0].value.supersededBy\",\"duplicateOf\":\"changes[0].value.duplicateOf\",\"blockedByNotes\":[\"changes[0].value.blockedByNotes[0]\"],\"worktreePath\":\"changes[0].value.worktreePath\",\"branch\":\"changes[0].value.branch\",\"parentBranch\":\"changes[0].value.parentBranch\",\"machineId\":\"changes[0].value.machineId\",\"defaultAgent\":\"changes[0].value.defaultAgent\",\"defaultModel\":\"changes[0].value.defaultModel\",\"defaultEffort\":\"changes[0].value.defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"changes[0].value.asked.question\",\"options\":[\"changes[0].value.asked.options[0]\"],\"at\":\"changes[0].value.asked.at\",\"by\":\"changes[0].value.asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.asked.attribution.actor.id\"},\"onBehalfOf\":\"changes[0].value.asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"changes[0].value.panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"changes[0].value.panel.artifacts[0].path\",\"title\":\"changes[0].value.panel.artifacts[0].title\",\"addedAt\":\"changes[0].value.panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"changes[0].value.panel.artifacts[0].artifactId\",\"entry\":\"changes[0].value.panel.artifacts[0].entry\",\"files\":[{\"path\":\"changes[0].value.panel.artifacts[0].files[0].path\",\"size\":3}],\"sourcePaths\":[\"changes[0].value.panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"changes[0].value.panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"changes[0].value.panel.deferred[0].text\",\"addedAt\":\"changes[0].value.panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"changes[0].value.coordinatorSessionId\",\"startedBySession\":\"changes[0].value.startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"linearId\":\"changes[0].value.linearId\",\"linearIdentifier\":\"changes[0].value.linearIdentifier\",\"linearUrl\":\"changes[0].value.linearUrl\",\"prUrl\":\"changes[0].value.prUrl\",\"revision\":3,\"owner\":\"changes[0].value.owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\"}}]}"
-    },
-    {
-      "schema": "FeedDeltaMessage",
-      "variant": "full/arm3",
-      "wire": {
-        "type": "feedDelta",
-        "feedId": "feedId",
-        "epoch": "epoch",
-        "fromSeq": 4,
-        "seq": 4,
-        "minAvailableSeq": 4,
-        "changes": [
-          {
-            "seq": 4,
             "entity": "issueDep",
             "entityId": "changes[0].entityId",
             "op": "evict",
@@ -2729,21 +2287,21 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":3,\"seq\":3,\"minAvailableSeq\":3,\"changes\":[{\"seq\":3,\"entity\":\"issueDep\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"fromId\":\"changes[0].value.fromId\",\"toId\":\"changes[0].value.toId\",\"type\":\"changes[0].value.type\"}}]}"
     },
     {
       "schema": "FeedDeltaMessage",
-      "variant": "full/arm4",
+      "variant": "full/arm3",
       "wire": {
         "type": "feedDelta",
         "feedId": "feedId",
         "epoch": "epoch",
-        "fromSeq": 5,
-        "seq": 5,
-        "minAvailableSeq": 5,
+        "fromSeq": 4,
+        "seq": 4,
+        "minAvailableSeq": 4,
         "changes": [
           {
-            "seq": 5,
+            "seq": 4,
             "entity": "repo",
             "entityId": "changes[0].entityId",
             "op": "evict",
@@ -2758,7 +2316,63 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"repoPath\":\"changes[0].value.repoPath\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"repoPath\":\"changes[0].value.repoPath\"}}]}"
+    },
+    {
+      "schema": "FeedDeltaMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "feedDelta",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 5,
+        "seq": 5,
+        "minAvailableSeq": 5,
+        "changes": [
+          {
+            "seq": 5,
+            "entity": "shipOrder",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "id": "changes[0].value.id",
+              "issueId": "changes[0].value.issueId",
+              "repoId": "changes[0].value.repoId",
+              "targetBranch": "changes[0].value.targetBranch",
+              "destination": "changes[0].value.destination",
+              "state": "repairing",
+              "humanState": "shipped",
+              "activity": "repairing",
+              "queuedAt": "changes[0].value.queuedAt",
+              "stateChangedAt": "changes[0].value.stateChangedAt",
+              "queueRank": 5,
+              "train": {
+                "id": "changes[0].value.train.id",
+                "index": 5,
+                "size": 5
+              },
+              "waitEstimate": {
+                "lowerBoundMs": 5,
+                "upperBoundMs": 5,
+                "sampleSize": 5,
+                "basis": "lane-history"
+              },
+              "hold": {
+                "id": "changes[0].value.hold.id",
+                "generation": 5,
+                "reasonCode": "policy:fixture-hold",
+                "headline": "changes[0].value.hold.headline",
+                "actions": ["policy:fixture-action"]
+              },
+              "receiptId": "changes[0].value.receiptId"
+            }
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"repairing\",\"humanState\":\"shipped\",\"activity\":\"repairing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":5,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":5,\"size\":5},\"waitEstimate\":{\"lowerBoundMs\":5,\"upperBoundMs\":5,\"sampleSize\":5,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":5,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -2773,40 +2387,19 @@
         "changes": [
           {
             "seq": 6,
-            "entity": "shipOrder",
+            "entity": "shipLane",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
-              "issueId": "changes[0].value.issueId",
               "repoId": "changes[0].value.repoId",
-              "targetBranch": "changes[0].value.targetBranch",
               "destination": "changes[0].value.destination",
-              "state": "landing",
-              "humanState": "shipped",
-              "activity": "landing",
-              "queuedAt": "changes[0].value.queuedAt",
-              "stateChangedAt": "changes[0].value.stateChangedAt",
-              "queueRank": 6,
-              "train": {
-                "id": "changes[0].value.train.id",
-                "index": 6,
-                "size": 6
-              },
-              "waitEstimate": {
-                "lowerBoundMs": 6,
-                "upperBoundMs": 6,
-                "sampleSize": 6,
-                "basis": "lane-history"
-              },
-              "hold": {
-                "id": "changes[0].value.hold.id",
-                "generation": 6,
-                "reasonCode": "policy:fixture-hold",
-                "headline": "changes[0].value.hold.headline",
-                "actions": ["policy:fixture-action"]
-              },
-              "receiptId": "changes[0].value.receiptId"
+              "trains": [
+                {
+                  "orderIds": ["changes[0].value.trains[0].orderIds[0]"]
+                }
+              ],
+              "blockedOrderIds": ["changes[0].value.blockedOrderIds[0]"]
             }
           }
         ]
@@ -2814,7 +2407,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"landing\",\"humanState\":\"shipped\",\"activity\":\"landing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":6,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":6,\"size\":6},\"waitEstimate\":{\"lowerBoundMs\":6,\"upperBoundMs\":6,\"sampleSize\":6,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":6,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipLane\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"destination\":\"changes[0].value.destination\",\"trains\":[{\"orderIds\":[\"changes[0].value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"changes[0].value.blockedOrderIds[0]\"]}}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -3024,12 +2617,9 @@
                 "stateConfidence": 1,
                 "stateObservedAt": "changes[0].value.agentState.stateObservedAt"
               },
-              "condition": "logged-out",
               "archived": true,
-              "readAt": "changes[0].value.readAt",
               "stoppedAt": "changes[0].value.stoppedAt",
               "stopReason": "self",
-              "unread": true,
               "workState": "planning",
               "resumable": true,
               "resume": {
@@ -3048,8 +2638,6 @@
               "requestedEffort": "changes[0].value.requestedEffort",
               "contextUsagePercent": 1,
               "machineId": "changes[0].value.machineId",
-              "machineName": "changes[0].value.machineName",
-              "snoozedUntil": "changes[0].value.snoozedUntil",
               "draftUpdatedAt": "changes[0].value.draftUpdatedAt",
               "draftSyncEngine": true,
               "driverId": "changes[0].value.driverId",
@@ -3070,7 +2658,7 @@
                 "artifacts": ["changes[0].value.offer.artifacts[0]"],
                 "createdAt": "changes[0].value.offer.createdAt"
               },
-              "handoffTarget": "changes[0].value.handoffTarget",
+              "handoffTargetMachineId": "changes[0].value.handoffTargetMachineId",
               "conversationPodiumId": "changes[0].value.conversationPodiumId",
               "spawnedBy": "changes[0].value.spawnedBy",
               "workflowRunId": "changes[0].value.workflowRunId",
@@ -3080,7 +2668,8 @@
               "refIssueId": "changes[0].value.refIssueId",
               "refLetter": "changes[0].value.refLetter",
               "refDraft": 1,
-              "displayRef": "changes[0].value.displayRef",
+              "refRepoId": "changes[0].value.refRepoId",
+              "refSeq": 1,
               "headless": true,
               "delegation": {
                 "actor": "changes[0].value.delegation.actor",
@@ -3107,7 +2696,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"condition\":\"logged-out\",\"archived\":true,\"readAt\":\"changes[0].value.readAt\",\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"machineName\":\"changes[0].value.machineName\",\"snoozedUntil\":\"changes[0].value.snoozedUntil\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTarget\":\"changes[0].value.handoffTarget\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"executionProfileId\":\"changes[0].value.executionProfileId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"displayRef\":\"changes[0].value.displayRef\",\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":1,\"seq\":1,\"minAvailableSeq\":1,\"changes\":[{\"seq\":1,\"entity\":\"session\",\"entityId\":\"changes[0].entityId\",\"op\":\"upsert\",\"value\":{\"sessionId\":\"changes[0].value.sessionId\",\"agentKind\":\"claude-code\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"accountId\":\"changes[0].value.accountId\",\"nameSource\":\"user\",\"cwd\":\"changes[0].value.cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"changes[0].value.spawnFailure\",\"controllerId\":\"changes[0].value.controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"geometryState\":\"current\",\"requestsGated\":1,\"requestsDuplicate\":1,\"requestsUnanswered\":1,\"epoch\":1,\"clientCount\":1,\"createdAt\":\"changes[0].value.createdAt\",\"lastActiveAt\":\"changes[0].value.lastActiveAt\",\"lastInputAt\":\"changes[0].value.lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"changes[0].value.agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"changes[0].value.agentState.nativeSubagents[0].id\",\"type\":\"changes[0].value.agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"changes[0].value.agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"changes[0].value.agentState.need.summary\",\"ask\":{\"toolName\":\"changes[0].value.agentState.need.ask.toolName\",\"detail\":\"changes[0].value.agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"changes[0].value.agentState.need.interview.questions[0].question\",\"header\":\"changes[0].value.agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"changes[0].value.agentState.need.interview.questions[0].options[0].label\",\"description\":\"changes[0].value.agentState.need.interview.questions[0].options[0].description\",\"preview\":\"changes[0].value.agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"changes[0].value.agentState.error.class\",\"retryable\":true,\"detail\":\"changes[0].value.agentState.error.detail\"},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"changes[0].value.agentState.stateObservedAt\"},\"archived\":true,\"stoppedAt\":\"changes[0].value.stoppedAt\",\"stopReason\":\"self\",\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"neverBound\":true,\"transcriptAvailable\":true,\"harnessHandoff\":true,\"harnessPromptModeHints\":true,\"busy\":true,\"agentColor\":\"changes[0].value.agentColor\",\"observedModel\":\"changes[0].value.observedModel\",\"observedEffort\":\"changes[0].value.observedEffort\",\"requestedModel\":\"changes[0].value.requestedModel\",\"requestedEffort\":\"changes[0].value.requestedEffort\",\"contextUsagePercent\":1,\"machineId\":\"changes[0].value.machineId\",\"draftUpdatedAt\":\"changes[0].value.draftUpdatedAt\",\"draftSyncEngine\":true,\"driverId\":\"changes[0].value.driverId\",\"requestedDriverId\":\"changes[0].value.requestedDriverId\",\"driverFamily\":\"server\",\"configureFields\":[\"changes[0].value.configureFields[0]\"],\"attachKinds\":[\"engine\"],\"queuedMessageCount\":1,\"offer\":{\"message\":\"changes[0].value.offer.message\",\"actions\":[{\"label\":\"changes[0].value.offer.actions[0].label\",\"prompt\":\"changes[0].value.offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"changes[0].value.offer.artifacts[0]\"],\"createdAt\":\"changes[0].value.offer.createdAt\"},\"handoffTargetMachineId\":\"changes[0].value.handoffTargetMachineId\",\"conversationPodiumId\":\"changes[0].value.conversationPodiumId\",\"spawnedBy\":\"changes[0].value.spawnedBy\",\"workflowRunId\":\"changes[0].value.workflowRunId\",\"workflowStepId\":\"changes[0].value.workflowStepId\",\"executionProfileId\":\"changes[0].value.executionProfileId\",\"issueId\":\"changes[0].value.issueId\",\"refIssueId\":\"changes[0].value.refIssueId\",\"refLetter\":\"changes[0].value.refLetter\",\"refDraft\":1,\"refRepoId\":\"changes[0].value.refRepoId\",\"refSeq\":1,\"headless\":true,\"delegation\":{\"actor\":\"changes[0].value.delegation.actor\",\"onBehalfOf\":\"changes[0].value.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"changes[0].value.delegation.parentBindingId\",\"revision\":1},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"changes[0].value.createdBy.actor.id\"},\"onBehalfOf\":\"changes[0].value.createdBy.onBehalfOf\"},\"viaHub\":true,\"upstreamStale\":true}}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",

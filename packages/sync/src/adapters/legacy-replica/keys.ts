@@ -49,6 +49,7 @@ export const LEGACY_REPLICA_PREFIX = 'podium.replica'
 export const LEGACY_ENTITY_KINDS = [
   'sessions',
   'issues',
+  'issueProjections',
   'conversations',
   'automations',
   'automationRuns',

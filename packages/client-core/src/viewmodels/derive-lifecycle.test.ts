@@ -1,5 +1,6 @@
-import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView, SessionViewInput } from '../session-values'
 import {
   groupUnifiedWorkRows,
   type IssueNavigationModel,
@@ -33,18 +34,18 @@ function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavig
     needsHuman: false,
     memberSessionIds: [],
     sessionSummary: { total: 0, byPhase: {} },
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     unread: false,
     readAt: '2026-07-23T11:00:00.000Z',
     ...over,
-  } as IssueNavigationModel
+  } as unknown as IssueNavigationModel
 }
 
-function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
+function session(over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: 'session',
     cwd: '/r/a',
@@ -57,7 +58,7 @@ function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
     unread: false,
     readAt: '2026-07-23T11:00:00.000Z',
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
 /** A private branch with three commits that never reached `main`. */
@@ -72,7 +73,7 @@ const unlanded = {
 
 const sections: SidebarSections = { pinnedWorktrees: [], pinnedRepos: [], repos: [] }
 
-function row(value: IssueNavigationModel, sessions: SessionMeta[] = []): UnifiedIssueRow {
+function row(value: IssueNavigationModel, sessions: SessionView[] = []): UnifiedIssueRow {
   return { kind: 'issue', issue: value, sessions, activityAt: NOW }
 }
 
@@ -331,12 +332,7 @@ describe('issue/session lifecycle in the unified sidebar', () => {
       closedAt: '2026-07-21T09:00:00.000Z',
       tuckedAt: null,
     })
-    const [group] = groupUnifiedWorkRows([
-      row(oldest),
-      row(newest),
-      row(neverTucked),
-      row(middle),
-    ])
+    const [group] = groupUnifiedWorkRows([row(oldest), row(newest), row(neverTucked), row(middle)])
     expect(group?.closedRows.map((candidate) => candidate.issue.id)).toEqual([
       'newest',
       'middle',

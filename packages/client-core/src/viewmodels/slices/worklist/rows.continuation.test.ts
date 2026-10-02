@@ -1,5 +1,6 @@
-import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView, SessionViewInput } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 import type { SidebarSections } from './nav'
 import { rowPendingDecision, rowStatusLine } from './row-attention'
@@ -29,18 +30,18 @@ function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavig
     needsHuman: false,
     memberSessionIds: [],
     sessionSummary: { total: 0, byPhase: {} },
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     unread: false,
     readAt: '2026-08-17T11:30:00.000Z',
     ...over,
-  } as IssueNavigationModel
+  } as unknown as IssueNavigationModel
 }
 
-function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
+function session(over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: 'live',
     cwd: '/r/a',
@@ -52,12 +53,12 @@ function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
     title: 'Agent',
     unread: false,
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
 const sections: SidebarSections = { pinnedWorktrees: [], pinnedRepos: [], repos: [] }
 
-function issueRows(issues: IssueNavigationModel[], sessions: SessionMeta[]): UnifiedIssueRow[] {
+function issueRows(issues: IssueNavigationModel[], sessions: SessionView[]): UnifiedIssueRow[] {
   return unifiedWorkList(sections, issues, sessions, [], NOW).filter(
     (row): row is UnifiedIssueRow => row.kind === 'issue',
   )
@@ -139,7 +140,7 @@ describe('derivation-local session membership', () => {
     const tip = issue({ id: 'tip', deps: [{ id: 'origin', type: 'discovered-from' }] })
     const onOrigin = session({ issueId: 'origin' })
     const onTip = session({ sessionId: 'tip-agent', issueId: 'tip' })
-    const continuation = (sessions: SessionMeta[]) =>
+    const continuation = (sessions: SessionView[]) =>
       issueRows([origin, tip], sessions).find((row) => row.issue.id === origin.id)?.continuation
     expect(continuation([onOrigin, onTip])).toBeUndefined()
     expect(continuation([onTip])).toBe('continued · POD-1158')

@@ -63,7 +63,7 @@ it('removes custody and incoming grants atomically, preserves shares and attribu
   expect(audit).toEqual(expect.arrayContaining(['owned', 'shared'].map(machineId => expect.objectContaining({ detail: expect.objectContaining({ machineId }) }))))
   for (const row of audit) expect(row).toMatchObject({ actorId: admin, outcome: 'applied', detail: { memberId: member, previousOwnerUserId: member, newOwnerUserId: null } })
   const svc = new MachinesService({ instanceId: 'default', store, hostMachineId: store.hostMachineId,
-    sessionsChangedForMachine: () => {}, clients: () => [], machinesForPrincipal: async () => [],
+     clients: () => [], machinesForPrincipal: async () => [],
     userExists: async id => !!await store.users.get(id),
   })
   try {

@@ -1,5 +1,6 @@
-import { ISSUE_STATUS_LABELS, type IssueId, type IssueStage, type IssueWire } from '@podium/model'
+import { ISSUE_STATUS_LABELS, type IssueId, type IssueStage } from '@podium/model'
 import { issueDisplayRef, parseAnyRef } from '@podium/protocol'
+import type { IssueViewModel } from '../replica/issue-view-models'
 
 /** Human labels for the workflow glyph family. Kept with the reference model so
  * every adapter (web, terminal, native) announces the same state.
@@ -19,8 +20,8 @@ export const ISSUE_STAGE_LABELS: Readonly<Record<IssueStage, string>> = {
 }
 
 /** The issue fields a compact reference is allowed to read. */
-export type IssueReferenceSource = Pick<IssueWire, 'id' | 'seq' | 'title' | 'stage'> &
-  Partial<Pick<IssueWire, 'prefix' | 'displayRef' | 'archived' | 'deletedAt'>>
+export type IssueReferenceSource = Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage'> &
+  Partial<Pick<IssueViewModel, 'prefix' | 'displayRef' | 'archived' | 'deletedAt'>>
 
 export type IssueReferenceAvailability = 'present' | 'archived' | 'deleted' | 'unavailable'
 
@@ -49,7 +50,9 @@ export interface IssueReferenceModel {
  * label on the resolvers' own matching rule. A real displayRef still wins over
  * a stale legacy prefix (prefix-change case: view says `NEW-17`, legacy still
  * says `POD`), because only the fallback shape (`#…` or absent) defers. */
-export function canonicalIssueRef(issue: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'>): string {
+export function canonicalIssueRef(
+  issue: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'>,
+): string {
   if (issue.displayRef && !issue.displayRef.startsWith('#')) return issue.displayRef
   if (issue.prefix) return `${issue.prefix}-${issue.seq}`
   return issueDisplayRef(issue)

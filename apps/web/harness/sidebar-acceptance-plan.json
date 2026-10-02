@@ -1,0 +1,32 @@
+{
+  "candidate": "721dd693787c863eb9c6d8c6fe58ab3d0da8d4b0",
+  "host": "flatblock",
+  "browser": "Chromium",
+  "maxLoad": 8,
+  "seed": 4443,
+  "samples": 40,
+  "startupAndMemorySamples": 10,
+  "startupAndMemoryStatistic": "ratio of arm medians in each paired cell; retain every pair, report max separately, no p95 at n=10",
+  "warmups": 6,
+  "idleSeconds": 65,
+  "scales": ["1x", "4x"],
+  "memoryCells": ["1x", "4x", "h10a1"],
+  "percentile": "nearest rank ceil(0.95*n), n >= 40; max reported separately",
+  "bars": {
+    "idleWork": 0,
+    "unrelatedSidebarDerivations": 0,
+    "gesturePublications": 1,
+    "warmSwitchP95Ms": 100,
+    "stateCpuP95Ms": 8,
+    "minimumCpuReductionPercent": 50,
+    "maximumStartupRegressionPercent": 10,
+    "maximumRetainedMemoryRegressionPercent": 10,
+    "sidebarSelectionP95Ms": 16,
+    "sideBySideDifferences": 0
+  },
+  "operatorDay": "S9: operator use on ludovico for one day with the panel; cannot be replaced by synthetic measurement",
+  "timing": "One ordinary production build, startup-only URL switch; fresh contexts, interleaved arms; no differential checker during timing",
+  "paint": "Trusted click timestamp to the first Chromium Paint event after the selected DOM state; two-rAF marker retained separately as a conservative proxy",
+  "cpu": "Union of synchronous runtime batch, replica delivery, lazy sidebar derivations, and the main/shared mission, session-ownership and issue-view-model helper bodies; no addition of nested intervals, RAF wait, or IndexedDB request latency",
+  "scope": "Measurement files only; no product edits"
+}

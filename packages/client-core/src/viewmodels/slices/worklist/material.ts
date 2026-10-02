@@ -1,4 +1,5 @@
-import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
+import type { SessionView } from '../../../session-values'
+import type { GitRepositoryWire, MachineWire} from '@podium/model'
 import type { Sidebar } from '@podium/runtime'
 import type { PinState } from '../../types'
 import type { IssueNavigationModel } from '../issues'
@@ -34,13 +35,13 @@ function wireSignature(value: unknown): string | undefined {
   }
 }
 
-/** Audited exclusions only. Row renderers and menus receive SessionMeta itself,
+/** Audited exclusions only. Row renderers and menus receive SessionView itself,
  * so unknown fields stay material. In particular lastActiveAt is NOT a reporting
  * clock: rows, visibility, urgency and mission continuation all consume it.
  * Agent phase, since, idle/need/error, subagents and workingMsTotal are likewise
  * visible. Only observation provenance is irrelevant to these consumers.
  * See docs/measurements/POD-4316-worklist-material.md for the dependency audit. */
-export function worklistSessionSignature(session: SessionMeta): string | undefined {
+export function worklistSessionSignature(session: SessionView): string | undefined {
   const {
     geometry: _geometry,
     geometryState: _geometryState,
@@ -64,8 +65,8 @@ export function worklistSessionSignature(session: SessionMeta): string | undefin
 }
 
 export const worklistSessionsEqual = (
-  a: readonly SessionMeta[],
-  b: readonly SessionMeta[],
+  a: readonly SessionView[],
+  b: readonly SessionView[],
 ): boolean => orderedEqual(a, b, worklistSessionSignature)
 
 /** The slice exports the complete issue model to row cells AND action menus.

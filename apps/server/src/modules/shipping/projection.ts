@@ -1,11 +1,18 @@
 import {
   type DeliveryReceipt,
   type ShipHold,
+  type ShipLaneProjection,
   type ShipOrder,
   ShipOrderProjection,
   type ShipOrderProjection as ShipOrderProjectionValue,
 } from '@podium/model'
-import { shippingQueue, type ShippingTurnSample } from './queue'
+import {
+  queuedShippingLanes,
+  type ShipLaneInput,
+  type ShippingStackEdge,
+  shipLaneSchedule,
+  withNativeStackEdges,
+} from './queue'
 
 const humanState = (
   state: Exclude<ShipOrder['state'], 'cancelled'>,
@@ -36,8 +43,8 @@ const activity = (
   }
 }
 
-/** Build compact replicated order rows. `queueRank` remains absent here: only
- * the dependency-aware scheduler may supply that optional projection fact. */
+/** Build compact replicated order rows. Queue rank belongs to the lane row,
+ * so scheduling never changes the facts carried by an order (POD-4974 O4). */
 export function shipOrderProjectionRows(
   orders: Iterable<ShipOrder>,
   holds: Iterable<ShipHold>,
@@ -86,59 +93,76 @@ export function shipOrderProjectionRows(
   })
 }
 
-/** One compact row with optional scheduler-derived train/range facts. They are
- * accepted only at this projection edge and never written back to ShipOrder. */
+/** One compact order row; scheduler-derived values live only on the lane. */
 export function shipOrderProjectionRow(
   order: ShipOrder,
   hold?: ShipHold,
   receipt?: DeliveryReceipt,
-  queueRank?: number,
-  waitEstimate?: ShipOrderProjectionValue['waitEstimate'],
-  train?: ShipOrderProjectionValue['train'],
 ): { id: string; value: ShipOrderProjectionValue } | null {
-  const row = shipOrderProjectionRows([order], hold ? [hold] : [], receipt ? [receipt] : [])[0]
-  if (!row) return null
+  return shipOrderProjectionRows([order], hold ? [hold] : [], receipt ? [receipt] : [])[0] ?? null
+}
+
+/** One lane's scheduler input from rows already in hand: its queued orders
+ * with their recorded native-stack edges merged in, and every order they name
+ * that is not itself queued in the lane. */
+export function shipLaneInput(
+  lane: { repoId: ShipOrder['repoId']; destination: string; queued: readonly ShipOrder[] },
+  stackEdges: readonly ShippingStackEdge[],
+  orderById: ReadonlyMap<ShipOrder['id'], ShipOrder>,
+): ShipLaneInput {
+  const queued = withNativeStackEdges(lane.queued, stackEdges)
   return {
-    id: row.id,
-    value: ShipOrderProjection.parse({
-      ...row.value,
-      ...(queueRank === undefined ? {} : { queueRank }),
-      ...(waitEstimate === undefined ? {} : { waitEstimate }),
-      ...(train === undefined ? {} : { train }),
+    repoId: lane.repoId,
+    destination: lane.destination,
+    queued,
+    dependencies: laneDependencyIds(queued).flatMap((id) => {
+      const order = orderById.get(id)
+      return order ? [order] : []
     }),
   }
 }
 
-/** Boot/reconnect summary uses the same scheduler snapshot as live mutations,
- * so a restart cannot briefly publish FIFO-looking client ranks or stale waits. */
-export function scheduledShipOrderProjectionRows(
+/** The ids a lane's queued orders depend on that are not queued members. */
+export function laneDependencyIds(queued: readonly ShipOrder[]): ShipOrder['id'][] {
+  const members = new Set(queued.map((order) => order.id))
+  return [
+    ...new Set(queued.flatMap((order) => order.deliveryDependsOn.filter((id) => !members.has(id)))),
+  ]
+}
+
+/** Boot/reconnect FULL TRUTH for both shipping kinds, from the same per-lane
+ * plan a commit publishes and with the recorded native-stack edges the tick
+ * schedules over, so a restart cannot publish a rank the scheduler would not
+ * run. */
+export function scheduledShippingProjection(
   orders: Iterable<ShipOrder>,
   holds: Iterable<ShipHold>,
   receipts: Iterable<DeliveryReceipt>,
-  now = Date.now(),
-  turnSamples: readonly ShippingTurnSample[] = [],
-): { id: string; value: ShipOrderProjectionValue }[] {
+  stackEdges: readonly ShippingStackEdge[] = [],
+): {
+  orders: { id: string; value: ShipOrderProjectionValue }[]
+  lanes: { id: string; value: ShipLaneProjection }[]
+} {
   const orderList = [...orders]
+  const orderById = new Map(orderList.map((order) => [order.id, order]))
+  const lanes: { id: string; value: ShipLaneProjection }[] = []
+  for (const lane of queuedShippingLanes(orderList)) {
+    const scheduled = shipLaneSchedule(shipLaneInput(lane, stackEdges, orderById))
+    lanes.push({ id: scheduled.lane.id, value: scheduled.lane })
+  }
   const holdByOrder = new Map(
     [...holds].filter((hold) => !hold.resolvedAt).map((hold) => [hold.orderId, hold]),
   )
-  const receiptList = [...receipts]
-  const receiptByOrder = new Map(receiptList.map((receipt) => [receipt.orderId, receipt]))
-  return shippingQueue(orderList, receiptList, now, turnSamples).flatMap(
-    ({ order, queueRank, waitEstimate, trainId, trainIndex, trainSize }) => {
-      const train =
-        trainId && trainIndex !== undefined && trainSize !== undefined
-          ? { id: trainId, index: trainIndex, size: trainSize }
-          : undefined
+  const receiptByOrder = new Map([...receipts].map((receipt) => [receipt.orderId, receipt]))
+  return {
+    orders: orderList.flatMap((order) => {
       const row = shipOrderProjectionRow(
         order,
         holdByOrder.get(order.id),
         receiptByOrder.get(order.id),
-        queueRank,
-        waitEstimate,
-        train,
       )
       return row ? [row] : []
-    },
-  )
+    }),
+    lanes,
+  }
 }

@@ -1,8 +1,8 @@
-import { IDBFactory } from 'fake-indexeddb'
-import { actorUser, asUserId, asMutationId } from '@podium/model'
-import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
+import { actorUser, asMutationId, asUserId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { currentSkew, reportSkew, resetSkewNotice } from '@/app/skew-notice'
 import { reloadBudgetSpent } from '@/lib/reload-budget'
@@ -363,7 +363,9 @@ describe('checkServerVersion — schema digest', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(versionResponse({ ...noDigest, wireVersion: CLIENT_WIRE_VERSION + 1 })),
+      vi
+        .fn()
+        .mockResolvedValue(versionResponse({ ...noDigest, wireVersion: CLIENT_WIRE_VERSION + 1 })),
     )
     expect(await checkServerVersion(ORIGIN)).toBe('blocked')
     expect(reload).not.toHaveBeenCalled()
@@ -445,7 +447,10 @@ describe('recoverFromWireSkew', () => {
  */
 describe('checkServerVersion in iteration mode', () => {
   const mismatched = () =>
-    versionResponse({ wireVersion: CLIENT_WIRE_VERSION + 1, minSupportedVersion: CLIENT_WIRE_VERSION + 1 })
+    versionResponse({
+      wireVersion: CLIENT_WIRE_VERSION + 1,
+      minSupportedVersion: CLIENT_WIRE_VERSION + 1,
+    })
 
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -707,7 +712,6 @@ describe('checkServedAssets and pages this server did not serve', () => {
   })
 })
 
-
 describe('HTTP cutover preserves queued work', () => {
   it('reloads toward the enforcing wire, bounds stale-bundle retries, and reopens the unchanged outbox', async () => {
     const factory = new IDBFactory()
@@ -720,19 +724,35 @@ describe('HTTP cutover preserves queued work', () => {
       input: { entityId: 'keep-me' },
       partitionKey: 'issue:keep-me',
       attribution: { actor: actorUser(principal), onBehalfOf: principal },
-      state: 'queued' as const, queuedAt: 123, attempts: 0,
+      state: 'queued' as const,
+      queuedAt: 123,
+      attempts: 0,
     }
-    const open = () => IndexedDbSyncStore.open({ factory: factory as never, databaseName: 'cutover-outbox', onDegraded: error => { throw new Error(JSON.stringify(error)) } })
+    const open = () =>
+      IndexedDbSyncStore.open({
+        factory: factory as never,
+        databaseName: 'cutover-outbox',
+        onDegraded: (error) => {
+          throw new Error(JSON.stringify(error))
+        },
+      })
     const db = await open()
-    expect(await db.viewFor(principal).outbox.apply({
-      put: [entry], expect: [{ mutationId: entry.mutationId, expect: 'absent' }],
-    })).toEqual({ ok: true })
+    expect(
+      await db.viewFor(principal).outbox.apply({
+        put: [entry],
+        expect: [{ mutationId: entry.mutationId, expect: 'absent' }],
+      }),
+    ).toEqual({ ok: true })
     db.close()
     // Emulate a stale cached bundle: identical digest, next wire version.
     // This is the precise cap-only rollout signal, independent of schema changes.
-    const fetch = vi.fn().mockResolvedValue(versionResponse({
-      wireVersion: CLIENT_WIRE_VERSION + 1, minSupportedVersion: 1, wireSchemaDigest: wireSchemaDigest(),
-    }))
+    const fetch = vi.fn().mockResolvedValue(
+      versionResponse({
+        wireVersion: CLIENT_WIRE_VERSION + 1,
+        minSupportedVersion: 1,
+        wireSchemaDigest: wireSchemaDigest(),
+      }),
+    )
     vi.stubGlobal('fetch', fetch)
     expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
     expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
@@ -740,9 +760,13 @@ describe('HTTP cutover preserves queued work', () => {
     expect(reload).toHaveBeenCalledTimes(2)
     expect(unregister).toHaveBeenCalledTimes(2)
     // The matching bundle succeeds and clears the budget after the upgrade.
-    fetch.mockResolvedValue(versionResponse({
-      wireVersion: CLIENT_WIRE_VERSION, minSupportedVersion: 1, wireSchemaDigest: wireSchemaDigest(),
-    }))
+    fetch.mockResolvedValue(
+      versionResponse({
+        wireVersion: CLIENT_WIRE_VERSION,
+        minSupportedVersion: 1,
+        wireSchemaDigest: wireSchemaDigest(),
+      }),
+    )
     expect(await checkServerVersion(ORIGIN)).toBe('ok')
     expect(store.has(COUNTER_KEY)).toBe(false)
     const reopened = await open()
@@ -752,5 +776,35 @@ describe('HTTP cutover preserves queued work', () => {
     } finally {
       reopened.close()
     }
+  })
+})
+
+describe('unsupported bundled desktop client', () => {
+  it.each([
+    'tauri://localhost',
+    'http://tauri.localhost',
+    'https://tauri.localhost',
+  ])('shows an update state without reload loops at %s', async (origin) => {
+    resetSkewNotice()
+    vi.stubGlobal('location', { reload, origin, pathname: '/' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        versionResponse({
+          wireVersion: CLIENT_WIRE_VERSION + 1,
+          minSupportedVersion: CLIENT_WIRE_VERSION + 1,
+          wireSchemaDigest: wireSchemaDigest(),
+        }),
+      ),
+    )
+    for (let attempt = 0; attempt < 4; attempt++) {
+      expect(await checkServerVersion(ORIGIN, false)).toBe('blocked')
+      expect(currentSkew()).toMatchObject({
+        severe: true,
+        message: expect.stringContaining('Update Podium to continue'),
+      })
+    }
+    expect(reload).not.toHaveBeenCalled()
+    expect(cacheDelete).not.toHaveBeenCalled()
   })
 })

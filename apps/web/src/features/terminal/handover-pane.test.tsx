@@ -1,5 +1,6 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -47,7 +48,7 @@ vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
 
-let storeSessions: SessionMeta[] = []
+let storeSessions: SessionView[] = []
 const fakeHub = { subscribeTranscript: (): (() => void) => () => {} }
 const fakeTrpc = {
   settings: {
@@ -99,7 +100,7 @@ vi.mock('@/app/store', () => {
 const { AgentPanel } = await import('./AgentPanel')
 const { HANDOVER_ARRIVED_HOLD_MS, formatHandoverElapsed } = await import('./HandoverPane')
 
-function meta(over: Partial<SessionMetaInput>): SessionMeta {
+function meta(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -121,7 +122,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     transcriptAvailable: true,
     resumable: true,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 let container: HTMLDivElement
@@ -150,7 +151,7 @@ async function render(): Promise<void> {
   })
 }
 
-async function setSession(over: Partial<SessionMetaInput>): Promise<void> {
+async function setSession(over: Partial<SessionViewInput>): Promise<void> {
   storeSessions = [meta(over)]
   await render()
 }

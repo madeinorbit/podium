@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorktreeFileTree } from './WorktreeFileTree'

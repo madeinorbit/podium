@@ -28,8 +28,8 @@
  *     migration did not delete the user's layout" is a measured claim.
  */
 
+import type { IssueProjection, SessionMeta, TranscriptItem } from '@podium/model'
 import { asMutationId, DEFAULT_HARNESS_AGENT } from '@podium/model'
-import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
 import { createReplica, memoryStorage } from './replica'
 
 /**
@@ -135,9 +135,15 @@ async function captureCollectionsDevice(): Promise<LegacyReplicaSnapshot> {
   replica.applySnapshot('sessions', [
     // The named default harness (POD-4737): identical bytes to the old
     // literal, so the checked-in fixture needs no regeneration.
-    { sessionId: 'sess_1', title: 'a session', agentKind: DEFAULT_HARNESS_AGENT } as unknown as SessionMeta,
+    {
+      sessionId: 'sess_1',
+      title: 'a session',
+      agentKind: DEFAULT_HARNESS_AGENT,
+    } as unknown as SessionMeta,
   ])
-  replica.applySnapshot('issues', [{ id: 'iss_1', title: 'an issue' } as unknown as IssueWire])
+  replica.applySnapshot('issueProjections', [
+    { id: 'iss_1', title: 'an issue' } as unknown as IssueProjection,
+  ])
   replica.applySnapshot('conversations', [row('conv_1')])
   replica.applySnapshot('automations', [row('auto_1')])
   replica.applySnapshot('automationRuns', [row('run_1')])

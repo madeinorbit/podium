@@ -1,5 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { type IssueWire, isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'
@@ -26,7 +27,7 @@ export function IssueTitle({
   busy,
   commands,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssueCommands
 }) {
@@ -43,7 +44,7 @@ export function IssueTitle({
   )
 }
 
-export function StatusStrip({ issue }: { issue: IssueWire }) {
+export function StatusStrip({ issue }: { issue: IssueViewModel }) {
   const now = Date.now()
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
@@ -56,12 +57,12 @@ export function StatusStrip({ issue }: { issue: IssueWire }) {
   return (
     <View style={styles.strip}>
       {facts.length > 0 ? <Text style={styles.stripText}>{facts.join(' · ')}</Text> : null}
-      {issue.draft ? <Chip label="draft" tint={color.info} /> : null}
+      {issue.isDraftVessel ? <Chip label="draft" tint={color.info} /> : null}
       {issue.pinned ? (
         <Chip label="pinned" tint={color.accent} textTint={color.accentTint} />
       ) : null}
       {issue.archived ? <Chip label="archived" /> : null}
-      {issue.origin === 'agent' ? (
+      {issue.intentOrigin === 'agent' ? (
         <Chip label="agent-created" tint={color.claude} textTint={color.claudeText} />
       ) : null}
       {issue.audience === 'agent' ? (
@@ -104,7 +105,7 @@ export function IssueDescription({
   busy,
   commands,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssueCommands
 }) {
@@ -125,7 +126,7 @@ export function IssueDescription({
 /** The agent brief, folded by default — it is long, and it is written FOR an
  *  agent. It sits between two things a human reads, so it stays a hairline and a
  *  label until asked for. */
-export function IssueBrief({ issue }: { issue: IssueWire }) {
+export function IssueBrief({ issue }: { issue: IssueViewModel }) {
   const [open, setOpen] = useState(false)
   if (!issue.brief) return null
   return (
@@ -162,7 +163,7 @@ export function LongFormFields({
   busy,
   commands,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssueCommands
 }) {

@@ -1,17 +1,18 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 /**
  * The tab/row status grammar (.design/specs/native-pane.md §2.8): working →
  * braille spinner, waiting on you → still amber (dot on tabs, pill on rows),
  * everything else → nothing. Stillness is a signal, so the "renders nothing"
  * cases are as load-bearing as the glyphs.
  */
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AgentStatusGlyph } from './AgentStatusGlyph'
 
 afterEach(cleanup)
 
-function session(over: Partial<SessionMetaInput>): SessionMeta {
+function session(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -19,7 +20,7 @@ function session(over: Partial<SessionMetaInput>): SessionMeta {
     status: 'live',
     lastActiveAt: '2026-07-14T12:00:00.000Z',
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
 const working = session({
@@ -32,7 +33,7 @@ const waiting = session({
     nativeSubagentCount: 0,
     need: { kind: 'question' },
   },
-} as Partial<SessionMetaInput>)
+} as Partial<SessionViewInput>)
 const done = session({
   agentState: {
     phase: 'idle',

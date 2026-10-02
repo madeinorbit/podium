@@ -18,8 +18,8 @@ describe('SessionStore changes table', () => {
     const store = await openTestStore(':memory:')
     const a = await store.sync.appendChanges(
       [
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"a":1}' },
-        { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"a":2}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"a":1}' },
+        { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"a":2}' },
       ],
       1000,
     )
@@ -37,15 +37,20 @@ describe('SessionStore changes table', () => {
     const store = await openTestStore(':memory:')
     await store.sync.appendChanges(
       [
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
-        { entity: 'issue', entityId: 'i1', op: 'remove', payload: null },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'remove', payload: null },
       ],
       1000,
     )
     const rows = await store.sync.changesSince(1)
     expect(rows.map((r) => r.seq)).toEqual([2, 3])
-    expect(rows[1]).toMatchObject({ entity: 'issue', entityId: 'i1', op: 'remove', payload: null })
+    expect(rows[1]).toMatchObject({
+      entity: 'issueProjection',
+      entityId: 'i1',
+      op: 'remove',
+      payload: null,
+    })
     expect(await store.sync.changesSince(3)).toEqual([])
   })
 
@@ -53,7 +58,7 @@ describe('SessionStore changes table', () => {
     const store = await openTestStore(':memory:')
     for (let i = 1; i <= 5; i++) {
       await store.sync.appendChanges(
-        [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
+        [{ entity: 'issueProjection', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
         i * 1000,
       )
     }
@@ -73,14 +78,18 @@ describe('SessionStore changes table', () => {
     const store = await openTestStore(':memory:')
     for (let i = 1; i <= 5; i++) {
       await store.sync.appendChanges(
-        [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
+        [{ entity: 'issueProjection', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
         1000,
       )
     }
 
-    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(2)
+    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(
+      2,
+    )
     expect(await store.sync.minChangeSeq()).toBe(3)
-    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(2)
+    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(
+      2,
+    )
     expect(await store.sync.minChangeSeq()).toBe(5)
   })
 
@@ -88,7 +97,7 @@ describe('SessionStore changes table', () => {
     const store = await openTestStore(':memory:')
     for (let i = 1; i <= 5; i++) {
       await store.sync.appendChanges(
-        [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
+        [{ entity: 'issueProjection', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
         1000,
       )
     }
@@ -96,7 +105,7 @@ describe('SessionStore changes table', () => {
 
     expect(await store.sync.pruneChangeBatch(plan, 2)).toBe(2)
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i6', op: 'upsert', payload: '{}' }],
+      [{ entity: 'issueProjection', entityId: 'i6', op: 'upsert', payload: '{}' }],
       1000,
     )
     expect(await store.sync.pruneChangeBatch(plan, 2)).toBe(1)
@@ -110,15 +119,15 @@ describe('SessionStore changes table', () => {
     // `WHERE event_time < cutoff` would punch a hole at seq 2; head-only pruning
     // must delete everything at-or-below the highest aged seq instead.
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }],
+      [{ entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{}' }],
       9000,
     )
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }],
+      [{ entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{}' }],
       1000,
     )
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i3', op: 'upsert', payload: '{}' }],
+      [{ entity: 'issueProjection', entityId: 'i3', op: 'upsert', payload: '{}' }],
       9000,
     )
     await pruneChanges(store, { keepRows: 100, maxAgeMs: 1000, now: 5000 })
@@ -128,11 +137,11 @@ describe('SessionStore changes table', () => {
   it('keeps seq monotonic even after the whole table is pruned', async () => {
     const store = await openTestStore(':memory:')
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }],
+      [{ entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{}' }],
       1000,
     )
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }],
+      [{ entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{}' }],
       1000,
     )
     await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })
@@ -140,7 +149,7 @@ describe('SessionStore changes table', () => {
     // A rewound seq here would silently corrupt every client cursor.
     expect(await store.sync.maxChangeSeq()).toBe(2)
     const next = await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i3', op: 'upsert', payload: '{}' }],
+      [{ entity: 'issueProjection', entityId: 'i3', op: 'upsert', payload: '{}' }],
       1000,
     )
     expect(next).toEqual([3])
@@ -150,10 +159,10 @@ describe('SessionStore changes table', () => {
     const store = await openTestStore(':memory:')
     await store.sync.appendChanges(
       [
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
-        { entity: 'issue', entityId: 'i2', op: 'remove', payload: null },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
+        { entity: 'issueProjection', entityId: 'i2', op: 'remove', payload: null },
         { entity: 'session', entityId: 'i1', op: 'upsert', payload: '{"s":1}' },
       ],
       1000,
@@ -173,7 +182,7 @@ describe('SessionStore changes table', () => {
     // it) and the wrong seq.
     expect(world).toContainEqual({
       seq: 3,
-      entity: 'issue',
+      entity: 'issueProjection',
       entityId: 'i1',
       op: 'upsert',
       payload: '{"v":2}',
@@ -200,13 +209,13 @@ describe('SessionStore changes table', () => {
     const store = await openTestStore(':memory:')
     await store.sync.appendChanges(
       [
-        { entity: 'issue', entityId: 'old', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issue', entityId: 'gone', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'old', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'gone', op: 'upsert', payload: '{"v":1}' },
       ],
       1000,
     )
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'gone', op: 'remove', payload: null }],
+      [{ entity: 'issueProjection', entityId: 'gone', op: 'remove', payload: null }],
       2000,
     )
     // Everything, including the row `old` was last written by, is now beyond the
@@ -216,7 +225,7 @@ describe('SessionStore changes table', () => {
 
     const world = await store.sync.latestChangeStates()
     expect(world).toEqual([
-      { seq: 1, entity: 'issue', entityId: 'old', op: 'upsert', payload: '{"v":1}' },
+      { seq: 1, entity: 'issueProjection', entityId: 'old', op: 'upsert', payload: '{"v":1}' },
     ])
     // The removed entity did not come back with it, and the pruned log did not
     // resurrect as a delta range either: a replica must still re-bootstrap.
@@ -228,8 +237,8 @@ describe('SessionStore changes table', () => {
     const initialGeneration = await store.sync.latestChangeStatesGeneration()
     await store.sync.appendChanges(
       [
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
       ],
       1000,
     )
@@ -238,7 +247,7 @@ describe('SessionStore changes table', () => {
     expect(await store.sync.latestChangeStates()).toBe(first)
 
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' }],
+      [{ entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' }],
       1000,
     )
     expect(await store.sync.latestChangeStatesGeneration()).toBe(initialGeneration + 2)
@@ -246,7 +255,7 @@ describe('SessionStore changes table', () => {
     expect(second).not.toBe(first)
     expect(second).toContainEqual({
       seq: 3,
-      entity: 'issue',
+      entity: 'issueProjection',
       entityId: 'i1',
       op: 'upsert',
       payload: '{"v":2}',

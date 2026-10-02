@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { normalizeSettings } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

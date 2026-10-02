@@ -1,4 +1,3 @@
-import { asMutationId } from '@podium/model'
 import {
   COLD_CURSOR,
   createReplica,
@@ -6,8 +5,8 @@ import {
   REPLICA_TRANSCRIPT_ITEM_CAP,
   type ReplicaInit,
 } from '@podium/client-core/replica'
-import type { IssueWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import type { IssueProjection, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
+import { asMutationId, asSessionId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { OUTBOX_LS_KEY, Outbox, type OutboxEntry } from './outbox'
 
@@ -51,7 +50,8 @@ function makeQuotaStorage(): {
   const data = new Map<string, string>()
   let failing = false
   let failed = 0
-  const isEntityBlob = (k: string) => /\.(sessions|issues|conversations|transcripts)\.v1$/.test(k)
+  const isEntityBlob = (k: string) =>
+    /\.(sessions|issueProjections|conversations|transcripts)\.v1$/.test(k)
   return {
     data,
     failedAttempts: () => failed,
@@ -100,13 +100,13 @@ function session(id: string, title = id): SessionMeta {
   } as unknown as SessionMeta
 }
 
-function issue(id: string, title = id): IssueWire {
+function issue(id: string, title = id): IssueProjection {
   return {
     id,
     repoPath: '/r',
     seq: 1,
     title,
-    description: '',
+    description: { value: '' },
     stage: 'backlog',
     worktreePath: null,
     branch: null,
@@ -122,7 +122,7 @@ function issue(id: string, title = id): IssueWire {
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -132,10 +132,10 @@ function issue(id: string, title = id): IssueWire {
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
     readAt: null,
-    origin: 'human' as const,
+    intentOrigin: 'human' as const,
     audience: 'human' as const,
-    draft: false,
-  } as unknown as IssueWire
+    isDraftVessel: false,
+  } as unknown as IssueProjection
 }
 
 function item(id: string, text = id): TranscriptItem {
@@ -150,7 +150,7 @@ describe('replica adapter', () => {
     const a = createReplica({ storage, keyPrefix: prefix })
     expect(a.persistent).toBe(true)
     a.applySnapshot('sessions', [session('s1'), session('s2')])
-    a.applySnapshot('issues', [issue('i1')])
+    a.applySnapshot('issueProjections', [issue('i1')])
     a.setCursor(7)
     await settle()
 
@@ -158,7 +158,7 @@ describe('replica adapter', () => {
     const b = createReplica({ storage, keyPrefix: prefix })
     const hydrated = await b.hydrate()
     expect(hydrated.sessions.map((s) => s.sessionId).sort()).toEqual(['s1', 's2'])
-    expect(hydrated.issues.map((i) => i.id)).toEqual(['i1'])
+    expect(hydrated.issueProjections.map((i) => i.id)).toEqual(['i1'])
     expect(hydrated.cursor).toBe(7)
 
     // Delta semantics: upsert replaces by id, remove drops, others untouched.
@@ -175,12 +175,12 @@ describe('replica adapter', () => {
   it('applySnapshot removes rows missing from the new list', async () => {
     const { storage } = makeStorage()
     const a = createReplica({ storage, keyPrefix: prefix })
-    a.applySnapshot('issues', [issue('i1'), issue('i2')])
-    a.applySnapshot('issues', [issue('i2', 'kept')])
+    a.applySnapshot('issueProjections', [issue('i1'), issue('i2')])
+    a.applySnapshot('issueProjections', [issue('i2', 'kept')])
     await settle()
     const b = createReplica({ storage, keyPrefix: prefix })
     const h = await b.hydrate()
-    expect(h.issues.map((i) => `${i.id}:${i.title}`)).toEqual(['i2:kept'])
+    expect(h.issueProjections.map((i) => `${i.id}:${i.title}`)).toEqual(['i2:kept'])
   })
 
   it('applySnapshot drops a field that goes present→absent (unsnooze clear #170)', async () => {
@@ -191,15 +191,15 @@ describe('replica adapter', () => {
     // fully replaced.
     const { storage } = makeStorage()
     const a = createReplica({ storage, keyPrefix: prefix })
-    const snoozed: IssueWire = { ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' }
-    a.applySnapshot('issues', [snoozed])
+    const snoozed: IssueProjection = { ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' }
+    a.applySnapshot('issueProjections', [snoozed])
     await settle()
     // Server clears the snooze → the wire no longer carries deferUntil at all.
-    a.applySnapshot('issues', [issue('i1')])
+    a.applySnapshot('issueProjections', [issue('i1')])
     await settle()
     const b = createReplica({ storage, keyPrefix: prefix })
     const h = await b.hydrate()
-    const got = h.issues.find((i) => i.id === 'i1')
+    const got = h.issueProjections.find((i) => i.id === 'i1')
     expect(got).toBeDefined()
     expect(got?.deferUntil ?? null).toBeNull()
   })
@@ -207,12 +207,14 @@ describe('replica adapter', () => {
   it('applyChanges (optimistic) also drops a removed field', async () => {
     const { storage } = makeStorage()
     const a = createReplica({ storage, keyPrefix: prefix })
-    a.applySnapshot('issues', [{ ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' }])
+    a.applySnapshot('issueProjections', [
+      { ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' },
+    ])
     await settle()
-    a.applyChanges('issues', [issue('i1')], [])
+    a.applyChanges('issueProjections', [issue('i1')], [])
     await settle()
     const h = await createReplica({ storage, keyPrefix: prefix }).hydrate()
-    expect(h.issues.find((i) => i.id === 'i1')?.deferUntil ?? null).toBeNull()
+    expect(h.issueProjections.find((i) => i.id === 'i1')?.deferUntil ?? null).toBeNull()
   })
 
   it('a corrupt storage blob cold-starts instead of throwing', async () => {
@@ -295,7 +297,8 @@ describe('replica adapter', () => {
     const cold = await r.hydrate()
     expect(cold).toEqual({
       sessions: [],
-      issues: [],
+      machines: [],
+      sessionUserStates: [],
       issueProjections: [],
       issueUserStates: [],
       issueGitStates: [],
@@ -311,6 +314,7 @@ describe('replica adapter', () => {
       // empty table is still a table the degraded replica has to offer, or a
       // reader would have to branch on whether storage happened to work.
       shipOrders: [],
+      shipLanes: [],
       userLayouts: [],
       cursor: null,
       // Degraded storage has no durable entity data, so the cursor triple reads
@@ -319,7 +323,7 @@ describe('replica adapter', () => {
       schemaReset: false,
     })
     r.applySnapshot('sessions', [session('s1')])
-    r.applyChanges('issues', [issue('i1')], [])
+    r.applyChanges('issueProjections', [issue('i1')], [])
     r.setCursor(1)
     r.putTranscriptWindow('c', [item('a')])
     await settle()
@@ -327,12 +331,13 @@ describe('replica adapter', () => {
     expect(r.transcriptWindow('c')?.items[0]?.id).toBe('a')
     const h = await r.hydrate()
     expect(h.sessions.map((x) => x.sessionId)).toEqual(['s1'])
-    expect(h.issues.map((x) => x.id)).toEqual(['i1'])
+    expect(h.issueProjections.map((x) => x.id)).toEqual(['i1'])
     // …but nothing reaches the broken storage: a NEW instance over it is cold.
     const again = createReplica({ storage: throwing, keyPrefix: prefix })
     expect(await again.hydrate()).toEqual({
       sessions: [],
-      issues: [],
+      machines: [],
+      sessionUserStates: [],
       issueProjections: [],
       issueUserStates: [],
       issueGitStates: [],
@@ -345,6 +350,7 @@ describe('replica adapter', () => {
       automations: [],
       automationRuns: [],
       shipOrders: [],
+      shipLanes: [],
       userLayouts: [],
       cursor: null,
       feedCursor: COLD_CURSOR,
@@ -360,9 +366,9 @@ describe('replica adapter', () => {
     // let the cursor persist past unpersisted data, (c) stop hitting storage.
     const { storage, data, failedAttempts, setFailing } = makeQuotaStorage()
     const r = createReplica({ storage, keyPrefix: prefix })
-    r.applySnapshot('issues', [issue('i1')]) // persists fine pre-quota
+    r.applySnapshot('issueProjections', [issue('i1')]) // persists fine pre-quota
     await settle()
-    expect(data.has(`${prefix}.issues.v1`)).toBe(true)
+    expect(data.has(`${prefix}.issueProjections.v1`)).toBe(true)
 
     setFailing(true)
     // Must not throw into the ingest path…
@@ -377,7 +383,7 @@ describe('replica adapter', () => {
     expect(data.has(`${prefix}.cursor.v1`)).toBe(false)
     expect(r.getCursor()).toBeNull()
     // Freed quota: the (now possibly inconsistent) persisted entity blobs are gone.
-    expect(data.has(`${prefix}.issues.v1`)).toBe(false)
+    expect(data.has(`${prefix}.issueProjections.v1`)).toBe(false)
     expect(data.has(`${prefix}.sessions.v1`)).toBe(false)
 
     // Permanently degraded: further entity writes never touch durable storage again.

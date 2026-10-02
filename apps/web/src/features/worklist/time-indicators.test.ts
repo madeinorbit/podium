@@ -1,4 +1,5 @@
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asSessionId } from '@podium/model'
 import { describe, expect, test } from 'vitest'
 import { formatElapsed, workingSinceMs } from './time-indicators'
 
@@ -21,7 +22,7 @@ describe('formatElapsed', () => {
   })
 })
 
-function session(over: Partial<SessionMetaInput>): SessionMeta {
+function session(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -39,10 +40,10 @@ function session(over: Partial<SessionMetaInput>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
-function agentState(phase: 'working' | 'idle', since: string): SessionMeta['agentState'] {
+function agentState(phase: 'working' | 'idle', since: string): SessionView['agentState'] {
   return { phase, since, nativeSubagentCount: 0 }
 }
 

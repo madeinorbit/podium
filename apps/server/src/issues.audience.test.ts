@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueReport } from '@podium/model'
 /**
  * #198 — origin is derived from the caller (deterministic, unforgeable) and
  * audience is agent-declared, and the orphan-internal warning fires when an
@@ -39,7 +39,7 @@ const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
 }
 
 /** Issue mutations are typed loosely at this seam; these cases assert on the wire. */
-const asWire = (v: unknown): IssueWire => v as IssueWire
+const asWire = (v: unknown): IssueReport => v as IssueReport
 
 const withWarning = (v: unknown): string | undefined => (v as { warning?: string }).warning
 
@@ -345,7 +345,9 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
       // Inert: never auto-started, never board-facing.
       expect(sub.audience).toBe('agent')
       expect(
-        (await reg.modules.sessions.listSessions(undefined, 'rpc')).filter((session) => session.issueId === sub.id),
+        (await reg.modules.sessions.listSessions(undefined, 'rpc')).filter(
+          (session) => session.issueId === sub.id,
+        ),
       ).toHaveLength(0)
       await expect(proposalWorker.issues.start({ id: sub.id })).rejects.toThrow(/operator/i)
       await expect(proposalWorker.issues.start({ id: proposal.id })).rejects.toThrow(/operator/i)

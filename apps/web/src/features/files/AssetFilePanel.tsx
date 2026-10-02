@@ -1,7 +1,7 @@
+import { useStoreHandle } from '@podium/client-core/react'
 import type { FileScope } from '@podium/client-core/viewmodels'
 import { Maximize2, Minus, Plus, X } from 'lucide-react'
 import { type JSX, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { DownloadFileButton } from './DownloadFileButton'
 import type { FileKind } from './file-kind'
@@ -32,7 +32,7 @@ export function AssetFilePanel({
   kind: AssetKind
   onClose: () => void
 }): JSX.Element {
-  const httpOrigin = useStoreSelector((s) => s.httpOrigin)
+  const { httpOrigin } = useStoreHandle().getSnapshot()
   const origin = httpOrigin || (typeof window === 'undefined' ? '' : window.location.origin)
   const url = rawFileUrl({ httpOrigin: origin, scope, path })
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)

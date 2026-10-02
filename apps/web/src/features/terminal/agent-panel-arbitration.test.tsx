@@ -1,5 +1,6 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -64,7 +65,7 @@ vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
 
-let storeSessions: SessionMeta[] = []
+let storeSessions: SessionView[] = []
 let storeMachines: Array<{ id: string; name: string; hostname: string; online: boolean }> = []
 let storePanelMode: Record<string, 'chat' | 'native'> = {}
 let storePendingSpawnIds = new Set<string>()
@@ -146,7 +147,7 @@ const OFFER = {
   createdAt: '2026-06-03T00:01:00.000Z',
 }
 
-function meta(over: Partial<SessionMetaInput>): SessionMeta {
+function meta(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -166,7 +167,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     transcriptAvailable: true,
     resumable: true,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 let container: HTMLDivElement
@@ -516,7 +517,7 @@ describe('AgentPanel on a server-family client terminal', () => {
       ...storeSessions[0],
       driverFamily: undefined,
       attachKinds: ['client'],
-    } as SessionMeta
+    } as SessionView
     await render({ active: true })
     expect(container.querySelector('[data-testid="mode-native"]')).toBeTruthy()
     expect(mountSessionMock).toHaveBeenCalledTimes(1)

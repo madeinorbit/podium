@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
 import { AlarmClock, AlarmClockOff } from 'lucide-react'
 import { type JSX, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
@@ -53,7 +54,7 @@ export function SnoozeControl({
   iconSize = 13,
   dimmed = true,
 }: {
-  session: SessionMeta
+  session: SessionView
   className?: string
   iconSize?: number
   /** When true (sidebar), the un-snoozed icon is muted; the open-session toolbar

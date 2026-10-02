@@ -162,7 +162,7 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
     hostMachineId,
     pairing,
     userExists: async (id) => (await store.users.get(id)) !== undefined,
-    sessionsChangedForMachine: () => {},
+
     clients: () => [],
     machinesForPrincipal: async () => [],
   })

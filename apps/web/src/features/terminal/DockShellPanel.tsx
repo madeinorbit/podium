@@ -1,6 +1,7 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { resolveIssueReference } from '@podium/client-core/viewmodels'
-import type { MachineWire, SessionId, SessionMeta, MachineId } from '@podium/model/browser'
+import type { MachineWire, SessionId, MachineId } from '@podium/model/browser'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
@@ -195,7 +196,7 @@ export function DockShellPanel({
 /** Resolve the dock shell's actual server-attributed host first, retaining a
  * useful target indicator while a newly-created session is still arriving. */
 export function resolveShellMachineLabel(
-  session: Pick<SessionMeta, 'machineId' | 'machineName'> | undefined,
+  session: Pick<SessionView, 'machineId' | 'machineName'> | undefined,
   machines: Pick<MachineWire, 'id' | 'name'>[],
   requestedMachineId?: MachineId,
 ): string | undefined {
@@ -215,7 +216,7 @@ function DockShellTerminal({
   sessionId: SessionId
   hub: Parameters<typeof useTerminalSession>[0]['hub']
   /** The row this shell's grid comes from (POD-3239 B1). */
-  session: SessionMeta | undefined
+  session: SessionView | undefined
 }): JSX.Element {
   const { settings, appearance } = useTerminalAppearance()
   const termBg = settings.background ?? TERMINAL_DEFAULTS.background

@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { OWNERSHIP_MATRIX_INDEX, ROW } from '../annotations/matrix'
 import { asMatrixRowId } from '../annotations/ownership'
-import { IssueGraphNode, IssueWire, OrphanIssue } from '../entities/issue'
 import { HandoffManifest, HandoffManifestV1, HandoffManifestV2 } from '../entities/handoff'
+import { IssueGraphNode, OrphanIssue } from '../entities/issue'
 import { SessionMeta } from '../entities/session'
+import { IssueIdentity } from '../fields/issue'
 import {
   type RetainedRepresentation,
   representationViolations,
@@ -230,25 +231,12 @@ describe('the live registry', () => {
     expect(v.filter((x) => x.kind === 'instance-partition')).toEqual([])
   })
 
-  /**
-   * A RATCHET, not a zero. Five per-user singletons ride the two wire
-   * projections today. They are INHERITED — POD-367 §3.5 records that none was
-   * added or blessed by 1.4 — and POD-1076 owns re-keying them to
-   * `(userId, entityId)`. Pinning the exact membership is what makes adding a
-   * sixth a red rather than a slightly larger number.
-   */
-  it('pins the five INHERITED per-user singletons awaiting POD-1076', () => {
+  it('permits no per-user markers on shared wire projections', () => {
     const found = representationViolations(RETAINED_REPRESENTATIONS, OWNERSHIP_MATRIX_INDEX)
       .filter((x) => x.kind === 'per-user-state-member')
       .map((x) => `${x.representation.split(' ')[0]}.${/'([^']+)'/.exec(x.detail)?.[1]}`)
       .sort()
-    expect(found).toEqual([
-      'IssueWire.pinned',
-      'IssueWire.readAt',
-      'IssueWire.tuckedAt',
-      'SessionMeta.readAt',
-      'SessionMeta.snoozedUntil',
-    ])
+    expect(found).toEqual([])
   })
 
   it('pins every schema-bearing entry to the schema it claims to document', () => {
@@ -256,7 +244,6 @@ describe('the live registry', () => {
     // `toBe`, not `toEqual`: an entry pointing at a LOOK-ALIKE schema would
     // satisfy structural equality and document the wrong thing.
     expect(bySymbol.get('SessionMeta')?.schema).toBe(SessionMeta)
-    expect(bySymbol.get('IssueWire')?.schema).toBe(IssueWire)
     expect(bySymbol.get('HandoffManifest')?.schema).toBe(HandoffManifest)
     expect(bySymbol.get('OrphanIssue')?.schema).toBe(OrphanIssue)
     expect(bySymbol.get('IssueGraphNode')?.schema).toBe(IssueGraphNode)
@@ -272,9 +259,9 @@ describe('the live registry', () => {
    * that claim to compose one identity head.
    */
   it('proves the composed identity members are ONE schema instance, not three equal ones', () => {
-    expect(OrphanIssue.shape.id).toBe(IssueWire.shape.id)
-    expect(IssueGraphNode.shape.id).toBe(IssueWire.shape.id)
-    expect(OrphanIssue.shape.seq).toBe(IssueWire.shape.seq)
+    expect(OrphanIssue.shape.id).toBe(IssueIdentity.shape.id)
+    expect(IssueGraphNode.shape.id).toBe(IssueIdentity.shape.id)
+    expect(OrphanIssue.shape.seq).toBe(IssueIdentity.shape.seq)
     // POD-1153: asserted on BOTH format arms, because the registry documents the
     // union. A composition claim that held on v1 only would be a true statement
     // about the arm nobody will edit again.

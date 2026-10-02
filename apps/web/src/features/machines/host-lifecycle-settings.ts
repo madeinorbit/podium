@@ -1,3 +1,5 @@
+import { headerDataLayer } from '@/lib/header-data-layer'
+import { usePoolLifecycleSettings } from '@/app/header-data'
 import type { PodiumSettings } from '@podium/runtime'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -12,7 +14,7 @@ import { useStoreSelector } from '@/app/store'
 /** Lifecycle knobs the host-pressure surfaces need (hibernation + worktree GC).
  *  Lazily fetched so chips/panels reflect live settings without a settings store.
  *  Returns null until the first fetch resolves. */
-export function useHostLifecycleSettings(): {
+function useLegacyHostLifecycleSettings(): {
   hibernation: PodiumSettings['hibernation']
   worktreeGc: PodiumSettings['worktreeGc']
 } | null {
@@ -42,4 +44,9 @@ export function useHostLifecycleSettings(): {
  *  only need the hibernation half. */
 export function useHibernationSetting(): PodiumSettings['hibernation'] | null {
   return useHostLifecycleSettings()?.hibernation ?? null
+}
+
+export function useHostLifecycleSettings(): ReturnType<typeof useLegacyHostLifecycleSettings> {
+  const useRead = headerDataLayer() === 'pool' ? usePoolLifecycleSettings : useLegacyHostLifecycleSettings
+  return useRead()
 }

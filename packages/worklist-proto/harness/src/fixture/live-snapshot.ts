@@ -1,3 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
+import { fixtureViewModels } from './normalized-issues'
 /**
  * POD-4552 — an anonymised snapshot of a live Podium workspace, and the
  * adapter that feeds it to the same oracle and shape measures the fixture uses.
@@ -20,16 +23,14 @@
 
 import { createHmac, randomBytes } from 'node:crypto'
 import type { PinState } from '@podium/client-core/viewmodels'
+import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type {
   GitRepositoryWire,
   IssueDepProjection,
   IssueProjection,
-  IssueWire,
   MachineWire,
   RepoProjection,
-  SessionMeta,
 } from '@podium/model'
-import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { expectedSnapshot } from '../oracle/index'
 import type { CorpusScale, FixtureCorpus } from './index'
 
@@ -37,9 +38,11 @@ export const LIVE_SNAPSHOT_FORMAT = 'podium-live-snapshot/1'
 
 /** The collections as the web client holds them, before or after hashing. */
 export interface LiveCollections {
-  issues: IssueWire[]
+  issueUserStates?: import('@podium/model').IssueUserStateWire[]
+  issueGitStates?: import('@podium/model').IssueGitStateProjection[]
+  issues: IssueViewModel[]
   issueProjections: IssueProjection[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   repoProjections: RepoProjection[]
   issueDeps: IssueDepProjection[]
   /** The machine scan (`GitRepositoryWire`): repo roots and their worktrees. */
@@ -290,14 +293,17 @@ export function anonymiseCollections(
  * fixture-only markers are empty: nothing here reads them.
  */
 export function corpusFromLive(live: LiveCollections, coarseNow: number): FixtureCorpus {
+  const issues = fixtureViewModels(live)
   return {
     seed: 0,
     scale: 1 as CorpusScale,
     cell: null,
     units: [],
     fixedNow: coarseNow,
-    issues: live.issues,
+    issues,
     issueProjections: live.issueProjections,
+    issueUserStates: live.issueUserStates ?? [],
+    issueGitStates: live.issueGitStates ?? [],
     sessions: live.sessions,
     repoProjections: live.repoProjections,
     issueDeps: live.issueDeps,
@@ -311,7 +317,7 @@ export function corpusFromLive(live: LiveCollections, coarseNow: number): Fixtur
     resumeTwins: [],
     edgedAskers: [],
     stats: {
-      issues: live.issues.length,
+      issues: issues.length,
       sessions: live.sessions.length,
       repos: live.repos.length,
       worktrees: 0,

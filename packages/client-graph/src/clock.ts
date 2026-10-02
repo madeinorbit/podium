@@ -60,12 +60,13 @@
  */
 
 import { createAtom, type IAtom } from 'mobx'
+import { debugName } from './debug-name'
 
 export class DeadlineClock {
   /** Sorted, unique deadlines someone is waiting on. */
   private readonly deadlines: number[] = []
   private readonly atoms = new Map<number, IAtom>()
-  private readonly rewind: IAtom = createAtom('pool.clock.rewind')
+  private readonly rewind: IAtom = createAtom(debugName(() => 'pool.clock.rewind') ?? 'Atom')
   /** Deadlines crossed (fired) since construction. */
   crossings = 0
 
@@ -84,7 +85,7 @@ export class DeadlineClock {
     }
     let atom = this.atoms.get(t)
     if (atom === undefined) {
-      const created = createAtom(`pool.clock@${t}`, undefined, () => this.forget(t, created))
+      const created = createAtom(debugName(() => `pool.clock@${t}`) ?? 'Atom', undefined, () => this.forget(t, created))
       atom = created
       this.atoms.set(t, created)
       this.deadlines.splice(this.indexOf(t), 0, t)

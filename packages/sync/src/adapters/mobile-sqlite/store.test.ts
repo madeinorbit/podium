@@ -106,7 +106,7 @@ describe('mobile SQLite adapter — store obligations', () => {
               operations: [
                 {
                   kind: 'upsert',
-                  entity: 'issue',
+                  entity: 'issueProjection',
                   entityId: 'ADA-1',
                   value: { v: 1 },
                   provenance: { seq: 1 },
@@ -149,7 +149,7 @@ describe('mobile SQLite adapter — store obligations', () => {
             operations: [
               {
                 kind: 'upsert',
-                entity: 'issue',
+                entity: 'issueProjection',
                 entityId: 'ADA-1',
                 value: { v: 1 },
                 provenance: { seq: 1 },
@@ -195,7 +195,7 @@ describe('mobile SQLite adapter — store obligations', () => {
       operations: [
         {
           kind: 'upsert',
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'ADA-1',
           value: { v: 3 },
           provenance: { seq: 1 },
@@ -203,7 +203,7 @@ describe('mobile SQLite adapter — store obligations', () => {
       ],
       cursor: CURSOR_1,
     })
-    expect(view.cache.read('issue', 'ADA-1')?.value).toEqual({ v: 3 })
+    expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 3 })
     expect(view.cache.readCursor()).toEqual(CURSOR_1)
   })
 
@@ -226,7 +226,7 @@ describe('mobile SQLite adapter — store obligations', () => {
       operations: [
         {
           kind: 'upsert',
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'ADA-1',
           value: { v: 4 },
           provenance: { seq: 4 },
@@ -245,7 +245,7 @@ describe('mobile SQLite adapter — store obligations', () => {
       operations: [
         {
           kind: 'upsert',
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'ADA-1',
           value: { v: 1 },
           provenance: { seq: 1 },
@@ -253,7 +253,7 @@ describe('mobile SQLite adapter — store obligations', () => {
       ],
     })
     // It can say yes first.
-    expect(view.cache.read('issue', 'ADA-1')?.value).toEqual({ v: 1 })
+    expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 1 })
 
     store.setCorrupt(true)
     expect(store.durability()).toBe('unavailable')
@@ -273,7 +273,7 @@ describe('mobile SQLite adapter — store obligations', () => {
       operations: [
         {
           kind: 'upsert',
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'ADA-1',
           value: { at: new Date('2026-01-01T00:00:00.000Z'), nested: { list: [1, 2] } },
           provenance: { seq: 1 },
@@ -283,7 +283,7 @@ describe('mobile SQLite adapter — store obligations', () => {
     store.close()
 
     const relaunched = await open()
-    expect(relaunched.viewFor(ADA).cache.read('issue', 'ADA-1')?.value).toEqual({
+    expect(relaunched.viewFor(ADA).cache.read('issueProjection', 'ADA-1')?.value).toEqual({
       at: '2026-01-01T00:00:00.000Z',
       nested: { list: [1, 2] },
     })
@@ -303,7 +303,7 @@ describe('mobile SQLite adapter — store obligations', () => {
           operations: [
             {
               kind: 'upsert',
-              entity: 'issue',
+              entity: 'issueProjection',
               entityId: 'ADA-1',
               value: { v: 1 },
               provenance: { seq: 1 },
@@ -338,7 +338,7 @@ describe('mobile SQLite adapter — store obligations', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'SHARED-1',
             value,
             provenance: { seq: 1 },
@@ -351,13 +351,17 @@ describe('mobile SQLite adapter — store obligations', () => {
     // Same entity id, two rows, no interference — which a shared keyspace with a
     // `principal` column would not give: the second write would have replaced the
     // first.
-    expect(store.viewFor(ADA).cache.read('issue', 'SHARED-1')?.value).toEqual({ v: 'ada' })
-    expect(store.viewFor(GRACE).cache.read('issue', 'SHARED-1')?.value).toEqual({ v: 'grace' })
+    expect(store.viewFor(ADA).cache.read('issueProjection', 'SHARED-1')?.value).toEqual({
+      v: 'ada',
+    })
+    expect(store.viewFor(GRACE).cache.read('issueProjection', 'SHARED-1')?.value).toEqual({
+      v: 'grace',
+    })
 
     store.viewFor(ADA).cache.discardCache()
     const durable = readDurable(file)
     expect(durable.entities).toEqual([
-      { principal: GRACE, entity: 'issue', entityId: 'SHARED-1', value: { v: 'grace' } },
+      { principal: GRACE, entity: 'issueProjection', entityId: 'SHARED-1', value: { v: 'grace' } },
     ])
     expect(durable.cursors.map((r) => r.principal)).toEqual([GRACE])
     store.close()
@@ -377,7 +381,7 @@ describe('mobile SQLite adapter — store obligations', () => {
             operations: [
               {
                 kind: 'upsert',
-                entity: 'issue',
+                entity: 'issueProjection',
                 entityId: 'SHARED-1',
                 value: { owner: principal },
                 provenance: { seq: 1 },
@@ -397,7 +401,7 @@ describe('mobile SQLite adapter — store obligations', () => {
     expect(durable.entities).toEqual([
       {
         principal: GRACE,
-        entity: 'issue',
+        entity: 'issueProjection',
         entityId: 'SHARED-1',
         value: { owner: GRACE },
       },

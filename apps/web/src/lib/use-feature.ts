@@ -13,7 +13,7 @@
  */
 import type { FeatureId, FeatureVisibility } from '@podium/protocol'
 import { useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import type { Trpc } from '@/app/trpc'
 
 export interface FeaturesStateSnapshot {
@@ -71,7 +71,7 @@ export function invalidateFeatures(trpc: Trpc): void {
 
 /** Subscribe to the shared features.state snapshot (for the Experimental page). */
 export function useFeaturesState(): FeaturesStateSnapshot | null {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
   const [, force] = useState(0)
   useEffect(() => {
     const sub = () => force((n) => n + 1)

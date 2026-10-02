@@ -424,3 +424,18 @@ describe('appVersion', () => {
     expect(appVersion(page('  '), '  ')).toBe('dev')
   })
 })
+
+describe('native TestFlight build identity', () => {
+  it('reports the tracked archive build number even with an unstamped environment', () => {
+    expect(appVersion(undefined, undefined, 'ios')).toBe('1.0.0+13')
+  })
+  it('native identity does not inherit a mobile-web stamp or override', () => {
+    expect(
+      appVersion(
+        { querySelector: () => ({ getAttribute: () => 'dev+web' }) } as unknown as Document,
+        'dev',
+        'ios',
+      ),
+    ).toBe('1.0.0+13')
+  })
+})

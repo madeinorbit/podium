@@ -1,5 +1,3 @@
-import { NativeBindingReceipt } from './native-binding'
-import { SessionDelegation } from '@podium/model'
 import {
   AgentKind,
   Attribution,
@@ -10,6 +8,7 @@ import {
   IssueIdField,
   MachineIdField,
   ResumeRef,
+  SessionDelegation,
   SessionIdField,
   UserIdField,
 } from '@podium/model'
@@ -17,6 +16,7 @@ import { z } from 'zod'
 import { PresenceIdentity } from '../planes/presence-rooms'
 import { FeedCursorField } from './feed'
 import { ClientLogOrigin } from './logs'
+import { NativeBindingReceipt } from './native-binding'
 
 const positiveInt = z.number().int().positive()
 
@@ -69,20 +69,7 @@ export const CAP_METADATA_DELTA = 'metadataDelta'
  *  unconditionally. That is safe in the same way the whole additive rule is —
  *  zod objects STRIP unknown keys, so an older client's parse drops them. */
 export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
-/** Client capability: the client consumes the NORMALIZED issue projection
- *  (`IssueProjection` from `@podium/model`) rather than `IssueWire` — issues
- *  carry no embedded `sessions: SessionMeta[]`, no cross-entity rollups, and no
- *  member ids at all; the client joins sessions locally by indexing them on
- *  `issueId` (ADR 4 D7.1/D7.3). [POD-796]
- *
- *  The cap tells a client to render the normalized collection. The server emits
- *  it unconditionally; a capless client receives the registered, session-free
- *  transitional IssueWire residue for attach paint and rolling compatibility.
- *
- *  Additive per ADR 2 D4 — negotiated by capability, `CLIENT_WIRE_VERSION` stays 1.
- *  Unlike {@link CAP_SYNC_FEED_IDENTITY}, this capability selects which of the
- *  two unconditionally emitted collections the client consumes.
- */
+
 export const CAP_ISSUES_NORMALIZED = 'issuesNormalized'
 /** Client capability: this connection accepts v1 binary PTY output envelopes.
  * Missing capability data is the legacy JSON/base64 output contract. */
@@ -153,7 +140,10 @@ export const DetachMessage = z.object({ type: z.literal('detach'), sessionId: Se
  * stays. Explicit only: a dropped WebSocket sends nothing, so a network blip
  * is never a release (and a release never replays on reconnect).
  */
-export const TabReleaseMessage = z.object({ type: z.literal('tabRelease'), sessionId: SessionIdField })
+export const TabReleaseMessage = z.object({
+  type: z.literal('tabRelease'),
+  sessionId: SessionIdField,
+})
 export const InputMessage = z.object({
   type: z.literal('input'),
   sessionId: SessionIdField,
@@ -928,7 +918,8 @@ export const AgentModelMessage = z.object({
   type: z.literal('agentModel'),
   /** Native record time when available; absent means the source supplied none. */
   at: z.string().datetime().optional(),
-  source: z.enum(['transcript', 'native']).optional(),  sessionId: SessionIdField,
+  source: z.enum(['transcript', 'native']).optional(),
+  sessionId: SessionIdField,
   model: z.string(),
   /** The observed reasoning-effort tier (assistant records' top-level `effort`),
    *  when the transcript reports one. Optional for wire-compat with older daemons. */

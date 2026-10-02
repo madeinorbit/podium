@@ -8,7 +8,6 @@ import type {
   IssueDepProjection,
   IssueEventWire,
   IssueProjection,
-  IssueWire,
   LayoutWire,
   MachineId,
   MachineWire,
@@ -17,6 +16,7 @@ import type {
   RepoProjection,
   SessionId,
   SessionMeta,
+  ShipLaneProjection,
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
@@ -35,6 +35,7 @@ import {
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CLIENT_WIRE_VERSION,
   ClientOutputBinaryMetadata,
   type ClientPtyInputMetadata,
   createDispatcher,
@@ -42,10 +43,11 @@ import {
   encode,
   encodeBinaryEnvelope,
   type HeadlessActivityEvent,
-  type TurnPreviewMessage,
   isKnownMetadataChange,
   type MetadataChange,
   type MetadataChangeLenient,
+  MIN_CLIENT_WIRE_VERSION,
+  type PendingInteractionWire,
   type PresenceIdentity,
   type PresencePayload,
   type PresenceRoomClientMessage,
@@ -58,9 +60,7 @@ import {
   type ServerMessageLenient,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
-  CLIENT_WIRE_VERSION,
-  MIN_CLIENT_WIRE_VERSION,
-  type PendingInteractionWire,
+  type TurnPreviewMessage,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
@@ -318,9 +318,7 @@ export interface FeedBudgetSnapshot {
  */
 function feedFrameTypeHint(raw: string): FeedServerFrame['type'] | null {
   const match =
-    /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedRescope|feedResyncRequired|feedResume)"/.exec(
-      raw,
-    )
+    /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedRescope|feedResyncRequired|feedResume)"/.exec(raw)
   return (match?.[1] as FeedServerFrame['type'] | undefined) ?? null
 }
 
@@ -502,7 +500,6 @@ export interface HubEvents {
   /** Approval broker [spec:SP-edbb]: undecided management-op requests. */
   approvals: [pending: ApprovalWire[]]
   /** Full issue list after any change. */
-  issues: [issues: IssueWire[]]
   /** Full NORMALIZED issue list after any change [POD-796]. Fires for a hub
    *  that offered CAP_ISSUES_NORMALIZED (the authority emits unconditionally
    *  since POD-797). Carries no session data of any kind —
@@ -528,6 +525,7 @@ export interface HubEvents {
   messageRecords: [records: MessageRecordWire[]]
   /** Compact shipping read rows, joined to issues by `issueId`. */
   shipOrders: [orders: ShipOrderProjection[]]
+  shipLanes: [lanes: ShipLaneProjection[]]
   /**
    * Per-user layout rows after any change (POD-1350, entity kind `userLayout`).
    * Feed demux only — POD-403's ui-state module is the hydrate/write owner; this
@@ -542,7 +540,6 @@ export interface HubEvents {
    */
   userReadPositions: [rows: ReadPositionWire[]]
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
-  issueUpdated: [issue: IssueWire]
   connectionHealth: [health: ConnectionHealth]
   /** The server said something this build could not read. Fires on every drop,
    *  carrying the running tally — see {@link WireSkew}. */
@@ -630,7 +627,6 @@ export class SocketHub {
   private hostMetricsList: HostMetricsWire[] = []
   private machinesList: MachineWire[] = []
   private approvalsList: ApprovalWire[] = []
-  private issueList: IssueWire[] = []
   /** The normalized issue list [POD-796]. Separate from `issueList` rather than
    *  replacing it: the two shapes coexist for the whole transition, and the feed
    *  carries them as two entity KINDS ('issue' / 'issueProjection') because the
@@ -650,6 +646,7 @@ export class SocketHub {
   private pendingInteractionList: PendingInteractionWire[] = []
   private messageRecordList: MessageRecordWire[] = []
   private shipOrderList: ShipOrderProjection[] = []
+  private shipLaneList: ShipLaneProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
   /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
@@ -849,7 +846,6 @@ export class SocketHub {
         // Legacy feed capability negotiation is keyed only by the presence of the
         // opaque Replica sink. Transport never reads its position or stamp.
         // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
-        // promises the server this client no longer needs IssueWire, which is
         // what licenses the server to skip the O(issues x sessions) rebuild on
         // session churn [POD-796].
         ...(this.opts.feed?.syncHttp || this.legacyFeed || acceptsBinaryOutput || acceptsBinaryInput
@@ -873,7 +869,9 @@ export class SocketHub {
         // cannot be made to send a field it was never built with"), so a hub
         // with no feed sink must keep saying nothing rather than announcing a
         // version it has nowhere to put.
-        ...(this.opts.feed ? { wireVersion: CLIENT_WIRE_VERSION, wireVersionMin: MIN_CLIENT_WIRE_VERSION } : {}),
+        ...(this.opts.feed
+          ? { wireVersion: CLIENT_WIRE_VERSION, wireVersionMin: MIN_CLIENT_WIRE_VERSION }
+          : {}),
         // WHERE THIS REPLICA STANDS (POD-2061), filled by the sink and spread
         // unread — see `FeedSinkPort.helloFields`. Present, and the server may
         // answer with a resume grant and no world; absent, and this is exactly
@@ -1293,28 +1291,6 @@ export class SocketHub {
     return off
   }
 
-  issues(): IssueWire[] {
-    return this.issueList
-  }
-
-  /**
-   * Observe the full issue list. Replays the current list immediately, like `onSessions`.
-   * @deprecated Use `on('issues', cb)` (no replay — read `issues()`).
-   */
-  onIssues(cb: (i: IssueWire[]) => void): () => void {
-    const off = this.on('issues', cb)
-    cb(this.issueList)
-    return off
-  }
-
-  /**
-   * Observe single-issue updates (no immediate replay; mirrors `onAttention`).
-   * @deprecated Use `on('issueUpdated', cb)`.
-   */
-  onIssueUpdated(cb: (i: IssueWire) => void): () => void {
-    return this.on('issueUpdated', cb)
-  }
-
   /**
    * Seed the entity lists from a persisted local replica (hydrate-first paint,
    * docs/spec/thin-client-replica.md §2.2) and notify observers, so an offline
@@ -1324,11 +1300,11 @@ export class SocketHub {
    */
   seedMetadata(seed: {
     sessions: SessionMeta[]
-    issues: IssueWire[]
     issueProjections?: IssueProjection[]
     issueDeps?: IssueDepProjection[]
     repos?: RepoProjection[]
     shipOrders?: ShipOrderProjection[]
+    shipLanes?: ShipLaneProjection[]
     conversations: ConversationSummaryWire[]
     automations?: AutomationWire[]
     automationRuns?: AutomationRunWire[]
@@ -1336,11 +1312,11 @@ export class SocketHub {
     if (this.legacyFeed !== undefined) {
       this.legacyFeed.seed({
         sessions: seed.sessions,
-        issues: seed.issues,
         issueProjections: seed.issueProjections ?? [],
         issueDeps: seed.issueDeps ?? [],
         repos: seed.repos ?? [],
         shipOrders: seed.shipOrders ?? [],
+        shipLanes: seed.shipLanes ?? [],
         conversations: seed.conversations,
         automations: seed.automations ?? [],
         automationRuns: seed.automationRuns ?? [],
@@ -1348,7 +1324,6 @@ export class SocketHub {
       return
     }
     this.sessionList = seed.sessions
-    this.issueList = seed.issues
     // The three POD-796/POD-822 kinds [POD-822]: seed the hub's in-memory lists
     // from the persisted replica so a warm-reload DELTA applies onto them rather
     // than onto empty lists. Optional + `?? []` so an embedder that predates them
@@ -1357,11 +1332,11 @@ export class SocketHub {
     this.issueDepList = seed.issueDeps ?? []
     this.repoList = seed.repos ?? []
     this.shipOrderList = seed.shipOrders ?? []
+    this.shipLaneList = seed.shipLanes ?? []
     this.conversationList = seed.conversations
     this.automationList = seed.automations ?? []
     this.automationRunList = seed.automationRuns ?? []
     this.emit('sessions', this.sessionList)
-    this.emit('issues', this.issueList)
     // Emit-only-when-non-empty, unlike sessions/issues above: consumers default
     // these three kinds to empty, so an empty seed emit is a no-op — and after a
     // server-side flag rollback a stale persisted replica gets its emptying
@@ -1370,6 +1345,7 @@ export class SocketHub {
     if (this.issueDepList.length > 0) this.emit('issueDeps', this.issueDepList)
     if (this.repoList.length > 0) this.emit('repos', this.repoList)
     if (this.shipOrderList.length > 0) this.emit('shipOrders', this.shipOrderList)
+    if (this.shipLaneList.length > 0) this.emit('shipLanes', this.shipLaneList)
     this.emit('conversations', this.conversationList)
     this.emit('automations', this.automationList)
     this.emit('automationRuns', this.automationRunList)
@@ -2049,20 +2025,6 @@ export class SocketHub {
       this.hostMetricsList = msg.hosts
       this.emit('hostMetrics', this.hostMetricsList)
     },
-    issuesChanged: (msg) => {
-      this.issueList = msg.issues
-      this.emit('issues', this.issueList)
-    },
-    issueUpdated: (msg) => {
-      // Upsert, not just replace: single-issue broadcasts are the server's primary
-      // issue delta (#22), so an id we haven't seen yet must join the list rather
-      // than be dropped on the floor.
-      this.issueList = this.issueList.some((i) => i.id === msg.issue.id)
-        ? this.issueList.map((i) => (i.id === msg.issue.id ? msg.issue : i))
-        : [...this.issueList, msg.issue]
-      this.emit('issues', this.issueList)
-      this.emit('issueUpdated', msg.issue)
-    },
     attentionEvent: (msg) => {
       this.emit('attention', { sessionId: msg.sessionId, title: msg.title, body: msg.body })
     },
@@ -2177,11 +2139,11 @@ export class SocketHub {
   private metadataProjection(): LegacyMetadataProjection {
     return {
       sessions: this.sessionList,
-      issues: this.issueList,
       issueProjections: this.issueProjectionList,
       issueDeps: this.issueDepList,
       repos: this.repoList,
       shipOrders: this.shipOrderList,
+      shipLanes: this.shipLaneList,
       conversations: this.conversationList,
       automations: this.automationList,
       automationRuns: this.automationRunList,
@@ -2190,20 +2152,20 @@ export class SocketHub {
 
   private replaceMetadataSnapshot(result: LegacyMetadataProjection): void {
     this.sessionList = result.sessions
-    this.issueList = result.issues
     this.issueProjectionList = result.issueProjections
     this.issueDepList = result.issueDeps
     this.repoList = result.repos
     this.shipOrderList = result.shipOrders ?? []
+    this.shipLaneList = result.shipLanes ?? []
     this.conversationList = result.conversations
     this.automationList = result.automations
     this.automationRunList = result.automationRuns
     this.emit('sessions', this.sessionList)
-    this.emit('issues', this.issueList)
     this.emit('issueProjections', this.issueProjectionList)
     this.emit('issueDeps', this.issueDepList)
     this.emit('repos', this.repoList)
     this.emit('shipOrders', this.shipOrderList)
+    this.emit('shipLanes', this.shipLaneList)
     this.emit('conversations', this.conversationList)
     this.emit('automations', this.automationList)
     this.emit('automationRuns', this.automationRunList)
@@ -2230,9 +2192,6 @@ export class SocketHub {
             c.value,
             (s) => s.sessionId === c.id,
           )
-          break
-        case 'issue':
-          this.issueList = applyChange(this.issueList, c.op, c.value, (i) => i.id === c.id)
           break
         case 'issueProjection':
           this.issueProjectionList = applyChange(
@@ -2340,15 +2299,24 @@ export class SocketHub {
           break
         case 'issueUserState':
         case 'issueGitState':
+        case 'sessionUserState':
+        case 'machine':
           // The Replica owns these additive rows. Compatibility observers keep
-          // reading their values from the old issue record until their cutover.
+          // reading their values from the old issue/session records until cutover.
+          break
+        case 'shipLane':
+          this.shipLaneList = applyChange(
+            this.shipLaneList,
+            c.op,
+            c.value,
+            (lane) => lane.id === c.id,
+          )
           break
         default:
           c satisfies never
       }
     }
     if (touched.has('session')) this.emit('sessions', this.sessionList)
-    if (touched.has('issue')) this.emit('issues', this.issueList)
     if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)
     if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
     if (touched.has('repo')) this.emit('repos', this.repoList)
@@ -2357,6 +2325,7 @@ export class SocketHub {
       this.emit('pendingInteractions', this.pendingInteractionList)
     if (touched.has('message')) this.emit('messageRecords', this.messageRecordList)
     if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
+    if (touched.has('shipLane')) this.emit('shipLanes', this.shipLaneList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)
@@ -2583,5 +2552,4 @@ export class SessionConnection {
   private emit(): void {
     this.cb.onState?.(this.state())
   }
-
 }

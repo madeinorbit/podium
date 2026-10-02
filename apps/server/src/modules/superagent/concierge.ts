@@ -3,7 +3,7 @@
  * identity, the repo-scoped system prompt, and the deterministic tracker
  * digest/delta blocks that seed a thread's harness turns.
  */
-import { asThreadId, type IssueWire, type SessionId, type ThreadId } from '@podium/model'
+import { asThreadId, type IssueReport, type SessionId, type ThreadId } from '@podium/model'
 
 /** Per-repo concierge intake thread (issue #64). One thread per repo path, id
  *  deterministic + reversible: `concierge_<base64url(repoPath)>`. */
@@ -53,7 +53,7 @@ export interface ConciergeSessionInfo {
   cwd?: string
 }
 
-const issueLine = (i: IssueWire): string => `#${i.seq} ${i.title} P${i.priority}`
+const issueLine = (i: IssueReport): string => `#${i.seq} ${i.title} P${i.priority}`
 
 export function eventLine(e: ConciergeEvent, seqOf: (id: string) => number | undefined): string {
   const p = (e.payload ?? {}) as Record<string, unknown>
@@ -78,10 +78,10 @@ export function eventLine(e: ConciergeEvent, seqOf: (id: string) => number | und
  */
 export function buildConciergeSeed(opts: {
   repoPath: string
-  ready: IssueWire[]
-  blocked: IssueWire[]
-  needsHuman: IssueWire[]
-  all: IssueWire[]
+  ready: IssueReport[]
+  blocked: IssueReport[]
+  needsHuman: IssueReport[]
+  all: IssueReport[]
   sessions: ConciergeSessionInfo[]
   events: ConciergeEvent[]
   maxEventId: number

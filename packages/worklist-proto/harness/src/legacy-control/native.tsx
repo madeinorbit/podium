@@ -10,16 +10,16 @@
  * `View`/`Text`/`ScrollView` only — so the module also loads on device.
  */
 
-import type { ReactElement } from 'react'
-import { ScrollView, Text, View } from 'react-native'
-import { useMemo, useSyncExternalStore } from 'react'
-import type { SessionMeta } from '@podium/model'
-import { asIssueId } from '@podium/model'
 import {
   createSlicePublisher,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
+import type { SessionMeta } from '@podium/model'
+import { asIssueId } from '@podium/model'
+import type { ReactElement } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
+import { ScrollView, Text, View } from 'react-native'
 import { CommitBoundary } from '../../../shared/src/row-shell'
 import type { LegacyControlEngine } from './arm'
 import type { ControlSliceDef } from './list'
@@ -66,7 +66,7 @@ export function LegacyControlNativeList({
     () => publisher.read(sliceDef),
   )
   const store = engine.getSnapshot()
-  const issues = store.issues as unknown as readonly { id: string; title: string }[]
+  const issues = store.issueProjections
   const sessions = store.sessions as readonly SessionMeta[]
   const select = (id: string): void => {
     engine.getSnapshot().setSelectedIssueId(asIssueId(id))

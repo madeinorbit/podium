@@ -348,13 +348,12 @@ function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null 
  *  lifecycle events interleaved chronologically, newest first, using the same
  *  `buildActivityFeed` the full issue page's timeline is built from.
  *
- *  Comment bodies no longer ride IssueWire (#175): the thread is fetched lazily
+ *  Comment bodies no longer ride IssueViewModel (#175): the thread is fetched lazily
  *  via the issues.comments proc, re-fetched whenever the issue's updatedAt
- *  moves. Legacy fallback: a pre-#175 payload may still embed `comments` — use
- *  the embedded thread when the fetch comes back empty. */
+ *  moves. */
 function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
-  const [comments, setComments] = useState<IssueComment[]>(issue.comments ?? [])
+  const [comments, setComments] = useState<IssueComment[]>([])
   const [events, setEvents] = useState<IssueEvent[]>([])
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on issue switch / count change only; trpc is a stable store singleton
   useEffect(() => {
@@ -362,7 +361,7 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
     Promise.resolve()
       .then(() => trpc.issues.comments.query({ id: issue.id }))
       .then((rows) => {
-        if (!cancelled) setComments(rows.length === 0 ? (issue.comments ?? []) : rows)
+        if (!cancelled) setComments(rows)
       })
       .catch(() => {
         // best-effort — keep whatever we already have

@@ -115,6 +115,41 @@ describe('the pinned brief', () => {
     expect(shelf()?.dataset.open).toBeUndefined()
   })
 
+  it('retains unchanged text and issue anchors across parent renders and shelf gestures', () => {
+    const html = '<p>Review <a class="ref-link" data-ref="POD-86">POD-86</a>.</p>'
+    render(brief('7', html))
+    const text = host.querySelector('.brief-shelf-text')!
+    const paragraph = text.firstChild
+    const anchor = text.querySelector('a')!
+    anchor.setAttribute('aria-label', 'Live issue title')
+    const clicked: Element[] = []
+
+    // Fresh brief and click-handler objects model a fleet-driven ChatView
+    // render. Live attributes are decoration, not new transcript content.
+    render(brief('7', html, '14:13'), null, (e) => clicked.push(e.target as Element))
+    expect(text.firstChild).toBe(paragraph)
+    expect(text.querySelector('a')).toBe(anchor)
+    expect(anchor.getAttribute('aria-label')).toBe('Live issue title')
+    expect(host.querySelector('.brief-shelf-time')?.textContent).toBe('14:13')
+    act(() => anchor.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(clicked).toEqual([anchor])
+
+    for (let i = 0; i < 2; i++) {
+      act(() => toggle()?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+      expect(text.firstChild).toBe(paragraph)
+      expect(text.querySelector('a')).toBe(anchor)
+    }
+  })
+
+  it('renders changed content under the same brief identity', () => {
+    render(brief('7', '<p>Partial reply</p>'))
+    const text = host.querySelector('.brief-shelf-text')!
+    render(brief('7', '<p>Partial reply completed. See <a data-ref="POD-87">POD-87</a>.</p>'))
+    expect(host.querySelector('.brief-shelf-text')).toBe(text)
+    expect(text.textContent).toBe('Partial reply completed. See POD-87.')
+    expect(text.querySelector('a')?.getAttribute('data-ref')).toBe('POD-87')
+  })
+
   it('resets to clamped when a different brief takes the shelf', () => {
     render(brief('7', '<p>the first brief</p>'))
     act(() => {

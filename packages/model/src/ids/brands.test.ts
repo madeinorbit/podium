@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { AutomationRunWire, AutomationWire } from '../entities/automation'
 import { ConversationSummaryWire } from '../entities/conversation'
 import { HandoffManifest } from '../entities/handoff'
-import { IssueDepWire, IssueWire } from '../entities/issue'
+import { IssueDepWire } from '../entities/issue'
 import { AgentMemoryWire, GitRepositoryWire, MachineWire } from '../entities/machine'
 import { SessionMeta, SessionOrigin } from '../entities/session'
 import {
@@ -213,51 +213,6 @@ describe.each(
   })
 })
 
-it('IssueWire still parses with every id field empty', () => {
-  const issue = {
-    id: '',
-    repoPath: '/r',
-    repoId: '',
-    seq: 1,
-    title: 't',
-    description: '',
-    stage: 'backlog',
-    worktreePath: null,
-    branch: null,
-    parentBranch: 'main',
-    defaultAgent: 'codex',
-    defaultModel: 'auto',
-    defaultEffort: 'auto',
-    machineId: '',
-    blockedByNotes: [''],
-    priority: 0,
-    type: 'task',
-    parentId: '',
-    supersededBy: '',
-    duplicateOf: '',
-    pinned: false,
-    needsHuman: false,
-    humanQuestionAskedBy: '',
-    labels: [],
-    deps: [{ id: '', type: 'blocks' }],
-    dependents: [],
-    ready: true,
-    blocked: false,
-    deferred: false,
-    childCount: 0,
-    childDoneCount: 0,
-    createdAt: 'now',
-    updatedAt: 'now',
-    archived: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
-    coordinatorSessionId: '',
-    startedBySession: '',
-    panel: { todos: [], artifacts: [{ path: 'p', addedAt: 'now', artifactId: '' }], deferred: [] },
-  }
-  expect(IssueWire.safeParse(issue)).toMatchObject({ success: true })
-})
-
 /**
  * THE MachineId REFUSAL — ADR 1 Amendment 2 D16.2, discharged by POD-318.
  *
@@ -381,7 +336,8 @@ describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
     )
 
   it('distinguishes helper parameters and type annotations from value fields', () => {
-    expect(machineIdProperties(`
+    expect(
+      machineIdProperties(`
       function quotaAccountKey(
         machineId: string,
       ) { return machineId }
@@ -389,7 +345,8 @@ describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
       type Input = { machineId: MachineId }
       interface Context { machineId: string }
       // machineId: z.string(),
-    `)).toEqual([])
+    `),
+    ).toEqual([])
   })
 
   it('still rejects unbranded fields regardless of layout or spelling', () => {

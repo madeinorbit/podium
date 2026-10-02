@@ -1,3 +1,5 @@
+import type { SessionView } from '../../../session-values'
+import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row ATTENTION: what a row is doing, what it is
  * waiting for, and the words and clock it wears while it waits.
@@ -13,7 +15,7 @@
  * the Flight Deck strip and the issue explorer print. Duplicating that
  * predicate here is how a row and a strip end up disagreeing about one task.
  */
-import { type IssueWire, issueStatusLabel, type SessionMeta } from '@podium/model'
+import { issueStatusLabel} from '@podium/model'
 import { issueErroredSession } from '../../mission'
 import {
   agentBadge,
@@ -28,8 +30,8 @@ import {
 } from '../../session-status'
 import { mostUrgentSession } from '../../session-urgency'
 import {
-  type IssueNavigationModel,
   type IssuePendingDecision,
+  issueDraftVessel,
   issueFinishedAt,
   issuePendingDecision,
   pendingDecisionLabel,
@@ -67,7 +69,7 @@ export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
 /** The same waiting > working > all-done > queued aggregation over any member
  *  session set — for squares fed by `issue.sessions` directly (#65 right rail). */
 export function aggregateMotionPhase(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   issue?: IssueNavigationModel,
 ): MotionPhase {
   const phases = sessions.map((s) => motionPhase(s, issue))
@@ -192,8 +194,8 @@ function pendingDecisionStats(row: UnifiedIssueRow): {
  *  `row` (1 = direct child). Null when no descendant is waiting. */
 export function deepAttentionSource(
   row: UnifiedIssueRow,
-): { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null {
-  let best: { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null =
+): { issue: IssueNavigationModel; depth: number; kind: 'session' | IssuePendingDecision } | null {
+  let best: { issue: IssueNavigationModel; depth: number; kind: 'session' | IssuePendingDecision } | null =
     null
   const stack: Array<{ row: UnifiedIssueRow; depth: number }> = [{ row, depth: 0 }]
   while (stack.length > 0) {
@@ -277,7 +279,7 @@ export function rowStatusLine(
   // nothing was asked yet. Say so instead of the phase word.
   if (
     row.kind === 'issue' &&
-    row.issue.draft &&
+    issueDraftVessel(row.issue) &&
     phase === 'queued' &&
     sessions.length > 0 &&
     sessions.every(isUnstartedSession)
@@ -325,9 +327,9 @@ export function rowStatusLine(
 export function rowMotionTiming(row: UnifiedWorkRow): MotionTiming {
   const sessions = rowSessions(row)
   const phase = rowMotionPhase(row)
-  const since = (s: SessionMeta): number => Date.parse(s.agentState?.since ?? s.lastActiveAt)
-  const earliest = (list: SessionMeta[]): SessionMeta | undefined =>
-    list.reduce<SessionMeta | undefined>(
+  const since = (s: SessionView): number => Date.parse(s.agentState?.since ?? s.lastActiveAt)
+  const earliest = (list: SessionView[]): SessionView | undefined =>
+    list.reduce<SessionView | undefined>(
       (best, s) => (best === undefined || since(s) < since(best) ? s : best),
       undefined,
     )

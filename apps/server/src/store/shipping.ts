@@ -27,6 +27,8 @@ import {
   ShipOrder,
   type ShipOrderState,
   type ShipOrder as ShipOrderValue,
+  parseShipLaneId,
+  rawShippingDestinations,
   ShipStep,
   type ShipStep as ShipStepValue,
   ShipTrainManifest,
@@ -276,6 +278,11 @@ const jsonObject = (value: unknown): Record<string, unknown> | undefined => {
     return undefined
   }
 }
+
+/** The WHERE of the partial index `idx_ship_orders_one_active_issue`, spelled
+ * exactly as the index spells it. A query that repeats it LITERALLY may scan that
+ * index, which holds only active orders; a bound parameter would not match. */
+export const ACTIVE_SHIP_ORDER_TERM = "state NOT IN ('shipped', 'cancelled')"
 
 const optionalString = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined
@@ -743,6 +750,165 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
       .all())
       .map(mapOrder)
+  }
+
+  /**
+   * The QUEUED orders of one delivery lane, FIFO, read through the lane index
+   * (POD-4974 O2). `destination` is the CANONICAL destination: every raw spelling
+   * that canonicalizes to it is asked for, and the canonical check below drops a
+   * raw spelling that canonicalizes elsewhere under its own target branch. The
+   * cost follows the lane, never the orders outside it.
+   */
+  async queuedLaneOrders(repoId: ShipOrderValue['repoId'], destination: string): Promise<ShipOrderValue[]> {
+    return (await this.db
+      .select(orderColumns)
+      .from(shipOrders)
+      .where(
+        and(
+          eq(shipOrders.repoId, repoId),
+          inArray(shipOrders.destination, rawShippingDestinations(destination)),
+          eq(shipOrders.state, 'queued'),
+        ),
+      )
+      .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
+      .all())
+      .map(mapOrder)
+      .filter(
+        (order) => canonicalShippingDestination(order.destination, order.targetBranch) === destination,
+      )
+  }
+
+  /** Point reads for a known set of orders, in one query per 500 ids. */
+  async ordersByIds(ids: readonly string[]): Promise<ShipOrderValue[]> {
+    const unique = [...new Set(ids)]
+    const out: ShipOrderValue[] = []
+    for (let offset = 0; offset < unique.length; offset += 500) {
+      const chunk = unique.slice(offset, offset + 500).map(asShipOrderId)
+      out.push(
+        ...(await this.db.select(orderColumns).from(shipOrders).where(inArray(shipOrders.id, chunk)).all())
+          .map(mapOrder),
+      )
+    }
+    return out
+  }
+
+  /**
+   * Queued orders that name any of `ids` as a delivery dependency. A dependency
+   * that ships unblocks its dependents, and an explicit policy edge may cross
+   * lanes, so a shipping commit has to find them without reading history.
+   *
+   * THE STATE TERM IS A LITERAL ON PURPOSE: it is the WHERE of the partial index
+   * `idx_ship_orders_one_active_issue`, and SQLite uses a partial index only when
+   * the query repeats that term; a bound parameter would not match it. So the
+   * scan covers active orders, never shipped or cancelled ones.
+   */
+  async queuedDependentsOf(ids: readonly string[]): Promise<ShipOrderValue[]> {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0) return []
+    return (await this.db
+      .select(orderColumns)
+      .from(shipOrders)
+      .where(
+        and(
+          sql.raw(ACTIVE_SHIP_ORDER_TERM),
+          eq(shipOrders.state, 'queued'),
+          sql`EXISTS (SELECT 1 FROM json_each(${shipOrders.deliveryDependsOn}) WHERE json_each.value IN (${sql.join(
+            unique.map((id) => sql`${id}`),
+            sql`, `,
+          )}))`,
+        ),
+      )
+      .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
+      .all())
+      .map(mapOrder)
+  }
+
+  /** Recorded native-stack edges whose upper order is one of `upperIds`. */
+  async nativeStackEdgesFrom(
+    upperIds: readonly string[],
+  ): Promise<{ upperOrderId: ShipOrderValue['id']; lowerOrderId: ShipOrderValue['id'] }[]> {
+    const unique = [...new Set(upperIds)]
+    const out: { upperOrderId: ShipOrderValue['id']; lowerOrderId: ShipOrderValue['id'] }[] = []
+    for (let offset = 0; offset < unique.length; offset += 500) {
+      const chunk = unique.slice(offset, offset + 500).map(asShipOrderId)
+      out.push(
+        ...(await this.db
+          .select({
+            upperOrderId: shipOrderStackEdges.upperOrderId,
+            lowerOrderId: shipOrderStackEdges.lowerOrderId,
+          })
+          .from(shipOrderStackEdges)
+          .where(inArray(shipOrderStackEdges.upperOrderId, chunk))
+          .all()),
+      )
+    }
+    return out
+  }
+
+  /** Every recorded native-stack edge: the boot and reconcile full truth only. */
+  async listNativeStackEdges(): Promise<
+    { upperOrderId: ShipOrderValue['id']; lowerOrderId: ShipOrderValue['id'] }[]
+  > {
+    return await this.db
+      .select({
+        upperOrderId: shipOrderStackEdges.upperOrderId,
+        lowerOrderId: shipOrderStackEdges.lowerOrderId,
+      })
+      .from(shipOrderStackEdges)
+      .orderBy(asc(shipOrderStackEdges.upperOrderId), asc(shipOrderStackEdges.lowerOrderId))
+      .all()
+  }
+
+  /** The open hold of each listed order, keyed by order id. */
+  async openHoldsForOrders(ids: readonly string[]): Promise<Map<ShipOrderValue['id'], ShipHoldValue>> {
+    const unique = [...new Set(ids)]
+    const out = new Map<ShipOrderValue['id'], ShipHoldValue>()
+    for (let offset = 0; offset < unique.length; offset += 500) {
+      const chunk = unique.slice(offset, offset + 500).map(asShipOrderId)
+      for (const row of await this.db
+        .select()
+        .from(shipHolds)
+        .where(and(inArray(shipHolds.orderId, chunk), isNull(shipHolds.resolvedAt)))
+        .all()) {
+        const hold = mapHold(row)
+        out.set(hold.orderId, hold)
+      }
+    }
+    return out
+  }
+
+  /** The delivery receipt of each listed order, keyed by order id. */
+  async receiptsForOrders(
+    ids: readonly string[],
+  ): Promise<Map<ShipOrderValue['id'], DeliveryReceiptValue>> {
+    const unique = [...new Set(ids)]
+    const out = new Map<ShipOrderValue['id'], DeliveryReceiptValue>()
+    for (let offset = 0; offset < unique.length; offset += 500) {
+      const chunk = unique.slice(offset, offset + 500).map(asShipOrderId)
+      for (const row of await this.db
+        .select()
+        .from(deliveryReceipts)
+        .where(inArray(deliveryReceipts.orderId, chunk))
+        .all()) {
+        const receipt = mapReceipt(row)
+        out.set(receipt.orderId, receipt)
+      }
+    }
+    return out
+  }
+
+  /** The issues of a lane's queued orders: who may read the lane (POD-4974
+   * decision 2). Unparseable ids name no lane. */
+  async laneMemberIssueIds(laneId: string): Promise<string[]> {
+    let lane: { repoId: ShipOrderValue['repoId']; destination: string }
+    try {
+      lane = parseShipLaneId(laneId)
+    } catch {
+      return []
+    }
+    return [
+      ...new Set((await this.queuedLaneOrders(lane.repoId, lane.destination)).map((order) => order.issueId)),
+    ]
   }
 
   async issueIdForOrder(id: string): Promise<string | null> {

@@ -1,3 +1,5 @@
+import { headerDataLayer } from '@/lib/header-data-layer'
+import { useHeaderActions, usePoolPanelMetric, usePoolHostAggregate, usePoolSessionLabels } from '@/app/header-data'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   DEFAULT_LOAD_PER_CORE,
@@ -80,16 +82,11 @@ export function LoadPanel({
   onOpenConnection: () => void
   onOpenReclaim?: () => void
 }): JSX.Element {
-  const hostMetrics = useHostMetrics()
-  const { trpc, sessions, setView, setSettingsTab } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      sessions: s.sessions,
-      setView: s.setView,
-      setSettingsTab: s.setSettingsTab,
-    }),
-    shallowEqual,
-  )
+  const useMetric = headerDataLayer() === 'pool' ? usePoolPanelMetric : useLegacyPanelMetric
+  const metric = useMetric(machineId)
+  const { trpc, setView, setSettingsTab } = useHeaderActions()
+  const useSessions = headerDataLayer() === 'pool' ? useEmptySessions : useLegacyLoadSessions
+  const sessions = useSessions()
   const lifecycle = useHostLifecycleSettings()
   const hibernation = lifecycle?.hibernation ?? null
   const worktreeGc = lifecycle?.worktreeGc ?? null
@@ -109,8 +106,6 @@ export function LoadPanel({
   // fallback then showed SOMEBODY ELSE'S memory and load under this machine's
   // name. An empty panel is a smaller lie than a confident wrong number. The
   // first-host fallback survives only where no machine was asked for.
-  const metric =
-    machineId === undefined ? hostMetrics[0] : hostMetrics.find((h) => h.machineId === machineId)
   const mem = data
     ? hostMemoryView({ hostname: data.hostname, sampledAt: data.sampledAt, memory: data.memory })
     : metric
@@ -122,8 +117,8 @@ export function LoadPanel({
   // it is read. Until the walk answers the row is drawn empty rather than
   // withheld: appearing late would push the whole body down a line.
   const disk = data?.disk ? hostDiskView(data.disk) : null
-  const selectAggregates = useMemo(() => createHostSessionAggregatesSelector(), [])
-  const aggregate = selectAggregates(sessions).forMachine(machineId)
+  const useAggregate = headerDataLayer() === 'pool' ? usePoolHostAggregate : useLegacyLoadAggregate
+  const aggregate = useAggregate(machineId)
   const idleSplit = aggregate.idleSplit
   const { inventory: reclaimable } = useReclaimInventory(trpc, machineId)
   const reclaimCount = reclaimable?.candidates.length ?? 0
@@ -135,8 +130,10 @@ export function LoadPanel({
   const projectBytes = data?.projects.reduce((sum, p) => sum + p.bytes, 0) ?? 0
   const seg = (bytes: number): string => `${total > 0 ? (bytes / total) * 100 : 0}%`
 
+  const useLabels = headerDataLayer() === 'pool' ? usePoolSessionLabels : useEmptyLabels
+  const labels = useLabels(data?.agents.map((agent) => agent.sessionId) ?? [])
   const sessionLabel = (sessionId: SessionId): string => {
-    const s = sessions.find((s) => s.sessionId === sessionId)
+    const s = headerDataLayer() === 'pool' ? labels[sessionId] : sessions.find((s) => s.sessionId === sessionId)
     if (!s) return sessionId.slice(0, 8)
     return `${panelLabel(s.agentKind)} — ${s.title}`
   }
@@ -418,6 +415,11 @@ export function LoadPanel({
   )
 }
 
+function useLegacyPanelMetric(machineId: MachineId | undefined) {
+  const metrics = useHostMetrics()
+  return machineId === undefined ? metrics[0] : metrics.find((metric) => metric.machineId === machineId)
+}
+
 /**
  * When what you are reading was measured. A wall clock rather than a counted age
  * — the panel is open for seconds at a time, and a figure that ticks in the
@@ -524,4 +526,14 @@ function ProcessRow({
       <span className="hp-prow-bytes">{formatMemBytes(bytes)}</span>
     </div>
   )
+}
+
+function useLegacyLoadSessions() { return useStoreSelector((state) => state.sessions) }
+const EMPTY_SESSIONS: ReturnType<typeof useLegacyLoadSessions> = []
+function useEmptySessions() { return EMPTY_SESSIONS }
+function useEmptyLabels() { return {} as Record<string, ReturnType<typeof useLegacyLoadSessions>[number] | undefined> }
+function useLegacyLoadAggregate(machineId: MachineId | undefined) {
+  const sessions = useLegacyLoadSessions()
+  const select = useMemo(() => createHostSessionAggregatesSelector(), [])
+  return select(sessions).forMachine(machineId)
 }

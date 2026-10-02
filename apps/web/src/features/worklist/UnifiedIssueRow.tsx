@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
   isDraftAgentVessel,
@@ -19,9 +20,7 @@ import {
   type IssueId,
   isIssueDeferred,
   issueReturnedFromDefer,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model/browser'
+  type SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { lazy, memo, Suspense, useState } from 'react'
@@ -135,7 +134,7 @@ export function UnifiedIssueRowInner({
 }: {
   row: UnifiedIssueRowView
   /** @deprecated Narrow path prefers `displayTitle`/`progress`/`origin`. */
-  sessions?: SessionMeta[]
+  sessions?: SessionView[]
   /** Whole issue list — the context menu's label pool / duplicate targets.
    *  @deprecated Narrow path prefers `origin` + `resolveMenuData`. */
   issues?: IssueNavigationModel[]
@@ -447,7 +446,7 @@ export function UnifiedIssueRowInner({
 /** Legacy draft-paneA rule, kept for callers still on `selectedIssueId`. */
 function draftActiveFallback(
   issue: IssueNavigationModel,
-  mine: SessionMeta[],
+  mine: SessionView[],
   baseActive: boolean,
   paneA: string | null,
 ): boolean {

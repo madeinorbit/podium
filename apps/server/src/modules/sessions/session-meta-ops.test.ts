@@ -73,7 +73,7 @@ async function fixture(file = ':memory:') {
     },
     toPtyInput: vi.fn(),
     sendContinue: vi.fn(async () => ({ ok: true as const })),
-    view: { buildProjectionPass: async () => ({} as never), principalForTrustedUser: vi.fn(), prepareRefAllocation: vi.fn(), overlay: vi.fn(), wire: vi.fn((s: Session) => s.toMeta({ readAt: null, snoozedUntil: null })) },
+    view: { buildProjectionPass: async () => ({} as never), principalForTrustedUser: vi.fn(), prepareRefAllocation: vi.fn(), overlay: vi.fn(), wire: vi.fn((s: Session) => s.toMeta()) },
   }
   return { store, session, sessions, repository, ports, ops: new SessionMetaOps(ports) }
 }

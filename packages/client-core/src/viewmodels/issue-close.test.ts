@@ -1,8 +1,9 @@
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView, SessionViewInput } from '../session-values'
 import { blockingCloseConcerns, type IssueCloseSubject, issueCloseConcerns } from './issue-close'
 
-const session = (over: Partial<SessionMetaInput>): SessionMeta =>
+const session = (over: Partial<SessionViewInput>): SessionView =>
   ({
     sessionId: asSessionId('s'),
     agentKind: 'codex',
@@ -20,7 +21,7 @@ const session = (over: Partial<SessionMetaInput>): SessionMeta =>
     readAt: null,
     unread: false,
     ...over,
-  }) as SessionMeta
+  }) as SessionView
 
 const issue = (over: Partial<IssueCloseSubject> = {}): IssueCloseSubject => ({
   needsHuman: false,
@@ -44,7 +45,7 @@ describe('issue close concerns', () => {
       issueCloseConcerns(
         issue({
           needsHuman: true,
-          humanQuestion: 'Which direction should we ship?',
+          asked: { question: 'Which direction should we ship?' },
           childCount: 3,
           childDoneCount: 1,
           gitState: {

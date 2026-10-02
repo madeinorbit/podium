@@ -4,6 +4,7 @@ import {
   firstAdminMemberId,
 } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -70,7 +71,10 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     })
   }
 
-  async function client(registry: SessionRegistry, caps: string[] = []): Promise<{ inbox: ServerMessage[] }> {
+  async function client(
+    registry: SessionRegistry,
+    caps: string[] = [],
+  ): Promise<{ inbox: ServerMessage[] }> {
     const inbox: ServerMessage[] = []
     const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     await registry.clientGateway.routeClientFrame(id, {
@@ -78,7 +82,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       // Every hello must carry sync.http.v1 (the mux refuses one without it);
       // a spread `caps` used to REPLACE it, so a delta client never got feedResume.
       caps: ['sync.http.v1', ...caps],
-      wireVersion: 2,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
@@ -86,7 +90,10 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     return { inbox }
   }
 
-  const ownConversation = async (registry: SessionRegistry, conversationId: string): Promise<void> => {
+  const ownConversation = async (
+    registry: SessionRegistry,
+    conversationId: string,
+  ): Promise<void> => {
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/owned-conversation',
@@ -191,12 +198,12 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     await push(registry, [conv('c1')], { removed: ['c2'] })
     const changes = await conversationChangesSince(registry, cursor)
     expect(changes.some((c) => c.id === 'c2' && c.op === 'remove')).toBe(true)
-    expect((await registry.sessionStore.conversations.index.search({})).map((r) => r.id)).not.toContain(
-      'c2',
-    )
+    expect(
+      (await registry.sessionStore.conversations.index.search({})).map((r) => r.id),
+    ).not.toContain('c2')
   })
 
-  it('(a3) a daemon\'s `removed` list deletes only conversations indexed under ITS machine (POD-4628)', async () => {
+  it("(a3) a daemon's `removed` list deletes only conversations indexed under ITS machine (POD-4628)", async () => {
     // The acceptance-run loss: a fresh machine whose copied discovery cache
     // named the ORIGINAL machine's transcripts reported every one of them as
     // removed, and the server deleted them all. Removal is a claim about the
@@ -217,8 +224,12 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const ids = (await store.conversations.index.search({})).map((r) => r.id).sort()
     expect(ids).toEqual(['a1', 'a2', 'b1'])
     // The fts rows ride the row: m1's conversations are still searchable.
-    expect((await store.conversations.index.search({ query: 'alphaone' })).map((r) => r.id)).toEqual(['a1'])
-    expect((await store.conversations.index.search({ query: 'alphatwo' })).map((r) => r.id)).toEqual(['a2'])
+    expect(
+      (await store.conversations.index.search({ query: 'alphaone' })).map((r) => r.id),
+    ).toEqual(['a1'])
+    expect(
+      (await store.conversations.index.search({ query: 'alphatwo' })).map((r) => r.id),
+    ).toEqual(['a2'])
     // The change log (and so change_latest) removes only what was really deleted.
     const removes = (await conversationChangesSince(registry, cursor))
       .filter((c) => c.op === 'remove')
@@ -293,17 +304,21 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     // …and live on BOTH planes: the delta client got the metadataDelta…
     // Capture completion does not await the serving edge's async feed framing.
     // Observe both clients receiving the committed row, not a timer duration.
-    await expect.poll(() =>
-      deltaConversationChanges(delta.inbox.slice(deltaBefore)).some(
-        (c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run',
-      ),
-    ).toBe(true)
+    await expect
+      .poll(() =>
+        deltaConversationChanges(delta.inbox.slice(deltaBefore)).some(
+          (c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run',
+        ),
+      )
+      .toBe(true)
     // …and the peer without the retired cap got the same canonical update.
-    await expect.poll(() =>
-      deltaConversationChanges(legacy.inbox.slice(legacyBefore)).some(
-        (c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run',
-      ),
-    ).toBe(true)
+    await expect
+      .poll(() =>
+        deltaConversationChanges(legacy.inbox.slice(legacyBefore)).some(
+          (c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run',
+        ),
+      )
+      .toBe(true)
     // The store write itself landed too (the original behavior, now seam-bound).
     expect(
       (await registry.sessionStore.conversations.index.search({})).find((r) => r.id === 'c1')?.name,
@@ -363,7 +378,9 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     })
     await registry.modules.sessions.flushBroadcasts()
     expect(delta.inbox.some((message) => message.type === 'conversationsChanged')).toBe(false)
-    await expect.poll(() => deltaConversationChanges(delta.inbox).some((change) => change.id === 'c1')).toBe(true)
+    await expect
+      .poll(() => deltaConversationChanges(delta.inbox).some((change) => change.id === 'c1'))
+      .toBe(true)
     // Diagnostics unchanged + a conversation change → cap clients get ONLY the
     // metadataDelta (no snapshot re-send), and deltas carry no diagnostics.
     const before = delta.inbox.length
@@ -371,9 +388,11 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       diagnostics: [{ severity: 'warning', message: 'scan hiccup' }],
     })
     await registry.modules.sessions.flushBroadcasts()
-    await expect.poll(() =>
-      deltaConversationChanges(delta.inbox.slice(before)).some((change) => change.id === 'c1'),
-    ).toBe(true)
+    await expect
+      .poll(() =>
+        deltaConversationChanges(delta.inbox.slice(before)).some((change) => change.id === 'c1'),
+      )
+      .toBe(true)
     const since = delta.inbox.slice(before)
     expect(since.some((m) => m.type === 'conversationsChanged')).toBe(false)
     expect(deltaConversationChanges(since).some((c) => c.id === 'c1')).toBe(true)

@@ -2,7 +2,7 @@ import type { MachineId } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import type { PodiumClientApi } from '../api'
-import { useStoreSelector } from './provider'
+import { useStoreHandle } from './provider'
 
 export type HarnessDescriptorStatus = 'loading' | 'ready' | 'unavailable'
 
@@ -77,7 +77,7 @@ async function fetchDescriptors(
 export function useHarnessDescriptors<TApi extends PodiumClientApi = PodiumClientApi>(
   machineId: MachineId | undefined,
 ): HarnessDescriptorState {
-  const trpc = useStoreSelector<TApi, TApi>((store) => store.trpc)
+  const trpc = useStoreHandle<TApi>().getSnapshot().trpc
   const [, forceRender] = useState(0)
   const key = machineId ?? '__no_machine__'
   // First-render transport wins: some test stores hand out a fresh `trpc`

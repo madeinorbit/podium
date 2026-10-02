@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The Sessions block of the properties aside: who is on this task, the ghosts of
  * sessions that moved on, and — until somebody picks the work up — the launch
@@ -28,7 +29,7 @@
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model/browser'
+import type { SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -60,7 +61,7 @@ function SessionRosterRow({
   trailing,
   title,
 }: {
-  session: SessionMeta
+  session: SessionView
   issue: IssueViewModel
   onOpen: () => void
   muted?: boolean
@@ -69,7 +70,7 @@ function SessionRosterRow({
 }): JSX.Element {
   const AgentIcon = agentIconFor(session.agentKind)
   const timing = motionTiming(session)
-  const phase = motionPhase(session, issue as unknown as IssueWire)
+  const phase = motionPhase(session, issue as unknown as IssueViewModel)
   return (
     <button
       data-pressable
@@ -121,11 +122,11 @@ export function IssueSessionsBlock({
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
-  memberSessions: SessionMeta[]
+  memberSessions: SessionView[]
   /** Forwarding ghosts (POD-89): sessions BORN here that re-homed elsewhere.
    *  "No agents" was misread as work lost — the honest shape is "the agent moved
    *  on to POD-x". */
-  movedOn: SessionMeta[]
+  movedOn: SessionView[]
   machines: LaunchMachine[]
   onOpenSession: (session: { sessionId: SessionId }) => void
 }): JSX.Element {

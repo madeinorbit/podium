@@ -1,4 +1,4 @@
-import type { IssueId, IssueWire } from '@podium/model'
+import type { IssueId, IssueProjection } from '@podium/model'
 import type { IssueRow } from '../../../store'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
@@ -41,7 +41,7 @@ export class IssueHierarchyModule {
     return null
   }
 
-  async addDep(fromRef: string, toRef: string, type = 'blocks'): Promise<IssueWire> {
+  async addDep(fromRef: string, toRef: string, type = 'blocks'): Promise<IssueProjection> {
     if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
     const fromId = await this.store.resolveRef(fromRef)
     const toId = await this.store.resolveRef(toRef)
@@ -61,18 +61,17 @@ export class IssueHierarchyModule {
       async () => await this.store.deps.store.issues.addIssueDep(fromId, toId, type),
       { extraChanges: this.store.depChanges([{ fromId, toId, type }], 'upsert') },
     )
-    await this.store.broadcastListForDerivedRipple()
+
     return wire
   }
 
-  async removeDep(fromRef: string, toRef: string, type?: string): Promise<IssueWire> {
+  async removeDep(fromRef: string, toRef: string, type?: string): Promise<IssueProjection> {
     if (type === 'parent-child')
       throw new Error('parent-child is managed by reparent, not removeDep')
     const fromId = await this.store.resolveRef(fromRef)
     const toId = await this.store.resolveRef(toRef)
     const row = await this.store.draftOrThrow(fromId)
-    const removed = (await this.store.deps.store.issues
-      .listIssueDeps(fromId))
+    const removed = (await this.store.deps.store.issues.listIssueDeps(fromId))
       .filter((d) => d.toId === toId && (type === undefined || d.type === type))
       .map((d) => ({ fromId, toId, type: d.type }))
     const wire = await this.store.persistWith(
@@ -80,7 +79,7 @@ export class IssueHierarchyModule {
       async () => await this.store.deps.store.issues.removeIssueDep(fromId, toId, type),
       { extraChanges: this.store.depChanges(removed, 'remove') },
     )
-    await this.store.broadcastListForDerivedRipple()
+
     return wire
   }
 
@@ -110,11 +109,14 @@ export class IssueHierarchyModule {
    * existing outside-scope confirmation instead of treating this as a silent
    * structural-only edit.
    */
-  async reparent(id: string, parentId: string | null): Promise<IssueWire> {
+  async reparent(id: string, parentId: string | null): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(id)
-    await this.setParentForUpdate(row, parentId == null ? null : await this.store.resolveRef(parentId))
+    await this.setParentForUpdate(
+      row,
+      parentId == null ? null : await this.store.resolveRef(parentId),
+    )
     const wire = await this.store.persist(row)
-    await this.store.broadcastList()
+
     return wire
   }
 
@@ -144,7 +146,7 @@ export class IssueHierarchyModule {
     )
   }
 
-  async supersede(oldRef: string, newRef: string): Promise<IssueWire> {
+  async supersede(oldRef: string, newRef: string): Promise<IssueProjection> {
     const oldId = await this.store.resolveRef(oldRef)
     const newId = await this.store.resolveRef(newRef)
     await this.store.rowOrThrow(newId)
@@ -156,7 +158,7 @@ export class IssueHierarchyModule {
     })
   }
 
-  async duplicate(ref: string, canonicalRef: string): Promise<IssueWire> {
+  async duplicate(ref: string, canonicalRef: string): Promise<IssueProjection> {
     const id = await this.store.resolveRef(ref)
     const canonicalId = await this.store.resolveRef(canonicalRef)
     await this.store.rowOrThrow(canonicalId)

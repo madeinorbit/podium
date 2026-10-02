@@ -2,7 +2,6 @@ import {
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
-  ChangeSeqField,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
   GlobalChangeOpField,
@@ -11,15 +10,16 @@ import {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  IssueWire,
   LayoutWire,
+  MachineProjection,
   MessageRecordWire,
   ReadPositionWire,
   RepoProjection,
   type SessionId,
   SessionMeta,
+  SessionUserStateWire,
 } from '@podium/model'
-import { ShipOrderProjection } from '@podium/model/shipping-projection'
+import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
 import { PendingInteractionWire } from './runtime-interactions'
@@ -41,7 +41,10 @@ export {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
+  MachineProjection,
   RepoProjection,
+  SessionUserStateWire,
+  ShipLaneProjection,
   ShipOrderProjection,
 }
 
@@ -136,23 +139,7 @@ const FeedIdShape = {
 
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
-  metadataChangeArm(z.literal('issue'), IssueWire),
-  /** The NORMALIZED issue projection [POD-796, ADR 4 D7.1] — a SECOND kind
-   *  alongside 'issue', not a reshaping of it, and that is the whole transition
-   *  strategy.
-   *
-   *  The ledger stores one value per (kind, id), so 'issue' cannot carry two
-   *  payload shapes at once: flipping it in place would break every delta client
-   *  whose build still expects `IssueWire` — and a lagging PWA bundle is exactly
-   *  that client (see version.ts on rolling upgrades). A new kind is the
-   *  mechanism this file's own lenient-parsing note was written for: an older
-   *  build's `MetadataEntityKind` does not list 'issueProjection', so these rows
-   *  fall to {@link UnknownMetadataChange}, get ignored with a debug log, and the
-   *  cursor ADVANCES past them — no quarantine, no heal loop. Additive per ADR 2
-   *  D4; `CLIENT_WIRE_VERSION` stays 1.
-   *
-   *  Emitted unconditionally after POD-797; CAP_ISSUES_NORMALIZED tells clients
-   *  which issue collection to render. */
+
   metadataChangeArm(z.literal('issueProjection'), IssueProjection),
   /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
    *  first-class entities, keyed by their own primary key (`issueDepId`).
@@ -178,6 +165,14 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  contract as the two kinds above. */
   metadataChangeArm(z.literal('repo'), RepoProjection),
   metadataChangeArm(z.literal('shipOrder'), ShipOrderProjection),
+  /** One delivery lane's queue in the scheduler's order (POD-4974 O2, ADR 4
+   *  D7.4), keyed by `shipLaneId(repoId, canonical destination)`. The server
+   *  recomputes it only for the lanes a shipping commit touches, so a ship order
+   *  no longer needs every order ever stored to know its rank. Same additive
+   *  contract as the kinds above: an older build parses these rows as
+   *  {@link UnknownMetadataChange}, ignores them and advances its cursor.
+   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
+  metadataChangeArm(z.literal('shipLane'), ShipLaneProjection),
   metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
   metadataChangeArm(z.literal('automation'), AutomationWire),
   metadataChangeArm(z.literal('automationRun'), AutomationRunWire),
@@ -249,16 +244,18 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  them and advances its cursor. `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('message'), MessageRecordWire),
   metadataChangeArm(z.literal('issueUserState'), IssueUserStateWire),
+  metadataChangeArm(z.literal('sessionUserState'), SessionUserStateWire),
+  metadataChangeArm(z.literal('machine'), MachineProjection),
   metadataChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
   'session',
-  'issue',
   'issueProjection',
   'issueDep',
   'repo',
   'shipOrder',
+  'shipLane',
   'conversation',
   'automation',
   'automationRun',
@@ -268,6 +265,8 @@ export const MetadataEntityKind = z.enum([
   'pendingInteraction',
   'message',
   'issueUserState',
+  'sessionUserState',
+  'machine',
   'issueGitState',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
@@ -369,11 +368,16 @@ const changesSinceSnapshotArm = () =>
   z.object({
     kind: z.literal('snapshot'),
     sessions: z.array(SessionMeta),
-    issues: z.array(IssueWire),
+    sessionUserStates: z.array(SessionUserStateWire).optional(),
+    machines: z.array(MachineProjection).optional(),
+    issues: z.array(z.never()),
     issueProjections: z.array(IssueProjection).optional(),
+    issueUserStates: z.array(IssueUserStateWire).optional(),
+    issueGitStates: z.array(IssueGitStateProjection).optional(),
     issueDeps: z.array(IssueDepProjection).optional(),
     repos: z.array(RepoProjection).optional(),
     shipOrders: z.array(ShipOrderProjection).optional(),
+    shipLanes: z.array(ShipLaneProjection).optional(),
     conversations: z.array(ConversationSummaryWire),
     diagnostics: z.array(ConversationDiagnosticWire),
     automations: z.array(AutomationWire).optional(),

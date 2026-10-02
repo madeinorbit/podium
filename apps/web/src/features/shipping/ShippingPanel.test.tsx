@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import type { ShipOrderProjection } from '@podium/model'
+import { shipLaneId } from '@podium/model'
+import type { ShipLaneProjection, ShipOrderProjection } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -38,6 +39,82 @@ const commands = (over: Partial<ShippingPanelCommands> = {}): ShippingPanelComma
 afterEach(cleanup)
 
 describe('ShippingPanel', () => {
+  it('O4 renders lane ranks without order ranks and never revives cached ranks after lane eviction', () => {
+    const orders = [
+      order({
+        state: 'queued',
+        humanState: 'waiting',
+        activity: 'waiting',
+        destination: 'main',
+      }),
+      order({
+        id: 'order-b' as never,
+        state: 'queued',
+        humanState: 'waiting',
+        activity: 'waiting',
+        destination: 'refs/heads/main',
+      }),
+    ] as const
+    const lane: ShipLaneProjection = {
+      id: shipLaneId(orders[0].repoId, 'local:main'),
+      repoId: orders[0].repoId,
+      destination: 'local:main',
+      trains: [{ orderIds: [orders[0].id] }, { orderIds: [orders[1].id] }],
+      blockedOrderIds: [],
+    }
+    const props = {
+      orders,
+      issues: [issue],
+      repoId: 'repo-a',
+      now: Date.parse('2026-08-13T12:00:00.000Z'),
+      commands: commands(),
+    }
+    const { container, rerender } = render(<ShippingPanel {...props} lanes={[lane]} />)
+    expect(
+      screen.getAllByRole('heading', { name: /WAITING ·/ }).map((heading) => heading.textContent),
+    ).toEqual(['WAITING · local:main'])
+    const first = screen.getByRole('button', { name: /Position 1.*main → main/ })
+    expect(first.textContent).toContain('Next')
+    expect(
+      screen.getByRole('button', { name: /Position 2.*main → refs\/heads\/main/ }).textContent,
+    ).toContain('#2')
+    expect(container.textContent).not.toContain('#8')
+
+    fireEvent.click(first)
+    expect(screen.getByText(/Next/)).toBeTruthy()
+    const blocked = {
+      ...lane,
+      trains: [{ orderIds: [orders[1].id] }],
+      blockedOrderIds: [orders[0].id],
+    }
+    rerender(<ShippingPanel {...props} lanes={[blocked]} />)
+    expect(screen.getByText(/^Waiting\s*·/)).toBeTruthy()
+    expect(screen.queryByText(/Next/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'All shipping' }))
+    expect(
+      screen.getByRole('button', { name: /Position 1.*refs\/heads\/main/ }).textContent,
+    ).toContain('Next')
+    expect(
+      screen.getByRole('button', { name: /Shipping sidebar panel.*main → main/ }).textContent,
+    ).toContain('Waiting')
+    expect(screen.queryByText('Position 8')).toBeNull()
+
+    const cachedOrders = orders.map((row) => ({ ...row, queueRank: 8 }))
+    rerender(<ShippingPanel {...props} orders={cachedOrders} lanes={[]} />)
+    expect(screen.queryByRole('button', { name: /Position/ })).toBeNull()
+    expect(
+      screen.getByRole('button', { name: /Shipping sidebar panel.*main → main/ }).textContent,
+    ).toContain('Waiting')
+    expect(container.textContent).not.toContain('#8')
+    fireEvent.click(screen.getByRole('button', { name: /Shipping sidebar panel.*main → main/ }))
+    expect(screen.getByText(/^Waiting\s*·/)).toBeTruthy()
+    expect(screen.queryByText(/Next/)).toBeNull()
+    // Readmission restores the position from the lane without changing orders.
+    rerender(<ShippingPanel {...props} orders={cachedOrders} lanes={[lane]} />)
+    expect(screen.getByText(/Next/)).toBeTruthy()
+    expect(container.textContent).not.toContain('#8')
+  })
+
   it('uses plain activity language and replaces only the dock body for drill-in', () => {
     render(
       <ShippingPanel
@@ -71,10 +148,9 @@ describe('ShippingPanel', () => {
             state: 'queued',
             humanState: 'waiting',
             activity: 'waiting',
-            queueRank: 2,
             targetBranch: 'release',
           }),
-          order({ state: 'queued', humanState: 'waiting', activity: 'waiting', queueRank: 1 }),
+          order({ state: 'queued', humanState: 'waiting', activity: 'waiting' }),
           order({
             id: 'order-c' as never,
             state: 'queued',
@@ -82,8 +158,23 @@ describe('ShippingPanel', () => {
             activity: 'waiting',
             destination: 'upstream/release',
             targetBranch: 'release',
-            queueRank: 1,
           }),
+        ]}
+        lanes={[
+          {
+            id: shipLaneId(order().repoId, 'origin/main'),
+            repoId: order().repoId,
+            destination: 'origin/main',
+            trains: [{ orderIds: ['order-a' as never] }, { orderIds: ['order-b' as never] }],
+            blockedOrderIds: [],
+          },
+          {
+            id: shipLaneId(order().repoId, 'upstream/release'),
+            repoId: order().repoId,
+            destination: 'upstream/release',
+            trains: [{ orderIds: ['order-c' as never] }],
+            blockedOrderIds: [],
+          },
         ]}
         issues={[issue]}
         repoId="repo-a"

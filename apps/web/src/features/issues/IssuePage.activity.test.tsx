@@ -1,3 +1,5 @@
+import '@/test-support/mock-core-store-handle'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueEvent } from '@podium/client-core/viewmodels'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -57,7 +59,7 @@ const eventsQuery = vi.fn(async (input?: unknown): Promise<IssueEvent[]> => {
   return subject ? ROWS.filter((r) => r.subject === subject) : ROWS
 })
 
-// #175: comment bodies left IssueWire — IssuePage fetches the thread lazily
+// #175: comment bodies left IssueViewModel — IssuePage fetches the thread lazily
 // via the issues.comments proc; the wire only carries commentCount.
 const COMMENTS = [
   { id: 'cm-1', author: 'me', body: 'a note', createdAt: '2026-07-07T00:00:03.000Z' },

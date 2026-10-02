@@ -16,26 +16,19 @@ import type { LegacyDerivation } from './legacy'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 
+
+
 /** All fields the existing row reads from its own issue. Presentation is kept
  * in that component, including refs, colours, labels and status formatting. */
 export const ISSUE_CONTENT_FIELDS = [
   'id', 'seq', 'displayRef', 'linearIdentifier', 'color', 'title', 'stage', 'closedReason', 'closedAt', 'updatedAt',
-  'audience', 'draft', 'pinned', 'tuckedAt', 'readAt', 'unread', 'gitState',
+  'audience', 'isDraftVessel', 'pinned', 'tuckedAt', 'readAt', 'unread', 'gitState',
   'repoPath', 'worktreePath', 'branch', 'parentBranch', 'parentId', 'needsHuman', 'blocked',
-  'humanQuestion', 'humanQuestionOptions', 'origin', 'commentCount',
+  'asked', 'intentOrigin',
 ] as const
-const ISSUE_BOOLEAN_FIELDS = new Set(['draft', 'pinned', 'needsHuman', 'blocked'])
+const ISSUE_BOOLEAN_FIELDS = new Set(['isDraftVessel', 'pinned', 'needsHuman', 'blocked'])
 const pick = (row: unknown, fields: readonly string[]): Record<string, unknown> => Object.fromEntries(fields.map(field => [field,
   ISSUE_BOOLEAN_FIELDS.has(field) ? (row as Record<string, unknown>)[field] === true : (row as Record<string, unknown>)[field] ?? null]))
-const temporaryByDerivation = new WeakMap<LegacyDerivation, ReadonlyMap<string, unknown>>()
-function temporaryComments(derivation: LegacyDerivation, id: string): unknown {
-  let indexed = temporaryByDerivation.get(derivation)
-  if (!indexed) {
-    indexed = new Map((derivation.temporaryIssues ?? []).map(issue => [issue.id, issue.commentCount]))
-    temporaryByDerivation.set(derivation, indexed)
-  }
-  return indexed.get(id)
-}
 
 /** PanelRow/WorkerLabel inputs, including raw attribution and outcome facts
  * whose formatting remains in those components. */
@@ -81,10 +74,8 @@ export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivat
     firstSessionId: row.sessions[0]?.sessionId ?? null,
     continuation: continuation ? { kind: continuation[0] === 'duplicate' ? 'duplicate' : 'continued', ref: continuation.slice(1).join(' · ') } : null,
     fleet: { total: fleet.present.length, parkedCount: fleet.parkedCount, nativeCount: fleet.nativeCount, tiles: fleet.tiles },
-    // The replica rich view deliberately removes commentCount; the old row
-    // still supplies it to the temporary feed contract until POD-4949.
-    issue: { ...issue, commentCount: temporaryComments(derivation, issue.id) } as unknown as SidebarRowValues['issue'], sessions: row.sessions,
-    aggregateSessions: aggregate, awaitingFirstPrompt: issue.draft === true && rowMotionPhase(row) === 'queued' && aggregate.length > 0 && aggregate.every(isUnstartedSession),
+    issue: issue as unknown as SidebarRowValues['issue'], sessions: row.sessions,
+    aggregateSessions: aggregate, awaitingFirstPrompt: issue.isDraftVessel === true && rowMotionPhase(row) === 'queued' && aggregate.length > 0 && aggregate.every(isUnstartedSession),
   })
 }
 

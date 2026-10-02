@@ -23,23 +23,6 @@ export interface HandoffSession {
   agentKind: string
 }
 
-/**
- * The issue a session is attached to — its branch and workspace ([spec:SP-4ef9]).
- * Composed from `IssueWorkspace` (POD-367, inventory #11) rather than restated:
- * both members are the issue's own workspace fields and their types have one home.
- *
- * `| null` on top of the group's types is deliberate and is why this is a mapped
- * type: a narrow structural port must be satisfiable by an `IssueRow` (storage,
- * where an unset field is `null`) as well as by an `IssueWire`.
- *
- * Both members are MACHINE facts, so this port's visibility is INHERITED from the
- * machine rather than carried here (ADR 9 D3 rule 3, owned-compute) — the same
- * note that applies to `GitProbeTarget`. Related and NOT this issue's: `use`
- * enforcement (ADR 9 D6 M5) makes `handoffTargets` below authorization-adjacent,
- * so a machine the principal cannot use must not appear in its result and one it
- * cannot SEE must be indistinguishable from one that does not exist. Flagged to
- * POD-1079/POD-323/POD-644; the predicate and its tests are untouched here.
- */
 export type HandoffIssue = {
   [K in 'branch' | 'worktreePath']?: z.infer<typeof IssueWorkspace>[K] | null
 }

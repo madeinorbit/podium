@@ -28,6 +28,7 @@
  */
 
 import { type IObservableArray, type ObservableMap, observable } from 'mobx'
+import { debugName } from '../debug-name'
 
 const EMPTY: readonly string[] = Object.freeze([]) as readonly string[]
 
@@ -46,7 +47,7 @@ export class SortedLanes<K, S> {
     private readonly compare: (a: S, b: S) => number,
     private readonly name: string,
   ) {
-    this.lanes = observable.map<K, IObservableArray<string>>(undefined, { deep: false, name })
+    this.lanes = observable.map<K, IObservableArray<string>>(undefined, { deep: false, name: debugName(() => name) })
   }
 
   /** TRACKED: the ids filed under `key`, in order (a shared empty list when none). */
@@ -91,7 +92,7 @@ export class SortedLanes<K, S> {
     if (before !== undefined) this.takeOut(id, before)
     let lane = this.lanes.get(key)
     if (lane === undefined) {
-      lane = observable.array<string>([], { deep: false, name: `${this.name}.lane` })
+      lane = observable.array<string>([], { deep: false, name: debugName(() => `${this.name}.lane`) })
       this.lanes.set(key, lane)
     }
     lane.splice(this.insertionPoint(lane, sort), 0, id)

@@ -1,6 +1,8 @@
 import { relativeTime } from '@podium/client-core/focus'
-import type { IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+
 import * as Haptics from 'expo-haptics'
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import Animated, {
   cancelAnimation,
@@ -14,7 +16,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -63,10 +64,10 @@ export function ScreeningCard({
   onDecide,
   onOpen,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   repoName: string
   /** Resolved parent issue, when the proposal was filed under one. */
-  parent?: IssueWire | undefined
+  parent?: IssueViewModel | undefined
   onDecide: (gesture: ScreeningGesture) => void
   onOpen: () => void
 }) {
@@ -279,7 +280,7 @@ export function ScreeningCard({
           />
           {blockers > 0 ? <Pill label={`blocked by ${blockers}`} toneKey="danger" /> : null}
           {openChildren > 0 ? <Pill label={`${openChildren} sub-tasks`} /> : null}
-          {issue.origin === 'agent' ? <Pill label="agent proposal" /> : null}
+          {issue.intentOrigin === 'agent' ? <Pill label="agent proposal" /> : null}
         </View>
 
         <View style={styles.body}>

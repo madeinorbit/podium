@@ -1,13 +1,3 @@
-import { shallowEqual } from '@podium/client-core/store'
-import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
-import {
-  chatActivity,
-  composerState,
-  defaultChatCapable,
-  latestPendingQuestion,
-  OPTIMISTIC_SEND_CEILING_MS,
-  pendingAskFromState,
-} from '@podium/client-core/viewmodels'
 import {
   type ConversationPendingTurn,
   createConversationController,
@@ -16,39 +6,56 @@ import {
   storeConversationOutbox,
   storeConversationRecords,
 } from '@podium/client-core/conversation'
-import { useStoreHandle } from '@podium/client-core/react'
 import { randomUUID } from '@podium/client-core/id'
+import { useStoreHandle } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { type SessionView, sessionValues } from '@podium/client-core/session-values'
+import { shallowEqual } from '@podium/client-core/store'
 import {
   createTranscriptController,
   transcriptActivitySignal,
 } from '@podium/client-core/transcript'
 import {
+  chatActivity,
+  composerState,
+  defaultChatCapable,
+  latestPendingQuestion,
+  matchesQuestionInteraction,
+  OPTIMISTIC_SEND_CEILING_MS,
+  pendingAskFromState,
+} from '@podium/client-core/viewmodels'
+import {
   asMutationId,
-  type IssueWire,
   isAgentComputing,
   isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
-  type SessionMeta,
 } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
-import { useHub, useIssues, useMachines, useStoreSelector, useSessionDraft, useSessions } from '../client/hooks'
+import {
+  useHub,
+  useIssues,
+  useMachines,
+  useSessionDraft,
+  useSessions,
+  useStoreSelector,
+} from '../client/hooks'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
-import { interruptSession } from '../lib/interrupt-session'
 import { chatSendTransport } from '../lib/chat-send-transport'
+import { interruptSession } from '../lib/interrupt-session'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
-import { PendingInteractionBand } from './PendingInteractionBand'
 import { Composer } from './Composer'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
+import { PendingInteractionBand } from './PendingInteractionBand'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
+import { type LocalPendingTurn, pendingTurnOf } from './pending-delivery'
 import { SessionActionCard } from './SessionActionCard'
 import { MobileSessionLifecycle } from './SessionLifecycle'
 import { TaskSheet } from './TaskSheet'
-import { type LocalPendingTurn, pendingTurnOf } from './pending-delivery'
 import { type PendingTurn, TranscriptList } from './TranscriptList'
 import { type SentAttachment, useComposerAttachments } from './useComposerAttachments'
 import { WorkingMark } from './WorkingMark'
@@ -65,9 +72,9 @@ import { WORKING_MARK_DOTS, workingMarkRadius } from './WorkingMark.shared'
 
 /** The session as the operator has just left it — the answered offer removed,
  *  so every derivation over it agrees with what is on screen. */
-function withoutOffer(session: SessionMeta): SessionMeta {
+function withoutOffer(session: SessionView): SessionView {
   const { offer: _answered, ...rest } = session
-  return rest as SessionMeta
+  return rest as SessionView
 }
 
 /** The working mark's dot grid at rest, drawn as SVG so device fonts cannot
@@ -133,12 +140,12 @@ export function SessionConversation({
   onInitialPendingSettled,
   deferInitialTranscript = false,
 }: {
-  session: SessionMeta
+  session: SessionView
   /** The task this session belongs to; drives task context and the plan bridge. */
-  issue: IssueWire | undefined
+  issue: IssueViewModel | undefined
   /** Where a tapped `POD-…` ref in the transcript should go when it is NOT this
    *  task — absent keeps the peek sheet, which is the default everywhere. */
-  onOpenTerminalRef?: (issue: IssueWire) => void
+  onOpenTerminalRef?: (issue: IssueViewModel) => void
   /** Incremented by screen chrome to open transcript search. */
   findRequest?: number
   /** First turn supplied by the shared spawn optimism engine. */
@@ -168,6 +175,7 @@ export function SessionConversation({
   const allSessions = useSessions()
   const machines = useMachines()
   const sessionId = session.sessionId
+  const machineName = sessionValues(session).machineName
   // LIVE machine presence (this issue, POD-4830's desktop banner):
   // session.machineId -> the store's live machines list, via the same
   // live-terminal predicate (online OR daemon). Unknown (no row) reads as no
@@ -177,11 +185,13 @@ export function SessionConversation({
     if (!id) return null
     const machine = machines.find((m) => m.id === id)
     if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
-    return machine.name || session.machineName || 'This machine'
-  }, [machines, session.machineId, session.machineName])
-  const currentQuestion = useStoreSelector((s) => (s.pendingInteractions ?? []).find(
-    (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
-  ))
+    return machineName || 'This machine'
+  }, [machines, session.machineId, machineName])
+  const currentQuestion = useStoreSelector((s) =>
+    (s.pendingInteractions ?? []).find(
+      (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
+    ),
+  )
   const storedDraft = useSessionDraft(sessionId)
   // biome-ignore lint/correctness/useExhaustiveDependencies: one seed per addressed conversation
   const draftSeed = useMemo(() => storedDraft, [sessionId])
@@ -366,7 +376,7 @@ export function SessionConversation({
     [conversation.bubbles],
   )
   const justSent = conversation.justSent
-  const pendingSeedSession = useRef<SessionMeta['sessionId'] | null>(
+  const pendingSeedSession = useRef<SessionView['sessionId'] | null>(
     initialPendingText ? sessionId : null,
   )
   const attachments = useComposerAttachments(sessionId)
@@ -376,13 +386,14 @@ export function SessionConversation({
   // growing the field does not relayout the transcript under the operator.
   const [composerHeight, setComposerHeight] = useState(0)
   const [askHeight, setAskHeight] = useState(0)
-  const [peekIssue, setPeekIssue] = useState<IssueWire | null>(null)
+  const [peekIssue, setPeekIssue] = useState<IssueViewModel | null>(null)
   useEffect(() => {
     if (deferInitialTranscript) return
     void transcriptController.start()
     return () => transcriptController.stop()
   }, [deferInitialTranscript, transcriptController])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mark each newly rendered item batch, including an unchanged controller
   useEffect(() => {
     transcriptController.markRendered()
   }, [items, transcriptController])
@@ -591,8 +602,12 @@ export function SessionConversation({
 
   const answerAsk = useCallback(
     async (answer: AskQuestionAnswer) => {
-      if (currentQuestion && (answer.interactionId !== currentQuestion.id ||
-          !answer.question || !matchesQuestionInteraction(currentQuestion, answer.question))) {
+      if (
+        currentQuestion &&
+        (answer.interactionId !== currentQuestion.id ||
+          !answer.question ||
+          !matchesQuestionInteraction(currentQuestion, answer.question))
+      ) {
         throw new Error('The question changed; wait for the current menu.')
       }
       const sent = await trpc.sessions.answerAskUserQuestion.mutate({
