@@ -86,7 +86,7 @@ async function main() {
   if (args.includes('--help')) {
     console.log(
       'bun apps/web/harness/mission-speed-gate.ts — same-SHA pane off/on, two runs per arm.\n' +
-        '--plant-delay-ms=50: plant a synchronous delay in the sidebar click path (expected red).\n' +
+        '--plant-delay-ms=50: plant a synchronous delay in the pool mission click path (expected red).\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
     )
     process.exit(0)
@@ -200,7 +200,7 @@ async function main() {
       new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
     )
     await page.addInitScript(
-      ({ delayMs }) => {
+      ({ delayMs, paneArm }) => {
         const began = performance.now()
         Date.now = () => Date.parse('2026-09-20T12:00:00Z') + Math.floor(performance.now() - began)
         window.__speedCapture = null
@@ -218,8 +218,8 @@ async function main() {
         document.addEventListener(
           'click',
           () => {
-            if (!delayMs || window.__speedCapture?.action !== 'sidebar-issue') return
-            // The planted 50 ms is actual main-thread work before the app's click handler.
+            if (!delayMs || paneArm !== 1 || window.__speedCapture?.action !== 'mission-switch') return
+            // Delay only the pool arm to prove the paired no-slower check detects a regression.
             const until = performance.now() + delayMs
             while (performance.now() < until) {
               /* planted regression */
@@ -247,7 +247,7 @@ async function main() {
           characterData: true,
         })
       },
-      { delayMs },
+      { delayMs, paneArm },
     )
     await page.goto(
       `${origin}/test/sidebar-acceptance.browser.html?mobxSidebar=1&scale=4&surface=${surface}&panelMode=chat&mobxPane=${paneArm}`,
