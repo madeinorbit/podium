@@ -69,7 +69,9 @@ mount and supply an empty array while their pool is loading.
 
 ## Evidence
 
-Acceptance was repeated after rebasing onto `a83e67944d` on 2026-10-02. All
+Acceptance was repeated after rebasing onto `a83e67944d` on 2026-10-02, then
+onto `ccfb54acdf` after canonical pane navigation landed. Both screen
+registrations are retained. All
 validation runs use `~/podium-test-5165` on flatblock with the checkout's
 `.toolchain` (Bun 1.4.2); the coordinator requested focused files only.
 
