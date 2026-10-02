@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { comparePaneSpeedPair } from './pane-speed-pair'
+import { comparePaneSpeedPair } from '../harness/pane-speed-pair'
 const run = (value: number) => ({ click: Array(6).fill(value) as number[], 'issue-page-open': Array(6).fill(value) as number[] })
 describe('same SHA pane speed comparison', () => {
   it('compares both fresh captures and rejects slower clicks or page opening at the fixed margin', () => {

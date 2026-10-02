@@ -52,7 +52,7 @@ export function createIssuePageViews(pool: MobxPool) {
     return memo(`members:${id}`, () => {
       const result: SessionView[] = []
       let pending = false
-      for (const sid of [...pool.graph.many('issue', id, 'missionSessions')].sort(byId)) {
+      for (const sid of [...pool.graph.many('issue', id, 'missionSessions')].sort(bySessionOrder)) {
         const value = session(sid)
         if (value === LOADING) pending = true
         else if (value) result.push(value)
@@ -61,8 +61,17 @@ export function createIssuePageViews(pool: MobxPool) {
     })
   }
   function memberSessions(id: string): Loaded<SessionView[]> {
-    const members = attachedSessions(id)
-    return members && members !== LOADING ? members.filter(s => s.agentKind !== 'shell') : members
+    const result: SessionView[] = []
+    let pending = false
+    for (const sid of [...pool.graph.many('issue', id, 'pageSessions')].sort(byId)) {
+      const seat = session(sid)
+      if (seat === LOADING) pending = true
+      else if (seat) result.push(seat)
+    }
+    return pending ? LOADING : result
+  }
+  function bySessionOrder(a: string, b: string): number {
+    return byId(pool.graph.orderKey('session', a), pool.graph.orderKey('session', b)) || byId(a, b)
   }
   function prefix(id: string): string | undefined {
     const repoId = pool.graph.one('issue', id, 'repo')
@@ -192,7 +201,7 @@ export function createIssuePageViews(pool: MobxPool) {
       const sessionIds = new Set<string>(pool.graph.many('issue', id, 'bornSessions'))
       for (const neighbour of neighbours) for (const sid of pool.graph.many('issue', neighbour, 'missionSessions')) sessionIds.add(sid)
       const sessions: SessionView[] = []
-      for (const sid of [...sessionIds].sort(byId)) {
+      for (const sid of [...sessionIds].sort(bySessionOrder)) {
         const seat = session(sid)
         if (seat === LOADING) return LOADING
         if (seat) sessions.push(seat)
@@ -214,7 +223,7 @@ export function createIssuePageViews(pool: MobxPool) {
         const lane = pool.row('worktree', path) as { path?: string; projectRoot?: boolean } | undefined
         return lane?.path && !lane.projectRoot ? [lane.path] : []
       })
-      return { issue: value, issues: world, children, memberSessions: members, sessions,
+      return { issue: value, issues: world, children, memberSessions: members ?? [], sessions,
         relations: groupRelations(value), title: issueDisplayTitle(value, sessions, worktreePaths),
         presence: presenceNote(value, own ?? [], worldById, sessions), worktreePaths, exits,
       }
@@ -256,11 +265,12 @@ export function createIssuePageViews(pool: MobxPool) {
     if (target === LOADING) return LOADING
     if (!target || target.archived || target.deletedAt) return undefined
     const rootId = missions(pool).rootFor(id)
-    if (!rootId || rootId === LOADING) return rootId
+    if (rootId === LOADING) return LOADING
+    if (!rootId) return undefined
     const root = issue(rootId)
     if (!root || root === LOADING) return root
     const members = attachedSessions(rootId)
-    return members === LOADING ? LOADING : isEmptyDraftVessel(root, members) ? undefined : root
+    return members === LOADING ? LOADING : isEmptyDraftVessel(root, members ?? []) ? undefined : root
   }
   function explorer(): Loaded<{ issues: IssueViewModel[]; sessions: SessionView[] }> {
     return memo('explorer', () => {
@@ -268,7 +278,7 @@ export function createIssuePageViews(pool: MobxPool) {
       if (!world || world === LOADING) return world
       const seats: SessionView[] = []
       let pending = false
-      for (const id of knownSessionIds(pool)) {
+      for (const id of knownSessionIds(pool).sort(bySessionOrder)) {
         if (pool.graph.isCollapsed('session', id)) continue
         const seat = pool.row('session', id, 'summary') as Loaded<SessionView>
         if (seat === LOADING) pending = true

@@ -23,7 +23,7 @@ export const ISSUE_PAGE_CHECK_FIELDS = [
   'createdBy', 'lastLifecycleActor', 'createdAt', 'updatedAt', 'panel',
   'linearIdentifier', 'linearUrl', 'pinned', 'readAt', 'tuckedAt', 'gitState',
   'deps', 'dependents', 'childIds', 'childCount', 'childDoneCount', 'memberSessionIds',
-  'blocked', 'ready', 'deferred', 'unread', 'sessionSummary',
+  'blocked', 'ready', 'deferred', 'unread', 'sessionSummary', 'supersededBy', 'duplicateOf', 'coordinatorSessionId', 'startedBySession',
 ] as const
 const SESSION_FIELDS = ['sessionId', 'issueId', 'refIssueId', 'displayRef', 'name', 'title',
   'agentKind', 'agentColor', 'headless', 'status', 'archived', 'agentState', 'lastActiveAt',
@@ -78,7 +78,10 @@ export function poolIssuePageSnapshot(pool: MobxPool): IssuePageCheckRow[] {
     }
     children.sort((a, b) => a.seq - b.seq)
     const moved: SessionView[] = []
-    for (const sid of [...pool.graph.many('issue', id, 'bornSessions')].sort()) {
+    for (const sid of [...pool.graph.many('issue', id, 'bornSessions')].sort((a, b) => {
+      const left = pool.graph.orderKey('session', a), right = pool.graph.orderKey('session', b)
+      return left < right ? -1 : left > right ? 1 : 0
+    })) {
       const seat = pool.row('session', sid) as SessionView | typeof LOADING | undefined
       if (seat === LOADING) return { id, value: LOADING }
       if (seat && seat.issueId != null && seat.issueId !== id && !seat.archived) moved.push(seat)

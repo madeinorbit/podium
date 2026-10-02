@@ -3,7 +3,8 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { bindSidebarPerf, createSidebarPerf, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useReplicaIssues, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
+import { StoreProvider, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
+import { useReplicaIssues } from '../src/app/store'
 import {
   createKernelReplica,
   createSideCache,

@@ -11,7 +11,7 @@ import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { relationLinks } from '@podium/client-graph/shared/links'
 import { checkIssuePages, compareIssuePageSnapshots, issuePageFirstDifference } from '@podium/client-graph/diagnostics/issue-page-check'
-import { LOADING } from '@podium/client-graph'
+import { LOADING, type RowRecord } from '@podium/client-graph'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { diffRelations } from './adapters/mobx-rebuild'
 import { tracked } from './adapters/mobx-pool'
@@ -30,7 +30,7 @@ const seat = (sessionId: string, issueId: string | null, patch: Partial<SliceSes
   sessionId, issueId, status: 'live', cwd: '/synthetic', createdAt: STAMP, lastActiveAt: STAMP, agentKind: 'codex', ...patch,
 })
 const summaries = { issue: [...new Set([...ISSUE_PAGE_SUMMARIES.issue, ...MISSION_SUMMARIES.issue])],
-  session: [...new Set([...ISSUE_PAGE_SUMMARIES.session, ...MISSION_SUMMARIES.session])] }
+  session: ISSUE_PAGE_SUMMARIES.session }
 function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
   // The kernel's canonical publication order is by opaque primary key.
   issues = [...issues].sort((a, b) => a.id.localeCompare(b.id))
@@ -45,7 +45,7 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
     lazy ? { load, summaries, schedule: () => () => {} } : undefined)
   pools.push(pool)
   pool.apply({ type: 'replace', rows: [
-    { kind: 'worktree', id: '/synthetic', value: { path: '/synthetic', repoId: 'R', repoPath: '/synthetic', prefix: 'T' } },
+    { kind: 'worktree', id: '/synthetic', value: { path: '/synthetic', repoId: 'R', repoName: 'Synthetic', repoPath: '/synthetic', prefix: 'T' } },
     ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
   ] })
@@ -67,7 +67,7 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
     if (kind === 'issue') issues = issues.filter(row => row.id !== id).concat(value ? [value as PageInput] : []).sort((a, b) => a.id.localeCompare(b.id))
     else seats = seats.filter(row => row.sessionId !== id).concat(value ? [value as SliceSession] : []).sort((a, b) => a.sessionId.localeCompare(b.sessionId))
     if (value) input.set(`${kind}:${id}`, value); else input.delete(`${kind}:${id}`)
-    pool.apply({ type: 'update', rows: [{ kind, id, value }] })
+    pool.apply({ type: 'update', rows: [{ kind, id, value: value as RowRecord['value'] }] })
   }
   const settle = <T,>(read: () => T): T => {
     for (let round = 0; round < 64; round++) { const result = tracked(read); if (!pool.hydrate()) return result }
@@ -78,6 +78,27 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
 }
 
 describe('declared issue page', () => {
+  it('keeps a later resume winner in the first group slot while raw member order follows IDs', () => {
+    const twin = { kind: 'codex-thread', value: 'same' }
+    const ctx = open([task('root'), task('born')], [
+      seat('a-first', 'root', { status: 'exited', resume: twin, refIssueId: 'born' }),
+      seat('b-middle', 'root'),
+      seat('c-winner', 'root', { status: 'hibernated', resume: twin, refIssueId: 'born' }),
+    ])
+    const stop = reaction(() => ctx.views.data('root'), () => {}, { fireImmediately: true })
+    try {
+      const roster = () => tracked(() => ctx.views.attachedSessions('root'))
+      expect(roster()).toMatchObject([{ sessionId: 'c-winner' }, { sessionId: 'b-middle' }])
+      expect(tracked(() => ctx.views.memberSessions('root'))).toMatchObject([{ sessionId: 'b-middle' }, { sessionId: 'c-winner' }])
+      expect(ctx.check()).toMatchObject({ differences: 0 })
+      ctx.patch('session', 'a-first', seat('a-first', 'root', { status: 'live', resume: twin, refIssueId: 'born' }))
+      expect(roster()).toMatchObject([{ sessionId: 'a-first' }, { sessionId: 'b-middle' }, { sessionId: 'c-winner' }])
+      expect(ctx.check()).toMatchObject({ differences: 0 })
+      ctx.patch('session', 'a-first', undefined)
+      expect(roster()).toMatchObject([{ sessionId: 'b-middle' }, { sessionId: 'c-winner' }])
+      expect(ctx.check()).toMatchObject({ differences: 0 })
+    } finally { stop() }
+  })
   it('matches documents, checkout observations, custom multi-edges, raw counts and visible resume winners', () => {
     const rows = [task('root', { seq: 8, description: { value: 'Long body' }, notes: { value: 'Notes' },
       gitState: { ahead: 2, merged: false }, readAt: STAMP, pinned: true, deferUntil: '2026-10-02T12:00:00Z' }),

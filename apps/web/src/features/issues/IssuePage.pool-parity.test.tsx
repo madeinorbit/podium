@@ -3,7 +3,7 @@ import '@/test-support/mock-core-store-handle'
 import '@/test-support/model-catalog-mock'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runInAction } from 'mobx'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { dedupeSessions } from '@podium/client-core/engine'
 import { deriveIssueViews, deriveIssueRollups, type IssueViewInput, type IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -60,7 +60,7 @@ vi.mock('@/app/store', () => ({
 vi.mock('@/lib/pane-data-layer', () => ({ paneDataLayer: () => layer }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => pool,
-  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown) => runInAction(() => read(pool)),
+  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown) => createPoolProjection(pool, read).getSnapshot(),
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('../cost/useTaskCost', () => ({ useTaskCost: () => ({ view: null }) }))
@@ -79,8 +79,8 @@ function seed(patch: Partial<IssueViewModel> = {}) {
       description: 'The complete synthetic description.', brief: 'The synthetic brief.', design: 'The design text.', acceptance: 'The acceptance text.',
       notes: 'Private notes in the process.', activityNotes: 'The current synthetic update.', notesUpdatedAt: STAMP, labels: ['alpha', 'beta'],
       createdAt: STAMP, updatedAt: STAMP, defaultAgent: 'codex', worktreePath: '/synthetic/work', branch: 'issue/10-synthetic',
-      owner: asUserId('operator'), createdBy: { kind: 'user', id: asUserId('operator') }, needsHuman: true,
-      asked: { question: 'A synthetic decision?', options: ['One', 'Two'] }, estimateMin: 45, color: '#4477ff',
+      owner: asUserId('operator'), createdBy: { actor: { kind: 'user', id: asUserId('operator') }, onBehalfOf: null }, needsHuman: true,
+      asked: { question: 'A synthetic decision?', options: ['One', 'Two'] }, estimateMin: 45, color: 'blue',
       deps: [{ id: 'target', type: 'blocks' }, { id: 'invisible', type: 'related' }, { id: 'removed', type: 'blocks' }, { id: 'pending', type: 'custom' }],
       gitState: { branch: 'issue/10-synthetic', ahead: 2, dirtyFiles: 1, shared: false, merged: false, updatedAt: STAMP }, ...patch }),
     makeIssue({ id: 'child-a', seq: 12, title: 'Open child', parentId: 'root', repoPath: '/synthetic', repoId: 'R', prefix: 'SYN', createdAt: STAMP, updatedAt: STAMP }),
@@ -99,11 +99,12 @@ function seed(patch: Partial<IssueViewModel> = {}) {
   const views = deriveIssueViews(inputs, rollupSeats, { now: () => NOW })
   legacyIssues = raw.map(row => ({ ...row, ...views.get(row.id),
     ...deriveIssueRollups(row, views.get(row.id)!.memberSessionIds, id => index.get(id)),
+    id: row.id,
   }))
   visibleSessions = dedupeSessions(seats)
   pool = new MobxPool({ selectedIssueId: 'root', coarseNow: NOW })
   pool.apply({ type: 'replace', rows: [
-    { kind: 'worktree', id: '/synthetic/work', value: { path: '/synthetic/work', repoId: 'R', repoPath: '/synthetic', prefix: 'SYN' } },
+    { kind: 'worktree', id: '/synthetic/work', value: { path: '/synthetic/work', repoId: 'R', repoName: 'Synthetic', repoPath: '/synthetic', prefix: 'SYN' } },
     ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
     ...legacyIssues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
   ] })
@@ -125,7 +126,7 @@ function rendered(root: Element): unknown {
   return visit(root)
 }
 const actions = () => ({ select: select.mock.calls, read: markRead.mock.calls, view: setView.mock.calls, pane: setPane.mock.calls, navigate: navigate.mock.calls })
-function wrap(child: ReactNode) { return <TooltipProvider><ConfirmProvider><OperatorFocusProvider>{child}</OperatorFocusProvider></ConfirmProvider></TooltipProvider> }
+function wrap(child: ReactNode) { return <TooltipProvider><ConfirmProvider><OperatorFocusProvider missionId="root">{child}</OperatorFocusProvider></ConfirmProvider></TooltipProvider> }
 async function arm(surface: 'page' | 'panel' | 'list', mode: 'legacy' | 'pool') {
   layer = mode; forbidden = mode === 'pool'; legacyReads = 0; storeStats.reset()
   const issue = legacyIssues.find(row => row.id === 'root')!
