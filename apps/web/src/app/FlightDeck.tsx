@@ -2376,11 +2376,10 @@ const clampBriefRatio = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value))
 
 /**
- * The four numbers the cutoff layout derives from, read in one batch before the
- * (async-state) write — there is no read-after-write here, so batching the reads
- * differently buys nothing. The cost driver was invocation frequency (POD-4439),
- * which is why the callers below measure once per content and watch two boxes.
- * Null when the deck has no box yet.
+ * Read only after the browser's layout, in ResizeObserver delivery. Reading
+ * these boxes during the commit forces layout of the entire new mission tree
+ * (POD-5106), even though the brief needs just four numbers. Null when the deck
+ * has no box yet.
  */
 function readBriefMetrics(
   el: HTMLElement | null,
@@ -2477,44 +2476,38 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
   // trigger, not a value the effect reads.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
   useEffect(() => setOpen(false), [html])
-  // THE BRIEF IS MEASURED ONCE PER CONTENT, NOT ONCE PER SETTLE (POD-4439).
-  //
-  // `html` is not READ below, it is the reason to run again: a new brief in the
-  // same box is new content to measure, and the element identity does not change
-  // to say so. The watcher underneath is mounted once, because re-observing the
-  // same nodes on every content change buys a second delivery from the
-  // ResizeObserver — an initial report of sizes the direct measure just read —
-  // and with it a second synchronous layout read per switch for values that
-  // cannot have moved yet.
-  //
-  // The watcher also leaves the brief body itself alone. The body's height is an
-  // OUTPUT of this measurement — the cutoff writes `max-height` straight onto
-  // it — so observing it turns every cutoff update into another
-  // measure-and-compare that always compares equal. The inputs live elsewhere:
-  // the deck's height (window resizes) and the body's top (header wrapping, the
-  // cost chip arriving late), and those are the two boxes watched.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
-  useLayoutEffect(() => {
-    const next = readBriefMetrics(ref.current, endRef.current)
-    if (next) publishBriefMetrics(setMetrics, next)
-  }, [html])
+  // The observer delivers after layout, so the rect/scrollHeight reads do not
+  // force the newly committed mission tree through synchronous layout. A new
+  // brief needs a fresh initial delivery even when both ancestor boxes kept
+  // their size (a clipped brief can change without resizing the header).
+  // Observe the inputs, not the body whose max-height this measurement writes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: html triggers a fresh observation of content in the same nodes
   useLayoutEffect(() => {
     const el = ref.current
     const deck = el?.closest<HTMLElement>('[data-testid="flight-deck-scroller"]')
     const header = el?.closest<HTMLElement>('.deck-header')
     if (!el || !deck || !header) return
-    // Ancestors, not content: this component never changes identity without
-    // remounting, so one watcher per mount stays pointed at the right nodes
-    // across content changes.
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => {
+    const measure = (): void => {
       const next = readBriefMetrics(ref.current, endRef.current)
       if (next) publishBriefMetrics(setMetrics, next)
-    })
+    }
+    if (typeof ResizeObserver === 'undefined') {
+      // rAF alone is still before layout. The task it queues runs after that
+      // frame; cancel both stages when another brief replaces this one.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const frame = requestAnimationFrame(() => {
+        timer = setTimeout(measure, 0)
+      })
+      return () => {
+        cancelAnimationFrame(frame)
+        clearTimeout(timer)
+      }
+    }
+    const observer = new ResizeObserver(measure)
     observer.observe(header)
     observer.observe(deck)
     return () => observer.disconnect()
-  }, [])
+  }, [html])
 
   const onRulePointerDown = (event: ReactPointerEvent<HTMLSpanElement>): void => {
     if (

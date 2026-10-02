@@ -393,6 +393,9 @@ function measuredBrief(): {
   })
 
   deck()
+  const callback = resize as ResizeObserverCallback | null
+  if (!callback) throw new Error('brief ResizeObserver was not installed')
+  act(() => callback([], {} as ResizeObserver))
   return {
     observed,
     reflowHeader(nextTop: number): void {
@@ -522,14 +525,10 @@ describe('mission brief cutoff interaction', () => {
   })
 })
 
-describe('mission brief measure frequency (POD-4439)', () => {
-  /* One measure is three layout reads (deck, body, end) plus a scrollHeight
-     that costs nothing. The legacy wiring spent three measures per issue
-     switch — a direct measure, the observer's initial delivery after
-     re-observing the same nodes on [html], and the body's own resize once the
-     cutoff's max-height landed on it — for values the first measure already
-     held. These tests pin the fixed wiring at one measure per switch with the
-     same limits, and fail against the legacy wiring. */
+describe('mission brief measurement after layout', () => {
+  // Each observation starts with a browser-delivered size report after layout.
+  // No geometry read may happen during the commit, on mount or content change.
+  // Only the deck/header are observed; the body's height is their output.
 
   /** Browser-faithful observer plus layout that answers like one: an initial
    *  delivery per newly observed target, then one callback per flush whose
@@ -540,6 +539,7 @@ describe('mission brief measure frequency (POD-4439)', () => {
     readonly observed: Set<Element>
     readonly setContentHeight: (height: number) => void
     readonly setDeckHeight: (height: number) => void
+    readonly unmountObservations: () => boolean
     readonly briefRectReads: () => number
     readonly flushResizes: (changed?: Element[]) => number
   } {
@@ -616,6 +616,9 @@ describe('mission brief measure frequency (POD-4439)', () => {
       setDeckHeight(height: number): void {
         deckHeight = height
       },
+      unmountObservations(): boolean {
+        return observed.size === 0 && initial.size === 0
+      },
       briefRectReads(): number {
         return rectReads
       },
@@ -652,6 +655,7 @@ describe('mission brief measure frequency (POD-4439)', () => {
     harness.selectedIssueId = 'm1'
     const gauges = countedBrief()
     const view = deck()
+    expect(gauges.briefRectReads()).toBe(0)
     // Settle the mount the way the browser would: the initial observer
     // delivery, then the body's own resize once the cutoff clamps it.
     gauges.flushResizes()
@@ -664,6 +668,7 @@ describe('mission brief measure frequency (POD-4439)', () => {
     gauges.setContentHeight(50)
     harness.selectedIssueId = 'm2'
     view.rerender(<DeckHarness />)
+    expect(gauges.briefRectReads()).toBe(before)
     // The browser delivers what changed: initial reports for re-observed
     // boxes, then the body's own resize. Name exactly those.
     gauges.flushResizes()
@@ -672,9 +677,7 @@ describe('mission brief measure frequency (POD-4439)', () => {
 
     // CONTROL first: the same content measures the same limit in both arms.
     expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
-    // Then the cost: one measure, three rects. The legacy wiring (observer
-    // re-created on [html] over three targets, body included) spends three
-    // measures — nine rects — on the same switch and fails here.
+    // One measure, three rects, all from delivery after the browser's layout.
     expect(switchReads).toBe(3)
   })
 
@@ -711,6 +714,97 @@ describe('mission brief measure frequency (POD-4439)', () => {
     // must still be there to say so.
     expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('110px')
   })
+
+  it('refreshes clipped content even when both observed boxes keep their size', () => {
+    twoMissions()
+    harness.selectedIssueId = 'm1'
+    const gauges = countedBrief()
+    const view = deck()
+    gauges.flushResizes()
+    fireEvent.click(screen.getByTestId('deck-brief-more'))
+    expect(screen.getByTestId('deck-brief').dataset.open).toBe('true')
+
+    // Both contents still overflow the same cutoff. No ancestor resize is
+    // available to tell us that the intrinsic content height changed.
+    gauges.setContentHeight(90)
+    harness.selectedIssueId = 'm2'
+    const before = gauges.briefRectReads()
+    view.rerender(<DeckHarness />)
+    expect(gauges.briefRectReads()).toBe(before)
+    expect(gauges.flushResizes()).toBe(1)
+    expect(screen.getByTestId('deck-brief').dataset.open).toBeUndefined()
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+    fireEvent.click(screen.getByTestId('deck-brief-more'))
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('90px')
+  })
+
+  it('keeps a saved cutoff through content changes and deck resizing', () => {
+    twoMissions()
+    harness.selectedIssueId = 'm1'
+    harness.ui.set(FLIGHT_DECK_BRIEF_CUTOFF_KEY, '0.4500')
+    const gauges = countedBrief()
+    const view = deck()
+    gauges.flushResizes()
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('90px')
+
+    harness.selectedIssueId = 'm2'
+    view.rerender(<DeckHarness />)
+    gauges.flushResizes()
+    gauges.setDeckHeight(500)
+    gauges.flushResizes([screen.getByTestId('flight-deck-scroller')])
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('135px')
+    expect(screen.getByRole('separator').getAttribute('aria-valuenow')).toBe('45')
+    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4500')
+  })
+
+  it('waits for a hidden deck to acquire a box and disconnects on unmount', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    const gauges = countedBrief()
+    gauges.setDeckHeight(0)
+    const view = deck()
+    gauges.flushResizes()
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('')
+    gauges.setDeckHeight(400)
+    gauges.flushResizes([screen.getByTestId('flight-deck-scroller')])
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+    view.unmount()
+    expect(gauges.unmountObservations()).toBe(true)
+  })
+
+  it('defers the no-observer fallback until after the animation frame and cancels it', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    const gauges = countedBrief()
+    vi.stubGlobal('ResizeObserver', undefined)
+    vi.useFakeTimers()
+    const frames = new Map<number, FrameRequestCallback>()
+    let frameId = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++frameId, callback)
+      return frameId
+    })
+    const cancel = vi.fn((id: number) => frames.delete(id))
+    vi.stubGlobal('cancelAnimationFrame', cancel)
+    const view = deck()
+    expect(gauges.briefRectReads()).toBe(0)
+    act(() => frames.get(frameId)?.(0))
+    expect(gauges.briefRectReads()).toBe(0)
+    act(() => vi.runOnlyPendingTimers())
+    expect(gauges.briefRectReads()).toBe(3)
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+    view.unmount()
+    expect(cancel).toHaveBeenCalledWith(frameId)
+
+    // A queued task belonging to an unmounted brief must never read geometry.
+    const next = deck()
+    act(() => frames.get(frameId)?.(0))
+    const before = gauges.briefRectReads()
+    next.unmount()
+    act(() => vi.runOnlyPendingTimers())
+    expect(gauges.briefRectReads()).toBe(before)
+  })
+
 })
 
 describe('the cold deck (POD-1112)', () => {
