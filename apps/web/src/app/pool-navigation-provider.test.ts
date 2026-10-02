@@ -23,6 +23,10 @@ const tracked = <T>(read: () => T): T => computed(read).get()
 const issue = (id: string, patch: Partial<SliceIssue> = {}): SliceIssue => ({
   id, seq: 1, title: 'Synthetic task', stage: 'backlog', repoPath: '/repo', createdAt: stamp, updatedAt: stamp, ...patch,
 })
+const legacyActivity = (rows: SliceIssue[], sessions: SessionView[]) => issueActivityAt(
+  { ...rows[0]!, id: asIssueId(rows[0]!.id) }, sessions,
+  rows.map(row => ({ ...row, id: asIssueId(row.id), parentId: row.parentId ? asIssueId(row.parentId) : row.parentId })),
+)
 
 describe('web pool navigation', () => {
   it('agrees with legacy keys for hidden ancestors, drafts, absent parents and direct missing ids', () => {
@@ -92,12 +96,12 @@ describe('web pool navigation', () => {
       { sessionId: 'cwd-only', lastActiveAt: outside, cwd: '/repo' },
     ] as SessionView[]
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
-      { summaries: NAVIGATION_SUMMARIES, schedule: () => () => {} })
+      { load: () => undefined, summaries: NAVIGATION_SUMMARIES, schedule: () => () => {} })
     pool.apply({ type: 'replace', rows: [...rows.map(value => ({ kind: 'issue' as const, id: value.id, value })),
       ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))] })
     const provider = createPoolNavigationProvider(pool)
     try {
-      expect(tracked(() => provider.activityAt('root'))).toBe(issueActivityAt(rows[0]!, seats, rows))
+      expect(tracked(() => provider.activityAt('root'))).toBe(legacyActivity(rows, seats))
       expect(tracked(() => provider.activityAt('root'))).toBe(later)
       expect(tracked(() => provider.activityAt('leaf'))).toBe(later)
       expect(tracked(() => provider.activityAt('archived-owner'))).toBe(later)
@@ -120,7 +124,7 @@ describe('web pool navigation', () => {
       expect(tracked(() => provider.activityAt('root'))).toBe(NAVIGATION_LOADING)
       expect(load).not.toHaveBeenCalled()
       expect(pool.hydrate()).toBe(1)
-      expect(tracked(() => provider.activityAt('root'))).toBe(issueActivityAt(rows[0]!, [], rows))
+      expect(tracked(() => provider.activityAt('root'))).toBe(legacyActivity(rows, []))
       expect(load).toHaveBeenCalledExactlyOnceWith('issue', 'hidden')
     } finally { pool.dispose() }
   })
