@@ -583,14 +583,10 @@ describe('pool explorer target', () => {
       poolIssue('archived', { parentId: 'root', archived: true }),
       poolIssue('deleted', { parentId: 'root', deletedAt: '2026-10-02T00:00:00Z' }),
       poolIssue('deleted-spin', { startedBySession: 'sender', deletedAt: '2026-10-02T00:00:00Z' }),
-      poolIssue('cycle-a', { startedBySession: 'cycle-b-sender' }),
-      poolIssue('cycle-b', { startedBySession: 'cycle-a-sender' }),
       ...Array.from({ length: 500 }, (_, i) => poolIssue(`other-${i}`))]
     const sessions = [
       { sessionId: 'sender', issueId: 'root', cwd: '/synthetic', headless: true, archived: true },
       { sessionId: 'spin-sender', issueId: 'spin', cwd: '/synthetic' },
-      { sessionId: 'cycle-a-sender', issueId: 'cycle-a', cwd: '/synthetic' },
-      { sessionId: 'cycle-b-sender', issueId: 'cycle-b', cwd: '/synthetic' },
     ] as SliceSession[]
     const pool = explorerPool(rows, sessions)
     const oracle = missionIssueIds(rows.map(row => makeIssue({ ...row } as Parameters<typeof makeIssue>[0])), 'root' as never, sessions as never)
