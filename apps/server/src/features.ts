@@ -9,9 +9,9 @@ import {
   type FeatureId,
   type FeatureState,
   type FeatureVisibility,
+  isDevChannelVersion,
   resolveFeatureState,
 } from '@podium/protocol'
-import { isDevChannelVersion } from '@podium/protocol/update-dev-version'
 import type { PodiumSettings } from '@podium/runtime'
 import {
   type EnvSource,
