@@ -11,7 +11,7 @@ import { reseed } from '../../hand/pool/enumerate'
 import { PoolRelations } from '../../hand/pool/relations'
 import { isLinkSpec, linkInputs } from '../../hand/pool/relations'
 import { Residency, type Schedule } from '../../hand/pool/residency'
-import { createTables, ingestOut, ingestRecord, type IngestTarget } from '../../hand/pool/tables'
+import { createTables, ingestOut, ingestRecord, put, type IngestTarget } from '../../hand/pool/tables'
 import { COLD_SESSION_FIELDS, HIDDEN_ISSUE_FIELDS } from '../../hand/pool/worklist/visible'
 import { derive } from './derive'
 
@@ -115,7 +115,13 @@ export class LeanPool {
     runInAction(() => {
       this.engine.begin()
       const out = ingestOut()
-      for (const [entity, id] of this.residency.take()) this.residency.hydrate(this.target, entity, id, out)
+      for (const [entity, id] of this.residency.take()) {
+        if (this.residency.isCold(entity, id)) this.residency.hydrate(this.target, entity, id, out)
+        else {
+          const value = this.source.row!(entity, id)
+          if (value) put(this.target, entity, id, value, out)
+        }
+      }
       for (const delta of out.deltas) this.tableSignals[delta.entity].reportChanged()
       for (const write of this.engine.lastWrites) this.relationSignals.get(write.relation)?.reportChanged()
     })

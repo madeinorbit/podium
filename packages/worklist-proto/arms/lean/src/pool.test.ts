@@ -61,7 +61,11 @@ describe('lean memory prototype', () => {
     expect(pool.row('issue', cold)).toBe(LOADING)
     expect(pool.row('issue', 'absent')).toBe(LOADING)
     expect(pool.residency.queued()).toBe(2)
+    const load = pool.source.row!.bind(pool.source)
+    const loaded: string[] = []
+    pool.source.row = (entity, id) => { loaded.push(id); return load(entity, id) }
     pool.hydrate()
+    expect(loaded).toEqual([cold, 'absent'])
     expect(pool.tables.issue.has(cold)).toBe(true)
     expect(pool.residency.queued()).toBe(0)
     pool.dispose()

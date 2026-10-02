@@ -12,6 +12,8 @@ import { startCensus } from './mobx-census'
 import { startHandCensus } from './hand-census'
 import { handPoolArm } from '../../arms/hand/pool/arm'
 import { LeanPool } from '../../arms/lean/src/pool'
+import { VISIBLE_RULES, SESSION_RULES } from '../../arms/hand/pool/worklist/visible'
+import { PART_RULES } from '../../arms/hand/pool/views'
 
 const results = []
 for (const cell of ['1x', '4x', 'h10a1']) for (const arm of ['hand', 'lean']) {
@@ -20,11 +22,24 @@ for (const cell of ['1x', '4x', 'h10a1']) for (const arm of ['hand', 'lean']) {
   const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
   const locals = createEngineLocals(ctx.engine)
   const reads = createReadFence({ enabled: true })
+  let plainRuleRuns = 0
+  let summaryReads = 0
+  const restores: (() => void)[] = []
+  // Count the plain rule bodies too: a single MobX filing run can hide a full scan.
+  for (const rules of [VISIBLE_RULES, SESSION_RULES, PART_RULES]) {
+    const host = rules as unknown as Record<string, (...args: unknown[]) => unknown>
+    for (const [key, original] of Object.entries(host)) {
+      host[key] = (...args) => { plainRuleRuns++; return original(...args) }
+      restores.push(() => { host[key] = original })
+    }
+  }
   const census = arm === 'lean' ? startCensus() : startHandCensus()
   census.enter('startup')
   const source = reads.wrapSource(feed.source)
   const hand = arm === 'hand' ? handPoolArm.create(source, locals.source, reads, { schedule: () => () => {} }) : null
   const pool = hand?.pool ?? new LeanPool(source, locals.source, reads, () => () => {})
+  const originalSummary = pool.residency!.summary.bind(pool.residency)
+  pool.residency!.summary = (...args) => { summaryReads++; return originalSummary(...args) }
   census.exit()
   const stops: (() => void)[] = []
   census.enter('window')
@@ -48,16 +63,18 @@ for (const cell of ['1x', '4x', 'h10a1']) for (const arm of ['hand', 'lean']) {
   const changes = []
   for (const [name, write] of [['heartbeat', writeHeartbeat], ['phase', writePhaseChange], ['rename', writeTitleRename], ['burst50', writeBurst50]] as const) {
     reads.reset(); census.enter(name)
+    plainRuleRuns = 0; summaryReads = 0
     await write(ctx); feed.flush(); locals.flush(); settle()
     census.exit()
     const read = reads.stats()
     const work = census.snapshot().phases[name]
-    changes.push({ name, reads: read, work })
+    changes.push({ name, reads: read, work, plainRuleRuns, summaryReads })
   }
   results.push({ cell, arm, startup, changes })
   for (const stop of stops.reverse()) stop()
   if (hand) hand.dispose(); else pool.dispose()
   census.stop(); locals.dispose(); feed.dispose(); ctx.engine.destroy()
+  for (const restore of restores.reverse()) restore()
   console.log(`${cell} ${arm}: ${changes.map((c) => `${c.name}=${c.reads.data} rows`).join(', ')}`)
 }
 const out = resolve('.artifacts/pool-memory/per-row-census.json')
