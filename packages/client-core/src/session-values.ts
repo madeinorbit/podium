@@ -122,9 +122,9 @@ export function sessionView<T extends SessionValueInput>(
   // Reads stay ordinary data-property reads; unchanged inputs reuse this copy.
   // Spread before restoring the prototype so inherited setters cannot intercept
   // the copied cells. Preserve null prototypes as well as custom prototypes.
-  memo.value = Object.freeze(
-    Object.setPrototypeOf({ ...session, ...values }, Object.getPrototypeOf(session)),
-  )
+  const value = { ...session, ...values }
+  Object.setPrototypeOf(value, Object.getPrototypeOf(session))
+  memo.value = Object.freeze(value)
   viewInputs.set(memo.value, { session, homes })
   return memo.value as T & SessionValues
 }

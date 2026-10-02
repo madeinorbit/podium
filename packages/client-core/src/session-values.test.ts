@@ -263,7 +263,7 @@ describe('session values from their new homes', () => {
     expect(Object.isFrozen(geometry)).toBe(false)
     expect(() => { view.displayRef = 'CHANGED' }).toThrow(TypeError)
     expect(() => { Object.assign(view, { title: 'CHANGED' }) }).toThrow(TypeError)
-    expect(() => { delete view.displayRef }).toThrow(TypeError)
+    expect(() => { delete (view as { displayRef?: string }).displayRef }).toThrow(TypeError)
     expect(() => Object.defineProperty(view, 'displayRef', { value: 'CHANGED' })).toThrow(TypeError)
     expect(() => Object.setPrototypeOf(view, {})).toThrow(TypeError)
     // Native frozen-object reflection rejects mutations with false.
