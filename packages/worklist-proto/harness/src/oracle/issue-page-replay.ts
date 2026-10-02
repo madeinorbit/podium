@@ -14,18 +14,22 @@ import { corpusFromLive } from '../fixture/live-snapshot'
 import { sidebarReplayStore } from './sidebar-replay'
 
 let step = 0
+function phase(next: number) {
+  step = next
+  console.log(JSON.stringify({ phase: step }))
+}
 async function main() {
   if (hostname() !== 'ludovico') throw new Error('Wrong replay host')
-  step = 1
+  phase(1)
   const { raw, bootstrapEntityCounts } = await readLive('http://127.0.0.1:18787')
-  step = 2
+  phase(2)
   const corpus = { ...corpusFromLive(raw, Date.now()), issueProjections: raw.issueProjections,
     issueUserStates: raw.issueUserStates ?? [], issueGitStates: raw.issueGitStates ?? [], repoProjections: raw.repoProjections }
   const cache = seedCacheFromCorpus(corpus)
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const store = sidebarReplayStore(corpus, replica)
   const runtime = { getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
-  step = 3
+  phase(3)
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' }), locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: ISSUE_PAGE_SUMMARIES })
   try {
@@ -33,7 +37,7 @@ async function main() {
       runInAction(() => poolIssuePageSnapshot(handle.pool))
       if (handle.pool.hydrate() === 0) break
     }
-    step = 4
+    phase(4)
     const locations: IssuePageDifference[] = []
     const result = runInAction(() => checkIssuePages(handle.pool,
       allIssueViewModels(replica, store.issueProjections, store.issueUserStates), store.sessions, diff => locations.push(diff)))
