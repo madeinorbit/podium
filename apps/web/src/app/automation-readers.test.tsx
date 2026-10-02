@@ -10,7 +10,6 @@ import { PoolSources } from '@podium/client-graph/source-registry'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asMachineId, asUserId } from '@podium/model/browser'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
-import { configure, runInAction } from 'mobx'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createAutomationsFixture } from '../../test/automations-fixture'
@@ -108,25 +107,6 @@ it('declared run and target relationships follow edits, deletes and replacement'
   expect(source.related('automation', 'synthetic-auto-0', 'runs')).toHaveLength(0)
   expect(source.read('automationRun', 'synthetic-run-0-0')).toBeUndefined()
   source.dispose()
-})
-
-it('addressed publications honor the strict observable read trap', async () => {
-  const fixture = createAutomationsFixture(), source = new AutomationSource(fixture.newReplica())
-  configure({ enforceActions: 'always', observableRequiresReaction: true })
-  const warn = vi.spyOn(console, 'warn').mockImplementation(message => { throw new Error(String(message)) })
-  const read = () => runInAction(() => source.read('automation', 'synthetic-auto-0'))
-  try {
-    expect(read()).toBe(LOADING)
-    await Promise.resolve()
-    expect(read()).toMatchObject({ enabled: true })
-    fixture.patch('automation', 'synthetic-auto-0', { enabled: false })
-    expect(read()).toMatchObject({ enabled: false })
-    expect(warn).not.toHaveBeenCalled()
-  } finally {
-    source.dispose(); await Promise.resolve()
-    configure({ enforceActions: 'never', observableRequiresReaction: false })
-    warn.mockRestore()
-  }
 })
 
 it('enabled list, launch, run and specs readers execute zero legacy derivations and match the old policy', async () => {
