@@ -21,7 +21,6 @@ import { asThreadId } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import {
   isSessionIdPrefix,
-  isShortSessionIdentifier,
   resolveSessionIdentifier,
   type SessionIdentifierResolution,
 } from '@podium/protocol'
@@ -267,6 +266,8 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
   navigate(intent: NavigationIntent): boolean
+  /** A pool row loading for a session jump resumes through the same action. */
+  waitForSessionNavigation?(identifier: string): void
   /**
    * S5: the runtime's snapshot batch, exposed so one gesture's synchronous
    * paints (navigation + optimistic overlays + their outbox-size handoff when
@@ -507,14 +508,17 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   const navigateToSession = (sessionIdOrRef: string): void => {
     const state = rt.state()
     const meta = state.navigation
-      ? navigationSession(state, sessionIdOrRef)
+      ? state.navigation.session(sessionIdOrRef)
       : resolveSessionIdentifier(sessionIdOrRef, state.sessions)
+    if (meta === NAVIGATION_LOADING) {
+      rt.waitForSessionNavigation?.(sessionIdOrRef)
+      return
+    }
     if (!meta) {
       // A short id this client cannot match (POD-4637): the server answers,
       // through the CLI's rule — no prefix matching here. Anything else stays
       // inert, as before: an unknown full id may be a spawn still arriving.
-      if (isSessionIdPrefix(sessionIdOrRef) || (state.navigation && isShortSessionIdentifier(sessionIdOrRef)))
-        void navigateToSessionLink(sessionIdOrRef)
+      if (isSessionIdPrefix(sessionIdOrRef)) void navigateToSessionLink(sessionIdOrRef)
       return
     }
     rt.navigate({

@@ -19,7 +19,7 @@ export const panePoolScreen: PoolScreen = {
       runtime.setNavigationProvider(loadingNavigationProvider)
     }
   },
-  options: () => ({ summaries: MISSION_SUMMARIES }),
+  options: () => ({ summaries: { ...MISSION_SUMMARIES, session: ['displayRef'] } }),
   async attach(runtime, pool) {
     const generation = generations.get(runtime)
     const { createPoolNavigationProvider } = await import('./pool-navigation-provider')

@@ -92,8 +92,15 @@ describe('web pool navigation', () => {
       expect(runtime.getSnapshot().navigateWorkspace({ selectedIssueId: target.id })).toBe(false)
       expect(runtime.getSnapshot().selectedIssueId).toBe(before.selectedIssueId)
       expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
+      runtime.getSnapshot().navigateToSession(seat.sessionId)
+      expect(runtime.getSnapshot().selectedIssueId).toBe(before.selectedIssueId)
       await vi.waitFor(() => expect(runtime.getSnapshot().selectedIssueId).toBe(target.id))
+      expect(runtime.getSnapshot().paneA).toBe(seat.sessionId)
       expect(runtime.getSnapshot().workspaceKey()).toBe(expectedKey)
+      if (seat.displayRef) {
+        runtime.getSnapshot().navigateToSession(seat.displayRef)
+        expect(runtime.getSnapshot().paneA).toBe(seat.sessionId)
+      }
       // The notice's Open chat action and eager read reaction use the same port.
       runtime.getSnapshot().navigateToSession(seat.sessionId)
       await vi.waitFor(() => expect(runtime.getSnapshot().paneA).toBe(seat.sessionId))
@@ -102,6 +109,24 @@ describe('web pool navigation', () => {
       expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
       expect(errors).not.toHaveBeenCalled()
     } finally { detach(); runtime.destroy() }
+  })
+
+  it('keeps local birth refs canonical, including a cold ref through its declared summary', () => {
+    const seat = { sessionId: 'seat', displayRef: 'POD-529-A', archived: true, status: 'live',
+      cwd: '/repo', createdAt: stamp, lastActiveAt: stamp, agentKind: 'codex' }
+    const load = vi.fn(() => seat)
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
+      { load, summaries: { session: ['displayRef'] }, schedule: () => () => {} })
+    pool.apply({ type: 'replace', rows: [{ kind: 'session', id: seat.sessionId, value: seat }] })
+    const provider = createPoolNavigationProvider(pool)
+    try {
+      expect(tracked(() => provider.session(seat.displayRef))).toBe(NAVIGATION_LOADING)
+      expect(load).not.toHaveBeenCalled()
+      pool.hydrate()
+      expect(load).toHaveBeenCalledTimes(1)
+      expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toMatchObject({ sessionId: seat.sessionId })
+      expect(tracked(() => provider.session('POD-530-A'))).toBeUndefined()
+    } finally { pool.dispose() }
   })
 
   it('a retired async attachment cannot replace a new generation with the old pool', async () => {

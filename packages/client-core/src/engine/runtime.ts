@@ -349,6 +349,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly state: EngineState
   private stopNavigationWatch: (() => void) | undefined
   private pendingNavigation: NavigationIntent | undefined
+  private pendingSessionNavigation: string | undefined
   private navigationWakeQueued = false
   private statsReactionDepth = 0
   private readonly subStore: SubscriptionStore<Store<TApi>>
@@ -994,6 +995,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.stopNavigationWatch?.()
     this.stopNavigationWatch = undefined
     this.pendingNavigation = undefined
+    this.pendingSessionNavigation = undefined
     this.destroyed = true
     this.hostMetricsStore.destroy()
   }
@@ -1018,6 +1020,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   setNavigationProvider(provider: NavigationProvider): void {
     if (this.destroyed) return
     this.apply({ navigation: provider })
+    if (this.pendingSessionNavigation) this.statics.navigateToSession(this.pendingSessionNavigation)
     if (this.pendingNavigation) this.navigate(this.pendingNavigation)
   }
 
@@ -1033,6 +1036,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       return [
         resolvedWorkspaceKey(st), foregroundIssue(st),
         focused ? provider.session(focused) : undefined,
+        this.pendingSessionNavigation ? provider.session(this.pendingSessionNavigation) : undefined,
         pending ? resolvedWorkspaceKey({ ...st,
           ...(pending.selectedIssueId !== undefined ? { selectedIssueId: pending.selectedIssueId } : {}),
           ...(pending.selectedWorktree !== undefined ? { selectedWorktree: pending.selectedWorktree } : {}),
@@ -1046,6 +1050,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         if (this.destroyed || this.state.navigation !== provider) return
         this.batch(() => {
           if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
+          if (this.pendingSessionNavigation) this.statics.navigateToSession(this.pendingSessionNavigation)
           if (this.pendingNavigation) this.navigate(this.pendingNavigation)
           this.syncWorkspaceSelection()
           this.reactions.updateIssueVisitBaseline()
@@ -1343,6 +1348,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private navigate(intent: NavigationIntent): boolean {
     if (this.destroyed) return false
     this.pendingNavigation = undefined
+    this.pendingSessionNavigation = undefined
     // Any navigation supersedes a link still waiting for its session, so a late
     // row never yanks the operator off where they went since (POD-4642).
     this.dropPaneLink()
@@ -1396,6 +1402,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private onRouteChanged(route: RouteState): void {
     if (this.committingNavigation) return
     this.pendingNavigation = undefined
+    this.pendingSessionNavigation = undefined
     const prev = this.prevRoute
     this.prevRoute = route
     const st = this.state
@@ -1744,6 +1751,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       state: () => this.state,
       apply: (patch) => this.apply(patch),
       navigate: (intent) => this.navigate(intent),
+      waitForSessionNavigation: (identifier) => {
+        this.dropPaneLink()
+        this.pendingNavigation = undefined
+        this.pendingSessionNavigation = identifier
+        this.watchNavigation()
+      },
       // S5: one publication per click. The gesture's synchronous paints share
       // this batch; the async outbox drain echo and background broadcasts stay
       // separate by construction (they fire after the batch closed).
