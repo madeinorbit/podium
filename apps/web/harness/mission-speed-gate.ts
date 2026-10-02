@@ -86,7 +86,7 @@ async function main() {
   if (args.includes('--help')) {
     console.log(
       'bun apps/web/harness/mission-speed-gate.ts — same-SHA pane off/on, two runs per arm.\n' +
-        '--plant-delay-ms=50: plant a synchronous delay in the pool mission click path (expected red).\n' +
+        '--plant-delay-ms=5000: plant a synchronous delay in the pool mission click path (expected red).\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
     )
     process.exit(0)
@@ -101,7 +101,7 @@ async function main() {
   if (
     !Number.isFinite(delayMs) ||
     delayMs < 0 ||
-    delayMs > 1000
+    delayMs > 10000
   )
     throw new Error('Invalid planted delay/mode')
 
