@@ -119,9 +119,11 @@ it('has zero session-value, shared-card and mobile-route differences across the 
       refSeq: draft ? undefined : number,
       refLetter: draft ? undefined : 'B',
       refDraft: draft ? number : undefined,
-      displayRef: formatSessionRef(draft
-        ? { prefix: repo.prefix, draft: number }
-        : { prefix: repo.prefix, seq: number, letter: 'B' }),
+      displayRef: formatSessionRef(
+        draft
+          ? { prefix: repo.prefix, draft: number }
+          : { prefix: repo.prefix, seq: number, letter: 'B' },
+      ),
     }
   })
   const homes = fixtureSessionHomes(corpus)
