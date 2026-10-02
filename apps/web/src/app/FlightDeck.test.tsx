@@ -156,6 +156,12 @@ vi.mock('./store', () => ({
   useSessionDraft: () => '',
 }))
 
+// WorkerLabel reads served harness descriptors through the real provider;
+// this fixture supplies bundled descriptors alongside its local store stub.
+vi.mock('@/lib/use-harness-descriptors', () => ({
+  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' }),
+}))
+
 const developerFeature = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => developerFeature.enabled,
@@ -804,7 +810,6 @@ describe('mission brief measurement after layout', () => {
     act(() => vi.runOnlyPendingTimers())
     expect(gauges.briefRectReads()).toBe(before)
   })
-
 })
 
 describe('the cold deck (POD-1112)', () => {
