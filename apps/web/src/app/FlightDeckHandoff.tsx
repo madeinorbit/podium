@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import type { MissionHandoffValues } from '@podium/client-graph/mission-view'
 import { useStoreHandle } from '@podium/client-core/react'
 import {
   deriveHandoffNext,
@@ -245,6 +246,7 @@ export function FlightDeckHandoff({
   onOpenTranscript,
   onOpenSession,
   onOpenIssue,
+  poolValues,
 }: {
   rootIssue: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
@@ -254,19 +256,20 @@ export function FlightDeckHandoff({
   onOpenTranscript: (sessionId: SessionId, itemKey: string) => void
   onOpenSession: (issueId: IssueId, sessionId: SessionId) => void
   onOpenIssue: (issueId: IssueId) => void
+  poolValues?: MissionHandoffValues
 }): JSX.Element {
   const crew = useMemo(
-    () => missionSessions(issues, sessions, rootIssue.id, true),
-    [issues, sessions, rootIssue.id],
+    () => poolValues ? poolValues.crew : missionSessions(issues, sessions, rootIssue.id, true),
+    [issues, sessions, rootIssue.id, poolValues],
   )
   const transcript = useHandoffTranscript(true, crew)
   const current = useMemo(
-    () => deriveHandoffNow(issues, sessions, rootIssue.id),
-    [issues, sessions, rootIssue.id],
+    () => poolValues ? poolValues.current : deriveHandoffNow(issues, sessions, rootIssue.id),
+    [issues, sessions, rootIssue.id, poolValues],
   )
   const next = useMemo(
-    () => deriveHandoffNext(issues, sessions, rootIssue.id),
-    [issues, sessions, rootIssue.id],
+    () => poolValues ? poolValues.next : deriveHandoffNext(issues, sessions, rootIssue.id),
+    [issues, sessions, rootIssue.id, poolValues],
   )
   const summary = useMemo(() => summarizeHandoffSessions(crew), [crew])
   const [currentLimit, setCurrentLimit] = useState(INITIAL_ROWS)
