@@ -17,7 +17,7 @@ const f = vi.hoisted(() => ({ mode: 'legacy' as 'legacy' | 'pool', state: {} as 
   hibernate: vi.fn(async () => {}), configure: vi.fn(async () => ({ ok: true })),
   resolveShell: vi.fn(async () => ({ sessionId: 'pane-19' })),
   transcriptRead: vi.fn(async (_input: unknown) => ({ items: [], hasMore: false })),
-  transcript: vi.fn(() => () => {}), confirm: vi.fn(async () => true) }))
+  transcript: vi.fn((_session: unknown, _since?: unknown, _listener?: unknown) => () => {}), confirm: vi.fn(async () => true) }))
 vi.mock('./session-pane-data-layer', () => ({ sessionPaneDataLayer: () => f.mode }))
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: Store) => unknown) => select(f.state),
