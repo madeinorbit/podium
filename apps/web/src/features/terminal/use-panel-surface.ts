@@ -39,6 +39,7 @@ import { createLogger } from '@podium/logger'
 import type { SessionId} from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { usePaneMachines, usePanePanelModes } from './use-session-pane-inputs'
 import {
   type PanelGates,
   type PanelSurface,
@@ -113,16 +114,16 @@ export function usePanelSurface(input: {
   /** Fired on a chat → native transition, never on mount-in-native. */
   onEnterNative?: () => void
 }): PanelArbitration {
-  const { panelMode, setPanelMode, uiState, trpc, machines } = useStoreSelector(
+  const { setPanelMode, uiState, trpc } = useStoreSelector(
     (s) => ({
-      panelMode: s.panelMode,
       setPanelMode: s.setPanelMode,
       uiState: s.uiState,
       trpc: s.trpc,
-      machines: s.machines,
     }),
     shallowEqual,
   )
+  const panelMode = usePanePanelModes()
+  const machines = usePaneMachines()
   const { sessionId, session, paneActive, spawnConfirmed, inTransit, onEnterNative } = input
   const chatCapable = panelChatCapable(session, defaultChatCapable)
   // Does the native view have anything behind it (POD-2290)? Three-valued, and

@@ -35,7 +35,8 @@ import {
 import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId} from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
+import { useSessionExitKind, useStoreSelector } from '@/app/store'
+import { usePaneSession, usePaneMachines } from '../terminal/use-session-pane-inputs'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem } from './chat'
@@ -238,7 +239,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     superThreads,
     transcriptReveal,
     clearTranscriptReveal,
-    machines,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -259,11 +259,11 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       superThreads: s.superThreads,
       transcriptReveal: s.transcriptReveal,
       clearTranscriptReveal: s.clearTranscriptReveal,
-      machines: s.machines,
     }),
     shallowEqual,
   )
-  const session = useSession(sessionId)
+  const session = usePaneSession(sessionId)
+  const machines = usePaneMachines()
   const sessionExitKind = useSessionExitKind(sessionId)
   const storeHandle = useStoreHandle()
   const getIssueSeq = useCallback(

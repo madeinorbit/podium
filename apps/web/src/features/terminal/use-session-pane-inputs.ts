@@ -52,3 +52,38 @@ export function usePaneSpawnConfirmed(id: SessionId) {
   return useRead(id)
 }
 export function usePoolPaneHasSessions() { return useWorklistPoolProjection(paneHasSessions, false) }
+
+function useLegacyPanePanelModes() {
+  return useStoreSelector(s => legacySessionPaneRead(s.replica ?? s, 'panelMode', () => s.panelMode))
+}
+function usePoolPanePanelModes() { return usePoolPaneWindow().panelMode }
+export function usePanePanelModes() {
+  const useRead = sessionPaneDataLayer() === 'pool' ? usePoolPanePanelModes : useLegacyPanePanelModes
+  return useRead()
+}
+function useLegacyDockInputs(cwd: string, pending: string | null) {
+  return useStoreSelector(s => legacySessionPaneRead(s.replica ?? s, 'dock', () => ({
+    mapped: s.dockShells[cwd],
+    session: s.sessions.find(row => row.sessionId === s.dockShells[cwd]),
+    pendingPresent: !!pending && s.sessions.some(row => row.sessionId === pending),
+    hasSessions: s.sessions.length > 0,
+    reposLoaded: s.reposLoaded, loading: false,
+  })), (a, b) => a.mapped === b.mapped && a.session === b.session && a.pendingPresent === b.pendingPresent && a.hasSessions === b.hasSessions && a.reposLoaded === b.reposLoaded)
+}
+function usePoolDockInputs(cwd: string, pending: string | null) {
+  const read = useCallback((pool: MobxPool) => {
+    const window = windowRead(pool)
+    const mapped = window.dockShells[cwd]
+    const session = paneSession(pool, mapped)
+    const pendingRow = paneSession(pool, pending ?? undefined)
+    return { mapped, session: session === LOADING ? undefined : session,
+      pendingPresent: !!pendingRow && pendingRow !== LOADING,
+      hasSessions: paneHasSessions(pool), reposLoaded: window.reposLoaded,
+      loading: session === LOADING }
+  }, [cwd, pending])
+  return useWorklistPoolProjection(read, { mapped: undefined, session: undefined, pendingPresent: false, hasSessions: false, reposLoaded: false, loading: true })
+}
+export function useDockPaneInputs(cwd: string, pending: string | null) {
+  const useRead = sessionPaneDataLayer() === 'pool' ? usePoolDockInputs : useLegacyDockInputs
+  return useRead(cwd, pending)
+}

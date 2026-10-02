@@ -15,6 +15,7 @@ import { dockShellIsDead, dockShellIsParked } from './dock-shell-lifecycle'
 import { prettyCwd } from './pretty-cwd'
 import { HibernatedPane } from './SessionLifecyclePanes'
 import { useTerminalAppearance } from './use-terminal-appearance'
+import { useDockPaneInputs, usePaneMachines } from './use-session-pane-inputs'
 
 /**
  * The right dock's Shell panel (#23) [spec:SP-75b1]: one shell session per
@@ -44,27 +45,20 @@ export function DockShellPanel({
   const {
     hub,
     trpc,
-    sessions,
-    machines,
-    reposLoaded,
-    dockShells,
     setDockShell,
     setDockVisibleSession,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
       trpc: s.trpc,
-      sessions: s.sessions,
-      machines: s.machines,
-      reposLoaded: s.reposLoaded,
-      dockShells: s.dockShells,
       setDockShell: s.setDockShell,
       setDockVisibleSession: s.setDockVisibleSession,
     }),
     shallowEqual,
   )
-  const mapped = dockShells[cwd]
-  const session = sessions.find((s) => s.sessionId === mapped)
+  const pendingId = useRef<string | null>(null)
+  const { mapped, session, pendingPresent, hasSessions, reposLoaded, loading } = useDockPaneInputs(cwd, pendingId.current)
+  const machines = usePaneMachines()
   const machineLabel = resolveShellMachineLabel(session, machines, machineId)
   // Dead = unrevivable in place. 'starting' and 'reconnecting' are HEALTHY
   // transients — treating them as dead made this effect archive a spawning
@@ -82,8 +76,7 @@ export function DockShellPanel({
   // wasn't in the store yet) and stamped out a dozen shells in seconds.
   // forWorktree is idempotent server-side, so this guard is about churn, not
   // correctness; the reconciledFor guard below is what ends the loop.
-  const pendingId = useRef<string | null>(null)
-  if (pendingId.current && sessions.some((s) => s.sessionId === pendingId.current)) {
+  if (pendingId.current && pendingPresent) {
     pendingId.current = null
   }
   // The server answer already reconciled for this (cwd, machine) key.
@@ -103,10 +96,11 @@ export function DockShellPanel({
   // A parked shell never resolves (POD-4429): it resumes the same id in place.
   const needsResolve =
     !parked &&
+    !loading &&
     reposLoaded &&
     pendingId.current === null &&
     reconciledFor.current !== resolveKey &&
-    (!mapped || !!session || sessions.length > 0)
+    (!mapped || !!session || hasSessions)
 
   const creating = useRef(false)
   useEffect(() => {

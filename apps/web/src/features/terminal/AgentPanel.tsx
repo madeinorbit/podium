@@ -40,7 +40,7 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { useSession, useSessionDraft, useStoreSelector } from '@/app/store'
+import { useSessionDraft, useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -87,6 +87,8 @@ import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
 import { prettyCwd } from './pretty-cwd'
 import { useTerminalAppearance } from './use-terminal-appearance'
+import { usePaneSession, usePaneMachines, usePaneSpawnConfirmed } from './use-session-pane-inputs'
+import { sessionPaneDataLayer } from './session-pane-data-layer'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
 // session (screenText/sendInput/simulateKeyboard/…) for the Playwright harness under
@@ -212,7 +214,6 @@ export function AgentPanel({
 }: AgentPanelProps): JSX.Element {
   const {
     hub,
-    machines,
     trpc,
     startBtw,
     setSessionDraft,
@@ -226,7 +227,6 @@ export function AgentPanel({
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
-      machines: s.machines,
       // `repos` is deliberately NOT selected (POD-1704). Its only use here was the
       // worktree-missing guess; subscribing to it re-rendered every agent panel on
       // each repo scan for a fact the panel had no business deriving.
@@ -243,11 +243,12 @@ export function AgentPanel({
     }),
     shallowEqual,
   )
-  const session = useSession(sessionId)
+  const session = usePaneSession(sessionId)
+  const machines = usePaneMachines()
   const [loginTerminalBusy, setLoginTerminalBusy] = useState(false)
   const [loginTerminalError, setLoginTerminalError] = useState<string | null>(null)
   const [pendingLoginSessionId, setPendingLoginSessionId] = useState<SessionId | null>(null)
-  const pendingLoginSession = useSession(pendingLoginSessionId ?? undefined)
+  const pendingLoginSession = usePaneSession(pendingLoginSessionId ?? undefined)
   useEffect(() => {
     if (!pendingLoginSession) return
     navigateToSession(pendingLoginSession.sessionId)
@@ -270,7 +271,7 @@ export function AgentPanel({
       setLoginTerminalBusy(false)
     }
   }, [loginTerminalBusy, session, trpc])
-  const spawnConfirmed = useStoreSelector((s) => !s.pendingSpawnIds.has(sessionId))
+  const spawnConfirmed = usePaneSpawnConfirmed(sessionId)
   const observedOptimisticFirstPrompt = useStoreSelector((s) =>
     s.pendingSpawnPrompts.get(sessionId),
   )
@@ -306,7 +307,7 @@ export function AgentPanel({
   // the getter fresh without remounting the terminal when the replica updates.
   const issuesRef = useRef(issues)
   issuesRef.current = issues
-  const { guardedEnd } = useSessionGuard(sessionId)
+  const { guardedEnd } = useSessionGuard(sessionId, undefined, sessionPaneDataLayer() === 'pool' ? (session ? [session] : []) : undefined)
   // An optimistically-spawned session doesn't exist server-side yet (#119): the
   // terminal's one-shot `hub.attach` would be dropped and never retried, leaving
   // the pane black. Hold the mount until the real session reconciles in — the
