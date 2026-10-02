@@ -3,7 +3,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { startSidebarCheck } from '@podium/client-graph/diagnostics/runtime-check'
 import { checkSidebar } from '@podium/client-graph/diagnostics/sidebar-check'
-import { runInAction } from 'mobx'
+import { tracked } from '../../../../packages/worklist-proto/harness/src/adapters/mobx-pool'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { startScenarioEngine } from '../../../../packages/worklist-proto/shared/src/scenarios'
 
@@ -166,10 +166,10 @@ describe('on-demand sidebar diagnostic', () => {
     let stop = () => {}, close = () => {}
     try {
       for (let round = 0; round < 64; round += 1) {
-        runInAction(() => actual.checkSidebar(handle.pool, ctx.engine.getSnapshot(), state(ctx.engine.getSnapshot())))
+        tracked(() => actual.checkSidebar(handle.pool, ctx.engine.getSnapshot(), state(ctx.engine.getSnapshot())))
         if (handle.pool.hydrate() === 0) break
       }
-      expect(runInAction(() => actual.checkSidebar(handle.pool, ctx.engine.getSnapshot(), state(ctx.engine.getSnapshot())))).toMatchObject({ differences: 0, pending: 0 })
+      expect(tracked(() => actual.checkSidebar(handle.pool, ctx.engine.getSnapshot(), state(ctx.engine.getSnapshot())))).toMatchObject({ differences: 0, pending: 0 })
       const sections = handle.pool.sidebar.sections.bind(handle.pool.sidebar)
       vi.spyOn(handle.pool.sidebar, 'sections').mockImplementation(layout => ({ ...sections(layout), pinnedCollapsed: !sections(layout).pinnedCollapsed }))
       const perf = createSidebarPerf()
