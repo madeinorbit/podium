@@ -208,7 +208,11 @@ function MachineMenu({
 
 export function NewIssueDialog(props: Omit<Parameters<typeof NewIssueDialogBody>[0], 'data'>): JSX.Element {
   const data = useCommandLaunchData()
-  if (!data || data === LOADING) return <Dialog open onOpenChange={open => !open && props.onClose()}><DialogContent><DialogTitle>New task</DialogTitle><p>Loading launch choices…</p></DialogContent></Dialog>
+  if (!data || data === LOADING) return (
+    <Dialog open onOpenChange={open => !open && props.onClose()}>
+      <DialogContent><DialogTitle>New task</DialogTitle><p>Loading launch choices…</p></DialogContent>
+    </Dialog>
+  )
   return <NewIssueDialogBody {...props} data={data} />
 }
 

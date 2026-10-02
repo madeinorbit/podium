@@ -216,7 +216,11 @@ const GROUP_LABEL: Record<PaletteGroupId, string> = {
 
 function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data'>): JSX.Element {
   const data = useCommandPaletteData()
-  if (!data || data === LOADING) return <Dialog open onOpenChange={open => !open && props.onClose()}><DialogContent><DialogTitle>Command palette</DialogTitle><p>Loading commands…</p></DialogContent></Dialog>
+  if (!data || data === LOADING) return (
+    <Dialog open onOpenChange={open => !open && props.onClose()}>
+      <DialogContent><DialogTitle>Command palette</DialogTitle><p>Loading commands…</p></DialogContent>
+    </Dialog>
+  )
   return <PaletteDialogBody {...props} data={data} />
 }
 
