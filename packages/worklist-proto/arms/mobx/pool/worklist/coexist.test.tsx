@@ -33,6 +33,7 @@ import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 import {
   startScenarioEngine,
+  type FixtureScale,
   writeHeartbeat,
   writeSelectionClick,
 } from '../../../../shared/src/scenarios'
@@ -41,22 +42,25 @@ import { harnessMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'
 interface SoloCounts {
   rows: number
   stats: CountStats
+  reads: number
 }
 
-async function soloArm(scenario: 'heartbeat' | 'click'): Promise<SoloCounts> {
+async function soloArm(scenario: 'heartbeat' | 'click', scale: FixtureScale): Promise<SoloCounts> {
   const methodology = scenario === 'heartbeat' ? '#1' : '#3'
-  const ctx = await startScenarioEngine(1)
+  const ctx = await startScenarioEngine(scale)
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const mounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
   try {
     const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
     if (entry === undefined) throw new Error(`no fence scenario ${methodology}`)
     const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
+    console.info(`[sidebar-reads] ${scenario} ${scale}x solo: ${JSON.stringify(result.reads)}`)
     assertReads(result, { readsPerChange: readsBudget })
     expect(result.parity, `solo arm ${scenario}: parity (${result.parityDiff ?? ''})`).toBe(true)
     return {
       rows: result.rowsCommitted,
       stats: result.stats,
+      reads: result.readsPerChange!,
     }
   } finally {
     mounted.unmount()
@@ -65,8 +69,8 @@ async function soloArm(scenario: 'heartbeat' | 'click'): Promise<SoloCounts> {
   }
 }
 
-async function soloControl(scenario: 'heartbeat' | 'click'): Promise<SoloCounts> {
-  const ctx = await startScenarioEngine(1)
+async function soloControl(scenario: 'heartbeat' | 'click', scale: FixtureScale): Promise<SoloCounts> {
+  const ctx = await startScenarioEngine(scale)
   const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
   const locals: SliceLocals = {
     selectedIssueId: null,
@@ -85,7 +89,8 @@ async function soloControl(scenario: 'heartbeat' | 'click'): Promise<SoloCounts>
       expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
     })
     expect(result.parity, `solo control ${scenario}: parity`).toBe(true)
-    return { rows: result.rowsCommitted, stats: result.stats }
+    expect(result.readsPerChange).not.toBeNull()
+    return { rows: result.rowsCommitted, stats: result.stats, reads: result.readsPerChange! }
   } finally {
     mounted.unmount()
     source.dispose()
@@ -94,11 +99,11 @@ async function soloControl(scenario: 'heartbeat' | 'click'): Promise<SoloCounts>
 }
 
 describe('coexistence: arm and control on one runtime (POD-4576)', () => {
-  it('heartbeat and click count the same solo and co-mounted, on both sides', async () => {
-    const soloArmHeartbeat = await soloArm('heartbeat')
-    const soloControlHeartbeat = await soloControl('heartbeat')
-    const soloArmClick = await soloArm('click')
-    const soloControlClick = await soloControl('click')
+  it.each([1, 4] as const)('heartbeat and click count the same solo and co-mounted, on both sides (%ix corpus)', async (scale) => {
+    const soloArmHeartbeat = await soloArm('heartbeat', scale)
+    const soloControlHeartbeat = await soloControl('heartbeat', scale)
+    const soloArmClick = await soloArm('click', scale)
+    const soloControlClick = await soloControl('click', scale)
     // The detector is armed: the solo control redraws the world on a heartbeat.
     expect(soloControlHeartbeat.rows, 'control heartbeat over-commits solo').toBeGreaterThan(0)
 
@@ -109,7 +114,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       soloControlClick,
     }
     const coRun = async (scenario: 'heartbeat' | 'click'): Promise<void> => {
-      const ctx = await startScenarioEngine(1)
+      const ctx = await startScenarioEngine(scale)
       // Engine-backed locals (POD-4608): the click's selection reaches both
       // arms through the same channel the solo runs use.
       const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -130,6 +135,8 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         expect(pool.pendingLoads?.() ?? 0, `${scenario}: mount loads settled`).toBe(0)
         armMounted.log.reset()
         controlMounted.log.reset()
+        armMounted.reads.reset()
+        controlMounted.reads.reset()
         await act(async () => {
           if (scenario === 'heartbeat') await writeHeartbeat(ctx)
           else await writeSelectionClick(ctx)
@@ -143,6 +150,10 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         expect(pool.pendingLoads?.() ?? 0, `${scenario}: no pending loads`).toBe(0)
         const armRows = armMounted.log.total()
         const controlRows = controlMounted.log.total()
+        // Take the fence cells before either whole-output parity projection.
+        const armReads = armMounted.reads.stats()
+        const controlReads = controlMounted.reads.stats()
+        console.info(`[sidebar-reads] ${scenario} ${scale}x co-mounted: ${JSON.stringify(armReads)}`)
         const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
         expect(
           diffSnapshots(armMounted.handle.snapshot(), oracle),
@@ -156,9 +167,13 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         const soloControlCounts = scenario === 'heartbeat' ? soloControlHeartbeat : soloControlClick
         expect(armRows, `${scenario}: arm rows co == solo`).toBe(soloArmCounts.rows)
         expect(controlRows, `${scenario}: control rows co == solo`).toBe(soloControlCounts.rows)
+        expect(armReads.rows, `${scenario}: arm reads co == solo`).toBe(soloArmCounts.reads)
+        expect(controlReads.rows, `${scenario}: control reads co == solo`).toBe(soloControlCounts.reads)
         co[scenario] = {
           armRows,
           controlRows,
+          armReads,
+          controlReads,
         }
       } finally {
         armMounted.unmount()
@@ -169,6 +184,6 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
     }
     await coRun('heartbeat')
     await coRun('click')
-    writeResult('mobx-coexist-mc4', { issue: 'POD-4576', corpus: '1x', ...co })
+    writeResult(`mobx-coexist-mc4-${scale}x`, { issue: 'POD-4576', corpus: `${scale}x`, ...co })
   }, 300_000)
 })

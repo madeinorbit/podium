@@ -40,6 +40,7 @@ import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createMobxWriteApi } from '@podium/client-graph/write/edit'
 import { PendingOverlay } from '@podium/client-graph/write/overlay'
+import { writeResult } from '../../../../harness/src/results'
 
 installMobxWarnTrap()
 
@@ -67,8 +68,8 @@ function fakeTransport(): FakeTransport {
 const NEVER_AUTO = { schedule: () => () => {} } as const
 
 describe('Mc1 MobX edits on the model', () => {
-  it('a title rename paints in one commit of that row, within budget', async () => {
-    const ctx = await startScenarioEngine(1)
+  it.each([1, 4] as const)('a title rename paints in one commit of that row, within budget (%ix corpus)', async (scale) => {
+    const ctx = await startScenarioEngine(scale)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
     const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
@@ -96,6 +97,10 @@ describe('Mc1 MobX edits on the model', () => {
       expect(transport.sent[0]!.command.kind).toBe('issueUpdate')
       expect(edited.rowsCommitted).toBe(1)
       expect(edited.commitsByRow).toEqual({ [id]: 1 })
+      console.info(`[sidebar-reads] rename ${scale}x: ${JSON.stringify(edited.reads)}`)
+      writeResult(`mobx-rename-reads-${scale}x`, { scale, reads: edited.reads, commitsByRow: edited.commitsByRow })
+      // Title changes need the edited row, never its unchanged roster. Keep
+      // the original absolute budget at both corpus sizes.
       assertReads(edited, { readsPerChange: 3 })
       // Optimism paints ahead of server truth: the server oracle still shows
       // the old title, so parity is false while pending.

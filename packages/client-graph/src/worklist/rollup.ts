@@ -74,6 +74,7 @@ import {
   NO_SIDEBAR_SESSIONS,
   type SidebarSessionFacts,
   sidebarSessionFacts,
+  sidebarSessionOrder,
   sortedSidebarSessions,
 } from './sidebar-row'
 
@@ -800,14 +801,15 @@ export function ownAttentionPartOf(
     (combined, session) =>
       combineSidebarSessions(
         combined,
-        seats.get(session.sessionId)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
+        seats.get(sidebarSessionOrder(session).id)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
       ),
     NO_SIDEBAR_SESSIONS,
   )
   const railWaiting = { open: 0, finished: 0, decisions: deciding ? 1 : 0 }
   for (const session of sessions) {
-    const verdict = seats.get(session.sessionId)
-    if (deciding && session.offer && attentionGroup(session, false) !== 'needsYou') continue
+    const order = sidebarSessionOrder(session)
+    const verdict = seats.get(order.id)
+    if (deciding && order.offerOnly) continue
     if (verdict?.open === 'waiting') railWaiting.open += 1
     if (verdict?.finished === 'waiting') railWaiting.finished += 1
   }
