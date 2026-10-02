@@ -75,14 +75,18 @@ function make(store: FixtureStore) {
       input.repoId ?? store.repos?.find((repo) => repo.path === repoPath)?.repoId ?? repoPath ?? ''
     const refPrefix = prefix ?? input.displayRef?.replace(/-\d+$/, '')
     repos.set(repoId, { id: repoId, repoPath: repoPath ?? '', prefix: refPrefix } as RepoProjection)
+    // Explicit undefined exercises historical absence instead of fixture defaults.
     projections.push({
       ...durable,
-      owner: durable.owner ?? asUserId('fixture-user'),
-      visibility: durable.visibility ?? 'personal',
-      createdBy: durable.createdBy ?? {
-        actor: actorUser(asUserId('fixture-user')),
-        onBehalfOf: asUserId('fixture-user'),
-      },
+      owner: 'owner' in durable ? durable.owner : asUserId('fixture-user'),
+      visibility: 'visibility' in durable ? durable.visibility : 'personal',
+      createdBy:
+        'createdBy' in durable
+          ? durable.createdBy
+          : {
+              actor: actorUser(asUserId('fixture-user')),
+              onBehalfOf: asUserId('fixture-user'),
+            },
       repoId,
       description:
         typeof input.description === 'string'

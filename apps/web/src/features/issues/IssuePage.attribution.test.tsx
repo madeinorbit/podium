@@ -61,7 +61,16 @@ afterEach(cleanup)
 
 const show = (over: Parameters<typeof makeIssue>[0]) => {
   world.current = normalizedFixtureStore({
-    issues: [makeIssue({ id: 'i-1', repoPath: '/r', ...over })],
+    issues: [
+      makeIssue({
+        id: 'i-1',
+        repoPath: '/r',
+        createdBy: undefined,
+        owner: undefined,
+        visibility: undefined,
+        ...over,
+      }),
+    ],
     sessions: [],
   })
   const issue = allIssueViewModels(world.current.replica)[0]!
