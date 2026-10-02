@@ -435,6 +435,9 @@ export default defineConfig(({ command, mode }) => {
         '@lezer/lr',
 
         '@trpc/server',
+        // Shared auth resolves this through client-core's peer context too.
+        // Both copies are 11.18.0; one browser client keeps it out of the graph twice.
+        '@trpc/client',
         'crelt',
         'style-mod',
         'clsx',
