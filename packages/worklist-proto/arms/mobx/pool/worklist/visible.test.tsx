@@ -289,7 +289,7 @@ describe('visible collection and order (Mb1)', () => {
     expect(result.ok ? null : `${result.against}: ${result.diff}`).toBeNull()
   }, 300_000)
 
-  it('a list that draws hidden rows fails the commit fence on #4 (a hidden spin-off)', async () => {
+  it('a list that draws hidden rows fails the commit fence on #1 and #4 (a hidden spin-off)', async () => {
     const planted: CheckableArm = {
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads) as HarnessMobxPoolHandle
@@ -308,42 +308,61 @@ describe('visible collection and order (Mb1)', () => {
         }
       },
     }
-    const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
-    const mounted = mountArmForCounts(planted, feeds.rows.source, feeds.locals)
-    try {
-      settle((mounted.handle as HarnessMobxPoolHandle).pool)
-      mounted.log.reset()
-      mounted.reads.reset()
-      const failures: Record<string, string> = {}
-      for (const methodology of ['#1', '#2', '#3', '#4']) {
-        const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
-        const { result } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
-        try {
-          assertCommits(result)
-        } catch (error) {
-          failures[methodology] = (error as Error).message
-        }
+    // The same detector must accept the real list and reject only the plant.
+    for (const candidate of [arm, planted]) {
+      const drawsHidden = candidate === planted
+      const ctx = await startScenarioEngine(1)
+      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const mounted = mountArmForCounts(candidate, feeds.rows.source, feeds.locals)
+      try {
+        settle((mounted.handle as HarnessMobxPoolHandle).pool)
+        const heartbeatIssueId = ctx.corpus.sessions.find(
+          (session) => session.sessionId === ctx.targets.heartbeatSessionId,
+        )?.issueId
+        expect(heartbeatIssueId, 'the heartbeat belongs to a hidden issue').toBeDefined()
+        expect(oracleOrder(ctx)).not.toContain(heartbeatIssueId)
         mounted.log.reset()
         mounted.reads.reset()
+        const failures: Record<string, string> = {}
+        for (const methodology of ['#1', '#2', '#3', '#4']) {
+          const entry = FENCE_SCENARIOS.find((scenario) => scenario.methodology === methodology)
+          const { result } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
+          if (methodology === '#1') {
+            expect(result.oracleChangedRows).toEqual([])
+            expect(result.drawnRows).toEqual(drawsHidden ? [heartbeatIssueId] : [])
+          }
+          try {
+            assertCommits(result)
+          } catch (error) {
+            failures[methodology] = (error as Error).message
+          }
+          mounted.log.reset()
+          mounted.reads.reset()
+        }
+        const renamed = await runHiddenSpinOffRename(mounted, ctx, feeds.flush)
+        try {
+          assertCommits(renamed.result)
+        } catch (error) {
+          failures['#4 hidden spin-off'] = (error as Error).message
+        }
+        // POD-4953 (2bc0ee9b72) made PoolRow consume the complete sidebar
+        // payload, including session lastActiveAt. The hidden heartbeat now
+        // redraws its own row in the plant even though retained-seat activityAt
+        // still does not move (POD-4679). No visible row's payload changes.
+        // #4's corpus target has no spin-off, so the separate origin rename is
+        // still the only #4 failure. Both failures must disappear on clean code.
+        expect(Object.keys(failures).sort()).toEqual(
+          drawsHidden ? ['#1', '#4 hidden spin-off'] : [],
+        )
+        if (drawsHidden) {
+          expect(failures['#1']).toContain(`over=[${heartbeatIssueId}] under=[]`)
+          expect(failures['#4 hidden spin-off']).toContain(`over=[${renamed.spinOff}`)
+        }
+      } finally {
+        mounted.unmount()
+        feeds.dispose()
+        ctx.engine.destroy()
       }
-      const renamed = await runHiddenSpinOffRename(mounted, ctx, feeds.flush)
-      try {
-        assertCommits(renamed.result)
-      } catch (error) {
-        failures['#4 hidden spin-off'] = (error as Error).message
-      }
-      // #4's corpus target (the #2 root since POD-4635) has no spin-off, so only
-      // the #4-shaped rename of an origin with a hidden spin-off can show it.
-      // #1 no longer does (POD-4679): its heartbeat session is a retained seat
-      // of no hidden row, so no hidden row's `activityAt` moves (it did while
-      // `activityAt` read every explicit session, decayed ones included).
-      expect(Object.keys(failures).sort()).toEqual(['#4 hidden spin-off'])
-      expect(failures['#4 hidden spin-off']).toContain(`over=[${renamed.spinOff}`)
-    } finally {
-      mounted.unmount()
-      feeds.dispose()
-      ctx.engine.destroy()
     }
   }, 300_000)
 })
