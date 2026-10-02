@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 /**
  * Settings → Privacy tests [spec:SP-f933].

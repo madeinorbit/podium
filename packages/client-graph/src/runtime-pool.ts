@@ -34,7 +34,7 @@ export type WorklistRuntime = RowSourceRuntime &
   LocalsEngine & { readonly replica: RowSourceReplica; readonly ui?: RoutedUiState }
 
 /** A read-only attachment: optimism and every write still belong to the runtime. */
-export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { preferences?: boolean; header?: boolean; resolveReferences?: ResolveIssueReferences } = {}): WorklistPoolHandle {
+export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { preferences?: boolean; settings?: boolean; header?: boolean; resolveReferences?: ResolveIssueReferences } = {}): WorklistPoolHandle {
   const rows = createRowSource(runtime, runtime.replica, { mode: 'overlaid' })
   let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
@@ -51,12 +51,13 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
           }),
       },
       locals.source,
-      { header: options.header, ...(options.resolveReferences ? { resolveReferences: options.resolveReferences } : {}) },
+      { header: options.header, settings: options.settings, ...(options.resolveReferences ? { resolveReferences: options.resolveReferences } : {}) },
     )
-    if (options.preferences) {
+    if (options.preferences || options.settings) {
       if (!runtime.ui) throw new Error('Preferences require the existing runtime UI owner')
       handle.pool.attachPreferences(runtime.ui)
     }
+    if (options.settings) handle.pool.attachSettings(runtime)
     if (options.header) stopHeader = attachHeaderSource(handle.pool, runtime as Parameters<typeof attachHeaderSource>[1])
     stopPerf = observeWorklistPoolPerf(runtime, handle.pool)
   } catch (error) {

@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import {
   EXISTING_PODIUM_CLIENT_DRAFT_KEY,

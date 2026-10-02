@@ -1,3 +1,4 @@
+import { initializeSettingsDataLayer, settingsDataLayer, settingsCheckRequested } from '@/features/settings/data-layer'
 import { initializePreferencesDataLayer, preferencesDataLayer, preferencesCheckRequested } from '@/lib/preferences-data-layer'
 import { headerDataLayer, headerCheckRequested, initializeHeaderDataLayer } from '@/lib/header-data-layer'
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -27,6 +28,7 @@ const poolBackedScreens: readonly {
   initialize(ui: ClientRuntime['ui']): void
   enabled(): boolean
 }[] = [
+  { initialize: initializeSettingsDataLayer, enabled: () => settingsDataLayer() === 'pool' },
   { initialize: initializePreferencesDataLayer, enabled: () => preferencesDataLayer() === 'pool' },
   { initialize: initializeSidebarDataLayer, enabled: () => sidebarDataLayer() === 'pool' },
   { initialize: initializeHeaderDataLayer, enabled: () => headerDataLayer() === 'pool' },
@@ -103,6 +105,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   let disposed = false
   let stopCheck: (() => void) | undefined
   let stopHeaderCheck: (() => void) | undefined
+  let stopSettingsCheck: (() => void) | undefined
   let stopPreferenceCheck: (() => void) | undefined
   let stopChipCheck: (() => void) | undefined
   if (import.meta.env.DEV && typeof window !== 'undefined') {
@@ -111,11 +114,12 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   void import('@podium/client-graph/runtime-pool')
     .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
       if (disposed) return
+      const settings = settingsDataLayer() === 'pool'
       const preferences = preferencesDataLayer() === 'pool'
       const chips = chipsDataLayer() === 'pool'
       const header = headerDataLayer() === 'pool'
-      slot.handle = preferences || chips || header
-        ? createRuntimeWorklistPool(runtime, { ...(preferences ? { preferences: true } : {}), ...(header ? { header: true } : {}), ...(chips ? {
+      slot.handle = preferences || settings || chips || header
+        ? createRuntimeWorklistPool(runtime, { ...(settings ? { settings: true } : {}), ...(preferences ? { preferences: true } : {}), ...(header ? { header: true } : {}), ...(chips ? {
           resolveReferences: async (refs) => {
             recordChipWork(runtime, 'resolveBatches')
             recordChipWork(runtime, 'resolveRefs', refs.length)
@@ -128,6 +132,12 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
       const references = chips ? slot.handle.pool.references : null
       slot.project = createPoolProjection
       notify(slot)
+      if (settingsCheckRequested()) {
+        void import('@podium/client-graph/diagnostics/settings-check').then(({ installSettingsCheck }) => {
+          if (disposed || !slot.handle) return
+          stopSettingsCheck = installSettingsCheck(slot.handle.pool, runtime)
+        }).catch(() => {})
+      }
       if (preferencesCheckRequested()) {
         void import('@podium/client-graph/diagnostics/preference-check').then(({ installPreferenceCheck }) => {
           if (disposed || !slot.handle) return
@@ -202,6 +212,8 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
     if (disposed) return
     disposed = true
     stopCensus()
+    stopSettingsCheck?.()
+    stopSettingsCheck = undefined
     stopPreferenceCheck?.()
     stopPreferenceCheck = undefined
     stopChipCheck?.()

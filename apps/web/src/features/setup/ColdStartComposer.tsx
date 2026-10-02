@@ -1,5 +1,4 @@
 import { randomUUID } from '@podium/client-core/id'
-import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
   AGENT_NOT_READY_COPY,
@@ -8,10 +7,8 @@ import {
   launchAgentKind,
   machineViewsFromWire,
   reposToViews,
-  createRepositoryUsageSelector,
   indexedRepoUsageAt,
   type RepoView,
-  resolveDefaultAgent,
   usableMachines,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
@@ -20,7 +17,8 @@ import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsClient } from '@/features/settings/stable-access'
+import { useSettingsCatalog, useSettingsSetupSummary, useSettingsPersistedUiState as usePersistedUiState } from '@/features/settings/readers'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
 import { chordLabel, useComposerChord } from '@/features/chat/use-composer-chord'
@@ -45,7 +43,6 @@ import {
   terminalRuntimeDriver,
 } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
-import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import {
   clearFirstTaskDraft,
   type FirstTaskDraft,
@@ -151,39 +148,11 @@ function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {
 
 export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const {
-    trpc,
-    repos,
-    // Read to rank the project list AND to answer "which harness did you last
-    // run" — see `repoChoices` and `defaultAgent`.
-    sessions,
-    machines,
-    uiState,
-    focusIssueSession,
-    spawnDraftAgent,
-    spawnIssueAgent,
-    setSelectedIssueId,
-    setSelectedWorktree,
-    setPane,
-    setPanelMode,
-    setView,
-  } = useStoreSelector(
-    (store) => ({
-      trpc: store.trpc,
-      repos: store.repos,
-      sessions: store.sessions,
-      machines: store.machines,
-      uiState: store.uiState,
-      focusIssueSession: store.focusIssueSession,
-      spawnDraftAgent: store.spawnDraftAgent,
-      spawnIssueAgent: store.spawnIssueAgent,
-      setSelectedIssueId: store.setSelectedIssueId,
-      setSelectedWorktree: store.setSelectedWorktree,
-      setPane: store.setPane,
-      setPanelMode: store.setPanelMode,
-      setView: store.setView,
-    }),
-    shallowEqual,
-  )
+    trpc, uiState, focusIssueSession, spawnDraftAgent, spawnIssueAgent,
+    setSelectedIssueId, setSelectedWorktree, setPane, setPanelMode, setView,
+  } = useSettingsClient()
+  const { repos, machines } = useSettingsCatalog()
+  const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary()
   /**
    * THE PICKER OFFERS EXACTLY WHAT LAUNCH CAN RESOLVE (POD-1582).
    *
@@ -199,8 +168,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * Material changes rebuild one prefix index, rather than scanning history for
    * every repository. Keep this cache local to this composer's session scope.
    */
-  const selectRepositoryUsage = useMemo(() => createRepositoryUsageSelector(), [])
-  const repositoryUsage = selectRepositoryUsage(sessions)
   const repoChoices = useMemo(() => {
     const usage = new Map<string, number>()
     for (const repo of repos) usage.set(repo.path, indexedRepoUsageAt(repo, repositoryUsage))
@@ -347,7 +314,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * A pick made in THIS box outranks both — it is the most recent thing the
    * operator said about this specific task.
    */
-  const defaultAgent = issueAgentKind(resolveDefaultAgent(agentSetting, sessions)) ?? DEFAULT_HARNESS_AGENT
+  const defaultAgent = issueAgentKind((agentSetting && agentSetting !== 'auto' ? agentSetting : recentAgent)) ?? DEFAULT_HARNESS_AGENT
 
   /**
    * PICKING A HARNESS HERE IS A WRITE (POD-1469).

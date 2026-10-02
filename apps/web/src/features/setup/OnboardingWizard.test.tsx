@@ -11,7 +11,11 @@ const scan = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }
 const desktop = vi.hoisted(() => ({ launchMode: undefined as string | undefined }))
 
 const fleet = vi.hoisted(() => ({ ready: true }))
-vi.mock('@/app/store', () => ({ useStoreSelector: () => fleet.ready }))
+vi.mock('@/app/store', () => ({
+  useStoreSelector: (select: (state: unknown) => unknown) => select({
+    repos: [], machines: fleet.ready ? [{ id: 'setup-host', online: true, availability: { daemon: true, server: false } }] : [],
+  }),
+}))
 
 vi.mock('@/lib/nativeDesktop', () => ({
   nativeDesktopBridge: () => (desktop.launchMode ? { launchMode: desktop.launchMode } : undefined),

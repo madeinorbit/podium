@@ -1,11 +1,11 @@
-import { shallowEqual } from '@podium/client-core/store'
 import { LOCAL_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { MachineId } from '@podium/model'
 import { asMachineId, HOST_REPOS, machinesFor } from '@podium/model'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsClient } from '@/features/settings/stable-access'
+import { useSettingsCatalog, useSettingsDraftSeed } from '@/features/settings/readers'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { RepoPickerModal } from './RepoPickerModal'
 import { RepoScanResults } from './RepoScanResults'
@@ -68,12 +68,7 @@ function readLocalProjectDraft(raw: string | null | undefined): LocalProjectDraf
  * on that machine's daemon. One machine is always selected — there is no server-host
  * filesystem to fall back to.
  */
-export function RepoScanFlow({
-  onClose,
-  onDone,
-  onboarding = false,
-  initialMachineId,
-}: {
+type RepoScanFlowProps = {
   onClose: () => void
   /** Fired once the selection is committed; the count covers adds + removals. */
   onDone: (changedCount: number) => void
@@ -81,19 +76,17 @@ export function RepoScanFlow({
   onboarding?: boolean
   /** Preselect a machine (e.g. the machines panel's per-row "Find repos"). */
   initialMachineId?: MachineId
-}): JSX.Element {
-  const { trpc, refreshRepos, machines, uiState } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      refreshRepos: s.refreshRepos,
-      machines: s.machines,
-      uiState: s.uiState,
-    }),
-    shallowEqual,
-  )
-  const [initialDraft] = useState<LocalProjectDraft>(() =>
-    onboarding ? readLocalProjectDraft(uiState?.get(LOCAL_PROJECT_INTAKE_DRAFT_KEY)) : {},
-  )
+}
+
+export function RepoScanFlow(props: RepoScanFlowProps): JSX.Element {
+  const seed = useSettingsDraftSeed(props.onboarding ? LOCAL_PROJECT_INTAKE_DRAFT_KEY : null, readLocalProjectDraft)
+  if (seed.loading) return <p role="status">Loading setup…</p>
+  return <RepoScanFlowBody {...props} initialDraft={seed.value} />
+}
+
+function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineId, initialDraft }: RepoScanFlowProps & { initialDraft: LocalProjectDraft }): JSX.Element {
+  const { trpc, refreshRepos, uiState } = useSettingsClient()
+  const { machines } = useSettingsCatalog()
   const [draft, setDraftState] = useState<LocalProjectDraft>(initialDraft)
   const [results, setResults] = useState<Results | null>(() => initialDraft.results ?? null)
   const [adding, setAdding] = useState(false)

@@ -1,4 +1,4 @@
-import { ONBOARDING_VPS_SERVER_DRAFT_KEY, type UiState } from '@podium/client-core/ui-state'
+import { ONBOARDING_VPS_SERVER_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import { isServerReadiness } from '@podium/model'
 import { buildVpsBootstrapCommand, type VpsReleaseChannel } from '@podium/runtime/vps-bootstrap'
@@ -14,7 +14,8 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsClient } from '@/features/settings/stable-access'
+import { useSettingsDraft, parseSettingsText, serializeSettingsText } from '@/features/settings/readers'
 import { parseServerOrigin, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -118,12 +119,10 @@ export function VpsFirstActivation({
   onRouteChange: (route: ActivationRoute) => void
   onConfigured: () => Promise<ShellRestart>
 }): JSX.Element {
-  const uiState = useStoreSelector((store) => store.uiState) as Pick<UiState, 'get' | 'set'>
+  const { uiState } = useSettingsClient()
   const [read, setRead] = useState<ChannelRead>({ status: 'reading' })
   const [attempt, setAttempt] = useState(0)
-  const [serverUrl, setServerUrl] = useState(
-    () => uiState.get(ONBOARDING_VPS_SERVER_DRAFT_KEY) ?? '',
-  )
+  const [serverUrl, setServerUrl] = useSettingsDraft(ONBOARDING_VPS_SERVER_DRAFT_KEY, parseSettingsText, serializeSettingsText)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -350,7 +349,6 @@ export function VpsFirstActivation({
                   onChange={(event) => {
                     const value = event.currentTarget.value
                     setServerUrl(value)
-                    uiState.set(ONBOARDING_VPS_SERVER_DRAFT_KEY, value || null)
                     if (error) setError(null)
                   }}
                 />

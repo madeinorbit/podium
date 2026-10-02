@@ -2,14 +2,15 @@ import { MachineFailureReason, type FailureReason } from '@/features/updates/Mac
 // This app-level surface composes settings, setup, and machine capabilities.
 
 import { relativeTime } from '@podium/client-core/focus'
-import { shallowEqual } from '@podium/client-core/store'
 import { asMachineId } from '@podium/model'
 import type { MachineWire, UpdateChannel } from '@podium/model/browser'
 import type { Operation } from '@podium/protocol'
 import { ChevronLeft } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { type Store, useStoreSelector } from '@/app/store'
+import type { Store } from '@/app/store'
+import { useSettingsClient } from '@/features/settings/stable-access'
+import { useSettingsCatalog } from '@/features/settings/readers'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -154,14 +155,8 @@ export function MachinesPanel({
   /** Dormant until multi-user machine ownership ships. */
   showOwnershipTransfer?: boolean
 } = {}): JSX.Element {
-  const { machines, trpc, setSettingsTab } = useStoreSelector(
-    (s) => ({
-      machines: s.machines,
-      trpc: s.trpc,
-      setSettingsTab: s.setSettingsTab,
-    }),
-    shallowEqual,
-  )
+  const { trpc, setSettingsTab } = useSettingsClient()
+  const { machines } = useSettingsCatalog()
   const [now, setNow] = useState(() => Date.now())
   const [addOpen, setAddOpen] = useState(false)
   const [recommendServer, setRecommendServer] = useState(false)

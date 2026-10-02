@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'

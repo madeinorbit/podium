@@ -56,6 +56,11 @@ function publishUnchangedSelection(): void {
   for (const listener of storeListeners) listener()
 }
 
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...await original<typeof import('@podium/client-core/react')>(),
+  useStoreHandle: () => ({ getSnapshot: () => storeSnapshot }),
+}))
+
 vi.mock('@/app/store', () => {
   const useStore = () => storeSnapshot
   return {

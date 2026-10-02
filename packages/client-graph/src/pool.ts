@@ -1,3 +1,6 @@
+import { SettingsSource, type SettingsOwner } from './settings-source'
+import { isSettingsEntity, SETUP_SESSION_SUMMARY_FIELDS, setupSessionSummary, type SettingsEntity, type SettingsRows, type SetupSession } from './settings-schema'
+import { createSettingsViews } from './settings-views'
 /**
  * POD-4565 (Ma1) — the MobX pool: one per principal. Entity tables from the
  * declared schema (`tables.ts`), models built on first access (`models.ts`),
@@ -157,6 +160,7 @@ export interface PoolLazyOptions {
   readonly resolveReferences?: ResolveIssueReferences
   /** Add the header's declared cold summaries only for its startup switch. */
   readonly header?: boolean
+  readonly settings?: boolean
   readonly windowMs?: number
   readonly schedule?: Schedule
 }
@@ -205,6 +209,10 @@ export class MobxPool {
   readonly sidebar: SidebarIndex
   readonly sidebarRosters: SidebarRosterIndex
   private preferenceSource: PreferenceSource | undefined
+  private settingsSource: SettingsSource | undefined
+  private settingsSequence = 0
+  private readonly settingsEnabled: boolean
+  readonly settingsViews = createSettingsViews(this)
   private headerState: ReturnType<typeof createHeaderEntities> | undefined
   /** Off means no extra observable maps, relations or sidebar census objects. */
   get header() { return this.headerState ??= createHeaderEntities() }
@@ -267,6 +275,7 @@ export class MobxPool {
     writes?: WriteSeam,
   ) {
     this.resolveReferences = lazy?.resolveReferences
+    this.settingsEnabled = lazy?.settings === true
     this.writes = writes ?? null
     this.tables = createObservableTables()
     const tables = this.tables
@@ -280,13 +289,18 @@ export class MobxPool {
               const row = this.row(entity, id, 'mark')
               return row === LOADING ? undefined : row
             },
-            load: lazy.load,
+            load: (entity, id) => {
+              const row = lazy.load(entity, id)
+              if (!lazy.settings || entity !== 'session' || !row) return row
+              const order = this.residency?.summary('session', id)?.['setupOrder']
+              return overlayRow(row, { setupOrder: typeof order === 'number' ? order : ++this.settingsSequence })
+            },
             // Read at ingest, after the constructor has built the clock.
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             // What visibility reads of a hidden issue (POD-4753), never the row.
-            summaries: { issue: lazy.header ? [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS] : HIDDEN_ISSUE_FIELDS, session: lazy.header ? [...COLD_SESSION_FIELDS, ...HEADER_SESSION_SUMMARY_FIELDS] : COLD_SESSION_FIELDS },
+            summaries: { issue: lazy.header ? [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS] : HIDDEN_ISSUE_FIELDS, session: [...COLD_SESSION_FIELDS, ...(lazy.header ? HEADER_SESSION_SUMMARY_FIELDS : []), ...(lazy.settings ? SETUP_SESSION_SUMMARY_FIELDS : [])] },
             // The rule's lane source (R3, POD-4745) reads the engine, built below.
             lanes: () => this.graph,
           })
@@ -477,6 +491,9 @@ export class MobxPool {
       | 'models'
       | 'headerState'
       | 'preferenceSource'
+      | 'settingsSource'
+      | 'settingsSequence'
+      | 'settingsEnabled'
       | 'target'
       | 'selectedId'
       | 'select'
@@ -498,6 +515,11 @@ export class MobxPool {
       header: false,
       headerState: false,
       preferenceSource: false,
+      settingsSource: false,
+      settingsSequence: false,
+      settingsEnabled: false,
+      settingsViews: false,
+      attachSettings: false,
       attachPreferences: false,
       preferenceKeys: false,
       preferenceCounts: false,
@@ -576,11 +598,25 @@ export class MobxPool {
   preferenceKeys(): readonly string[] { return this.preferenceSource?.keys() ?? [] }
   preferenceCounts() { return this.preferenceSource?.counts ?? null }
 
+  attachSettings(owner: SettingsOwner): void {
+    if (this.settingsSource) throw new Error('Settings already attached to this pool')
+    this.settingsSource = new SettingsSource(owner)
+  }
+
+  row<E extends SettingsEntity>(entity: E, id: string): Loaded<SettingsRows[E]>
+  row(entity: 'setupSession', id: string): Loaded<SetupSession>
   row(entity: 'preference', id: string): Loaded<PreferenceRow>
   row(entity: HeaderEntity, id: string): object | undefined
   row(entity: EntityName, id: string, absent: 'peek'): object | undefined
   row(entity: EntityName, id: string, absent?: 'load' | 'mark'): Loaded<object>
-  row(entity: EntityName | HeaderEntity | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
+  row(entity: EntityName | HeaderEntity | SettingsEntity | 'setupSession' | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
+    if (isSettingsEntity(entity)) return this.settingsSource?.read(entity, id) ?? LOADING
+    if (entity === 'setupSession') {
+      const cold = this.residency?.summary('session', id)
+      if (cold && typeof cold['setupOrder'] === 'number') return setupSessionSummary(cold)
+      const row = this.row('session', id)
+      return row && row !== LOADING ? setupSessionSummary(row as Readonly<Record<string, unknown>>) : row
+    }
     if (entity === 'preference') return this.preferenceSource?.read(id) ?? LOADING
     if (isHeaderEntity(entity)) return this.header.get(entity, id)
     let server = this.tables[entity].get(id) as object | undefined
@@ -781,6 +817,16 @@ export class MobxPool {
   apply(event: RowSourceEvent): void {
     const out = ingestOut()
     this.graph.begin()
+    if (this.settingsEnabled) {
+      if (event.type === 'replace') this.settingsSequence = 0
+      const rows = event.rows.map((record) => {
+        if (record.kind !== 'session' || !record.value) return record
+        const previous = event.type === 'replace' ? undefined : this.row('setupSession', record.id)
+        const order = previous && previous !== LOADING ? previous.setupOrder : undefined
+        return { ...record, value: overlayRow(record.value, { setupOrder: typeof order === 'number' ? order : ++this.settingsSequence }) }
+      })
+      event = { ...event, rows }
+    }
     runInAction(() => {
       if (event.type === 'replace') {
         this.referenceReader?.resetUnresolved()
@@ -846,6 +892,8 @@ export class MobxPool {
   dispose(): void {
     this.disposed = true
     this.preferenceSource?.dispose()
+    this.settingsSource?.dispose()
+    this.settingsViews.clear()
     this.referenceReader?.dispose()
     runInAction(() => {
       this.worklist.clear()
