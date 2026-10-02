@@ -68,7 +68,8 @@ const delayMs = Number(value('plant-delay-ms', '0'))
 const root = resolve('.artifacts/speed-gate')
 const buildDir = resolve(root, 'build')
 const baselinePath = resolve('docs/measurements/click-speed-baseline.json')
-const REPETITIONS = 10
+// Ten samples in each of the three initial captures exceeded 285 s on flatblock.
+const REPETITIONS = 6
 const WARMUPS = 2
 const git = (...argv: string[]) => execFileSync('git', argv, { encoding: 'utf8' }).trim()
 const median = (values: number[]) => {
@@ -82,7 +83,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 async function main() {
   if (args.includes('--help')) {
     console.log(
-      'bun run speed:gate — flatblock, five actions × ten samples; median > landed +10% exits 1.\n' +
+      'bun run speed:gate — flatblock, five actions × six samples; median > landed +10% exits 1.\n' +
         '--calibrate --baseline-ref=<landed SHA/ref>: initial baseline only, three runs to measure noise.\n' +
         '--plant-delay-ms=50: plant a synchronous delay in the sidebar click path (expected red).\n' +
         '--promote: commit-ready baseline from the saved green run after its source lands; no rerun.\n' +
@@ -508,11 +509,16 @@ async function main() {
           { selector: `${row(targets.background)} .shell-work-row-title`, text: title },
           () =>
             sidebar.page.evaluate(
-              ({ id, title }) => {
-                window.__speedCapture!.input = performance.now()
-                performance.mark('speed:input')
-                window.__acceptance.backgroundTitle(id, title)
-              },
+              ({ id, title }) =>
+                new Promise<void>((done) =>
+                  requestAnimationFrame(() => {
+                    // Fix feed arrival phase; timing still starts at actual delivery.
+                    window.__speedCapture!.input = performance.now()
+                    performance.mark('speed:input')
+                    window.__acceptance.backgroundTitle(id, title)
+                    done()
+                  }),
+                ),
               { id: targets.background, title },
             ),
         )
