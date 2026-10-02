@@ -15,6 +15,7 @@ import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
 import { Monitor } from '../components/icons'
+import { MobxPilotSetting } from '../components/MobxPilotSetting'
 import { OutboxRecoveryPanel } from '../components/OutboxRecoveryPanel'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
@@ -357,6 +358,8 @@ export function SettingsScreen() {
             )}
           </>
         ) : null}
+
+        <MobxPilotSetting />
 
         <SectionHeader label="Data" />
         <View style={styles.panel}>

@@ -89,6 +89,7 @@ import { LaunchReadyView } from './launch-ready'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { openMobileEntityStore } from './mobile-entity-store'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
+import { attachMobilePool } from './mobile-pool'
 import { createMobileSyncFetch } from './mobile-sync-fetch'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
@@ -756,6 +757,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // cache, i.e. AsyncStorage — and the durable rows in SQLite would have no
       // driver at all: every queued offline write invisible and unsent.
       createOutboxFn={openedReplica.createOutboxFn}
+      // The MobX pool over THIS runtime and replica (POD-4976). It builds
+      // nothing unless the device setting was on at the first attachment of
+      // this app load; StoreProvider releases it before the runtime goes, so a
+      // sign-out or user switch disposes it with the signed-in user's store.
+      attachRuntime={(runtime) => attachMobilePool(runtime, (cause) => reportError(cause.message))}
       networkEnabled={networkEnabled}
       routerWindow={routerWindow}
       // Visibility, connectivity and ping cadence, from the platform rather

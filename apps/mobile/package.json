@@ -10,6 +10,7 @@
     "@expo/metro-runtime": "~57.0.14",
     "@expo/ui": "~57.0.14",
     "@podium/client-core": "workspace:*",
+    "@podium/client-graph": "workspace:*",
     "@podium/commands": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/logger": "workspace:*",
