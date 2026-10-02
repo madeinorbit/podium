@@ -1,0 +1,152 @@
+/** Opt-in observers for the ordinary production speed fixture. No profiling renderer. */
+import { writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import type { CDPSession, Page } from '@playwright/test'
+
+type TraceEvent = { name: string; ph: string; ts: number; pid: number; tid: number; dur?: number }
+export async function traceStart(cdp: CDPSession) {
+  const events: TraceEvent[] = []
+  const receive = ({ value }: { value: unknown[] }) => events.push(...(value as TraceEvent[]))
+  cdp.on('Tracing.dataCollected', receive)
+  await cdp.send('Tracing.start', { categories: PROFILE_CATEGORIES, transferMode: 'ReportEvents' })
+  return async () => {
+    const complete = new Promise<void>(done => cdp.once('Tracing.tracingComplete', () => done()))
+    await cdp.send('Tracing.end')
+    await complete
+    cdp.off('Tracing.dataCollected', receive)
+    return events
+  }
+}
+
+export const PROFILE_CATEGORIES =
+  'toplevel,devtools.timeline,blink.user_timing,disabled-by-default-devtools.timeline'
+
+type Fiber = {
+  tag: number
+  flags: number
+  type: unknown
+  child: Fiber | null
+  sibling: Fiber | null
+}
+type Commit = {
+  at: number
+  end: number
+  components: Record<number, number>
+  visited: number
+}
+declare global {
+  interface Window {
+    __speedReact: { renderer: Record<string, unknown> | null; commits: Commit[] }
+    __speedFunctions: Function[]
+    __speedPaneMode(): 'legacy' | 'pool'
+  }
+}
+
+/** React 19.2's DevTools hook; PerformedWork is bit 1 for composite fibers.
+ * Counts committed renders, excluding DOM nodes, providers and bailed-out fibers.
+ * Abandoned/restarted render attempts are visible only in the CPU recording. */
+export async function installCommitObserver(page: Page) {
+  await page.addInitScript(() => {
+    const functions: Function[] = []
+    const ids = new WeakMap<Function, number>()
+    const state = { renderer: null as Record<string, unknown> | null, commits: [] as Commit[] }
+    window.__speedReact = state
+    window.__speedFunctions = functions
+    Object.assign(window, {
+      __REACT_DEVTOOLS_GLOBAL_HOOK__: {
+        supportsFiber: true,
+        inject(renderer: Record<string, unknown>) {
+          state.renderer = {
+            version: renderer.version,
+            bundleType: renderer.bundleType,
+            rendererPackageName: renderer.rendererPackageName,
+          }
+          return 1
+        },
+        onCommitFiberRoot(_id: number, root: { current: Fiber }) {
+          if (window.__speedCapture?.input == null) return
+          const at = performance.now()
+          performance.mark(`speed:commit:${state.commits.length}`)
+          const components: Record<number, number> = {}
+          let visited = 0
+          const stack = [root.current]
+          while (stack.length) {
+            const fiber = stack.pop()!
+            visited++
+            if (fiber.sibling) stack.push(fiber.sibling)
+            if (fiber.child) stack.push(fiber.child)
+            if (!(fiber.flags & 1) || ![0, 1, 11, 14, 15].includes(fiber.tag)) continue
+            let type = fiber.type as Function | { render?: Function; type?: Function } | null
+            if (type && typeof type !== 'function') type = type.render ?? type.type ?? null
+            if (typeof type !== 'function') continue
+            let id = ids.get(type)
+            if (id === undefined) {
+              id = functions.length
+              functions.push(type)
+              ids.set(type, id)
+            }
+            components[id] = (components[id] ?? 0) + 1
+          }
+          state.commits.push({ at, end: performance.now(), components, visited })
+        },
+        onCommitFiberUnmount() {},
+      },
+    })
+  })
+}
+
+export async function startCpu(cdp: CDPSession) {
+  await cdp.send('Profiler.enable')
+  await cdp.send('Profiler.setSamplingInterval', { interval: 1000 })
+  await cdp.send('Profiler.start')
+  return async () => (await cdp.send('Profiler.stop')).profile
+}
+
+/** FunctionLocation gives the original composite's generated coordinates even
+ * when esbuild has shortened its name. Source-map these alongside CPU frames. */
+export async function saveComponentLocations(page: Page, cdp: CDPSession, path: string) {
+  const scripts = new Map<string, { url: string; sourceMapURL?: string }>()
+  const parsed = (script: { scriptId: string; url: string; sourceMapURL?: string }) => {
+    scripts.set(script.scriptId, script)
+  }
+  cdp.on('Debugger.scriptParsed', parsed)
+  await cdp.send('Debugger.enable')
+  try {
+    const count = await page.evaluate(() => window.__speedFunctions.length)
+    const components = []
+    for (let id = 0; id < count; id++) {
+      const { result } = await cdp.send('Runtime.evaluate', {
+        expression: `window.__speedFunctions[${id}]`,
+        objectGroup: 'speed-components',
+      })
+      if (!result.objectId) throw new Error(`Missing component function ${id}`)
+      const properties = await cdp.send('Runtime.getProperties', { objectId: result.objectId })
+      const location = properties.internalProperties?.find(
+        (entry) => entry.name === '[[FunctionLocation]]',
+      )?.value?.value as { scriptId: string; lineNumber: number; columnNumber: number } | undefined
+      if (!location) throw new Error(`Missing component FunctionLocation ${id}`)
+      const name = properties.result.find((entry) => entry.name === 'displayName')?.value?.value ??
+        properties.result.find((entry) => entry.name === 'name')?.value?.value
+      components.push({ id, name, ...location, ...scripts.get(location.scriptId) })
+    }
+    await writeFile(path, JSON.stringify(components, null, 2) + '\n')
+  } finally {
+    await cdp.send('Runtime.releaseObjectGroup', { objectGroup: 'speed-components' })
+    await cdp.send('Debugger.disable')
+    cdp.off('Debugger.scriptParsed', parsed)
+  }
+}
+
+export async function saveRecording(
+  directory: string,
+  file: string,
+  profile: Awaited<ReturnType<Awaited<ReturnType<typeof startCpu>>>>,
+  events: unknown[],
+  record: Record<string, unknown>,
+) {
+  // Preserve complete raw recordings. Analysis clips samples/events to the
+  // trusted input/feed mark and the first Paint after the expected DOM change.
+  await writeFile(resolve(directory, file + '.cpuprofile'), JSON.stringify(profile))
+  await writeFile(resolve(directory, file + '.trace.json'), JSON.stringify({ traceEvents: events }))
+  await writeFile(resolve(directory, file + '.json'), JSON.stringify(record, null, 2) + '\n')
+}
