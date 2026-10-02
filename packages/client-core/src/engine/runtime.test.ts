@@ -4161,7 +4161,7 @@ describe('stable optimistic folds (B11)', () => {
           results.push({ sync, handoff, resolution, echo, instant, final, queued,
             baseline: visitBaseline && { issueId: visitBaseline.issueId, readAt: visitBaseline.readAt } })
         } finally {
-          offs.forEach((off) => off()); engine.destroy(); restore(); clock.mockRestore()
+          offs.forEach((off) => { off() }); engine.destroy(); restore(); clock.mockRestore()
           storeStats.enable(false); storeStats.reset()
         }
       }
@@ -4566,7 +4566,7 @@ describe('pool shared runtime work', () => {
       const row = { ...session('s', '/wt'), issueId: 'before' } as SessionMeta
       try {
         seam.apply({ sessions: [row] })
-        spies.forEach(spy => spy.mockClear())
+        spies.forEach(spy => { spy.mockClear() })
         seam.apply({ sessions: [{ ...row, name: 'new title', lastActiveAt: '2026-08-01T00:00:00Z' }] })
         expect(spies.map(spy => spy.mock.calls.length)).toEqual(enabled ? [0, 0, 0, 0] : [1, 1, 1, 1])
         for (const rows of [
@@ -4574,16 +4574,16 @@ describe('pool shared runtime work', () => {
           [{ ...row, cwd: '/new', issueId: 'after' }, session('arrived', '/new')],
           [],
         ]) {
-          spies.forEach(spy => spy.mockClear())
+          spies.forEach(spy => { spy.mockClear() })
           seam.apply({ sessions: rows as SessionMeta[] })
           expect(spies.map(spy => spy.mock.calls.length)).toEqual([1, 1, 1, 1])
         }
-        spies.forEach(spy => spy.mockClear())
+        spies.forEach(spy => { spy.mockClear() })
         seam.apply({ pendingSpawnIds: new Set(['pending']) })
         expect(spies[3]).toHaveBeenCalledTimes(1)
         runs.push({ sessions: engine.getSnapshot().sessions, selected: engine.getSnapshot().selectedWorktree,
           workspaces: engine.getSnapshot().workspaces })
-      } finally { spies.forEach(spy => spy.mockRestore()); engine.dispose() }
+      } finally { spies.forEach(spy => { spy.mockRestore() }); engine.dispose() }
     }
     expect(runs[1]).toEqual(runs[0])
   })
