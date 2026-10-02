@@ -1,6 +1,6 @@
 # Message, question and recovery readers
 
-2026-10-02. Branch base: `integrate/4286-pilot`, rebased onto the landed source/summary seam and its repair at `1f4c442abb`. The coordinator allocated the three web notice components, their tests, new notice schema/source/view/diagnostic modules and one registration entry/import in `app/pool-screens.ts`. Mobile work in this landing is limited to stable action handles. The coordinator confirmed that mobile data readers belong to **POD-5247**, blocked on the mobile pool attachment in POD-4976. The mobile root's always-mounted `MessageNoticeBanner` is included in that separate reader migration.
+2026-10-02. Branch base: `integrate/4286-pilot`, including the landed source/summary seam, its repair at `1f4c442abb` and the coordinator's acceptance base `b92ee7299c`. The coordinator allocated the three web notice components, their tests, new notice schema/source/view/diagnostic modules and one registration entry/import in `app/pool-screens.ts`. Every existing screen entry is retained. Mobile work in this landing is limited to stable action handles. The coordinator confirmed that mobile data readers belong to **POD-5247**, blocked on the mobile pool attachment in POD-4976. The mobile root's always-mounted `MessageNoticeBanner` is included in that separate reader migration.
 
 The startup switch remains **OFF by default**. Enabled web notice readers execute zero legacy selectors or collection derivations in real Chromium, including their dialog actions. The synthetic differential and the ludovico-only operator replay have zero differences and pending loads. Opening a chat still builds one session index in the existing command runtime; the coordinator explicitly classified that as separate **POD-5089** work. This is notice-reader correctness evidence, not a claim that the entire runtime or mobile app has retired its legacy path.
 
@@ -24,6 +24,8 @@ Baseline file-and-line evidence is the seven-module [parent inventory](POD-5082-
 
 Validation uses the private `~/podium-test-5163` checkout, its copied checkout-local `.toolchain`, pinned Bun 1.4.2 and a frozen checkout-local dependency graph. Commands run sequentially and select exact files. No whole suite runs, and operator records never move to flatblock.
 
+The coordinator-requested final acceptance rerun at `9eddef4ae8` uses one foreground `bun run test:file --` command naming all six files below. The runner reports **seven graph, nine web and nine mobile tests passed: 25 tests in six files, three groups, zero failed**. The attached `acceptance-final.log` records executed counts, rather than a suite claim. Rebase resolution changes only the allocated notice import/entry and preserves the pane and command/launch registrations.
+
 The independent UI selection is green: **18 tests** across five files (nine web, nine mobile). Enabled UI tests verify dismiss, answer, discard, retry and edited-send payloads using the same owner; legacy selectors throw on the enabled arm. A positive fallback check establishes that the selector and derivation counters detect real legacy work. The startup check covers default OFF, the explicit override, diagnostic opt-in and the once-only latch.
 
 Three planted UI controls each exit nonzero: remove the startup latch, force the legacy message arm, and drop the legacy counter write. Every planted edit is restored, with clean tracked files afterward. Logs are attached to the issue as `ui-evidence`.
@@ -32,7 +34,7 @@ The exact `notice-source.test.ts` selection is green: **seven tests**, making **
 
 All nine source controls fail at their intended assertions: lose batching, alter an excerpt, lose inverse membership, omit declared label fields, lose the pending signal, sort parked entries incorrectly, look up a recovery target, leak subscriptions and suppress reported differences. A preliminary regular-row-read plant stayed green in the missing-label check because it also returned `LOADING` and batched the missing load; it was replaced with the pending-signal plant. Every edit is restored and the complete seven-test file is green afterward.
 
-Filtered typechecks are green for client-graph, web and mobile. After the shared seam repair, the owned source signature was aligned to its entity-union contract; no settings-source edit was necessary. The final web-filtered run also checked its graph/dependency projects: **16 successful tasks, 14 cache hits**. Mobile's filtered task was green in the preceding combined run. Cache hits are trusted; no bypass or whole-suite command is used.
+Filtered typechecks are green for client-graph, web and mobile. After the shared seam repair, the owned source signature was aligned to its entity-union contract; this issue did not edit settings-source. The final web-filtered run also checked its graph/dependency projects: **16 successful tasks, 14 cache hits**. Mobile's filtered task was green in the preceding combined run. Cache hits are trusted; no bypass or whole-suite command is used.
 
 ## Chromium and local replay
 
@@ -50,7 +52,7 @@ Chromium observes dismiss/answer through the same API owner, opening `cold-notic
 
 Four browser controls each exit nonzero at their named assertions: force the legacy message reader during activity; alter its excerpt before comparison; plant an action selector inside the recovery dialog; and report a post-action comparison error. All are restored before the final normal proof.
 
-The coordinator accepts count measurements for this lane. The final run is counts-only; no millisecond or heap result is claimed, and no benchmark lease is held. The optional timing queue was canceled while POD-5250 held `bench:flatblock`.
+The coordinator accepts count measurements for this lane. The final run is counts-only; no millisecond or heap result is claimed, and no benchmark lease is held. The optional timing queue was canceled while POD-5250 held `bench:flatblock`. The final coordinator instruction explicitly excludes a timing rerun; POD-5089 owns re-recording the click-speed baseline.
 
 The local replay refuses any host except ludovico. It opens the local database read-only with a bounded busy timeout, retains message, interaction and label values only in memory, and exports counts and numeric comparison positions. It does not open credentials, call an RPC or mutate operator data. Device-local recovery is covered by synthetic parked entries rather than pretending the operator database contains the browser outbox.
 
