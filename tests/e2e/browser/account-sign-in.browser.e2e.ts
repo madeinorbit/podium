@@ -58,35 +58,39 @@ test('web signs in through the form, reloads with its cookie, and erases on sign
   await page.screenshot({ path: resolve(evidence, 'web-signed-out.png'), fullPage: true })
 })
 
-test('phone Expo web signs in with the same cookie protocol and survives reload', async ({
-  browser,
-  baseURL,
-}) => {
-  mkdirSync(evidence, { recursive: true })
-  const context = await browser.newContext({ ...devices['Pixel 7'], baseURL })
-  try {
-    const page = await context.newPage()
-    await page.goto('/mobile/')
+test.describe('phone Expo web', () => {
+  test.use({ ...devices['Pixel 7'] })
+
+  test('signs in with the same cookie protocol and survives reload', async ({ page }) => {
+    mkdirSync(evidence, { recursive: true })
+    // Admit the fresh harness through its auth route before starting the phone.
+    // The standard page fixture also preserves failures if teardown must time out.
+    const anonymous = await page.request.get('/auth/status')
+    expect(anonymous.ok()).toBe(true)
+    expect((await anonymous.json()).authed).toBe(false)
+    await page.goto('/mobile/', { waitUntil: 'domcontentloaded' })
     await page.getByLabel('Email', { exact: true }).fill('user:sole')
     await page.getByLabel('Password', { exact: true }).fill(password!)
     await page.getByRole('button', { name: 'Log in', exact: true }).click()
-    await expect(page.getByRole('tab', { name: 'Work', exact: true })).toBeVisible({ timeout: 45_000 })
+    await expect(page.getByRole('tab', { name: 'Work', exact: true })).toBeVisible({
+      timeout: 45_000,
+    })
     await expect(page.getByLabel('Password', { exact: true })).toBeHidden()
-    expect((await context.cookies()).find((row) => row.name === 'podium_session')?.httpOnly).toBe(
-      true,
-    )
     expect(
-      await page.evaluate(() =>
-        fetch('/auth/status')
-          .then((response) => response.json())
-          .then((status) => status.authed),
-      ),
+      (await page.context().cookies()).find((row) => row.name === 'podium_session')?.httpOnly,
     ).toBe(true)
-    await page.screenshot({ path: resolve(evidence, 'phone-signed-in.png'), fullPage: true })
-    await page.reload()
-    await expect(page.getByRole('tab', { name: 'Work', exact: true })).toBeVisible({ timeout: 45_000 })
+    const status = await page.request.get('/auth/status')
+    expect((await status.json()).authed).toBe(true)
+    await page.screenshot({
+      path: resolve(evidence, 'phone-signed-in.png'),
+      fullPage: true,
+      animations: 'disabled',
+      timeout: 10_000,
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('tab', { name: 'Work', exact: true })).toBeVisible({
+      timeout: 45_000,
+    })
     await expect(page.getByLabel('Password', { exact: true })).toBeHidden()
-  } finally {
-    await context.close()
-  }
+  })
 })
