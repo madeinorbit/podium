@@ -344,11 +344,14 @@ describe('ChatView machine-offline history (POD-4808)', () => {
 
 
 it('the live offline banner uses the replicated session machine name', async () => {
-  const raw = meta({ status: 'live', machineId: asMachineId('m1'), machineName: 'Old session name' })
+  const raw = meta({ status: 'live', machineId: asMachineId('m1'), machineName: 'Old session name',
+    agentState: { phase: 'working', since: new Date(Date.now() - 149_380).toISOString(), nativeSubagentCount: 0 } })
   storeSessions = [sessionView(raw, { machine: { name: 'Renamed home', loggedOutHarnesses: [] } })]
   storeMachines = [{ id: 'm1', name: 'Stale live frame', online: false }]
   act(() => { root.render(<ChatView sessionId={asSessionId('s1')} />) })
-  await act(async () => { reads[0]?.resolve({ items: [], hasMore: false }) })
+  await act(async () => { reads[0]?.resolve({ items: [{ id: 'tool-home', cursor: 'c-home', role: 'tool',
+    text: '', toolName: 'Bash', toolInput: 'pwd', ts: new Date(Date.now() - 149_380).toISOString() } as TranscriptItem],
+    head: 'c-home', tail: 'c-home', hasMore: false }) })
   await flush()
   const marker = container.querySelector('[data-testid="transcript-machine-offline"]')
   expect(marker?.textContent).toContain('Renamed home')
