@@ -84,6 +84,12 @@ describe('declared issue page', () => {
     expect(tracked(() => ctx.views.summary('root'))).toMatchObject({ ready: true, deferred: false })
     expect(ctx.check()).toMatchObject({ differences: 0 })
   })
+  it('preserves the legacy answer for non-date defers without registering an invalid deadline', () => {
+    const ctx = open([task('root', { deferUntil: 'next-message' })])
+    expect(tracked(() => ctx.views.issue('root'))).toMatchObject({ ready: true, deferred: false })
+    expect(tracked(() => ctx.views.summary('root'))).toMatchObject({ ready: true, deferred: false })
+    expect(ctx.check()).toMatchObject({ differences: 0 })
+  })
   it('keeps a later resume winner in the first group slot while raw member order follows IDs', () => {
     const twin = { kind: 'codex-thread', value: 'same' }
     const ctx = open([task('root'), task('born')], [

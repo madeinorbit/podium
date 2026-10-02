@@ -1,4 +1,5 @@
 import '@/test-support/mock-core-store-handle'
+import '@/test-support/model-catalog-mock'
 import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 import type { IssueEvent } from '@podium/client-core/viewmodels'

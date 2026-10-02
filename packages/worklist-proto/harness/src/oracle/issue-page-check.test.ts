@@ -48,6 +48,7 @@ describe('issue page differential replay', () => {
       vi.advanceTimersByTime(50)
       expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'error' }))
       stop(); stop()
+      expect(vi.getTimerCount()).toBe(0)
       const count = report.mock.calls.length
       vi.advanceTimersByTime(100)
       expect(report.mock.calls.length).toBe(count)

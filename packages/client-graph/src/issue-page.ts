@@ -73,6 +73,10 @@ export function createIssuePageViews(pool: MobxPool) {
   function bySessionOrder(a: string, b: string): number {
     return byId(pool.graph.orderKey('session', a), pool.graph.orderKey('session', b)) || byId(a, b)
   }
+  function deferred(until: string | null | undefined): boolean {
+    const deadline = until == null ? NaN : Date.parse(until)
+    return Number.isFinite(deadline) && !pool.clock.reached(deadline)
+  }
   function prefix(id: string): string | undefined {
     const repoId = pool.graph.one('issue', id, 'repo')
     const repo = repoId ? pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
@@ -101,10 +105,10 @@ export function createIssuePageViews(pool: MobxPool) {
       const inverse = dependents(id)
       if (inverse === LOADING) return LOADING
       const p = prefix(id)
-      const deferred = Boolean(value.deferUntil && !pool.clock.reached(Date.parse(value.deferUntil as string)))
+      const isDeferred = deferred(value.deferUntil as string | null | undefined)
       return { ...fields, id, prefix: p, displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
         labels: value.labels ?? [], deps: value.deps ?? [], dependents: inverse ?? [], memberSessionIds: [], childIds: [],
-        childCount: 0, childDoneCount: 0, deferred, ready: !value.blocked && !deferred && value.stage !== 'done',
+        childCount: 0, childDoneCount: 0, deferred: isDeferred, ready: !value.blocked && !isDeferred && value.stage !== 'done',
       } as unknown as IssueViewModel
     })
   }
@@ -139,7 +143,7 @@ export function createIssuePageViews(pool: MobxPool) {
       const inverse = dependents(id)
       if (inverse === LOADING) return LOADING
       const p = prefix(id)
-      const deferred = Boolean(value.deferUntil && !pool.clock.reached(Date.parse(value.deferUntil)))
+      const isDeferred = deferred(value.deferUntil)
       const readAt = Date.parse(value.readAt ?? '')
       let unread = !Number.isFinite(readAt) || Date.parse(value.updatedAt) > readAt
       const byPhase: Record<string, number> = {}
@@ -162,7 +166,7 @@ export function createIssuePageViews(pool: MobxPool) {
         deps: (value.deps ?? []).map(dep => ({ ...dep, id: asIssueId(dep.id) })), dependents: inverse ?? [],
         memberSessionIds: rawMemberIds.map(asSessionId),
         childIds: childIds.map(asIssueId), childCount: childIds.length, childDoneCount,
-        blocked: value.blocked ?? false, deferred, ready: !value.blocked && !deferred && value.stage !== 'done', unread: !value.deletedAt && unread,
+        blocked: value.blocked ?? false, deferred: isDeferred, ready: !value.blocked && !isDeferred && value.stage !== 'done', unread: !value.deletedAt && unread,
         sessionSummary: { total, byPhase },
       }
     })
