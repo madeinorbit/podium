@@ -1035,10 +1035,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       const st = this.state
       const focused = focusedPaneSession(st)
       const session = focused ? provider.session(focused) : undefined
+      const issue = foregroundIssue(st)
       const pending = this.pendingNavigation
       return [
-        resolvedWorkspaceKey(st), foregroundIssue(st),
-        session,
+        resolvedWorkspaceKey(st), issue ? [issue.id, issue.updatedAt] : undefined,
+        // Read cursors and display metadata already publish through the store.
+        // Watch only the pool fields these navigation reactions consume.
+        session && session !== NAVIGATION_LOADING
+          ? [session.sessionId, session.issueId, session.cwd, session.lastActiveAt, session.unread] : session,
         this.pendingNavigationTopology && session && session !== NAVIGATION_LOADING && session.issueId
           ? resolvedWorkspaceKey({ ...st, selectedIssueId: session.issueId }) : undefined,
         this.pendingSessionNavigation ? provider.session(this.pendingSessionNavigation) : undefined,
