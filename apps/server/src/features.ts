@@ -11,6 +11,7 @@ import {
   type FeatureVisibility,
   resolveFeatureState,
 } from '@podium/protocol'
+import { isDevChannelVersion } from '@podium/protocol/dev-version'
 import type { PodiumSettings } from '@podium/runtime'
 import {
   type EnvSource,
@@ -42,13 +43,23 @@ export function getFeatureStates(
   // and would leave production builds as undefined → 'dev' forever.
   const version = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
   const devMode = version === 'dev'
-  // Feature visibility has exactly two tiers, so the `dev` fleet channel (POD-1882)
+  // Release-channel visibility has two tiers, so the `dev` fleet channel (POD-1882)
   // folds into `edge`: it is strictly more permissive than edge, and a dev install
   // must see at least everything an edge install sees.
   const fleetChannel = resolveSetting('updateChannel', config, env, settings.deployment).value
   const channel: 'stable' | 'edge' = fleetChannel === 'stable' ? 'stable' : 'edge'
   const overrides = resolveFeatureOverrides(config)
   const user = settings.experimental ?? {}
+  const developmentDefinition = FEATURES.find((def) => def.id === 'podium-development')
+  const developmentAudience =
+    isDevChannelVersion(version) &&
+    developmentDefinition !== undefined &&
+    resolveFeatureState(developmentDefinition, {
+      configValue: overrides['podium-development'],
+      userValue: user['podium-development'],
+      channel,
+      devMode,
+    }).enabled
 
   const flags: FeatureStateWire[] = FEATURES.map((def) => {
     const state = resolveFeatureState(def, {
@@ -56,6 +67,7 @@ export function getFeatureStates(
       userValue: user[def.id],
       channel,
       devMode,
+      developmentAudience,
     })
     return {
       id: def.id,
