@@ -26,7 +26,7 @@ const task = (id: string, patch: Partial<PageInput> = {}): PageInput => ({
   id, seq: 1, title: 'Synthetic task', stage: 'backlog', repoId: 'R', repoPath: '/synthetic',
   description: '', createdAt: STAMP, updatedAt: STAMP, ...patch,
 })
-const seat = (sessionId: string, issueId: string | null, patch: Partial<SliceSession> = {}): SliceSession => ({
+const seat = (sessionId: string, issueId: string | null, patch: Partial<SliceSession & { refIssueId: string }> = {}): SliceSession => ({
   sessionId, issueId, status: 'live', cwd: '/synthetic', createdAt: STAMP, lastActiveAt: STAMP, agentKind: 'codex', ...patch,
 })
 const summaries = { issue: [...new Set([...ISSUE_PAGE_SUMMARIES.issue, ...MISSION_SUMMARIES.issue])],
