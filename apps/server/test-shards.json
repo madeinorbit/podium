@@ -1336,6 +1336,7 @@
         "src/test-support/client-principal.ts",
         "src/test-support/client-transport.ts",
         "src/test-support/features.ts",
+        "src/test-support/issue-row.ts",
         "src/test-support/migrated-database.ts",
         "src/test-support/open-test-store.ts",
         "src/test-support/pre-migrated-store.build.ts",
