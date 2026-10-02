@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import '@/test-support/mock-core-store-handle'
 import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -133,4 +134,3 @@ describe('OpenInBrowserButton', () => {
     expect(toastInfo).toHaveBeenCalledTimes(1)
   })
 })
-import '@/test-support/mock-core-store-handle'

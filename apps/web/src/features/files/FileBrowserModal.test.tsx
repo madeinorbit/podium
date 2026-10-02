@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FileBrowserModal } from './FileBrowserModal'
@@ -56,4 +57,3 @@ describe('FileBrowserModal', () => {
     expect(onClose).toHaveBeenCalled()
   })
 })
-import '@/test-support/mock-core-store-handle'

@@ -211,7 +211,8 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
     for (const tab of VIEWER_TABS) writeFilePanelMode(owner.ui, tab.mapKey, tab.tabId, 'source')
   })
   for (const { path } of VIEWER_FILES)
-    expect(within(view.getByTestId(path)).getByRole('textbox', { name: path })).toBeTruthy()
+    // Utility dialogs intentionally hide the surrounding mounted file panels.
+    expect(within(view.getByTestId(path)).getByRole('textbox', { name: path, hidden: true })).toBeTruthy()
   expect(checkFileViewerPreferences(pool!, owner.ui, VIEWER_TABS)).toMatchObject({
     differences: 0,
     pending: 0,
