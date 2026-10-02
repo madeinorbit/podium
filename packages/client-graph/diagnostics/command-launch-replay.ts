@@ -84,7 +84,9 @@ async function main() {
     phase = 5
     let checks = 0, differences = 0, pending = 0, positions = 0
     let first: { check: number; sectionIndex: number; rowIndex: number | null; field: string } | null = null
-    for (const selectedIssueId of [null, ...replica.rows('issueProjections').slice(0, 32).map(row => asIssueId(row.id))]) {
+    const contexts = [null, ...replica.rows('issueProjections').slice(0, 4).map(row => asIssueId(row.id))]
+    console.log(JSON.stringify({ phase, issues: corpus.issues.length, sessions: corpus.sessions.length, contexts: contexts.length }))
+    for (const selectedIssueId of contexts) {
       store = { ...store, selectedIssueId }
       for (const listener of listeners) listener()
       await Promise.resolve()
@@ -96,6 +98,7 @@ async function main() {
       checks++; differences += result.differences; pending += result.pending; positions += result.rows
       if (!first && result.first) first = { check: checks, sectionIndex: result.first.sectionIndex,
         rowIndex: result.first.rowIndex, field: result.first.field }
+      console.log(JSON.stringify({ phase, checks, differences, pending, positions }))
     }
     console.log(JSON.stringify({ issues: corpus.issues.length, sessions: corpus.sessions.length, machines: corpus.machines.length,
       repositories: corpus.repos.length, operatorWireVersion, checks, positions, differences, pending, first }))
