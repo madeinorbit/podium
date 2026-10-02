@@ -2,7 +2,8 @@ import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/
 import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model'
 import type { MobxPool } from './pool'
 import { pendingInteractionCard } from './notice-card'
-import type { NoticeRows } from './notice-schema'
+import type { HeaderRows } from './header-schema'
+import type { NoticeRows, NoticeSessionSummary } from './notice-schema'
 import { LOADING } from './worklist/rollup'
 
 /** All payload and summary reads pass through the pool's one reader. No cold
@@ -16,7 +17,7 @@ export function noticeMessages(pool: MobxPool) {
     const record = pool.row('messageRecord', id)
     if (record === LOADING) { pending++; continue }
     if (!record || !isMessageRecordAttention(record.status)) continue
-    const session = pool.row('session', record.sessionId, 'summary')
+    const session = pool.row('session', record.sessionId, 'summary') as NoticeSessionSummary | typeof LOADING | undefined
     if (session === LOADING) { pending++; pendingIds.push(id) }
     const label = !session ? 'a closed session' : session === LOADING ? 'Loading session…'
       : session.name?.trim() || session.title?.trim() || session.cwd?.split('/').filter(Boolean).pop() || session.agentKind
@@ -61,6 +62,6 @@ export function noticeRecovery(pool: MobxPool) {
 
 export function noticeContinuity(pool: MobxPool) {
   const recovery = noticeRecovery(pool)
-  const window = pool.row('window', 'window')
+  const window = pool.row('window', 'window') as HeaderRows['window'] | undefined
   return { outboxSize: window?.outboxSize ?? 0, deadLetters: recovery.deadLetters.length, pending: recovery.pending }
 }

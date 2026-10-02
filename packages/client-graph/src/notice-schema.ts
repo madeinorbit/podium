@@ -1,6 +1,9 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import type { MessageRecordWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
+
+export type NoticeSessionSummary = Partial<Pick<SessionView, 'name' | 'title' | 'cwd' | 'agentKind'>>
 
 export interface NoticeRows {
   messageRecord: MessageRecordWire
