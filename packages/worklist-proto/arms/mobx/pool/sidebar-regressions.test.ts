@@ -21,7 +21,7 @@ import { sidebarReplayStore } from '../../../harness/src/oracle/sidebar-replay'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
 
-installMobxWarnTrap()
+installMobxWarnTrap({ errors: true })
 const NOW = Date.parse('2026-09-30T12:00:00.000Z')
 const STAMP = new Date(NOW - 60_000).toISOString()
 const ROOT = '/synthetic/repo'
@@ -142,6 +142,31 @@ function replay(data: LiveCollections) {
     dispose: () => { stop(); handle.dispose(); locals.dispose(); rows.dispose() },
   }
 }
+
+describe('POD-5179 reciprocal provenance in the sidebar check corpus', () => {
+  it.each([false, true])('matches the legacy cycle break regardless of export order (reversed=%s)', reversed => {
+    const a = issue('cycle-a', { startedBySession: 'seat-b' })
+    const b = issue('cycle-b', { seq: 2, startedBySession: 'seat-a' })
+    const ctx = replay(collections(reversed ? [b, a] : [a, b], [session('seat-a', a.id), session('seat-b', b.id)]))
+    try {
+      const sections = ctx.sections()
+      expect(sections.expected.bands[0]?.rowIds).toEqual([b.id])
+      expect(sections.actual.bands[0]?.rowIds).toEqual([b.id])
+      const root = ctx.row(b.id)
+      expect(runInAction(() => ctx.pool.knownIssue(b.id)?.nested)).toEqual([a.id])
+      expect(root.actual.aggregateSessions).toHaveLength(2)
+      expect(root.actual.aggregateSessions.map(seat => seat.sessionId)).toEqual(['seat-b', 'seat-a'])
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 2 })
+      // Breaking and restoring the cycle must update the observed rows, too.
+      ctx.updateIssue({ ...a, startedBySession: null })
+      expect(runInAction(() => ctx.pool.knownIssue(a.id)?.nested)).toEqual([b.id])
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 2 })
+      ctx.updateIssue(a)
+      expect(runInAction(() => ctx.pool.knownIssue(b.id)?.nested)).toEqual([a.id])
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 2 })
+    } finally { ctx.dispose() }
+  })
+})
 
 describe('POD-5056 fleet resume-twin ties', () => {
   it.each([true, false])('uses the runtime replica order on an exact tie (export head archived=%s)', archived => {
