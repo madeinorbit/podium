@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionOffer } from '@podium/model/browser'
 import { ChevronDown, Lightbulb, Pencil, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -138,7 +138,7 @@ export function OfferBar({
   onDismiss?: (offerCreatedAt: string) => Promise<void> | void
   /** When given, the offer's issue-artifact evidence renders as a thumbnail
    *  strip [POD-120] (needs the session to find its issue + input recency). */
-  session?: SessionMeta
+  session?: SessionView
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   // Callback ref, not useRef: the fold has to be measured the moment its body

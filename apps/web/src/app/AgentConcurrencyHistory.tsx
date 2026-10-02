@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { headerDataLayer } from '@/lib/header-data-layer'
 import { usePoolConcurrencyHistory } from './header-data'
 import { Popover } from '@base-ui/react/popover'
@@ -49,7 +49,7 @@ export function AgentConcurrencyHistory({
   workingSessions,
   trpc,
 }: {
-  workingSessions: readonly Pick<SessionMeta, 'sessionId' | 'name' | 'title' | 'displayRef' | 'agentKind'>[]
+  workingSessions: readonly Pick<SessionView, 'sessionId' | 'name' | 'title' | 'displayRef' | 'agentKind'>[]
   trpc: Trpc
 }): JSX.Element {
   const working = workingSessions.length

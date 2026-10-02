@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * WHO IS ON THIS TASK, as one stacked mark.
  *
@@ -43,7 +43,7 @@ export function IssueFleetSummary({
   className,
   summary,
 }: {
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** Tile edge in px — 18 in the sidebar, 16 on the denser board card, where an
    *  18px tile of saturated terracotta was the loudest thing on the card and won
    *  the first look from the title. In `glyphs` this is the GLYPH's own size. */

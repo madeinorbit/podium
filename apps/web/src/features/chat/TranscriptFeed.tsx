@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import type {
   ChatActivity,
   ChatBlock,
@@ -155,7 +155,7 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
   return undefined
 }
 
-export function queueIsBlocked(session: SessionMeta | undefined): boolean {
+export function queueIsBlocked(session: SessionView | undefined): boolean {
   return session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
 }
 export function queuePositionSuffix(position: number | undefined): string {
@@ -165,7 +165,7 @@ export function queuePositionSuffix(position: number | undefined): string {
 }
 
 export function queuedDeliveryLabel(
-  session: SessionMeta | undefined,
+  session: SessionView | undefined,
   position?: number,
 ): string {
   const error = queueIsBlocked(session) ? session?.agentState?.error : undefined
@@ -307,7 +307,7 @@ export function TranscriptFeed({
   loadOlder: () => void
   sessionId: SessionId
   cwd: string
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   httpOrigin: string
   openFile: (sessionId: SessionId, path: string) => void
   onOpenImage: (url: string) => void

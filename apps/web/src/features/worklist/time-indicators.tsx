@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * Sidebar time indicators: the live elapsed timer on WORKING rows ("how long
  * has this been running") and the compact relative stamp on WORK rows
@@ -32,7 +32,7 @@ export function formatElapsed(ms: number): string {
  * no agentState (busy shells) fall back to lastActiveAt. Null when nothing
  * in the set is working.
  */
-export function workingSinceMs(sessions: SessionMeta[]): number | null {
+export function workingSinceMs(sessions: SessionView[]): number | null {
   let earliest: number | null = null
   for (const s of sessions) {
     if (!isSessionWorking(s)) continue

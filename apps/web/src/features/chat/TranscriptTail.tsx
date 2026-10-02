@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   type ChatActivity,
   type ChatRow,
@@ -108,7 +108,7 @@ function dependencyKind(toolName: string | undefined): 'shell' | 'agent' | undef
  */
 export function transcriptTailState(
   activity: ChatActivity | null,
-  session: SessionMeta | undefined,
+  session: SessionView | undefined,
   lastRow: ChatRow | undefined,
   since?: string | undefined,
 ): TranscriptTailState | null {
@@ -211,7 +211,7 @@ export function TranscriptTail({
   /** When the agent last changed phase — the origin for every figure here. */
   since?: string | undefined
   /** Runtime detail used to name subagent dependencies without parser work. */
-  session?: SessionMeta | undefined
+  session?: SessionView | undefined
   /** The visible tail row supplies the active tool's own subject. */
   lastRow?: ChatRow | undefined
 }): JSX.Element | null {

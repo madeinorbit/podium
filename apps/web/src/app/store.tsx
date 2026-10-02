@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { sessionById } from '@podium/client-core/store'
 /**
  * Web binding for the shared client store (arch-v2 P3, issue #192): the
@@ -139,7 +139,7 @@ export function useStoreSelector<T>(
 
 /** One replica-backed session row. The replica preserves unchanged row
  * identities, so Object.is keeps this reader asleep when another session moves. */
-export function useSession(sessionId: SessionId | undefined): SessionMeta | undefined {
+export function useSession(sessionId: SessionId | undefined): SessionView | undefined {
   return useStoreSelector((s) =>
     sessionId === undefined
       ? undefined

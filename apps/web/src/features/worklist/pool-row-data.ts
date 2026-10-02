@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   errorPhrase,
   type IssueNavigationModel,
@@ -62,8 +62,8 @@ export function poolIssueRow(value: SidebarRowValues): UnifiedIssueRow {
   return {
     kind: 'issue',
     issue: navigationIssue(value.issue),
-    sessions: value.sessions as SessionMeta[],
-    aggregateSessions: value.aggregateSessions as SessionMeta[],
+    sessions: value.sessions as SessionView[],
+    aggregateSessions: value.aggregateSessions as SessionView[],
     activityAt: value.timing.sinceMs,
     ...(value.continuation
       ? { continuation: `${value.continuation.kind} · ${value.continuation.ref}` }
@@ -80,7 +80,7 @@ export function poolWorktreeRow(
     worktree: {
       ...value.worktree,
       isMain: value.worktree.isMain === true,
-      sessions: value.sessions as SessionMeta[],
+      sessions: value.sessions as SessionView[],
       issues: value.issues as unknown as IssueNavigationModel[],
     } as Extract<UnifiedWorkRow, { kind: 'worktree' }>['worktree'],
   }
@@ -142,7 +142,7 @@ export function poolIssueHaystack(value: SidebarRowValues): string {
 
 /** PanelRow's displayed extension: transport geometry and bookkeeping do not
  * redraw a guest. The pool retains the borrowed row for its existing menu. */
-export function poolSessionPaint(s: SessionMeta) {
+export function poolSessionPaint(s: SessionView) {
   return {
     sessionId: s.sessionId,
     agentKind: s.agentKind,

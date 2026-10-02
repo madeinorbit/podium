@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../../../session-values'
+import type { SessionView } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row ATTENTION: what a row is doing, what it is
@@ -69,7 +69,7 @@ export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
 /** The same waiting > working > all-done > queued aggregation over any member
  *  session set — for squares fed by `issue.sessions` directly (#65 right rail). */
 export function aggregateMotionPhase(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   issue?: IssueNavigationModel,
 ): MotionPhase {
   const phases = sessions.map((s) => motionPhase(s, issue))
@@ -327,9 +327,9 @@ export function rowStatusLine(
 export function rowMotionTiming(row: UnifiedWorkRow): MotionTiming {
   const sessions = rowSessions(row)
   const phase = rowMotionPhase(row)
-  const since = (s: SessionMeta): number => Date.parse(s.agentState?.since ?? s.lastActiveAt)
-  const earliest = (list: SessionMeta[]): SessionMeta | undefined =>
-    list.reduce<SessionMeta | undefined>(
+  const since = (s: SessionView): number => Date.parse(s.agentState?.since ?? s.lastActiveAt)
+  const earliest = (list: SessionView[]): SessionView | undefined =>
+    list.reduce<SessionView | undefined>(
       (best, s) => (best === undefined || since(s) < since(best) ? s : best),
       undefined,
     )

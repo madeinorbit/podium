@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../../../session-values'
+import type { SessionView } from '../../../session-values'
 /**
  * POD-330/POD-1496 — worklist row SHAPE: what a unified work-list row is, and
  * the one question answerable from the row alone (which sessions it speaks
@@ -24,12 +24,12 @@ import type { WorktreeNavView } from './nav'
 export type UnifiedIssueRow = {
   kind: 'issue'
   issue: IssueNavigationModel
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   activityAt: number
   /** Formal parentId children plus agent-started provenance children. [spec:SP-6144] */
   startedByChildren?: UnifiedIssueRow[]
   /** Own + descendant sessions, used only for bubbled status/attention. */
-  aggregateSessions?: SessionMeta[]
+  aggregateSessions?: SessionView[]
   /** Canonical task progress and whether the root is a child-derived container. */
   missionRollup?: MissionRollup
   /**
@@ -128,7 +128,7 @@ export function reuseUnifiedWorkRows(
 
 /** The sessions a row speaks for. An issue row prefers its bubbled aggregate
  *  (own + descendants) so status and attention read the WHOLE branch. */
-export function rowSessions(row: UnifiedWorkRow): SessionMeta[] {
+export function rowSessions(row: UnifiedWorkRow): SessionView[] {
   return row.kind === 'issue' ? (row.aggregateSessions ?? row.sessions) : row.worktree.sessions
 }
 

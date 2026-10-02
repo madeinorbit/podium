@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 /**
  * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
  *
@@ -70,7 +70,7 @@ export interface EngineState {
   reposLoading: boolean
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   issues: IssueWire[]
   issueProjections: IssueProjection[]
   issueDeps: IssueDepProjection[]
@@ -189,7 +189,7 @@ export const tabIsVisible = (): boolean =>
  *  does (POD-912). */
 export function issueActivityAt(
   issue: Pick<IssueProjection, 'id' | 'updatedAt'>,
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   issues: readonly Pick<IssueProjection, 'id' | 'parentId' | 'updatedAt'>[] = [],
 ): string {
   const subtree = new Set<string>([issue.id])
@@ -525,7 +525,7 @@ function issuesById(issues: readonly IssueProjection[]): ReadonlyMap<string, Iss
 export function workspaceMembership(
   st: Pick<EngineState, 'issueProjections' | 'issueDeps' | 'sessions'>,
   key: WorkspaceKey,
-): (session: SessionMeta) => boolean {
+): (session: SessionView) => boolean {
   if (key === 'none') return () => true
   if (key.startsWith('wt:')) {
     const path = key.slice(3)
@@ -565,7 +565,7 @@ export function workspaceMembership(
 export function sessionBelongsToWorkspace(
   st: Pick<EngineState, 'issueProjections' | 'issueDeps' | 'sessions'>,
   key: WorkspaceKey,
-  session: SessionMeta,
+  session: SessionView,
 ): boolean {
   return workspaceMembership(st, key)(session)
 }
@@ -649,7 +649,7 @@ export function userFocus(st: EngineState): UserFocus {
 export interface EngineStateSeed {
   readonly persisted: WorkspaceUiSnapshot
   readonly route: { settingsTab: string | null; issueId?: IssueId | null }
-  readonly sessions: SessionMeta[]
+  readonly sessions: SessionView[]
   readonly issues: IssueWire[]
   readonly issueProjections: IssueProjection[]
   readonly issueUserStates: IssueUserStateWire[]

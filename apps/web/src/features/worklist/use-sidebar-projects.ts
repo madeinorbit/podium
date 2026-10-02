@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { Store } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -76,7 +76,7 @@ function usePoolSections(): SidebarSections {
         sessions: [...pool.graph.many('worktree', String(lane['path']), 'sessions')].flatMap(
           (id) => {
             const row = pool.row('session', id)
-            return row && typeof row === 'object' ? [row as unknown as SessionMeta] : []
+            return row && typeof row === 'object' ? [row as unknown as SessionView] : []
           },
         ),
       })) as SidebarSections['pinnedWorktrees']

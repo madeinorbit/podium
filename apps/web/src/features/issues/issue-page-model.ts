@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * Viewmodel for the issue page (P5d, issue #264): the busy/error mutation
  * runner, the lazy comment thread, the event-log drain, and the pure
@@ -68,9 +68,9 @@ export interface IssuePageModel {
   /** This issue's member sessions, resolved against the session world. The Now
    *  block and the rail's roster both render from this one list (POD-591), so
    *  they can never disagree about who is on the task. */
-  memberSessions: SessionMeta[]
+  memberSessions: SessionView[]
   /** The visible session world, used to resolve canonical state for child rows. */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** [spec:SP-a1c0] (#411) Route through the central action — never roll
    *  per-feature navigation (setPane+setView flips the URL then reverts). */
   openSession: (sessionId: SessionId) => void
@@ -259,7 +259,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     sessions,
     memberSessions: (issue.memberSessionIds ?? [])
       .map((id) => (sessions ?? []).find((session) => session.sessionId === id))
-      .filter((session): session is SessionMeta => session !== undefined),
+      .filter((session): session is SessionView => session !== undefined),
     openSession: navigateToSession,
     children: subIssuesOf(issues, issue.id),
     appendLocalComment: (body) =>

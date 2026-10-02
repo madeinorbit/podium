@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The sub-task list — one flat list in slice order, plus an inline add-row.
  * Split out of IssuePage.tsx (POD-646).
@@ -138,7 +138,7 @@ export function IssueSubIssues({
    *  that does not render its React children is the one thing React's own
    *  vocabulary reserves, and biome's noChildrenProp is right to refuse it. */
   subIssues: IssueViewModel[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   now: number
   busy: boolean
   addingChild: boolean

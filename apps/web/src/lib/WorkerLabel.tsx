@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { isUnstartedSession, panelLabel } from '@podium/client-core/viewmodels'
 import type { AgentKind} from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
@@ -22,7 +22,7 @@ export function normalizeTitle(title: string): string {
 /** The display name for a session anywhere in the UI: user-set name beats the
  *  live title; a still-unstarted session reads "New session" (its kind already
  *  rides on the adjacent icon) rather than echoing the harness's boot title. */
-export function sessionDisplayName(session: SessionMeta): string {
+export function sessionDisplayName(session: SessionView): string {
   if (isUnstartedSession(session)) return 'New session'
   return session.name?.trim() || normalizeTitle(session.title) || 'untitled'
 }
@@ -141,7 +141,7 @@ export function WorkerLabel({
   session,
   chip = false,
 }: {
-  session: SessionMeta
+  session: SessionView
   /** Wrap the kind icon in the 20px agent chip (work-list agent rows). */
   chip?: boolean
 }): JSX.Element {

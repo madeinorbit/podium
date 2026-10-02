@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import {
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
@@ -174,7 +174,7 @@ export function defaultWaterfallTaskWidth(
 interface WaterfallIssueRow {
   row: FlightDeckRow
   displayTitle: string
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   root: boolean
 }
 
@@ -207,7 +207,7 @@ interface FlightDeckWaterfallProps {
   onSelectIssue: (row: FlightDeckRow, permanent: boolean) => void
   onSelectSession: (
     issueId: IssueId,
-    session: SessionMeta,
+    session: SessionView,
     options: { permanent: boolean; native?: boolean },
   ) => void
   onIssueMenu: (issueId: IssueId, anchor: ContextMenuAnchor) => void
@@ -231,7 +231,7 @@ function issueFuture(row: FlightDeckRow): WaterfallFuture | null {
   return null
 }
 
-function sessionReason(row: FlightDeckRow, session: SessionMeta): string | null {
+function sessionReason(row: FlightDeckRow, session: SessionView): string | null {
   const runtime = session.agentState?.need?.summary?.trim()
   if (runtime) return runtime
   if (!sessionAsksOnIssue(row.issue, session)) return null
@@ -246,7 +246,7 @@ function sessionReason(row: FlightDeckRow, session: SessionMeta): string | null 
  * pruned history — degrades to the solid single-color bar.
  */
 function useWaterfallActivity(
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): ReadonlyMap<string, WaterfallActivitySample[]> {
   const trpc = useStoreSelector((store) => store.trpc) as {
     sessions?: {
@@ -519,7 +519,7 @@ function WaterfallHoverCard({
   coordinator,
   unread,
 }: {
-  session: SessionMeta
+  session: SessionView
   state: WaterfallSessionState
   startMs: number
   endMs: number
@@ -595,7 +595,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
   onLocalPick,
 }: {
   row: FlightDeckRow
-  session: SessionMeta
+  session: SessionView
   frame: WaterfallFrame
   samples: readonly WaterfallActivitySample[] | undefined
   selected: boolean
@@ -880,7 +880,7 @@ const WaterfallHistorySummary = memo(function WaterfallHistorySummary({
   expanded,
   onToggle,
 }: {
-  sessions: readonly SessionMeta[]
+  sessions: readonly SessionView[]
   frame: WaterfallFrame
   expanded: boolean
   onToggle: () => void
@@ -962,8 +962,8 @@ const WaterfallIssue = memo(function WaterfallIssue({
   folded: boolean
   onToggle: () => void
   onSelectIssue: (permanent: boolean) => void
-  onSelectSession: (session: SessionMeta, permanent: boolean) => void
-  onSelectNative: (session: SessionMeta) => void
+  onSelectSession: (session: SessionView, permanent: boolean) => void
+  onSelectNative: (session: SessionView) => void
   onIssueMenu: (anchor: ContextMenuAnchor) => void
   onStatusPick: (value: string) => void
   onRenameIssue: (title: string) => void

@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../../../session-values'
+import type { SessionView } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row CONSTRUCTION: which work earns a row, how
@@ -49,14 +49,14 @@ import {
 function buildUnifiedRows(
   sections: SidebarSections,
   issues: IssueNavigationModel[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   allWorktreePaths: string[],
   now: number,
   ownership?: SessionOwnershipIndex,
 ): UnifiedWorkRow[] {
   const sessionIndex = indexMissionSessions(sessions)
   const rows: UnifiedWorkRow[] = []
-  const retainedSessionsByIssue = new Map<string, SessionMeta[]>()
+  const retainedSessionsByIssue = new Map<string, SessionView[]>()
   for (const issue of issues) {
     if (
       issue.archived ||
@@ -251,7 +251,7 @@ function sidebarWorktrees(sections: SidebarSections): WorktreeNavView[] {
  */
 export function nestStartedByIssues(
   rows: UnifiedWorkRow[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   allWorktreePaths: string[],
   allIssues: readonly IssueNavigationModel[] = rows
     .filter((row): row is UnifiedIssueRow => row.kind === 'issue')
@@ -366,7 +366,7 @@ export function nestStartedByIssues(
 export function unifiedWorkList(
   sections: SidebarSections,
   issues: IssueNavigationModel[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   allWorktreePaths: string[],
   now: number = Date.now(),
 ): UnifiedWorkRow[] {
@@ -382,7 +382,7 @@ export function unifiedWorkList(
 export type WorkingEntry =
   | { kind: 'issue'; row: Extract<UnifiedWorkRow, { kind: 'issue' }> }
   | { kind: 'worktree'; row: Extract<UnifiedWorkRow, { kind: 'worktree' }> }
-  | { kind: 'session'; session: SessionMeta }
+  | { kind: 'session'; session: SessionView }
 
 export interface UnifiedWorkPartition {
   /** WORKING rows/sessions, preserving the unified list's manual row order. */
@@ -393,7 +393,7 @@ export interface UnifiedWorkPartition {
 
 /** Rebuild a WORK row around a filtered session set, recomputing its activity
  *  so ordering stays coherent after working sessions are lifted out. */
-function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[]): UnifiedWorkRow {
+function rowWithSessions(row: UnifiedWorkRow, keep: SessionView[]): UnifiedWorkRow {
   const activityAt = keep.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
   if (row.kind === 'issue') {
     // Recompute the bubbled aggregate too — a stale aggregate would keep
@@ -434,7 +434,7 @@ function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[]): UnifiedWorkR
 export function partitionUnifiedWork(
   sections: SidebarSections,
   issues: IssueNavigationModel[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   allWorktreePaths: string[],
   now: number = Date.now(),
 ): UnifiedWorkPartition {

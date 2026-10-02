@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import { sessionById } from '../session-index'
 import type {
   ArtifactId,
@@ -67,7 +67,7 @@ export function cwdInWorktree(cwd: string, root: string): boolean {
 export function resolveActiveWorktree(args: {
   paneA: string | null
   fileTabs: FileTab[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
 }): ActiveWorktree | null {
   const { paneA, fileTabs, sessions } = args
   if (paneA != null) {
@@ -81,7 +81,7 @@ export function resolveActiveWorktree(args: {
     }
   }
   // Fall back to the most recently active non-archived session.
-  let best: SessionMeta | null = null
+  let best: SessionView | null = null
   for (const s of sessions) {
     if (s.archived) continue
     if (!best || s.lastActiveAt > best.lastActiveAt) best = s
@@ -112,7 +112,7 @@ export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string):
 }
 
 /** The issue the dock's Issue tab should show. The active session's explicit
- *  attachment (`SessionMeta.issueId`) wins — it names exactly the issue the
+ *  attachment (`SessionView.issueId`) wins — it names exactly the issue the
  *  session works on, so subissue sessions running in the parent's worktree and
  *  re-homed sessions resolve to THEIR issue, not the worktree owner's (#243).
  *  A known session WITHOUT an attached issue resolves to no issue at all —
@@ -122,7 +122,7 @@ export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string):
  *  fallback applies only to file tabs / panes with no resolvable session. */
 export function issueForPanel<T extends IssuePanelLike>(args: {
   issues: T[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   cwd: string
   sessionId?: SessionId
   /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441; every explorer

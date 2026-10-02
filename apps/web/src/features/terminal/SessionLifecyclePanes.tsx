@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE READ-ONLY SURFACES (POD-408) — what a `parked` or `ended` panel shows,
  * and the bar a live CLI shows when its machine is offline (POD-4629).
@@ -118,7 +118,7 @@ function LifecycleButton({
  * this surface needs.
  */
 type ExitedProps = Pick<
-  SessionMeta,
+  SessionView,
   'sessionId' | 'exitCode' | 'spawnFailure' | 'resumable' | 'neverBound'
 > & {
   isShell: boolean

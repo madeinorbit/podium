@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The Sessions block of the properties aside: who is on this task, the ghosts of
  * sessions that moved on, and — until somebody picks the work up — the launch
@@ -61,7 +61,7 @@ function SessionRosterRow({
   trailing,
   title,
 }: {
-  session: SessionMeta
+  session: SessionView
   issue: IssueViewModel
   onOpen: () => void
   muted?: boolean
@@ -122,11 +122,11 @@ export function IssueSessionsBlock({
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
-  memberSessions: SessionMeta[]
+  memberSessions: SessionView[]
   /** Forwarding ghosts (POD-89): sessions BORN here that re-homed elsewhere.
    *  "No agents" was misread as work lost — the honest shape is "the agent moved
    *  on to POD-x". */
-  movedOn: SessionMeta[]
+  movedOn: SessionView[]
   machines: LaunchMachine[]
   onOpenSession: (session: { sessionId: SessionId }) => void
 }): JSX.Element {

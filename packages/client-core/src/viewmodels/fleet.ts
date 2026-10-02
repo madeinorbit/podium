@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import type { AgentKind} from '@podium/model'
 
 /**
@@ -34,12 +34,12 @@ import type { AgentKind} from '@podium/model'
 export const FLEET_KIND_LIMIT = 3
 
 /** On the task: still assigned to it, whatever its process is doing. */
-export const sessionPresentOnTask = (session: SessionMeta): boolean =>
+export const sessionPresentOnTask = (session: SessionView): boolean =>
   !session.archived && session.status !== 'exited'
 
 /** Parked: process stopped to free memory, conversation intact, resumable. The
  *  agent is still on the task — it is drawn ghosted, not dropped. */
-export const sessionParked = (session: SessionMeta): boolean => session.status === 'hibernated'
+export const sessionParked = (session: SessionView): boolean => session.status === 'hibernated'
 
 export interface FleetTile {
   kind: AgentKind
@@ -51,7 +51,7 @@ export interface FleetTile {
 
 export interface FleetPresence {
   /** Sessions on the task, in caller order. Archived and exited are dropped. */
-  present: SessionMeta[]
+  present: SessionView[]
   /** How many of `present` are parked (0 when the whole fleet is awake). */
   parkedCount: number
   /** One tile per harness kind, first-seen order. Callers that stack kinds slice
@@ -68,7 +68,7 @@ export interface FleetPresence {
   label: string
 }
 
-export function deriveFleetPresence(sessions: readonly SessionMeta[]): FleetPresence {
+export function deriveFleetPresence(sessions: readonly SessionView[]): FleetPresence {
   const present = sessions.filter(sessionPresentOnTask)
   const parkedCount = present.filter(sessionParked).length
   const tiles: FleetTile[] = []

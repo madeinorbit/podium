@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE ARBITRATION HOOK (POD-408) — the store/effect half of `panel-surface.ts`.
  *
@@ -103,7 +103,7 @@ export interface PanelArbitration {
 
 export function usePanelSurface(input: {
   sessionId: SessionId
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   /** This pane is the visible one (PanelDeck's `visible`). */
   paneActive: boolean
   /** The optimistic spawn has reconciled server-side (#119). */

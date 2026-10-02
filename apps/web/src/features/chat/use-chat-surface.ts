@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { useStoreHandle } from '@podium/client-core/react'
 import {
   headlessConversationCanInterrupt,
@@ -82,7 +82,7 @@ export interface UseChatSurfaceOptions {
 
 export interface ChatSurface {
   // -- identity and the partial world ----------------------------------------
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   /** The chat's own referent. `not-visible` is an eviction, not a deletion. */
   reference: ChatSessionReference
   /** True when the session left the principal's view and the shell must leave
@@ -156,7 +156,7 @@ export interface ChatSurface {
   submitDraft: (draft: string) => void
   pending: readonly PendingItem[]
   ctxSeq: number | null
-  offer: SessionMeta['offer'] | null
+  offer: SessionView['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
   /** Decline the offer without answering it — see `useChatSend`. */
   dismissOffer: (offerAt: string) => Promise<void>

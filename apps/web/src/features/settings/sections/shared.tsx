@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * Shared building blocks for the settings sections (P5d, issue #264): the
  * Section/Row layout primitives, the account/provider label helpers, and the
@@ -119,8 +119,8 @@ export interface AccountView {
   credentialSource?: 'stored' | 'legacy'
   loginRequired?: boolean
   loginMachines?: { id: MachineId; name: string }[]
-  loginAttempt?: Pick<SessionMeta, 'sessionId'> &
-    Required<Pick<SessionMeta, 'machineId' | 'machineName'>> & {
+  loginAttempt?: Pick<SessionView, 'sessionId'> &
+    Required<Pick<SessionView, 'machineId' | 'machineName'>> & {
       status: 'running' | 'refreshing' | 'succeeded' | 'failed'
       error?: string
     }

@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import type { NavigationIntent } from './navigation'
 /**
  * Engine-facing shared types (#262 [spec:SP-3fe2]): the server-config, notice,
@@ -152,7 +152,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  "still loading" from "registry is genuinely empty" (first-run onboarding). */
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
   issues: IssueWire[]
   /** Normalized durable issue rows. Per-user markers live on `issueUserStates`. */

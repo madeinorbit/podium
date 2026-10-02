@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE PANEL'S LIFECYCLE ACTIONS, AS DATA (POD-408).
  *
@@ -137,7 +137,7 @@ export function recoveryAction(kind: 'parked' | 'ended', action: ExitedAction): 
  * the mid-turn rule in, so "applies at all" is that predicate OR'd with the one
  * state it excludes.
  */
-export function hibernateAction(session: SessionMeta | undefined): LifecycleAction | null {
+export function hibernateAction(session: SessionView | undefined): LifecycleAction | null {
   if (!session) return null
   const { canHibernate } = sessionMenuEligibility(session)
   const phase = session.agentState?.phase

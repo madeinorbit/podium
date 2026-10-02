@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
 import type { Store } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
@@ -840,7 +840,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
   const panel = useCallback((sid: SessionId) => actions.selectPanel(path, sid), [actions, path])
   const renderSession = useCallback(
-    (session: SessionMeta, active: boolean, ref: string | undefined, trailing: ReactNode) => (
+    (session: SessionView, active: boolean, ref: string | undefined, trailing: ReactNode) => (
       <PoolPanelRow
         key={session.sessionId}
         pool={pool}
@@ -862,7 +862,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
       active={value.active}
       paneA={state.paneA}
       now={pool.clock.current}
-      partition={{ visible: value.visible as SessionMeta[], stale: value.stale as SessionMeta[] }}
+      partition={{ visible: value.visible as SessionView[], stale: value.stale as SessionView[] }}
       renderSession={renderSession}
       onSelect={select}
       onSelectPanel={panel}
@@ -889,7 +889,7 @@ const PoolPanelRow = observer(function PoolPanelRow({
 }) {
   const value = useMemo(
     () =>
-      computed(() => pool.row('session', id) as SessionMeta | typeof LOADING | undefined, {
+      computed(() => pool.row('session', id) as SessionView | typeof LOADING | undefined, {
         equals: (a, b) =>
           compareStructural(
             a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,

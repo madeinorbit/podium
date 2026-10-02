@@ -1,3 +1,4 @@
+import type { SessionValues } from '@podium/client-core/session-values'
 /**
  * POD-4442 — the frozen worklist slice all three round-two arms build.
  *
@@ -86,7 +87,7 @@ export interface SliceAgentState {
  * no `issueId` is owned by longest-prefix containment, never orphaned
  * (spec §2 R3).
  */
-export interface SliceSession {
+export interface SliceSession extends Partial<Pick<SessionValues, 'displayRef' | 'snoozedUntil' | 'readAt' | 'unread'>> {
   sessionId: string
   issueId?: string | null
   cwd: string
@@ -94,16 +95,12 @@ export interface SliceSession {
   title?: string
   createdAt?: string
   name?: string | null
-  displayRef?: string
-  snoozedUntil?: string | null
   draftUpdatedAt?: string
   headless?: boolean
   status?: string | null
   archived?: boolean
   lastActiveAt: string
   stoppedAt?: string | null
-  readAt?: string | null
-  unread?: boolean
   agentState?: SliceAgentState
   /** Standing offer; only its `createdAt` participates in the slice (waiting-age anchor). */
   offer?: { createdAt?: string } | null

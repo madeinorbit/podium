@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import { issueAsked } from './slices/issues'
 import type { IssueId, SessionId, TranscriptItem } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -52,7 +52,7 @@ export interface HandoffSessionSummary {
 const itemKey = (item: TranscriptItem): string => item.cursor ?? item.id
 
 /** The one mission transcript worth reading for return context. */
-export function selectLatestPromptSession(sessions: readonly SessionMeta[]): SessionMeta | null {
+export function selectLatestPromptSession(sessions: readonly SessionView[]): SessionView | null {
   const candidates = sessions.filter(
     (session) =>
       Boolean(session.lastInputAt) &&
@@ -118,23 +118,23 @@ export function pairLatestPromptAndAnswer(
 
 function sessionsOnIssue(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
-): SessionMeta[] {
+  sessions: readonly SessionView[],
+): SessionView[] {
   const members = new Set(issue.memberSessionIds ?? [])
   return sessions.filter(
     (session) => session.issueId === issue.id || members.has(session.sessionId),
   )
 }
 
-function newestSession(sessions: readonly SessionMeta[]): SessionMeta | undefined {
-  let newest: SessionMeta | undefined
+function newestSession(sessions: readonly SessionView[]): SessionView | undefined {
+  let newest: SessionView | undefined
   for (const session of sessions) {
     if (!newest || session.lastActiveAt > newest.lastActiveAt) newest = session
   }
   return newest
 }
 
-export function summarizeHandoffSessions(sessions: readonly SessionMeta[]): HandoffSessionSummary {
+export function summarizeHandoffSessions(sessions: readonly SessionView[]): HandoffSessionSummary {
   const summary: HandoffSessionSummary = { computing: 0, idle: 0, hibernated: 0, exited: 0 }
   for (const session of sessions) {
     if (session.archived || session.status === 'exited') summary.exited += 1
@@ -156,7 +156,7 @@ const NOW_RANK: Record<HandoffNowEntry['kind'], number> = {
 /** Current mission exceptions, one truthful row per issue. */
 export function deriveHandoffNow(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   rootId: string,
 ): HandoffNowEntry[] {
   const memberIds = missionIssueIds(issues, rootId, sessions)
@@ -262,7 +262,7 @@ function openFormalChildren(
 /** Structured next conditions only. No prose fields participate. */
 export function deriveHandoffNext(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   rootId: string,
 ): HandoffNextEntry[] {
   const memberIds = missionIssueIds(issues, rootId, sessions)

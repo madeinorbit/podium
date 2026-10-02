@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../../../session-values'
+import type { SessionView } from '../../../session-values'
 /**
  * MACHINES SLICE — spawn PLACEMENT (POD-330).
  *
@@ -115,10 +115,10 @@ export function spawnTargetForRepo(
  *  terminal and worklist both read it. */
 export function resolveDefaultAgent(
   setting: string | undefined,
-  sessions: SessionMeta[],
+  sessions: SessionView[],
 ): AgentKind {
   if (setting && setting !== 'auto') return setting as AgentKind
-  let best: SessionMeta | undefined
+  let best: SessionView | undefined
   for (const s of sessions) {
     if (s.agentKind === 'shell' || isHeadlessSession(s)) continue
     if (!best || s.lastActiveAt > best.lastActiveAt) best = s

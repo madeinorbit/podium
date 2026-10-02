@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../../session-values'
+import type { SessionView } from '../../session-values'
 /**
  * TERMINAL SLICE (POD-330) — the workspace: which session a pane shows, what
  * order the tab strip is in, and what happens to panes when a worktree moves
@@ -55,10 +55,10 @@ function orderMap(ids: string[]): Map<string, number> {
  * among equal tabs. (Panel-pinning is retired, POD-169 — no pin-aware order.)
  */
 export function orderTabs(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   manualOrder: string[] | undefined,
   coordinatorSessionId?: SessionId | null,
-): SessionMeta[] {
+): SessionView[] {
   const base = elevateCoordinatorSession(sessions, coordinatorSessionId)
   if (!manualOrder || manualOrder.length === 0) return base
   // Manual drag order wins, but still lift the coordinator to the front so a
@@ -89,7 +89,7 @@ export function isCoordinatorSession(
  *  row's most recently active session (lastActiveAt, ISO-comparable). Null =
  *  nothing to open (empty row) — clear the pane so the picker shows. */
 export function pickPaneSession(
-  members: SessionMeta[],
+  members: SessionView[],
   paneA: SessionId | null,
   /** File-tab ids, which are NOT session ids — hence the plain string here. */
   extraValidIds: readonly string[] = [],
@@ -100,7 +100,7 @@ export function pickPaneSession(
   ) {
     return paneA
   }
-  let best: SessionMeta | null = null
+  let best: SessionView | null = null
   for (const s of members) if (!best || s.lastActiveAt > best.lastActiveAt) best = s
   return best?.sessionId ?? null
 }
@@ -112,9 +112,9 @@ export function pickPaneSession(
  *  caller falls back to the empty "Select a worktree." placeholder. */
 export function orphanSessionFor(opts: {
   selectedWorktree: string | null
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   paneA: string | null
-}): SessionMeta | null {
+}): SessionView | null {
   if (!opts.selectedWorktree) return null
   // Containment against just the selected path: the worktree is gone from the
   // scan, so there's no root list to resolve against — but a session stamped
@@ -151,7 +151,7 @@ export interface WorktreeMove {
  */
 export function planWorktreeMoves(opts: {
   prevCwds: Record<string, string>
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   worktreePaths: string[]
   selectedWorktree: string | null
   visiblePanes: string[]

@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { filterBoardScope } from '@podium/client-core/viewmodels'
 import type { IssueId, IssueStage} from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
@@ -60,7 +60,7 @@ export function deriveIssuesViewModel({
   openIssueId,
 }: {
   issues: IssueViewModel[]
-  sessions?: readonly SessionMeta[]
+  sessions?: readonly SessionView[]
   now?: number
   display: IssuesDisplay
   filter: BoardFilter

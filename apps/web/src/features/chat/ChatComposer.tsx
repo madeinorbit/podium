@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
@@ -161,11 +161,11 @@ export function ChatComposer({
   /** Why the last stop did not take effect (POD-1214). Shown as its own notice:
    *  a turn that is still running after you pressed stop must say so. */
   interruptError?: string | null
-  offer: SessionMeta['offer'] | null
+  offer: SessionView['offer'] | null
   onOfferAction: (prompt: string, offerAt: string) => Promise<void>
   /** "None of these" — clears the offer without sending a turn. */
   onOfferDismiss: (offerAt: string) => Promise<void>
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   turnError: string | null
   /** Whether the visible transcript is being checked, rendered, or remains saved-only. */
   transcriptFreshness: TranscriptFreshness
@@ -817,7 +817,7 @@ function BackendRail({
   onEffortChange,
 }: {
   backend: { agentKind: string | undefined; model: string; effort: string }
-  machineId?: SessionMeta['machineId']
+  machineId?: SessionView['machineId']
   onModelChange: (model: string, agentKind?: string) => void
   onEffortChange: (effort: string) => void
 }): JSX.Element {

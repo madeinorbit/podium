@@ -1,8 +1,8 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import type { MachineId} from '@podium/model'
 import { recordSliceDerivation } from '../perf/store-stats'
 
-type Material = Pick<SessionMeta, 'machineId' | 'status' | 'cwd'> & {
+type Material = Pick<SessionView, 'machineId' | 'status' | 'cwd'> & {
   archived: boolean
   resumable: boolean
   phase: string | undefined
@@ -46,10 +46,10 @@ function build(material: readonly Material[]) {
  * aggregate inputs; material changes rebuild every machine in one pass.
  */
 export function createHostSessionAggregatesSelector() {
-  let source: readonly SessionMeta[] | undefined
+  let source: readonly SessionView[] | undefined
   let material: Material[] = []
   let result = build([])
-  const select = (sessions: readonly SessionMeta[]) => {
+  const select = (sessions: readonly SessionView[]) => {
     if (sessions === source) return result
     recordSliceDerivation(select, 'hostSessions.materialScan')
     const next: Material[] = []

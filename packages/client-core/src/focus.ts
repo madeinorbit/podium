@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from './session-values'
+import type { SessionView } from './session-values'
 import { idleVerdictNeedsHuman, type WorkState } from '@podium/model'
 
 /**
@@ -16,14 +16,14 @@ import { idleVerdictNeedsHuman, type WorkState } from '@podium/model'
  * attention-worthy and group as idle.
  */
 export interface HomeGroups {
-  needsYou: SessionMeta[]
-  idle: SessionMeta[]
-  working: SessionMeta[]
+  needsYou: SessionView[]
+  idle: SessionView[]
+  working: SessionView[]
 }
 
 export type AttentionGroup = keyof HomeGroups
 
-export function attentionGroup(s: SessionMeta): AttentionGroup {
+export function attentionGroup(s: SessionView): AttentionGroup {
   // Offers are explicit requests for a human decision. Reading the transcript
   // clears unread, but it must not make the offer (or its issue row) look idle.
   if (s.offer) return 'needsYou'
@@ -63,7 +63,7 @@ export function attentionGroup(s: SessionMeta): AttentionGroup {
  * needs-you card quotes it; a quiet card (an idle session that stopped with open
  * todos) prints it dim, which is the whole of what that verdict earns (POD-415).
  */
-export function attentionSummary(s: SessionMeta): string | null {
+export function attentionSummary(s: SessionView): string | null {
   const state = s.agentState
   if (!state) return null
   if (state.phase === 'needs_user') {
@@ -99,7 +99,7 @@ export function attentionSummary(s: SessionMeta): string | null {
  * freshly-drafted-but-otherwise-stale session belongs up with the just-active ones
  * (and reads as DRAFT). `draftUpdatedAt` is absent unless a non-empty draft exists.
  */
-function effectiveRecency(s: SessionMeta, now: number): string {
+function effectiveRecency(s: SessionView, now: number): string {
   let t = s.lastActiveAt
   if (s.draftUpdatedAt && s.draftUpdatedAt > t) t = s.draftUpdatedAt
   // A snooze whose deadline has already passed re-enters the attention queue *at
@@ -126,7 +126,7 @@ function effectiveRecency(s: SessionMeta, now: number): string {
  * "expired?" test for snoozes; it defaults to wall-clock for callers that sort
  * without a frame-stable clock.
  */
-export function compareRecency(a: SessionMeta, b: SessionMeta, now: number = Date.now()): number {
+export function compareRecency(a: SessionView, b: SessionView, now: number = Date.now()): number {
   const byActive = effectiveRecency(b, now).localeCompare(effectiveRecency(a, now))
   if (byActive !== 0) return byActive
   const byCreated = b.createdAt.localeCompare(a.createdAt)
@@ -141,13 +141,13 @@ export function compareRecency(a: SessionMeta, b: SessionMeta, now: number = Dat
  * out at the command-center boundary; the sidebar's worktree tree still lists
  * shells under their worktree.
  */
-export function withoutShells(sessions: readonly SessionMeta[]): SessionMeta[] {
+export function withoutShells(sessions: readonly SessionView[]): SessionView[] {
   // Headless superagent sessions are equally out of place on the board — they
   // render only inside the superagent panel's embedded chat.
   return sessions.filter((s) => s.agentKind !== 'shell' && s.headless !== true)
 }
 
-export function groupSessions(sessions: SessionMeta[]): HomeGroups {
+export function groupSessions(sessions: SessionView[]): HomeGroups {
   const groups: HomeGroups = { needsYou: [], idle: [], working: [] }
   for (const s of sessions) {
     if (s.archived) continue
@@ -177,11 +177,11 @@ export const WORK_STATE_COLUMNS: { key: WorkState; label: string }[] = (
  *  Archived sessions are "filed away as done" — they always land in the Done lane
  *  (rather than vanishing from the board) so Archive reads as a board move. */
 export function kanbanColumns(
-  sessions: SessionMeta[],
-): { key: WorkState | 'unsorted'; label: string; sessions: SessionMeta[] }[] {
-  const lanes: { key: WorkState | 'unsorted'; label: string; sessions: SessionMeta[] }[] = [
+  sessions: SessionView[],
+): { key: WorkState | 'unsorted'; label: string; sessions: SessionView[] }[] {
+  const lanes: { key: WorkState | 'unsorted'; label: string; sessions: SessionView[] }[] = [
     { key: 'unsorted', label: 'Unsorted', sessions: [] },
-    ...WORK_STATE_COLUMNS.map((c) => ({ ...c, sessions: [] as SessionMeta[] })),
+    ...WORK_STATE_COLUMNS.map((c) => ({ ...c, sessions: [] as SessionView[] })),
   ]
   const byKey = new Map(lanes.map((l) => [l.key as string, l]))
   for (const s of sessions) {

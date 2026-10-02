@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { panelLabel } from '@podium/client-core/viewmodels'
 import {
   agentProbeTimeoutDescription,
@@ -38,7 +38,7 @@ export interface ContextMenuAnchor {
  *    session is exactly the one you want to be able to clear away — the old
  *    `canClose` gate hid the action on the sessions it suited best.
  */
-export function sessionMenuEligibility(session: SessionMeta): {
+export function sessionMenuEligibility(session: SessionView): {
   canHibernate: boolean
   canResume: boolean
   canEnd: boolean

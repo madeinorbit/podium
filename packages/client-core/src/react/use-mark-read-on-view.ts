@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import type { SessionId} from '@podium/model'
 import { useEffect, useRef } from 'react'
 import { MARK_READ_ON_VIEW_MS } from '../engine/reactions'
@@ -32,7 +32,7 @@ export function useMarkReadOnView({
   isVisible = tabIsVisible,
 }: {
   /** The focused + visible session, if any. */
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   markSessionRead: (sessionId: SessionId) => void
   delayMs?: number
   isVisible?: () => boolean
@@ -44,7 +44,7 @@ export function useMarkReadOnView({
   // Latest session read at fire time — so a mid-flight manual mark-unread (which
   // flips `unread` without new activity) is respected, and a session that went
   // read some other way isn't needlessly re-stamped.
-  const sessionRef = useRef<SessionMeta | undefined>(session)
+  const sessionRef = useRef<SessionView | undefined>(session)
   sessionRef.current = session
   // biome-ignore lint/correctness/useExhaustiveDependencies: `activity` is a trigger, not a read — its change restarts the trailing debounce (settle detection); the value itself is read via sessionRef at fire time.
   useEffect(() => {

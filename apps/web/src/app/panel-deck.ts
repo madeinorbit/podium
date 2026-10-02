@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import type {
   PaneId,
   SplitAxis,
@@ -21,7 +21,7 @@ import type { FileTab } from './store'
 
 /** A tab in the current workspace's strip — an agent/shell session or an open file. */
 export type DeckTab =
-  | { id: string; kind: 'session'; session: SessionMeta }
+  | { id: string; kind: 'session'; session: SessionView }
   | { id: string; kind: 'file'; file: FileTab }
 
 export interface DeckItem {

@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   deriveHandoffNext,
   deriveHandoffNow,
@@ -34,7 +34,7 @@ function formatStamp(value: string | null | undefined): string | null {
   })
 }
 
-function sessionRef(session: SessionMeta): string {
+function sessionRef(session: SessionView): string {
   return session.displayRef?.trim() || session.sessionId
 }
 
@@ -83,7 +83,7 @@ function TranscriptCard({
   onOpen,
 }: {
   label: string
-  session: SessionMeta
+  session: SessionView
   item: HandoffTranscriptPair['prompt']['item']
   legacy?: boolean
   fresh?: boolean
@@ -175,7 +175,7 @@ function HandoffEntry({
   onOpen,
 }: {
   issue: IssueNavigationModel
-  session?: SessionMeta
+  session?: SessionView
   state: string
   attention?: boolean
   tone?: 'working' | 'review' | 'attention' | 'done'
@@ -247,7 +247,7 @@ export function FlightDeckHandoff({
 }: {
   rootIssue: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
-  sessions: readonly SessionMeta[]
+  sessions: readonly SessionView[]
   visitReadAt: string | null
   proposed: ReactNode
   onOpenTranscript: (sessionId: SessionId, itemKey: string) => void

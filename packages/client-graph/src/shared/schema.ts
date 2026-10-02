@@ -54,6 +54,7 @@ export type ModelSchemaName =
   | 'IssueDepWire'
   | 'IssueDepProjection'
   | 'SessionMeta'
+  | 'SessionValues'
   | 'AgentRuntimeState'
   | 'SessionOffer'
   | 'ResumeRef'
@@ -477,6 +478,8 @@ const projection = (property?: string): FieldSource => ({
   arrivesOn: 'replica:issueProjections',
   ...(property === undefined ? {} : { property }),
 })
+const sessionValue = (property: string): FieldSource => ({ schema: 'SessionValues', property })
+
 const meta = (property?: string): FieldSource => ({
   schema: 'SessionMeta',
   arrivesOn: 'replica:sessions',
@@ -960,8 +963,8 @@ const DECLARED = defineSchema({
       archived: { type: 'boolean', optional: true, source: meta(), note: 'Read-side filter (L1b), NOT a membership filter: the unread rollup must see the same seats (arms/hand/indexes.ts:26).' },
       lastActiveAt: { type: 'isoDate', source: meta() },
       stoppedAt: { type: 'isoDate', optional: true, nullable: true, source: meta() },
-      readAt: { type: 'isoDate', optional: true, nullable: true, source: meta() },
-      unread: { type: 'boolean', optional: true, source: meta(), note: "A real field on SessionMeta, unlike the issue's rollup of the same name." },
+      readAt: { type: 'isoDate', optional: true, nullable: true, source: sessionValue('readAt') },
+      unread: { type: 'boolean', optional: true, source: sessionValue('unread'), note: 'Derived from the personal read cursor and session activity at the row-source boundary; legacy only while the companion is absent.' },
       agentState: {
         type: 'object',
         optional: true,

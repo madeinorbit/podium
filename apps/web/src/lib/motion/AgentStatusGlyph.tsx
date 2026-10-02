@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The tab/row status grammar of the redesign (.design/specs/native-pane.md
  * §2.8): one component so the desktop tab strip, the mobile panel-menu rows
@@ -25,7 +25,7 @@ export function AgentStatusGlyph({
   count,
   className,
 }: {
-  session: SessionMeta
+  session: SessionView
   /** 'tab' = desktop tab strip (dot, 15px mark) · 'row' = menu/list rows
    *  (numbered pill, 13px mark). */
   variant?: 'tab' | 'row'

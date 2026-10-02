@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
   isDraftAgentVessel,
@@ -134,7 +134,7 @@ export function UnifiedIssueRowInner({
 }: {
   row: UnifiedIssueRowView
   /** @deprecated Narrow path prefers `displayTitle`/`progress`/`origin`. */
-  sessions?: SessionMeta[]
+  sessions?: SessionView[]
   /** Whole issue list — the context menu's label pool / duplicate targets.
    *  @deprecated Narrow path prefers `origin` + `resolveMenuData`. */
   issues?: IssueNavigationModel[]
@@ -446,7 +446,7 @@ export function UnifiedIssueRowInner({
 /** Legacy draft-paneA rule, kept for callers still on `selectedIssueId`. */
 function draftActiveFallback(
   issue: IssueNavigationModel,
-  mine: SessionMeta[],
+  mine: SessionView[],
   baseActive: boolean,
   paneA: string | null,
 ): boolean {

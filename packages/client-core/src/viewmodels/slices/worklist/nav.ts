@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../../../session-values'
+import type { SessionView } from '../../../session-values'
 /**
  * WORKLIST SLICE — navigation structure (POD-330).
  *
@@ -29,7 +29,7 @@ import type { IssueNavigationModel } from '../issues'
 
 export interface WorktreeNavView extends WorktreeView {
   repoName: string
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** Non-archived issues whose worktree this is. When non-empty, the sidebar
    *  renders the issue block(s) instead of the bare worktree row. */
   issues: IssueNavigationModel[]
@@ -56,13 +56,13 @@ export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
 
 /** Sessions shown in the sidebar — shells never appear there (they stay in the
  *  main-view tab strip). */
-export function sidebarSessions(sessions: SessionMeta[]): SessionMeta[] {
+export function sidebarSessions(sessions: SessionView[]): SessionView[] {
   return sessions.filter((s) => s.agentKind !== 'shell')
 }
 
 export function sidebarSections(
   repos: GitRepositoryWire[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   pins: PinState,
   now: number = Date.now(),
   issues: IssueNavigationModel[] = [],
@@ -135,7 +135,7 @@ export function sidebarSections(
  *  Sidebar so the unified layout's "New <Agent> in <Repo>" shares the exact logic. */
 export function lastUsedMaps(
   sections: SidebarSections,
-  sessions: SessionMeta[],
+  sessions: SessionView[],
 ): { byRepo: Map<string, number>; byWorktree: Map<string, number> } {
   const worktreeToRepo = new Map<string, string>()
   for (const repo of sections.repos) {

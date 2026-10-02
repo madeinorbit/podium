@@ -1,9 +1,9 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { UnbrandIds } from '@podium/model/browser'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/react'
 
-type TestIssue = IssueViewModel & { sessions?: SessionMeta[] }
+type TestIssue = IssueViewModel & { sessions?: SessionView[] }
 
 /**
  * Build a valid normalized IssueViewModel for unit tests, overriding any fields via `over`.
@@ -16,7 +16,7 @@ export const makeIssue = (
   // construction site (`entities/wire-input.ts`) — a per-field `asIssueId` in
   // every test would be noise, and a plain `Partial<IssueViewModel>` would not
   // accept `id: 'i'` at all.
-  over: Partial<UnbrandIds<IssueViewModel>> & { sessions?: SessionMeta[]; draft?: boolean; origin?: 'human' | 'agent'; humanQuestion?: string; humanQuestionOptions?: string[]; humanQuestionAskedBy?: string; humanQuestionAskedAt?: string } = {},
+  over: Partial<UnbrandIds<IssueViewModel>> & { sessions?: SessionView[]; draft?: boolean; origin?: 'human' | 'agent'; humanQuestion?: string; humanQuestionOptions?: string[]; humanQuestionAskedBy?: string; humanQuestionAskedAt?: string } = {},
 ): TestIssue => {
   const { draft, origin, humanQuestion, humanQuestionOptions, humanQuestionAskedBy, humanQuestionAskedAt, ...normalized } = over
   return ({

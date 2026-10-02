@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The issue page's header: repo breadcrumb, the copyable display ref, prev/next
  * navigation, and the `…` overflow menu. Split out of IssuePage.tsx (POD-646).
@@ -57,7 +57,7 @@ export function IssueDetailHeader({
   /** Repo-mates — supersede/duplicate targets, from the page model. */
   targets: IssueViewModel[]
   /** Member sessions — the header's live-state readout (POD-591). */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   prev?: IssueId
   next?: IssueId
   onBack: () => void

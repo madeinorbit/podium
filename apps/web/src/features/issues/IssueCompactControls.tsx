@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   discoveredPlacement,
@@ -75,7 +75,7 @@ export const DOCK_STAMP = 'font-mono shell-type-micro leading-none'
 /** A session is still present when its process is: an exited-but-unarchived
  *  session is gone, and reading it as "standing by" would tell the operator an
  *  agent is on this task when none is. Same predicate the Flight Deck counts use. */
-export function isOpenSession(session: SessionMeta): boolean {
+export function isOpenSession(session: SessionView): boolean {
   return !session.archived && session.status !== 'exited'
 }
 
@@ -87,8 +87,8 @@ export function isOpenSession(session: SessionMeta): boolean {
  */
 export function issueSessions(
   issue: Pick<IssueViewModel, 'id' | 'memberSessionIds'>,
-  sessions: readonly SessionMeta[],
-): SessionMeta[] {
+  sessions: readonly SessionView[],
+): SessionView[] {
   const members = new Set(issue.memberSessionIds ?? [])
   return sessions.filter(
     (session) => session.issueId === issue.id || members.has(session.sessionId),
@@ -98,7 +98,7 @@ export function issueSessions(
 /** Newest-active first, so "the session on this task" is a stable pick. */
 /** The agent-state word a dock session row wears — the vocabulary the rest of
  *  the shell already uses, not a second one. */
-export function sessionStateLabel(session: SessionMeta): string {
+export function sessionStateLabel(session: SessionView): string {
   if (session.archived) return 'Retired'
   if (session.status === 'exited') return 'Exited'
   if (session.status === 'hibernated') return 'Paused'
@@ -142,7 +142,7 @@ export interface TaskAction {
  */
 export function resolveTaskAction(
   issue: IssueViewModel,
-  active: readonly SessionMeta[],
+  active: readonly SessionView[],
 ): TaskAction | null {
   if (issueNeedsHuman(issue, active)) {
     const handedOff =
@@ -155,7 +155,7 @@ export function resolveTaskAction(
 
 /** One line naming the decision, in the operator's words. The agent's own
  *  question wins when it asked one. */
-export function decisionLine(issue: IssueViewModel, active: readonly SessionMeta[]): string {
+export function decisionLine(issue: IssueViewModel, active: readonly SessionView[]): string {
   const asked = issue.asked?.question?.trim()
   if (asked) return asked
   const waiting = active.find((session) => sessionNeedsHuman(session))
@@ -239,7 +239,7 @@ export function IssueSessionRow({
   session,
   onOpen,
 }: {
-  session: SessionMeta
+  session: SessionView
   onOpen: () => void
 }): JSX.Element {
   const renameSession = useStoreSelector((s) => s.renameSession)

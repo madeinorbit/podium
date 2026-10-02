@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import { pickPaneSession } from '@podium/client-core/viewmodels'
@@ -17,11 +17,11 @@ import { navigationIssue } from './pool-row-data'
 /** Navigation includes the formal mission at every depth and tasks filed by
  * its explicitly attached sessions. Display nesting is narrower than this:
  * hidden descendants and unstarted spin-offs can still supply a pane. */
-function sessionMembership(pool: MobxPool, retainedOnly = false): Map<string, SessionMeta[]> {
-  const byIssue = new Map<string, SessionMeta[]>()
+function sessionMembership(pool: MobxPool, retainedOnly = false): Map<string, SessionView[]> {
+  const byIssue = new Map<string, SessionView[]>()
   const retainedByIssue = new Map<string, ReadonlySet<string>>()
   for (const id of pool.tables.session.keys()) {
-    const session = pool.row('session', id) as SessionMeta | typeof LOADING | undefined
+    const session = pool.row('session', id) as SessionView | typeof LOADING | undefined
     if (session === undefined || session === LOADING || !session.issueId) continue
     if (retainedOnly && session.headless !== true) {
       let retained = retainedByIssue.get(session.issueId)
@@ -41,7 +41,7 @@ function sessionMembership(pool: MobxPool, retainedOnly = false): Map<string, Se
 function missionMembers(
   pool: MobxPool,
   rootId: string,
-  sessions: Map<string, SessionMeta[]>,
+  sessions: Map<string, SessionView[]>,
 ): Map<string, SliceIssue> {
   const members = new Map<string, SliceIssue>()
   const pending = [rootId]
@@ -112,7 +112,7 @@ export function createPoolWorkActions(
       root = parent
     }
     const store = runtime.getSnapshot()
-    const members = new Map<string, SessionMeta>()
+    const members = new Map<string, SessionView>()
     // R2 already applies resume collapse. Headless provenance remains raw;
     // it never participates in collapse or supplies a workspace pane.
     const sessions = sessionMembership(pool, true)
@@ -157,13 +157,13 @@ export function createPoolWorkActions(
       store.setSelectedIssueId(null)
       store.setSelectedWorktree(path)
       const members = [...pool.graph.many('worktree', path, 'sessions')].flatMap((id) => {
-        const session = pool.row('session', id) as SessionMeta | typeof LOADING | undefined
+        const session = pool.row('session', id) as SessionView | typeof LOADING | undefined
         return session === undefined ||
           session === LOADING ||
           session.archived ||
           session.headless === true
           ? []
-          : [session as unknown as SessionMeta]
+          : [session as unknown as SessionView]
       })
       const files = store.fileTabs.filter((f) => f.worktreePath === path).map((f) => f.id)
       const target = pickPaneSession(members, store.paneA, files)

@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   blockingCloseConcerns,
@@ -50,8 +50,8 @@ export { type IssueCloseConcern, issueCloseConcerns }
  */
 export function issueMemberSessions(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
-): SessionMeta[] {
+  sessions: readonly SessionView[],
+): SessionView[] {
   const memberIds = new Set(issue.memberSessionIds ?? [])
   return sessions.filter((session) => memberIds.has(session.sessionId))
 }
@@ -106,7 +106,7 @@ export interface IssueBulkCloseSummary {
  */
 export function issueBulkCloseSummary(
   issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionMeta[] = [],
+  sessions: readonly SessionView[] = [],
 ): IssueBulkCloseSummary {
   const flagged: IssueBulkCloseSummary['flagged'] = []
   let clear = 0

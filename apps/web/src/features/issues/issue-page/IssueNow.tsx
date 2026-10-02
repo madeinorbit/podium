@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * NOW — what is true about this task at this second (POD-591).
  *
@@ -47,8 +47,8 @@ export function IssueNow({
   onOpenSession,
 }: {
   issue: IssueViewModel
-  sessions: SessionMeta[]
-  onOpenSession: (sessionId: SessionMeta['sessionId']) => void
+  sessions: SessionView[]
+  onOpenSession: (sessionId: SessionView['sessionId']) => void
 }): JSX.Element | null {
   if (sessions.length === 0) return null
 

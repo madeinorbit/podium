@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
@@ -27,7 +27,7 @@ export function OfferArtifactStrip({
   className,
 }: {
   offer: SessionOffer
-  session: SessionMeta
+  session: SessionView
   /** Extra classes on the strip root (spacing differs per host surface). Only
    *  applied when the strip renders — an empty strip must not leave margins. */
   className?: string

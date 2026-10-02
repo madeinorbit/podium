@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 /**
  * F3 — *what order sessions are presented in.*
  *
@@ -57,12 +57,12 @@ export const STALE_INACTIVE_MS = 16 * 60 * 60 * 1000
  * most-recently-active first.
  */
 export function sortSessionsForSidebar(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   now: number = Date.now(),
-): SessionMeta[] {
+): SessionView[] {
   // Rank 0 = needs-you/idle and not snoozed (top); 1 = attention but snoozed
   // (de-emphasised, just above working); 2 = working (bottom).
-  const rank = (s: SessionMeta): number => {
+  const rank = (s: SessionView): number => {
     if (attentionGroup(s) === 'working') return 2
     return isSnoozed(s, now) ? 1 : 0
   }
@@ -82,7 +82,7 @@ export function sortSessionsForSidebar(
  * Built on the same primitives every other surface uses (attentionGroup,
  * isSnoozed, STALE_INACTIVE_MS) so "urgent" means the same thing everywhere.
  */
-export function sessionUrgencyRank(s: SessionMeta, now: number): number {
+export function sessionUrgencyRank(s: SessionView, now: number): number {
   const group = attentionGroup(s)
   if (group === 'working') return 1
   const recent = now - Date.parse(s.lastActiveAt) <= STALE_INACTIVE_MS
@@ -97,10 +97,10 @@ export function sessionUrgencyRank(s: SessionMeta, now: number): number {
 /** The row's most urgent child session (lowest urgency rank, recency tiebreak) —
  *  drives the row's right-side status dot. Undefined for session-less rows. */
 export function mostUrgentSession(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   now: number = Date.now(),
-): SessionMeta | undefined {
-  let best: SessionMeta | undefined
+): SessionView | undefined {
+  let best: SessionView | undefined
   for (const s of sessions) {
     if (!best) {
       best = s
@@ -130,9 +130,9 @@ export function mostUrgentSession(
  * claim or refuse a symbol without anyone arbitrating.
  */
 export function elevateCoordinatorSession(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   coordinatorSessionId: SessionId | undefined | null,
-): SessionMeta[] {
+): SessionView[] {
   if (!coordinatorSessionId) return sessions
   const i = sessions.findIndex((s) => s.sessionId === coordinatorSessionId)
   if (i <= 0) return sessions

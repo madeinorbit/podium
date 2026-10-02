@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { motionPhase, sessionNeedsHuman, sessionSettled } from '@podium/client-core/viewmodels'
 
 
@@ -74,23 +74,23 @@ function time(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-export function waterfallSessionState(session: SessionMeta): WaterfallSessionState {
+export function waterfallSessionState(session: SessionView): WaterfallSessionState {
   if (sessionSettled(session)) return 'finished'
   if (sessionNeedsHuman(session)) return 'attention'
   return motionPhase(session) === 'working' ? 'working' : 'live'
 }
 
-export function waterfallSessionStart(session: SessionMeta, fallback: number): number {
+export function waterfallSessionStart(session: SessionView, fallback: number): number {
   return time(session.createdAt) ?? time(session.lastActiveAt) ?? fallback
 }
 
-export function waterfallSessionEnd(session: SessionMeta, now: number): number {
+export function waterfallSessionEnd(session: SessionView, now: number): number {
   if (!sessionSettled(session)) return now
   return time(session.stoppedAt) ?? time(session.lastActiveAt) ?? time(session.createdAt) ?? now
 }
 
 /** Earliest known start across the crew — null when nothing has a timestamp. */
-export function waterfallTimelineStart(sessions: readonly SessionMeta[]): number | null {
+export function waterfallTimelineStart(sessions: readonly SessionView[]): number | null {
   let earliest: number | null = null
   for (const session of sessions) {
     const candidate = time(session.createdAt) ?? time(session.lastActiveAt)
@@ -128,7 +128,7 @@ export function fitWaterfallViewport(
  * gap between that work and today's clock.
  */
 export function followWaterfallViewport(
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   now: number,
   trackPx: number,
   options: { future?: boolean } = {},

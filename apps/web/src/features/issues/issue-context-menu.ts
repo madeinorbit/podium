@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   type HandoffAvailability,
@@ -19,7 +19,7 @@ import type { IssuesKeyState } from './issues-keys'
 /** Why an ISSUE (as opposed to any one session) offers no handoff. */
 export type IssueHandoffBlocker = 'no-agent-session' | 'multiple-sessions'
 export type IssueHandoff<M> =
-  | { session: SessionMeta; availability: HandoffAvailability<M> }
+  | { session: SessionView; availability: HandoffAvailability<M> }
   | { blocker: IssueHandoffBlocker }
 
 /**
@@ -40,22 +40,22 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
     memberSessionIds?: readonly string[]
     sessions?: readonly { sessionId: SessionId }[]
   },
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   repos: HandoffRepo[],
   machines: M[],
 ): IssueHandoff<M> {
   // `memberSessionIds` is a plain `string[]` on the view model, so the lookup
   // key is widened here rather than branding each id at the call site.
-  const byId = new Map<string, SessionMeta>(sessions.map((s) => [s.sessionId, s]))
+  const byId = new Map<string, SessionView>(sessions.map((s) => [s.sessionId, s]))
   const memberIds = issue.memberSessionIds ?? []
   const agents = memberIds
     .map((id) => byId.get(id))
     // The server projects this from the owning AgentManifest; old/unknown peers
     // default closed rather than making the browser carry a second capability table.
-    .filter((s): s is SessionMeta => s !== undefined && s.harnessHandoff === true)
+    .filter((s): s is SessionView => s !== undefined && s.harnessHandoff === true)
   if (agents.length === 0) return { blocker: 'no-agent-session' }
   if (agents.length > 1) return { blocker: 'multiple-sessions' }
-  const session = agents[0] as SessionMeta
+  const session = agents[0] as SessionView
   return { session, availability: handoffAvailability(session, repos, machines, issue) }
 }
 
@@ -69,10 +69,10 @@ export function resolveIssueHandoffSession<M extends HandoffMachine>(
     memberSessionIds?: readonly string[]
     sessions?: readonly { sessionId: SessionId }[]
   },
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   repos: HandoffRepo[],
   machines: M[],
-): { session: SessionMeta; targets: M[] } | null {
+): { session: SessionView; targets: M[] } | null {
   const result = issueHandoffAvailability(issue, sessions, repos, machines)
   if (!('session' in result) || result.availability.blocker) return null
   const targets = result.availability.candidates

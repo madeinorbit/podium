@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE AGENT PANEL'S ARBITRATION, AS A STATE MACHINE (POD-408).
  *
@@ -250,8 +250,8 @@ export function panelGates(
  *  back to the known transcript harnesses so chat is offered immediately, before
  *  the first transcript frame arrives. */
 export function panelChatCapable(
-  session: SessionMeta | undefined,
-  defaultForKind: (kind: SessionMeta['agentKind']) => boolean,
+  session: SessionView | undefined,
+  defaultForKind: (kind: SessionView['agentKind']) => boolean,
 ): boolean {
   if (!session) return false
   return session.transcriptAvailable ?? defaultForKind(session.agentKind)
@@ -278,7 +278,7 @@ export function panelChatCapable(
  * than guess — the phone's rule too.
  */
 export function panelOfflineMachine(
-  session: Pick<SessionMeta, 'machineId' | 'machineName'> | undefined,
+  session: Pick<SessionView, 'machineId' | 'machineName'> | undefined,
   machines: readonly Pick<MachineWire, 'id' | 'name' | 'online' | 'availability'>[],
 ): string | null {
   if (!session?.machineId) return null

@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * Shared sidebar building blocks (extracted from the retired classic
  * Sidebar.tsx): the resizable aside shell, persisted collapse state, the
@@ -483,8 +483,8 @@ export function StaleSection({
   render,
   dense = false,
 }: {
-  sessions: SessionMeta[]
-  render: (session: SessionMeta) => JSX.Element
+  sessions: SessionView[]
+  render: (session: SessionView) => JSX.Element
   dense?: boolean
 }): JSX.Element | null {
   const [open, setOpen] = useState(false)
@@ -634,7 +634,7 @@ function PanelRowInner({
   issueDisplayRef,
   guardWorking,
 }: {
-  session: SessionMeta
+  session: SessionView
   active: boolean
   onSelect: () => void
   /** True only for the NEEDS YOUR ATTENTION rows: shows the snooze control
@@ -855,7 +855,7 @@ function PanelRowInner({
             </span>
           )}
           {/* Nested remote-subagent rows: surface the child's own issue linkage
-              (sub-issue) when SessionMeta carries displayRef or issueId. */}
+              (sub-issue) when SessionView carries displayRef or issueId. */}
           {issueLinkage && (
             <span
               className="shell-type-micro flex-none font-mono text-text-dim tabular-nums"

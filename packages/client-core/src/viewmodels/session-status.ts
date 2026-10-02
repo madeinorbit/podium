@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 /**
  * F1 — WHAT ONE SESSION IS DOING. The presentation vocabulary every slice
  * speaks (POD-330).
@@ -101,7 +101,7 @@ export function defaultChatCapable(agentKind: AgentKind): boolean {
 export type TerminalOutlook = 'terminal' | 'none' | 'unknown'
 
 export function sessionTerminalOutlook(
-  session: Pick<SessionMeta, 'driverFamily' | 'attachKinds'> | undefined,
+  session: Pick<SessionView, 'driverFamily' | 'attachKinds'> | undefined,
 ): TerminalOutlook {
   if (session?.attachKinds !== undefined)
     return session.attachKinds.length > 0 ? 'terminal' : 'none'
@@ -119,7 +119,7 @@ export function sessionTerminalOutlook(
  * POD-2290's second round — ask {@link sessionTerminalOutlook} instead and wait.
  */
 export function sessionHasTerminal(
-  session: Pick<SessionMeta, 'driverFamily' | 'attachKinds'> | undefined,
+  session: Pick<SessionView, 'driverFamily' | 'attachKinds'> | undefined,
 ): boolean {
   return sessionTerminalOutlook(session) !== 'none'
 }
@@ -155,7 +155,7 @@ export interface AgentBadge {
 
 /** Map harness-observed runtime state to the little badge on a session row.
  *  Null = nothing to show (uninstrumented agent kinds stay clean). */
-export function agentBadge(meta: SessionMeta, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>): AgentBadge | null {
+export function agentBadge(meta: SessionView, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>): AgentBadge | null {
   // An offer is an explicit pending decision even when the turn that produced
   // it has already classified as idle/done. Keep every status surface (session
   // dot, sidebar meta, chat activity) amber until that offer is cleared —
@@ -254,7 +254,7 @@ export interface ChatActivity {
  * `justSent` only covers the optimistic gap before the send's own meta update
  * lands, and only while the session is still parked.
  */
-export function sessionWaking(meta: SessionMeta | undefined, justSent = false): boolean {
+export function sessionWaking(meta: SessionView | undefined, justSent = false): boolean {
   if (!meta) return false
   const queued = (meta.queuedMessageCount ?? 0) > 0
   if (meta.status === 'hibernated' || meta.status === 'exited') return queued || justSent
@@ -309,7 +309,7 @@ export function sessionWaking(meta: SessionMeta | undefined, justSent = false): 
  * and dropped the offer line entirely, with no send anywhere in sight.
  */
 export function chatActivity(
-  meta: SessionMeta | undefined,
+  meta: SessionView | undefined,
   justSent: boolean,
 ): ChatActivity | null {
   if (!meta) return null
@@ -362,7 +362,7 @@ export type DotTone = 'working' | 'attention' | 'error' | 'ready' | 'neutral'
  * its preserved phase, so a hibernated "working" session reads ready (blue)
  * — matching `attentionGroup`, which already treats it as idle. [spec:SP-8b0e]
  */
-export function sessionDotTone(s: SessionMeta): DotTone {
+export function sessionDotTone(s: SessionView): DotTone {
   // Exited (process gone, phase cleared server-side): no live status colour.
   if (s.status === 'exited') return 'neutral'
   // Booting / brief reconnect: not working yet → blue.
@@ -404,19 +404,19 @@ export function sessionDotTone(s: SessionMeta): DotTone {
  * run stopped is a question about the STATE, and a fatal error is the one that
  * least deserves to be silent.
  */
-export function sessionErrored(s: SessionMeta): boolean {
+export function sessionErrored(s: SessionView): boolean {
   return s.agentState?.phase === 'errored'
 }
 
 /** Sentence case, or null when this session did not stop on an error. */
-export function sessionErrorLabel(s: SessionMeta): string | null {
+export function sessionErrorLabel(s: SessionView): string | null {
   const state = s.agentState
   if (state?.phase !== 'errored') return null
   return errorPhrase(state.error?.class, 'sentence')
 }
 
 /** The same phrase in the worklist row's lower-case grammar. */
-export function sessionErrorLine(s: SessionMeta): string | null {
+export function sessionErrorLine(s: SessionView): string | null {
   const state = s.agentState
   if (state?.phase !== 'errored') return null
   return errorPhrase(state.error?.class, 'lower')
@@ -429,7 +429,7 @@ export function sessionErrorLine(s: SessionMeta): string | null {
  * exactly what the green dot does: an instrumented agent in its `working` /
  * `compacting` phase, or an uninstrumented shell with a command running (`busy`).
  */
-export function isSessionWorking(s: SessionMeta): boolean {
+export function isSessionWorking(s: SessionView): boolean {
   return sessionDotTone(s) === 'working'
 }
 
@@ -456,7 +456,7 @@ export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
  * (POD-415); starting/exited/uninstrumented-quiet sessions fall through to
  * `queued`.
  */
-export function motionPhase(s: SessionMeta, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>): MotionPhase {
+export function motionPhase(s: SessionView, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>): MotionPhase {
   const state = s.agentState
   // Offers outlive the turn that created them, so attention must win over the
   // transcript's terminal idle/done verdict — unless the owning issue is already
@@ -485,14 +485,14 @@ export function motionPhase(s: SessionMeta, issue?: Pick<IssueProjection, 'stage
  * that moved its issue to `review` AND posted an offer (which the agent prime
  * instructs it to do) otherwise reads as two things needing you.
  */
-export function isOfferOnlyAttention(s: SessionMeta): boolean {
+export function isOfferOnlyAttention(s: SessionView): boolean {
   return Boolean(s.offer) && !hasNonOfferNeedsYou(s)
 }
 
 /** True when attention would still be needsYou even without a standing offer —
  *  questions, permissions, errors, open todos. Used so a finished issue only
  *  ignores offer-driven attention, not a real live need. */
-function hasNonOfferNeedsYou(s: SessionMeta): boolean {
+function hasNonOfferNeedsYou(s: SessionView): boolean {
   if (!s.offer) return attentionGroup(s) === 'needsYou'
   const withoutOffer = { ...s, offer: undefined }
   return attentionGroup(withoutOffer) === 'needsYou'
@@ -508,7 +508,7 @@ export interface MotionTiming {
   totalMs?: number
 }
 
-export function motionTiming(s: SessionMeta): MotionTiming {
+export function motionTiming(s: SessionView): MotionTiming {
   const phase = motionPhase(s)
   const sinceMs = Date.parse(s.agentState?.since ?? s.lastActiveAt)
   const total = s.agentState?.workingMsTotal
@@ -537,7 +537,7 @@ export function formatClock(ms: number): string {
  *  Code", "codex"), or the cwd basename (codex seeds the title with the
  *  directory). Nothing has been asked of it yet, so surfaces label it as a new
  *  session instead of parroting the harness name. */
-export function isUnstartedSession(s: SessionMeta): boolean {
+export function isUnstartedSession(s: SessionView): boolean {
   if (s.name?.trim()) return false
   const title = s.title
     .replace(/^[\p{So}\p{Sk}·•\s]+/u, '')
@@ -550,17 +550,17 @@ export function isUnstartedSession(s: SessionMeta): boolean {
 }
 
 /** A consumed child: its work is done (exited) — nothing left to watch. */
-export function isConsumedChild(s: SessionMeta): boolean {
+export function isConsumedChild(s: SessionView): boolean {
   return s.status === 'exited'
 }
 
 /** Live native (in-process Task) subagent count on a session, or 0 if absent. */
-export function nativeSubagentCountOf(s: SessionMeta): number {
+export function nativeSubagentCountOf(s: SessionView): number {
   return s.agentState?.nativeSubagentCount ?? 0
 }
 
 /** True when the session currently has one or more native subagents running. */
-export function sessionHasNativeSubagents(s: SessionMeta): boolean {
+export function sessionHasNativeSubagents(s: SessionView): boolean {
   return nativeSubagentCountOf(s) > 0
 }
 
@@ -580,7 +580,7 @@ export function nativeSubagentLabel(count: number): string {
  * neither human-facing ref is available.
  */
 export function sessionIssueLinkage(
-  s: SessionMeta,
+  s: SessionView,
   attachedIssueDisplayRef?: string,
 ): string | null {
   const ref = s.displayRef?.trim()
@@ -626,7 +626,7 @@ export function exitedRecovery(opts: {
   isShell: boolean
   resumable: boolean
   /** Server PROOF that this launch never opened a conversation
-   *  ({@link SessionMeta.neverBound}). Absence is not the opposite claim — it
+   *  ({@link SessionView.neverBound}). Absence is not the opposite claim — it
    *  covers "we cannot vouch for this row" too, which is why it is only ever
    *  read as a reason to offer MORE than removal, never less. */
   neverBound?: boolean
@@ -662,7 +662,7 @@ export function exitedRecovery(opts: {
  * the command always matches the ref the daemon would replay. Null when no
  * resume ref is known (shells, not-yet-resumable sessions).
  */
-export function resumeCommand(s: SessionMeta): string | null {
+export function resumeCommand(s: SessionView): string | null {
   const ref = s.resume
   if (!ref) return null
   const id = shellQuote(ref.value)

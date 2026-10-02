@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import { DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
 import {
   isSortKey,
@@ -56,7 +56,7 @@ export interface OptimisticSpawnArgs {
 }
 
 /** A just-clicked, not-yet-booted session: `status: 'starting'`, no controller. */
-export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMeta {
+export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionView {
   return {
     sessionId: args.sessionId,
     agentKind: args.agentKind,

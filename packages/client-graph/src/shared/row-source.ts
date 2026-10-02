@@ -1,3 +1,4 @@
+import { sessionView, type SessionValueInput, type SessionHomes } from '@podium/client-core/session-values'
 /**
  * POD-4444, rewritten per-row by POD-4553 — the kernel's effective per-row
  * change stream, as the arms see it.
@@ -141,7 +142,7 @@ import {
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { issueInput } from './issue-input'
 import { shallowEqual } from '@podium/client-core/store'
-import { normalizeOriginUrl, repoNameFromOrigin, parseIssueUserStateRowId, issueUserStateRowId, asUserId, asIssueId } from '@podium/model'
+import { normalizeOriginUrl, repoNameFromOrigin, parseIssueUserStateRowId, issueUserStateRowId, asUserId, asIssueId, asSessionId, parseSessionUserStateRowId, sessionUserStateRowId } from '@podium/model'
 import type { RowSource } from './source'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
 import type { RowRecord, RowSourceEvent } from './source'
@@ -167,6 +168,7 @@ interface RepoEntry {
 export interface RowSourceRuntime {
   subscribe(listener: () => void): () => void
   getSnapshot(): { repos: readonly RepoEntry[] }
+  readonly principal?: { userId: string }
   pendingOverlaysByRow(entity: OverlayTarget): ReadonlyMap<string, readonly PendingOverlay[]>
 }
 
@@ -206,6 +208,8 @@ export interface RowSourceHandle {
 
 const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'sessions',
+  'sessionUserStates',
+  'machines',
   'issueUserStates',
   'issueGitStates',
   'issueProjections',
@@ -310,6 +314,56 @@ export function createRowSource(
       const id = idOf(row)
       if (id) installIssueRepo(id, row)
     }
+  }
+
+  // Only join keys, never another retained copy of session records. Fan-out
+  // visits the sessions using the changed companion, not the whole replica.
+  const sessionUserKeys = new Map<string, string>()
+  const sessionJoins = new Map<string, { repo?: string; machines: string[] }>()
+  const repoSessions = new Map<string, Set<string>>()
+  const machineSessions = new Map<string, Set<string>>()
+  function installSessionJoin(id: string, row: AnyRow | undefined): void {
+    const before = sessionJoins.get(id)
+    if (before?.repo) repoSessions.get(before.repo)?.delete(id)
+    for (const machine of before?.machines ?? EMPTY) machineSessions.get(machine)?.delete(id)
+    sessionJoins.delete(id)
+    if (!row) return
+    const repo = typeof row.refRepoId === 'string' ? row.refRepoId : undefined
+    const machines = [...new Set([row.machineId, row.handoffTargetMachineId].filter((id): id is string => typeof id === 'string'))]
+    sessionJoins.set(id, { repo, machines })
+    if (repo) { let ids = repoSessions.get(repo); if (!ids) { ids = new Set(); repoSessions.set(repo, ids) }; ids.add(id) }
+    for (const machine of machines) { let ids = machineSessions.get(machine); if (!ids) { ids = new Set(); machineSessions.set(machine, ids) }; ids.add(id) }
+  }
+  function installSessionUserKey(key: string): string | undefined {
+    const parsed = parseSessionUserStateRowId(key)
+    if (runtime.principal && parsed.userId !== runtime.principal.userId) return undefined
+    const id = parsed.sessionId
+    if (authority('sessionUserStates', key)) sessionUserKeys.set(id, key)
+    else sessionUserKeys.delete(id)
+    return id
+  }
+  function seedSessionJoins(): void {
+    sessionUserKeys.clear(); sessionJoins.clear(); repoSessions.clear(); machineSessions.clear()
+    for (const row of replica.rows('sessionUserStates')) {
+      if (typeof row.userId === 'string' && typeof row.sessionId === 'string') {
+        installSessionUserKey(sessionUserStateRowId(asUserId(row.userId), asSessionId(row.sessionId)))
+      }
+    }
+    for (const row of replica.rows('sessions')) {
+      const id = sessionIdOf(row)
+      if (id) installSessionJoin(id, row)
+    }
+  }
+  function sessionInput(id: string): AnyRow | undefined {
+    const raw = authority('sessions', id)
+    if (!raw) return undefined
+    const value = raw as SessionValueInput
+    return sessionView(value, {
+      userState: authority('sessionUserStates', sessionUserKeys.get(id) ?? ''),
+      repo: value.refRepoId ? authority('repos', value.refRepoId) : undefined,
+      machine: value.machineId ? authority('machines', value.machineId) : undefined,
+      handoffMachine: value.handoffTargetMachineId ? authority('machines', value.handoffTargetMachineId) : undefined,
+    } as SessionHomes) as AnyRow
   }
 
   // Pending signals since the last flush.
@@ -518,7 +572,7 @@ export function createRowSource(
     id: string,
     pending: PendingByRow | null,
   ): RowRecord['value'] {
-    if (kind === 'session') return folded('sessions', id, pending) as SliceSession | undefined
+    if (kind === 'session') return foldRowOverlays(sessionInput(id), pending?.sessions.get(id) ?? NO_OVERLAYS) as SliceSession | undefined
     ensureEdges()
     ensureSessionFacts()
     const projection = folded('issueProjections', id, pending)
@@ -768,6 +822,7 @@ export function createRowSource(
     stats.flushes += 1
     if (hadReplace) {
       seedIssueJoins()
+      seedSessionJoins()
       edgesReady = false
       edgeRows.clear(); outgoing.clear(); incoming.clear(); closure.clear()
       ensureEdges()
@@ -798,7 +853,17 @@ export function createRowSource(
     for (const address of addresses) {
       if (address.kind === 'repos') {
         for (const row of resolveReposFanout(address.id)) byKey.set(`${row.kind}:${row.id}`, row)
+        for (const session of repoSessions.get(address.id) ?? EMPTY) addressed.set(`session:${session}`, { kind: 'session', id: session })
         for (const owner of repoIssues.get(address.id) ?? EMPTY) addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
+        continue
+      }
+      if (address.kind === 'sessionUserStates') {
+        const id = installSessionUserKey(address.id)
+        if (id) addressed.set(`session:${id}`, { kind: 'session', id })
+        continue
+      }
+      if (address.kind === 'machines') {
+        for (const id of machineSessions.get(address.id) ?? EMPTY) addressed.set(`session:${id}`, { kind: 'session', id })
         continue
       }
       if (address.kind === 'issueUserStates') {
@@ -811,6 +876,7 @@ export function createRowSource(
         continue
       }
       if (address.kind === 'sessions') {
+        installSessionJoin(address.id, authority('sessions', address.id))
         ensureSessionFacts()
         for (const owner of installSessionFacts(address.id, authority('sessions', address.id))) {
           addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
@@ -939,6 +1005,7 @@ export function createRowSource(
   ensureEdges()
   ensureSessionFacts()
   seedIssueJoins()
+  seedSessionJoins()
 
   // Seed the overlaid memo with the rows already painted at creation, so the
   // first flush compares against what `snapshot()` would have served. O(pending).

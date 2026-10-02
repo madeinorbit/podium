@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
 import { operationalState } from '@podium/client-core/viewmodels'
 
@@ -65,7 +65,7 @@ export function IssueExplorerList(): JSX.Element {
   // every issue in the repo.
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const rowSessions = useMemo(() => {
-    const map = new Map<string, SessionMeta[]>()
+    const map = new Map<string, SessionView[]>()
     const memberOf = new Map<string, string>()
     for (const issue of issues) {
       for (const id of issue.memberSessionIds ?? []) memberOf.set(id, issue.id)

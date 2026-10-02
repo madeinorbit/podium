@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import {
@@ -70,7 +70,7 @@ export function SessionContextMenu({
   onClose,
   onRename,
 }: {
-  session: SessionMeta
+  session: SessionView
   anchor: ContextMenuAnchor
   onClose: () => void
   /** Enter inline rename mode in the host (sidebar row / tab). */

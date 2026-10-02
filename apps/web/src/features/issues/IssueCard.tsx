@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * ONE BOARD CARD — three slots, in this order, always:
  *
@@ -202,7 +202,7 @@ function IssueCardLeaf({
 }: {
   issue: IssueViewModel
   /** This issue's member sessions, resolved by the board — the fleet stack. */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   badges: IssuesDisplay['badges']
   stageCounts?: { stage: IssueStage; count: number }[]
   progress?: EpicProgress | null

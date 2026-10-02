@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import type { IssueNavigationModel } from './slices/issues'
 
 import { isSessionWorking } from './session-status'
@@ -62,7 +62,7 @@ export type IssueCloseSubject = Pick<
  */
 export function issueCloseConcerns(
   issue: IssueCloseSubject,
-  members: readonly SessionMeta[] = [],
+  members: readonly SessionView[] = [],
 ): IssueCloseConcern[] {
   const concerns: IssueCloseConcern[] = []
   const live = members.filter((session) => !session.archived)

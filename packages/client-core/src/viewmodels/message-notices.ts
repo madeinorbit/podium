@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 /**
  * MESSAGES THAT DID NOT ARRIVE, ANYWHERE IN THE APP (POD-4764).
  *
@@ -46,7 +46,7 @@ export function messageNoticeLine(record: Pick<MessageRecordWire, 'status' | 're
 /** The notices, newest first. */
 export function messageNotices(
   records: readonly MessageRecordWire[],
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): MessageNotice[] {
   const byId = new Map(sessions.map((session) => [session.sessionId as string, session]))
   const notices: MessageNotice[] = []

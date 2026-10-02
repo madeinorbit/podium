@@ -1,3 +1,4 @@
+import { sessionValues } from '../session-values'
 /**
  * ONE optimistic mechanism (#263 [spec:SP-3fe2]): the outbox IS the overlay.
  *
@@ -377,7 +378,7 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
         i.sessionId,
         entry.mutationId,
         { snoozedUntil: i.until },
-        (r) => ((r as SessionMeta).snoozedUntil ?? null) === (i.until ?? null),
+        (r) => (sessionValues(r as SessionMeta).snoozedUntil ?? null) === (i.until ?? null),
       )
     }
     case 'snoozeClear': {
@@ -387,7 +388,7 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
         i.sessionId,
         entry.mutationId,
         { snoozedUntil: undefined },
-        (r) => (r as SessionMeta).snoozedUntil == null,
+        (r) => sessionValues(r as SessionMeta).snoozedUntil == null,
       )
     }
     case 'sessionMarkRead': {
@@ -399,7 +400,7 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
         i.sessionId,
         entry.mutationId,
         { readAt: new Date(entry.queuedAt).toISOString(), unread: false },
-        (r) => (r as SessionMeta).unread === false && (r as SessionMeta).readAt != null,
+        (r) => sessionValues(r as SessionMeta).unread === false && sessionValues(r as SessionMeta).readAt != null,
       )
     }
     case 'sessionMarkUnread': {
@@ -409,7 +410,7 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
         i.sessionId,
         entry.mutationId,
         { readAt: null, unread: true },
-        (r) => (r as SessionMeta).unread === true,
+        (r) => sessionValues(r as SessionMeta).unread === true,
       )
     }
     case 'dismissOffer': {

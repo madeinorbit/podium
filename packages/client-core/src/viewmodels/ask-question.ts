@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import type { PendingInteractionWire, QuestionAsk } from '@podium/protocol'
 import type { AgentInterview, TranscriptItem } from '@podium/model'
 
@@ -124,7 +124,7 @@ export function latestPendingQuestion(items: TranscriptItem[]): TranscriptItem |
  */
 export function pendingAskFromState(
   need: { kind: 'question' | 'permission'; interview?: AgentInterview } | undefined,
-  status: SessionMeta['status'] | undefined,
+  status: SessionView['status'] | undefined,
   phase: string | undefined,
   transcriptHasPending: boolean,
 ): { item: TranscriptItem } | null {

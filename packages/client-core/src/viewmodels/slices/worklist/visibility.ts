@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../../../session-values'
+import type { SessionView } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — live-roster VISIBILITY: does a finished issue or session
@@ -43,7 +43,7 @@ export function issueVisibleInSidebar(issue: IssueNavigationModel, now: number):
 
 /** Whether a session still earns its issue/worktree a current-work row. */
 export function sessionRetainsWorklistRow(
-  s: SessionMeta,
+  s: SessionView,
   now: number,
   issue?: IssueNavigationModel,
 ): boolean {
@@ -72,7 +72,7 @@ export function sessionRetainsWorklistRow(
 
 /** The shared eligibility rule for agent membership on current-work rosters. */
 export function sessionVisibleInLiveRoster(
-  s: SessionMeta,
+  s: SessionView,
   now: number,
   issue?: IssueNavigationModel,
 ): boolean {

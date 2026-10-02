@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 /**
  * Store actions: the command/UI-state ownership boundary.
  *
@@ -192,7 +192,7 @@ export const ACTION_STATE_REDUCER_COMMANDS = [
 type ActionState = {
   pins: PinState
   tabOrders: Record<string, string[]>
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   issueProjections: Store['issueProjections']
   repos: Store['repos']
   superThreadId: ThreadId

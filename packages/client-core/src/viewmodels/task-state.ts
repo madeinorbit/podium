@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionView } from '../session-values'
 import { issueDraftVessel } from './slices/issues'
 import { isAgentConfirmedComputing} from '@podium/model'
 import { withoutShells } from '../focus'
@@ -141,7 +141,7 @@ export function taskStateWord(
 }
 
 /** The desktop and iPhone spelling of a confirmed computing-agent count. */
-export function confirmedWorkingAgentCount(sessions: readonly SessionMeta[], now: number): number {
+export function confirmedWorkingAgentCount(sessions: readonly SessionView[], now: number): number {
   return withoutShells([...sessions]).reduce(
     (count, session) => count + (isAgentConfirmedComputing(session, now) ? 1 : 0),
     0,
@@ -151,13 +151,13 @@ export function confirmedWorkingAgentCount(sessions: readonly SessionMeta[], now
 /** Confirmed workers keyed through canonical issue membership. */
 export function confirmedWorkingAgentCountsByIssue<
   T extends { id: string; memberSessionIds?: readonly string[] },
->(issues: readonly T[], sessions: readonly SessionMeta[], now: number): Map<string, number> {
+>(issues: readonly T[], sessions: readonly SessionView[], now: number): Map<string, number> {
   const sessionById = new Map(sessions.map((session) => [session.sessionId as string, session]))
   const counts = new Map<string, number>()
   for (const issue of issues) {
     const members = (issue.memberSessionIds ?? [])
       .map((id) => sessionById.get(id))
-      .filter((session): session is SessionMeta => session !== undefined)
+      .filter((session): session is SessionView => session !== undefined)
     counts.set(issue.id, confirmedWorkingAgentCount(members, now))
   }
   return counts

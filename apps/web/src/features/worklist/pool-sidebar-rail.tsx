@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { agentBadge, type MotionPhase, mostUrgentSession } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
@@ -255,12 +255,12 @@ const PoolRailTile = observer(function PoolRailTile({
     const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
     const working = phases.filter((p) => p === 'working').length
     const urgent = mostUrgentSession(
-      sessions.filter((_, index) => phases[index] === 'waiting') as SessionMeta[],
+      sessions.filter((_, index) => phases[index] === 'waiting') as SessionView[],
       pool.clock.current,
     )
     status =
       phase === 'waiting'
-        ? head + (urgent ? (agentBadge(urgent as SessionMeta)?.label ?? 'needs you') : 'needs you')
+        ? head + (urgent ? (agentBadge(urgent as SessionView)?.label ?? 'needs you') : 'needs you')
         : phase === 'working'
           ? (working > 1 ? `${working} agents · ` : '') + 'working'
           : head + (phase === 'done' ? 'done' : 'idle')

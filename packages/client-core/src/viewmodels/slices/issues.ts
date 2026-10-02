@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '../../session-values'
+import type { SessionView } from '../../session-values'
 /**
  * ISSUES SLICE (POD-330) — the issue as an entity: its nav model, its sub-issue
  * tree, and what the human is being asked to DECIDE about it.
@@ -158,7 +158,7 @@ export function resolveIssueEdge<T extends IssueNavigationModel>(
 export interface IssueNavView {
   issue: IssueNavigationModel
   repoName: string
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   activityAt: number
 }
 
@@ -168,7 +168,7 @@ export interface IssueNavView {
  *  issues with no sessions fall back to their updatedAt. */
 export function issueNavList(
   issues: IssueNavigationModel[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   now: number = Date.now(),
 ): IssueNavView[] {
   const views = issues
@@ -214,7 +214,7 @@ export function filterIssueNav(list: IssueNavView[], query: string): IssueNavVie
  *  advertise work the user never started here. Wait for the real name instead. */
 export function draftIssueLabel(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   allWorktreePaths: readonly string[],
 ): string {
   const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
@@ -237,7 +237,7 @@ export function draftIssueLabel(
  *  untouched: their title IS their name. */
 export function issueDisplayTitle(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
   allWorktreePaths: readonly string[],
 ): string {
   return isUnnamedDraft(issue) ? draftIssueLabel(issue, sessions, allWorktreePaths) : issue.title
@@ -272,7 +272,7 @@ function isUnnamedDraft(issue: IssueNavigationModel): boolean {
  *  IS the agent (clicking opens the session, nothing folds out beneath it), so
  *  it can never parent real work either. Both the nesting decision and the row
  *  rendering read this one predicate so they cannot drift apart (POD-282). */
-export function isDraftAgentVessel(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): boolean {
+export function isDraftAgentVessel(issue: IssueNavigationModel, sessions: readonly SessionView[]): boolean {
   return issueDraftVessel(issue) && !issue.worktreePath && sessions.length > 0
 }
 
@@ -290,7 +290,7 @@ export function isDraftAgentVessel(issue: IssueNavigationModel, sessions: readon
  */
 export function isEmptyDraftVessel(
   issue: Pick<IssueNavigationModel, 'id' | 'draft' | 'worktreePath' | 'isDraftVessel'>,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): boolean {
   if (!issueDraftVessel(issue) || issue.worktreePath) return false
   // Attachment only, deliberately: a vessel has no worktree, so cwd

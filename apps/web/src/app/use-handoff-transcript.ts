@@ -1,4 +1,4 @@
-import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   pairLatestPromptAndAnswer,
@@ -15,10 +15,10 @@ const PAGE_LIMIT = 400
 const MAX_ITEMS = 2_000
 
 type HandoffTranscriptState =
-  | { status: 'empty'; session: SessionMeta | null; pair: null }
-  | { status: 'loading'; session: SessionMeta; pair: HandoffTranscriptPair | null }
-  | { status: 'ready'; session: SessionMeta; pair: HandoffTranscriptPair }
-  | { status: 'error'; session: SessionMeta; pair: null }
+  | { status: 'empty'; session: SessionView | null; pair: null }
+  | { status: 'loading'; session: SessionView; pair: HandoffTranscriptPair | null }
+  | { status: 'ready'; session: SessionView; pair: HandoffTranscriptPair }
+  | { status: 'error'; session: SessionView; pair: null }
 
 const transcriptCache = new Map<string, HandoffTranscriptPair | null>()
 
@@ -40,7 +40,7 @@ function mergeOlder(
 
 export function useHandoffTranscript(
   active: boolean,
-  missionSessions: readonly SessionMeta[],
+  missionSessions: readonly SessionView[],
 ): HandoffTranscriptState & { retry: () => void } {
   const { trpc, replica } = useStoreSelector(
     (store) => ({
@@ -124,7 +124,7 @@ export function useHandoffTranscript(
       cancelled = true
     }
     // `cacheKey` is the transcript read's semantic identity. Replica refreshes
-    // may replace an equal SessionMeta object; restarting for that identity-only
+    // may replace an equal SessionView object; restarting for that identity-only
     // change would turn each state write above into another read.
     // biome-ignore lint/correctness/useExhaustiveDependencies: session identity is deliberately represented by cacheKey.
   }, [active, cacheKey, replica, retryKey, trpc])

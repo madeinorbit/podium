@@ -1,3 +1,5 @@
+import type { ReplicaKind } from '../replica/contract'
+import { sessionViews } from '../session-values'
 import { beginSidebarUpdate } from '../perf/sidebar-perf'
 import { bindStoreStatsOwner } from '../perf/store-stats'
 
@@ -521,7 +523,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // them BEFORE any subscriber reads — an empty initial snapshot regressed
     // that into "not found" flashes until start() (a passive effect) ran.
     const replicaSeed = this.replicaBinding.snapshot()
-    this.baseSessions = dedupeSessions(replicaSeed.sessions)
+    this.baseSessions = this.readSessionViews(replicaSeed)
     this.baseIssues = replicaSeed.issues
     this.baseIssueProjections = replicaSeed.issueProjections
     this.baseIssueUserStates = replicaSeed.issueUserStates
@@ -1365,6 +1367,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // ----------------------------------------------------------- replica ↔ state
 
+  private readSessionViews(snapshot: ReplicaPublication['snapshot']): EngineState['sessions'] {
+    return dedupeSessions(sessionViews(snapshot.sessions, {
+      userId: this.principal.userId, userStates: snapshot.sessionUserStates,
+      repos: snapshot.repos, machines: snapshot.machines,
+    }))
+  }
+
   private publishReplica(publication: ReplicaPublication): void {
     if (this.destroyed) return
     const { snapshot, changed } = publication
@@ -1373,8 +1382,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // below publish separately and every snapshot-keyed slice derives 3×.
     try {
       this.batch(() => {
-        if (changed.has('sessions')) {
-          this.baseSessions = dedupeSessions(snapshot.sessions)
+        if (['sessions', 'sessionUserStates', 'machines', 'repos'].some(kind => changed.has(kind as ReplicaKind))) {
+          this.baseSessions = this.readSessionViews(snapshot)
           this.optimism.recomputeSessions()
         }
         // Any issue kind repaints all three (POD-4969): the overlays of record
