@@ -257,6 +257,8 @@ describe('useModelCatalog', () => {
     view.rerender(<StatusProbe machineId={machineId} />)
     expect(screen.getByText('loading')).toBeTruthy()
     expect(screen.queryByText('Old server')).toBeNull()
+    // The request yields once so its in-flight entry precedes publication.
+    await act(async () => {})
     expect(secondCatalog).toHaveBeenCalledOnce()
 
     await act(async () => {

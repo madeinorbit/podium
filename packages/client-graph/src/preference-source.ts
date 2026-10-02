@@ -67,6 +67,8 @@ export class PreferenceSource {
     this.unsubscribe()
     this.pending.clear()
     this.homes.clear()
-    runInAction(() => this.rows.clear())
+    // Principal teardown can run inside StoreProvider's render. Detach and
+    // refuse reads immediately, then notify obsolete projections after render.
+    queueMicrotask(() => runInAction(() => this.rows.clear()))
   }
 }

@@ -41,7 +41,7 @@ function port() {
     subscribe: (wake: () => void) => { listeners.add(wake); return () => { listeners.delete(wake) } },
   }
 }
-afterEach(() => { cleanup(); for (const pool of ownedPools.splice(0)) pool.dispose(); storeStats.enable(false); preferenceReadStats.enable(false); choice.mode = 'pool' })
+afterEach(() => { cleanup(); for (const pool of ownedPools.splice(0)) pool.dispose(); storeStats.enable(false); preferenceReadStats.enable(false); choice.mode = 'pool'; vi.restoreAllMocks() })
 
 it('declares routed keys before batched loads and follows late, optimistic, rollback and rescope values', async () => {
   const local = port(), replicated = port()
@@ -94,6 +94,7 @@ it('releases the source and cancels queued reads on disposal', async () => {
 })
 
 it('uses one offline runtime pool and no legacy preference reads across StrictMode and principal rebuilds', async () => {
+  const errors = vi.spyOn(console, 'error')
   const fixture = createSidebarFixture(0, Date.now(), true)
   const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
   const owners: ClientRuntime[] = []
@@ -137,4 +138,6 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
   expect(view.container.textContent).toBe('')
   expect(pool!.preferenceKeys()).toEqual([])
   expect(failures).toEqual([])
+  expect(errors.mock.calls.some((args) => String(args[0]).includes('Cannot update a component'))).toBe(false)
+  errors.mockRestore()
 })

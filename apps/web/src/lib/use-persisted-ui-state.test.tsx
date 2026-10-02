@@ -37,6 +37,8 @@ vi.mock('@podium/client-core/react', () => ({
 
 const { usePersistedUiState, usePersistedUiValue } = await import('./use-persisted-ui-state')
 
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 const KEY = 'podium:sidebar:collapsed'
 const parseCollapsed = (raw: string | null): boolean => raw === 'true'
 const serializeCollapsed = (v: boolean): string => String(v)
