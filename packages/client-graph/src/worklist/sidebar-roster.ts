@@ -153,7 +153,14 @@ export class SidebarRosterIndex {
   /** After relation upkeep, within the publication's existing action. */
   flush(): void {
     for (const owner of this.dirtyOwners) {
-      for (const id of this.pool.relations.many('issue', owner, 'sessions')) this.dirty.add(id)
+      // Resident locations already follow session/table and worktree-relation
+      // changes through queueSession. The tracked owner filing re-files their
+      // candidates when representation, exclusion or finish facts change.
+      // An issue-only marker/title publication needs only cold/absent seats
+      // reconsidered; rereading a resident seat's issueId adds no new fact.
+      for (const id of this.pool.relations.many('issue', owner, 'sessions')) {
+        if (!this.seats.has(id)) this.dirty.add(id)
+      }
     }
     this.dirtyOwners.clear()
     for (const id of this.dirty) this.sync(id)
