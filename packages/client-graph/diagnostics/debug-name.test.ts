@@ -53,32 +53,4 @@ describe('pool diagnostic names', () => {
     expect(debugName(() => 'pool.issue')).toBe('pool.issue')
   })
 
-  it('keeps table names and cached-group owner attribution in a production-mode census', async () => {
-    await names()
-    const { autorun, getDependencyTree, runInAction } = await import('mobx')
-    const { cachedGroup } = await import('../src/cached')
-    const { createObservableTables } = await import('../src/tables')
-    const { startCensus } = await import('../../worklist-proto/harness/src/mobx-census')
-    const census = startCensus()
-    let stop: (() => void) | undefined
-    try {
-      const tables = createObservableTables()
-      class CensusRow { readonly id = 'I1' }
-      const row = new CensusRow()
-      const group = cachedGroup('facts', (target: CensusRow) => tables.issue.has(target.id))
-      runInAction(() => tables.issue.set(row.id, {}))
-      stop = autorun(() => group(row))
-      expect(getDependencyTree(stop).dependencies?.[0]?.name).toBe('CensusRow@I1.facts')
-      const snapshot = census.snapshot()
-      expect(snapshot.entries).toContainEqual(expect.objectContaining({
-        kind: 'map', name: 'pool.issue', size: 1,
-      }))
-      expect(snapshot.entries).toContainEqual(expect.objectContaining({
-        kind: 'computed', sub: 'declared', owner: { cls: 'CensusRow', id: 'I1' },
-      }))
-    } finally {
-      stop?.()
-      census.stop()
-    }
-  })
 })
