@@ -1,0 +1,64 @@
+/** Counts only: the established read fence and MobX/hand census, on the same
+ * kernel-fed synthetic memory cells. No spies or counting proxies in heap captures. */
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { autorun } from 'mobx'
+import { buildCorpus, buildCorpusCell } from './fixture'
+import { startEngineOnCorpus, writeHeartbeat, writeTitleRename, writePhaseChange, writeBurst50 } from '../../shared/src/scenarios'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
+import { createReadFence } from '../../shared/src/instrument/reads'
+import { startCensus } from './mobx-census'
+import { startHandCensus } from './hand-census'
+import { handPoolArm } from '../../arms/hand/pool/arm'
+import { LeanPool } from '../../arms/lean/src/pool'
+
+const results = []
+for (const cell of ['1x', '4x', 'h10a1']) for (const arm of ['hand', 'lean']) {
+  const corpus = cell === 'h10a1' ? buildCorpusCell({ history: 10, active: 1 }, 4443) : buildCorpus(cell === '4x' ? 4 : 1, 4443)
+  const ctx = await startEngineOnCorpus(corpus)
+  const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+  const locals = createEngineLocals(ctx.engine)
+  const reads = createReadFence()
+  const census = arm === 'lean' ? startCensus() : startHandCensus()
+  census.enter('startup')
+  const source = reads.wrapSource(feed.source)
+  const hand = arm === 'hand' ? handPoolArm.create(source, locals.source, reads, { schedule: () => () => {} }) : null
+  const pool = hand?.pool ?? new LeanPool(source, locals.source, reads, () => () => {})
+  census.exit()
+  const stops: (() => void)[] = []
+  census.enter('window')
+  const ids = hand ? hand.pool.order().slice(0, 20) : (pool as LeanPool).filing.get().order.slice(0, 20)
+  if (hand) {
+    stops.push(hand.pool.subscribeOrder(() => hand.pool.order()))
+    for (const id of ids) { hand.pool.view(id); stops.push(hand.pool.subscribe(id, () => hand.pool.view(id))) }
+  } else {
+    stops.push(autorun(() => (pool as LeanPool).filing.get()))
+    for (const id of ids) stops.push(autorun(() => (pool as LeanPool).mountRow(id).get()))
+  }
+  const settle = () => {
+    for (let i = 0; pool.residency?.hasQueued(); i++) {
+      if (i === 64) throw new Error('Loads did not settle')
+      pool.hydrate()
+    }
+  }
+  settle(); census.exit()
+  const startup = { rows: Object.fromEntries(Object.entries(pool.tables).map(([key, value]) => [key, value.size])), window: ids, census: census.snapshot(), reads: reads.stats() }
+  const changes = []
+  for (const [name, write] of [['heartbeat', writeHeartbeat], ['phase', writePhaseChange], ['rename', writeTitleRename], ['burst50', writeBurst50]] as const) {
+    reads.reset(); census.enter(name)
+    await write(ctx); feed.flush(); locals.flush(); settle()
+    census.exit()
+    const read = reads.stats()
+    const work = census.snapshot().phases[name]
+    changes.push({ name, reads: read, work })
+  }
+  results.push({ cell, arm, startup, changes })
+  for (const stop of stops.reverse()) stop()
+  if (hand) hand.dispose(); else pool.dispose()
+  census.stop(); locals.dispose(); feed.dispose(); ctx.engine.destroy()
+  console.log(`${cell} ${arm}: ${changes.map((c) => `${c.name}=${c.reads.data} rows`).join(', ')}`)
+}
+const out = resolve('.artifacts/pool-memory/per-row-census.json')
+mkdirSync(resolve('.artifacts/pool-memory'), { recursive: true })
+writeFileSync(out, JSON.stringify({ synthetic: true, seed: 4443, windowRows: 20, results }, null, 2))
