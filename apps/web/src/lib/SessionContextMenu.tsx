@@ -73,7 +73,7 @@ export function SessionContextMenu({
   return Override && !props.poolInputs ? <Override {...props} /> : <SessionContextMenuContent {...props} />
 }
 
-interface SessionContextMenuProps {
+export interface SessionContextMenuProps {
   session: SessionView
   anchor: ContextMenuAnchor
   onClose: () => void
