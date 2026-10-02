@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
+import { HttpBootstrapSource, SyncStreamFailed } from '@podium/client-core/sync-stream'
 import { asIssueId } from '@podium/model/browser'
 import { runInAction } from 'mobx'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
@@ -85,4 +85,7 @@ async function main() {
     if (differences || pending || !positions) process.exitCode = 1
   } finally { handle.dispose() }
 }
-if (import.meta.main) main().catch(() => { console.error(JSON.stringify({ failed: 1, phase })); process.exitCode = 1 })
+if (import.meta.main) main().catch(error => {
+  console.error(JSON.stringify({ failed: 1, phase, reason: error instanceof SyncStreamFailed ? error.reason : 'replay-failed' }))
+  process.exitCode = 1
+})
