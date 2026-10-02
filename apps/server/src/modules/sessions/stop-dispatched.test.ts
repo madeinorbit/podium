@@ -68,14 +68,12 @@ async function bindLiveNoResume(reg: SessionRegistry, sessionId: string) {
 }
 
 const AGENT_SENDER = {
-  kind: 'agent',
-  sessionId: asSessionId('sender-session'),
-  issueId: null,
+  kind: 'superagent',
   attribution: {
-    actor: actorAgent(asAgentIdentityId('sender')),
-    onBehalfOf: 'user:test',
+    actor: actorAgent(asAgentIdentityId('superagent')),
+    onBehalfOf: firstAdminMemberId() as unknown as string,
   },
-  delegationRef: null,
+  delegationRef: 'superagent',
 } as const
 
 describe('POD-5284: stopping an unresumable session settles its dispatched mail', () => {
