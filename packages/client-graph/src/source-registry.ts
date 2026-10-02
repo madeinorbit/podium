@@ -18,7 +18,7 @@ export function mergePoolSummaries(...declarations: readonly PoolSummaryFields[]
   return fields
 }
 export interface PoolSource<E extends SourceEntity> {
-  read<K extends E>(entity: K, id: string): Loaded<PoolSourceRows[K]>
+  read(entity: E, id: string): Loaded<PoolSourceRows[E]>
   related?(entity: string, id: string, name: string): readonly string[]
   dispose(): void
 }
@@ -44,7 +44,7 @@ export class PoolSources {
   read<E extends SourceEntity>(entity: E, id: string): Loaded<PoolSourceRows[E]> {
     if (this.disposed) return LOADING
     const source = this.byEntity.get(entity)
-    return source ? source.read(entity, id) : LOADING
+    return source ? source.read(entity, id) as Loaded<PoolSourceRows[E]> : LOADING
   }
 
   related(entity: SourceEntity, id: string, name: string): readonly string[] {
@@ -60,13 +60,15 @@ export class PoolSources {
 
   dispose(): void {
     if (this.disposed) return
-    this.disposed = true
-    for (const source of new Set(this.byEntity.values())) source.dispose()
-    for (const view of this.views.values()) {
-      const dispose = Reflect.get(view, 'dispose')
-      if (typeof dispose === 'function') dispose()
-    }
-    this.views.clear()
+    runInAction(() => {
+      this.disposed = true
+      for (const source of new Set(this.byEntity.values())) source.dispose()
+      for (const view of this.views.values()) {
+        const dispose = Reflect.get(view, 'dispose')
+        if (typeof dispose === 'function') dispose()
+      }
+      this.views.clear()
+    })
     queueMicrotask(() => runInAction(() => this.byEntity.clear()))
   }
 }
