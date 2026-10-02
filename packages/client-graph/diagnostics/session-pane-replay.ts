@@ -11,12 +11,14 @@ import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
 
 let phase = 0
+let httpStatus: number | undefined
 async function main() {
   if (hostname() !== 'ludovico') throw new Error('Operator replay is ludovico-only')
   phase = 1
   const origin = process.argv.find(arg => arg.startsWith('--origin='))?.slice(9) ?? 'http://127.0.0.1:18787'
   const { token } = JSON.parse(readFileSync(join(homedir(), '.podium/cli-session.json'), 'utf8')) as { token: string }
   const response = await fetch(`${origin}/sync/bootstrap`, { headers: { cookie: `podium_session=${token}` }, signal: AbortSignal.timeout(120000) })
+  httpStatus = response.status
   if (!response.ok || !response.body) throw new Error('Bootstrap unavailable')
   const cache = new ScenarioCache()
   async function* lines() {
@@ -55,4 +57,4 @@ async function main() {
   if (process.argv.includes('--audit-only')) return
   // Full screen replay is added alongside the completed ownership rule.
 }
-if (import.meta.main) main().catch(() => { console.log(JSON.stringify({ replay: 'unavailable', phase })); process.exitCode = 1 })
+if (import.meta.main) main().catch(() => { console.log(JSON.stringify({ replay: 'unavailable', phase, httpStatus })); process.exitCode = 1 })
