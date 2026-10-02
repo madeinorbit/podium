@@ -22,7 +22,6 @@ import {
   type MachineId,
   type RepoProjection,
   requireInstant,
-  type SessionId,
   type SessionMeta,
   type UserId,
 } from '@podium/model'

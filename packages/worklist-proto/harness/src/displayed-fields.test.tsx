@@ -31,7 +31,7 @@ import {
   ROW_VIEW_FIELDS,
 } from '@podium/client-graph/shared/row-view'
 import { describe, expect, it } from 'vitest'
-import { type ScenarioEngine, startScenarioEngine, upsert } from '../../shared/src/scenarios'
+import { type ScenarioEngine, startScenarioEngine } from '../../shared/src/scenarios'
 import { assertCommits, type CountResult, mountArmForCounts } from './count-harness'
 import {
   engineLocals,

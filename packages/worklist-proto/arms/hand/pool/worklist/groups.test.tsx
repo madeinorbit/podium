@@ -1,5 +1,4 @@
 import { allIssueViewModels } from '@podium/client-core/replica'
-
 // @vitest-environment happy-dom
 /**
  * POD-4583 (Hb2) — groups, closed folds and the windowed list on the live
@@ -40,7 +39,6 @@ import { allIssueViewModels } from '@podium/client-core/replica'
  * visible count); a fold oldest-first (group parity).
  */
 
-import { compareRank } from '@podium/client-graph/shared/row-view'
 import type { SliceIssue, SliceOrder } from '@podium/client-graph/shared/slice-types'
 import { act, createElement, type ReactElement, useCallback, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'

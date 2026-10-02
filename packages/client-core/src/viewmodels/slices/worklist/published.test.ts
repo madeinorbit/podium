@@ -7,7 +7,6 @@ import {
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Store } from '../../../engine/types'
-import type { IssueViewModel } from '../../../replica/issue-view-models'
 import { createReplica, memoryStorage } from '../../../replica/replica'
 import { createSlicePublisher } from '../publish'
 import { worklistSlice } from './published'

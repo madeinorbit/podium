@@ -1,11 +1,4 @@
-import {
-  asIssueId,
-  asMachineId,
-  asSessionId,
-  asThreadId,
-  asUserId,
-  firstAdminMemberId,
-} from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, asThreadId, firstAdminMemberId } from '@podium/model'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,

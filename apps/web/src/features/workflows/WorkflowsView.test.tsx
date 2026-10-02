@@ -15,7 +15,7 @@
  *     invisible run subject renders as an OPAQUE REFERENCE rather than as
  *     loading or deleted.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'

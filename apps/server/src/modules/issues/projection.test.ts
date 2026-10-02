@@ -1,5 +1,5 @@
 import { asRepoId } from '@podium/model'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { IssueRow } from '../../store/types'
 import { captureLogs } from '../../test-support/capture-logs'
 import { issueRowFixture as row } from '../../test-support/issue-row'

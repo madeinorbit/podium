@@ -1,24 +1,13 @@
 import { createLogger } from '@podium/logger'
 import type {
-  AccountId,
-  Attribution,
-  Geometry,
   IssueId,
   MachineId,
   ResumeRef,
   SessionId,
   SessionMeta,
   TranscriptItem,
-  WorkState,
 } from '@podium/model'
-import {
-  type AgentKind,
-  asMachineId,
-  asSessionId,
-  asUserId,
-  spawnedByParentSessionId,
-  type UserId,
-} from '@podium/model'
+import { type AgentKind, spawnedByParentSessionId, type UserId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -37,10 +26,7 @@ import {
 export type SessionWirePrincipal = SessionStatePrincipal
 
 const log = createLogger('server:sessions')
-
-import { randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
-import { computePriorities, isIssueClosed } from '@podium/model'
+import { isIssueClosed } from '@podium/model'
 import type {
   DaemonPtyInputBatch,
   DaemonPtyOutputBatch,
@@ -50,87 +36,39 @@ import type {
   Principal,
 } from '@podium/protocol'
 import {
-  type AgentInstruction,
-  AUTO_ARCHIVE_READ_WINDOW_MS,
-  asDelegationRef,
   type LiveServerMessage,
-  MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type RoomRef,
-  type ServerMessage,
   type SessionBindingAdoptLaunchInstruction,
-  type SessionBindingSpawnInstruction,
-  type SessionOpenUrlMessage,
-  type SubscriptionRegistry,
   type SyncChangesSinceResult,
 } from '@podium/protocol'
-import type { ControlMessage, DaemonMessage, TurnEvent, TurnReceipt } from '@podium/protocol/daemon'
-import { resolveRole } from '@podium/runtime'
+import type { ControlMessage, TurnEvent, TurnReceipt } from '@podium/protocol/daemon'
 import {
   DEVICE_GRADE_PRINCIPAL,
   type EntityChangeSpec,
-  type MutationLedger,
   type MutationLedgerPort,
 } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
-import {
-  type CommandPrincipal,
-  resolvePrincipal,
-  resolvePrincipalAsync,
-  systemPrincipal,
-  userCommandPrincipal,
-} from '../../command-principal'
-import { isFeatureEnabled } from '../../features'
+import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
-import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn, ClientRegistry } from '../../gateway/client-registry'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
-import {
-  harnessCapabilitiesFor,
-  harnessNeedsSubmitVerification,
-  harnessObservationProvider,
-  harnessSupportsEffort,
-  harnessSupportsInitialPrompt,
-} from '../../harness-manifest'
 import type { Capability } from '../../issue-authz'
-import { liveSessionsUsingWorktree, sessionsForIssue } from '../../issue-util'
-import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
-import { assertModelSelectionValid } from '../../model-validation'
-import type {
-  ObservationLeaseRecord,
-  SessionRow,
-  SessionStore,
-  TerminalCandidateFacts,
-} from '../../store'
+import { ownershipSnapshotFromMachines } from '../../machine-access'
+import type { SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { WriteFunnel } from '../funnel'
-import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineListing, MachinesService, MachineUseResolver } from '../machines/service'
-import type { MemoryService } from '../memory/service'
 import { resolveShellOwningIssue } from '../shells/service'
 import type { HeadlessService } from '../superagent/headless'
-import { resolveAccountEnv } from './account-env'
 import type { SessionClientControl } from './client-control'
-import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import type { SessionDaemonLifecycle } from './daemon-lifecycle'
 import type { SessionDaemonProjection } from './daemon-projection'
 import { type SessionFacts, SessionFactsReader } from './facts'
 import { machineUseGateFor } from './handoff/access'
 import type { AssertMachineUse, HandoffCaller } from './handoff/ports'
-import {
-  type AnswerChoice,
-  type InboxPrincipalReference,
-  inboxActorColumns,
-  inboxActorFromColumns,
-  inboxPrincipalFromCommand,
-  type SessionInbox,
-  SYSTEM_INBOX_PRINCIPAL,
-} from './inbox'
-// Still used by the lazy workspace-fetch path (POD-658), which shares the
-// source-side bundle-base handshake and the chunked transfer with handoff.
-import type { PreparedSessionInstructions } from './instructions'
+import { type AnswerChoice, type InboxPrincipalReference, type SessionInbox } from './inbox'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { ReceiptSender, ReceiptSendInput, ReceiptSendVia } from './receipt-send'
 import type { RuntimeEventGate } from './runtime-event-gate'
@@ -155,12 +93,10 @@ import type { AgentConcurrencyHistory, AgentConcurrencyHistoryResult } from './c
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { SessionNaming } from './naming'
-import { normalizeAgentName } from './naming'
 import { SessionObservationLeases } from './observation-leases'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
 import type { SessionProjectionEvent, SessionRepository } from './repository'
 import type { Session } from './session'
-import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { SessionAuthz } from './session-authz'
 import type { SessionBindingReceipts } from './session-binding'
 import type { SessionClientPlane } from './session-client-plane'
@@ -168,7 +104,7 @@ import type { SessionKill } from './session-kill'
 import type { SessionMetaOps } from './session-meta-ops'
 import type { SessionRevival } from './session-revival'
 import type { SessionStart } from './session-start'
-import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
+import { SessionStateRegistry } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionTeardown } from './session-teardown'
 import { wireSessionLifecycle } from './session-wiring'

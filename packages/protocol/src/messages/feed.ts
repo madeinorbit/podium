@@ -54,8 +54,6 @@ import {
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
-  ChangeEntityIdField,
-  ChangeSeqField,
   ConversationSummaryWire,
   IssueDepProjection,
   IssueGitStateProjection,

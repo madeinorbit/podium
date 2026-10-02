@@ -1,11 +1,6 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { IssueProjection as IssueProjectionSchema } from '@podium/model'
-import {
-  fixtureGitStates,
-  fixtureMarkers,
-  fixtureProjection,
-} from '../../harness/src/fixture/normalized-issues'
+import { fixtureGitStates, fixtureMarkers } from '../../harness/src/fixture/normalized-issues'
 
 /**
  * POD-4444 / POD-4550 — the scenario replay library (methodology §5.8), over

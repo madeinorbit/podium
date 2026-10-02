@@ -41,7 +41,7 @@ import {
 import { mountArmForCounts } from '../../../../harness/src/count-harness'
 import { openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
+import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const trap = installMobxWarnTrap()

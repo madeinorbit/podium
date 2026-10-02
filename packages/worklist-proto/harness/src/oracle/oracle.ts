@@ -1,4 +1,3 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { fixtureGitStates, fixtureMarkers } from '../fixture/normalized-issues'
 /**
  * POD-4443 — parity oracle: the exact rows, order and groups the current app
@@ -17,7 +16,6 @@ import type { Replica } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import {
   groupUnifiedWorkRows,
-  type IssueNavigationModel,
   indexMissionSessions,
   issueDisplayTitle,
   missionRollup,
@@ -25,12 +23,10 @@ import {
   rowInClosedFold,
   rowMotionPhase,
   rowWaitingCount,
-  sortUnifiedWorkRows,
   splitPinnedWork,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
   unifiedRowBand,
-  type WorklistSlice,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import {
@@ -45,7 +41,6 @@ import type {
   SliceRow,
   SliceSnapshot,
 } from '@podium/client-graph/shared/slice-types'
-import type { SessionMeta } from '@podium/model'
 import type { FixtureCorpus } from '../fixture/index'
 
 export {

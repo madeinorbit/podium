@@ -41,7 +41,7 @@ import {
 import { mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
 import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
-import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
+import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
 
 interface FakeTransport extends WriteTransport {
   readonly sent: { txId: TxId; command: KernelCommand }[]

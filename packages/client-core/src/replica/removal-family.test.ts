@@ -77,12 +77,7 @@ import {
   SqliteSyncStore,
   type SqlValue,
 } from '@podium/sync/adapters/mobile-sqlite'
-import {
-  type BootstrapChunk,
-  type DeltaFrame,
-  Replica,
-  type ReplicaEvent,
-} from '@podium/sync/replica'
+import { type DeltaFrame, Replica, type ReplicaEvent } from '@podium/sync/replica'
 import {
   ConformanceAuthority,
   type ConformancePrincipal,

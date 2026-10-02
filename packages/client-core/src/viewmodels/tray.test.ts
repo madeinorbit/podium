@@ -5,7 +5,6 @@ import {
   type UnbrandIds,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../replica/issue-view-models'
 import type { IssueNavigationModel } from './slices/issues'
 import { deriveTrayItems as deriveTrayItemsCore, offerKey, workingSessionCount } from './tray'
 

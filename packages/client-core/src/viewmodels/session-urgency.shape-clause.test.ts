@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../replica/issue-view-models'
 
 // ---------------------------------------------------------------------------
 // POD-330 — F3's SHAPE CLAUSE, the sibling of session-status.shape-clause.

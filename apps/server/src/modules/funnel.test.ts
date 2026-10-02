@@ -1,6 +1,6 @@
 import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
-import { ChangeRangeBootstrapRequired, DEVICE_GRADE_PRINCIPAL, Ledger } from '@podium/sync'
+import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'

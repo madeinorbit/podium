@@ -1,12 +1,3 @@
-// POD-4420 S2 — selection out of the worklist derive.
-//
-// A/B evidence: a warm rotation of selection-only publishes. The legacy arm
-// (selection as a declared derive input, placement inside derive) derives once
-// per click and hands every read a fresh slice object; the fixed arm (baseline
-// derive + memoized `placeWorklistSelection` post-pass) derives zero times and
-// keeps one slice identity, while group contents and the selected row's
-// placement stay identical in both arms. Counts, not milliseconds.
-import {} from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Store } from '../../../engine/types'
 import { readRuntimeStoreStats, storeStats } from '../../../perf/store-stats'

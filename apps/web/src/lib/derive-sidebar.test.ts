@@ -1,4 +1,3 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   EMPTY_PINS,
   partitionStaleSessions,

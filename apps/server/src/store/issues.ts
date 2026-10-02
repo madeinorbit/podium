@@ -19,7 +19,6 @@ import {
   isIssueColorSlot,
   type MachineId,
   type RepoId,
-  type SessionId,
   type UserId,
 } from '@podium/model'
 import { letterForIndex } from '@podium/protocol'

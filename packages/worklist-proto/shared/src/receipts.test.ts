@@ -24,7 +24,6 @@ import {
   type ScenarioEngine,
   type ScenarioServer,
   startScenarioEngine,
-  upsert,
   upsertIssue,
   writeOptimisticEcho,
   writeOptimisticPress,

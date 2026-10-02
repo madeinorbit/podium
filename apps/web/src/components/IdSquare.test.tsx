@@ -1,7 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { UnbrandIds } from '@podium/model'
-// @vitest-environment happy-dom
-import {} from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IdSquare, idSquareLabel } from './IdSquare'

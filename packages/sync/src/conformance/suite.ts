@@ -43,7 +43,6 @@ import {
   conformanceAgent,
   conformanceUser,
   FIRST_EPOCH,
-  humanOf,
   keyOf,
   requireHuman,
 } from './authority'

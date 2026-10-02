@@ -30,7 +30,6 @@ import {
   asSessionId,
   asUserId,
   issueUserStateRowId,
-  sessionUserStateRowId,
   shipLaneId,
   UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
@@ -68,7 +67,7 @@ import {
 } from './overlay'
 import { Reactions } from './reactions'
 import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
-import { type EngineState, foregroundIssue } from './state'
+import { type EngineState } from './state'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 

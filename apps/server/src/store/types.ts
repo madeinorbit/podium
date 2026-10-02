@@ -10,7 +10,6 @@ import type {
   HarnessRefEntry,
   IssueColorSlot,
   IssueId,
-  MachineComponent,
   MachineId,
   MachinePresenceSource,
   MachineServiceAssignment,

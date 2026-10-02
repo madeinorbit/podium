@@ -1,5 +1,5 @@
 import { asSessionId, asUserId, firstAdminMemberId, issueUserStateRowId } from '@podium/model'
-import type { MetadataChange, ServerMessage } from '@podium/protocol'
+import type { MetadataChange } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'

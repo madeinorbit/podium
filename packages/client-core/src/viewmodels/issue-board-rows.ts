@@ -1,5 +1,4 @@
 import { ISSUE_BOARD_STAGES, type IssueBoardStage, type IssueStage } from '@podium/model'
-import type { IssueViewModel } from '../replica/issue-view-models'
 
 /**
  * ONE DERIVATION OF "WHAT ROWS DOES A TASK BOARD SHOW, IN WHAT ORDER" [POD-724].

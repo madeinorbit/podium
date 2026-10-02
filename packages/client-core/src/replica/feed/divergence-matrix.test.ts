@@ -38,12 +38,7 @@
  */
 
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
-import {
-  type BootstrapChunk,
-  type DeltaFrame,
-  Replica,
-  type ReplicaEvent,
-} from '@podium/sync/replica'
+import { type DeltaFrame, Replica, type ReplicaEvent } from '@podium/sync/replica'
 import {
   ConformanceAuthority,
   type ConformancePrincipal,

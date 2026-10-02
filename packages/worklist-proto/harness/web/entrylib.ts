@@ -142,7 +142,6 @@ import {
   type ScenarioEngine,
   startEngineOnCorpus,
   targetRules,
-  upsert,
 } from '../../shared/src/scenarios'
 import { createEngineLocals, localsOfEngine } from '../src/engine-locals'
 import {

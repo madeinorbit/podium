@@ -86,7 +86,6 @@ import {
   type RouterUiState,
   type RouterWindow,
   type RouteState,
-  routeDefaults,
 } from '../ui-state'
 import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../viewmodels'
 import { createEngineActions, type EngineActionRuntime, type EngineActions } from './actions'
@@ -96,7 +95,7 @@ import { createHostMetricsStore } from './host-metrics'
 import { machinesMaterialSignature } from './machines-material'
 import { type NavigationIntent, planNavigation } from './navigation'
 import { dedupeSessions, OptimismLedger } from './optimism'
-import type { OverlayEntity, OverlayTarget, PendingOverlay } from './overlay'
+import type { OverlayTarget, PendingOverlay } from './overlay'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
 import {
   createReplicaBinding,

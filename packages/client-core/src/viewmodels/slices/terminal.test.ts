@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
+import { asSessionId, type SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueViewModel } from '../../replica/issue-view-models'
 // POD-1503: elevateCoordinatorSession moved to F3 (session-urgency) — it is an

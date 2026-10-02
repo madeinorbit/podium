@@ -1,6 +1,5 @@
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
-import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'

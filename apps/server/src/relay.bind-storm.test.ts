@@ -1,5 +1,5 @@
 import type { SessionId, SessionMeta } from '@podium/model'
-import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'

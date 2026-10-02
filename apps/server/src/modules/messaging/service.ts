@@ -4,7 +4,6 @@ import type {
   IssueId,
   IssueReport,
   SessionId,
-  SessionMeta,
   TelegramChatBinding,
   ThreadId,
   TranscriptItem,

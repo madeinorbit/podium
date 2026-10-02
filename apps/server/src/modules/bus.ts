@@ -10,7 +10,6 @@ import type {
   IssueProjection,
   MachineId,
   SessionId,
-  SessionMeta,
   ThreadId,
   TranscriptItem,
   UserId,

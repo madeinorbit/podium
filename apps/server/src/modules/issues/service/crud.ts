@@ -18,7 +18,6 @@ import {
   normalizeClosedPatch,
   type RepoId,
   type SessionId,
-  type SessionMeta,
   SORT_KEY_COMPACT_LEN,
   sortKeyBetween,
   spreadSortKeys,

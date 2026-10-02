@@ -14,7 +14,6 @@
  * is armed by the run itself (`soloControlHeartbeat.rows > 0`).
  */
 
-import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { act } from 'react'
 import { flushSync } from 'react-dom'

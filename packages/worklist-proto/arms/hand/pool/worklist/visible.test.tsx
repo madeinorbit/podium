@@ -56,7 +56,6 @@ import { CommitLogContext, currentCommitLog, RowShell } from '../../../../shared
 import {
   type ScenarioEngine,
   startScenarioEngine,
-  upsert,
   writeTitleRename,
 } from '../../../../shared/src/scenarios'
 import type { HandPool } from '../pool'

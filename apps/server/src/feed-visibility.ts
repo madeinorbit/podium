@@ -40,7 +40,6 @@ import {
   parseReadPositionRowId,
   parseSessionUserStateRowId,
   type RepoId,
-  type SessionId,
   shipLaneId,
   type UserId,
 } from '@podium/model'

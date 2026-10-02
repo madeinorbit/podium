@@ -36,7 +36,6 @@ import { ECHO_TTL_MS } from '@podium/client-graph/shared/write-contract'
 import { createMobxWriteApi, type MobxWriteApi } from '@podium/client-graph/write/edit'
 import { PendingOverlay } from '@podium/client-graph/write/overlay'
 import { asMutationId } from '@podium/model'
-import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import {
   type HarnessMobxPoolHandle,
@@ -49,7 +48,7 @@ import { mountArmForCounts, runCountScenario } from '../../../../harness/src/cou
 import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
-import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
+import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
 
 installMobxWarnTrap()
 
