@@ -161,6 +161,7 @@ export class MissionViewReader {
   }
   rootFor(selectedId: string | null): Loaded<string> {
     const root = missions(this.pool).rootFor(selectedId)
+    if (root === LOADING) return LOADING // Planted control: omit the ancestry batch.
     if (root !== LOADING || !selectedId) return root
     // The shared root reader supplies the answer. Request its cold ancestry
     // together so a long retained parent chain does not load one row per frame.
