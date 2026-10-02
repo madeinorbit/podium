@@ -158,6 +158,42 @@ export class MissionViewReader {
     if (crew === LOADING) return LOADING
     return crew[0]?.name?.trim() || (crew[0] ? `New ${panelLabel(crew[0].agentKind)} session` : 'New agent')
   }
+  /** Request the addressed neighbourhood together before presentation reads
+   * can stop at the first cold child and split one batch into N batches. */
+  prepare(members: ReadonlySet<string>): boolean {
+    const drawn = new Set<string>(), tips = new Set<string>(), addressed = new Set<string>()
+    let pending = false
+    const visibleId = (id: string) => {
+      const row = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string | null }>
+      if (row === LOADING) { pending = true; return false }
+      return Boolean(row && visible(row))
+    }
+    const formal = [...members]
+    while (formal.length) {
+      const id = formal.pop()!
+      if (drawn.has(id) || !visibleId(id)) continue
+      drawn.add(id); formal.push(...this.pool.graph.many('issue', id, 'children'))
+    }
+    const departed = [...drawn]
+    while (departed.length) {
+      const id = departed.pop()!
+      if (tips.has(id) || !visibleId(id)) continue
+      tips.add(id); departed.push(...this.pool.graph.many('issue', id, 'spinOffs'))
+    }
+    for (const id of tips) {
+      addressed.add(id)
+      for (const [, relation] of MISSION_VIEW_DEPS) for (const target of this.pool.graph.many('issue', id, relation)) addressed.add(target)
+      for (const relation of ['treeParent', 'viewSupersededBy', 'viewDuplicateOf']) {
+        const target = this.pool.graph.one('issue', id, relation)
+        if (target) addressed.add(target)
+      }
+    }
+    for (const id of addressed) {
+      if (this.issue(id) === LOADING) pending = true
+      if (this.attached(id) === LOADING) pending = true
+    }
+    return !pending
+  }
   dispose = () => { this.nodes.clear() }
 }
 
@@ -467,6 +503,7 @@ export function readMissionView(view: MissionViewReader, selectedId: string | nu
     if (!root) return EMPTY_MISSION_VIEW
     const members = missions(view.pool).members(root.id)
     if (members === LOADING) return LOADING
+    if (!view.prepare(members)) return LOADING
     const ctx = new MissionContext(view)
     ctx.byId.set(root.id, root)
     const rows = buildRows(ctx, root, members, mode)
@@ -706,11 +743,14 @@ export function readWorkspaceMission(view: MissionViewReader, selectedId: string
   const missionIds = missionRoot ? missions(view.pool).members(missionRoot.id) : new Set<string>()
   if (missionIds === LOADING) return LOADING
   const missionIssues: IssueNavigationModel[] = []
+  let pending = false
   for (const id of [...missionIds].sort()) {
     const issue = view.issue(id)
-    if (issue === LOADING) return LOADING
-    if (issue) missionIssues.push(issue)
+    if (issue === LOADING) pending = true
+    else if (issue) missionIssues.push(issue)
+    if (view.attached(id) === LOADING) pending = true
   }
+  if (pending) return LOADING
   const focused = focusedId && missionIds.has(focusedId) ? view.issue(focusedId) : undefined
   if (focused === LOADING) return LOADING
   const missionOnScreen = view.selectedRoot(selectedId)
@@ -766,6 +806,7 @@ export function readMissionHandoff(view: MissionViewReader, rootId: string): Mis
   try {
     const members = missions(view.pool).members(rootId)
     if (members === LOADING) return LOADING
+    if (!view.prepare(members)) return LOADING
     const ctx = new MissionContext(view)
     const issues = [...members].sort().flatMap(id => { const issue = ctx.issue(id); return issue ? [issue] : [] })
     const crew = [...new Map([...members].flatMap(id => ctx.attached(id)).map(session => [session.sessionId, session])).values()].sort(sessionOrder)

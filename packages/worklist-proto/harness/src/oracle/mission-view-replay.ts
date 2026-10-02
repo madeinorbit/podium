@@ -94,7 +94,10 @@ async function main() {
       add(workspace)
       if (locations.some(location => location.missionId === id && location.field.startsWith('progress.'))) {
         const values = poolMissionViewSnapshot(pool, id)
-        progressCounts.push({ missionId: opaque(id), expected: missionProgress(issues, sessions, id), actual: typeof values === 'symbol' ? null : values.sections[0]?.fields.progress })
+        progressCounts.push({ missionId: opaque(id), expected: missionProgress(issues, sessions, id), actual: typeof values === 'symbol' ? null : values.sections[0]?.fields.progress,
+          incoming: issues.find(issue => issue.id === id)?.dependents.filter(dep => dep.type === 'discovered-from').length,
+          graphIncoming: pool.graph.size('issue', id, 'spinOffs'), ownSessions: sessions.filter(session => session.issueId === id).length,
+        })
       }
     } })
     const location = first as SidebarCheckResult['first']
