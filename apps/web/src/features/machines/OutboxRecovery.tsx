@@ -48,6 +48,7 @@ import { AlertTriangle, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -69,7 +70,7 @@ function DeadLetterRow({
   parked: OutboxDeadLetterEntry
   lone: boolean
 }): JSX.Element {
-  const recover = useStoreHandle().getSnapshot().recoverOutbox
+  const recover = useStoreHandle<Trpc>().getSnapshot().recoverOutbox
   const plan = recoveryPlanFor(parked.reason.code)
   const baseCopy = recoveryCopyFor(parked.reason.code)
   // THE CONSUMER for `CommandPolicy.confirmation` (POD-1224). A
@@ -249,7 +250,7 @@ function PoolRecoveryIndicator({ compact }: { compact?: boolean }) {
   return <RecoveryIndicatorBody deadLetters={deadLetters} compact={compact} />
 }
 function LegacyRecoveryIndicator({ compact }: { compact?: boolean }) {
-  const owner = useStoreHandle()
+  const owner = useStoreHandle<Trpc>()
   const { deadLetters } = useStoreSelector(s => {
     recordLegacyNoticeWork(owner, 'recoverySelectors')
     return { deadLetters: s.outboxDeadLetters }

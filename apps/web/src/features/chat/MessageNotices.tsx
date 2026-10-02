@@ -14,6 +14,7 @@ import { MessageSquareWarning } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -34,7 +35,7 @@ function NoticeRow({
   notice: MessageNotice
   onOpen: () => void
 }): JSX.Element {
-  const { trpc, openSessionTab } = useStoreHandle().getSnapshot()
+  const { trpc, openSessionTab } = useStoreHandle<Trpc>().getSnapshot()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   return (
@@ -84,7 +85,7 @@ function PoolNoticeIndicator({ compact }: { compact?: boolean }) {
   return <NoticeIndicatorBody notices={notices} compact={compact} />
 }
 function LegacyNoticeIndicator({ compact }: { compact?: boolean }) {
-  const owner = useStoreHandle()
+  const owner = useStoreHandle<Trpc>()
   const { records, sessions } = useStoreSelector((s) => {
     recordLegacyNoticeWork(owner, 'messageSelectors')
     return { records: s.messageRecords, sessions: s.sessions }

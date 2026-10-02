@@ -5,6 +5,7 @@ import type { PendingInteractionWire } from '@podium/protocol'
 import { OctagonAlert } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { cn } from '@/lib/utils'
 import { noticesDataLayer, recordLegacyNoticeWork } from './notice-data-layer'
 import { usePoolInteractionCards } from './use-pool-notices'
@@ -49,7 +50,7 @@ function PoolInteractionBar({ sessionId, compact }: BarProps) {
   return <InteractionBarBody cards={cards} compact={compact} />
 }
 function LegacyInteractionBar({ sessionId, compact }: BarProps) {
-  const owner = useStoreHandle()
+  const owner = useStoreHandle<Trpc>()
   const rows = useStoreSelector(s => {
     recordLegacyNoticeWork(owner, 'interactionSelectors')
     return s.pendingInteractions ?? NO_ASKS
@@ -59,7 +60,7 @@ function LegacyInteractionBar({ sessionId, compact }: BarProps) {
   return <InteractionBarBody cards={cards} compact={compact} />
 }
 function InteractionBarBody({ cards, compact }: { cards: readonly PendingInteractionCard[]; compact?: boolean }): JSX.Element | null {
-  const { trpc } = useStoreHandle().getSnapshot()
+  const { trpc } = useStoreHandle<Trpc>().getSnapshot()
   // Keyed by `${interactionId}:${actionId}` so two bars for one session (chat
   // mode keeps the native dock mounted) cannot disable each other's buttons.
   const [sending, setSending] = useState<string | null>(null)
