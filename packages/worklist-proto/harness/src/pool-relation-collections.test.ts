@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { runInAction } from 'mobx'
 import { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph'
 import { SCHEMA, type ModelSchema } from '@podium/client-graph/shared/schema'
 import { HandPool } from '../../arms/hand/pool/pool'
 import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
@@ -48,11 +49,15 @@ describe('page schema generic relation collections', () => {
         summaries: { issue: ['deps', 'stage', 'archived', 'parentId'] }, schedule: () => () => {} })
     try {
       pool.apply({ type: 'replace', rows })
-      expect(pool.resident('issue', 'owner')).toBe('cold')
+      expect(pool.residency!.isCold('issue', 'owner')).toBe(true)
       expect(tracked(() => [...pool.graph.many('issue', 'owner', 'pageDependencies')])).toEqual(['a', 'b'])
       expect(tracked(() => [...pool.graph.many('issue', 'b', 'pageDependents')])).toEqual(['owner'])
       expect(pool.hydrate()).toBe(0)
       expect(loads).toEqual([])
+      expect(tracked(() => pool.row('issue', 'owner'))).toBe(LOADING)
+      expect(pool.hydrate()).toBe(1)
+      expect(loads).toEqual(['issue:owner'])
+      expect(tracked(() => pool.model('issue', 'owner')!.pageDependencies.ready.map(row => row.id))).toEqual(['a', 'b'])
       pool.apply({ type: 'update', rows: [issue('owner', [{ id: 'b', type: 'custom' }])] })
       expect(tracked(() => pool.model('issue', 'owner')!.pageDependencies.ready.map(row => row.id))).toEqual(['b'])
       expect(tracked(() => [...pool.graph.many('issue', 'a', 'pageDependents')])).toEqual([])
