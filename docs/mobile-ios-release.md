@@ -67,20 +67,48 @@ rm -rf ~/Library/Developer/Xcode/DerivedData/ModuleCache.noindex
 
 ## Normalized issue release and adoption (POD-4972)
 
-Build **1.0.0 (13)** reads `issueProjection` plus `issueUserState`, `issueGitState`,
+The candidate configured as **1.0.0 (13)** reads `issueProjection` plus `issueUserState`, `issueGitState`,
 `repo` and `issueDep` through the shared issue view builder. The phone continues
 storing `issue` during the release window. Keep the server's legacy issue emission
 and mobile's legacy-storage switch unchanged until the adoption gate is satisfied.
-The native hello/log version is `1.0.0+13`, from the tracked `app.json` version and
-build number; mobile web continues reporting its served page stamp.
+The native hello/log version includes the marketing version and build number from
+the archived `app.json`, for example `1.0.0+13`; mobile web continues reporting its
+served page stamp. Build 13 is a candidate value, not evidence of a released build.
 
-Before uploading, confirm build 13 is unused in App Store Connect. If a different
-build number is needed, change `app.json` before prebuild, archive and validation.
-POD-5113 shares the mobile release: coordinate the final release candidate with
-POD-4286 before cutting an archive. Record the archived source SHA, upload result,
-Apple's processed TestFlight build, its availability time, and the name/model of the
-real phone used to check the issue list, mission, and issue detail. Check question
-options, repo references, draft vessels, and awaiting-merge state on that phone.
+The code can integrate before sessions S5 (POD-5113). The later shared TestFlight
+release is the operator's action and must contain both POD-4972 and POD-5113.
+Before uploading, confirm the selected build number is unused in App Store Connect;
+change `app.json` before prebuild, archive and validation if another number is needed.
+Record the archived source SHA and evidence that it contains both steps, the upload
+result, Apple's processed marketing version/build number, and its availability time.
+Use that actual shared release's version and time for the adoption gate. An earlier
+archive containing only one step does not start the seven-day window.
+
+### Pending real-phone acceptance
+
+Record the phone's name, model and iOS version, the installed TestFlight version/build,
+and the result of each check. These checks remain pending until that phone runs the
+shared release:
+
+- Open the issue list, a mission and its issue detail. Check titles, references,
+  hierarchy and description, then navigate between those screens.
+- Check question text and answer options, agent-origin issues, draft-vessel behavior,
+  repository references and awaiting-merge state. Check read, tucked and pinned
+  markers in the issue list, Work and Inbox against the same account's state.
+- Edit a test issue's title and check that it appears immediately and persists after
+  reconnect. Reopen the screens offline after hydration and confirm their data survives.
+- Retain the projection-only evidence from
+  `apps/mobile/src/screens/normalized-issues.test.tsx`: all three screens render with
+  `issues: []`; repo/git/personal joins and normalized spellings work; a projection
+  can arrive before its related kinds, be evicted and readmitted; a refused edit
+  rolls back its optimistic title. If replaying those fixtures on the phone, use an
+  isolated QA cache and record which cases ran. The automated results do not count
+  as a completed phone check.
+- Connect the phone to the normally deployed reporter and check that the report's
+  `versions[].appVersion` includes the installed marketing version **and build number**.
+  Record current connections, connection counts and last-seen times. Reconnect once
+  and verify the same build's connection count increases. Mail the named-phone
+  results and version distribution to POD-4286.
 
 The server writes a bounded version summary in its own state directory as
 `mobile-client-versions.json`. It records mobile hello/disconnect events and
@@ -91,12 +119,13 @@ The reporter is additive and requires the operator to deploy the integration
 candidate through their normal release flow; do not restart a running server to
 enable it.
 
-After the TestFlight build is available, run on the server host:
+After the shared TestFlight build containing both steps is available, run on the server host:
 
 ```bash
 timeout 30s bun scripts/mobile-adoption-report.ts \
   --state-root <server-state-directory> \
-  --release 1.0.0+13 --released-at <TestFlight-availability-ISO>
+  --release <shared-marketing-version+build> \
+  --released-at <shared-TestFlight-availability-ISO>
 ```
 
 The JSON reports `versions` (current connections, lifetime connection counts and
@@ -106,7 +135,9 @@ file is an error, never a green gate. An updated mobile-web build can be include
 with repeated `--supported-web-version <exact-served-stamp>` only after verifying
 that stamp contains the normalized reader. Mail the distribution and timestamps
 to POD-4286. POD-4973 may start only when `step7Ready` is true: no older or unknown
-client connected for seven consecutive observed days after this release.
+client connected for seven consecutive observed days after the release containing
+both POD-4972 and POD-5113. Include that release's marketing version/build number
+and availability timestamp in every handoff so the threshold is unambiguous.
 
 Rollback: leave legacy server emission and mobile storage enabled, and cut a new
 TestFlight archive from the previous mobile reader with a fresh build number. A
