@@ -323,8 +323,14 @@ export function isClaudeInterruptMarker(text: string): boolean {
 // The id is shared across a session's pastes, not an item id. Decode only the
 // complete measured byte form, including the inserted separator LFs, so typed
 // words around one or several pastes remain where the person put them.
+//
+// A QUEUED paste (typed while busy, POD-5269, measured on 2.1.283/2.1.285) is
+// recorded TRIMMED: `<pasted_content id="x">\n<body>\n</pasted_content id="x">`
+// with no leading "\n\n" and no trailing "\n". Accept the wrapper at the
+// start/end of the prompt as well as between separators: start of string or
+// after "\n\n"; end of string or followed by "\n"/"\n\n".
 const PASTED_CONTENT_RE =
-  /\n\n<pasted_content id="([0-9a-f]{4})">\n([\s\S]*?)\n<\/pasted_content id="\1">\n\n?/g
+  /(?:^|\n\n)<pasted_content id="([0-9a-f]{4})">\n([\s\S]*?)\n<\/pasted_content id="\1">(?:\n\n?|$)/g
 
 // Claude Code injects <system-reminder> blocks INTO user turns (timestamps,
 // context nudges) — sometimes prepended/appended to a real prompt, sometimes a
@@ -842,21 +848,30 @@ export function claudeRecordReceipts(record: unknown): TranscriptItem[] {
       ...(kind === 'queued' ? { queued: true } : { dropped: true }),
     },
   ]
+  // Queue-operation content carries the prompt as typed, which may itself be
+  // a pasted-content envelope -- including the TRIMMED queued form (POD-5269).
+  // Unwrap with the same reader so the held text matches the send.
+  const unwrappedReceipt = (content: string, kind: 'queued' | 'dropped'): TranscriptItem[] => {
+    const text = recordedPromptText(content)
+    return text ? receipt(text, kind) : []
+  }
   if (r.type === 'queue-operation' && typeof r.content === 'string' && r.content.trim()) {
-    if (r.operation === 'enqueue') return receipt(r.content, 'queued')
+    if (r.operation === 'enqueue') return unwrappedReceipt(r.content, 'queued')
     // A QUEUED PROMPT A HOOK DROPPED (POD-4887, spec §6.1 N2b): measured on
     // 2.1.284 (POD-4862, point 6), a blocking UserPromptSubmit hook writes
     // `remove` with `reason: "dropped_by_hook"` 25–32 ms after the `enqueue`,
     // and no user record ever follows.
     if (r.operation === 'remove' && r.reason === 'dropped_by_hook')
-      return receipt(r.content, 'dropped')
+      return unwrappedReceipt(r.content, 'dropped')
     return []
   }
   // AN IDLE PROMPT A HOOK BLOCKED (POD-4887): no `enqueue`, no `user` record;
   // a `system`/`informational` record ending in the prompt as typed.
   if (r.type === 'system' && r.subtype === 'informational' && typeof r.content === 'string') {
     const prompt = blockedPrompt(r.content)
-    return prompt === undefined ? [] : receipt(prompt, 'dropped')
+    if (prompt === undefined) return []
+    const text = recordedPromptText(prompt)
+    return text ? receipt(text, 'dropped') : []
   }
   return []
 }
