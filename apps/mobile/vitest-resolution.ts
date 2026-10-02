@@ -4,6 +4,7 @@ import { resolveMobileFile, resolveMobilePackage, resolveThroughMobileDep } from
 export const mobileVitestResolution = {
   assetsRegistry: resolveThroughMobileDep('react-native', '@react-native/assets-registry/registry'),
   expoFetch: resolveMobileFile('expo/src/winter/fetch/index.ts'),
+  expoModulesCore: resolveMobileFile('expo-modules-core/src/index.ts'),
   react: resolveMobilePackage('react'),
   reactDom: resolveMobilePackage('react-dom'),
   reactNativeSafeAreaContext: resolveMobileFile(

@@ -90,6 +90,9 @@ export default defineConfig({
       // isolated linker's store — a bare `react-native-web` would be resolved
       // relative to THAT directory, where it is not a dependency (POD-3174).
       { find: 'react-native', replacement: mobileVitestResolution.reactNativeWeb },
+      // Expo leaves modules-core implicit in native packages such as haptics.
+      // Resolve our declared dependency inside Vite under the isolated linker.
+      { find: /^expo-modules-core$/, replacement: mobileVitestResolution.expoModulesCore },
       // Expo publishes this subpath as a CommonJS shim that requires a
       // TypeScript source path without an extension. Node cannot load that
       // source directly when Vitest externalizes the shim, so enter the same

@@ -7,6 +7,7 @@ describe('mobile Vitest dependency resolution', () => {
     for (const path of [
       mobileVitestResolution.assetsRegistry,
       mobileVitestResolution.expoFetch,
+      mobileVitestResolution.expoModulesCore,
       mobileVitestResolution.react,
       mobileVitestResolution.reactDom,
       mobileVitestResolution.reactNativeSafeAreaContext,
@@ -15,6 +16,11 @@ describe('mobile Vitest dependency resolution', () => {
     ]) {
       expect(existsSync(path), path).toBe(true)
     }
+  })
+
+  it('loads Expo haptics through the app-declared modules-core dependency', async () => {
+    const haptics = await import('expo-haptics')
+    expect(haptics.ImpactFeedbackStyle.Light).toBe('light')
   })
 
   it('keeps native ESM packages inside Vite for web resolution', () => {
