@@ -1148,7 +1148,7 @@ describe('HTTP sync through the mobile assembly', () => {
             seq: 1,
             entity: 'issueProjection',
             entityId: 'http-issue',
-            value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'HTTP world' },
+            value: { ...DEMO_ISSUES[0]!, description: { value: DEMO_ISSUES[0]!.description }, id: 'http-issue', title: 'HTTP world' },
           },
         ],
       }),
@@ -1200,7 +1200,7 @@ describe('HTTP sync through the mobile assembly', () => {
           entity: 'issueProjection',
           entityId: 'http-issue',
           op: 'upsert',
-          value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'Healed over HTTP' },
+          value: { ...DEMO_ISSUES[0]!, description: { value: DEMO_ISSUES[0]!.description }, id: 'http-issue', title: 'Healed over HTTP' },
         },
       ],
     })
