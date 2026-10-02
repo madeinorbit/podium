@@ -49,7 +49,7 @@ async function main() {
 if (import.meta.main) main().catch(error => {
   // Classification is fixed vocabulary. Never emit a private response/error.
   const message = error instanceof Error ? error.message : ''
-  const cause = /expired/i.test(message) ? 'expired-session' : /401|403|unauth/i.test(message) ? 'authentication'
+  const cause = error instanceof Error && error.name === 'SyncFormatError' && /^(http-[0-9]+|unsupported-version|unexpected-content-type|unexpected-bootstrap-refusal|streaming-body-required)$/.test(message) ? message : /expired/i.test(message) ? 'expired-session' : /401|403|unauth/i.test(message) ? 'authentication'
     : /connect|fetch|timeout/i.test(message) ? 'transport' : 'execution'
   console.log(JSON.stringify({ replay: 'failed', step, cause, errorKind: error instanceof Error ? error.name : 'unknown' }))
   process.exitCode = 1
