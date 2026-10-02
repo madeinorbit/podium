@@ -85,6 +85,7 @@ export function PinnedBrief({
    */
   const textRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState<{ content: number; clamp: number }>({ content: 0, clamp: 0 })
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new brief or changed HTML must remeasure the committed DOM even when its box does not resize.
   useLayoutEffect(() => {
     const el = textRef.current
     if (!el) return
