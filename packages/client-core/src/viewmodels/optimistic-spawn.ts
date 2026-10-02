@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 import type { SessionValues, SessionView } from '../session-values'
 import { DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
 import {
@@ -5,7 +6,6 @@ import {
   sortKeyBetween,
   type AgentKind,
   type IssueId,
-  type IssueWire,
   type MachineId,
   type RepoId,
   type SessionId,
@@ -97,7 +97,7 @@ export function optimisticSessionUserState(args: {
 /** The draft-issue vessel the server auto-creates for a low-friction start —
  *  mirrors `issues.createDraftFor` → `issues.create` defaults. */
 export function optimisticDraftSortKey(
-  issues: readonly IssueWire[],
+  issues: readonly IssueViewModel[],
   repoPath: string,
   repoId?: RepoId,
 ): string {
@@ -119,7 +119,7 @@ export function optimisticDraftIssue(args: {
   sortKey: string
   agentKind: AgentKind
   nowIso: string
-}): IssueWire {
+}): IssueViewModel {
   return {
     id: args.issueId,
     repoPath: args.repoPath,
@@ -147,10 +147,13 @@ export function optimisticDraftIssue(args: {
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
     ready: false,
     blocked: false,
     deferred: false,
+    childIds: [],
+    memberSessionIds: [],
+    tuckedAt: null,
+    displayRef: args.issueId,
     childCount: 0,
     childDoneCount: 0,
     createdAt: args.nowIso,
@@ -160,9 +163,9 @@ export function optimisticDraftIssue(args: {
     // with the session embed (POD-797) and the reader derives it from `readAt`
     // against the sessions it holds.
     readAt: args.nowIso,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: true,
+    isDraftVessel: true,
     // No `sessions` / `sessionSummary`: the embed left the wire (POD-797). The
     // sidebar already read membership from the global session list by issueId,
     // which is why nothing here needs a replacement.
@@ -186,7 +189,7 @@ export function optimisticStartedIssue(args: {
   model?: string
   effort?: string
   nowIso: string
-}): IssueWire {
+}): IssueViewModel {
   return {
     ...optimisticDraftIssue({
       issueId: args.issueId,
@@ -204,6 +207,6 @@ export function optimisticStartedIssue(args: {
     defaultModel: args.model ?? 'auto',
     defaultEffort: args.effort ?? 'auto',
     stage: 'in_progress',
-    draft: false,
+    isDraftVessel: false,
   }
 }

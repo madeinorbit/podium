@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../../replica/issue-view-models'
 import type { SessionView } from '../../session-values'
 /**
  * ISSUES SLICE (POD-330) — the issue as an entity: its nav model, its sub-issue
@@ -29,7 +30,6 @@ import type { SessionView } from '../../session-values'
  */
 import {
   DRAFT_ISSUE_TITLE,
-  type IssueWire,
   type IssueProjection,
   isHeadlessSession,
   issueStatusOf,
@@ -48,10 +48,7 @@ import { sortSessionsForSidebar } from '../session-urgency'
 // The issue nav model, and the sub-issue tree.
 // ---------------------------------------------------------------------------
 
-export type IssueNavigationModel = Omit<IssueWire, 'commentCount' | 'origin' | 'draft'> & Partial<Pick<IssueProjection, 'asked' | 'intentOrigin' | 'isDraftVessel'>> & {
-  origin?: IssueWire['origin']
-  draft?: boolean
-  memberSessionIds?: string[]
+export type IssueNavigationModel = IssueViewModel & {
   unread?: boolean
   sessionSummary?: { total: number; byPhase: Record<string, number> }
 }
@@ -61,7 +58,7 @@ export type IssueNavigationModel = Omit<IssueWire, 'commentCount' | 'origin' | '
  *  archived) rather than dropping them, so archiving a child doesn't silently
  *  vanish it from its parent. Scoped to the subissue list — the main board's
  *  default hide-archived behavior is unchanged. */
-export function subIssuesOf<T extends Pick<IssueWire, 'parentId' | 'deletedAt' | 'seq'>>(
+export function subIssuesOf<T extends Pick<IssueViewModel, 'parentId' | 'deletedAt' | 'seq'>>(
   issues: readonly T[],
   parentId: string,
 ): T[] {
@@ -309,7 +306,7 @@ export function isEmptyDraftVessel(
  *
  *  Published (not private, as it was inside derive.ts) because the worklist's
  *  closed fold and waiting-age stamp both anchor on it. */
-export function issueFinishedAt(issue: Pick<IssueWire, 'closedAt' | 'updatedAt'>): number {
+export function issueFinishedAt(issue: Pick<IssueViewModel, 'closedAt' | 'updatedAt'>): number {
   return Date.parse(issue.closedAt ?? issue.updatedAt) || 0
 }
 
@@ -318,7 +315,7 @@ export function issueFinishedAt(issue: Pick<IssueWire, 'closedAt' | 'updatedAt'>
  * deliberately narrower than `stage === 'done'`: done children keep the
  * acknowledgment decay introduced by POD-100. */
 export function isClosedTopLevelIssue(
-  issue: Pick<IssueWire, 'closedReason' | 'parentId' | 'audience'>,
+  issue: Pick<IssueViewModel, 'closedReason' | 'parentId' | 'audience'>,
 ): boolean {
   return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
 }
@@ -439,14 +436,9 @@ export function pendingDecisionTitle(
     : `Ready to land on ${target}`
 }
 
-/** Compatibility for mobile until its separate cutover. Web models carry only
- * the normalized fields, so these fallback values cannot affect web output. */
-export function issueDraftVessel(issue: { isDraftVessel?: boolean; draft?: boolean }): boolean {
-  return issue.isDraftVessel ?? issue.draft ?? false
+export function issueDraftVessel(issue: Pick<IssueProjection, 'isDraftVessel'>): boolean {
+  return issue.isDraftVessel
 }
-export function issueAsked(issue: Pick<IssueNavigationModel, 'asked' | 'humanQuestion' | 'humanQuestionOptions' | 'humanQuestionAskedAt' | 'humanQuestionAskedBy'>): { question: string; options?: string[]; at?: string; by?: NonNullable<IssueProjection['asked']>['by'] } | undefined {
-  if (issue.asked) return issue.asked
-  if (!issue.humanQuestion) return undefined
-  return { question: issue.humanQuestion, options: issue.humanQuestionOptions,
-    at: issue.humanQuestionAskedAt, by: issue.humanQuestionAskedBy }
+export function issueAsked(issue: Pick<IssueProjection, 'asked'>): IssueProjection['asked'] {
+  return issue.asked
 }

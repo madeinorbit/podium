@@ -1,13 +1,13 @@
+import type { UnbrandIds } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 // @vitest-environment happy-dom
 import {
-  type IssueWireInput,
-  type IssueWire,
-} from '@podium/model'
+  } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IdSquare, idSquareLabel } from './IdSquare'
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
   return {
     id: 'iss_39',
     repoPath: '/repo',
@@ -42,7 +42,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     audience: 'human',
     draft: false,
     ...over,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 function square(): HTMLButtonElement {

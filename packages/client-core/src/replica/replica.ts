@@ -64,7 +64,6 @@ import {
   type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
-  type IssueWire,
   interactionRowId,
   issueUserStateRowId,
   type LayoutWire,
@@ -175,8 +174,6 @@ export interface PersistedReplicaInit {
 }
 
 export interface ReplicaInit {
-  /** Compatibility retention defaults on; the web composition root opts out. */
-  dropLegacyIssues?: boolean
   /** Storage seam (mirrors outbox.ts). NO AMBIENT DEFAULT (POD-1239): omitting it
    *  gives an in-memory replica, never `window.localStorage` — a replica that
    *  resolved global storage itself adopted the previous user's rows with no
@@ -309,7 +306,6 @@ const ENTITY_STORE_KINDS = [
   'sessions',
   'sessionUserStates',
   'machines',
-  'issues',
   'issueProjections',
   'issueUserStates',
   'issueGitStates',
@@ -333,7 +329,6 @@ const EMPTY_ROWS: never[] = []
 const CURSOR_META_KEY = 'cursor'
 
 class TanstackReplica implements Replica {
-  readonly dropLegacyIssues: boolean
   readonly persistent: boolean
   /** SQLite-persisted mode config; undefined = localStorage backend. */
   private readonly persistedInit: PersistedReplicaInit | undefined
@@ -405,7 +400,6 @@ class TanstackReplica implements Replica {
   private readonly cutOffRowKinds = new Set<ReplicaKind>()
 
   constructor(init: ReplicaInit = {}) {
-    this.dropLegacyIssues = init.dropLegacyIssues ?? false
     const prefix = init.keyPrefix ?? REPLICA_KEY_PREFIX
     this.prefix = prefix
     this.cursorKey = `${prefix}.cursor.v1`
@@ -468,19 +462,6 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
-      // Never open the old blob/SQLite table when dropping this kind. Hydrating
-      // then clearing would retain it at boot and would adopt old cache rows.
-      issues: this.dropLegacyIssues
-        ? createCollection(
-            localStorageCollectionOptions<IssueWire, string>({
-              id: `${prefix}.issues#${this.nonce}`,
-              storageKey: `${prefix}.issues.dropped`,
-              storage: memoryStorage(),
-              storageEventApi: NOOP_STORAGE_EVENTS,
-              getKey: (i) => i.id,
-            }),
-          )
-        : this.makeCollection<IssueWire>('issues', (i) => i.id, guarded, guardedEvents),
       sessionUserStates: this.makeCollection<SessionUserStateWire>(
         'sessionUserStates',
         (row) => sessionUserStateRowId(row.userId, row.sessionId),
@@ -617,7 +598,6 @@ class TanstackReplica implements Replica {
   async hydrate(): Promise<ReplicaHydrateResult> {
     const empty: ReplicaHydrateResult = {
       sessions: [],
-      issues: [],
       issueProjections: [],
       issueUserStates: [],
       sessionUserStates: [],
@@ -672,7 +652,6 @@ class TanstackReplica implements Replica {
       if (schemaReset) this.resetCache()
       return {
         sessions: this.cols.sessions.toArray as SessionMeta[],
-        issues: this.cols.issues.toArray as IssueWire[],
         issueProjections: this.cols.issueProjections.toArray as IssueProjection[],
         issueUserStates: this.cols.issueUserStates.toArray as IssueUserStateWire[],
         sessionUserStates: this.cols.sessionUserStates.toArray as SessionUserStateWire[],
@@ -705,7 +684,6 @@ class TanstackReplica implements Replica {
   }
 
   applySnapshot<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]): void {
-    if (this.dropLegacyIssues && kind === 'issues') return
     try {
       // One notification for the whole snapshot (#262 review): the stale-delete
       // and the upsert are SEPARATE storage transactions, and a listener that
@@ -731,7 +709,6 @@ class TanstackReplica implements Replica {
     upserts: ReplicaRows[K][],
     removeIds: string[],
   ): void {
-    if (this.dropLegacyIssues && kind === 'issues') return
     try {
       // Same coalescing as applySnapshot: remove + upsert notify once.
       this.batch(() => {
@@ -1680,7 +1657,7 @@ class TanstackReplica implements Replica {
     return (row) =>
       (
         row as
-          | IssueWire
+          | IssueProjection
           | ConversationSummaryWire
           | AutomationWire
           | AutomationRunWire

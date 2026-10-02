@@ -4,7 +4,6 @@ import type {
   ConversationSummaryWire,
   IssueDepProjection,
   IssueProjection,
-  IssueWire,
   RepoProjection,
   SessionMeta,
   ShipLaneProjection,
@@ -15,7 +14,6 @@ import type { MetadataChangeLenient, MetadataDeltaMessageLenient } from '@podium
 /** Entity projection exchanged with the retired wire-v1 Replica adapter. */
 export interface LegacyMetadataProjection {
   sessions: SessionMeta[]
-  issues: IssueWire[]
   issueProjections: IssueProjection[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]

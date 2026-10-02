@@ -1,8 +1,10 @@
-import type { IssueWire, IssueWireInput } from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { boardIssues, filterBoardScope } from './board-scope'
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
   return {
     id: 'issue',
     repoPath: '/r/a',
@@ -25,10 +27,10 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     childCount: 0,
     childDoneCount: 0,
     ...over,
-  } as IssueWire
+  } as IssueViewModel
 }
 
-const ids = (list: IssueWire[]): string[] => list.map((i) => i.id)
+const ids = (list: IssueViewModel[]): string[] => list.map((i) => i.id)
 
 describe('boardIssues (the one board population, POD-338)', () => {
   it('drops DRAFT session vessels — the phone board showed them, the desktop never did', () => {

@@ -1,4 +1,5 @@
-import { IssueWire } from '@podium/model/browser'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { } from '@podium/model/browser'
 import { makeIssue } from './test-issue'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IDBFactory } from 'fake-indexeddb'
@@ -33,7 +34,7 @@ const row = {
   entity: 'issue',
   entityId: 'i',
   op: 'upsert',
-  value: IssueWire.parse(makeIssue({ id: 'i', title: 'HTTP' })),
+  value: IssueViewModel.parse(makeIssue({ id: 'i', title: 'HTTP' })),
 }
 const chunk = {
   type: 'feedBootstrap',

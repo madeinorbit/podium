@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../../replica/issue-view-models'
 import type { SessionView } from '../../session-values'
 /**
  * TERMINAL SLICE (POD-330) — the workspace: which session a pane shows, what
@@ -26,7 +27,7 @@ import type { SessionView } from '../../session-values'
  * Depends on F1 and F2. Imports no other slice.
  * Platform-neutral: no DOM, no storage.
  */
-import { worktreeForCwd, type IssueWire, type SessionId} from '@podium/model'
+import { worktreeForCwd, type SessionId} from '@podium/model'
 import { sessionsForWorktree } from '../session-ownership'
 // POD-1503: coordinator elevation is an ORDERING question, so it lives in F3
 // (session-urgency), not here — the tab strip was merely its first caller.
@@ -73,7 +74,7 @@ export function orderTabs(
 
 /** True when this session is the issue's designated coordinator (M6). */
 export function isCoordinatorSession(
-  issue: Pick<IssueWire, 'coordinatorSessionId'>,
+  issue: Pick<IssueViewModel, 'coordinatorSessionId'>,
   sessionId: SessionId,
 ): boolean {
   return typeof issue.coordinatorSessionId === 'string' && issue.coordinatorSessionId === sessionId

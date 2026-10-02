@@ -1,4 +1,5 @@
-import { asIssueId, asSessionId, type IssueWire, type SessionMeta } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   indexSessionOwnership,
@@ -47,7 +48,7 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
   } as unknown as SessionMeta
 }
 
-function issue(id: string, over: Partial<IssueWire> = {}): IssueWire {
+function issue(id: string, over: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id: asIssueId(id),
     repoPath: '/repo',
@@ -68,7 +69,7 @@ function issue(id: string, over: Partial<IssueWire> = {}): IssueWire {
     childDoneCount: 0,
     deps: [],
     ...over,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 describe('resolveReferent — the three absences are distinguishable', () => {

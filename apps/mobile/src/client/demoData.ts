@@ -1,11 +1,11 @@
+import type { UnbrandIds } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionId } from '@podium/model'
 import {
   asIssueId,
   asMachineId,
   asSessionId,
   type HostMetricsWire,
-  type IssueWire,
-  type IssueWireInput,
   type MachineQuotaWire,
   type MachineWire,
   type QuotaWindowHistoryWire,
@@ -204,8 +204,8 @@ export const DEMO_SESSIONS: SessionMeta[] = [
 
 /** Shared scaffolding for the demo proposals (POD-277's screening deck). */
 function proposal(
-  partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
-): IssueWire {
+  partial: Partial<UnbrandIds<IssueViewModel>> & Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
+): IssueViewModel {
   return {
     repoPath: '/home/dev/src/podium',
     displayRef: `POD-${partial.seq}`,
@@ -239,7 +239,7 @@ function proposal(
     draft: false,
     readAt: null,
     ...partial,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 /**
@@ -253,17 +253,17 @@ function proposal(
  * proposal nobody has accepted, and one done.
  */
 function missionTask(
-  partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
-): IssueWire {
+  partial: Partial<UnbrandIds<IssueViewModel>> & Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
+): IssueViewModel {
   return {
     ...proposal(partial),
     stage: 'backlog',
     origin: 'agent',
     ...partial,
-  } as IssueWire
+  } as IssueViewModel
 }
 
-const DEMO_MISSION: IssueWire[] = [
+const DEMO_MISSION: IssueViewModel[] = [
   missionTask({
     id: asIssueId('demo-mission-root'),
     seq: 554,
@@ -377,7 +377,7 @@ const DEMO_MISSION: IssueWire[] = [
   }),
 ]
 
-export const DEMO_ISSUES: IssueWire[] = [
+export const DEMO_ISSUES: IssueViewModel[] = [
   ...DEMO_MISSION,
   proposal({
     id: asIssueId('demo-proposal-retry'),
@@ -474,7 +474,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     audience: 'human',
     draft: false,
     readAt: null,
-  } as IssueWire,
+  } as IssueViewModel,
   {
     id: asIssueId('demo-issue-header'),
     repoPath: '/home/dev/src/podium',
@@ -510,7 +510,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     audience: 'human',
     draft: false,
     readAt: null,
-  } as IssueWire,
+  } as IssueViewModel,
   {
     id: asIssueId('demo-issue-ci'),
     repoPath: '/home/dev/src/podium',
@@ -548,7 +548,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     audience: 'human',
     draft: false,
     readAt: null,
-  } as IssueWire,
+  } as IssueViewModel,
 ]
 
 export const DEMO_TRANSCRIPTS: Record<string, TranscriptItem[]> = {

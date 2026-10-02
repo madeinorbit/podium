@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 /** Synthetic/old-export fixture upgrade. Product readers never use this adapter.
  * Real exports carrying the new kinds keep those rows verbatim. */
 import {
@@ -5,10 +6,9 @@ import {
   type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
-  type IssueWire,
-} from '@podium/model'
+  } from '@podium/model'
 
-export function fixtureMarkers(issues: readonly IssueWire[]): IssueUserStateWire[] {
+export function fixtureMarkers(issues: readonly IssueViewModel[]): IssueUserStateWire[] {
   return issues.map((issue) => ({
     userId: asUserId('u-bench'),
     entityId: issue.id,
@@ -17,10 +17,10 @@ export function fixtureMarkers(issues: readonly IssueWire[]): IssueUserStateWire
     pinned: issue.pinned ?? false,
   }))
 }
-export function fixtureGitStates(issues: readonly IssueWire[]): IssueGitStateProjection[] {
+export function fixtureGitStates(issues: readonly IssueViewModel[]): IssueGitStateProjection[] {
   return issues.flatMap((issue) => (issue.gitState ? [{ id: issue.id, ...issue.gitState }] : []))
 }
-export function fixtureProjection(issue: IssueWire, projection?: IssueProjection): IssueProjection {
+export function fixtureProjection(issue: IssueViewModel, projection?: IssueProjection): IssueProjection {
   const {
     draft: _draft,
     origin: _origin,

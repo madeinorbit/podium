@@ -65,7 +65,6 @@ import type {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  IssueWire,
   LayoutWire,
   MachineProjection,
   MessageRecordWire,
@@ -99,10 +98,6 @@ export interface ReplicaRows {
   sessionUserStates: SessionUserStateWire
   machines: MachineProjection
   sessions: SessionMeta
-  /** The LEGACY embedded issue wire. Still held for compatibility consumers: the
-   *  rich issue UI reads some supplements from it while normalized projections
-   *  become the sole durable source. Its eventual retirement has one merger seam. */
-  issues: IssueWire
   /** The NORMALIZED issue projection [POD-796] — the issue's own durable row,
    *  nothing derived. The replica-side issue VIEWS read this, joined against the
    *  two kinds below (see `readViewInputs`). Empty unless the authority's flag is
@@ -169,7 +164,6 @@ export interface ReplicaHydrateResult {
   sessionUserStates: SessionUserStateWire[]
   machines: MachineProjection[]
   sessions: SessionMeta[]
-  issues: IssueWire[]
   /** The three POD-796/POD-822 kinds, persisted like every other collection so a
    *  warm reload paints the views from local data and re-seeds the hub's
    *  in-memory lists (see `seedMetadata`). Empty until the cap flips. */
@@ -229,8 +223,6 @@ export type ReplicaAddressedBatch =
     }
 
 export interface Replica {
-  /** Web drops the compatibility issue kind. Omitted/false keeps it for mobile. */
-  readonly dropLegacyIssues?: boolean
   /** False when durable storage is unusable (private mode, quota). The replica
    *  still WORKS — the same collections, live queries, and outbox run over an
    *  in-memory storage adapter behind the same seam — it just forgets on

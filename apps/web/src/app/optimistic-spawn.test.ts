@@ -1,10 +1,11 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   mergeOptimistic,
   optimisticDraftIssue,
   optimisticDraftSortKey,
   optimisticStartingSession,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, asRepoId, asSessionId, IssueWire, SessionMeta } from '@podium/model'
+import { asIssueId, asRepoId, asSessionId, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 describe('optimisticStartingSession', () => {
@@ -52,8 +53,8 @@ describe('optimisticDraftIssue', () => {
     nowIso: '2026-07-07T00:00:00.000Z',
   }
 
-  it('is a schema-valid IssueWire', () => {
-    expect(() => IssueWire.parse(optimisticDraftIssue(base))).not.toThrow()
+  it('is a schema-valid IssueViewModel', () => {
+    expect(() => IssueViewModel.parse(optimisticDraftIssue(base))).not.toThrow()
   })
 
   it('is a draft vessel with no worktree, carrying the caller id and repo', () => {

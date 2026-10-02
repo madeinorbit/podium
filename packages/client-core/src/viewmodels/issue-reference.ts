@@ -1,4 +1,5 @@
-import { ISSUE_STATUS_LABELS, type IssueId, type IssueStage, type IssueWire } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import { ISSUE_STATUS_LABELS, type IssueId, type IssueStage, } from '@podium/model'
 import { issueDisplayRef, parseAnyRef } from '@podium/protocol'
 
 /** Human labels for the workflow glyph family. Kept with the reference model so
@@ -19,8 +20,8 @@ export const ISSUE_STAGE_LABELS: Readonly<Record<IssueStage, string>> = {
 }
 
 /** The issue fields a compact reference is allowed to read. */
-export type IssueReferenceSource = Pick<IssueWire, 'id' | 'seq' | 'title' | 'stage'> &
-  Partial<Pick<IssueWire, 'prefix' | 'displayRef' | 'archived' | 'deletedAt'>>
+export type IssueReferenceSource = Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage'> &
+  Partial<Pick<IssueViewModel, 'prefix' | 'displayRef' | 'archived' | 'deletedAt'>>
 
 export type IssueReferenceAvailability = 'present' | 'archived' | 'deleted' | 'unavailable'
 

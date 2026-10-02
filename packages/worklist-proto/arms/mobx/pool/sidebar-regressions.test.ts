@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 /** Small synthetic sidebar parity reductions. No operator records. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createClientRuntime, dedupeSessions } from '@podium/client-core/engine'
@@ -12,7 +13,7 @@ import { legacySidebarRow, legacySidebarSections } from '@podium/client-graph/di
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { asRepoId, asSessionId, asUserId, type GitRepositoryWire, type IssueProjection, type IssueWire, type SessionMeta } from '@podium/model'
+import { asRepoId, asSessionId, asUserId, type GitRepositoryWire, type IssueProjection, type SessionMeta } from '@podium/model'
 import { reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { fixtureProjection } from '../../../harness/src/fixture/normalized-issues'
@@ -32,19 +33,19 @@ function required<T>(value: T | undefined): T {
   return value
 }
 
-function issue(id: string, patch: Partial<IssueWire> = {}): IssueWire {
+function issue(id: string, patch: Partial<IssueViewModel> = {}): IssueViewModel {
   return { id, seq: 1, title: 'Synthetic task', stage: 'in_progress', audience: 'human',
     repoId: 'synthetic-repo', repoPath: ROOT, worktreePath: ROOT, parentId: null,
     archived: false, deletedAt: null, closedReason: null, closedAt: null,
     pinned: false, draft: false, origin: 'human', needsHuman: false, deps: [],
-    createdAt: STAMP, updatedAt: STAMP, readAt: STAMP, ...patch } as unknown as IssueWire
+    createdAt: STAMP, updatedAt: STAMP, readAt: STAMP, ...patch } as unknown as IssueViewModel
 }
 function session(sessionId: string, owner: string, patch: Partial<SessionMeta> = {}): SessionMeta {
   return { sessionId, issueId: owner, cwd: ROOT, title: 'Synthetic agent', agentKind: 'codex',
     status: 'hibernated', archived: false, lastActiveAt: STAMP, createdAt: STAMP,
     readAt: STAMP, unread: false, agentState: { phase: 'idle', since: STAMP }, ...patch } as unknown as SessionMeta
 }
-function collections(issues: IssueWire[], sessions: SessionMeta[] = [], repos = [REPO]): LiveCollections {
+function collections(issues: IssueViewModel[], sessions: SessionMeta[] = [], repos = [REPO]): LiveCollections {
   const repoIds = new Set([...issues.map(row => row.repoId), ...repos.map(row => row.repoId)])
   const repoProjections = [...repoIds].filter((id): id is NonNullable<typeof id> => id != null).map(id => {
     const roots = issues.filter(row => row.repoId === id && !row.parentId)
@@ -98,13 +99,13 @@ function replay(data: LiveCollections) {
       actual: handle.pool.sidebar.sections(),
       expected: legacySidebarSections(legacyDerivationFromStore(store, NOW), {}, null, false, NOW),
     })),
-    updateIssue: (row: IssueWire) => {
+    updateIssue: (row: IssueViewModel) => {
       const projection = required(collections([row]).issueProjections[0])
       for (const [entity, value] of [['issue', row], ['issueProjection', projection]] as const) {
         cache.put(entity, row.id, value)
         replica.onKernelEvent({ type: 'upserted', record: { entity, entityId: row.id, value, provenance: { seq: 1 } }, readmitted: false })
       }
-      store = { ...store, issues: replica.rows('issues') as IssueWire[], issueProjections: replica.rows('issueProjections') as IssueProjection[] }
+      store = { ...store, issues: replica.rows('issues') as IssueViewModel[], issueProjections: replica.rows('issueProjections') as IssueProjection[] }
       publish(); rows.flush(); settle()
     },
     updateRepoPath: (id: string, repoPath: string) => {
@@ -246,13 +247,13 @@ describe('POD-5058 staffed continuation preference', () => {
   ])('preserves tip preference (nested=$nested, staffed=$staffed)', ({ nested, staffed, ref }) => {
     const origin = issue('iss_synthetic_origin', { stage: 'review' })
     const middle = issue('iss_synthetic_tip_middle', { seq: 4, stage: 'done', closedReason: 'done',
-      deps: [{ id: origin.id, type: 'discovered-from' }] as IssueWire['deps'] })
+      deps: [{ id: origin.id, type: 'discovered-from' }] as IssueViewModel['deps'] })
     const newerAt = new Date(NOW - 120_000).toISOString()
     const olderAt = new Date(NOW - 600_000).toISOString()
     const newer = issue('iss_synthetic_tip_newer', { seq: 2, stage: 'done', closedReason: 'done', closedAt: newerAt, updatedAt: newerAt,
-      deps: [{ id: nested ? middle.id : origin.id, type: 'discovered-from' }] as IssueWire['deps'] })
+      deps: [{ id: nested ? middle.id : origin.id, type: 'discovered-from' }] as IssueViewModel['deps'] })
     const older = issue('iss_synthetic_tip_older', { seq: 3, updatedAt: olderAt,
-      deps: [{ id: origin.id, type: 'discovered-from' }] as IssueWire['deps'] })
+      deps: [{ id: origin.id, type: 'discovered-from' }] as IssueViewModel['deps'] })
     const ctx = replay(collections([origin, older, newer, ...(nested ? [middle] : [])], staffed ? [
       session('newer-tip-seat', newer.id, { lastActiveAt: newerAt }),
       session('older-tip-seat', older.id, { lastActiveAt: olderAt }),

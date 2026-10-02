@@ -1,6 +1,6 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
-import { asUserId, ISSUE_STAGES, IssueWire, issueUserStateRowId } from '@podium/model/browser'
+import { asUserId, ISSUE_STAGES, issueUserStateRowId } from '@podium/model/browser'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { cleanup, render } from '@testing-library/react'
 import { IDBFactory } from 'fake-indexeddb'
@@ -124,7 +124,7 @@ describe('web legacy issue retention', () => {
       ...wires.map((wire) => ({
         entity: 'issue',
         entityId: wire.id,
-        value: IssueWire.parse(wire),
+        value: IssueViewModel.parse(wire),
         provenance: { seq: 1 },
       })),
       ...(['issueProjections', 'issueUserStates', 'issueGitStates', 'repos'] as const).flatMap(
@@ -211,7 +211,7 @@ describe('web legacy issue retention', () => {
           entity: 'issue',
           entityId: wires[0]!.id,
           op: 'upsert',
-          value: IssueWire.parse(wires[0]),
+          value: IssueViewModel.parse(wires[0]),
         },
       ],
     })

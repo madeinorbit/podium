@@ -1,3 +1,5 @@
+import type { UnbrandIds } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   artifactKind,
   artifactUrl,
@@ -16,8 +18,6 @@ import {
   asIssueId,
   asMachineId,
   asSessionId,
-  type IssueWire,
-  type IssueWireInput,
   type SessionMeta,
   type SessionMetaInput,
 } from '@podium/model'
@@ -35,7 +35,7 @@ function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): Se
   } as unknown as SessionMeta
 }
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
   return {
     id: 'i1',
     seq: 7,
@@ -43,7 +43,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     worktreePath: '/repo/.worktrees/issue-7',
     panel: undefined,
     ...over,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 describe('readStoredDockTab', () => {

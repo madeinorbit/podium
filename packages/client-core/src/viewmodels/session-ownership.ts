@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 import type { SessionView } from '../session-values'
 import { sessionById } from '../session-index'
 /**
@@ -23,7 +24,6 @@ import { sessionById } from '../session-index'
 import {
   buildWorktreeRootIndex,
   type IssueId,
-  type IssueWire,
   isHeadlessSession,
   type SessionId,
   worktreeForCwdIndexed} from '@podium/model'
@@ -126,7 +126,7 @@ function appendSession(map: Map<string, SessionView[]>, key: string, session: Se
  */
 export function indexSessionOwnership(
   sessions: readonly SessionView[],
-  issues: readonly Pick<IssueWire, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[],
+  issues: readonly Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[],
   allWorktreePaths: readonly string[],
 ): SessionOwnershipIndex {
   // ONE root index for the whole pass. Building it is O(roots); every session
@@ -138,7 +138,7 @@ export function indexSessionOwnership(
     ...allWorktreePaths,
     ...issues.flatMap((issue) => (issue.worktreePath ? [issue.worktreePath] : [])),
   ])
-  const issuesByWorktree = new Map<string, Pick<IssueWire, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[]>()
+  const issuesByWorktree = new Map<string, Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[]>()
   for (const issue of issues) {
     if (issue.archived || issue.deletedAt || !issue.worktreePath) continue
     const existing = issuesByWorktree.get(issue.worktreePath)
@@ -370,7 +370,7 @@ export function archivedSessionsForWorktreePath(
 export function issueIdOwningSession(
   sessionId: SessionId,
   sessions: readonly SessionView[],
-  issues: readonly Pick<IssueWire, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[],
+  issues: readonly Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[],
   allWorktreePaths: string[],
   ownership?: SessionOwnershipIndex,
 ): IssueId | null {

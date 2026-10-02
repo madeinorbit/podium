@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { asMutationId } from '@podium/model'
 import {
   COLD_CURSOR,
@@ -6,7 +7,7 @@ import {
   REPLICA_TRANSCRIPT_ITEM_CAP,
   type ReplicaInit,
 } from '@podium/client-core/replica'
-import type { IssueWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
+import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { OUTBOX_LS_KEY, Outbox, type OutboxEntry } from './outbox'
@@ -100,7 +101,7 @@ function session(id: string, title = id): SessionMeta {
   } as unknown as SessionMeta
 }
 
-function issue(id: string, title = id): IssueWire {
+function issue(id: string, title = id): IssueViewModel {
   return {
     id,
     repoPath: '/r',
@@ -135,7 +136,7 @@ function issue(id: string, title = id): IssueWire {
     origin: 'human' as const,
     audience: 'human' as const,
     draft: false,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 function item(id: string, text = id): TranscriptItem {
@@ -191,7 +192,7 @@ describe('replica adapter', () => {
     // fully replaced.
     const { storage } = makeStorage()
     const a = createReplica({ storage, keyPrefix: prefix })
-    const snoozed: IssueWire = { ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' }
+    const snoozed: IssueViewModel = { ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' }
     a.applySnapshot('issues', [snoozed])
     await settle()
     // Server clears the snooze → the wire no longer carries deferUntil at all.

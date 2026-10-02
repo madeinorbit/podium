@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 import type { SessionView } from '../session-values'
-import type { IssueWire, SessionId} from '@podium/model'
+import type { SessionId} from '@podium/model'
 import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
 import { type DotTone, panelLabel, sessionDotTone } from './session-status'
 
@@ -24,7 +25,7 @@ export function sessionTitle(session: SessionView): string {
 
 export function sessionCardModel(
   session: SessionView,
-  issue: Pick<IssueWire, 'seq' | 'title'> | undefined,
+  issue: Pick<IssueViewModel, 'seq' | 'title'> | undefined,
   now: number,
 ): SessionCardModel {
   return {

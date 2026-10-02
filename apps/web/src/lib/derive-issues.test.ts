@@ -1,5 +1,7 @@
+import type { UnbrandIds } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { filterIssueNav, issueNavList, subIssuesOf } from '@podium/client-core/viewmodels'
-import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 const NOW = Date.parse('2026-06-29T12:00:00.000Z')
@@ -23,7 +25,7 @@ function sess(
   } as unknown as SessionMeta
 }
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
   return {
     id: 'i',
     repoPath: '/home/u/acme',
@@ -43,7 +45,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     origin: 'human' as const,
     draft: false,
     ...over,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 describe('issueNavList', () => {

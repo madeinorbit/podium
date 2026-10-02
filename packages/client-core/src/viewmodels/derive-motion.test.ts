@@ -1,4 +1,5 @@
-import type { AgentRuntimeState, IssueWire, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { AgentRuntimeState, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { formatClock, motionPhase, motionTiming } from './index'
 
@@ -79,7 +80,7 @@ describe('motionPhase — the four phases of the motion grammar', () => {
       },
       agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
     })
-    expect(motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueWire)).toBe('done')
+    expect(motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueViewModel)).toBe('done')
   })
 
   it('a finished run (idle done / ended) is done', () => {

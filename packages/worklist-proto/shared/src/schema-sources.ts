@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 /**
  * POD-4546 (L1a) — the runtime bridge from a field citation in `schema.ts` to
  * the real definition in `@podium/model`.
@@ -120,7 +121,7 @@ export function validateSources(schema: ModelSchema = SCHEMA): string[] {
 
     // A relation name must not shadow a property the composed row carries,
     // even one this schema does not declare as a field: the pool holds the
-    // whole row. `IssueWire.origin` is why the R4 relation is named
+    // whole row. `IssueViewModel.origin` is why the R4 relation is named
     // `discoveredFrom`.
     for (const relationName of Object.keys(entity.relations)) {
       const carrier = composed.get(relationName)

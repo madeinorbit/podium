@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { fixtureMarkers, fixtureGitStates, fixtureProjection } from './normalized-issues'
 /**
  * POD-4443 / POD-4635 — deterministic live-shaped corpus at 1x, 2x and 4x.
@@ -39,7 +40,6 @@ import type {
   GitRepositoryWire,
   IssueDepProjection,
   IssueProjection,
-  IssueWire,
   MachineWire,
   RepoProjection,
   SessionMeta,
@@ -215,7 +215,7 @@ export interface FixtureCorpus {
   units: UnitSpan[]
   fixedNow: number
   /** Legacy wire rows (`store.issues`, replica `issues` kind for `readAt`). */
-  issues: IssueWire[]
+  issues: IssueViewModel[]
   /** Normalized durable rows (replica `issueProjections` kind). */
   issueProjections: IssueProjection[]
   issueUserStates?: import('@podium/model').IssueUserStateWire[]
@@ -2248,7 +2248,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
         .slice(0, 2),
     ),
   )
-  const issues: IssueWire[] = []
+  const issues: IssueViewModel[] = []
   const issueProjections: IssueProjection[] = []
   mints.forEach((m, i) => {
     enter(m.unit)
@@ -2332,7 +2332,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
     if (drafts.has(i)) projection['isDraftVessel'] = true
     if (startedBy.has(i)) projection['startedBySession'] = startedBy.get(i)
     if (coordinator.has(i)) projection['coordinatorSessionId'] = coordinator.get(i)
-    issues.push(wire as unknown as IssueWire)
+    issues.push(wire as unknown as IssueViewModel)
     issueProjections.push(projection as unknown as IssueProjection)
   })
   const setWire = (i: number, key: string, value: unknown): void => {

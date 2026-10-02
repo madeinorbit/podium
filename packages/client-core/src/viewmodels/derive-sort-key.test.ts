@@ -1,8 +1,10 @@
+import type { UnbrandIds } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
 // POD-168 — manual order via persisted sortKey (POD-100 §4, R1/R2):
 // keyed rows sort ascending by key within their band; unkeyed legacy rows keep
 // newest-first creation order below keyed rows; snoozed still sinks and nothing
 // else (urgency/activity) sorts; a parent's children sort by their own keys.
-import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   partitionUnifiedWork,
@@ -31,7 +33,7 @@ function sess(id: string, issueId: string, over: Partial<SessionMetaInput> = {})
   } as unknown as SessionMeta
 }
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
   return {
     id: 'i1',
     repoPath: '/r/a',
@@ -54,7 +56,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     childCount: 0,
     childDoneCount: 0,
     ...over,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 const emptySections = (): SidebarSections => ({

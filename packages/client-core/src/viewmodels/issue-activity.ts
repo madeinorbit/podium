@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 import {
   canonicalIssueCloseReason,
   ISSUE_STATUS_LABELS,
@@ -163,7 +164,7 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
 }
 
 /** A comment as IssuePage renders it — fetched lazily via the issues.comments
- *  proc (#175); comment bodies no longer ride IssueWire. */
+ *  proc (#175); comment bodies no longer ride IssueViewModel. */
 export interface ActivityComment {
   author: string
   body: string

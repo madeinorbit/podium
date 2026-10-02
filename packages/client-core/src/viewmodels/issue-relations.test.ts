@@ -1,13 +1,14 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { groupRelations } from './issue-relations'
 
-/** Minimal IssueWire stub — groupRelations only reads `deps` and `dependents`. */
+/** Minimal IssueViewModel stub — groupRelations only reads `deps` and `dependents`. */
 function issue(
   deps: { id: string; type: string }[],
   dependents: { id: string; type: string }[],
-): IssueWire {
-  return { deps, dependents } as unknown as IssueWire
+): IssueViewModel {
+  return { deps, dependents } as unknown as IssueViewModel
 }
 
 describe('groupRelations', () => {

@@ -1,5 +1,7 @@
+import type { UnbrandIds } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
 import { asSessionId } from '@podium/model'
-import type { IssueWire, IssueWireInput, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { sessionCardModel, sessionTitle } from './session-card'
 
@@ -26,8 +28,8 @@ function session(overrides: Partial<SessionMetaInput> & { sessionId: SessionId }
 }
 
 function issue(
-  overrides: Partial<IssueWireInput> & { id: string; seq: number; title: string },
-): IssueWire {
+  overrides: Partial<UnbrandIds<IssueViewModel>> & { id: string; seq: number; title: string },
+): IssueViewModel {
   const { id, seq, title, ...rest } = overrides
   return {
     repoPath: '/repo/podium',
@@ -64,7 +66,7 @@ function issue(
     id,
     seq,
     title,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 describe('session card view model', () => {

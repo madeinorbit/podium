@@ -1,3 +1,5 @@
+import type { UnbrandIds } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   draftIssueLabel,
   pickPaneSession,
@@ -6,8 +8,6 @@ import {
 } from '@podium/client-core/viewmodels'
 import {
   asSessionId,
-  type IssueWire,
-  type IssueWireInput,
   type SessionMeta,
   type SessionMetaInput,
 } from '@podium/model'
@@ -30,7 +30,7 @@ function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): Se
   } as unknown as SessionMeta
 }
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
   return {
     id: 'i1',
     repoPath: '/r/acme',
@@ -52,7 +52,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     childCount: 0,
     childDoneCount: 0,
     ...over,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 const WT = '/r/acme/.worktrees/issue-1'

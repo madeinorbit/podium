@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../../../replica/issue-view-models'
 import {
   asIssueId,
   asSessionId,
@@ -211,7 +212,7 @@ describe('published project order', () => {
 
 // ---------------------------------------------------------------------------
 // POD-843/POD-929 — unread is derived from projection content + the issue-row
-// cursor + session activity, never from an IssueWire.unread paint.
+// cursor + session activity, never from an IssueViewModel.unread paint.
 //
 // After unread left the wire, worklistSlice still built rows from store.issues.
 // Surfaces that read `issue.unread` then treated every row as read. This pins
@@ -300,7 +301,7 @@ describe('published worklist derives unread from one issue-row cursor', () => {
     expect(issueUnreadOf(slice, 'iss_new')).toBe(true)
   })
 
-  it('session activity after readAt flips the row unread without an IssueWire.unread', () => {
+  it('session activity after readAt flips the row unread without an IssueViewModel.unread', () => {
     const slice = worklistFromProjection({
       id: 'iss_active',
       title: 'New session activity',

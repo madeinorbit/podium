@@ -28,7 +28,6 @@ import {
   type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
-  type IssueWire,
   type MachineProjection,
   type MachineWire,
   type MessageRecordWire,
@@ -48,7 +47,7 @@ export interface MobileStoreFixture {
   sessions?: SessionMeta[]
   sessionUserStates?: SessionUserStateWire[]
   machineProjections?: MachineProjection[]
-  issues?: (IssueWire | IssueViewModel)[]
+  issues?: IssueViewModel[]
   /** Explicit feed homes bypass the compatibility fixture adapter. */
   issueProjections?: IssueProjection[]
   issueUserStates?: IssueUserStateWire[]

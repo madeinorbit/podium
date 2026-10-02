@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
@@ -18,7 +19,7 @@ import { describe, expect, it } from 'vitest'
 // QUESTION CLAUSE HAD NOT CONSIDERED. POD-1503 moved `elevateCoordinatorSession`
 // here to delete the `worklist -> terminal` edge, and argued it against F3's
 // invariant verbatim — correctly, on the shape. The function next to it,
-// `isCoordinatorSession`, was refused on sight because it takes an `IssueWire`.
+// `isCoordinatorSession`, was refused on sight because it takes an `IssueViewModel`.
 // Two adjacent symbols, one claimed and one refused, arbitrated by the SHAPE
 // while the question was never consulted. Map §4e.1.
 //

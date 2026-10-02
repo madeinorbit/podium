@@ -36,7 +36,6 @@ export function applyLegacyMetadataState(
   replica.batch(() => {
     if (mismatch) replica.resetCache()
     replica.applySnapshot('sessions', state.sessions)
-    replica.applySnapshot('issues', state.issues)
     replica.applySnapshot('issueProjections', state.issueProjections)
     replica.applySnapshot('issueDeps', state.issueDeps)
     replica.applySnapshot('repos', state.repos)

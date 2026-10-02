@@ -190,7 +190,6 @@ const projectionOf = (
   snapshot: Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>,
 ): LegacyMetadataProjection => ({
   sessions: snapshot.sessions,
-  issues: snapshot.issues,
   issueProjections: snapshot.issueProjections ?? [],
   issueDeps: snapshot.issueDeps ?? [],
   repos: snapshot.repos ?? [],

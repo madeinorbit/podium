@@ -1,4 +1,5 @@
-import { ISSUE_STATUS_LABELS, type IssueStatus, type IssueWire, issueStatusOf } from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import { ISSUE_STATUS_LABELS, type IssueStatus, issueStatusOf } from '@podium/model'
 
 /** Every task facet shared by the desktop board and the native iPhone list. */
 export interface BoardFilter {
@@ -13,7 +14,7 @@ export interface BoardFilter {
 
 /** The wire facts the shared filter reads. */
 export type BoardFilterIssue = Pick<
-  IssueWire,
+  IssueViewModel,
   | 'title'
   | 'description'
   | 'seq'

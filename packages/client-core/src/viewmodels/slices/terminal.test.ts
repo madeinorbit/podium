@@ -1,4 +1,5 @@
-import { asIssueId, asSessionId, type IssueWire, type SessionMeta } from '@podium/model'
+import type { IssueViewModel } from '../../replica/issue-view-models'
+import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 // POD-1503: elevateCoordinatorSession moved to F3 (session-urgency) — it is an
 // ordering question, not a terminal one. Its tab-strip behaviour is still this
@@ -89,12 +90,12 @@ describe('orderTabs', () => {
 })
 
 describe('isCoordinatorSession', () => {
-  const issue = { coordinatorSessionId: 'a' } as Pick<IssueWire, 'coordinatorSessionId'>
+  const issue = { coordinatorSessionId: 'a' } as Pick<IssueViewModel, 'coordinatorSessionId'>
   it('is true only for the designated session', () => {
     expect(isCoordinatorSession(issue, asSessionId('a'))).toBe(true)
     expect(isCoordinatorSession(issue, asSessionId('b'))).toBe(false)
     expect(
-      isCoordinatorSession({} as Pick<IssueWire, 'coordinatorSessionId'>, asSessionId('a')),
+      isCoordinatorSession({} as Pick<IssueViewModel, 'coordinatorSessionId'>, asSessionId('a')),
     ).toBe(false)
   })
 })

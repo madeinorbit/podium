@@ -55,7 +55,6 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   session: 'sessions',
   sessionUserState: 'sessionUserStates',
   machine: 'machines',
-  issue: 'issues',
   // The three POD-796/POD-822 kinds the replica holds. Mapped here so a
   // bootstrap/heal that carries them installs them into the right collection
   // rather than dropping them (a kind absent from this map is silently skipped
@@ -85,7 +84,6 @@ const SNAPSHOT_KINDS: readonly SnapshotKind[] = [
   'sessions',
   'sessionUserStates',
   'machines',
-  'issues',
   'issueProjections',
   'issueDeps',
   'repos',
@@ -146,7 +144,7 @@ export class BootstrapSession {
     // with zero upserts still replaces its old rows, without touching live
     // state or the outbox if this load is later aborted.
     for (const kind of SNAPSHOT_KINDS) {
-      if (retainReplicaEntity(entityForKind(kind), replica.dropLegacyIssues)) {
+      if (retainReplicaEntity(entityForKind(kind))) {
         this.staged.set(kind, new Map())
       }
     }
@@ -180,7 +178,7 @@ export class BootstrapSession {
     for (const change of changes) {
       if (change.seq <= this.cursor.seq) continue
       this.bufferedSeq = Math.max(this.bufferedSeq, change.seq)
-      if (retainReplicaEntity(change.entity, this.replica.dropLegacyIssues)) {
+      if (retainReplicaEntity(change.entity)) {
         this.buffered.push(change)
       }
     }
@@ -256,7 +254,7 @@ export class BootstrapSession {
   }
 
   private stage(change: MetadataChangeLenient): void {
-    if (!retainReplicaEntity(change.entity, this.replica.dropLegacyIssues)) return
+    if (!retainReplicaEntity(change.entity)) return
     const kind = KIND_BY_ENTITY[change.entity]
     // An unknown entity kind from a newer authority: ignore the row, keep the
     // bootstrap (D4's additive rule — a new kind must not quarantine an older

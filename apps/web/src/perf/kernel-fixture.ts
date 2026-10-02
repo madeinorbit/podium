@@ -42,7 +42,6 @@ export class BenchmarkCache implements KernelCacheRead {
 }
 export function kernelFixture(cache = new BenchmarkCache()) {
   const replica = createKernelReplica({
-    dropLegacyIssues: true,
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })

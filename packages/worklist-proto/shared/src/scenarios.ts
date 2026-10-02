@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { fixtureMarkers, fixtureGitStates, fixtureProjection } from '../../harness/src/fixture/normalized-issues'
 /**
  * POD-4444 / POD-4550 — the scenario replay library (methodology §5.8), over
@@ -136,7 +137,7 @@ export class ScenarioCache implements KernelCacheRead {
   }
   put(entity: KernelEntity, entityId: string, value: unknown): void {
     if (entity === 'issue') {
-      const issue = value as import('@podium/model').IssueWire
+      const issue = value as import('@podium/client-core/replica').IssueViewModel
       const state = fixtureMarkers([issue])[0]!
       this.put('issueUserState', issueUserStateRowId(state.userId, issue.id), state)
       if (issue.gitState) this.put('issueGitState', issue.id, { id: issue.id, ...issue.gitState })
@@ -1006,7 +1007,7 @@ export function upsert(
     readmitted,
   } as never)
   if (entity === 'issue') {
-    const issue = value as import('@podium/model').IssueWire
+    const issue = value as import('@podium/client-core/replica').IssueViewModel
     const state = fixtureMarkers([issue])[0]!
     const markerId = issueUserStateRowId(state.userId, issue.id)
     ctx.replica.onKernelEvent({ type: 'upserted', record: { entity: 'issueUserState', entityId: markerId, value: state, provenance: { seq } }, readmitted })

@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { fixtureMarkers, fixtureGitStates } from '../fixture/normalized-issues'
 /**
  * POD-4443 — parity oracle: the exact rows, order and groups the current app
@@ -32,7 +33,7 @@ import {
   type WorklistSlice,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta, IssueWire } from '@podium/model'
+import type { SessionMeta, } from '@podium/model'
 import type {
   SliceGroup,
   SliceLocals,

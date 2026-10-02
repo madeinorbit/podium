@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../../../replica/issue-view-models'
 // POD-4420 S2 — selection out of the worklist derive.
 //
 // A/B evidence: a warm rotation of selection-only publishes. The legacy arm
@@ -6,7 +7,7 @@
 // derive + memoized `placeWorklistSelection` post-pass) derives zero times and
 // keeps one slice identity, while group contents and the selected row's
 // placement stay identical in both arms. Counts, not milliseconds.
-import { type IssueWire } from '@podium/model'
+import { } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Store } from '../../../engine/types'
 import { readRuntimeStoreStats, storeStats } from '../../../perf/store-stats'
@@ -28,7 +29,7 @@ const OLD = new Date(NOW - 10 * 24 * 3_600_000).toISOString()
 const FRESH = new Date(NOW - 1_000).toISOString()
 const SOON = new Date(NOW + 3_600_000).toISOString()
 
-function issue(id: string, repo: string, over: Partial<IssueWire> = {}): IssueWire {
+function issue(id: string, repo: string, over: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id,
     seq: 1,
@@ -55,7 +56,7 @@ function issue(id: string, repo: string, over: Partial<IssueWire> = {}): IssueWi
     comments: [],
     blockedByNotes: [],
     ...over,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 function world(selectedIssueId: string | null): Store {

@@ -3,7 +3,7 @@
  *
  * These are two different names for one thing and the difference is not
  * cosmetic: the wire (and therefore every `EntityRecord` the kernel Replica
- * holds) names entities in the SINGULAR — `session`, `issue` — because an
+ * holds) names entities in the SINGULAR — `session`, `issueProjection` — because an
  * envelope is about one row. The engine's read model names COLLECTIONS, so it is
  * plural. A cutover that guessed the mapping by appending an `s` would have
  * silently dropped `automationRun` → `automationRuns` on a rule that does not
@@ -25,7 +25,6 @@ const ENTITY_TO_KIND = {
   session: 'sessions',
   sessionUserState: 'sessionUserStates',
   machine: 'machines',
-  issue: 'issues',
   // The POD-796/POD-822 normalized kinds. Their entity spellings are NOT guessed
   // — they are `MetadataEntityKind`'s literals in protocol's `messages/sync.ts`
   // (`issueProjection`, `issueDep`, `repo`), which is the vocabulary the wire
@@ -66,15 +65,14 @@ const KIND_TO_ENTITY = Object.fromEntries(
   Object.entries(ENTITY_TO_KIND).map(([entity, kind]) => [kind, entity]),
 ) as Record<ReplicaKind, KernelEntity>
 
-/** The compatibility record still travels on the feed; web no longer retains it. */
-export function retainReplicaEntity(entity: string, dropLegacyIssues = false): boolean {
-  return !dropLegacyIssues || entity !== 'issue'
+/** Only current replica kinds survive hydration and feed admission. */
+export function retainReplicaEntity(entity: string): boolean {
+  return Object.hasOwn(ENTITY_TO_KIND, entity)
 }
 
 /** `undefined` for an entity this read model does not render (D4 leniency). */
-export function kindForEntity(entity: string, dropLegacyIssues = false): ReplicaKind | undefined {
-  if (!retainReplicaEntity(entity, dropLegacyIssues)) return undefined
-  return (ENTITY_TO_KIND as Record<string, ReplicaKind | undefined>)[entity]
+export function kindForEntity(entity: string): ReplicaKind | undefined {
+  return retainReplicaEntity(entity) ? ENTITY_TO_KIND[entity as KernelEntity] : undefined
 }
 
 /** Total the other way: every engine kind has exactly one entity name. */
@@ -108,5 +106,5 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
     const layout = row as ReplicaRows['userLayouts']
     return layoutRowId(layout.userId, layout.key)
   }
-  return (row as ReplicaRows['issues']).id
+  return (row as ReplicaRows['issueProjections']).id
 }

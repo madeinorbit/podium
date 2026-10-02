@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 import type { SessionView } from '../session-values'
 /**
  * F3 — *what order sessions are presented in.*
@@ -29,7 +30,7 @@ import type { SessionView } from '../session-values'
  *
  * A SHAPE PREDICATE IS NECESSARY, NOT SUFFICIENT. It refuses a symbol whose
  * shape is wrong — that is how `isCoordinatorSession` was refused here on sight,
- * for taking an `IssueWire`. It cannot refuse one whose shape is right and whose
+ * for taking an `IssueViewModel`. It cannot refuse one whose shape is right and whose
  * question is foreign, and that is the drift that actually produces god objects,
  * because nobody ever adds a symbol that LOOKS wrong. (POD-330, map §4e.1,
  * b9b39289.)
@@ -125,7 +126,7 @@ export function mostUrgentSession(
  * here does not document the `worklist -> terminal` edge; it DELETES it.
  *
  * Its sibling `isCoordinatorSession` deliberately stayed in terminal: it takes
- * an `IssueWire`, and this module's invariant ("no issues") refuses it on
+ * an `IssueViewModel`, and this module's invariant ("no issues") refuses it on
  * sight. That is the invariant doing its job — a module with a stated shape can
  * claim or refuse a symbol without anyone arbitrating.
  */

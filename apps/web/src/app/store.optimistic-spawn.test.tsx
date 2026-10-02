@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { optimisticDraftIssue } from '@podium/client-core/viewmodels'
@@ -5,7 +6,6 @@ import {
   asIssueId,
   asSessionId,
   type IssueId,
-  type IssueWire,
   type SessionId,
   type SessionMeta,
   type SessionMetaInput,
@@ -99,7 +99,7 @@ function serverSession(id: string, over: Partial<SessionMetaInput> = {}): Sessio
   } as unknown as SessionMeta
 }
 
-let latest: { sessions: SessionMeta[]; issues: IssueWire[] } = { sessions: [], issues: [] }
+let latest: { sessions: SessionMeta[]; issues: IssueViewModel[] } = { sessions: [], issues: [] }
 let store: ReturnType<typeof useStore> | null = null
 function Probe(): null {
   const s = useStore()

@@ -6,7 +6,6 @@ import {
   type IssueGitStateProjection,
   IssueProjection,
   type IssueUserStateWire,
-  type IssueWire,
   issueDepId,
   type RepoProjection,
   type UserId,
@@ -15,7 +14,7 @@ import {
 /** Seed all normalized homes alongside the support-window legacy fixtures. */
 export function seedIssueFixtures(
   replica: Replica,
-  issues: readonly (IssueWire | IssueViewModel)[],
+  issues: readonly IssueViewModel[],
   userId: UserId,
 ): void {
   const projections: IssueProjection[] = []
@@ -34,16 +33,8 @@ export function seedIssueFixtures(
     row.repoId = repoId
     row.description = { value: issue.description ?? '' }
     if (issue.notes !== undefined) row.notes = { value: issue.notes }
-    row.intentOrigin = source.intentOrigin ?? source.origin ?? 'human'
-    row.isDraftVessel = source.isDraftVessel ?? source.draft ?? false
-    if (!row.asked && typeof source.humanQuestion === 'string') {
-      row.asked = {
-        question: source.humanQuestion,
-        options: source.humanQuestionOptions,
-        by: source.humanQuestionAskedBy,
-        at: source.humanQuestionAskedAt,
-      }
-    }
+    row.intentOrigin = issue.intentOrigin
+    row.isDraftVessel = issue.isDraftVessel
     projections.push(row as unknown as IssueProjection)
     markers.push({
       userId,
@@ -67,7 +58,6 @@ export function seedIssueFixtures(
       } as IssueDepProjection)
     }
   }
-  replica.applySnapshot('issues', issues as IssueWire[])
   replica.applySnapshot('issueProjections', projections)
   replica.applySnapshot('issueUserStates', markers)
   replica.applySnapshot('issueGitStates', git)

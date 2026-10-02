@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 import { ISSUE_BOARD_STAGES, type IssueBoardStage, type IssueStage } from '@podium/model'
 
 /**
@@ -19,7 +20,7 @@ import { ISSUE_BOARD_STAGES, type IssueBoardStage, type IssueStage } from '@podi
  * rule applied to the board.
  *
  * STRUCTURAL, NOT NOMINAL. The functions are generic over {@link BoardRowIssue} —
- * the seven fields they actually read — so `IssueWire` (phone) and
+ * the seven fields they actually read — so `IssueViewModel` (phone) and
  * `IssueViewModel` (desktop) both satisfy it without this package having to know
  * either name. The generic parameter is preserved through the return types, so a
  * caller gets its own row type back and not a widened one.
@@ -31,7 +32,7 @@ export type IssuesOrdering = 'priority' | 'updated' | 'created'
 /**
  * The minimum an issue must carry to be placed on a board: an identity, a
  * parent edge, the lane it sits in, and the three sort keys. Deliberately not
- * `IssueWire` — a board does not read a description, a panel or a git state, and
+ * `IssueViewModel` — a board does not read a description, a panel or a git state, and
  * requiring them would make this module un-shareable the moment either platform's
  * row shape moved.
  */

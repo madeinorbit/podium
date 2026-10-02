@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 import {
   asSessionId,
   type SessionMeta,
@@ -54,7 +55,7 @@ const deriveTrayItems = (
 ) => {
   const sessions = issues.flatMap((issue) => issue.sessions ?? [])
   // Membership moves to `memberSessionIds`; `sessions` is EMPTIED rather than
-  // dropped because this tree's `IssueWire` still declares it required, and the
+  // dropped because this tree's `IssueViewModel` still declares it required, and the
   // point of the normalization is that nothing downstream reads it — an empty
   // array proves that as well as an absent key would, and compiles.
   const normalized: IssueNavigationModel[] = issues.map((issue) => ({
