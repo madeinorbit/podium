@@ -113,6 +113,32 @@ describe('sidebar readiness', () => {
     expect(compareSidebarSnapshots(expected, expected)).toMatchObject({ differences: 0, first: null, pending: 0 })
   })
 
+  it('defers provisional roster membership and order without shifting settled mismatch locations', () => {
+    const row = (id: string, color: string | null = null) => ({ id, fields: { color } })
+    const expected: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: {}, rows: [row('issue'), row('settled'), row('pending'), row('last')] }] }
+    const actual: SidebarSnapshot = { pending: 2, sections: [{ key: 'roster', fields: {}, rows: [
+      row('issue'), { ...row('extra'), pending: true, placementPending: true },
+      { ...row('pending'), pending: true, placementPending: true }, row('settled', 'changed'), row('last'),
+    ] }] }
+    const locations: SidebarDifference[] = []
+    expect(compareSidebarSnapshots(expected, actual, difference => locations.push(difference))).toMatchObject({
+      differences: 1, pending: 2, first: { rowIndex: 1, expectedId: 'settled', actualId: 'settled', field: 'color' },
+    })
+    expect(locations).toHaveLength(1)
+    expect(compareSidebarSnapshots(actual, expected)).toMatchObject({ differences: 1, pending: 2, first: { rowIndex: 3, field: 'color' } })
+  })
+
+  it('checks worktree membership and ordering again as soon as its roster settles', () => {
+    const row = (id: string) => ({ id, fields: {} })
+    const expected: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: {}, rows: [row('one'), row('two')] }] }
+    const actual: SidebarSnapshot = { pending: 2, sections: [{ key: 'roster', fields: {}, rows: [
+      { ...row('two'), pending: true, placementPending: true }, row('one'), { ...row('extra'), pending: true, placementPending: true },
+    ] }] }
+    expect(compareSidebarSnapshots(expected, actual)).toMatchObject({ differences: 0, first: null, pending: 2 })
+    const settled: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: {}, rows: [row('two'), row('one'), row('extra')] }] }
+    expect(compareSidebarSnapshots(expected, settled)).toMatchObject({ differences: 3, pending: 0, first: { rowIndex: 0, field: 'id' } })
+  })
+
   for (const scale of [1, 4] as const) it(`reports cold ${scale}x rows separately without draining their batched loads`, async () => {
     const ctx = await startScenarioEngine(scale)
     const feeds = openFenceFeeds(ctx, 'overlaid')

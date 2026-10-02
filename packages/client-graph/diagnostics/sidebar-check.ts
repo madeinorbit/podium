@@ -16,9 +16,11 @@ import { legacySidebarRow, legacySidebarSections, poolStatusLine, sidebarCompara
 
 export interface CheckRow {
   readonly id: string
-  /** Only payload comparisons wait for this row's batched loads. Its ID and
-   * display position, section headers and other settled rows remain strict. */
+  /** Only payload comparisons wait for this row's batched loads. */
   readonly pending?: boolean
+  /** An incomplete worktree roster can change membership and sort order.
+   * Defer this ID in both sequences; all other IDs retain their relative order. */
+  readonly placementPending?: boolean
   readonly fields: Readonly<Record<string, unknown>>
 }
 export interface CheckSection {
@@ -61,8 +63,9 @@ function differingField(expected: unknown, actual: unknown, path = ''): string |
   return path || 'value'
 }
 
-/** Compare in display order. An extra pool row is as much a failure as a missing
- * row, even during loading. A global pending count never suppresses a mismatch. */
+/** Compare known membership in display order, and payloads once settled.
+ * A global pending count never suppresses a mismatch. Provisional roster IDs
+ * rejoin the complete structural comparison as soon as their loads settle. */
 export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: SidebarSnapshot, onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
   let differences = 0, first: SidebarDifference | null = null
   const flag = (difference: SidebarDifference): void => { differences += 1; first ??= difference; onDifference?.(difference) }
@@ -72,8 +75,13 @@ export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: Sideb
     if (!e || !a || e.key !== a.key) { flag({ ...location, field: 'section' }); continue }
     const field = differingField(e.fields, a.fields)
     if (field !== null) flag({ ...location, field })
-    for (let rowIndex = 0; rowIndex < Math.max(e.rows.length, a.rows.length); rowIndex += 1) {
-      const er = e.rows[rowIndex], ar = a.rows[rowIndex]
+    const provisional = new Set([...e.rows, ...a.rows].filter(row => row.placementPending).map(row => row.id))
+    const expectedRows = e.rows.map((row, index) => ({ row, index })).filter(({ row }) => !provisional.has(row.id))
+    const actualRows = a.rows.map((row, index) => ({ row, index })).filter(({ row }) => !provisional.has(row.id))
+    for (let index = 0; index < Math.max(expectedRows.length, actualRows.length); index += 1) {
+      const expectedRow = expectedRows[index], actualRow = actualRows[index]
+      const er = expectedRow?.row, ar = actualRow?.row
+      const rowIndex = expectedRow?.index ?? actualRow!.index
       const rowLocation = { ...location, rowIndex, expectedId: er?.id ?? null, actualId: ar?.id ?? null }
       if (!er || !ar || er.id !== ar.id) { flag({ ...rowLocation, field: 'id' }); continue }
       if (er.pending || ar.pending) continue
@@ -155,7 +163,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
     if (!row) return { id: path, fields: { absent: true } }
     pending += row.pending
     const ownerIds = new Set(row.sessions.flatMap(session => session.issueId ? [session.issueId] : []))
-    return { id: path, pending: row.pending > 0, fields: { sessions: row.sessions.map(sessionComparable), visible: row.visible.map(sessionComparable), stale: row.stale.map(sessionComparable),
+    return { id: path, pending: row.pending > 0, placementPending: row.pending > 0, fields: { sessions: row.sessions.map(sessionComparable), visible: row.visible.map(sessionComparable), stale: row.stale.map(sessionComparable),
       activityAt: row.activityAt, branch: row.worktree.branch ?? null, repoName: row.worktree.repoName, active: row.active,
       owners: [...ownerIds].map(id => ownerComparable(row.issues.find(owner => owner.id === id))),
     } }
