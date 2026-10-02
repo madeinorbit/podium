@@ -18,6 +18,8 @@ import type { Replica, ReplicaHydrateResult, ReplicaKind, ReplicaRows } from '..
 
 export const REPLICA_BINDING_KINDS = [
   'sessions',
+  'sessionUserStates',
+  'machines',
   'issues',
   'issueProjections',
   'issueUserStates',
@@ -131,6 +133,8 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
 function readSnapshot(replica: Replica): ReplicaBindingSnapshot {
   return {
     sessions: replica.rows('sessions'),
+    sessionUserStates: replica.rows('sessionUserStates'),
+    machines: replica.rows('machines'),
     issues: replica.rows('issues'),
     issueProjections: replica.rows('issueProjections'),
     issueUserStates: replica.rows('issueUserStates'),

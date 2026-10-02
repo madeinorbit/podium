@@ -251,9 +251,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // the port's own comment for why the two-parameter form was unsafe.
     sessionOwner: ({ sessionId, memo }) => ownership.sessionOwner(sessionId, memo),
     primeOwnerMemo: (memo, sessionIds) => bag.primeOwnerMemo(memo, sessionIds),
-    persistSession: async (sessionId, additionalWrite) => {
+    persistSession: async (sessionId, additionalWrite, additionalChanges) => {
       const session = bag.sessions.get(sessionId)
-      if (session) return bag.repository.persist(session, additionalWrite)
+      if (session) return bag.repository.persist(session, additionalWrite, additionalChanges)
     },
     writeSession: async (sessionId, mutate) => {
       const session = bag.sessions.get(sessionId)

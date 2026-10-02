@@ -635,7 +635,7 @@ describe('list_sessions boundIssue', () => {
       cwd: issue?.worktreePath ?? '/x',
     })
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
-    const rows = JSON.parse(await sa.callMcpTool('list_sessions', {})) as {
+    const rows = JSON.parse(await sa.callMcpTool('list_sessions', {}, asThreadId('global'))) as {
       cwd: string
       boundIssue?: { seq: number; title: string }
     }[]

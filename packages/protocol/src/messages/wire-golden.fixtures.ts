@@ -61,6 +61,8 @@ import {
   QuotaWindowWire,
   ResumeRef,
   SessionMeta,
+  SessionUserStateWire,
+  MachineProjection,
   SessionOffer,
   SessionStatus,
   ToolInventory,
@@ -608,6 +610,41 @@ const HANDOFF_MANIFEST_MINIMAL = {
 
 export const WIRE_FIXTURES: WireFixture[] = [
   ...SYNC_WIRE_FIXTURES,
+  {
+    name: 'SessionUserStateWire.never-read',
+    schema: SessionUserStateWire,
+    value: { userId: 'user-b', sessionId: 'sess-1', readAt: null },
+  },
+  {
+    name: 'SessionUserStateWire.next-message',
+    schema: SessionUserStateWire,
+    value: {
+      userId: 'user-a',
+      sessionId: 'sess-1',
+      readAt: '2026-07-30T10:00:00.000Z',
+      snoozedUntil: null,
+    },
+  },
+  {
+    name: 'SessionUserStateWire.timed',
+    schema: SessionUserStateWire,
+    value: {
+      userId: 'user-b',
+      sessionId: 'sess-1',
+      readAt: null,
+      snoozedUntil: '2026-07-30T12:00:00.000Z',
+    },
+  },
+  {
+    name: 'MachineProjection.full',
+    schema: MachineProjection,
+    value: { id: 'machine-1', name: 'Host', loggedOutHarnesses: ['codex'] },
+  },
+  {
+    name: 'MachineProjection.empty',
+    schema: MachineProjection,
+    value: { id: 'machine-2', name: 'Other', loggedOutHarnesses: [] },
+  },
   // ---- session vocabulary + aggregate (runtime-state.ts / terminal.ts) ----
   { name: 'agentKind', schema: AgentKind, value: 'claude-code' },
   { name: 'geometry', schema: Geometry, value: { cols: 120, rows: 40 } },

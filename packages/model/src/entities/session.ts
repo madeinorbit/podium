@@ -59,6 +59,7 @@ import {
   ConversationIdField,
   IssueIdField,
   MachineIdField,
+  RepoIdField,
   SessionIdField,
 } from '../ids'
 import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
@@ -585,6 +586,8 @@ export const SessionMetaEntity = z.object({
   /** Transient move overlay; absent outside an in-flight handoff. Not an id at
    *  all: the server sets it to `targetMachine.name`, a display label. */
   handoffTarget: z.string().optional(),
+  /** Live move target identity; its label comes from the replicated machine. */
+  handoffTargetMachineId: MachineIdField.optional(),
   /** The stable Podium conversation identity this session is working in
    *  (docs/spec/conversation-registry.md) — survives resume-rolls and worktree
    *  moves, unlike the native resume ref. Absent until first known.
@@ -636,6 +639,9 @@ export const SessionMetaEntity = z.object({
   refIssueId: IssueIdField.optional(),
   refLetter: z.string().optional(),
   refDraft: z.number().int().optional(),
+  /** Reference inputs independent of birth-issue visibility. Prefix joins by id. */
+  refRepoId: RepoIdField.optional(),
+  refSeq: z.number().int().optional(),
   /** Server-DERIVED permanent birth nice name (`POD-13-A` / `POD-DRAFT-3`).
    *  Computed from the repo prefix + ref fields. Absent until named. */
   displayRef: z.string().optional(),

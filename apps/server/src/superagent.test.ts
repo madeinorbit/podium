@@ -912,9 +912,9 @@ describe('session-steering tool belt (issue #62)', () => {
       cwd: '/w',
       spawnedBy: 'user',
     })
-    h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    await h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
     const rows = JSON.parse(
-      await h.sa.callMcpTool('list_sessions', {}, asThreadId('btw_x')),
+      await h.sa.callMcpTool('list_sessions', {}, asThreadId('global')),
     ) as Array<Record<string, unknown>>
     expect(rows[0]).toMatchObject({ sessionId, spawnedBy: 'user', snoozedUntil: null })
   })

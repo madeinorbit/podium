@@ -124,6 +124,7 @@ export class HandoffTransfer {
       } catch (error) {
         await this.ports.write(session, (draft) => {
           draft.handoffTarget = undefined
+          draft.handoffTargetMachineId = undefined
           if (!draft.archived && draft.status === 'hibernated') draft.status = source.status
         })
         this.ports.broadcastSessions()
@@ -137,7 +138,10 @@ export class HandoffTransfer {
         // Do not export/import or resume a second process while the first
         // owner's retirement is unknown. Recovery still belongs to the source.
         this.ports.toMachine(source.machineId, { type: 'kill', sessionId: session.sessionId })
-        await this.ports.write(session, (draft) => { draft.handoffTarget = undefined })
+        await this.ports.write(session, (draft) => {
+          draft.handoffTarget = undefined
+          draft.handoffTargetMachineId = undefined
+        })
         throw new Error('source process retirement was not confirmed')
       }
     }
@@ -297,6 +301,7 @@ export class HandoffTransfer {
       const newCwd = imported.newCwd
       await this.ports.write(session, (draft) => {
         draft.handoffTarget = undefined
+        draft.handoffTargetMachineId = undefined
         draft.machineId = asMachineId(input.machineId)
         draft.cwd = newCwd
         draft.status = 'hibernated'
@@ -382,6 +387,7 @@ export class HandoffTransfer {
       }
       await this.ports.write(session, (draft) => {
         draft.handoffTarget = undefined
+        draft.handoffTargetMachineId = undefined
         draft.machineId =
           sourceCommitted || targetWins ? asMachineId(input.machineId) : source.machineId
         draft.cwd =

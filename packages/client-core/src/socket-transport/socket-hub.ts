@@ -2350,8 +2350,10 @@ export class SocketHub {
           break
         case 'issueUserState':
         case 'issueGitState':
+        case 'sessionUserState':
+        case 'machine':
           // The Replica owns these additive rows. Compatibility observers keep
-          // reading their values from the old issue record until their cutover.
+          // reading their values from the old issue/session records until cutover.
           break
         case 'shipLane':
           this.shipLaneList = applyChange(

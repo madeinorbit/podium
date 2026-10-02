@@ -678,6 +678,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'a pure repo-id resolver injected at construction',
   },
+  'apps/server/src/store/issues.ts#IssuesRepository.sessionRefPublisher': {
+    kind: 'contained',
+    why: 'The composition hook declares birth-session reference rows through ledger.capture in the repair span; authority publication waits for commit, so a rollback exposes nothing outside the process.',
+  },
   'apps/server/src/store/repos.ts#ReposRepository.repoIdResolver()': {
     kind: 'contained',
     why: 'the resolver closure repoIdResolver() returns: pure over a snapshot',
@@ -1001,6 +1005,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalWrite': {
     kind: 'opaque',
     why: 'the extra write a persist lands inside the same transaction — the shape `persist` already had. Supplied at the call site, analysed there.',
+  },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalChanges': {
+    kind: 'opaque',
+    why: 'The satellite-row declaration callback returns change specs inside the session commit, alongside additionalWrite; its body is supplied and analysed at the call site, and this port publishes nothing itself.',
   },
   'apps/server/src/modules/sessions/repository.ts#SessionRepository.<anonymous>': {
     kind: 'opaque',

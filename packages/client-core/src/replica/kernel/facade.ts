@@ -175,6 +175,8 @@ export interface KernelBackedReplica extends Replica {
  *  than the interface, which is the harder bug to find later. */
 const ALL_KINDS: readonly ReplicaKind[] = [
   'sessions',
+  'sessionUserStates',
+  'machines',
   'issues',
   'issueProjections',
   'issueUserStates',
@@ -479,6 +481,8 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       // cold-start paint: the first render reads the persisted slice.
       return {
         sessions: project('sessions'),
+        sessionUserStates: project('sessionUserStates'),
+        machines: project('machines'),
         issues: project('issues'),
         issueProjections: project('issueProjections'),
         issueUserStates: project('issueUserStates'),

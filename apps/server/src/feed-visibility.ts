@@ -35,6 +35,7 @@ import {
   parseIssueDepId,
   parseIssueEventRowId,
   parseIssueUserStateRowId,
+  parseSessionUserStateRowId,
   parseLayoutRowId,
   parseMessageRecordRowId,
   parseReadPositionRowId,
@@ -277,7 +278,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     }
     return {
       classOf: (entity) => {
-        if (entity === 'repo') return 'deployment-substrate'
+        if (entity === 'repo' || entity === 'machine') return 'deployment-substrate'
         // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
         // filter. Must NOT fall through to personal or unclassified.
         if (entity === 'userLayout') return 'per-user-state'
@@ -286,7 +287,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // state" is not a verb — it is the privacy defect this member exists to
         // avoid.
         if (entity === 'userReadPosition') return 'per-user-state'
-        if (entity === 'issueUserState') return 'per-user-state'
+        if (entity === 'issueUserState' || entity === 'sessionUserState') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issue' ||
@@ -403,6 +404,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         return false
       },
       keyedUserOf: (ref) => {
+        if (ref.entity === 'sessionUserState') {
+          try {
+            return parseSessionUserStateRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
         if (ref.entity === 'issueUserState') {
           try {
             return parseIssueUserStateRowId(ref.entityId).userId

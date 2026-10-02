@@ -65,6 +65,8 @@ import type {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
+  SessionUserStateWire,
+  MachineProjection,
   IssueWire,
   LayoutWire,
   MessageRecordWire,
@@ -94,6 +96,8 @@ export type StorageEventApi = {
 
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
+  sessionUserStates: SessionUserStateWire
+  machines: MachineProjection
   sessions: SessionMeta
   /** The LEGACY embedded issue wire. Still held for compatibility consumers: the
    *  rich issue UI reads some supplements from it while normalized projections
@@ -162,6 +166,8 @@ export interface ReplicaRows {
 export type ReplicaKind = keyof ReplicaRows
 
 export interface ReplicaHydrateResult {
+  sessionUserStates: SessionUserStateWire[]
+  machines: MachineProjection[]
   sessions: SessionMeta[]
   issues: IssueWire[]
   /** The three POD-796/POD-822 kinds, persisted like every other collection so a

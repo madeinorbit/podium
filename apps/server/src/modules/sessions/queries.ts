@@ -88,10 +88,13 @@ export const SESSION_QUERIES = {
    *  projection [POD-3857] — this is the client's own session list, so it is
    *  the projection by definition. Labelled `rpc` so the perf phase can tell it
    *  apart from boot. */
-  list: q(z.object({}).passthrough().optional(), async (s) =>
-    await filterAsync(await s.modules.sessions.listSessions(undefined, 'rpc'), (session) =>
-      mayReadSession(s, session.sessionId),
-    ),
+  list: q(
+    z.object({}).passthrough().optional(),
+    async (s) =>
+      await filterAsync(
+        await s.modules.sessions.listSessions(s.caller.sessionState, 'rpc'),
+        (session) => mayReadSession(s, session.sessionId),
+      ),
   ),
   /** Fleet-wide 12-hour concurrency samples for the global shell status strip. */
   concurrencyHistory: q(z.object({}).passthrough().optional(), async (s) =>

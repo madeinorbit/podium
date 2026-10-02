@@ -116,6 +116,9 @@ export async function buildSuperagentTools(
   const memoryReader = ownerUserId
     ? { kind: 'agent' as const, id: threadId ?? 'superagent', onBehalfOf: ownerUserId }
     : undefined
+  const listPrincipal = ownerUserId
+    ? await sessions.view.principalForTrustedUser(ownerUserId)
+    : undefined
   const getSession = async (id: string) => await sessions.sessionById(id as SessionId)
   const tools: SuperagentTool[] = [
     {
@@ -131,27 +134,29 @@ export async function buildSuperagentTools(
       run: async () =>
         JSON.stringify(
           await Promise.all(
-            (await sessions.listSessions(undefined, 'listAllTool')).map(async (s) => {
-              // Reverse of issue_show's session list (issue #72): session cwd →
-              // bound issue, via the same worktree-containment rule as authz scope.
-              const issueId = issues.issueForCwd(s.cwd)
-              const issue = issueId ? await issues.getMeta(issueId) : null
-              return {
-                sessionId: s.sessionId,
-                name: s.name ?? s.title,
-                kind: s.agentKind,
-                cwd: s.cwd,
-                status: s.status,
-                phase: s.agentState?.phase ?? 'unknown',
-                archived: s.archived,
-                lastActiveAt: s.lastActiveAt,
-                // Provenance + snooze (issue #62): who created it, and whether it's
-                // parked out of the attention flow (null = until next message).
-                spawnedBy: s.spawnedBy,
-                snoozedUntil: s.snoozedUntil,
-                ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
-              }
-            }),
+            (listPrincipal ? await sessions.listSessions(listPrincipal, 'listAllTool') : []).map(
+              async (s) => {
+                // Reverse of issue_show's session list (issue #72): session cwd →
+                // bound issue, via the same worktree-containment rule as authz scope.
+                const issueId = issues.issueForCwd(s.cwd)
+                const issue = issueId ? await issues.getMeta(issueId) : null
+                return {
+                  sessionId: s.sessionId,
+                  name: s.name ?? s.title,
+                  kind: s.agentKind,
+                  cwd: s.cwd,
+                  status: s.status,
+                  phase: s.agentState?.phase ?? 'unknown',
+                  archived: s.archived,
+                  lastActiveAt: s.lastActiveAt,
+                  // Provenance + snooze (issue #62): who created it, and whether it's
+                  // parked out of the attention flow (null = until next message).
+                  spawnedBy: s.spawnedBy,
+                  snoozedUntil: s.snoozedUntil,
+                  ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
+                }
+              },
+            ),
           ),
         ),
     },

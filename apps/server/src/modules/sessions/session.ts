@@ -153,7 +153,11 @@ export interface SessionInit {
 }
 
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
-export type SessionVolatileField = 'status' | 'machineId' | 'handoffTarget'
+export type SessionVolatileField =
+  | 'status'
+  | 'machineId'
+  | 'handoffTarget'
+  | 'handoffTargetMachineId'
 
 /**
  * THE DURABLE HALF AS A VALUE [POD-3330].
@@ -211,6 +215,7 @@ export interface SessionDurableState {
   contextUsagePercent: number | undefined
   queuedMessageCount: number
   handoffTarget: string | undefined
+  handoffTargetMachineId: MachineId | undefined
   conversationPodiumId: ConversationId | undefined
   draftUpdatedAt: string | undefined
   offer: SessionOffer | undefined
@@ -390,6 +395,7 @@ export class Session {
   queuedMessageCount = 0
   /** Transient UI overlay while the canonical row moves machines ([spec:SP-3f7a]). */
   handoffTarget: string | undefined
+  handoffTargetMachineId: MachineId | undefined
   /** Stable Podium conversation identity (conversation registry). Stamped by the
    *  registry when the linkage is learned (resume ref observed/rolled, boot
    *  lookup); transient here — the conversation_segments table is the truth. */
@@ -885,6 +891,7 @@ export class Session {
       contextUsagePercent: this.contextUsagePercent,
       queuedMessageCount: this.queuedMessageCount,
       handoffTarget: this.handoffTarget,
+      handoffTargetMachineId: this.handoffTargetMachineId,
       conversationPodiumId: this.conversationPodiumId,
       draftUpdatedAt: this.draftUpdatedAt,
       offer: this.offer ? structuredClone(this.offer) : undefined,
@@ -1145,6 +1152,7 @@ export class Session {
       ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),
       ...(d.offer !== undefined ? { offer: d.offer } : {}), // [spec:SP-c7f1]
       ...(d.handoffTarget ? { handoffTarget: d.handoffTarget } : {}),
+      ...(d.handoffTargetMachineId ? { handoffTargetMachineId: d.handoffTargetMachineId } : {}),
       ...(this.driverId ? { driverId: this.driverId } : {}),
       ...(d.requestedDriverId ? { requestedDriverId: d.requestedDriverId } : {}),
       // The bound driver's FAMILY, so a client can pick a surface without

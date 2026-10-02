@@ -70,6 +70,13 @@ export type IssueWorktreeRow = Pick<IssueRow, 'id' | 'repoPath' | 'seq' | 'workt
 
 export class IssuesRepository {
   readonly committed: CommittedRows<typeof issues.$inferSelect>
+  private sessionRefPublisher: ((ids: readonly IssueId[]) => Promise<void>) | undefined
+
+  /** Composition hook for the two repairs that change permanent session refs.
+   * Runs inside their write span; it declares authority rows, never broadcasts. */
+  setSessionRefPublisher(publish: (ids: readonly IssueId[]) => Promise<void>): void {
+    this.sessionRefPublisher = publish
+  }
 
   /** Rows skipped by the last {@link listIssueRows} because they were
    *  structurally corrupt (row-level quarantine). Diagnostic counter. */
@@ -779,6 +786,7 @@ export class IssuesRepository {
       for (const u of updates) {
         await this.committed.write(async () => this.db.update(issues).set({ seq: u.seq }).where(eq(issues.id, u.id)).returning().all(), 'upsert')
       }
+      await this.sessionRefPublisher?.(updates.map((update) => update.id))
     })
     return updates.length
   }
@@ -819,25 +827,37 @@ export class IssuesRepository {
         .where(and(eq(issues.repoId, repoId), eq(issues.seq, seq)))
         .get()
     await this.invalidateRowCache()
-    for (const r of rows) {
-      let seq = r.seq
-      const holder = await taken(seq)
-      if (holder && holder.id !== r.id) {
-        while (await taken(next)) next += 1
-        seq = next
-        next += 1
-        log.warn(
-          'repo-id upgrade merged buckets — reassigning a taken seq (issue ids are unchanged)',
-          {
-            repoId,
-            issueId: r.id,
-            takenSeq: r.seq,
-            reassignedTo: seq,
-          },
+    await this.createOrJoinTransaction(async () => {
+      for (const r of rows) {
+        let seq = r.seq
+        const holder = await taken(seq)
+        if (holder && holder.id !== r.id) {
+          while (await taken(next)) next += 1
+          seq = next
+          next += 1
+          log.warn(
+            'repo-id upgrade merged buckets — reassigning a taken seq (issue ids are unchanged)',
+            {
+              repoId,
+              issueId: r.id,
+              takenSeq: r.seq,
+              reassignedTo: seq,
+            },
+          )
+        }
+        await this.committed.write(
+          async () =>
+            this.db
+              .update(issues)
+              .set({ repoId, seq })
+              .where(eq(issues.id, r.id))
+              .returning()
+              .all(),
+          'upsert',
         )
       }
-      await this.committed.write(async () => this.db.update(issues).set({ repoId, seq }).where(eq(issues.id, r.id)).returning().all(), 'upsert')
-    }
+      await this.sessionRefPublisher?.(rows.map((row) => row.id))
+    })
   }
 
   /**

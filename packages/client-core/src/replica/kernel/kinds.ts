@@ -17,12 +17,14 @@
  * "not mine" — never "corrupt".
  */
 
-import { issueUserStateRowId, layoutRowId } from '@podium/model'
+import { issueUserStateRowId, sessionUserStateRowId, layoutRowId } from '@podium/model'
 import type { ReplicaKind, ReplicaRows } from '../contract'
 
 /** Kernel entity name → engine collection kind. */
 const ENTITY_TO_KIND = {
   session: 'sessions',
+  sessionUserState: 'sessionUserStates',
+  machine: 'machines',
   issue: 'issues',
   // The POD-796/POD-822 normalized kinds. Their entity spellings are NOT guessed
   // — they are `MetadataEntityKind`'s literals in protocol's `messages/sync.ts`
@@ -84,6 +86,10 @@ export function entityForKind(kind: ReplicaKind): KernelEntity {
  */
 export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): string {
   if (kind === 'sessions') return (row as ReplicaRows['sessions']).sessionId
+  if (kind === 'sessionUserStates') {
+    const state = row as ReplicaRows['sessionUserStates']
+    return sessionUserStateRowId(state.userId, state.sessionId)
+  }
   if (kind === 'issueUserStates') {
     const state = row as ReplicaRows['issueUserStates']
     return issueUserStateRowId(state.userId, state.entityId)

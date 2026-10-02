@@ -60,7 +60,11 @@ function viewOver(sessions: Session[], hidden: Set<string> = new Set()) {
       sync: { queuedMessageCounts: async () => new Map() },
       users: { roleOf: () => 'admin' },
       issues: { getIssue: () => undefined, getIssues: async () => new Map() },
-      repos: { prefixForPath: () => null, resolveRepoIdForPath: () => undefined },
+      repos: {
+        prefixForPath: () => null,
+        resolveRepoIdForPath: () => undefined,
+        repoIdResolver: async () => () => undefined,
+      },
     } as unknown as SessionViewPorts['store'],
     machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
     state: {
@@ -271,7 +275,7 @@ describe('displayRef implies the parts it is formatted from [POD-3857]', () => {
         sync: { queuedMessageCounts: async () => new Map() },
         users: { roleOf: async () => 'admin' },
         issues: { getIssue: async () => ISSUE_ROW, getIssues: async (ids: string[]) => new Map(ids.map(id => [id, ISSUE_ROW])) },
-        repos: { prefixResolver: async () => () => 'POD', prefixForPath: async () => 'POD', resolveRepoIdForPath: async () => undefined },
+        repos: { repoIdResolver: async () => () => undefined, prefixResolver: async () => () => 'POD', prefixForPath: async () => 'POD', resolveRepoIdForPath: async () => undefined },
       } as unknown as SessionViewPorts['store'],
       machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
       state: {

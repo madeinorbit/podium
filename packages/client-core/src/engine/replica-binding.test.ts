@@ -1,5 +1,5 @@
 import type { EntityRecord } from '@podium/sync/replica'
-import { asRepoId, shipLaneId } from '@podium/model'
+import { asMachineId, asRepoId, asSessionId, asUserId, shipLaneId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createKernelReplica, createSideCache } from '../replica/kernel'
 import type { KernelCacheRead } from '../replica/kernel'
@@ -98,6 +98,10 @@ describe('replica snapshot binding', () => {
     const first = createReplica({ storage, keyPrefix })
     first.applySnapshot('sessions', [session('alice-session', '2026-08-01T09:00:00.000Z')])
     first.applySnapshot('issues', [issue('alice-issue', '2026-08-01T10:00:00.000Z')])
+    const personal = { userId: asUserId('alice'), sessionId: asSessionId('alice-session'), readAt: null, snoozedUntil: null }
+    const machine = { id: asMachineId('machine:alice'), name: 'Laptop', loggedOutHarnesses: ['codex' as const] }
+    first.applySnapshot('sessionUserStates', [personal])
+    first.applySnapshot('machines', [machine])
     await first.flush()
 
     // A new app process reads synchronously before start()/network. These fields
@@ -105,6 +109,8 @@ describe('replica snapshot binding', () => {
     // from ad-hoc local UI storage.
     const reopened = createReplica({ storage, keyPrefix })
     const cold = createReplicaBinding({ replica: reopened }).snapshot()
+    expect(cold.sessionUserStates).toMatchObject([personal])
+    expect(cold.machines).toMatchObject([machine])
     expect(cold.sessions).toMatchObject([
       {
         sessionId: 'alice-session',

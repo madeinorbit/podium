@@ -11,6 +11,8 @@ import {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
+  SessionUserStateWire,
+  MachineProjection,
   IssueWire,
   LayoutWire,
   MessageRecordWire,
@@ -41,6 +43,8 @@ export {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
+  SessionUserStateWire,
+  MachineProjection,
   RepoProjection,
   ShipLaneProjection,
   ShipOrderProjection,
@@ -258,6 +262,8 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  them and advances its cursor. `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('message'), MessageRecordWire),
   metadataChangeArm(z.literal('issueUserState'), IssueUserStateWire),
+  metadataChangeArm(z.literal('sessionUserState'), SessionUserStateWire),
+  metadataChangeArm(z.literal('machine'), MachineProjection),
   metadataChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
@@ -278,6 +284,8 @@ export const MetadataEntityKind = z.enum([
   'pendingInteraction',
   'message',
   'issueUserState',
+  'sessionUserState',
+  'machine',
   'issueGitState',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
@@ -379,6 +387,8 @@ const changesSinceSnapshotArm = () =>
   z.object({
     kind: z.literal('snapshot'),
     sessions: z.array(SessionMeta),
+    sessionUserStates: z.array(SessionUserStateWire).optional(),
+    machines: z.array(MachineProjection).optional(),
     issues: z.array(IssueWire),
     issueProjections: z.array(IssueProjection).optional(),
     issueDeps: z.array(IssueDepProjection).optional(),

@@ -41,7 +41,8 @@
 
 import { z } from 'zod'
 import { perUserKey } from '../fields/per-user-key'
-import { SessionIdField } from '../ids'
+import { asSessionId, SessionIdField, type SessionId, type UserId } from '../ids'
+import { parseUserEntityKey, userEntityKey } from '../ids/keys'
 
 /**
  * SESSION READ STATE — `(userId, sessionId)` → when this person last opened it.
@@ -71,6 +72,26 @@ export const SessionSnoozeState = perUserKey(SessionIdField).extend({
   snoozedUntil: z.string().nullable(),
 })
 export type SessionSnoozeState = z.infer<typeof SessionSnoozeState>
+
+/** R4 personal session markers. Absence of snoozedUntil means no snooze;
+ * null means until the next message. Legacy SessionMeta fields remain until S6. */
+export const SessionUserStateWire = perUserKey(SessionIdField).omit({ entityId: true }).extend({
+  sessionId: SessionIdField,
+  readAt: SessionReadState.shape.readAt,
+  snoozedUntil: SessionSnoozeState.shape.snoozedUntil.optional(),
+})
+export type SessionUserStateWire = z.infer<typeof SessionUserStateWire>
+
+export const sessionUserStateRowId = (userId: UserId, sessionId: SessionId): string =>
+  userEntityKey(userId, { kind: 'session', id: sessionId })
+
+export function parseSessionUserStateRowId(
+  id: string,
+): Pick<SessionUserStateWire, 'userId' | 'sessionId'> {
+  const key = parseUserEntityKey(id)
+  if (key.kind !== 'session') throw new Error('session user-state key must name a session')
+  return { userId: key.user, sessionId: asSessionId(key.id) }
+}
 
 /** What a pin can point at. Structural here (the store's `PinKind` is the same
  *  three literals); the family needs the value, not the server's type. */

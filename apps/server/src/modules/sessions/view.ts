@@ -9,6 +9,7 @@ import {
   type SessionUserOverlay,
   type UserId,
   type IssueId,
+  type RepoId,
 } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { userCommandPrincipal } from '../../command-principal'
@@ -29,6 +30,7 @@ export interface ProjectionPass {
   issues: Map<string, IssueRow | null>
   grants: Map<string, string[]>
   prefixes: ReadonlyMap<string, string | null>
+  refRepoIds?: ReadonlyMap<string, RepoId | undefined>
   overlays: ReadonlyMap<SessionId, SessionUserOverlay>
   machines: MachineFactsSnapshot
   occupancy: ReadonlyMap<SessionId, number | undefined>
@@ -232,7 +234,10 @@ export class SessionView {
       return issue ? [issue.repoPath] : s.refDraft != null ? [s.cwd] : []
     }))
     const prefixes = new Map<string, string | null>()
+    const refRepoIds = new Map<string, RepoId | undefined>()
     if (paths.size) {
+      const repoIdForPath = await this.ports.store.repos.repoIdResolver()
+      for (const path of paths) refRepoIds.set(path, repoIdForPath(path) ?? undefined)
       const prefixForPath = await this.ports.store.repos.prefixResolver()
       for (const path of paths) prefixes.set(path, prefixForPath(path))
     }
@@ -241,8 +246,19 @@ export class SessionView {
       ? await this.ports.state.overlaySnapshot(principal.userId, ids)
       : new Map<SessionId, SessionUserOverlay>()
     const machines = await this.ports.machines.factsSnapshot()
-    const occupancy = new Map(sessions.map(s => [s.sessionId, this.ports.sessionOccupancyCount?.(s.sessionId)]))
-    return { issues, grants, prefixes, queuedMessageCounts, overlays, machines, occupancy }
+    const occupancy = new Map(
+      sessions.map((s) => [s.sessionId, this.ports.sessionOccupancyCount?.(s.sessionId)]),
+    )
+    return {
+      issues,
+      grants,
+      prefixes,
+      refRepoIds,
+      queuedMessageCounts,
+      overlays,
+      machines,
+      occupancy,
+    }
   }
 
   readonly wire = wireSession
@@ -308,11 +324,16 @@ export function wireSession(
   const loginCondition = pass.machines.loginCondition(d.machineId, session.agentKind)
   const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
   let displayRef: string | undefined
+  let refRepoId: RepoId | undefined
+  let refSeq: number | undefined
   if (d.refIssueId && d.refLetter) {
     const issue = pass.issues.get(d.refIssueId)
+    refRepoId = issue?.repoId ?? (issue ? pass.refRepoIds?.get(issue.repoPath) : undefined)
+    refSeq = issue?.seq
     const prefix = issue && pass.prefixes.get(issue.repoPath)
     if (prefix && issue) displayRef = formatSessionRef({ prefix, seq: issue.seq, letter: d.refLetter })
   } else if (d.refDraft != null) {
+    refRepoId = pass.refRepoIds?.get(d.cwd)
     const prefix = pass.prefixes.get(d.cwd)
     if (prefix) displayRef = formatSessionRef({ prefix, draft: d.refDraft })
   }
@@ -330,5 +351,7 @@ export function wireSession(
     ...(d.refLetter ? { refLetter: d.refLetter } : {}),
     ...(d.refDraft != null ? { refDraft: d.refDraft } : {}),
     ...(displayRef ? { displayRef } : {}),
+    ...(refRepoId ? { refRepoId } : {}),
+    ...(refSeq !== undefined ? { refSeq } : {}),
   }
 }

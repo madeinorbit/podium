@@ -519,6 +519,7 @@ export class SessionRegistry {
     if (!this.recoveryOnly || rehearseBoot) await this.modules.sessions.loadFromStore()
     bootStage('sessions recovery', stageStarted)
     stageStarted = performance.now()
+    await this.ledger.reconcile('machine', await this.modules.machines.projectionRows())
     await this.issueEventFeed.resolve()
     await this.interactionFeed.resolve()
     await this.messageFeed.resolve()
@@ -720,6 +721,9 @@ export class SessionRegistry {
     // further down, after everything it announces changes to.
     let operations: OperationsModule | undefined
     const machines = new MachinesService({
+      publishMachineProjection: async (id, value) => {
+        await this.ledger.capture([{ entity: 'machine', id, op: 'upsert', value }])
+      },
       worldIndex: this.worldIndex,
       instanceId,
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
@@ -1824,6 +1828,7 @@ export class SessionRegistry {
     resumeHostPressureAfterTransferFence = () => hosts.resumeAfterTransferFence()
     const headless = sessionsSvc.headless
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
+    this.store.issues.setSessionRefPublisher((ids) => sessionsSvc.captureReferenceChanges(ids))
     this.bus.on('machine.metadataChanged', ({ machineId }) => {
       sessionsSvc.sessionsChangedForMachine(machineId)
     })

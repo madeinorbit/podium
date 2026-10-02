@@ -51,10 +51,11 @@ export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
  *  removes). Structurally satisfied by {@link @podium/sync.Ledger}; narrow so
  *  tests can fake it. */
 export interface SessionLedger {
+  readonly authority?: Pick<import('@podium/sync').Ledger['authority'], 'snapshot'>
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
   capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
   reconcile(
-    entity: 'session',
+    entity: 'session' | 'sessionUserState',
     rows: { id: string; value: unknown }[],
   ): Promise<MetadataChange[]>
 }

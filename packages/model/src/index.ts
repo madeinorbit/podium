@@ -61,6 +61,7 @@ export * from './entities/repo'
 // everything that is a fact ABOUT a machine inherits that machine's scoping
 // (docs/multi-user-readiness.md §3.1.1/§3.1.4) — see the file header.
 export * from './entities/machine'
+export * from './entities/machine-projection'
 // The message delivery lifecycle, declared as a forward-only machine (POD-4765).
 export * from './entities/message-delivery'
 export * from './entities/session'

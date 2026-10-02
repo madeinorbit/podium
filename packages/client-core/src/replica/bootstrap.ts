@@ -43,7 +43,7 @@
  * is a frozen UI rather than a missed watchdog. Same rule, different loop.
  */
 
-import type { SessionId } from '@podium/model'
+import { sessionUserStateRowId, type SessionUserStateWire, type SessionId } from '@podium/model'
 import type { MetadataChangeLenient } from '@podium/protocol'
 import { isKnownMetadataChange } from '@podium/protocol'
 import type { FeedCursor } from './feed'
@@ -53,6 +53,8 @@ import type { Replica, ReplicaKind, ReplicaRows } from './replica'
  *  replica says `sessions`; this is the only place the two vocabularies meet. */
 const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   session: 'sessions',
+  sessionUserState: 'sessionUserStates',
+  machine: 'machines',
   issue: 'issues',
   // The three POD-796/POD-822 kinds the replica holds. Mapped here so a
   // bootstrap/heal that carries them installs them into the right collection
@@ -246,6 +248,8 @@ export class BootstrapSession {
 export function snapshotToChunks(
   snapshot: {
     sessions?: unknown[]
+    sessionUserStates?: unknown[]
+    machines?: unknown[]
     issues?: unknown[]
     issueProjections?: unknown[]
     issueDeps?: unknown[]
@@ -260,6 +264,15 @@ export function snapshotToChunks(
 ): BootstrapChunk[] {
   const entities: Array<[string, unknown[] | undefined, (row: unknown) => string]> = [
     ['session', snapshot.sessions, (r) => (r as { sessionId: SessionId }).sessionId],
+    [
+      'sessionUserState',
+      snapshot.sessionUserStates,
+      (r) => {
+        const row = r as SessionUserStateWire
+        return sessionUserStateRowId(row.userId, row.sessionId)
+      },
+    ],
+    ['machine', snapshot.machines, (r) => (r as { id: string }).id],
     ['issue', snapshot.issues, (r) => (r as { id: string }).id],
     ['issueProjection', snapshot.issueProjections, (r) => (r as { id: string }).id],
     ['issueDep', snapshot.issueDeps, (r) => (r as { id: string }).id],

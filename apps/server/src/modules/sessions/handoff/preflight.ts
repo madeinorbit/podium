@@ -83,11 +83,13 @@ export class HandoffPreflight {
     // that doesn't reach the target.
     this.ports.mutateSessionView(session.sessionId, (current) => {
       current.handoffTarget = targetMachine.name
+      current.handoffTargetMachineId = targetMachine.id
     })
     this.ports.broadcastSessions()
     const clearHandoffOverlay = (): void => {
       this.ports.mutateSessionView(session.sessionId, (current) => {
         current.handoffTarget = undefined
+        current.handoffTargetMachineId = undefined
       })
       this.ports.broadcastSessions()
     }

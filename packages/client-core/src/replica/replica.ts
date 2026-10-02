@@ -64,6 +64,9 @@ import {
   type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
+  type SessionUserStateWire,
+  type MachineProjection,
+  sessionUserStateRowId,
   type IssueWire,
   interactionRowId,
   issueUserStateRowId,
@@ -302,6 +305,8 @@ const NOOP_STORAGE_EVENTS: StorageEventApi = {
 /** Entity collection kinds + transcripts — everything the quota guard covers. */
 const ENTITY_STORE_KINDS = [
   'sessions',
+  'sessionUserStates',
+  'machines',
   'issues',
   'issueProjections',
   'issueUserStates',
@@ -460,6 +465,18 @@ class TanstackReplica implements Replica {
         guardedEvents,
       ),
       issues: this.makeCollection<IssueWire>('issues', (i) => i.id, guarded, guardedEvents),
+      sessionUserStates: this.makeCollection<SessionUserStateWire>(
+        'sessionUserStates',
+        (row) => sessionUserStateRowId(row.userId, row.sessionId),
+        guarded,
+        guardedEvents,
+      ),
+      machines: this.makeCollection<MachineProjection>(
+        'machines',
+        (row) => row.id,
+        guarded,
+        guardedEvents,
+      ),
       issueUserStates: this.makeCollection<IssueUserStateWire>(
         'issueUserStates',
         (row) => issueUserStateRowId(row.userId, row.entityId),
@@ -583,6 +600,8 @@ class TanstackReplica implements Replica {
       issues: [],
       issueProjections: [],
       issueUserStates: [],
+      sessionUserStates: [],
+      machines: [],
       issueGitStates: [],
       issueDeps: [],
       repos: [],
@@ -636,6 +655,8 @@ class TanstackReplica implements Replica {
         issues: this.cols.issues.toArray as IssueWire[],
         issueProjections: this.cols.issueProjections.toArray as IssueProjection[],
         issueUserStates: this.cols.issueUserStates.toArray as IssueUserStateWire[],
+        sessionUserStates: this.cols.sessionUserStates.toArray as SessionUserStateWire[],
+        machines: this.cols.machines.toArray as MachineProjection[],
         issueGitStates: this.cols.issueGitStates.toArray as IssueGitStateProjection[],
         issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
         repos: this.cols.repos.toArray as RepoProjection[],
@@ -1615,6 +1636,12 @@ class TanstackReplica implements Replica {
 
   private keyFor<K extends ReplicaKind>(kind: K): (row: ReplicaRows[K]) => string {
     if (kind === 'sessions') return (row) => (row as SessionMeta).sessionId
+    if (kind === 'sessionUserStates') {
+      return (row) => {
+        const state = row as SessionUserStateWire
+        return sessionUserStateRowId(state.userId, state.sessionId)
+      }
+    }
     if (kind === 'issueUserStates') {
       return (row) => {
         const state = row as IssueUserStateWire

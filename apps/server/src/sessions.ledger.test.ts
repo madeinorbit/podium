@@ -768,11 +768,19 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
     const failAndHeal = async (trigger: () => void | Promise<void>, assertValue: (value: SessionMeta) => void) => {
       const before = events.length
-      const append = vi.spyOn(sync, 'appendChanges').mockImplementationOnce(() => {
-        throw new Error('transient session capture failure')
+      const originalAppend = sync.appendChanges.bind(sync)
+      const sessionAppend = vi.fn()
+      const append = vi.spyOn(sync, 'appendChanges').mockImplementation((changes, stampedAt) => {
+        // S1's machine record now commits before the compatibility-only session
+        // refresh. Plant this failure at the session boundary the test owns.
+        if (changes.some(change => change.entity === 'session')) {
+          sessionAppend()
+          throw new Error('transient session capture failure')
+        }
+        return originalAppend(changes, stampedAt)
       })
       await trigger()
-      expect(append).not.toHaveBeenCalled()
+      expect(sessionAppend).not.toHaveBeenCalled()
       await expect(registry.modules.sessions.flushBroadcasts()).rejects.toThrow(
         'transient session capture failure',
       )
