@@ -34,15 +34,27 @@ Linux host; the all-switches-off Chromium comparison is the agreed fallback.
   trace for the final minute. Schedule 48 wheel inputs in four bursts and 12 clicks
   in three bursts. Every primary mode spans more than ten minutes after GC.
 - The operator subsequently authorized real row clicks and mark-read writes.
-  Exactly two fixed mission rows were used: 70 and 40 direct children, seven direct
-  sessions each at setup. All other business writes were intercepted. Selection
-  began empty in each isolated profile; the operator's device-local selection was
-  not copied or changed. No archive, rename, drag, text input or preference write
-  reached the server. The server sidebar preference was unchanged after each run.
+  Exactly two fixed mission rows were used: API child counts 70 and 40, seven direct
+  sessions each at setup. At final verification those child counts were 5 and 40;
+  the live contents changed materially during the experiment. All other business
+  writes were intercepted. Selection began empty in each isolated profile; the operator's device-local selection was
+  not copied or changed. Across the primary and replay matrices there were 96 clicks
+  on those two rows and 58 forwarded mark-read requests; both read markers changed
+  as authorized. No archive, rename, drag, text input or preference write reached
+  the server. The server sidebar preference was unchanged after each run.
 - Native terminal `attach` was blocked because its server handler reconciles the
   active renderer and broadcasts state. These measurements cover navigation,
   FlightDeck and permitted transcript reads, **not terminal attachment readiness,
   live PTY replay, macOS WebKit, GPU memory or native-process memory**.
+
+The write guard is another limit: automatic read marks and layout writes were
+locally acknowledged without their normal server-feed echo. The primary updated
+windows intercepted 224/279/714 `layout.set` calls (off/on/check); the replays
+intercepted 4/18/1, all for the static `panelMode` preference. Such activity can
+change optimistic-state lifetime and rendering, so it must not be diagnosed as
+a product regression from these runs. The checker and legacy derivation costs
+are directly observed, but this is not an unguarded replica of the operator's
+whole desktop session.
 
 Times below use decimal MB and wall-clock seconds. Startup means the first visible
 sidebar shell, not that every lazy surface is ready. Incoming traffic and host load
@@ -61,7 +73,7 @@ visible; totals must not be read as a matched-event A/B experiment.
 | Received WebSocket data, MB | 30.7 | 21.5 | 22.4 | 21.9 |
 | Scroll p50 / p95, ms | 118.4 / 1015.8 | 900.7 / 1509.8 | 133.8 / 1124.4 | 156.7 / 1231.7 |
 | Largest 5-second sampled used heap, MB | 745.9 | 1184.6 | 1059.4 | 1109.0 |
-| computeMissionIssueIds self CPU, s | 71.7 | 115.8 | 4.6 | 32.3 |
+| computeMissionIssueIds self CPU, s | 71.8 | 115.9 | 4.6 | 32.3 |
 
 The initial hands-off interval, before any clicks or scrolling, consumed:
 
@@ -88,7 +100,7 @@ unchanged between the two commits. Shared runtime, normalized issue-user state,
 optimism and cache initialization did change; this experiment does not isolate
 one of those changes as a new regression.
 
-On-only reduced `computeMissionIssueIds` self CPU from 115.8 to 4.6 seconds in the
+On-only reduced `computeMissionIssueIds` self CPU from 115.9 to 4.6 seconds in the
 updated windows. With the checker enabled it returned to 32.3 seconds. The checker
 alone sampled **84.8 seconds across 110 completed checks**, about 771 ms/check.
 Its own rolling counter reported **7.20–9.31 seconds per minute** after settling.
@@ -183,22 +195,57 @@ collector mirrors that boundary and separately records wheel events. The origina
 The primary matrix's 12 clicks per mode measured p50/p95 of 990/1796 ms before,
 749/1770 ms updated off, 856/2187 ms on, and 796/1937 ms on+check. Their initial
 write allowance expired on some delayed commands, leaving 9/4/7/5 actual server
-mark-read receipts respectively. Those figures are kept as guarded navigation
+forwarded mark-read requests respectively. Those figures are kept as guarded navigation
 observations, not represented as fully acknowledged write-path measurements.
 
-CLICK_REPLAY_PENDING
+| Separate real-click replay | Before: off | Updated: off | Updated: on | Updated: on + check |
+| --- | ---: | ---: | ---: | ---: |
+| Click count | 12 | 12 | 12 | 12 |
+| Input → double-rAF p50 / p95, ms | 1267.6 / 2256.2 | 1333.4 / 1962.0 | 569.3 / 1551.9 | 491.4 / 856.6 |
+| Event dispatch queue delay p50 / p95, ms | 415.4 / 618.8 | 472.0 / 572.7 | 17.7 / 474.2 | 10.5 / 292.5 |
+| Forwarded mark-read requests | 5 | 4 | 12 | 12 |
+| Confirmed successful receipts | 5 | 4 | 12 | 11 |
+| Waits without a confirmed receipt within 20 s | 7 | 8 | 0 | 1 |
+| Replay observation span, s | 347.1 | 385.9 | 152.8 | 184.9 |
+| Live delta frames in that span | 775 | 902 | 276 | 432 |
+
+This replay removes the primary run's 10-second write-allowance expiry and waits
+for a successful response, or a 20-second receipt deadline, after each
+click. Already-read selection can legitimately skip a mark-read; the timeout
+counts alone do not establish why a receipt was absent. The last checker request
+failed in the local forwarding harness with ECONNRESET; its write outcome is
+unknown and was not retried. That run saved all 12 input observations and profiles,
+closed the browser, then exited 1. Only 11 of its 12 receipts are confirmed.
+Restricting that mode to the first 11 confirmed clicks gives p50/p95 606.9/856.6 ms.
+Automatic later read marks and every other mutation remain intercepted. These are real clicks with
+permitted server writes, not a forced mutation on every navigation. With only
+12 observations, nearest-rank p95 is the maximum; these are descriptive samples,
+not a stable estimate of the operator's population p95. The lower checker replay
+percentiles do not show that enabling checking improves input: it did not overlap
+these click windows, and the live content/traffic changed between runs.
+
+| Sampled CPU inside all 12 click waits, s | Before: off | Updated: off | Updated: on | Updated: on + check |
+| --- | ---: | ---: | ---: | ---: |
+| Main pane + other React | 4.35 | 4.34 | 3.62 | 2.96 |
+| Sidebar/pool ancestry | 5.21 | 4.95 | 2.16 | 1.48 |
+| Shared replica/runtime | 4.38 | 6.11 | 0.69 | 0.74 |
+| Comparison checker | 0.00 | 0.00 | 0.00 | 0.00 |
+| GC | 0.68 | 0.68 | 0.37 | 0.09 |
+| Other / instrumentation / idle | 1.48 | 1.31 | 2.14 | 1.16 |
 
 For attribution, source maps classify samples inside the union of the
 click-timestamp → double-rAF intervals. Categories are exclusive stack ancestry:
-checker first, then main-pane, sidebar/pool, shared replica/runtime, other React,
-GC and unclassified work. A wrapper named measurement is not counted as overhead
-when it encloses real row rendering. This includes unrelated live work which
-happens during the wait, not only work caused by the click. Sampling and scheduling
-mean bucket sums approximate wall time, not exact React commit durations.
+idle/GC first, checker, measurement-only instrumentation, main-pane,
+sidebar/pool, shared replica/runtime, other React and unclassified work. A wrapper
+named measurement is not counted as overhead when it encloses real row rendering. This includes unrelated live work which
+happens during the wait, not only work caused by the click. Profiler timestamps
+are reconstructed and sorted to handle out-of-order samples;
+intervals are clipped to each input window before weighting. Sampling and
+scheduling mean bucket sums approximate wall time, not exact React commit durations.
 
 In the primary on-only run, main-pane plus other React ancestry accounted for
-8.32 seconds across the 12 click windows, sidebar/pool 1.72 seconds, shared
-runtime 0.73 seconds and GC 0.67 seconds. `FlightDeck.readBriefMetrics` alone
+8.34 seconds across the 12 click windows, sidebar/pool 1.73 seconds, shared
+runtime 0.74 seconds and GC 0.67 seconds. `FlightDeck.readBriefMetrics` alone
 sampled 1.13 seconds; it reads geometry/scrollHeight in a layout effect. Shared
 hot functions include `selected`, `issueActivityAt`, `lastUsedMachine`,
 `buildFlightDeckRows`, session ownership and transcript `reconcileLayout`.
@@ -234,20 +281,23 @@ coordinator recreated the checker proposal as its delivery sub-issue.
 | Recommendation | Evidence and owner |
 | --- | --- |
 | Replace continuous full parity checking with explicitly requested, bounded work; show its cost. An idle callback alone does not split a synchronous 0.5–0.8 s calculation. | POD-5184, child of POD-4286; original proposal POD-5183. 50.6 s/109 checks collapsed, 84.8 s/110 expanded; 7.20–9.31 s/min expanded counter. |
-| Remove repeated legacy mission/worklist derivation and reduce broad shared-state publication/selection work. Preserve the off fallback while making the main pane consume narrow data. | Existing POD-5127 and the main-pane migration under POD-4286. `computeMissionIssueIds` 71.7 s before, 115.8 s updated off; expensive main-pane/shared paths remain on. |
+| Remove repeated legacy mission/worklist derivation and reduce broad shared-state publication/selection work. Preserve the off fallback while making the main pane consume narrow data. | Existing POD-5127 and the main-pane migration under POD-4286. `computeMissionIssueIds` 71.8 s before, 115.9 s updated off; expensive main-pane/shared paths remain on. |
 | Remove synchronous FlightDeck brief geometry measurement from the selection critical path. | Existing POD-5104; 1.13 s sampled self time across 12 real-data on-mode click windows. |
 | Measure and reduce duplicate retained pool/legacy state; distinguish stable graph residency from leaking retainers. | Existing POD-5126; ~46.6 MB / 32% live collapsed-window overhead, no reproduced multi-GB retained growth. |
 | Expose the startup-only pilot control to the intended packaged-development audience without changing its default-off semantics. | POD-5180; direct live feature-state and listing-path evidence above. |
 
 ## Evidence handling and validation
 
-Raw traces, CPU profiles, browser storage, console/DOM captures and selected-row
-identifiers remain in an issue-private scratch directory on ludovico while the
-last reduction finishes. They will be deleted before handoff. Only aggregate
-counts, timings, function names, sizes and necessary build/configuration facts
-are included here or in issue mail; no live titles, paths, transcripts or logins.
+Raw traces, CPU profiles, browser storage, console/DOM captures, selected-row
+identifiers and scratch reductions were analyzed only on ludovico and deleted
+after reduction. Both detached build worktrees were removed. No profiling process
+remained at cleanup, and the live server version was verified unchanged. Only
+aggregate counts, timings, function names, sizes and necessary build/configuration
+facts are included here or in issue mail; no live titles, paths, transcripts or
+logins.
 
 This deliverable changes documentation only. The runtime test gate is skipped
-under AGENTS.md's docs-only exception; final validation is report-data review and
-`git diff --check`. The profiling runs are evidence, not a claim that a product
+under AGENTS.md's docs-only exception. The numeric series were checked against
+the local reductions, all four long-run spans exceed ten minutes, the write/privacy
+audit passed, and `git diff --check` passed. The profiling runs are evidence, not a claim that a product
 fix or the full test suite passed.
