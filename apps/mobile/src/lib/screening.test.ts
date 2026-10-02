@@ -59,9 +59,9 @@ describe('buildScreeningQueue', () => {
   it('leaves out a proposal nested under an unapproved proposal', () => {
     const queue = buildScreeningQueue([
       issue({ id: asIssueId('root') }),
-      issue({ id: asIssueId('child'), parentId: 'root', seq: 2 }),
-      issue({ id: asIssueId('grandchild'), parentId: 'child', seq: 3 }),
-      issue({ id: asIssueId('under-backlog'), parentId: 'approved', seq: 4 }),
+      issue({ id: asIssueId('child'), parentId: asIssueId('root'), seq: 2 }),
+      issue({ id: asIssueId('grandchild'), parentId: asIssueId('child'), seq: 3 }),
+      issue({ id: asIssueId('under-backlog'), parentId: asIssueId('approved'), seq: 4 }),
       issue({ id: asIssueId('approved'), stage: 'backlog' }),
     ])
 

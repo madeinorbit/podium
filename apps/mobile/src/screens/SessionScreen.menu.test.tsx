@@ -93,7 +93,7 @@ vi.mock('../components/BottomSheet', async () => {
 
 const { renderWithMobileStore } = await import('../client/test-support')
 const { SessionScreen } = await import('./SessionScreen')
-const { useStoreSelector } = await import('../client/hooks')
+const { useIssues } = await import('../client/hooks')
 
 const vesselId = asIssueId('vessel')
 
@@ -152,8 +152,8 @@ async function openMenu(issue: IssueViewModel) {
  *  confirm resolves into `deleteIssue`, whose optimistic overlay stamps
  *  `deletedAt` on the vessel. A Cancel must leave it unstamped. */
 function IssueProbe({ seen }: { seen: { issues: IssueViewModel[] } }) {
-  const issues = useStoreSelector((s) => s.issues)
-  seen.issues = issues as IssueViewModel[]
+  const issues = useIssues()
+  seen.issues = issues
   return null
 }
 

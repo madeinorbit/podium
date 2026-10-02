@@ -592,7 +592,7 @@ describe('mobile version observation at the real gateway boundary', () => {
     const mobileVersions = { connected: vi.fn(), disconnected: vi.fn() }
     const h = await harness(mobileVersions)
     const origin = { role: 'mobile', v: '1.0.0+12' }
-    await h.mux.routeClientFrame(h.id, { type: 'hello', origin })
+    await h.mux.routeClientFrame(h.id, { type: 'hello', clientId: h.id, viewport: { cols: 80, rows: 24, dpr: 1 }, origin })
     expect(mobileVersions.connected).toHaveBeenCalledWith(h.id, origin)
     h.mux.detachClient(h.id)
     expect(mobileVersions.disconnected).toHaveBeenCalledWith(h.id)

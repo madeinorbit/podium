@@ -10,7 +10,7 @@ import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from '
 import { logout } from '../client/auth'
 import { useConnectedDevices } from '../client/connected-devices'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
-import { useConnected, useHostMetrics, useStoreSelector } from '../client/hooks'
+import { useConnected, useHostMetrics, useIssues, useStoreSelector } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
@@ -38,7 +38,6 @@ export function SettingsScreen() {
   const bottomInset = useContentBottomInset()
   const {
     conversations,
-    issues,
     machines,
     outboxDeadLetters,
     outboxSize,
@@ -48,7 +47,6 @@ export function SettingsScreen() {
   } = useStoreSelector(
     (s) => ({
       conversations: s.conversations,
-      issues: s.issues,
       machines: s.machines,
       outboxDeadLetters: s.outboxDeadLetters,
       outboxSize: s.outboxSize,
@@ -58,6 +56,7 @@ export function SettingsScreen() {
     }),
     shallowEqual,
   )
+  const issues = useIssues()
   const hostMetrics = useHostMetrics()
   const connected = useConnected()
   const { eraseLocalData } = useMobileShell()

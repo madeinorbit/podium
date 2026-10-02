@@ -20,8 +20,8 @@ function session(over: Record<string, unknown> = {}): SessionMeta {
   } as unknown as SessionMeta
 }
 
-const draft = { draft: true }
-const promoted = { draft: false }
+const draft = { isDraftVessel: true }
+const promoted = { isDraftVessel: false }
 
 describe('hidesDraftDot', () => {
   it('hides the dot on a draft chat that never started a turn', () => {

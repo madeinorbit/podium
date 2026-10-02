@@ -1,3 +1,5 @@
+import { seedIssueFixtures } from '../client/issue-fixtures'
+import { asUserId } from '@podium/model'
 // @vitest-environment happy-dom
 /**
  * The mobile pane's two contracts that are not xterm's: WHEN it attaches, and
@@ -425,7 +427,7 @@ describe('TerminalPane ref underlines (POD-724)', () => {
     // moving to review must re-arm the overlay, or it keeps yesterday's colour.
     setRefLinksMock.mockClear()
     await act(async () => {
-      replica.applySnapshot('issues', [issueRow({ id: 'iss-7', seq: 7, stage: 'review' })])
+      seedIssueFixtures(replica, [issueRow({ id: 'iss-7', seq: 7, stage: 'review' })], asUserId('user:test'))
       await Promise.resolve()
     })
     expect(setRefLinksMock).toHaveBeenCalled()

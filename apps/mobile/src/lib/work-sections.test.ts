@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type {
   IssueNavigationModel,
@@ -25,7 +26,7 @@ import {
  */
 function issue(over: Partial<IssueViewModel> = {}): IssueNavigationModel {
   return {
-    id: 'i',
+    id: asIssueId('i'),
     repoPath: '/r',
     seq: 1,
     title: 't',
@@ -70,7 +71,7 @@ const waitingSession = (id: string): SessionMeta =>
 function row(id: string, over: { pinned?: boolean; waiting?: boolean } = {}): UnifiedIssueRow {
   return {
     kind: 'issue',
-    issue: issue({ id, pinned: over.pinned ?? false }),
+    issue: issue({ id: asIssueId(id), pinned: over.pinned ?? false }),
     sessions: over.waiting ? [waitingSession(`${id}-s`)] : [],
     activityAt: 0,
   }
