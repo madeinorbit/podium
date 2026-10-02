@@ -19,7 +19,9 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Store } from '@/app/store'
-import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useStoreSelector } from '@/app/store'
+import { recordSliceDerivation } from '@podium/client-core/perf'
+import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import { issueNeighbors } from './issue-page'
@@ -80,6 +82,7 @@ export interface IssuePageModel {
 }
 
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
+  const pooled = useIssuePageData()?.data
   const {
     trpc,
     sessions,
@@ -94,7 +97,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      sessions: s.sessions,
+      sessions: pooled ? pooled.sessions : s.sessions,
       navigateToSession: s.navigateToSession,
       updateIssue: s.updateIssue,
       deleteIssue: s.deleteIssue,
@@ -106,7 +109,10 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
+  const issues = useIssuePageIssues()
+  // Same store-level census as the sidebar pilot. Diagnostic comparisons are
+  // separately bracketed; a pool page never executes this legacy derivation.
+  useStoreSelector(s => { if (!pooled) recordSliceDerivation(s.replica ?? s, 'issue-page.model'); return s.trpc })
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<IssueEvent[]>([])
   const drainEvents = useRef<(() => void) | null>(null)
@@ -278,11 +284,11 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     feed: buildActivityFeed(comments, events),
     mail,
     sessions,
-    memberSessions: (issue.memberSessionIds ?? [])
+    memberSessions: pooled?.memberSessions ?? (issue.memberSessionIds ?? [])
       .map((id) => (sessions ?? []).find((session) => session.sessionId === id))
       .filter((session): session is SessionView => session !== undefined),
     openSession: navigateToSession,
-    children: subIssuesOf(issues, issue.id),
+    children: pooled?.children ?? subIssuesOf(issues, issue.id),
     appendLocalComment: (body) =>
       setComments((cur) => [...cur, { author: 'me', body, createdAt: new Date().toISOString() }]),
   }
