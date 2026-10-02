@@ -1,4 +1,5 @@
 import { sessionView, type SessionValueInput, type SessionHomes } from '@podium/client-core/session-values'
+import { ISSUE_SESSION_FACTS_SUMMARY } from './schema'
 /**
  * POD-4444, rewritten per-row by POD-4553 — the kernel's effective per-row
  * change stream, as the arms see it.
@@ -496,8 +497,8 @@ export function createRowSource(
   // Two timestamps and a staffing bit, never retained session records.
   // Supplement the retained R2 roster with headless seats (which never take
   // part in resume collapse). Normal/shell staffing uses the existing roster.
-  const rawSessionFacts = new Map<string, { owner: string; replica?: string; tip?: string; headlessStaffed: boolean }>()
-  const sessionsByOwner = new Map<string, Map<string, { replica?: string; tip?: string; headlessStaffed: boolean }>>()
+  const rawSessionFacts = new Map<string, { owner: string; replica?: string; tip?: string; headlessStaffed: boolean; headlessOccupied: boolean }>()
+  const sessionsByOwner = new Map<string, Map<string, { replica?: string; tip?: string; headlessStaffed: boolean; headlessOccupied: boolean }>>()
   const issueSessionFacts = new Map<string, NonNullable<SliceIssue['sessionFacts']>>()
   let sessionFactsReady = false
 
@@ -510,7 +511,8 @@ export function createRowSource(
       const facts = { owner: row.issueId,
         replica: row.agentKind === 'shell' ? undefined : row.lastActiveAt as string | undefined,
         tip: row.archived === true ? undefined : row.lastActiveAt as string | undefined,
-        headlessStaffed: row.headless === true && row.archived !== true && row.status !== 'exited' }
+        headlessStaffed: row.headless === true && row.archived !== true && row.status !== 'exited',
+        headlessOccupied: ISSUE_SESSION_FACTS_SUMMARY.headlessOccupied.test(row) }
       owners.add(facts.owner)
       rawSessionFacts.set(id, facts)
       let members = sessionsByOwner.get(facts.owner)
@@ -520,15 +522,16 @@ export function createRowSource(
     const moved: string[] = []
     for (const owner of owners) {
       let replicaActivityAt: string | undefined, tipActivityAt: string | undefined
-      let headlessStaffed = false
+      let headlessStaffed = false, headlessOccupied = false
       for (const facts of sessionsByOwner.get(owner)?.values() ?? EMPTY) {
         if (facts.replica && (!replicaActivityAt || facts.replica > replicaActivityAt)) replicaActivityAt = facts.replica
         if (facts.tip && (!tipActivityAt || facts.tip > tipActivityAt)) tipActivityAt = facts.tip
         headlessStaffed ||= facts.headlessStaffed
+        headlessOccupied ||= facts.headlessOccupied
       }
       const previous = issueSessionFacts.get(owner)
-      if (!previous || previous.replicaActivityAt !== replicaActivityAt || previous.tipActivityAt !== tipActivityAt || previous.headlessStaffed !== headlessStaffed) {
-        issueSessionFacts.set(owner, { replicaActivityAt, tipActivityAt, headlessStaffed }); moved.push(owner)
+      if (!previous || previous.replicaActivityAt !== replicaActivityAt || previous.tipActivityAt !== tipActivityAt || previous.headlessStaffed !== headlessStaffed || previous.headlessOccupied !== headlessOccupied) {
+        issueSessionFacts.set(owner, { replicaActivityAt, tipActivityAt, headlessStaffed, headlessOccupied }); moved.push(owner)
       }
       if (sessionsByOwner.get(owner)?.size === 0) sessionsByOwner.delete(owner)
     }

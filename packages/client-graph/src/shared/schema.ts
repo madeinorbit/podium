@@ -695,6 +695,20 @@ const SESSION_KEEP_FIELDS = ['archived', 'agentKind', 'stoppedAt', 'agentState',
 /** What visibility reads of a cold session, without loading the full row. */
 export const COLD_SESSION_FIELDS = [...SESSION_KEEP_FIELDS, 'issueId', 'status', 'lastActiveAt'] as const
 
+/** The row-source's small ownership summary supplements the collapsed R2
+ * roster. Headless seats never participate in resume collapse, including
+ * exited seats; archived seats leave an otherwise empty draft unoccupied. */
+export const ISSUE_SESSION_FACTS_SUMMARY = {
+  field: 'sessionFacts',
+  source: 'session',
+  ownerKey: 'issueId',
+  headlessOccupied: {
+    fields: ['headless', 'archived'],
+    test: (row: Readonly<Record<string, unknown>>) => row['headless'] === true && row['archived'] !== true,
+    why: 'Draft occupancy uses non-archived attachments, regardless of status (isEmptyDraftVessel). R2 excludes headless seats.',
+  },
+} as const
+
 /**
  * How long a session can keep its issue shown (`sessionRetainsWorklistRow`,
  * `visibility.ts:44-70`): a shell or an archived session never

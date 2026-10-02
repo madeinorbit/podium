@@ -98,7 +98,7 @@ export function poolExplorerTarget(pool: MobxPool, selectedId: string | null, fo
   const root = poolMissionRoot(pool, selectedId)
   if (root === LOADING) return LOADING
   if (!root || root.archived || root.deletedAt) return null
-  if (root.isDraftVessel && !root.worktreePath && !root.sessionFacts?.tipActivityAt) {
+  if (root.isDraftVessel && !root.worktreePath && !root.sessionFacts?.headlessOccupied) {
     let occupied = false
     for (const id of pool.graph.many('issue', root.id, 'sessions')) {
       const session = pool.hidden('session', id) ?? pool.row('session', id)

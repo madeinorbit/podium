@@ -5,7 +5,8 @@ import { type JSX, useEffect, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LOADING, MobxPool } from '@podium/client-graph'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
-import { missionIssueIds } from '@podium/client-core/viewmodels'
+import { missionIssueIds, selectedMissionRoot } from '@podium/client-core/viewmodels'
+import { dedupeSessionsByResume } from '@podium/model'
 import { poolMissionContains } from '@/features/worklist/use-pool-unified-work'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
 import { makeIssue } from '@/lib/test-issue'
@@ -606,13 +607,23 @@ describe('pool explorer target', () => {
     } finally { scan.mockRestore(); sessionScan.mockRestore(); pool.dispose() }
   })
 
-  it('uses the declared activity summary for a draft occupied by a headless session', () => {
-    const draft = poolIssue('draft', { isDraftVessel: true })
-    const pool = explorerPool([draft])
+  it('uses the collapsed roster and headless occupancy summary for an empty draft', () => {
+    const draft = poolIssue('draft', { isDraftVessel: true, sessionFacts: { tipActivityAt: '2026-10-02T00:00:00Z' } })
+    const other = poolIssue('other')
+    const sessions = [
+      { sessionId: 'parked', issueId: 'draft', status: 'exited', lastActiveAt: '2026-10-01T00:00:00Z', resume: { kind: 'codex', value: 'twin' } },
+      { sessionId: 'retained', issueId: 'other', status: 'hibernated', lastActiveAt: '2026-10-02T00:00:00Z', resume: { kind: 'codex', value: 'twin' } },
+    ] as SliceSession[]
+    const pool = explorerPool([draft, other], sessions)
     try {
+      const legacy = selectedMissionRoot([makeIssue({ ...draft } as never), makeIssue({ ...other } as never)], dedupeSessionsByResume(sessions as never), 'draft' as never)
+      expect(legacy).toBeUndefined()
       expect(poolExplorerTarget(pool, 'draft', null)).toBe(null)
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'draft', value: { ...draft,
-        sessionFacts: { tipActivityAt: '2026-10-02T00:00:00Z' } } }] })
+        sessionFacts: { ...draft.sessionFacts, headlessOccupied: true } } }] })
+      // An exited non-archived headless attachment survives resume collapse.
+      const headless = { sessionId: 'headless', issueId: 'draft', headless: true, status: 'exited', lastActiveAt: '2026-10-02T00:00:00Z' }
+      expect(selectedMissionRoot([makeIssue({ ...draft } as never)], [headless] as never, 'draft' as never)?.id).toBe('draft')
       expect(poolExplorerTarget(pool, 'draft', null)).toBe('draft')
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'draft', value: draft }] })
       expect(poolExplorerTarget(pool, 'draft', null)).toBe(null)

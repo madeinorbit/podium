@@ -144,6 +144,34 @@ afterEach(() => {
 // ------------------------------------------------------------ Part A: seam
 
 describe('row-source over the real facade (fake runtime)', () => {
+  it('publishes headless draft occupancy for exited seats and clears it on archive or rehome', () => {
+    const { cache, replica } = fixture()
+    for (const id of ['draft', 'other']) cache.put('issueProjection', id, issueValue(id))
+    cache.put('session', 'normal', sessionValue('normal', { issueId: 'draft', status: 'exited', lastActiveAt: '2026-10-02T00:00:00Z' }))
+    const headless = sessionValue('headless', { issueId: 'draft', headless: true, status: 'exited', lastActiveAt: '2026-10-01T00:00:00Z' })
+    cache.put('session', 'headless', headless)
+    const runtime = fakeRuntime()
+    const handle = createRowSource(runtime, replica, { mode: 'truth' })
+    const facts = (id: string) => (handle.source.row?.('issue', id) as { sessionFacts: { tipActivityAt?: string; headlessStaffed: boolean; headlessOccupied: boolean } }).sessionFacts
+    try {
+      expect(facts('draft')).toMatchObject({ headlessOccupied: true, headlessStaffed: false })
+      const tip = facts('draft').tipActivityAt
+      cache.put('session', 'headless', { ...headless, archived: true })
+      replica.onKernelEvent(upserted('session', 'headless'))
+      runtime.publish()
+      handle.flush()
+      // The normal parked row still contributes raw activity. Occupancy
+      // changes independently, and the issue's memoized summary must move.
+      expect(facts('draft')).toMatchObject({ headlessOccupied: false, tipActivityAt: tip })
+      cache.put('session', 'headless', { ...headless, issueId: 'other' })
+      replica.onKernelEvent(upserted('session', 'headless'))
+      runtime.publish()
+      handle.flush()
+      expect(facts('draft').headlessOccupied).toBe(false)
+      expect(facts('other').headlessOccupied).toBe(true)
+    } finally { handle.dispose() }
+  })
+
   it('refuses a replica without row() or the addressed seam', () => {
     const runtime = fakeRuntime()
     const bare = { rows: () => [] } as unknown as RowSourceReplica
