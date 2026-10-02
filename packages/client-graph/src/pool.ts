@@ -44,6 +44,9 @@
  * never configures MobX.
  */
 
+import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { PreferenceSource } from './preference-source'
+import type { PreferenceRow } from './preference-schema'
 import { SidebarIndex } from './worklist/sidebar'
 import { SidebarRosterIndex } from './worklist/sidebar-roster'
 import { overlayRow } from './shared/overlay-row'
@@ -201,6 +204,7 @@ export class MobxPool {
   /** The tables: every read and write in the pool goes here. */
   readonly sidebar: SidebarIndex
   readonly sidebarRosters: SidebarRosterIndex
+  private preferenceSource: PreferenceSource | undefined
   private headerState: ReturnType<typeof createHeaderEntities> | undefined
   /** Off means no extra observable maps, relations or sidebar census objects. */
   get header() { return this.headerState ??= createHeaderEntities() }
@@ -472,6 +476,7 @@ export class MobxPool {
       MobxPool,
       | 'models'
       | 'headerState'
+      | 'preferenceSource'
       | 'target'
       | 'selectedId'
       | 'select'
@@ -492,6 +497,10 @@ export class MobxPool {
       tables: false,
       header: false,
       headerState: false,
+      preferenceSource: false,
+      attachPreferences: false,
+      preferenceKeys: false,
+      preferenceCounts: false,
       headerViews: false,
       relations: false,
       graph: false,
@@ -559,10 +568,20 @@ export class MobxPool {
    * residency's per-id atom, which reports every relink and the load.
    * Unknown rows answer undefined. Never blocks.
    */
+  attachPreferences(ui: RoutedUiState): void {
+    if (this.preferenceSource) throw new Error('Preferences already attached to this pool')
+    this.preferenceSource = new PreferenceSource(ui)
+  }
+
+  preferenceKeys(): readonly string[] { return this.preferenceSource?.keys() ?? [] }
+  preferenceCounts() { return this.preferenceSource?.counts ?? null }
+
+  row(entity: 'preference', id: string): Loaded<PreferenceRow>
   row(entity: HeaderEntity, id: string): object | undefined
   row(entity: EntityName, id: string, absent: 'peek'): object | undefined
   row(entity: EntityName, id: string, absent?: 'load' | 'mark'): Loaded<object>
-  row(entity: EntityName | HeaderEntity, id: string, absent: AbsentRead = 'load'): Loaded<object> {
+  row(entity: EntityName | HeaderEntity | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
+    if (entity === 'preference') return this.preferenceSource?.read(id) ?? LOADING
     if (isHeaderEntity(entity)) return this.header.get(entity, id)
     let server = this.tables[entity].get(id) as object | undefined
     if (server === undefined) {
@@ -826,6 +845,7 @@ export class MobxPool {
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
     this.disposed = true
+    this.preferenceSource?.dispose()
     this.referenceReader?.dispose()
     runInAction(() => {
       this.worklist.clear()
