@@ -8,9 +8,30 @@ coordinator explicitly excluded its ordering change from this landing.
 
 ## Browser comparison
 
-Candidate capture pending. The final comparison uses the same instrumented,
-ordinary production fixture in both builds, with separate headline and sampled
-attribution runs. The 16 ms input-to-paint target remains the acceptance bar.
+The complete 1× capture reduces pool selection state CPU p95 from **38.5 to
+23.9 ms (38%)**, but input-to-paint is **61.8 → 63.8 ms**. The **16 ms target
+is not met**. The 4× capture of the integration-landed candidate is in progress;
+this section will be completed from that full capture, not its aborted retries.
+
+| 1× event | Pool state CPU p95 before → after, ms |
+| --- | --- |
+| Selection | 38.5 → 23.9 |
+| Unrelated heartbeat | 38.8 → 31.4 |
+| Title edit | 32.4 → 29.1 |
+| Session phase | 33.1 → 30.9 |
+| Draft actions | 1.5 → 1.8 |
+
+The unchanged legacy control also moved: selection paint **173.1 → 193.9 ms**
+and state CPU **211.8 → 243.5 ms**. Raw absolute before/after figures are retained
+without using the control shift to normalize a claimed paint win. All complete
+1× records satisfy the load limit. In the candidate's pool trace number three,
+input-to-selected-DOM took 46.4 ms and selected-DOM-to-paint 6.6 ms; across the
+forty pool clicks those p95s were 56.5 and 6.8 ms respectively. Trace event
+categories are inclusive: its 43.8 ms event dispatch includes 42.9 ms function
+calls and must not be added to them.
+
+The final comparison uses the same instrumented, ordinary production fixture
+in both builds, with separate headline and sampled attribution runs.
 
 ## Attribution before the cut
 
@@ -150,7 +171,22 @@ Partial 4× cells from the expired run are preserved but excluded. Phase/draft
 were not patched into a fresh context: the retry ran the complete event
 sequence, preserving its selection and title preconditions.
 
-The after ordinary-production build is `b24f9c7eba`. Source checkpoints,
+The first after ordinary-production build is `b24f9c7eba`, with the complete
+1× capture at `2ef1bc8204`. Two early 4× attempts (`after4x`, `after4x-retry`)
+aborted on the load guard after 13 and 24 partial observations; each contains
+one observation above load eight. **All 37 partial observations are excluded**
+from the comparison and the raw files remain available with a void manifest.
+
+The implementation landed ff-only at `1f370aebd5` over `520d68c316`, under
+`merge:integrate/4286-pilot`; ancestry was verified and the mutex released. The
+coordinator requested landing before the remaining timing to unblock old-record
+removal, with this issue kept open. The exact landed SHA was rebuilt for the
+fresh `landed4x` capture. The rebase changed no production code in `apps/web/src`,
+`packages/client-core/src` or `packages/client-graph/src` (its web delta is a
+diagnostic test); the diagnostic changes brought by integration are inactive
+in these checker-off captures. The initial landed-capture host load was 1.73.
+
+Source checkpoints,
 per-arm raw records, traces, CPU profiles, targets and proof logs are attached
 to POD-5134; these synthetic evidence files remain uncommitted.
 
