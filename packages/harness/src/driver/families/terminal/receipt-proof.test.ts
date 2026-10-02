@@ -161,6 +161,11 @@ describe('terminal receipt operator regressions', () => {
     const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(300)
     expect(w.writes.filter((bytes) => bytes === '\r')).toHaveLength(3)
+    // All three queue records arrive after our typing started, framed first,
+    // ours last; then all three prompts are recorded together, ours last.
+    w.post(framedA, { id: '', role: 'system', queued: true, promptEntry: false })
+    w.post(framedB, { id: '', role: 'system', queued: true, promptEntry: false })
+    w.post(words, { id: '', role: 'system', queued: true, promptEntry: false })
     w.post(framedA)
     w.post(framedB)
     const oursEntryId = `entry-${w.history.length}`
