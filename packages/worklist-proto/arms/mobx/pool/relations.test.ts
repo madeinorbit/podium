@@ -1097,12 +1097,14 @@ function countedOutside(fn: () => void): OutsideCount {
 type SetLike = { readonly size: number }
 
 it('preserves the landed write count and collapse rules with only existing declarations', () => {
+  const collapse = SCHEMA.session.collapse
+  if (!collapse) throw new Error('Missing declared session collapse')
   const pageIssueNames = new Set(['pageDependencies', 'pageDependents', 'bornSessions', 'pageSessions',
     'supersedingIssue', 'supersededIssues', 'canonicalIssue', 'duplicateIssues'])
   const schema: ModelSchema = { ...SCHEMA,
     issue: { ...SCHEMA.issue, relations: Object.fromEntries(Object.entries(SCHEMA.issue.relations)
       .filter(([name]) => !pageIssueNames.has(name))) },
-    session: { ...SCHEMA.session, collapse: { ...SCHEMA.session.collapse, order: undefined },
+    session: { ...SCHEMA.session, collapse: { ...collapse, order: undefined },
       relations: Object.fromEntries(Object.entries(SCHEMA.session.relations)
         .filter(([name]) => name !== 'bornIssue' && name !== 'pageIssue')) },
   }
