@@ -112,8 +112,8 @@ describe('web pool navigation', () => {
   })
 
   it('keeps local birth refs canonical, including a cold ref through its declared summary', () => {
-    const seat = { sessionId: 'seat', displayRef: 'POD-529-A', archived: true, status: 'live',
-      cwd: '/repo', createdAt: stamp, lastActiveAt: stamp, agentKind: 'codex' }
+    const seat = { sessionId: 'seat', displayRef: 'POD-529-A', archived: true, status: 'exited',
+      cwd: '/repo', createdAt: stamp, lastActiveAt: stamp, stoppedAt: stamp, agentKind: 'codex' }
     const load = vi.fn(() => seat)
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
       { load, summaries: { session: ['displayRef'] }, schedule: () => () => {} })
