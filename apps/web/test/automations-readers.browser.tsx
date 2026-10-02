@@ -73,7 +73,7 @@ const driver = {
     return { pending: 0, sections: nodes.map((node, index) => ({ key: node.getAttribute('data-proof-surface') ?? `dialog:${index}`,
       rows: [], fields: { text: node.textContent, labels: [...node.querySelectorAll('[aria-label]')].map(child => child.getAttribute('aria-label')),
         controls: [...node.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input,select,textarea')].map(control => ({
-          id: /^(?:_r_[0-9a-z]+_|:r[0-9a-z]+:)$/.test(control.id) ? 'react-generated' : control.id,
+          id: control.id.replace(/_r_[0-9a-z]+_|:r[0-9a-z]+:/g, 'react-generated'),
           value: control.value, checked: control instanceof HTMLInputElement ? control.checked : undefined,
         })),
       } })) }
