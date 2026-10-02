@@ -65,7 +65,7 @@ it('reads only the selected mission attachment edges as unrelated sessions grow'
   const values = tracked(() => readMissionView(reader, 'root'))
   expect(values).not.toBe(LOADING)
   expect(read.mock.calls.filter(([entity]) => entity === 'session').every(([, id]) => id === 'own')).toBe(true)
-  expect(read.mock.calls.some(([, , absent]) => absent === 'peek')).toBe(false)
+  expect(read.mock.calls.some(([, , absent]) => String(absent) === 'peek')).toBe(false)
   runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'own', value: session('own', 'other', { archived: false, status: 'live' }) }] }))
   const moved = tracked(() => readMissionView(reader, 'root'))
   if (moved === LOADING) throw new Error('Unsettled fixture')

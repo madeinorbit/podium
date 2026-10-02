@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { issueDisplayRef as joinedIssueRef } from '@podium/client-core/replica'
 import {
   deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
   motionPhase, panelLabel, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
@@ -76,7 +77,8 @@ export class MissionViewReader {
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
     let row = this.pool.row('session', id, 'summary')
-    if (row && row !== LOADING && !['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(row, key))) row = this.pool.row('session', id)
+    const summary = row
+    if (summary && summary !== LOADING && !['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(summary, key))) row = this.pool.row('session', id)
     return row as Loaded<SessionView>
   }
   readAttached(id: string): readonly SessionView[] | typeof LOADING {
@@ -127,7 +129,7 @@ export class MissionViewReader {
       description: typeof row.description === 'string' ? row.description : row.description?.value ?? '',
       notes: typeof row.notes === 'string' ? row.notes : row.notes?.value,
       worktreePath: row.worktreePath ?? null, branch: row.branch ?? null,
-      prefix: repo?.prefix, displayRef: issueDisplayRef({ seq: row.seq, prefix: repo?.prefix }),
+      prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
       memberSessionIds: members.map(session => asSessionId(session.sessionId)),
       childIds: [...childIds].sort().map(asIssueId), childCount: childIds.length, childDoneCount,
       deferred, ready: !row.blocked && !deferred && row.stage !== 'done', dependents,
@@ -700,7 +702,7 @@ export function readWorkspaceMission(view: MissionViewReader, selectedId: string
   if (missionOnScreen === LOADING) return LOADING
   const hasAnyTask = view.pool.hasFirstTask
   if (hasAnyTask === LOADING) return LOADING
-  return { missionRoot, missionIds, missionIssues, issue: focused ?? missionRoot, missionOnScreen, hasAnyTask, loading: false as boolean }
+  return { missionRoot, missionIds, missionIssues, issue: focused ?? missionRoot, missionOnScreen, hasAnyTask: Boolean(hasAnyTask), loading: false as boolean }
 }
 
 export interface MissionActionInputs {

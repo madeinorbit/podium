@@ -1,4 +1,4 @@
-import { autorun, runInAction } from 'mobx'
+import { autorun, reaction, runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { missionIndexStats, missionRootFor, sessionOwnershipStats } from '@podium/client-core/viewmodels'
@@ -31,15 +31,22 @@ function roots(store: Store<PodiumClientApi>): string[] {
   }))]
 }
 function settle(pool: MobxPool, ids: readonly string[]) {
+  const last: number[] = []
   for (let round = 0; round < 64; round++) {
     for (const id of ids) tracked(() => { poolMissionViewSnapshot(pool, id); readWorkspaceMission(missionView(pool), id, null) })
-    if (pool.hydrate() === 0) return
+    const loaded = pool.hydrate()
+    if (loaded === 0) return
+    last.push(loaded)
   }
-  throw new Error('Mission pane batched loads did not settle')
+  throw new Error(`Mission pane batched loads did not settle: ${last.slice(-8).join(',')}`)
 }
 function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, all = true) {
   const ids = roots(store)
   const selections = all ? ids : [...new Set([store.selectedIssueId, ...ids.slice(0, 3), ...ids.slice(-3)])]
+  const stop = selections.filter((id): id is string => id !== null).map(id => reaction(() => {
+    poolMissionViewSnapshot(pool, id); return readWorkspaceMission(missionView(pool), id, null)
+  }, () => {}, { fireImmediately: true }))
+  try {
   settle(pool, selections.filter((id): id is string => id !== null))
   const issues = allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)
   for (const id of selections) {
@@ -48,9 +55,10 @@ function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, a
       .toMatchObject({ differences: 0, first: null, pending: 0 })
   }
   for (const id of selections) for (const mode of ['full', 'working', 'needs-you'] as const) {
-    expect(tracked(() => checkMissionViewFromStore(pool, store, id, mode)), `${label} ${id} ${mode}`)
+    expect(id === null ? runInAction(() => checkMissionViewFromStore(pool, store, id, mode)) : tracked(() => checkMissionViewFromStore(pool, store, id, mode)), `${label} ${id} ${mode}`)
       .toMatchObject({ differences: 0, first: null, pending: 0 })
   }
+  } finally { for (const dispose of stop) dispose() }
 }
 
 describe('mission pane value differential', () => {
@@ -104,7 +112,7 @@ describe('mission pane value differential', () => {
       runInAction(() => handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: other, value: { ...raw, title: 'Unrelated title' } }] }))
       expect(reader.stats).toEqual(before)
       expect(row.mock.calls.filter(([kind, id]) => kind === 'session').length).toBeLessThan(ctx.engine.getSnapshot().sessions.length)
-      expect(row.mock.calls.some(([, , absent]) => absent === 'peek')).toBe(false)
+      expect(row.mock.calls.some(([, , absent]) => String(absent) === 'peek')).toBe(false)
       expect(missionIndexStats()).toEqual(legacyMission)
       expect(sessionOwnershipStats()).toEqual(legacyOwnership)
     } finally { stop(); row.mockRestore(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }

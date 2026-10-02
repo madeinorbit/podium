@@ -3,6 +3,7 @@
 import type { Store } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { SessionView } from '@podium/client-core/session-values'
+import { asIssueId } from '@podium/model/browser'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import {
   archivedSessionsForIssue, buildFlightDeckRows, deckIssueState, deriveHandoffNext,
@@ -58,11 +59,11 @@ function snapshot(values: MissionViewValues, handoff: MissionHandoffValues | typ
 
 export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[], sessions: readonly SessionView[], selectedId: string | null,
   mode: FlightDeckMode = 'full', worktreePaths: string[] = []): SidebarSnapshot {
-  const root = selectedMissionRoot(issues, sessions, selectedId)
+  const root = selectedMissionRoot(issues, sessions, selectedId ? asIssueId(selectedId) : null)
   const rows = root ? buildFlightDeckRows(issues, sessions, root.id, mode, worktreePaths) : []
   const byId = legacyMap(issues)
   const seen = new Set<string>(), archived: SessionView[] = []
-  for (const row of rows) for (const session of archivedSessionsForIssue(row.issue, sessions, worktreePaths)) {
+  for (const row of rows) for (const session of archivedSessionsForIssue(row.issue, sessions as SessionView[], worktreePaths)) {
     if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
   }
   return snapshot({ root, rows, byId, sessions, archived,
@@ -104,7 +105,7 @@ export function checkWorkspaceMission(pool: MobxPool, issues: readonly IssueNavi
   const actual = readWorkspaceMission(missionView(pool), selectedId, focusedId)
   if (actual === LOADING) return { differences: 0, first: null, pending: 1, sections: 0, rows: 0 }
   const selected = issues.find(issue => issue.id === selectedId && !issue.archived && !issue.deletedAt)
-  const root = selected ? selectedMissionRoot(issues, sessions, selectedId) : undefined
+  const root = selected ? selectedMissionRoot(issues, sessions, selectedId ? asIssueId(selectedId) : null) : undefined
   // An empty draft is selected in Workspace but has no mission drawn yet.
   const rawRootId = selected ? missionRootFor(issues, selected.id)?.id : undefined
   const rawRoot = issues.find(issue => issue.id === rawRootId)
