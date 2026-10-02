@@ -263,7 +263,10 @@ On flatblock with the pinned Bun 1.4.2 and checkout-local dependencies:
   full-view agreement/borrowed identity/invalidation, and resident-only
   relations/declared summaries/LOADING/batched known and absent loads.
 - `bun run typecheck -- --filter @podium/worklist-proto`: ten successful tasks,
-  nine cache hits. No whole suite or lane was run.
+  nine cache hits on the captured tree. After the integration rebase and
+  checkout-local dependency repair, the same three focused checks were green
+  and the same typecheck had ten successful tasks, zero cache hits because
+  its dependency inputs changed. No whole suite or lane was run.
 - Thirteen planted faults turned the focused checks red, with sources copied
   aside and restored: eager per-row computeds, boxed state, retained unmounted
   slots, reversed ordering, copied resident rows, suppressed invalidation,
