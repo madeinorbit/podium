@@ -419,7 +419,7 @@ describe('ShippingService enqueue transaction', () => {
       descendants: [],
     })
     const changes = await ledger.changesSince(cursor) ?? []
-    expect(changes.some((change) => change.entity === 'issue' && change.id === issue.id)).toBe(true)
+    expect(changes.some((change) => change.entity === 'issueProjection' && change.id === issue.id)).toBe(true)
     expect(
       changes.some(
         (change) =>

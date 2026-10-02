@@ -42,7 +42,7 @@ const durableSends = (daemon: ControlMessage[], sessionId: SessionId): DurableSe
 
 /** A registry whose bus drops one issue kind from every `oplog.appended`, so
  *  its listeners see the feed as a server sending only the other kind. */
-async function heldIssueMail(dropped: MetadataChange['entity']) {
+async function heldIssueMail(dropped?: MetadataChange['entity']) {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
@@ -97,7 +97,7 @@ async function heldIssueMail(dropped: MetadataChange['entity']) {
 
 describe('mail eligibility triggers on the normalized issue record (POD-4971)', () => {
   it('delivers held issue mail when only the normalized record is published', async () => {
-    const { reg, daemon, sessionId, sent, seen } = await heldIssueMail('issue')
+    const { reg, daemon, sessionId, sent, seen } = await heldIssueMail()
     await vi.waitFor(() =>
       expect(seen.flat().map((change) => change.entity)).toContain('issueProjection'),
     )
@@ -107,14 +107,5 @@ describe('mail eligibility triggers on the normalized issue record (POD-4971)', 
     })
   })
 
-  it('does not re-examine the issue when only the old record is published', async () => {
-    const { reg, daemon, sessionId, issue, seen, examined } = await heldIssueMail('issueProjection')
-    // The old record did arrive, and the listener did run over it ...
-    await vi.waitFor(() => expect(seen.flat().map((change) => change.entity)).toContain('issue'))
-    await vi.waitFor(() => expect(examined.length).toBeGreaterThan(0))
-    await reg.modules.messages.flushDeliveryTriggers()
-    // ... and named nothing: the old record is no longer a trigger.
-    expect(examined.flat()).not.toContain(issue.id)
-    expect(durableSends(daemon, sessionId)).toEqual([])
-  })
+
 })

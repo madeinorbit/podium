@@ -217,7 +217,7 @@ const fixture = {
   stats: (): CaptureStats => storeStats.snapshot(),
   perf: () => perf?.read(),
   state: () => ({ selected: owner?.getSnapshot().selectedIssueId, pane: owner?.getSnapshot().paneA,
-    issues: owner?.getSnapshot().issues.length, sessions: owner?.getSnapshot().sessions.length,
+    issues: owner?.getSnapshot().issueProjections.length, sessions: owner?.getSnapshot().sessions.length,
     pool: graph !== null, runtimeDestroyed: (owner as unknown as { destroyed?: boolean })?.destroyed }),
   shape(ids: string[]) {
     const snapshot = owner!.getSnapshot()

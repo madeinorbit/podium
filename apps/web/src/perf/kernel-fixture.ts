@@ -36,7 +36,7 @@ export class BenchmarkCache implements KernelCacheRead {
   }
   put(entity: string, entityId: string, value: unknown): EntityRecord {
     const record = { entity, entityId, value, provenance: { seq: 1 } }
-    if (retainReplicaEntity(entity, true)) this.records.set(`${entity}:${entityId}`, record)
+    if (retainReplicaEntity(entity)) this.records.set(`${entity}:${entityId}`, record)
     return record
   }
 }

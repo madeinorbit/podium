@@ -1049,7 +1049,7 @@ export class SessionRegistry {
       rooms: readonly import('@podium/protocol').RoomRef[],
     ): Promise<VisibilityResolver> => {
       const prepared = await visibility.forBatch(rooms.map((room) => ({
-        entity: room.kind,
+        entity: room.kind === 'issue' ? 'issueProjection' as const : room.kind,
         entityId: room.id,
       })))
       const resolver = kernelVisibilityResolver(prepared)

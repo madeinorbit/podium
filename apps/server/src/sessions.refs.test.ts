@@ -27,7 +27,7 @@ describe('session birth naming (#474)', () => {
       cwd: '/r/podium',
       issueId: issue.id,
     })
-    expect((await meta(sessionId))?.displayRef).toBe(`${issue.displayRef}-A`)
+    expect((await meta(sessionId))?.displayRef).toBe(`${(await reg.modules.issues.get(issue.id))!.displayRef}-A`)
   })
 
   it('issueless spawn gets a DRAFT ordinal, not an issue letter', async () => {
@@ -51,7 +51,7 @@ describe('session birth naming (#474)', () => {
     const { reg, issue, meta } = await harness()
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
     await reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
-    expect((await meta(sessionId))?.displayRef).toBe(`${issue.displayRef}-A`)
+    expect((await meta(sessionId))?.displayRef).toBe(`${(await reg.modules.issues.get(issue.id))!.displayRef}-A`)
   })
 
   it('does not consume the first issue letter when the attachment append fails', async () => {
@@ -83,7 +83,7 @@ describe('session birth naming (#474)', () => {
     expect(events).toEqual([])
 
     await reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
-    expect((await meta(sessionId))?.displayRef).toBe(issue.displayRef + '-A')
+    expect((await meta(sessionId))?.displayRef).toBe((await reg.modules.issues.get(issue.id))!.displayRef + '-A')
   })
 
   it('does not consume DRAFT-1 when the first spawn append fails', async () => {
@@ -119,7 +119,7 @@ describe('session birth naming (#474)', () => {
       issueId: issue.id,
     })
     await reg.modules.sessions.setSessionIssueId(sessionId, other.id)
-    expect((await meta(sessionId))?.displayRef).toBe(`${issue.displayRef}-A`)
+    expect((await meta(sessionId))?.displayRef).toBe(`${(await reg.modules.issues.get(issue.id))!.displayRef}-A`)
     expect((await meta(sessionId))?.issueId).toBe(other.id)
   })
 

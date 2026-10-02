@@ -79,7 +79,7 @@ const loops: MeasuredLoop[] = [
     run: async (store, n) => {
       await store.sync.appendChanges(
         Array.from({ length: n }, (_, i) => ({
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: `issue-${i}`,
           op: 'upsert' as const,
           payload: '{}',

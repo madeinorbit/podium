@@ -31,7 +31,6 @@ const root = createRoot(document.getElementById('root')!)
 function replica() {
   replicas += 1
   const records = [
-    { entity: 'issue', entityId: id, value: issue, provenance: { seq: 1 } },
     { entity: 'issueProjection', entityId: id, value: projection, provenance: { seq: 1 } },
   ]
   const cache = {

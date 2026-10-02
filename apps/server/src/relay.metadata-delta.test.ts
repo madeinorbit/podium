@@ -182,7 +182,8 @@ describe('SessionRegistry metadata deltas', () => {
     const boot = await registry.modules.sessions.syncChangesSince(null)
     expect(boot.kind).toBe('snapshot')
     if (boot.kind !== 'snapshot') return
-    expect(boot.issues.map((i) => i.title)).toEqual(['a'])
+    expect(boot.issues).toEqual([])
+    expect(boot.issueProjections?.map((i) => i.title)).toEqual(['a'])
 
     const created = await registry.issues.create({ repoPath: '/r', title: 'b', startNow: false })
     await registry.issues.close(created.id, 'wontfix')

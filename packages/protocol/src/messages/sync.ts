@@ -373,6 +373,8 @@ const changesSinceSnapshotArm = () =>
     machines: z.array(MachineProjection).optional(),
     issues: z.array(z.never()),
     issueProjections: z.array(IssueProjection).optional(),
+    issueUserStates: z.array(IssueUserStateWire).optional(),
+    issueGitStates: z.array(IssueGitStateProjection).optional(),
     issueDeps: z.array(IssueDepProjection).optional(),
     repos: z.array(RepoProjection).optional(),
     shipOrders: z.array(ShipOrderProjection).optional(),

@@ -784,7 +784,7 @@ describe('real pool row mutations and receipts', () => {
     await parity()
     await refuse(second)
     expect(value().title).toBe('Accepted title')
-    expect(runtime.pendingOverlaysByRow('issues').has(TARGET)).toBe(false)
+    expect(runtime.pendingOverlaysByRow('issueProjections').has(TARGET)).toBe(false)
   })
 
   it('cancels Escape and whitespace edits; menu Rename uses the same editor', async () => {

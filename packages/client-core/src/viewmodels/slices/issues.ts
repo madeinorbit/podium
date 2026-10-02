@@ -286,7 +286,7 @@ export function isDraftAgentVessel(issue: IssueNavigationModel, sessions: readon
  * one of these rather than dressing it up as a mission (POD-1112).
  */
 export function isEmptyDraftVessel(
-  issue: Pick<IssueNavigationModel, 'id' | 'draft' | 'worktreePath' | 'isDraftVessel'>,
+  issue: Pick<IssueNavigationModel, 'id' | 'worktreePath' | 'isDraftVessel'>,
   sessions: readonly SessionView[],
 ): boolean {
   if (!issueDraftVessel(issue) || issue.worktreePath) return false

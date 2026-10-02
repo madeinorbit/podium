@@ -32,13 +32,13 @@ describe('memoized change_latest statements across spans', () => {
     const store = await openTestStore(':memory:')
 
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'issue-1', op: 'upsert', payload: '{"v":1}' }],
+      [{ entity: 'issueProjection', entityId: 'issue-1', op: 'upsert', payload: '{"v":1}' }],
       1,
     )
     // The append that used to fail: a fresh span, reaching the statement the
     // first span prepared.
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'issue-2', op: 'upsert', payload: '{"v":2}' }],
+      [{ entity: 'issueProjection', entityId: 'issue-2', op: 'upsert', payload: '{"v":2}' }],
       2,
     )
 
@@ -52,15 +52,15 @@ describe('memoized change_latest statements across spans', () => {
 
     await store.sync.appendChanges(
       [
-        { entity: 'issue', entityId: 'issue-1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issue', entityId: 'issue-2', op: 'remove', payload: null },
+        { entity: 'issueProjection', entityId: 'issue-1', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'issue-2', op: 'remove', payload: null },
       ],
       1,
     )
     await store.sync.appendChanges(
       [
-        { entity: 'issue', entityId: 'issue-1', op: 'remove', payload: null },
-        { entity: 'issue', entityId: 'issue-3', op: 'upsert', payload: '{"v":3}' },
+        { entity: 'issueProjection', entityId: 'issue-1', op: 'remove', payload: null },
+        { entity: 'issueProjection', entityId: 'issue-3', op: 'upsert', payload: '{"v":3}' },
       ],
       2,
     )

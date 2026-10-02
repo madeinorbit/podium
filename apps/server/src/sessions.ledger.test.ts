@@ -271,7 +271,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       const received = batches(delta.inbox.slice(before)).flatMap((b) => b.changes)
       expect(received.length).toBeGreaterThanOrEqual(2)
       expect(received.some((c) => c.entity === 'session')).toBe(true)
-      expect(received.some((c) => c.entity === 'issue')).toBe(true)
+      expect(received.some((c) => c.entity === 'issueProjection')).toBe(true)
       // Strict seq order, and gap-free: the stream carries EVERY seq in its range.
       const seqs = received.map((c) => c.seq)
       for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBe((seqs[i - 1] as number) + 1)

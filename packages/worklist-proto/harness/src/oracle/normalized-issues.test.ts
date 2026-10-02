@@ -14,10 +14,9 @@ import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
 import { buildCorpus } from '../fixture'
 import { sidebarReplayStore } from './sidebar-replay'
 
-function boot(withOld: boolean) {
+function boot() {
   const corpus = buildCorpus(1, 4443)
   const cache = seedCacheFromCorpus(corpus)
-  if (!withOld) for (const issue of corpus.issues) cache.drop('issueProjection', issue.id)
   const replica = createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
@@ -26,36 +25,21 @@ function boot(withOld: boolean) {
 }
 
 describe('normalized-only corpus acceptance', () => {
-  it('is field-for-field identical across the corpus with and without old rows', () => {
-    const full = boot(true),
-      normalized = boot(false)
-    const before = allIssueViewModels(full.replica),
-      after = allIssueViewModels(normalized.replica)
-    expect(after).toHaveLength(full.corpus.issues.length)
-    const byId = new Map(before.map((row) => [row.id, row]))
-    const oldById = new Map(full.corpus.issues.map((row) => [row.id, row]))
+  it('materializes the fixture facts from normalized records alone', () => {
+    const { corpus, replica } = boot()
+    const after = allIssueViewModels(replica)
+    expect(after).toHaveLength(corpus.issues.length)
+    const expectedById = new Map(corpus.issues.map((row) => [row.id, row]))
     for (const row of after) {
-      const previous = byId.get(row.id)!
-      for (const field of new Set([...Object.keys(row), ...Object.keys(previous)])) {
-        expect(Reflect.get(row, field), `${row.id}.${field}`).toEqual(Reflect.get(previous, field))
+      const expected = expectedById.get(row.id)!
+      for (const field of ['isDraftVessel', 'intentOrigin', 'asked', 'readAt', 'tuckedAt', 'pinned', 'gitState', 'description'] as const) {
+        expect(row[field], `${row.id}.${field}`).toEqual(expected[field])
       }
-      const old = oldById.get(row.id)!
-      expect(row.isDraftVessel, row.id).toBe(old.draft ?? false)
-      expect(row.intentOrigin, row.id).toBe(old.origin ?? 'human')
-      expect(row.asked?.question, row.id).toBe(old.humanQuestion)
-      expect(row.asked?.options, row.id).toEqual(old.humanQuestionOptions)
-      expect(row.asked?.at, row.id).toBe(old.humanQuestionAskedAt)
-      expect(row.asked?.by, row.id).toBe(old.humanQuestionAskedBy)
-      expect(row.readAt, row.id).toBe(old.readAt ?? null)
-      expect(row.tuckedAt, row.id).toBe(old.tuckedAt ?? null)
-      expect(row.pinned, row.id).toBe(old.pinned ?? false)
-      expect(row.gitState, row.id).toEqual(old.gitState)
-      expect(row.description, row.id).toBe(old.description)
     }
   })
   it('the pool sidebar and its six fields need only projections and new kinds', () => {
-    const { corpus, replica } = boot(false)
-    const store = { ...sidebarReplayStore(corpus, replica), issues: [] }
+    const { corpus, replica } = boot()
+    const store = sidebarReplayStore(corpus, replica)
     const runtime = {
       getSnapshot: () => store,
       subscribe: () => () => {},

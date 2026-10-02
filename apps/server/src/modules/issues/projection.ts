@@ -18,7 +18,7 @@ import {
   type IssueId,
   type RepoId,
 } from '@podium/model'
-import type { IssueRow } from '../../store'
+import type { IssueRow } from '../../store/types'
 import { fromStorage } from '../../store/issue-storage'
 
 const log = createLogger('server:issues')

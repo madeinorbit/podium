@@ -2501,7 +2501,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       stage: wire.stage,
       closedReason: (w['closedReason'] as string | null) ?? null,
       audience: wire.audience,
-      isDraftVessel: (w['draft'] as boolean) ?? false,
+      isDraftVessel: (w['isDraftVessel'] as boolean) ?? false,
       pinned: (w['pinned'] as boolean) ?? false,
       sortKey: (w['sortKey'] as string | null) ?? null,
       deferUntil: (w['deferUntil'] as string | null) ?? null,
@@ -2601,7 +2601,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
     repos,
     machines,
     pins: { panels: [], worktrees: [], repos: [] },
-    sliceIssues: sliceIssues.map((issue, index) => ({ ...issue, isDraftVessel: issues[index]?.draft ?? false, intentOrigin: issues[index]?.origin, asked: issueProjections[index]?.asked })),
+    sliceIssues: sliceIssues.map((issue, index) => ({ ...issue, isDraftVessel: issues[index]?.isDraftVessel ?? false, intentOrigin: issues[index]?.intentOrigin, asked: issueProjections[index]?.asked })),
     sliceSessions,
     sliceWorktrees,
     unscannedWorktree: {

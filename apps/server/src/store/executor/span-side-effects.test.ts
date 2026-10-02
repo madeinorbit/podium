@@ -44,7 +44,7 @@ async function openWiredStore(): Promise<{ store: SessionStore; ledger: Ledger }
 }
 
 const upsert = (id: string, value: unknown) =>
-  [{ entity: 'issue' as const, id, op: 'upsert' as const, value }] as const
+  [{ entity: 'issueProjection' as const, id, op: 'upsert' as const, value }] as const
 
 describe('a nested ledger.commit publishes after the OUTER commit', () => {
   it('does not deliver while the enclosing transaction is still open', async () => {

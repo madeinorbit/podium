@@ -1115,6 +1115,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         nowIso,
       }),
       issue: optimisticDraftIssue({
+        userId: this.ports.userId,
         issueId,
         repoPath: args.target.repoPath,
         repoId: args.target.repoId,
@@ -1186,6 +1187,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         nowIso,
       }),
       issue: optimisticStartedIssue({
+        userId: this.ports.userId,
         issueId,
         repoPath: args.target.repoPath,
         repoId: args.target.repoId,

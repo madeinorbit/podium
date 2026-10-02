@@ -1,5 +1,4 @@
 import type { SessionView } from '../session-values'
-import { issueDraftVessel } from './slices/issues'
 import { isAgentConfirmedComputing} from '@podium/model'
 import { withoutShells } from '../focus'
 
@@ -22,7 +21,6 @@ export interface TaskProgress {
 export interface TaskProgressIssue {
   id: string
   parentId?: string
-  draft?: boolean
   isDraftVessel?: boolean
   stage: string
 }
@@ -41,7 +39,7 @@ export function taskProgressMap<T extends TaskProgressIssue>(
 ): Map<string, TaskProgress | null> {
   const childrenOf = new Map<string, T[]>()
   for (const issue of issues) {
-    if (issueDraftVessel(issue) || !issue.parentId) continue
+    if (issue.isDraftVessel === true || !issue.parentId) continue
     const children = childrenOf.get(issue.parentId)
     if (children) children.push(issue)
     else childrenOf.set(issue.parentId, [issue])

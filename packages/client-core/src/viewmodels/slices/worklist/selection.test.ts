@@ -1,3 +1,4 @@
+import { normalizedIssueFixture } from '../../../test-support/normalized-issue-fixture'
 import type { IssueViewModel } from '../../../replica/issue-view-models'
 // POD-4420 S2 — selection out of the worklist derive.
 //
@@ -68,7 +69,7 @@ function world(selectedIssueId: string | null): Store {
     machines: [],
     sessions: [],
     pins: { panels: [], worktrees: [], repos: [] },
-    issues: [
+    ...normalizedIssueFixture([
       issue('a-live', 'a'),
       issue('b-live', 'b'),
       issue('a-old', 'a', {
@@ -93,8 +94,7 @@ function world(selectedIssueId: string | null): Store {
       }),
       issue('a-pinned', 'a', { pinned: true }),
       issue('s-snoozed', 'a', { deferUntil: SOON }),
-    ],
-    issueProjections: [],
+    ]),
     coarseNow: NOW,
     selectedIssueId,
   } as unknown as Store
@@ -142,7 +142,7 @@ const legacySlice = {
     a.machines === b.machines &&
     a.sessions === b.sessions &&
     a.pins === b.pins &&
-    a.issues === b.issues,
+    a.issueProjections === b.issueProjections && a.issueUserStates === b.issueUserStates,
   derive: (store: Store) => {
     const base = worklistSlice.derive(store)
     const { rest } = splitPinnedWork(base.work)
@@ -265,10 +265,11 @@ describe('POD-4420 S2 selection costs zero derivations', () => {
       // the fixed arm must derive exactly like the legacy arm.
       store = {
         ...store,
-        issues: store.issues.map((row) =>
-          row.id === 'b-fresh' ? { ...row, tuckedAt: AT } : row,
+        issueUserStates: store.issueUserStates.map((row) =>
+          row.entityId === 'b-fresh' ? { ...row, tuckedAt: AT } : row,
         ),
       }
+      store.replica.applySnapshot('issueUserStates', store.issueUserStates)
       const second = publisher.read(definition)
       expect(readRuntimeStoreStats(owner)?.slices.worklist).toBe(2)
       const placed = legacy ? second : placeWorklistSelection(second, sel('a-live'))

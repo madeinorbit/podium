@@ -1,3 +1,5 @@
+import { normalizedIssueFixture } from '../../../test-support/normalized-issue-fixture'
+import { allIssueViewModels } from '../../../replica'
 import type { IssueViewModel } from '../../../replica'
 // @vitest-environment happy-dom
 import { act, cleanup, render } from '@testing-library/react'
@@ -87,8 +89,7 @@ function issue(id = 'i1', patch: Partial<IssueViewModel> = {}): IssueViewModel {
 function world(): Store {
   return {
     sessions: [session(), session('s2')],
-    issues: [issue(), issue('i2')],
-    issueProjections: [],
+    ...normalizedIssueFixture([issue(), issue('i2')], [session(), session('s2')]),
     repos: [{ path: '/repo', branch: 'main', machineId: asMachineId('m1'), worktrees: [] }],
     machines: [
       { id: asMachineId('m1'), name: 'one' },
@@ -112,6 +113,9 @@ function handleFor(initial: Store) {
     },
     publish: (patch: Partial<Store>) => {
       snapshot = { ...snapshot, ...patch }
+      if (patch.sessions) snapshot.replica.applySnapshot('sessions', patch.sessions)
+      if (patch.issueProjections) snapshot.replica.applySnapshot('issueProjections', patch.issueProjections)
+      if (patch.issueUserStates) snapshot.replica.applySnapshot('issueUserStates', patch.issueUserStates)
       const publication = recordStorePublish(handle, new Set(Object.keys(patch)))
       for (const listener of listeners) {
         recordStoreSubscriber(handle, publication)
@@ -159,7 +163,7 @@ const legacySlice = {
     a.machines === b.machines &&
     a.sessions === b.sessions &&
     a.pins === b.pins &&
-    a.issues === b.issues &&
+    a.issueProjections === b.issueProjections && a.issueUserStates === b.issueUserStates &&
     a.coarseNow === b.coarseNow &&
     a.selectedIssueId === b.selectedIssueId,
 }
@@ -270,9 +274,9 @@ describe('worklist material inputs', () => {
             agentState: { ...s.agentState!, phase: 'needs_user' },
           })),
         },
-        { issues: original.issues.map((i) => ({ ...i, stage: 'review' })) },
+        { issueProjections: original.issueProjections.map((i) => ({ ...i, stage: 'review' })) },
         {
-          issues: original.issues.map((i) => ({
+          issueProjections: original.issueProjections.map((i) => ({
             ...i,
             deferUntil: new Date(NOW + 60_000).toISOString(),
           })),
@@ -281,8 +285,8 @@ describe('worklist material inputs', () => {
         { sessions: [original.sessions[0]!] },
         { sessions: original.sessions },
         { sessions: [...original.sessions].reverse() },
-        { issues: [original.issues[0]!] },
-        { issues: original.issues },
+        { issueProjections: [original.issueProjections[0]!] },
+        { issueProjections: original.issueProjections },
         { machines: [original.machines[1]!] },
         { machines: original.machines },
         { coarseNow: NOW + 60_000 },
@@ -391,10 +395,11 @@ describe('worklist material inputs', () => {
 
   it('compares ordered membership for every collection and retains no evicted rows', () => {
     const store = world()
+    const issueModels = allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)
     expect(worklistSessionsEqual(store.sessions, [...store.sessions].reverse())).toBe(false)
     expect(worklistSessionsEqual(store.sessions, store.sessions.slice(1))).toBe(false)
-    expect(worklistIssuesEqual(store.issues, [...store.issues].reverse())).toBe(false)
-    expect(worklistIssuesEqual(store.issues, store.issues.slice(1))).toBe(false)
+    expect(worklistIssuesEqual(issueModels, [...issueModels].reverse())).toBe(false)
+    expect(worklistIssuesEqual(issueModels, issueModels.slice(1))).toBe(false)
     expect(worklistMachinesEqual(store.machines, [...store.machines].reverse())).toBe(false)
     expect(worklistMachinesEqual(store.machines, store.machines.slice(1))).toBe(false)
     expect(worklistMachinesEqual(store.machines, [])).toBe(false)
@@ -425,14 +430,14 @@ describe('worklist material inputs', () => {
     ).toBe(true)
     expect(
       worklistIssuesEqual(
-        store.issues,
-        store.issues.map((i) => ({ ...i })),
+        issueModels,
+        issueModels.map((i) => ({ ...i })),
       ),
     ).toBe(true)
     expect(
       worklistIssuesEqual(
-        store.issues,
-        store.issues.map((i) => ({ ...i, title: 'new' })),
+        issueModels,
+        issueModels.map((i) => ({ ...i, title: 'new' })),
       ),
     ).toBe(false)
     expect(worklistPinsEqual(store.pins, { ...store.pins, panels: [asSessionId('s1')] })).toBe(true)

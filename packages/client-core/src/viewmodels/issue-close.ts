@@ -44,7 +44,7 @@ export interface IssueCloseConcern {
  */
 export type IssueCloseSubject = Pick<
   IssueNavigationModel,
-  'needsHuman' | 'asked' | 'humanQuestion' | 'childCount' | 'childDoneCount' | 'parentBranch' | 'gitState'
+  'needsHuman' | 'asked' | 'childCount' | 'childDoneCount' | 'parentBranch' | 'gitState'
 >
 
 /**
@@ -82,7 +82,7 @@ export function issueCloseConcerns(
     concerns.push({
       key: 'question',
       label: 'Human input is still needed',
-      detail: issue.asked?.question || issue.humanQuestion || 'A question or approval is still waiting for a response.',
+      detail: issue.asked?.question || 'A question or approval is still waiting for a response.',
       blocking: true,
       icon: 'attention',
     })

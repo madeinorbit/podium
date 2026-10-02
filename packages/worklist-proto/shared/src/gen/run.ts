@@ -234,7 +234,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   const edits = new Map<string, EditRecord>()
   const byMutation = new Map<string, EditRecord>()
   const known = new Set<string>()
-  const evicted = new Map<string, { wire: unknown; projection: unknown }>()
+  const evicted = new Map<string, Record<string, unknown>>()
   let index = 0
 
   const outboxIds = (): string[] => [
@@ -267,14 +267,13 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   const readRow = (entity: string, id: string): Record<string, unknown> | undefined =>
     ctx.cache.read(entity, id)?.value as Record<string, unknown> | undefined
 
-  /** Dual-write an issue change onto SERVER truth (wire + projection). */
+  /** Publish normalized server facts and their affected companions. */
   const patchIssue = (id: string, patch: Record<string, unknown>): string | null => {
-    const wire = readRow('issueProjection', id)
-    if (!wire) return `issue ${id} not in scope`
-    const projection = readRow('issueProjection', id) ?? {}
+    const projection = readRow('issueProjection', id)
+    if (!projection) return `issue ${id} not in scope`
     const updatedAt = ctx.stamp()
     ctx.replica.batch(() => {
-      upsertIssue(ctx, id, { ...wire, ...patch, updatedAt })
+      upsertIssue(ctx, id, { ...projection, ...patch, updatedAt })
     })
     return null
   }
@@ -377,7 +376,6 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         if (!readRow('issueProjection', c.id)) return `issue ${c.id} not in scope`
         ctx.replica.batch(() => {
           remove(ctx, 'issueProjection', c.id)
-          remove(ctx, 'issueProjection', c.id)
         })
         return null
       }
@@ -399,9 +397,8 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       case 'evict': {
         const wire = readRow('issueProjection', c.id)
         if (!wire) return `issue ${c.id} not in scope`
-        evicted.set(c.id, { wire, projection: readRow('issueProjection', c.id) })
+        evicted.set(c.id, wire)
         ctx.replica.batch(() => {
-          evict(ctx, 'issueProjection', c.id)
           evict(ctx, 'issueProjection', c.id)
         })
         return null
@@ -412,8 +409,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         if (readRow('issueProjection', c.id)) return `issue ${c.id} already back`
         evicted.delete(c.id)
         ctx.replica.batch(() => {
-          upsertIssue(ctx, c.id, rows.wire, 2, true)
-          if (rows.projection) upsert(ctx, 'issueProjection', c.id, rows.projection, 2, true)
+          upsertIssue(ctx, c.id, rows, 2, true)
         })
         return null
       }
@@ -471,7 +467,6 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           updatedAt: now,
           archived: false,
           audience: 'agent',
-          draft: true,
           isDraftVessel: true,
           intentOrigin: 'agent',
           repoId: ctx.targets.newIssueRepo.repoId,
@@ -513,12 +508,12 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           { pinned: true, readAt: stamp, commentCount: 3, color: 'violet', linearIdentifier: 'EXT-42' },
           { pinned: false, deferUntil: new Date(now + 60_000).toISOString() },
           { deferUntil: new Date(now - 60_000).toISOString(), readAt: null },
-          { deferUntil: 'next-message', needsHuman: true, humanQuestion: 'Which path?', humanQuestionOptions: ['A', 'B'],
+          { deferUntil: 'next-message', needsHuman: true, 
             asked: { question: 'Which path?', options: ['A', 'B'], at: stamp, by: 'sidebar-asker' } },
-          { deferUntil: null, needsHuman: false, humanQuestion: null, humanQuestionOptions: null, asked: null, tuckedAt: stamp },
+          { deferUntil: null, needsHuman: false, asked: undefined, tuckedAt: stamp },
           { tuckedAt: null, branch: 'issue/sidebar-facts', gitState: { shared: false, merged: false, ahead: 4, dirtyFiles: 2, updatedAt: stamp } },
           { gitState: { shared: true, merged: true, ahead: 0, dirtyFiles: 0, updatedAt: stamp }, commentCount: 5, color: 'blue', linearIdentifier: null },
-          { audience: 'agent', draft: true, isDraftVessel: true, origin: 'agent', intentOrigin: 'agent', worktreePath: null },
+          { audience: 'agent', isDraftVessel: true, intentOrigin: 'agent', worktreePath: null },
         ]
         return patchIssue(c.id, patches[c.variant % patches.length]!)
       }

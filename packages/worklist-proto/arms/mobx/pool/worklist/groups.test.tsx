@@ -1,3 +1,4 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
 // @vitest-environment happy-dom
 /**
  * POD-4570 (Mb2) — groups, closed folds and the windowed list on the live
@@ -100,7 +101,7 @@ function waitingKept(ctx: ScenarioEngine, expected: SliceOrder): Set<string> {
   const views = rowViewsFromStore(store, { ...engineLocals(ctx), selectedIssueId: null })
   const open = new Set(expected.groups.flatMap((group) => group.rowIds))
   const kept = new Set<string>()
-  for (const issue of store.issues as unknown as SliceIssue[]) {
+  for (const issue of allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates) as unknown as SliceIssue[]) {
     if (!open.has(issue.id)) continue
     const view = views[issue.id]
     if (view === undefined || view.closed) continue

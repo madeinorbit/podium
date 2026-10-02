@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs'
 import { actorUser, asMutationId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
@@ -14,7 +15,7 @@ const freshFactory = () => {
   return fresh.file
 }
 const open = (options: { factory: string; retainEntity?: (entity: string) => boolean; onDegraded: (reason: unknown) => void }) =>
-  SqliteSyncStore.open({ ...options, openDatabase: () => sqliteEngine.open(options.factory) })
+  SqliteSyncStore.open({ ...options, openDatabase: () => sqliteEngine.open(options.factory), deleteDatabase: () => rmSync(options.factory, { force: true }) })
 
 const cursor = (seq: number) => ({ feedId: 'f', epoch: 'e', seq })
 const row = (entity: string, id = 'i'): EntityRecord => ({
@@ -89,7 +90,7 @@ describe('native SQLite optional entity retention', () => {
     expect(degraded).toEqual([])
     const after = await readDurable(factory)
     expect(after.entities).toEqual(
-      before.entities.filter((r) => (r as EntityRecord).entity !== 'issue'),
+      before.entities.filter((r) => r.entity !== 'issue'),
     )
     expect(after.cursors).toEqual(before.cursors)
     expect(after.outbox).toEqual(before.outbox)
@@ -135,7 +136,7 @@ describe('native SQLite optional entity retention', () => {
     expect(cache.readCursor()).toEqual(cursor(7))
     expect(
       (await readDurable(factory)).entities.some(
-        (r) => (r as EntityRecord).entity === 'issue',
+        (r) => r.entity === 'issue',
       ),
     ).toBe(false)
     await store.rehydrate()

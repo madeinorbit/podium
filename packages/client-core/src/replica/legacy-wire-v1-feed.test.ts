@@ -669,7 +669,7 @@ describe('SocketHub metadata delta mode', () => {
     // (`owner`/`visibility`/`createdBy`) is REQUIRED on R1, and per-user `readAt`
     // is absent by construction. So the fixture states those four rather than
     // inheriting them, and `parse` — not a cast — is what proves it.
-    const { description: _description, readAt: _readAt, ...legacy } = issue('iss_1', 'projected')
+    const { description: _description, ...legacy } = issue('iss_1', 'projected')
     const projected = IssueProjection.parse({
       ...legacy,
       description: { value: '' },

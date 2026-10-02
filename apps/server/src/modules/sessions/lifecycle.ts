@@ -937,11 +937,11 @@ export class SessionLifecycle {
       sessions: values('session'),
       sessionUserStates: values('sessionUserState'),
       machines: values('machine'),
-      // THE LAST SERVER READ OF THE OLD ISSUE RECORD (POD-4971). It answers
-      // released clients, which read only `issues`, and is registered residue
-      // (`scripts/rearch-audit.ts`) until step 7 of POD-4949 answers `[]`.
+      // Required empty compatibility field; supported clients read normalized kinds.
       issues: [],
       issueProjections: values('issueProjection'),
+      issueUserStates: values('issueUserState'),
+      issueGitStates: values('issueGitState'),
       issueDeps: values('issueDep'),
       repos: values('repo'),
       shipOrders: values('shipOrder'),

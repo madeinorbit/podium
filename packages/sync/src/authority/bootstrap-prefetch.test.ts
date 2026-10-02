@@ -11,7 +11,7 @@ import { scopeBootstrap } from './scoping'
 
 const issue = (seq: number, entityId: string): SequencedChange => ({
   seq,
-  entity: 'issue',
+  entity: 'issueProjection',
   entityId,
   op: 'upsert',
   value: { entityId },
@@ -22,7 +22,7 @@ describe('bootstrap visibility prefetch gate', () => {
     const pointReads: string[] = []
     const batches: string[][] = []
     const base: VisibilityStatePort = {
-      classOf: (entity) => (entity === 'issue' ? 'personal' : null),
+      classOf: (entity) => (entity === 'issueProjection' ? 'personal' : null),
       mayRead: (_user, ref) => {
         pointReads.push(ref.entityId)
         return true
@@ -33,7 +33,7 @@ describe('bootstrap visibility prefetch gate', () => {
       ...base,
       forBootstrap: async (refs: readonly EntityRef[]) => {
         batches.push([
-          ...new Set(refs.filter((ref) => ref.entity === 'issue').map((ref) => ref.entityId)),
+          ...new Set(refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId)),
         ])
         return { ...base, mayRead: () => true }
       },

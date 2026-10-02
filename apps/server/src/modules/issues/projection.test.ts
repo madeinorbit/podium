@@ -1,3 +1,4 @@
+import type { IssueRow } from '../../store/types'
 import { issueRowFixture as row } from '../../test-support/issue-row'
 import { asRepoId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'

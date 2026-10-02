@@ -80,7 +80,6 @@ function fakeRuntime(
   const pending: Record<Entity, Map<string, PendingOverlay[]>> = {
     sessions: new Map(),
     sessionUserStates: new Map(),
-    issues: new Map(),
     issueUserStates: new Map(),
     issueProjections: new Map(),
   }
@@ -1251,7 +1250,7 @@ async function runFence(
   // The scale is real: the replica and the runtime hold the whole corpus.
   expect(replica.rows('issueProjections')).toHaveLength(spec.issues)
   expect(replica.rows('sessions')).toHaveLength(spec.sessions)
-  expect(engine.getSnapshot().issues).toHaveLength(0)
+  expect(engine.getSnapshot().issueProjections).toHaveLength(0)
   const wrapped = countingWrappers(engine, replica)
   const handle = createRowSource(wrapped.runtime, wrapped.replica, { mode })
   let rowsEmitted = 0

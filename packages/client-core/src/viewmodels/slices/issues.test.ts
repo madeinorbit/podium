@@ -257,12 +257,12 @@ describe('issue nav list', () => {
       navIssue('POD-40', {
         worktreePath: '/repo/a',
         updatedAt: '2026-07-01T00:00:00.000Z',
-        memberSessionIds: ['s-old'],
+        memberSessionIds: [asSessionId('s-old')],
       }),
       navIssue('POD-41', {
         worktreePath: '/repo/b',
         updatedAt: '2026-07-02T00:00:00.000Z',
-        memberSessionIds: ['s-new'],
+        memberSessionIds: [asSessionId('s-new')],
       }),
       navIssue('POD-42', { worktreePath: '/repo/c', updatedAt: '2026-07-09T00:00:00.000Z' }),
     ]
@@ -301,7 +301,7 @@ describe('issue nav list', () => {
   })
 
   it('leaves an evicted member session out with no tombstone row', () => {
-    const i = navIssue('POD-47', { memberSessionIds: ['s-kept', 's-evicted'] })
+    const i = navIssue('POD-47', { memberSessionIds: [asSessionId('s-kept'), asSessionId('s-evicted')] })
     const view = issueNavList([i], [session('s-kept')], now)[0]
     expect(view?.sessions.map((s) => s.sessionId)).toEqual(['s-kept'])
     // Nothing stands in for the evicted row — the issue simply has one session.

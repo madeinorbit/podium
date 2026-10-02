@@ -98,7 +98,7 @@ describe('bind-storm regression', () => {
     const pipelineRuns = inbox.filter((m) => m.type === 'feedDelta').length
     expect(pipelineRuns).toBeGreaterThanOrEqual(1)
     expect(pipelineRuns).toBeLessThanOrEqual(3)
-    expect(sessionChanges(inbox).filter((change) => change.entity === 'issue').length).toBe(0)
+    expect(sessionChanges(inbox).filter((change) => change.entity === 'issueProjection').length).toBe(0)
 
     // (a) Machine names never hit SQLite during the storm (cache built in setup,
     // nothing invalidated it). Pre-fix this was issues x sessions x binds calls.

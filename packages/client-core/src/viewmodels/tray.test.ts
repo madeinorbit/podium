@@ -70,7 +70,7 @@ describe('deriveTrayItems', () => {
     const asking = makeIssue({
       id: 'q',
       needsHuman: true,
-      humanQuestion: 'Ship with flag on?',
+      asked: { question: 'Ship with flag on?' },
       updatedAt: '2026-07-14T10:00:00Z',
     })
     const unrelated = makeIssue({
@@ -89,7 +89,7 @@ describe('deriveTrayItems', () => {
     const asking = makeIssue({
       id: 'q',
       needsHuman: true,
-      humanQuestion: 'Ship with flag on?',
+      asked: { question: 'Ship with flag on?' },
       updatedAt: '2026-07-14T10:00:00Z',
     })
     // Review-ready work normally announces itself via a session offer, but the
@@ -150,7 +150,7 @@ describe('deriveTrayItems', () => {
       id: 'a',
       stage: 'review',
       needsHuman: true,
-      humanQuestion: 'Merge?',
+      asked: { question: 'Merge?' },
     })
     expect(deriveTrayItems([asking]).map((i) => i.kind)).toEqual(['question'])
   })
@@ -159,7 +159,7 @@ describe('deriveTrayItems', () => {
     const oldQuestion = makeIssue({
       id: 'q-old',
       needsHuman: true,
-      humanQuestion: 'Which flag?',
+      asked: { question: 'Which flag?' },
       updatedAt: '2026-07-14T09:00:00Z',
     })
     const newOffer = makeIssue({
@@ -246,7 +246,7 @@ describe('deriveTrayItems', () => {
       id: 'b',
       stage: 'review',
       needsHuman: true,
-      humanQuestion: 'Merge strategy?',
+      asked: { question: 'Merge strategy?' },
       sessions: [
         session({
           sessionId: asSessionId('agent'),
@@ -276,9 +276,9 @@ describe('workingSessionCount', () => {
       session({ sessionId: 'w6' }),
       session({ sessionId: 'w7' }),
     ] as SessionMeta[]
-    const issue = { ...makeIssue({ id: 'p' }), memberSessionIds: ['w1', 'w2', 'w3', 'w4', 'w5'] }
-    const child = { ...makeIssue({ id: 'c', parentId: 'p' }), memberSessionIds: ['w6'] }
-    const outside = { ...makeIssue({ id: 'x' }), memberSessionIds: ['w7'] }
+    const issue = { ...makeIssue({ id: 'p' }), memberSessionIds: [asSessionId('w1'), asSessionId('w2'), asSessionId('w3'), asSessionId('w4'), asSessionId('w5')] }
+    const child = { ...makeIssue({ id: 'c', parentId: 'p' }), memberSessionIds: [asSessionId('w6')] }
+    const outside = { ...makeIssue({ id: 'x' }), memberSessionIds: [asSessionId('w7')] }
     expect(workingSessionCount([issue, child, outside], sessions)).toBe(3)
   })
 })

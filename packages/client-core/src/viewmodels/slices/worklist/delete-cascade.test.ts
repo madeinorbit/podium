@@ -52,15 +52,15 @@ function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavig
     needsHuman: false,
     memberSessionIds: ['s1'],
     sessionSummary: { total: 1, byPhase: {} },
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     unread: false,
     readAt: '2026-08-12T11:00:00.000Z',
     ...over,
-  } as IssueNavigationModel
+  } as unknown as IssueNavigationModel
 }
 
 function session(over: Partial<SessionMetaInput> = {}): SessionMeta {

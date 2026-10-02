@@ -4624,7 +4624,7 @@ describe('pool shared runtime work', () => {
     const keyOf = (row: object) => (row as { id: string }).id
     const awaiting = (id: string, resolvedAt = 999_999): AwaitingTruth => ({
       resolvedAt, baseline: undefined, overlay: { op: 'patch', entity: 'issueProjections', key: id, id, patch: { title: 'covered' },
-        coveredBy: row => (row as IssueViewModel).title === 'covered' },
+        coveredBy: row => (row as IssueProjection).title === 'covered' },
     })
     try {
       for (const base of [[{ id: 'keep', title: 'old' }, { id: 'cover', title: 'covered' }], []]) {

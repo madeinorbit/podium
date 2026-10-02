@@ -362,7 +362,7 @@ export const kernelVisibilityResolver = (policy: FeedVisibilityPolicy): Visibili
       // kind as a bare `string` (it must, being L0) while the kernel narrows it.
       // A kind the kernel cannot classify reaches `classOf`, which returns null,
       // and is refused as `unclassified` — the default-closed path.
-      entity: entity.kind as MetadataEntityKind,
+      entity: entity.kind === 'issue' ? 'issueProjection' : entity.kind as MetadataEntityKind,
       entityId: entity.id,
     }).visible === true,
 })

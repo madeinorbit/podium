@@ -90,13 +90,13 @@ function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavig
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
     needsHuman: false,
-    origin: 'human' as const,
+    intentOrigin: 'human' as const,
     audience: 'human' as const,
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     ...over,
-  } as IssueNavigationModel
+  } as unknown as IssueNavigationModel
 }
 
 const emptySections = (worktrees: WorktreeNavView[]): SidebarSections => ({
@@ -235,12 +235,12 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     const rows = unifiedWorkList(
       emptySections([]),
       [
-        issue({ id: 'dr1', draft: true, stage: 'backlog' }),
-        issue({ id: 'dr2', draft: true, stage: 'backlog' }),
+        issue({ id: 'dr1', isDraftVessel: true, stage: 'backlog' }),
+        issue({ id: 'dr2', isDraftVessel: true, stage: 'backlog' }),
         // Internal, with a live session — still excluded from the human work list.
         issue({
           id: 'ag1',
-          audience: 'agent' as IssueNavigationModel['audience'],
+          audience: 'agent' as unknown as IssueNavigationModel['audience'],
           stage: 'in_progress',
         }),
       ],
@@ -285,7 +285,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
 
     const before = unifiedWorkList(
       emptySections([wt]),
-      [issue({ id: 'draft', draft: true })],
+      [issue({ id: 'draft', isDraftVessel: true })],
       [session],
       [],
       NOW,
@@ -355,7 +355,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
   it('does not re-home a nested started-by child session into a worktree row', () => {
     const path = '/r/a/.worktrees/nested'
     const parent = issue({ id: 'parent', audience: 'human' })
-    const child = issue({ id: 'child', audience: 'agent' as IssueNavigationModel['audience'], parentId: 'parent' })
+    const child = issue({ id: 'child', audience: 'agent' as unknown as IssueNavigationModel['audience'], parentId: 'parent' })
     const own = { ...idle('own', path), issueId: 'parent' } as SessionMeta
     const nested = { ...working('nested', path), issueId: 'child' } as SessionMeta
     const wt = navWt(path, { isMain: false, sessions: [own, nested] })
@@ -366,8 +366,8 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
   it('does not re-home a three-level started-by grandchild session into a worktree row', () => {
     const path = '/r/a/.worktrees/deep'
     const root = issue({ id: 'root', audience: 'human' })
-    const child = issue({ id: 'child', audience: 'agent' as IssueNavigationModel['audience'], parentId: 'root' })
-    const grandchild = issue({ id: 'grandchild', audience: 'agent' as IssueNavigationModel['audience'], parentId: 'child' })
+    const child = issue({ id: 'child', audience: 'agent' as unknown as IssueNavigationModel['audience'], parentId: 'root' })
+    const grandchild = issue({ id: 'grandchild', audience: 'agent' as unknown as IssueNavigationModel['audience'], parentId: 'child' })
     const own = { ...idle('own-deep', path), issueId: 'root' } as SessionMeta
     const nested = { ...working('child-deep', path), issueId: 'child' } as SessionMeta
     const deepSession = { ...working('grandchild-deep', path), issueId: 'grandchild' } as SessionMeta
@@ -977,7 +977,7 @@ describe('groupUnifiedWorkRows', () => {
       closedRow('child', { parentId: 'parent' }),
       closedRow('awaiting', {
         branch: 'issue/awaiting',
-        gitState: { shared: false, merged: false, ahead: 1 } as IssueNavigationModel['gitState'],
+        gitState: { shared: false, merged: false, ahead: 1 } as unknown as IssueNavigationModel['gitState'],
       }),
       closedRow('needs-human', { needsHuman: true }),
       closedRow('working', {}, [working('worker', '/r/a')]),
@@ -1082,12 +1082,12 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     const root = issue({ id: 'root', title: 'Epic', audience: 'human' })
     const mid = issue({
       id: 'mid',
-      audience: 'agent' as IssueNavigationModel['audience'],
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'root',
     })
     const leaf = issue({
       id: 'leaf',
-      audience: 'agent' as IssueNavigationModel['audience'],
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'mid',
     })
     const rows = unifiedWorkList(
@@ -1109,7 +1109,7 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     const mid = issue({ id: 'mid', title: 'Mid', audience: 'human', parentId: 'root' })
     const leaf = issue({
       id: 'leaf',
-      audience: 'agent' as IssueNavigationModel['audience'],
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'mid',
     })
     const rows = unifiedWorkList(
@@ -1133,7 +1133,7 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     })
     const leaf = issue({
       id: 'leaf',
-      audience: 'agent' as IssueNavigationModel['audience'],
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'p',
     })
     const rows = unifiedWorkList(
@@ -1178,7 +1178,7 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
   })
 
   it('B5: unread keeps a finished issue visible only within 7 days of finishing (closedAt anchor)', () => {
-    const base = { stage: 'done' as IssueNavigationModel['stage'], unread: true, readAt: undefined }
+    const base = { stage: 'done' as unknown as IssueNavigationModel['stage'], unread: true, readAt: undefined }
     expect(
       issueVisibleInSidebar(
         issue({ ...base, closedAt: new Date(NOW - 2 * DAY).toISOString() }),
@@ -1220,7 +1220,7 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     const parent = issue({ id: 'p', title: 'Parent', audience: 'human' })
     const child = issue({
       id: 'c',
-      audience: 'agent' as IssueNavigationModel['audience'],
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'p',
     })
     const idleOwn = { ...idle('own', '/x'), issueId: 'p' } as SessionMeta
@@ -1245,7 +1245,7 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     const parent = issue({ id: 'p', title: 'Parent', audience: 'human' })
     const child = issue({
       id: 'c',
-      audience: 'agent' as IssueNavigationModel['audience'],
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'p',
     })
     const workingOwn = { ...working('own', '/x'), issueId: 'p' } as SessionMeta
@@ -1272,7 +1272,7 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
     const leaf = issue({
       id: 'leaf',
       seq: 3,
-      audience: 'agent' as IssueNavigationModel['audience'],
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'mid',
     })
     return { root, mid, leaf }
@@ -1358,7 +1358,7 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
         seq: 9,
         audience: 'human',
         parentId: 'root',
-        stage: 'done' as IssueNavigationModel['stage'],
+        stage: 'done' as unknown as IssueNavigationModel['stage'],
         unread: true,
         ...over,
       })

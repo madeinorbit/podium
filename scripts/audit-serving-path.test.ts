@@ -43,7 +43,7 @@ describe('the shipped objects have one serving tail', () => {
     const plumbing = await feedTestPlumbing()
     await plumbing.ledger.commit({
       write: async () => {},
-      changes: () => [{ entity: 'issue', id: 'i1', op: 'upsert', value: { id: 'i1' } }],
+      changes: () => [{ entity: 'issueProjection', id: 'i1', op: 'upsert', value: { id: 'i1' } }],
     })
     const received: { type: string }[] = []
     const refusal = plumbing.serving.attach(

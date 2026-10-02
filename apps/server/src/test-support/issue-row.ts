@@ -1,5 +1,5 @@
 import type { UnbrandIds } from '@podium/model'
-import type { IssueRow } from '../store'
+import type { IssueRow } from '../store/types'
 
 export function issueRowFixture(over: Partial<UnbrandIds<IssueRow>> = {}): IssueRow {
   return {

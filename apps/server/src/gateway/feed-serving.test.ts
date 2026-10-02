@@ -28,7 +28,7 @@ class Peer implements EdgePeer {
 /** One committed entity row. The ONLY way anything enters this harness. */
 const commit = (
   plumbing: Awaited<ReturnType<typeof feedTestPlumbing>>,
-  entity: 'session' | 'issue' | 'conversation' | 'automation' | 'automationRun',
+  entity: 'session' | 'issueProjection' | 'conversation' | 'automation' | 'automationRun',
   id: string,
   value: unknown,
 ) =>
@@ -138,7 +138,7 @@ describe('HTTP-only feed admission', () => {
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     await p.serving.admissionSettled()
     p.serving.detach(peer.id)
-    await commit(p, 'issue', 'i1', { id: 'i1' })
+    await commit(p, 'issueProjection', 'i1', { id: 'i1' })
     await publishPending(p, 0)
     expect(peer.types()).toEqual(['feedResume'])
     expect(p.serving.connectionCount()).toBe(0)

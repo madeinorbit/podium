@@ -87,17 +87,9 @@ describe('metadata oplog e2e (live server)', () => {
     await until(() => capClient.inbox.some((m) => m.type === 'feedDelta'))
     const delta = capClient.inbox.find((m) => m.type === 'feedDelta') as FeedDeltaMessage
     expect(delta.changes.map((change) => change.entity).sort()).toEqual([
-      'issue',
       'issueProjection',
     ])
     expect(delta.changes.every((change) => change.op === 'upsert')).toBe(true)
-
-    // The cap socket never got the issuesChanged rebroadcast. On this server it
-    // never gets `issuesChanged` at all — see the POD-1625 case below for why.
-    const capListRebroadcasts = capClient.inbox.filter(
-      (m) => m.type === 'issuesChanged' && m.issues.length > 0,
-    )
-    expect(capListRebroadcasts).toHaveLength(0)
 
     // Heal from the boot cursor: exactly the one issue upsert, cursor advanced.
     const heal = (await trpc.sync.changesSince.query({

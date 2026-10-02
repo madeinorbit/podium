@@ -92,8 +92,6 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     attentionEvent: noop,
     transcriptDelta: noop,
     turnPreview: noop,
-    issuesChanged: noop,
-    issueUpdated: noop,
     metadataDelta: noop,
     headlessActivity: noop,
     sessionOpenUrl: noop,
@@ -243,25 +241,6 @@ describe('SocketHub subscription seam (on/emit)', () => {
     expect(approvals).toEqual([[]])
     expect(runs).toEqual([[]])
     hub.dispose()
-  })
-
-  it('unsubscribe actually unsubscribes (seam and wrapper), and is idempotent', () => {
-    const { sock, hub } = setup()
-    const seam: number[] = []
-    const wrapper: number[] = []
-    const offSeam = hub.on('issues', (issues) => seam.push(issues.length))
-    const offWrapper = hub.onIssues((issues) => wrapper.push(issues.length))
-    hub.connect()
-    sock.open()
-    sock.recv({ type: 'issuesChanged', issues: [] })
-    expect(seam).toEqual([0])
-    expect(wrapper).toEqual([0, 0]) // replay + update
-    offSeam()
-    offSeam() // double-unsubscribe is a no-op
-    offWrapper()
-    sock.recv({ type: 'issuesChanged', issues: [] })
-    expect(seam).toEqual([0])
-    expect(wrapper).toEqual([0, 0])
   })
 
   it('unsubscribing one handler leaves other handlers of the same kind subscribed', () => {

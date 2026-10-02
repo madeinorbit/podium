@@ -1,3 +1,4 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
 // @vitest-environment happy-dom
 /**
  * POD-4444 / POD-4550 — scenario tests on the ONE corpus: every methodology
@@ -180,7 +181,7 @@ describe('#2 target family is larger than one level of the reads budget (POD-463
       const ctx = await startScenarioEngine(scale)
       try {
         expect(ctx.targets).toEqual(pickTargets(ctx.corpus))
-        expect(ctx.engine.getSnapshot().issues).toHaveLength(ctx.corpus.issues.length)
+        expect(allIssueViewModels(ctx.replica, ctx.engine.getSnapshot().issueProjections, ctx.engine.getSnapshot().issueUserStates)).toHaveLength(ctx.corpus.issues.length)
       } finally {
         ctx.engine.destroy()
       }
@@ -451,7 +452,7 @@ describe('scenario server writes build on server truth (POD-4551)', () => {
       const serverTitle = (ctx.cache.read('issueProjection', id)?.value as { title: string }).title
       void ctx.engine.getSnapshot().updateIssue(asIssueId(id), { title: 'Pending title' } as never)
       await new Promise((r) => setTimeout(r, ctx.settleMs))
-      const painted = ctx.engine.getSnapshot().issues.find((i) => i.id === id) as { title: string }
+      const painted = allIssueViewModels(ctx.replica, ctx.engine.getSnapshot().issueProjections, ctx.engine.getSnapshot().issueUserStates).find((i) => i.id === id) as { title: string }
       expect(painted.title, 'the edit is pending and painted').toBe('Pending title')
 
       applyStageMove(ctx, id)

@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '../replica/issue-view-models'
 import type { SessionValues, SessionView } from '../session-values'
-import { DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
+import { actorUser, DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
 import {
   isSortKey,
   sortKeyBetween,
@@ -112,6 +112,7 @@ export function optimisticDraftSortKey(
 }
 
 export function optimisticDraftIssue(args: {
+  userId: UserId
   issueId: IssueId
   repoPath: string
   repoId?: RepoId
@@ -122,6 +123,9 @@ export function optimisticDraftIssue(args: {
 }): IssueViewModel {
   return {
     id: args.issueId,
+    owner: args.userId,
+    visibility: 'personal',
+    createdBy: { actor: actorUser(args.userId), onBehalfOf: args.userId },
     repoPath: args.repoPath,
     ...(args.repoId !== undefined ? { repoId: args.repoId } : {}),
     // Placeholders reconciled by the broadcast: the real row carries a server seq
@@ -176,6 +180,7 @@ export function optimisticDraftIssue(args: {
  * provisional sequence, sort key, worktree and timestamps with the same-id row;
  * everything the operator is reading is already final. */
 export function optimisticStartedIssue(args: {
+  userId: UserId
   issueId: IssueId
   repoPath: string
   repoId?: RepoId
@@ -192,6 +197,7 @@ export function optimisticStartedIssue(args: {
 }): IssueViewModel {
   return {
     ...optimisticDraftIssue({
+      userId: args.userId,
       issueId: args.issueId,
       repoPath: args.repoPath,
       repoId: args.repoId,

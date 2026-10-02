@@ -1,3 +1,4 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 // @vitest-environment happy-dom
 /**
@@ -383,7 +384,7 @@ async function runHiddenSpinOffRename(
   const visible = rowViewsFromStore(store, engineLocals(ctx))
   let origin: string | undefined
   let spinOff: string | undefined
-  for (const issue of store.issues) {
+  for (const issue of allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)) {
     const from = issue.deps?.find((dep) => dep.type === 'discovered-from')?.id
     if (from === undefined || visible[from] === undefined) continue
     if (issue.closedAt != null || visible[issue.id] !== undefined) continue

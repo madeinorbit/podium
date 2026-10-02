@@ -174,7 +174,7 @@ describe('the port carries a principal and evaluates no policy', () => {
     // wire types `value` per entity arm, where v1's port row typed it `unknown`.
     const outcome = port.publishEntity(
       ref,
-      frame(0, 5, [{ seq: 5, entity: 'issue', entityId: 'i1', op: 'evict' }]),
+      frame(0, 5, [{ seq: 5, entity: 'issueProjection', entityId: 'i1', op: 'evict' }]),
     )
     expect(outcome.delivered).toEqual([asSubscriberId('alice')])
     expect(router.queued(asSubscriberId('bob'))).toBe(0)
@@ -215,13 +215,13 @@ describe('watermarks — ADR 2 Amendment 1 D13 on the control port', () => {
   it('refuses to send a frame that does not certify a well-formed range', () => {
     expect(() => assertCertified(frame(10, 9))).toThrow(/below fromSeq/)
     expect(() =>
-      assertCertified(frame(10, 20, [{ seq: 21, entity: 'issue', entityId: 'i', op: 'upsert' }])),
+      assertCertified(frame(10, 20, [{ seq: 21, entity: 'issueProjection', entityId: 'i', op: 'upsert' }])),
     ).toThrow(/outside covered range/)
     expect(() =>
       assertCertified(
         frame(10, 20, [
-          { seq: 15, entity: 'issue', entityId: 'a', op: 'upsert' },
-          { seq: 12, entity: 'issue', entityId: 'b', op: 'upsert' },
+          { seq: 15, entity: 'issueProjection', entityId: 'a', op: 'upsert' },
+          { seq: 12, entity: 'issueProjection', entityId: 'b', op: 'upsert' },
         ]),
       ),
     ).toThrow(/non-decreasing/)
@@ -231,8 +231,8 @@ describe('watermarks — ADR 2 Amendment 1 D13 on the control port', () => {
     expect(() =>
       assertCertified(
         frame(10, 20, [
-          { seq: 12, entity: 'issue', entityId: 'a', op: 'evict' },
-          { seq: 12, entity: 'issue', entityId: 'b', op: 'evict' },
+          { seq: 12, entity: 'issueProjection', entityId: 'a', op: 'evict' },
+          { seq: 12, entity: 'issueProjection', entityId: 'b', op: 'evict' },
         ]),
       ),
     ).not.toThrow()
@@ -293,7 +293,7 @@ describe('rescope and evict — and the prohibition on reusing remove', () => {
     // enforced by `validateFeedDelta` and covered in `messages/feed.test.ts`.
     // Omitted here rather than filled with a fake IssueProjection the port never reads.
     const readmit = frame(9, 10, [
-      { seq: 10, entity: 'issue', entityId: 'i1', op: 'upsert' },
+      { seq: 10, entity: 'issueProjection', entityId: 'i1', op: 'upsert' },
     ])
     expect(port.publishEntity(ref, readmit).delivered).toEqual([asSubscriberId('alice')])
     const [sent] = router.drain(asSubscriberId('alice')) as [FeedDeltaMessage]

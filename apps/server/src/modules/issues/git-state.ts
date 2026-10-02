@@ -35,7 +35,8 @@ export interface GitProbeIo {
  * state.
  */
 export interface GitProbeTarget
-  extends Pick<IssueProjection, 'parentBranch' | 'branch' | 'machineId'> {
+  extends Pick<IssueProjection, 'parentBranch' | 'machineId'> {
+  branch: string | null
   /** Checkout to probe: the issue worktree, or the session cwd on shared work. */
   cwd: string
   /** True = multi-task checkout (no issue-owned worktree): merge axis off. */

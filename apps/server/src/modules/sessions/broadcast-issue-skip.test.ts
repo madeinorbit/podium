@@ -63,7 +63,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // cost POD-701 measured on this path. Serving from the feed means a churn
     // that changed nothing sends nothing.
     expect(inbox.some((m) => m.type === 'sessionsChanged')).toBe(false)
-    expect(inbox.some((m) => m.type === 'issuesChanged')).toBe(false)
+    expect(inbox.some((m) => String(m.type) === 'issuesChanged')).toBe(false)
     // The paired half: this client is not simply deaf. A REAL change reaches it
     // through the same sink — without this, the assertions above are equally
     // satisfied by a connection that was never served at all.
@@ -104,7 +104,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
         (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'),
       ),
     ).toBe(true))
-    expect(inbox.some((m) => m.type === 'issuesChanged')).toBe(false)
+    expect(inbox.some((m) => String(m.type) === 'issuesChanged')).toBe(false)
 
     // THE PAIRED HALF, without which the line above is satisfied by an issue
     // pipeline that publishes nothing at all: a STABLE issue field still fans out
@@ -116,7 +116,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     await reg.modules.sessions.flushBroadcasts()
     await vi.waitFor(() => expect(
       inbox.some(
-        (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'issue'),
+        (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'issueProjection'),
       ),
     ).toBe(true))
     await reg.dispose()

@@ -1,3 +1,4 @@
+import { asUserId } from '@podium/model'
 import {
   mergeOptimistic,
   optimisticDraftIssue,
@@ -11,6 +12,7 @@ describe('optimisticStartingSession', () => {
   const base = {
     sessionId: asSessionId('sess-1'),
     issueId: asIssueId('iss_1'),
+    userId: asUserId('user-1'),
     agentKind: 'claude-code' as const,
     cwd: '/home/u/my-proj',
     nowIso: '2026-07-07T00:00:00.000Z',
@@ -45,6 +47,7 @@ describe('optimisticStartingSession', () => {
 describe('optimisticDraftIssue', () => {
   const base = {
     issueId: asIssueId('iss_1'),
+    userId: asUserId('user-1'),
     repoPath: '/home/u/my-proj',
     repoId: asRepoId('repo-1'),
     sortKey: 'c',

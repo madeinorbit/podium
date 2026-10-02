@@ -421,7 +421,6 @@ describe('rowStatusLine — task status, separate from agent activity', () => {
 
   it('uses isDraftVessel for a normalized awaiting-first-prompt row', () => {
     const row = issueRow([sess({ title: '✳ Claude Code' })], false, { isDraftVessel: true })
-    delete row.issue.draft
     expect(rowStatusLine(row, NOW)).toBe('awaiting first prompt')
   })
 })

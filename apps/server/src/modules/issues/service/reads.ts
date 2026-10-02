@@ -40,7 +40,8 @@ import { issueRowToProjection } from '../projection'
 import { IssueNotFound } from './not-found'
 import { countContextAwarePendingMail } from './mail-pending'
 
-export type IssueCommandResult<T> = T extends IssueProjection ? IssueReport & Omit<T, keyof IssueProjection>
+export type IssueCommandResult<T> = T extends string | number | boolean | bigint | symbol | null | undefined ? T
+  : T extends IssueProjection ? IssueReport & Omit<T, keyof IssueProjection>
   : T extends readonly (infer E)[] ? IssueCommandResult<E>[]
   : T extends object ? { [K in keyof T]: IssueCommandResult<T[K]> }
   : T
@@ -696,9 +697,8 @@ export class IssueReportsModule {
     return await Promise.all(hits.map(async hit => {
       const row = this.store.rows.get(hit.id)
       if (!row) throw new IssueNotFound(hit.id)
-      const [change] = await this.store.projectionChanges(row)
-      if (!change) throw new IssueNotFound(hit.id)
-      return { ...change.value, displayRef: hit.displayRef ?? `#${hit.seq}` }
+      const projection = await this.store.projection(row)
+      return { ...projection, displayRef: hit.displayRef ?? `#${hit.seq}` }
     }))
   }
 

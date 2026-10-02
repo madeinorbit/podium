@@ -390,9 +390,9 @@ describe('IssueService unread (#124)', () => {
     const { svc } = await harness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     expect(await svc.unreadFor(w.id)).toBe(true)
-    expect(w.readAt).toBeNull()
+    expect((await svc.commandResult(w)).readAt).toBeNull()
     const read = await svc.markIssueRead(w.id)
-    expect(read.readAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.commandResult(read)).readAt).toBe('2026-06-30T00:00:00.000Z')
     expect(await svc.unreadFor(w.id)).toBe(false)
     // The freshly-derived wire reflects it too.
     expect(await svc.unreadFor(w.id)).toBe(false)
@@ -404,7 +404,7 @@ describe('IssueService unread (#124)', () => {
     await svc.markIssueRead(w.id)
     expect(await svc.unreadFor(w.id)).toBe(false)
     const un = await svc.markIssueUnread(w.id)
-    expect(un.readAt).toBeNull()
+    expect((await svc.commandResult(un)).readAt).toBeNull()
     expect(await svc.unreadFor(w.id)).toBe(true)
     // Freshly-derived wire agrees, and the transition event mirrors issue.read.
     expect(await svc.unreadFor(w.id)).toBe(true)
@@ -451,13 +451,13 @@ describe('IssueService unread (#124)', () => {
     const updatedAt = (await store.issues.getIssue(w.id))!.updatedAt
 
     const pinned = await svc.update(w.id, { pinned: true })
-    expect(pinned.pinned).toBe(true)
+    expect((await svc.commandResult(pinned)).pinned).toBe(true)
     expect(await svc.unreadFor(w.id)).toBe(false)
-    expect(pinned.readAt).toBe(readAt)
+    expect((await svc.commandResult(pinned)).readAt).toBe(readAt)
     expect(pinned.updatedAt).toBe(updatedAt)
 
     const unpinned = await svc.update(w.id, { pinned: false })
-    expect(unpinned.pinned).toBe(false)
+    expect((await svc.commandResult(unpinned)).pinned).toBe(false)
     expect(await svc.unreadFor(w.id)).toBe(false)
     expect(unpinned.updatedAt).toBe(updatedAt)
 
@@ -468,7 +468,7 @@ describe('IssueService unread (#124)', () => {
 
     // Combined organizational patch (pin + reorder) also stays read.
     const both = await svc.update(w.id, { pinned: true, sortKey: 'x2d' })
-    expect(both.pinned).toBe(true)
+    expect((await svc.commandResult(both)).pinned).toBe(true)
     expect(both.sortKey).toBe('x2d')
     expect(await svc.unreadFor(w.id)).toBe(false)
     expect(both.updatedAt).toBe(updatedAt)
@@ -540,7 +540,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     expect((await svc.get(w.id))!.tuckedAt).toBeNull()
 
     const tucked = await svc.setIssueTucked(w.id, true)
-    expect(tucked.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.commandResult(tucked)).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
     expect((await svc.get(w.id))!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
     // Durable, not in-memory: it is in the DB column…
     expect((await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.tuckedAt).toBe(
@@ -608,17 +608,17 @@ describe('IssueService tuck-away (POD-333)', () => {
     }
     const svc = await IssueService.create(deps)
     const w = await closedIssue(svc)
-    expect((await svc.setIssueTucked(w.id, true)).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.commandResult((await svc.setIssueTucked(w.id, true)))).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
 
     clock = '2026-06-30T00:01:00.000Z'
     // Idempotent re-tuck (a retried outbox entry, or a second client pressing the
     // same control) must not move the stamp.
-    expect((await svc.setIssueTucked(w.id, true)).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.commandResult((await svc.setIssueTucked(w.id, true)))).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
 
-    expect((await svc.setIssueTucked(w.id, false)).tuckedAt).toBeNull()
+    expect((await svc.commandResult((await svc.setIssueTucked(w.id, false)))).tuckedAt).toBeNull()
     expect((await svc.get(w.id))!.tuckedAt).toBeNull()
     // A fresh tuck after an untuck takes the NEW clock.
-    expect((await svc.setIssueTucked(w.id, true)).tuckedAt).toBe('2026-06-30T00:01:00.000Z')
+    expect((await svc.commandResult((await svc.setIssueTucked(w.id, true)))).tuckedAt).toBe('2026-06-30T00:01:00.000Z')
   })
 
   it('refuses to tuck work that is not finished', async () => {
@@ -627,7 +627,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     await expect(svc.setIssueTucked(open.id, true)).rejects.toThrow(/not finished/)
     expect((await svc.get(open.id))!.tuckedAt).toBeNull()
     // Untuck stays legal on anything — it only clears.
-    expect((await svc.setIssueTucked(open.id, false)).tuckedAt).toBeNull()
+    expect((await svc.commandResult((await svc.setIssueTucked(open.id, false)))).tuckedAt).toBeNull()
   })
 
   it('reopening clears the tuck, so the next close offers Tuck away again', async () => {
@@ -638,11 +638,11 @@ describe('IssueService tuck-away (POD-333)', () => {
 
     const reopened = await svc.update(w.id, { stage: 'in_progress' })
     expect(reopened.closedReason).toBeUndefined()
-    expect(reopened.tuckedAt).toBeNull()
+    expect((await svc.commandResult(reopened)).tuckedAt).toBeNull()
 
     // Closing again leaves it untucked — the row comes back as a live "done" row
     // carrying the control, rather than auto-folding on a stale dismissal.
-    expect((await svc.close(w.id)).tuckedAt).toBeNull()
+    expect((await svc.commandResult((await svc.close(w.id)))).tuckedAt).toBeNull()
   })
 
   it('reopening by STARTING a closed issue clears the tuck too (#24 reopen path)', async () => {
@@ -671,7 +671,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     expect(tucked.updatedAt).toBe(before.updatedAt)
     // The tuck patch must not disturb the read marker — the two share a row now
     // (POD-1076), so this also covers the partial-patch rule at the service level.
-    expect(tucked.readAt).toBe(beforeReadAt)
+    expect((await svc.commandResult(tucked)).readAt).toBe(beforeReadAt)
     expect(await svc.unreadFor(w.id)).toBe(false)
   })
 })
@@ -1423,7 +1423,7 @@ describe('IssueService.undefer (manual unsnooze #133)', () => {
     // the transition shows immediately rather than up to a minute later.
     expect(nowMs - Date.parse(un.deferUntil!)).toBeGreaterThanOrEqual(60_000)
     // No longer deferred → back in the ready queue.
-    expect(un.deferred).toBe(false)
+    expect((await svc.commandResult(un)).deferred).toBe(false)
     // The correct transition event is logged (unsnoozed), NOT a second snooze.
     expect((await store.events.listEventsSince(0, { kinds: ['issue.unsnoozed'] })).length).toBe(1)
     expect((await store.events.listEventsSince(0, { kinds: ['issue.snoozed'] })).length).toBe(1)
@@ -1699,7 +1699,7 @@ describe('IssueService.start', () => {
     const started = await svc.start(created.id)
     // The three fields that must agree, because the file-browser root, the sidebar
     // worktree and the cwd of the next spawn all derive from them together.
-    expect(started.repoPath).toBe('/home/till/src/podium')
+    expect((await svc.commandResult(started)).repoPath).toBe('/home/till/src/podium')
     expect(started.worktreePath?.startsWith('/home/till/src/podium/')).toBe(true)
     expect(started.machineId).toBe('mach-b')
   })
@@ -2024,7 +2024,7 @@ describe('IssueService.start', () => {
     const started = await svc.start(created.id)
     expect(started.stage).toBe('in_progress')
     expect(started.closedReason).toBeUndefined()
-    expect(started.ready).toBe(true)
+    expect((await svc.commandResult(started)).ready).toBe(true)
     expect((await svc.search({ repoPath: '/r', status: 'open' })).map((i) => i.id)).toEqual([created.id])
     const reopened = (await store.events.listEventsSince(0)).filter((e) => e.kind === 'issue.reopened')
     expect(reopened).toHaveLength(1)
@@ -2622,12 +2622,12 @@ describe('IssueService derived status (P1)', () => {
     const w = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     expect(w.priority).toBe(2)
     expect(w.type).toBe('task')
-    expect(w.pinned).toBe(false)
+    expect((await svc.commandResult(w)).pinned).toBe(false)
     expect(w.labels).toEqual([])
-    expect(w.deps).toEqual([])
-    expect(w.ready).toBe(true)
-    expect(w.blocked).toBe(false)
-    expect(w.deferred).toBe(false)
+    expect((await svc.commandResult(w)).deps).toEqual([])
+    expect((await svc.commandResult(w)).ready).toBe(true)
+    expect((await svc.commandResult(w)).blocked).toBe(false)
+    expect((await svc.commandResult(w)).deferred).toBe(false)
   })
 
   it('a blocks-dependency on an open issue makes the dependent blocked (not ready)', async () => {
@@ -2654,8 +2654,8 @@ describe('IssueService derived status (P1)', () => {
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const deferred = await svc.update(a.id, { deferUntil: '2999-01-01' })
-    expect(deferred.deferred).toBe(true)
-    expect(deferred.ready).toBe(false)
+    expect((await svc.commandResult(deferred)).deferred).toBe(true)
+    expect((await svc.commandResult(deferred)).ready).toBe(false)
   })
 
   it('epic counts reflect children by parentId', async () => {
@@ -2858,9 +2858,9 @@ describe('IssueService assistant', () => {
 
     // The real edge is on `deps`, derived from issue_deps, and is NOT here. If
     // these two ever merge, the tracker starts lying about why work is blocked.
-    expect(wire.deps.map((d) => d.id)).toContain(blocker.id)
+    expect((await svc.commandResult(wire)).deps.map((d) => d.id)).toContain(blocker.id)
     expect(wire.blockedByNotes).not.toContain(blocker.id)
-    expect(wire.blocked).toBe(true)
+    expect((await svc.commandResult(wire)).blocked).toBe(true)
 
     // Re-reading the persisted row must not "helpfully" repair it either.
     expect((await svc.get(c.id))?.blockedByNotes).toEqual([
@@ -2928,7 +2928,7 @@ describe('IssueService field mutations (P1)', () => {
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    expect((await svc.addDep(a.id, b.id)).blocked).toBe(true)
+    expect((await svc.commandResult((await svc.addDep(a.id, b.id)))).blocked).toBe(true)
     await expect(svc.addDep(a.id, a.id)).rejects.toThrow(/self/)
     await expect(svc.addDep(b.id, a.id)).rejects.toThrow(/cycle/) // a->b already; b->a closes the loop
   })
@@ -3755,7 +3755,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
     await store.repos.addRepo('/home/u/podium', asMachineId('__local__'), 'git@github.com:o/podium.git')
     const prefix = (await store.repos.prefixForPath('/home/u/podium'))!
     const w = await svc.create({ repoPath: '/home/u/podium', title: 'A', startNow: false })
-    expect(w.displayRef).toBe(`${prefix}-${w.seq}`)
+    expect((await svc.commandResult(w)).displayRef).toBe(`${prefix}-${w.seq}`)
     expect(await svc.resolveRef(`${prefix}-${w.seq}`)).toBe(w.id)
     // An unknown prefix falls through unchanged (caller's unknown-issue error fires).
     expect(await svc.resolveRef('ZZZ-1')).toBe('ZZZ-1')

@@ -29,8 +29,7 @@ const lists = (
   issues: Array<{ id: string; title: string }>,
 ): Omit<LegacyMetadataAppliedState, 'cursor'> => ({
   sessions: [],
-  issues: issues as unknown as LegacyMetadataAppliedState['issueProjections'],
-  issueProjections: [],
+  issueProjections: issues as unknown as LegacyMetadataAppliedState['issueProjections'],
   issueDeps: [],
   repos: [],
   conversations: [],

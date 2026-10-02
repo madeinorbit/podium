@@ -88,11 +88,11 @@ function issue(
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
-    origin: 'human' as const,
+    intentOrigin: 'human' as const,
     audience: 'human' as const,
-    draft: false,
+    isDraftVessel: false,
     ...over,
-  } as IssueNavigationModel
+  } as unknown as IssueNavigationModel
 }
 
 function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
@@ -397,7 +397,7 @@ describe('missionRootFor', () => {
 // ---------------------------------------------------------------------------
 
 describe('selectedMissionRoot', () => {
-  const vessel = issue('vessel', { draft: true, title: 'Draft', stage: 'backlog' })
+  const vessel = issue('vessel', { isDraftVessel: true, title: 'Draft', stage: 'backlog' })
 
   it('resolves an ordinary selection exactly as missionRootFor does', () => {
     const { issues, sessions } = mission()
@@ -419,7 +419,7 @@ describe('selectedMissionRoot', () => {
   })
 
   it('keeps a draft that grew a worktree of its own', () => {
-    const real = issue('vessel', { draft: true, worktreePath: '/r/acme/.worktrees/v' })
+    const real = issue('vessel', { isDraftVessel: true, worktreePath: '/r/acme/.worktrees/v' })
     expect(selectedMissionRoot([real], [], asIssueId('vessel'))?.id).toBe('vessel')
   })
 
@@ -482,7 +482,7 @@ describe('deckDestinationFor', () => {
   it('is undefined when the mission is an empty draft vessel', () => {
     // Same cold case `selectedMissionRoot` answers: the deck renders its empty
     // state, so there is nothing for the jump to arrive at.
-    const vessel = issue('vessel', { draft: true, title: 'Draft', stage: 'backlog' })
+    const vessel = issue('vessel', { isDraftVessel: true, title: 'Draft', stage: 'backlog' })
     expect(deckDestinationFor([vessel], [], asIssueId('vessel'))).toBeUndefined()
   })
 
@@ -1831,7 +1831,7 @@ describe('missionProgress', () => {
     })
     // And the other way round: same sessions, a republished issue slice.
     const closed = [
-      issues[0] as IssueNavigationModel,
+      issues[0] as unknown as IssueNavigationModel,
       issue('c1', { parentId: 'root', stage: 'done' }),
     ]
     expect(missionProgress(closed, staffed, 'root').done).toBe(1)

@@ -1,3 +1,4 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
 // @vitest-environment happy-dom
 /**
  * POD-4445 — the ARMED control. This test must FAIL its isolation assertion
@@ -118,7 +119,7 @@ describe('legacy control (armed)', () => {
       // row the store holds (wire and projection twins count once).
       const store = ctx.engine.getSnapshot()
       const issueIds = new Set([
-        ...store.issues.map((issue) => issue.id),
+        ...allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates).map((issue) => issue.id),
         ...store.issueProjections.map((issue) => issue.id),
       ])
       console.info(

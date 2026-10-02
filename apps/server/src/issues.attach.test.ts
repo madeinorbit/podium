@@ -83,8 +83,8 @@ describe('origin/draft on create + wire', () => {
   it('defaults origin=human draft=false; honors explicit values', async () => {
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect(a.origin).toBe('human')
-    expect(a.draft).toBe(false)
+    expect(a.intentOrigin).toBe('human')
+    expect(a.isDraftVessel).toBe(false)
     const b = await svc.create({
       repoPath: '/r',
       title: 'Draft',
@@ -93,8 +93,8 @@ describe('origin/draft on create + wire', () => {
       audience: 'agent',
       draft: true,
     })
-    expect(b.origin).toBe('agent')
-    expect(b.draft).toBe(true)
+    expect(b.intentOrigin).toBe('agent')
+    expect(b.isDraftVessel).toBe(true)
   })
 
   it('round-trips origin/draft through the store', async () => {
@@ -119,10 +119,10 @@ describe('origin/draft on create + wire', () => {
   it('retitling a draft clears draft; other updates do not', async () => {
     const { svc } = await harness()
     const d = await svc.createDraftFor('/r')
-    expect(d.draft).toBe(true)
+    expect(d.isDraftVessel).toBe(true)
     expect(d.stage).toBe('backlog')
-    expect((await svc.update(d.id, { priority: 1 })).draft).toBe(true)
-    expect((await svc.update(d.id, { title: 'Real work' })).draft).toBe(false)
+    expect((await svc.update(d.id, { priority: 1 })).isDraftVessel).toBe(true)
+    expect((await svc.update(d.id, { title: 'Real work' })).isDraftVessel).toBe(false)
   })
 })
 
@@ -230,8 +230,8 @@ describe('attachSession', () => {
     })
     expect(w.title).toBe('Side quest')
     expect(w.parentId).toBe(parent.id)
-    expect(w.origin).toBe('human')
-    expect(w.draft).toBe(false)
+    expect(w.intentOrigin).toBe('human')
+    expect(w.isDraftVessel).toBe(false)
     expect(issueBySession.get(asSessionId('s1'))).toBe(w.id)
     expect(await svc.get(parent.id)).not.toBeNull()
   })
@@ -272,7 +272,7 @@ describe('attachSession', () => {
     expect(w.title).toBe('Adjacent discovery')
     // Provenance, not containment: no parent, but a discovered-from edge back.
     expect(w.parentId ?? null).toBeNull()
-    expect(w.deps).toContainEqual({ id: origin.id, type: 'discovered-from' })
+    expect((await svc.commandResult(w)).deps).toContainEqual({ id: origin.id, type: 'discovered-from' })
     expect(issueBySession.get(asSessionId('s1'))).toBe(w.id)
     // Agent-created but immediately worked: NOT proposed — the session is on it.
     expect(w.stage).not.toBe('proposed')
@@ -320,7 +320,7 @@ describe('attachSession', () => {
     expect(attached.id).not.toBe(unrelated.id)
     expect(attached.id).not.toBe(origin.id)
     expect(attached.title).toBe('A title matching nothing')
-    expect(attached.deps).toContainEqual({ id: origin.id, type: 'discovered-from' })
+    expect((await svc.commandResult(attached)).deps).toContainEqual({ id: origin.id, type: 'discovered-from' })
   })
 
   it('reuses accepted discovered work instead of minting a duplicate successor', async () => {

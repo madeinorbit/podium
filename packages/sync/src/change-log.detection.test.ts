@@ -23,7 +23,7 @@ const projection = {
   parentId: 'iss_parent',
   worktreePath: '/r/.worktrees/a',
 }
-const key = (entity: 'issue' | 'issueProjection', value: unknown) =>
+const key = (entity: 'issueProjection', value: unknown) =>
   detectionKey(entity, value, JSON.stringify(value))
 
 describe('change detection for the normalized issue record (POD-4971)', () => {
@@ -47,9 +47,6 @@ describe('change detection for the normalized issue record (POD-4971)', () => {
       const before = { ...projection, [field]: 1 }
       const after = { ...projection, [field]: 2 }
       expect(key('issueProjection', after)).not.toBe(key('issueProjection', before))
-      // Control: the same pair IS one value to the old record's key, so the
-      // exemption these assertions keep out is live, not already gone.
-      expect(key('issue', after)).toBe(key('issue', before))
     }
   })
 

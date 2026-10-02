@@ -178,22 +178,6 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       ctx.replica.batch(() => {
         for (let n = 0; n < 10; n += 1) {
           const id = `i-grow-${n}`
-          ctx.cache.put('issue', id, {
-            id,
-            seq: 100000 + n,
-            title: `Grown ${n}`,
-            stage: 'in_progress',
-            parentId: null,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            archived: false,
-            repoId: 'r0',
-            repoPath: '/repo-0',
-            readAt: null,
-            unread: true,
-            needsHuman: false,
-            blocked: false,
-          })
           ctx.cache.put('issueProjection', id, {
             id,
             seq: 100000 + n,

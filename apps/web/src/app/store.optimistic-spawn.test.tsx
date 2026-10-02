@@ -1,3 +1,5 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
+import { placeholderProjection } from '../../../../../packages/client-core/src/engine/optimism'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -103,7 +105,7 @@ let latest: { sessions: SessionMeta[]; issues: IssueViewModel[] } = { sessions: 
 let store: ReturnType<typeof useStore> | null = null
 function Probe(): null {
   const s = useStore()
-  latest = { sessions: s.sessions, issues: s.issues }
+  latest = { sessions: s.sessions, issues: allIssueViewModels(s.replica, s.issueProjections, s.issueUserStates) }
   store = s
   return null
 }
@@ -205,14 +207,16 @@ describe('optimistic new-session spawn', () => {
     changesSinceResolve?.({
       kind: 'snapshot',
       sessions: [serverSession(ids.sessionId, { status: 'starting', issueId: ids.issueId })],
-      issues: [
-        optimisticDraftIssue({
+      issues: [],
+      issueProjections: [
+        placeholderProjection(optimisticDraftIssue({
+          userId: TEST_PRINCIPAL.userId,
           issueId: ids.issueId,
           repoPath: '/w',
           sortKey: 'i',
           agentKind: 'claude-code',
           nowIso: '2026-07-01T00:00:00.000Z',
-        }),
+        })),
       ],
       conversations: [],
       diagnostics: [],

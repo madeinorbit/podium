@@ -85,6 +85,8 @@ const SNAPSHOT_KINDS: readonly SnapshotKind[] = [
   'sessionUserStates',
   'machines',
   'issueProjections',
+  'issueUserStates',
+  'issueGitStates',
   'issueDeps',
   'repos',
   'shipOrders',

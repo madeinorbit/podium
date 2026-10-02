@@ -2,6 +2,8 @@ import type { UnbrandIds } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionId } from '@podium/model'
 import {
+  actorUser,
+  asUserId,
   asIssueId,
   asMachineId,
   asSessionId,
@@ -266,6 +268,9 @@ function missionTask(
 const DEMO_MISSION: IssueViewModel[] = [
   missionTask({
     id: asIssueId('demo-mission-root'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 554,
     title: 'Host resource lifecycle policy',
     description:
@@ -293,6 +298,9 @@ const DEMO_MISSION: IssueViewModel[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-readout'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 563,
     parentId: asIssueId('demo-mission-root'),
     title: 'Host pressure readout in top bar',
@@ -309,6 +317,9 @@ const DEMO_MISSION: IssueViewModel[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-gc'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 564,
     parentId: asIssueId('demo-mission-root'),
     title: 'Worktree GC janitor sweep',
@@ -341,6 +352,9 @@ const DEMO_MISSION: IssueViewModel[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-unobserved'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 565,
     parentId: asIssueId('demo-mission-root'),
     title: 'Unobserved sessions in idle policy',
@@ -352,6 +366,9 @@ const DEMO_MISSION: IssueViewModel[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-hibernate'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 566,
     parentId: asIssueId('demo-mission-root'),
     title: 'Load pressure hibernation trigger',
@@ -365,6 +382,9 @@ const DEMO_MISSION: IssueViewModel[] = [
   }),
   missionTask({
     id: asIssueId('demo-mission-archive'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 567,
     parentId: asIssueId('demo-mission-root'),
     title: 'Archive frees the worktree',
@@ -381,6 +401,9 @@ export const DEMO_ISSUES: IssueViewModel[] = [
   ...DEMO_MISSION,
   proposal({
     id: asIssueId('demo-proposal-retry'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 301,
     priority: 1,
     type: 'bug',
@@ -395,6 +418,9 @@ export const DEMO_ISSUES: IssueViewModel[] = [
   }),
   proposal({
     id: asIssueId('demo-proposal-quota'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 298,
     type: 'feature',
     color: 'lime',
@@ -408,6 +434,9 @@ export const DEMO_ISSUES: IssueViewModel[] = [
   }),
   proposal({
     id: asIssueId('demo-proposal-cleanup'),
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 294,
     priority: 3,
     type: 'chore',
@@ -423,6 +452,9 @@ export const DEMO_ISSUES: IssueViewModel[] = [
   {
     id: asIssueId('demo-issue-auth'),
     repoPath: '/home/dev/src/podium',
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 87,
     title: 'OAuth refresh loop logs users out',
     description:
@@ -470,6 +502,9 @@ export const DEMO_ISSUES: IssueViewModel[] = [
   {
     id: asIssueId('demo-issue-header'),
     repoPath: '/home/dev/src/podium',
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 121,
     title: 'Session header redesign',
     description: 'Segmented mode switch, model token, overflow menu.',
@@ -506,6 +541,9 @@ export const DEMO_ISSUES: IssueViewModel[] = [
   {
     id: asIssueId('demo-issue-ci'),
     repoPath: '/home/dev/src/podium',
+    owner: asUserId('demo-user'),
+    visibility: 'personal',
+    createdBy: { actor: actorUser(asUserId('demo-user')), onBehalfOf: asUserId('demo-user') },
     seq: 118,
     title: 'CI runner migration',
     description: 'Move CI to blacksmith runners.',

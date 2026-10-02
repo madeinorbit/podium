@@ -38,8 +38,9 @@ const oldScope = {
   sessions: [{ sessionId: 'old-session' }],
   sessionUserStates: [{ userId: 'user-1', sessionId: 'old-session', readAt: 'read', snoozedUntil: null }],
   machines: [{ id: 'old-machine' }],
-  issues: [{ id: 'old-issue', title: 'old scope' }],
-  issueProjections: [{ id: 'old-issue' }],
+  issueProjections: [{ id: 'old-issue', title: 'old scope' }],
+  issueUserStates: [{ userId: 'user-1', entityId: 'old-issue' }],
+  issueGitStates: [{ id: 'old-issue' }],
   issueDeps: [{ id: 'old-dep' }],
   repos: [{ id: 'old-repo' }],
   shipOrders: [{ id: 'old-order' }],
@@ -84,8 +85,6 @@ describe('authoritative empty rescope', () => {
     const replica = createReplica({ storage: memoryStorage() })
     seedScope(replica)
     const supplements = {
-      issueUserStates: [{ userId: 'user-1', entityId: 'old-issue' }],
-      issueGitStates: [{ id: 'old-issue' }],
       issueEvents: [{ id: 'event-1' }],
       pendingInteractions: [{ id: 'ask-1', sessionId: 'old-session' }],
       messageRecords: [{ id: 'message-1', sessionId: 'old-session', senderUserId: 'user-1' }],
@@ -94,12 +93,12 @@ describe('authoritative empty rescope', () => {
     const supplementKinds = Object.keys(supplements) as Array<keyof typeof supplements>
     for (const kind of supplementKinds) replica.applySnapshot(kind, supplements[kind] as never)
     for (const kind of supplementKinds) expect(replica.rows(kind)).toMatchObject(supplements[kind])
-    const issues = [{ id: 'new-issue', title: 'new scope' }]
+    const issueProjections = [{ id: 'new-issue', title: 'new scope' }]
     const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
-    for (const chunk of snapshotToChunks({ issues })) await session.install(chunk)
+    for (const chunk of snapshotToChunks({ issueProjections })) await session.install(chunk)
     session.commit()
 
-    expect(readScope(replica)).toEqual({ ...emptyScope, issues })
+    expect(readScope(replica)).toEqual({ ...emptyScope, issueProjections })
     for (const kind of supplementKinds) expect(replica.rows(kind)).toMatchObject(supplements[kind])
   })
 
@@ -112,7 +111,7 @@ describe('authoritative empty rescope', () => {
     for (const kind of snapshotKinds) replica.subscribeRows(kind, notified)
     const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
     for (const chunk of snapshotToChunks({})) await session.install(chunk)
-    session.bufferDelta(11, [upsert('issue', 'new-issue', 11)])
+    session.bufferDelta(11, [upsert('issueProjection', 'new-issue', 11)])
     expect(readScope(replica)).toEqual(oldScope)
     session.abort()
     expect(() => session.commit()).toThrow('bootstrap session already committed')
@@ -132,16 +131,16 @@ describe('authoritative empty rescope', () => {
     seedScope(replica)
     const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
     for (const chunk of snapshotToChunks({})) await session.install(chunk)
-    expect(session.bufferDelta(10, [upsert('issue', 'snapshot-covered', 10)])).toBe(false)
-    session.bufferDelta(13, [upsert('issue', 'new-issue', 13, { id: 'new-issue', title: 'latest' })])
-    session.bufferDelta(11, [upsert('issue', 'new-issue', 11, { id: 'new-issue', title: 'first' })])
+    expect(session.bufferDelta(10, [upsert('issueProjection', 'snapshot-covered', 10)])).toBe(false)
+    session.bufferDelta(13, [upsert('issueProjection', 'new-issue', 13, { id: 'new-issue', title: 'latest' })])
+    session.bufferDelta(11, [upsert('issueProjection', 'new-issue', 11, { id: 'new-issue', title: 'first' })])
     session.bufferDelta(12, [upsert('machine', 'new-machine', 12)])
     expect(readScope(replica)).toEqual(oldScope)
 
     session.commit()
     expect(readScope(replica)).toEqual({
       ...emptyScope,
-      issues: [{ id: 'new-issue', title: 'latest' }],
+      issueProjections: [{ id: 'new-issue', title: 'latest' }],
       machines: [{ id: 'new-machine', title: 'new-machine' }],
     })
     expect(replica.getFeedCursor()).toEqual(at('new-feed', 'new-epoch', 13))
@@ -159,12 +158,12 @@ describe('authoritative empty rescope', () => {
     }
     const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
     for (const chunk of snapshotToChunks({})) await session.install(chunk)
-    session.bufferDelta(11, [upsert('issue', 'new-issue', 11)])
+    session.bufferDelta(11, [upsert('issueProjection', 'new-issue', 11)])
     expect([...seen.values()].every((notifications) => notifications.length === 0)).toBe(true)
     session.commit()
 
     const final = {
-      scope: { ...emptyScope, issues: [{ id: 'new-issue', title: 'new-issue' }] },
+      scope: { ...emptyScope, issueProjections: [{ id: 'new-issue', title: 'new-issue' }] },
       cursor: at('new-feed', 'new-epoch', 11),
     }
     for (const kind of snapshotKinds) expect(seen.get(kind), kind).toEqual([final])
@@ -208,7 +207,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
     replica.setFeedCursor(at('feed_1', 'epoch_1', 5))
 
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_2', 9), noYield)
-    await session.install({ changes: [upsert('issue', 'new', 1)] })
+    await session.install({ changes: [upsert('issueProjection', 'new', 1)] })
 
     // Mid-bootstrap: the old world is still there, untouched.
     expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['old'])
@@ -225,7 +224,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
     replica.setFeedCursor(at('feed_1', 'epoch_1', 5))
 
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 9), noYield)
-    await session.install({ changes: [upsert('issue', 'new', 1)] })
+    await session.install({ changes: [upsert('issueProjection', 'new', 1)] })
     session.abort()
 
     expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['old'])
@@ -241,7 +240,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
     replica.subscribeRows('issueProjections', () => seen.push(replica.rows('issueProjections').map((i) => i.id)))
 
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 9), noYield)
-    void session.install({ changes: [upsert('issue', 'a', 1), upsert('issue', 'b', 2)] })
+    void session.install({ changes: [upsert('issueProjection', 'a', 1), upsert('issueProjection', 'b', 2)] })
     session.commit()
 
     expect(seen).toEqual([['a', 'b']])
@@ -252,7 +251,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
     replica.applySnapshot('issueProjections', [{ id: 'gone', title: 'gone' } as never])
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 3), noYield)
     await session.install({
-      changes: [upsert('issue', 'i1', 1), upsert('session', 's1', 2, { sessionId: 's1' })],
+      changes: [upsert('issueProjection', 'i1', 1), upsert('session', 's1', 2, { sessionId: 's1' })],
     })
     session.commit()
 
@@ -265,7 +264,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
     // older client. The row is ignored, the bootstrap completes.
     const replica = createReplica({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 2), noYield)
-    await session.install({ changes: [upsert('machine', 'm1', 1), upsert('issue', 'i1', 2)] })
+    await session.install({ changes: [upsert('machine', 'm1', 1), upsert('issueProjection', 'i1', 2)] })
     session.commit()
     expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['i1'])
   })
@@ -283,7 +282,7 @@ describe('pacing — the bootstrap must never own the loop (D6)', () => {
       batchSize: 10,
     })
     await session.install({
-      changes: Array.from({ length: 35 }, (_, i) => upsert('issue', `i${i}`, i + 1)),
+      changes: Array.from({ length: 35 }, (_, i) => upsert('issueProjection', `i${i}`, i + 1)),
     })
     expect(yieldToLoop).toHaveBeenCalledTimes(3)
   })
@@ -295,7 +294,7 @@ describe('pacing — the bootstrap must never own the loop (D6)', () => {
       yieldToLoop,
       batchSize: 10,
     })
-    await session.install({ changes: [upsert('issue', 'i1', 1)] })
+    await session.install({ changes: [upsert('issueProjection', 'i1', 1)] })
     expect(yieldToLoop).not.toHaveBeenCalled()
   })
 })
@@ -304,28 +303,28 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
   it.each([
     {
       name: 'upsert then remove',
-      changes: [upsert('issue', 'i1', 11), remove('issue', 'i1', 12)],
+      changes: [upsert('issueProjection', 'i1', 11), remove('issueProjection', 'i1', 12)],
       expected: [],
     },
     {
       name: 'remove then upsert',
-      changes: [remove('issue', 'i1', 11), upsert('issue', 'i1', 12)],
+      changes: [remove('issueProjection', 'i1', 11), upsert('issueProjection', 'i1', 12)],
       expected: [{ id: 'i1', title: 'i1' }],
     },
     {
       name: 'upsert, remove, then readmit',
-      changes: [upsert('issue', 'i1', 11), remove('issue', 'i1', 12), upsert('issue', 'i1', 13)],
+      changes: [upsert('issueProjection', 'i1', 11), remove('issueProjection', 'i1', 12), upsert('issueProjection', 'i1', 13)],
       expected: [{ id: 'i1', title: 'i1' }],
     },
     {
       name: 'remove, upsert, then remove delivered out of order',
-      changes: [remove('issue', 'i1', 13), remove('issue', 'i1', 11), upsert('issue', 'i1', 12)],
+      changes: [remove('issueProjection', 'i1', 13), remove('issueProjection', 'i1', 11), upsert('issueProjection', 'i1', 12)],
       expected: [],
     },
   ])('honors same-id buffered operation order: $name', async ({ changes, expected }) => {
     const replica = createReplica({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
-    await session.install({ changes: [upsert('issue', 'i1', 1, { id: 'i1', title: 'snapshot' })] })
+    await session.install({ changes: [upsert('issueProjection', 'i1', 1, { id: 'i1', title: 'snapshot' })] })
     session.bufferDelta(13, changes)
     session.commit()
 
@@ -338,9 +337,9 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
     await session.install({ changes: [] })
     session.bufferDelta(13, [
-      upsert('issue', 'shared-id', 11),
+      upsert('issueProjection', 'shared-id', 11),
       upsert('machine', 'shared-id', 12),
-      remove('issue', 'shared-id', 13),
+      remove('issueProjection', 'shared-id', 13),
     ])
     session.commit()
 
@@ -352,11 +351,11 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
   it('buffers deltas past snapshotSeq and applies them in the commit', async () => {
     const replica = createReplica({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
-    await session.install({ changes: [upsert('issue', 'i1', 1, { id: 'i1', title: 'as of 10' })] })
+    await session.install({ changes: [upsert('issueProjection', 'i1', 1, { id: 'i1', title: 'as of 10' })] })
 
     // A live delta lands mid-bootstrap.
     expect(
-      session.bufferDelta(11, [upsert('issue', 'i1', 11, { id: 'i1', title: 'as of 11' })]),
+      session.bufferDelta(11, [upsert('issueProjection', 'i1', 11, { id: 'i1', title: 'as of 11' })]),
     ).toBe(true)
     // Nothing applied yet.
     expect(replica.rows('issueProjections')).toHaveLength(0)
@@ -372,8 +371,8 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
     // tombstone is in the buffer. Drop the buffer and the row lives forever.
     const replica = createReplica({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
-    await session.install({ changes: [upsert('issue', 'i1', 1), upsert('issue', 'i2', 2)] })
-    session.bufferDelta(11, [remove('issue', 'i1', 11)])
+    await session.install({ changes: [upsert('issueProjection', 'i1', 1), upsert('issueProjection', 'i2', 2)] })
+    session.bufferDelta(11, [remove('issueProjection', 'i1', 11)])
     session.commit()
 
     expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['i2'])
@@ -383,9 +382,9 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
   it('applies buffered deltas in seq order regardless of arrival order', async () => {
     const replica = createReplica({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
-    await session.install({ changes: [upsert('issue', 'i1', 1)] })
-    session.bufferDelta(13, [upsert('issue', 'i1', 13, { id: 'i1', title: 'last' })])
-    session.bufferDelta(12, [upsert('issue', 'i1', 12, { id: 'i1', title: 'middle' })])
+    await session.install({ changes: [upsert('issueProjection', 'i1', 1)] })
+    session.bufferDelta(13, [upsert('issueProjection', 'i1', 13, { id: 'i1', title: 'last' })])
+    session.bufferDelta(12, [upsert('issueProjection', 'i1', 12, { id: 'i1', title: 'middle' })])
     session.commit()
     expect(replica.rows('issueProjections')[0]?.title).toBe('last')
     expect(replica.getFeedCursor().seq).toBe(13)
@@ -394,22 +393,22 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
   it('declines a delta at or below snapshotSeq — the snapshot already has it', () => {
     const replica = createReplica({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
-    expect(session.bufferDelta(10, [upsert('issue', 'i1', 10)])).toBe(false)
-    expect(session.bufferDelta(9, [upsert('issue', 'i1', 9)])).toBe(false)
+    expect(session.bufferDelta(10, [upsert('issueProjection', 'i1', 10)])).toBe(false)
+    expect(session.bufferDelta(9, [upsert('issueProjection', 'i1', 9)])).toBe(false)
   })
 })
 
 describe('snapshotToChunks — today’s monolithic arm through the final machinery', () => {
   it('turns a product-typed snapshot into change-shaped chunks', () => {
     const chunks = snapshotToChunks(
-      { issues: [{ id: 'i1' }, { id: 'i2' }], sessions: [{ sessionId: 's1' }] },
+      { issueProjections: [{ id: 'i1' }, { id: 'i2' }], sessions: [{ sessionId: 's1' }] },
       2,
     )
     expect(chunks).toHaveLength(2)
     expect(chunks.flatMap((c) => c.changes).map((c) => [c.entity, c.id])).toEqual([
       ['session', 's1'],
-      ['issue', 'i1'],
-      ['issue', 'i2'],
+      ['issueProjection', 'i1'],
+      ['issueProjection', 'i2'],
     ])
   })
 
@@ -422,7 +421,7 @@ describe('snapshotToChunks — today’s monolithic arm through the final machin
   it('installs end-to-end through the session', async () => {
     const replica = createReplica({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 42), noYield)
-    for (const chunk of snapshotToChunks({ issues: [{ id: 'i1' }, { id: 'i2' }] }, 1)) {
+    for (const chunk of snapshotToChunks({ issueProjections: [{ id: 'i1' }, { id: 'i2' }] }, 1)) {
       await session.install(chunk)
     }
     session.commit()
@@ -471,7 +470,7 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
     // Re-bootstrap onto the new timeline.
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_2', 78), noYield)
     await session.install({
-      changes: [upsert('issue', 'i2', 1, { id: 'i2', title: 'from epoch 2' })],
+      changes: [upsert('issueProjection', 'i2', 1, { id: 'i2', title: 'from epoch 2' })],
     })
     session.commit()
 

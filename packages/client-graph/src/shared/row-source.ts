@@ -229,8 +229,7 @@ type PendingByRow = Record<OverlayTarget, ReadonlyMap<string, readonly PendingOv
 const NO_PENDING: PendingByRow = {
   sessions: new Map(),
   sessionUserStates: new Map(),
-  issues: new Map(),
-  issueUserStates: new Map(),
+    issueUserStates: new Map(),
   issueProjections: new Map(),
 }
 
@@ -463,8 +462,7 @@ export function createRowSource(
     return {
       sessions: runtime.pendingOverlaysByRow('sessions'),
       sessionUserStates: runtime.pendingOverlaysByRow('sessionUserStates'),
-      issues: new Map(),
-      issueUserStates: runtime.pendingOverlaysByRow('issueUserStates'),
+            issueUserStates: runtime.pendingOverlaysByRow('issueUserStates'),
       issueProjections: runtime.pendingOverlaysByRow('issueProjections'),
     }
   }
