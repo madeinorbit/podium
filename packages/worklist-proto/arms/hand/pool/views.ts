@@ -158,13 +158,15 @@ export interface ViewInputs {
    * POD-4708 (plant/old) — the explicit seats as the mirror IS the relation:
    * every yielded id counts, exactly as `many()` yields do.
    * `[...seats].sort()` re-reads the whole family and must FAIL #10.
+   * Optional (the lean arm builds these inputs without it).
    */
-  seats(id: string): Iterable<string>
+  seats?(id: string): Iterable<string>
   /**
    * POD-4708 (O(1) real) — the maintained SORTED seat list itself, returned
    * without iterating it. `sessionIds` reads it, never `seats()` nor `many()`.
+   * Optional (the lean arm falls back to the re-list).
    */
-  seatList(id: string): readonly string[]
+  seatList?(id: string): readonly string[]
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
   /** `coarseNow >= t`. */
@@ -375,7 +377,8 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
   sessionIds(input, id) {
     // POD-4708 (O(1) real): the maintained SORTED list itself, returned
     // without iterating it. Never `seats()` (fenced, plant/old) nor `many()`.
-    return input.seatList(id)
+    // The lean arm falls back to the re-list.
+    return input.seatList?.(id) ?? [...input.relations.many('issue', id, 'sessions')].sort()
   },
   /**
    * Max `lastActiveAt` of the row's retained seats, else own `updatedAt`,
