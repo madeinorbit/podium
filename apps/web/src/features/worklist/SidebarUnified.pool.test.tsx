@@ -171,12 +171,19 @@ describe('real sidebar pool cutover', () => {
   it.each(LAYERS)('%s guest rows preserve the clock behavior of their data layer', async (layer) => {
     vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
     vi.setSystemTime(NOW)
-    await mount(layer)
+    const fixture = await mount(layer)
+    await act(async () => {
+      fixture.patch('session', 'synthetic-guest-0', {
+        snoozedUntil: new Date(NOW + 120_000).toISOString(),
+      })
+    })
     mode.commits.clear()
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
     expect(runtime.getSnapshot().coarseNow).toBe(NOW + 60_000)
     const guests = Object.fromEntries([...mode.commits].filter(([id]) => id.startsWith('synthetic-guest-')))
     expect(guests).toEqual(layer === 'pool' ? {} : { 'synthetic-guest-0': 1, 'synthetic-guest-1': 1 })
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain('Unsnoozed')
     if (layer === 'pool') expect(mode.reads).toBe(0)
   })
 
