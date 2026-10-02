@@ -111,12 +111,21 @@
           "value": "resume.value"
         },
         "confidence": "exact",
-        "ackRequested": true
+        "observerGeneration": 1,
+        "bindingVersion": 1,
+        "ackRequested": true,
+        "receipt": {
+          "id": "receipt.id",
+          "ownerId": "receipt.ownerId",
+          "machineId": "receipt.machineId",
+          "attemptId": "receipt.attemptId",
+          "observerGeneration": 1
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"sessionResumeRef\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"confidence\":\"exact\",\"ackRequested\":true}"
+      "encoded": "{\"type\":\"sessionResumeRef\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"confidence\":\"exact\",\"observerGeneration\":1,\"bindingVersion\":1,\"ackRequested\":true,\"receipt\":{\"id\":\"receipt.id\",\"ownerId\":\"receipt.ownerId\",\"machineId\":\"receipt.machineId\",\"attemptId\":\"receipt.attemptId\",\"observerGeneration\":1}}"
     }
   ]
 }

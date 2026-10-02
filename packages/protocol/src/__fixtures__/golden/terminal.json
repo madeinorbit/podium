@@ -1,6 +1,6 @@
 {
   "family": "terminal",
-  "note": "Golden wire fixtures (POD-360). Generated \u2014 regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
       "schema": "AgentColorMessage",
@@ -343,6 +343,30 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"pictures\":true,\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"engine\"]}"
+    },
+    {
+      "schema": "CloseClientTerminalMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "closeClientTerminal",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"closeClientTerminal\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "CloseClientTerminalMessage",
+      "variant": "full",
+      "wire": {
+        "type": "closeClientTerminal",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"closeClientTerminal\",\"sessionId\":\"sessionId\"}"
     },
     {
       "schema": "ControllerChangedMessage",
@@ -1207,12 +1231,13 @@
       "wire": {
         "type": "redraw",
         "sessionId": "sessionId",
-        "replayRequired": true
+        "replayRequired": true,
+        "hard": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"redraw\",\"sessionId\":\"sessionId\",\"replayRequired\":true}"
+      "encoded": "{\"type\":\"redraw\",\"sessionId\":\"sessionId\",\"replayRequired\":true,\"hard\":true}"
     },
     {
       "schema": "RedrawRequestMessage",
@@ -2346,6 +2371,39 @@
       "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"cursor\",\"loginHarness\":\"cursor\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":5,\"rows\":5},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":5},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"self\",\"userId\":\"binding.requestedScope.userId\"},\"scopeOverrideConfirmed\":true,\"relaunch\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":5,\"observationBindingVersion\":5,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\"}"
     },
     {
+      "schema": "StealWriterMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "stealWriter",
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "cwd": "cwd"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"stealWriter\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\"}"
+    },
+    {
+      "schema": "StealWriterMessage",
+      "variant": "full",
+      "wire": {
+        "type": "stealWriter",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "claude-code",
+        "cwd": "cwd",
+        "lastKnownGeometry": {
+          "cols": 1,
+          "rows": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"stealWriter\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"lastKnownGeometry\":{\"cols\":1,\"rows\":1}}"
+    },
+    {
       "schema": "TabReleaseMessage",
       "variant": "minimal",
       "wire": {
@@ -2461,13 +2519,12 @@
         },
         "visible": true,
         "mode": "native",
-        "claimControl": true,
-        "seq": 1
+        "claimControl": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"viewportRequest\",\"sessionId\":\"sessionId\",\"geometry\":{\"cols\":1,\"rows\":1},\"visible\":true,\"mode\":\"native\",\"claimControl\":true,\"seq\":1}"
+      "encoded": "{\"type\":\"viewportRequest\",\"sessionId\":\"sessionId\",\"geometry\":{\"cols\":1,\"rows\":1},\"visible\":true,\"mode\":\"native\",\"claimControl\":true}"
     },
     {
       "schema": "ViewportRequestMessage",

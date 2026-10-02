@@ -1,0 +1,289 @@
+{
+  "family": "codex",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "CodexCompleteRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "codexCompleteRequest",
+        "requestId": "requestId",
+        "model": "model",
+        "messages": [],
+        "tools": [],
+        "effort": "low"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"codexCompleteRequest\",\"requestId\":\"requestId\",\"model\":\"model\",\"messages\":[],\"tools\":[],\"effort\":\"low\"}"
+    },
+    {
+      "schema": "CodexCompleteRequestMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "codexCompleteRequest",
+        "requestId": "requestId",
+        "model": "model",
+        "messages": [
+          {
+            "role": "system",
+            "content": "messages[0].content"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tools[0].name",
+            "description": "tools[0].description",
+            "parameters": {
+              "tools[0].parameters.key": {
+                "unknownFixture": "tools[0].parameters.tools[0].parameters.key"
+              }
+            }
+          }
+        ],
+        "effort": "low"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"codexCompleteRequest\",\"requestId\":\"requestId\",\"model\":\"model\",\"messages\":[{\"role\":\"system\",\"content\":\"messages[0].content\"}],\"tools\":[{\"name\":\"tools[0].name\",\"description\":\"tools[0].description\",\"parameters\":{\"tools[0].parameters.key\":{\"unknownFixture\":\"tools[0].parameters.tools[0].parameters.key\"}}}],\"effort\":\"low\"}"
+    },
+    {
+      "schema": "CodexCompleteRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "codexCompleteRequest",
+        "requestId": "requestId",
+        "model": "model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "messages[0].content"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tools[0].name",
+            "description": "tools[0].description",
+            "parameters": {
+              "tools[0].parameters.key": {
+                "unknownFixture": "tools[0].parameters.tools[0].parameters.key"
+              }
+            }
+          }
+        ],
+        "effort": "medium"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"codexCompleteRequest\",\"requestId\":\"requestId\",\"model\":\"model\",\"messages\":[{\"role\":\"user\",\"content\":\"messages[0].content\"}],\"tools\":[{\"name\":\"tools[0].name\",\"description\":\"tools[0].description\",\"parameters\":{\"tools[0].parameters.key\":{\"unknownFixture\":\"tools[0].parameters.tools[0].parameters.key\"}}}],\"effort\":\"medium\"}"
+    },
+    {
+      "schema": "CodexCompleteRequestMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "codexCompleteRequest",
+        "requestId": "requestId",
+        "model": "model",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": "messages[0].content",
+            "toolCalls": [
+              {
+                "id": "messages[0].toolCalls[0].id",
+                "name": "messages[0].toolCalls[0].name",
+                "arguments": "messages[0].toolCalls[0].arguments"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "tools[0].name",
+            "description": "tools[0].description",
+            "parameters": {
+              "tools[0].parameters.key": {
+                "unknownFixture": "tools[0].parameters.tools[0].parameters.key"
+              }
+            }
+          }
+        ],
+        "effort": "high"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"codexCompleteRequest\",\"requestId\":\"requestId\",\"model\":\"model\",\"messages\":[{\"role\":\"assistant\",\"content\":\"messages[0].content\",\"toolCalls\":[{\"id\":\"messages[0].toolCalls[0].id\",\"name\":\"messages[0].toolCalls[0].name\",\"arguments\":\"messages[0].toolCalls[0].arguments\"}]}],\"tools\":[{\"name\":\"tools[0].name\",\"description\":\"tools[0].description\",\"parameters\":{\"tools[0].parameters.key\":{\"unknownFixture\":\"tools[0].parameters.tools[0].parameters.key\"}}}],\"effort\":\"high\"}"
+    },
+    {
+      "schema": "CodexCompleteRequestMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "codexCompleteRequest",
+        "requestId": "requestId",
+        "model": "model",
+        "messages": [
+          {
+            "role": "tool",
+            "content": "messages[0].content",
+            "toolCallId": "messages[0].toolCallId",
+            "name": "messages[0].name"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tools[0].name",
+            "description": "tools[0].description",
+            "parameters": {
+              "tools[0].parameters.key": {
+                "unknownFixture": "tools[0].parameters.tools[0].parameters.key"
+              }
+            }
+          }
+        ],
+        "effort": "high"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"codexCompleteRequest\",\"requestId\":\"requestId\",\"model\":\"model\",\"messages\":[{\"role\":\"tool\",\"content\":\"messages[0].content\",\"toolCallId\":\"messages[0].toolCallId\",\"name\":\"messages[0].name\"}],\"tools\":[{\"name\":\"tools[0].name\",\"description\":\"tools[0].description\",\"parameters\":{\"tools[0].parameters.key\":{\"unknownFixture\":\"tools[0].parameters.tools[0].parameters.key\"}}}],\"effort\":\"high\"}"
+    },
+    {
+      "schema": "CodexCompleteResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "codexCompleteResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"codexCompleteResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "CodexCompleteResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "codexCompleteResult",
+        "requestId": "requestId",
+        "ok": true,
+        "text": "text",
+        "toolCalls": [
+          {
+            "id": "toolCalls[0].id",
+            "name": "toolCalls[0].name",
+            "arguments": "toolCalls[0].arguments"
+          }
+        ],
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"codexCompleteResult\",\"requestId\":\"requestId\",\"ok\":true,\"text\":\"text\",\"toolCalls\":[{\"id\":\"toolCalls[0].id\",\"name\":\"toolCalls[0].name\",\"arguments\":\"toolCalls[0].arguments\"}],\"error\":\"error\"}"
+    },
+    {
+      "schema": "CodexLlmMessageWire",
+      "variant": "minimal",
+      "wire": {
+        "role": "system",
+        "content": "content"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"role\":\"system\",\"content\":\"content\"}"
+    },
+    {
+      "schema": "CodexLlmMessageWire",
+      "variant": "full/arm0",
+      "wire": {
+        "role": "system",
+        "content": "content"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"role\":\"system\",\"content\":\"content\"}"
+    },
+    {
+      "schema": "CodexLlmMessageWire",
+      "variant": "full/arm1",
+      "wire": {
+        "role": "user",
+        "content": "content"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"role\":\"user\",\"content\":\"content\"}"
+    },
+    {
+      "schema": "CodexLlmMessageWire",
+      "variant": "full/arm2",
+      "wire": {
+        "role": "assistant",
+        "content": "content",
+        "toolCalls": [
+          {
+            "id": "toolCalls[0].id",
+            "name": "toolCalls[0].name",
+            "arguments": "toolCalls[0].arguments"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"role\":\"assistant\",\"content\":\"content\",\"toolCalls\":[{\"id\":\"toolCalls[0].id\",\"name\":\"toolCalls[0].name\",\"arguments\":\"toolCalls[0].arguments\"}]}"
+    },
+    {
+      "schema": "CodexLlmMessageWire",
+      "variant": "full/arm3",
+      "wire": {
+        "role": "tool",
+        "content": "content",
+        "toolCallId": "toolCallId",
+        "name": "name"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"role\":\"tool\",\"content\":\"content\",\"toolCallId\":\"toolCallId\",\"name\":\"name\"}"
+    },
+    {
+      "schema": "CodexLlmToolWire",
+      "variant": "minimal",
+      "wire": {
+        "name": "name",
+        "description": "description",
+        "parameters": {}
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"description\":\"description\",\"parameters\":{}}"
+    },
+    {
+      "schema": "CodexLlmToolWire",
+      "variant": "full",
+      "wire": {
+        "name": "name",
+        "description": "description",
+        "parameters": {
+          "parameters.key": {
+            "unknownFixture": "parameters.parameters.key"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"description\":\"description\",\"parameters\":{\"parameters.key\":{\"unknownFixture\":\"parameters.parameters.key\"}}}"
+    }
+  ]
+}
