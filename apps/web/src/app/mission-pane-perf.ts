@@ -1,4 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
+import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/viewmodels'
 import { useEffect } from 'react'
 
 /** Counts belong to the existing store owner, never to a second runtime. */
@@ -14,11 +15,26 @@ function measureWork<T>(owner: object, layer: 'legacyMs' | 'poolMs', read: () =>
   const start = performance.now()
   try { return read() } finally { current[layer] += performance.now() - start }
 }
-export function measurePoolMission<T>(owner: object, read: () => T): T { return measureWork(owner, 'poolMs', read) }
-export function measureLegacyMission<T>(owner: object, operation: string, read: () => T): T {
+function recordLegacy(owner: object, operation: string, amount: number): void {
   let current = counts.get(owner)
   if (!current) { current = {}; counts.set(owner, current) }
-  current[operation] = (current[operation] ?? 0) + 1
+  current[operation] = (current[operation] ?? 0) + amount
+}
+export function measurePoolMission<T>(owner: object, read: () => T): T {
+  return measureWork(owner, 'poolMs', () => {
+    const before = missionIndexStats(), ownership = sessionOwnershipStats().lookups
+    try { return read() } finally {
+      for (const [key, value] of Object.entries(missionIndexStats())) {
+        const delta = value - before[key as keyof typeof before]
+        if (delta > 0) recordLegacy(owner, `pool.mission.${key}`, delta)
+      }
+      const delta = sessionOwnershipStats().lookups - ownership
+      if (delta > 0) recordLegacy(owner, 'pool.sessionOwnership', delta)
+    }
+  })
+}
+export function measureLegacyMission<T>(owner: object, operation: string, read: () => T): T {
+  recordLegacy(owner, operation, 1)
   return measureWork(owner, 'legacyMs', read)
 }
 export function useMissionPaneCensus(): void {
