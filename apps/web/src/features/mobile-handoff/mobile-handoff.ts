@@ -30,6 +30,9 @@ import {
 } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { type Store, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { MobxPool } from '@podium/client-graph'
+import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
 const HANDOFF_ORIGIN_PARAM = 'origin'
@@ -168,6 +171,17 @@ export function useFocusedHandoffSessionId(): string | null {
  * earned it whatever state that work is in.
  */
 export function useHasFirstTask(): boolean {
+  const useRead = sidebarDataLayer() === 'pool' ? usePoolHasFirstTask : useLegacyHasFirstTask
+  return useRead()
+}
+
+const readHasFirstTask = (pool: MobxPool): boolean => pool.hasFirstTask === true
+
+function usePoolHasFirstTask(): boolean {
+  return useWorklistPoolProjection(readHasFirstTask, false)
+}
+
+function useLegacyHasFirstTask(): boolean {
   const issues = useReplicaIssues()
   return issues.some((issue) => !issue.deletedAt)
 }

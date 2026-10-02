@@ -508,6 +508,7 @@ export class MobxPool {
       object: false,
       issueObject: false,
       knownIssue: false,
+      hasFirstTask: false,
       release: false,
       edit: false,
       row: false,
@@ -575,6 +576,23 @@ export class MobxPool {
     }
     const pending = this.writes?.pending(entity, id)
     return pending === undefined ? server : overlayRow(server, pending)
+  }
+
+  /** Any nondeleted issue, including archived issues and draft vessels.
+   * Resident fields use the one reader; cold issues use the declared summary.
+   * No row models or index are built. A missing summary queues the usual load. */
+  get hasFirstTask(): Loaded<boolean> {
+    for (const id of this.tables.issue.keys()) {
+      const row = this.row('issue', id) as Loaded<SliceIssue>
+      if (row && row !== LOADING && !row.deletedAt) return true
+    }
+    let loading = false
+    for (const id of this.residency?.ids('issue', true) ?? []) {
+      const row = this.hidden('issue', id) ?? this.row('issue', id)
+      if (row === LOADING) loading = true
+      else if (row && !(row as Partial<SliceIssue>).deletedAt) return true
+    }
+    return loading ? LOADING : false
   }
 
   rosterCandidates(path: string): Iterable<string> { return this.sidebarRosters.candidates(path) }

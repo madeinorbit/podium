@@ -70,7 +70,7 @@ vi.mock('@/app/store', () => ({
 
 import { MobileHandoffChip } from './MobileHandoffChip'
 import { MobilePromoCard } from './MobilePromoCard'
-import { mobileHandoffUrl, useMobileHandoffUrl } from './mobile-handoff'
+import { mobileHandoffUrl, useHasFirstTask, useMobileHandoffUrl } from './mobile-handoff'
 
 beforeEach(() => {
   fixture.issues = []
@@ -96,6 +96,16 @@ const withOneTask = (): void => {
 }
 
 describe('the first task is the gate', () => {
+  it.each([
+    ['archived', { archived: true }, true],
+    ['draft', { isDraftVessel: true }, true],
+    ['deleted', { deletedAt: '2026-10-01T08:00:00Z' }, false],
+  ] as const)('keeps the OFF predicate for an %s-only shell', (_name, patch, expected) => {
+    fixture.issues = [makeIssue(patch)]
+    const { result } = renderHook(useHasFirstTask)
+    expect(result.current).toBe(expected)
+  })
+
   it('shows neither surface on a shell with no task', () => {
     render(
       <>
