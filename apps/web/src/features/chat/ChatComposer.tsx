@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model/browser'
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'

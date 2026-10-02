@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import type { NavigationIntent } from './navigation'
 /**
  * Engine-facing shared types (#262 [spec:SP-3fe2]): the server-config, notice,
@@ -24,10 +25,8 @@ import type {
   MachineWire,
   MutationId,
   SessionId,
-  SessionMeta,
   ThreadId,
-  WorkState,
-} from '@podium/model'
+  WorkState} from '@podium/model'
 import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'

@@ -1,4 +1,5 @@
-import type { AgentKind, SessionMeta } from '@podium/model'
+import type { SessionView as SessionMeta } from '../session-values'
+import type { AgentKind} from '@podium/model'
 
 /**
  * WHO IS ON THIS TASK — the one presence rule behind every fleet stack.

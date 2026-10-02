@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * The issue page's header: repo breadcrumb, the copyable display ref, prev/next
  * navigation, and the `…` overflow menu. Split out of IssuePage.tsx (POD-646).
@@ -10,7 +11,7 @@
  * predicate and its ownership note.
  */
 import { motionPhase } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionMeta } from '@podium/model/browser'
+import type { IssueId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { Fragment, type JSX } from 'react'

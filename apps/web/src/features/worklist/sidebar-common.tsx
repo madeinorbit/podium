@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * Shared sidebar building blocks (extracted from the retired classic
  * Sidebar.tsx): the resizable aside shell, persisted collapse state, the
@@ -12,7 +13,7 @@ import {
   isSessionWorking,
   sessionIssueLinkage,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { idleVerdictFinishedTurn, isSnoozed, returnedFromSnooze } from '@podium/model/browser'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type {

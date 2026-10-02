@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 /**
  * One unread rule for every surface that names an issue or a session.
  *
@@ -11,7 +12,7 @@
  * emphasis: lastActiveAt ticks every token, and the spinner already says
  * "something is happening".
  */
-import type { SessionMeta } from '@podium/model'
+
 import { isSessionWorking } from './session-status'
 
 export function parseStamp(value: string | null | undefined): number | null {

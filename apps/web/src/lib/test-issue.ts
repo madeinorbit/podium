@@ -1,4 +1,5 @@
-import type { SessionMeta, UnbrandIds } from '@podium/model/browser'
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { UnbrandIds } from '@podium/model/browser'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/react'
 

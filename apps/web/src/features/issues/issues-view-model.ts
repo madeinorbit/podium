@@ -1,5 +1,6 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { filterBoardScope } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
+import type { IssueId, IssueStage} from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import { type BoardFilter, filterBoardIssues, filterChips } from './issue-board-filter'
 import {

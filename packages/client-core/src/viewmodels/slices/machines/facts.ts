@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../../session-values'
 /**
  * MACHINES SLICE — the FACTS about a machine (POD-330).
  *
@@ -32,9 +33,7 @@ import {
   type MachineId,
   normalizeOriginUrl,
   repoNameFromOrigin,
-  type SessionMeta,
-  type SessionStatus,
-} from '@podium/model'
+  type SessionStatus} from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
 
 /** Path containment (POSIX) — same rule as dock-panel's cwdInWorktree, local so

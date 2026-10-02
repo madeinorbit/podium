@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../../session-values'
 /**
  * WORKLIST SLICE — navigation structure (POD-330).
  *
@@ -19,7 +20,7 @@
  * Depends on F2, F3 and the machines slice.
  * Platform-neutral: no DOM, no storage.
  */
-import type { GitRepositoryWire, RepoId, SessionMeta, MachineId } from '@podium/model'
+import type { GitRepositoryWire, RepoId, MachineId } from '@podium/model'
 import { indexSessionOwnership, sessionsForWorktree, type SessionOwnershipIndex } from '../../session-ownership'
 import { sortSessionsForSidebar } from '../../session-urgency'
 import type { PinState, RepoView, WorktreeView } from '../../types'

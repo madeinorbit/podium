@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { useStoreHandle } from '@podium/client-core/react'
 import {
   headlessConversationCanInterrupt,
@@ -31,7 +32,7 @@ import {
   transcriptAttributionTable,
   transcriptPhase,
 } from '@podium/client-core/viewmodels'
-import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId, type SessionMeta } from '@podium/model/browser'
+import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId} from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'

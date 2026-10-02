@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../session-values'
 /**
  * ISSUES SLICE (POD-330) — the issue as an entity: its nav model, its sub-issue
  * tree, and what the human is being asked to DECIDE about it.
@@ -32,9 +33,7 @@ import {
   type IssueProjection,
   isHeadlessSession,
   issueStatusOf,
-  issueStatusOutcome,
-  type SessionMeta,
-} from '@podium/model'
+  issueStatusOutcome} from '@podium/model'
 import {
   type ReferentExit,
   type ReferentResolution,

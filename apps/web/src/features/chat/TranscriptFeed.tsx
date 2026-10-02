@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import type {
   ChatActivity,
   ChatBlock,
@@ -13,7 +14,7 @@ import {
   sessionWaking,
 } from '@podium/client-core/viewmodels'
 import { agentErrorRecoveryInstruction, formatAgentError } from '@podium/model/browser'
-import type { SessionId, SessionMeta } from '@podium/model/browser'
+import type { SessionId} from '@podium/model/browser'
 import { MESSAGE_ACCEPTED_LINE } from '@podium/model'
 import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
 import type { JSX, RefCallback, UIEventHandler } from 'react'

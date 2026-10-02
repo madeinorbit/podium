@@ -1,4 +1,5 @@
-import { idleVerdictNeedsHuman, type SessionMeta, type WorkState } from '@podium/model'
+import type { SessionView as SessionMeta } from './session-values'
+import { idleVerdictNeedsHuman, type WorkState } from '@podium/model'
 
 /**
  * The home board's attention triage. The whole point of the product: the user

@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import type {
   PaneId,
   SplitAxis,
@@ -6,7 +7,7 @@ import type {
   WorkspaceLayout,
 } from '@podium/client-core/viewmodels'
 import { paneOfTab } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import type { CSSProperties } from 'react'
 import type { FileTab } from './store'
 

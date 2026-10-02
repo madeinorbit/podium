@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 /**
  * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
  *
@@ -33,11 +34,9 @@ import type {
   MachineWire,
   MessageRecordWire,
   SessionId,
-  SessionMeta,
   ShipLaneProjection,
   ShipOrderProjection,
-  ThreadId,
-} from '@podium/model'
+  ThreadId} from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
 import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'

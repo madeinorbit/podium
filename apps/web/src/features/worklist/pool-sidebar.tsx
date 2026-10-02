@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
 import type { Store } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
@@ -12,7 +13,7 @@ import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import { isSessionWorking } from '@podium/client-graph/worklist/rollup'
 import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
-import { asIssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
+import { asIssueId, type SessionId} from '@podium/model/browser'
 import * as m from 'motion/react-m'
 import {
   type AnimationEvent,

@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 /**
  * MESSAGES THAT DID NOT ARRIVE, ANYWHERE IN THE APP (POD-4764).
  *
@@ -12,9 +13,7 @@ import {
   deadLetterDeliveryLine,
   isMessageRecordAttention,
   type MessageRecordWire,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model'
+  type SessionId} from '@podium/model'
 import { sessionTitle } from './session-card'
 
 export interface MessageNotice {

@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * Shared building blocks for the settings sections (P5d, issue #264): the
  * Section/Row layout primitives, the account/provider label helpers, and the
@@ -7,9 +8,7 @@
 import {
   type AccountId,
   asAccountId,
-  type MachineId,
-  type SessionMeta,
-} from '@podium/model/browser'
+  type MachineId} from '@podium/model/browser'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'

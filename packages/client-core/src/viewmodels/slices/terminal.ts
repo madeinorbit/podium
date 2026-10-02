@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../session-values'
 /**
  * TERMINAL SLICE (POD-330) — the workspace: which session a pane shows, what
  * order the tab strip is in, and what happens to panes when a worktree moves
@@ -25,7 +26,7 @@
  * Depends on F1 and F2. Imports no other slice.
  * Platform-neutral: no DOM, no storage.
  */
-import { worktreeForCwd, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
+import { worktreeForCwd, type IssueWire, type SessionId} from '@podium/model'
 import { sessionsForWorktree } from '../session-ownership'
 // POD-1503: coordinator elevation is an ORDERING question, so it lives in F3
 // (session-urgency), not here — the tab strip was merely its first caller.

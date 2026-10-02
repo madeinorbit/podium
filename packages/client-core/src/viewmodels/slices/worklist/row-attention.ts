@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row ATTENTION: what a row is doing, what it is
@@ -14,7 +15,7 @@ import type { IssueNavigationModel } from '../issues'
  * the Flight Deck strip and the issue explorer print. Duplicating that
  * predicate here is how a row and a strip end up disagreeing about one task.
  */
-import { issueStatusLabel, type SessionMeta } from '@podium/model'
+import { issueStatusLabel} from '@podium/model'
 import { issueErroredSession } from '../../mission'
 import {
   agentBadge,

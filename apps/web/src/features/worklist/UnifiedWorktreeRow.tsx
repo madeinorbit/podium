@@ -1,9 +1,10 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
   partitionStaleSessions,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model/browser'
+import type { SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, ReactNode } from 'react'
 import { AgentRosterBand, PanelRow, StaleSection } from './sidebar-common'

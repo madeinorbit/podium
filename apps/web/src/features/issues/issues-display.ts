@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import {
   confirmedWorkingAgentCount as coreConfirmedWorkingAgentCount,
   confirmedWorkingAgentCountsByIssue as coreConfirmedWorkingAgentCountsByIssue,
@@ -8,7 +9,7 @@ import {
   type IssuesOrdering,
   writeSharedIssuesDisplay,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import type { IssueViewModel } from '@/app/store'
 
 export type IssuesLayout = 'board' | 'list'

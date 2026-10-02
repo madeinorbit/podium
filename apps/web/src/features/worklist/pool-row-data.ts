@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import {
   errorPhrase,
   type IssueNavigationModel,
@@ -6,7 +7,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues, SidebarTiming } from '@podium/client-graph/worklist/sidebar-row'
-import { issueStatusLabel, type SessionMeta } from '@podium/model/browser'
+import { issueStatusLabel} from '@podium/model/browser'
 
 /** The real row's displayed extension of ROW_DISPLAYED_FIELDS. Placement
  * keys, the raw roster and menu-only records do not repaint a flat mission. */

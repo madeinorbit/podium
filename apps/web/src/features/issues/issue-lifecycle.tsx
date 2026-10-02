@@ -1,10 +1,11 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   blockingCloseConcerns,
   type IssueCloseConcern,
   issueCloseConcerns,
 } from '@podium/client-core/viewmodels'
-import { ISSUE_STATUS_LABELS, type IssueCloseReason, type SessionMeta } from '@podium/model/browser'
+import { ISSUE_STATUS_LABELS, type IssueCloseReason} from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useStoreSelector } from '@/app/store'

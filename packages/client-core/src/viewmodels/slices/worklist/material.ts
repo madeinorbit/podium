@@ -1,4 +1,5 @@
-import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
+import type { SessionView as SessionMeta } from '../../../session-values'
+import type { GitRepositoryWire, MachineWire} from '@podium/model'
 import type { Sidebar } from '@podium/runtime'
 import type { PinState } from '../../types'
 import type { IssueNavigationModel } from '../issues'

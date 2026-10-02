@@ -1,5 +1,6 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import { issueDraftVessel } from './slices/issues'
-import { isAgentConfirmedComputing, type SessionMeta } from '@podium/model'
+import { isAgentConfirmedComputing} from '@podium/model'
 import { withoutShells } from '../focus'
 
 export interface RankedTaskIssue {

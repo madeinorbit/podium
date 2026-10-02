@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   type HandoffAvailability,
@@ -6,9 +7,7 @@ import {
   type HandoffRepo,
   handoffAvailability,
   type IssueId,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model/browser'
+  type SessionId} from '@podium/model/browser'
 import type { IssuesKeyState } from './issues-keys'
 
 /**

@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   discoveredPlacement,
@@ -14,9 +15,7 @@ import {
   issueStatusMenuEntries,
   issueStatusOf,
   issueStatusValueOf,
-  parseIssueStatusValue,
-  type SessionMeta,
-} from '@podium/model/browser'
+  parseIssueStatusValue} from '@podium/model/browser'
 import {
   ArrowUpRight,
   Check,

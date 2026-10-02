@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model'
+import type { SessionView as SessionMeta } from '../session-values'
 import { recordSliceDerivation } from '../perf/store-stats'
 
 type UsageSession = Pick<SessionMeta, 'agentKind' | 'cwd' | 'lastActiveAt'>

@@ -1,12 +1,11 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { panelLabel } from '@podium/client-core/viewmodels'
 import {
   agentProbeTimeoutDescription,
   type AgentKind,
   type HandoffBlocker,
   type HandoffRejection,
-  type MachineWire,
-  type SessionMeta,
-} from '@podium/model/browser'
+  type MachineWire} from '@podium/model/browser'
 
 /**
  * The session-menu VOCABULARY — eligibility rules and blocker/rejection copy —

@@ -1,4 +1,5 @@
-import type { MachineId, SessionMeta } from '@podium/model'
+import type { SessionView as SessionMeta } from '../session-values'
+import type { MachineId} from '@podium/model'
 import { recordSliceDerivation } from '../perf/store-stats'
 
 type Material = Pick<SessionMeta, 'machineId' | 'status' | 'cwd'> & {

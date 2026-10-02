@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   pairLatestPromptAndAnswer,
@@ -5,7 +6,7 @@ import {
   selectLatestPromptSession,
   type HandoffTranscriptPair,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta, TranscriptItem } from '@podium/model/browser'
+import type { TranscriptItem } from '@podium/model/browser'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useStoreSelector } from './store'
 

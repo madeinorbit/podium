@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../../session-values'
 /**
  * MACHINES SLICE — spawn PLACEMENT (POD-330).
  *
@@ -14,7 +15,7 @@
  * Depends on nothing in `viewmodels/` except the shared view types.
  * Platform-neutral: no DOM, no storage.
  */
-import { DEFAULT_HARNESS_AGENT, isHeadlessSession, type AgentKind, type SessionMeta, type MachineId } from '@podium/model'
+import { DEFAULT_HARNESS_AGENT, isHeadlessSession, type AgentKind, type MachineId } from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
 
 // ---------------------------------------------------------------------------

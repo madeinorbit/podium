@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * The web-side status-dot classname helper.
  *
@@ -15,7 +16,7 @@
  */
 
 import { type DotTone, sessionDotTone } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { cn } from './utils'
 
 // Tone → hue via the activity tokens (--live/--info) plus semantic --warning.

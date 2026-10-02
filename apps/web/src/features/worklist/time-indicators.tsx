@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * Sidebar time indicators: the live elapsed timer on WORKING rows ("how long
  * has this been running") and the compact relative stamp on WORK rows
@@ -7,7 +8,7 @@
 
 import { relativeTime } from '@podium/client-core/focus'
 import { isSessionWorking } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import type { JSX } from 'react'
 import { useNow } from '@/lib/useNow'
 

@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * NOW — what is true about this task at this second (POD-591).
  *
@@ -27,7 +28,7 @@
  * that is waiting on the human is still and amber — stillness is the signal.
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'

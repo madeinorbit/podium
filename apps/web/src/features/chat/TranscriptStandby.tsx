@@ -1,5 +1,6 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { panelLabel } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import type { JSX } from 'react'
 import { modelLabel } from '@/lib/agent-models'
 import { agentIconFor } from '@/lib/agent-tone'

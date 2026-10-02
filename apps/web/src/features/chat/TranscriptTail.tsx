@@ -1,10 +1,11 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import {
   type ChatActivity,
   type ChatRow,
   formatClock,
   toolCallPhrase,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta, TranscriptItem } from '@podium/model/browser'
+import type { TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { useNow } from '@/lib/useNow'

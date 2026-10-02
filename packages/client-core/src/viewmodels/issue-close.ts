@@ -1,5 +1,6 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import type { IssueNavigationModel } from './slices/issues'
-import type { SessionMeta } from '@podium/model'
+
 import { isSessionWorking } from './session-status'
 
 /**

@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * The tab/row status grammar of the redesign (.design/specs/native-pane.md
  * §2.8): one component so the desktop tab strip, the mobile panel-menu rows
@@ -13,7 +14,7 @@
  * remain StatusBadge's job.
  */
 import { motionPhase } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 import { WorkingMark } from './WorkingMark'

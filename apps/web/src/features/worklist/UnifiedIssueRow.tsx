@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
   isDraftAgentVessel,
@@ -19,9 +20,7 @@ import {
   type IssueId,
   isIssueDeferred,
   issueReturnedFromDefer,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model/browser'
+  type SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { lazy, memo, Suspense, useState } from 'react'

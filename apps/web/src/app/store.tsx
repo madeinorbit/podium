@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { sessionById } from '@podium/client-core/store'
 /**
  * Web binding for the shared client store (arch-v2 P3, issue #192): the
@@ -23,7 +24,7 @@ import {
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId} from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'

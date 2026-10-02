@@ -1,5 +1,6 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { motionPhase, sessionNeedsHuman, sessionSettled } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 
 /**
  * WATERFALL GEOMETRY v2 (POD-1854).

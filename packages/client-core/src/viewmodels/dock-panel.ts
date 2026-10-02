@@ -1,12 +1,11 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import { sessionById } from '../session-index'
 import type {
   ArtifactId,
   IssueId,
   IssueWire,
   MachineId,
-  SessionId,
-  SessionMeta,
-} from '@podium/model'
+  SessionId} from '@podium/model'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the

@@ -1,4 +1,5 @@
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionView as SessionMeta } from '../session-values'
+import type { SessionId} from '@podium/model'
 import { useEffect, useRef } from 'react'
 import { MARK_READ_ON_VIEW_MS } from '../engine/reactions'
 

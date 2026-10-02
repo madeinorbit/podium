@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * THE ARBITRATION HOOK (POD-408) — the store/effect half of `panel-surface.ts`.
  *
@@ -35,7 +36,7 @@ import {
   type TerminalOutlook,
 } from '@podium/client-core/viewmodels'
 import { createLogger } from '@podium/logger'
-import type { SessionId, SessionMeta } from '@podium/model/browser'
+import type { SessionId} from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import {

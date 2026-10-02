@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * THE PANEL'S LIFECYCLE ACTIONS, AS DATA (POD-408).
  *
@@ -24,7 +25,7 @@
  * the server) says no.
  */
 import type { ExitedAction } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 
 /** What the action does, not what it is called — the label is presentation. */

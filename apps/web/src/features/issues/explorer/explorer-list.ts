@@ -1,11 +1,10 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { filterBoardScope, issueIsActionable } from '@podium/client-core/viewmodels'
 import {
   ISSUE_STATUS_LABELS,
   type IssueStage,
   issueStatusOf,
-  issueStatusOutcome,
-  type SessionMeta,
-} from '@podium/model/browser'
+  issueStatusOutcome} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 

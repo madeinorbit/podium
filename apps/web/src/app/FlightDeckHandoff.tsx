@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import {
   deriveHandoffNext,
   deriveHandoffNow,
@@ -8,7 +9,7 @@ import {
   type HandoffTranscriptPair,
   type IssueNavigationModel,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionId, SessionMeta } from '@podium/model/browser'
+import type { IssueId, SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'

@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 /**
  * F3 — *what order sessions are presented in.*
  *
@@ -44,7 +45,7 @@
  * one presentation value out, with no collections and no ordering. Ranking IS
  * the collection question, and it is a different question from membership (F2).
  */
-import { isSnoozed, type SessionMeta, type SessionId } from '@podium/model'
+import { isSnoozed, type SessionId } from '@podium/model'
 import { attentionGroup, compareRecency } from '../focus'
 
 /** How long a session may sit quiet before the unified list calls it stale. */

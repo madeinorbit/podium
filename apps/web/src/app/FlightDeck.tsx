@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -57,7 +58,7 @@ import {
   writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
-import type { IssueId, MachineId, SessionId, SessionMeta } from '@podium/model/browser'
+import type { IssueId, MachineId, SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,

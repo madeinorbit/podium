@@ -1,4 +1,5 @@
-import type { ConversationSummaryWire, GitRepositoryWire, RepoId, SessionMeta, MachineId } from '@podium/model'
+import type { SessionView as SessionMeta } from '../session-values'
+import type { ConversationSummaryWire, GitRepositoryWire, RepoId, MachineId } from '@podium/model'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 

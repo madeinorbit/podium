@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * The Sessions block of the properties aside: who is on this task, the ghosts of
  * sessions that moved on, and — until somebody picks the work up — the launch
@@ -28,7 +29,7 @@
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model/browser'
+import type { SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'

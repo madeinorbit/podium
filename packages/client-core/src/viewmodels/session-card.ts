@@ -1,4 +1,5 @@
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { SessionView as SessionMeta } from '../session-values'
+import type { IssueWire, SessionId} from '@podium/model'
 import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
 import { type DotTone, panelLabel, sessionDotTone } from './session-status'
 

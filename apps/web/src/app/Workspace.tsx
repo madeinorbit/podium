@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
@@ -14,7 +15,7 @@ import {
   type SplitAxis,
   selectedMissionRoot,
 } from '@podium/client-core/viewmodels'
-import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
+import { asSessionId, type IssueId, type SessionId} from '@podium/model/browser'
 import {
   Columns2,
   Crosshair,

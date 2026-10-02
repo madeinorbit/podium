@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — live-roster VISIBILITY: does a finished issue or session
@@ -8,7 +9,7 @@ import type { IssueNavigationModel } from '../issues'
  * visibility is shared with the Flight Deck's unassigned roster so two current-
  * work surfaces cannot disagree about whether the same agent is still present.
  */
-import { idleVerdictFinishedTurn, type SessionMeta } from '@podium/model'
+import { idleVerdictFinishedTurn} from '@podium/model'
 import {
   isClosedTopLevelIssue,
   issueAwaitingMerge,

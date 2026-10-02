@@ -1,6 +1,7 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
-import type { IssuePanelArtifact, SessionMeta, SessionOffer } from '@podium/model/browser'
+import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'

@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model'
+import type { SessionView as SessionMeta } from './session-values'
 import { recordSliceDerivation } from './perf/store-stats'
 
 const indexes = new WeakMap<readonly SessionMeta[], ReadonlyMap<string, SessionMeta>>()

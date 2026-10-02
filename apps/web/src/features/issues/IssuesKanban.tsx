@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * THE BOARD (rebuilt, POD-591).
  *
@@ -26,7 +27,7 @@
  *    are pinned through their boundary render, and no trip down a long column
  *    grows the component tree for the rest of the board's lifetime.
  */
-import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
+import type { IssueId, IssueStage} from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type {
   CSSProperties,

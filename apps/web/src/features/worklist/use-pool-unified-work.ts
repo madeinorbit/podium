@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import { pickPaneSession } from '@podium/client-core/viewmodels'
@@ -8,9 +9,7 @@ import {
   asSessionId,
   type IssueColorSlot,
   type IssueId,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model/browser'
+  type SessionId} from '@podium/model/browser'
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { navigationIssue } from './pool-row-data'

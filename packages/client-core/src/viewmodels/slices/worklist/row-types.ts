@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../../session-values'
 /**
  * POD-330/POD-1496 — worklist row SHAPE: what a unified work-list row is, and
  * the one question answerable from the row alone (which sessions it speaks
@@ -10,7 +11,7 @@
  * reordering (see row-order.ts's header) — so the rank the row used to hold
  * had no reader anywhere in the tree and is gone (POD-1501).
  */
-import type { SessionMeta } from '@podium/model'
+
 import type { MissionRollup } from '../../mission'
 import { isSessionWorking } from '../../session-status'
 import { subtreeUnread } from '../../unread'

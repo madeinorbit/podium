@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import { DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
 import {
   isSortKey,
@@ -7,9 +8,7 @@ import {
   type IssueWire,
   type MachineId,
   type RepoId,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model'
+  type SessionId} from '@podium/model'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).

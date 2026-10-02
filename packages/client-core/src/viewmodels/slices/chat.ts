@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../session-values'
 import { sessionById } from '../../session-index'
 /**
  * THE CHAT SLICE (POD-405, completing POD-330's per-feature split).
@@ -54,10 +55,8 @@ import {
   agentErrorRecoveryInstruction,
   formatAgentError,
   type SessionId,
-  type SessionMeta,
   type ThreadId,
-  type TranscriptItem,
-} from '@podium/model'
+  type TranscriptItem} from '@podium/model'
 import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE } from '../chat'
 import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
 import { type ChatActivity, chatActivity, sessionWaking } from '../session-status'

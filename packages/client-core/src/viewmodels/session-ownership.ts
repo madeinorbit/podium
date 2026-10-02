@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import { sessionById } from '../session-index'
 /**
  * F2 — WHICH SESSIONS BELONG TO WHAT, and how to read a reference into a world
@@ -25,9 +26,7 @@ import {
   type IssueWire,
   isHeadlessSession,
   type SessionId,
-  type SessionMeta,
-  worktreeForCwdIndexed,
-} from '@podium/model'
+  worktreeForCwdIndexed} from '@podium/model'
 
 // ---------------------------------------------------------------------------
 // Referent resolution over a partial world.

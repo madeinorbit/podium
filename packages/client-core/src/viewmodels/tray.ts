@@ -1,5 +1,6 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import { issueAsked } from './slices/issues'
-import type { SessionId, SessionMeta, SessionOffer } from '@podium/model'
+import type { SessionId, SessionOffer } from '@podium/model'
 import type { IssueNavigationModel } from './slices/issues'
 import { attentionGroup } from '../focus'
 

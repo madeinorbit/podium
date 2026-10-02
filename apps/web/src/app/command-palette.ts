@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * Pure command-palette model (no React): the command shape, the cmdk-inspired
  * subsequence scorer, and the grouped filter the palette renders from. Kept
@@ -27,7 +28,7 @@
  * offered before there is one (`rest: 0`).
  */
 
-import type { SessionMeta } from '@podium/model/browser'
+
 import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import type { ComponentType } from 'react'
 

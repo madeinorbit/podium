@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * THE AGENT PANEL'S ARBITRATION, AS A STATE MACHINE (POD-408).
  *
@@ -39,7 +40,7 @@
 import type { PanelMode } from '@podium/client-core/ui-state'
 import type { TerminalOutlook } from '@podium/client-core/viewmodels'
 import { isMachineOfflineForLiveTerminal } from '@podium/model'
-import type { MachineWire, SessionMeta, SessionStatus } from '@podium/model/browser'
+import type { MachineWire, SessionStatus } from '@podium/model/browser'
 
 /** The two live views. Identical to the persisted `PanelMode` — a live panel's
  *  view IS the panel mode; the read-only surfaces have no mode. */

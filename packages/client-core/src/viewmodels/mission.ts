@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import type { IssueProjection } from '@podium/model'
 import {
   type AgentKind,
@@ -5,9 +6,7 @@ import {
   asSessionId,
   type IssueId,
   type SessionId,
-  type SessionMeta,
-  spawnedByParentSessionId,
-} from '@podium/model'
+  spawnedByParentSessionId} from '@podium/model'
 import { type HarnessDescriptorWire, issueDisplayRef } from '@podium/protocol'
 import { sessionParked, sessionPresentOnTask } from './fleet'
 import { agentLabel } from './quota'

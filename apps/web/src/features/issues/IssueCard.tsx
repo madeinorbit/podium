@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * ONE BOARD CARD — three slots, in this order, always:
  *
@@ -30,7 +31,7 @@
  * did to every card the mouse crossed and which spends The Signal Rule's one
  * voice on a mouse position.
  */
-import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
+import type { IssueId, IssueStage} from '@podium/model/browser'
 import { Flag, ShieldAlert } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { memo } from 'react'

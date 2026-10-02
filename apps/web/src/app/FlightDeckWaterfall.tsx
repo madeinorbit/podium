@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import {
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
@@ -13,7 +14,7 @@ import {
   sessionSettled,
   sessionUnreadEmphasized,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionMeta } from '@podium/model/browser'
+import type { IssueId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ChevronDown,

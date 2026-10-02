@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../../session-values'
 /**
  * WORKLIST SLICE — how a row's sessions are bucketed and nested (POD-330).
  *
@@ -23,9 +24,7 @@ import {
   isHeadlessSession,
   isSnoozed,
   type SessionId,
-  type SessionMeta,
-  spawnedByParentSessionId,
-} from '@podium/model'
+  spawnedByParentSessionId} from '@podium/model'
 import { attentionGroup, compareRecency } from '../../../focus'
 import { isConsumedChild, sessionHasNativeSubagents } from '../../session-status'
 import { STALE_INACTIVE_MS } from '../../session-urgency'

@@ -1,6 +1,7 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { resolveIssueReference } from '@podium/client-core/viewmodels'
-import type { MachineWire, SessionId, SessionMeta, MachineId } from '@podium/model/browser'
+import type { MachineWire, SessionId, MachineId } from '@podium/model/browser'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'

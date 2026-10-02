@@ -1,4 +1,5 @@
-import type { SessionMeta, SessionOffer } from '@podium/model/browser'
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
+import type { SessionOffer } from '@podium/model/browser'
 import { ChevronDown, Lightbulb, Pencil, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'

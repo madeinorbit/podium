@@ -1,5 +1,6 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import type { PendingInteractionWire, QuestionAsk } from '@podium/protocol'
-import type { AgentInterview, SessionMeta, TranscriptItem } from '@podium/model'
+import type { AgentInterview, TranscriptItem } from '@podium/model'
 
 /** One option of an AskUserQuestion question. */
 export interface AskOption {

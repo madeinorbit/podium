@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 /**
  * F1 — WHAT ONE SESSION IS DOING. The presentation vocabulary every slice
  * speaks (POD-330).
@@ -19,9 +20,7 @@
 import {
   type AgentKind,
   type IssueProjection,
-  idleVerdictFinishedTurn,
-  type SessionMeta,
-} from '@podium/model'
+  idleVerdictFinishedTurn} from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { attentionGroup } from '../focus'
 import { errorPhrase } from './error-phrase'

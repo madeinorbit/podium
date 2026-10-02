@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row CONSTRUCTION: which work earns a row, how
@@ -9,9 +10,7 @@ import type { IssueNavigationModel } from '../issues'
  */
 import {
   type IssueId,
-  isSystemOwnedIssueStage,
-  type SessionMeta,
-} from '@podium/model'
+  isSystemOwnedIssueStage} from '@podium/model'
 import { indexMissionSessions, issueContinuation, missionRollup } from '../../mission'
 import {
   issueIdOwningSession,

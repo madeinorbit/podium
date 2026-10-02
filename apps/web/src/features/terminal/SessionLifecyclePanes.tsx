@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * THE READ-ONLY SURFACES (POD-408) — what a `parked` or `ended` panel shows,
  * and the bar a live CLI shows when its machine is offline (POD-4629).
@@ -15,7 +16,7 @@
 
 import { shallowEqual } from '@podium/client-core/store'
 import { exitedRecovery } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model/browser'
+import type { SessionId} from '@podium/model/browser'
 import { Moon, RotateCcw, WifiOff } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useStoreSelector } from '@/app/store'

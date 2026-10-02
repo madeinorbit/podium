@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '../session-values'
 /**
  * Store actions: the command/UI-state ownership boundary.
  *
@@ -14,10 +15,8 @@ import type {
   LayoutSnapshot,
   MutationId,
   SessionId,
-  SessionMeta,
   ThreadId,
-  WorkState,
-} from '@podium/model'
+  WorkState} from '@podium/model'
 import { asThreadId } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import {

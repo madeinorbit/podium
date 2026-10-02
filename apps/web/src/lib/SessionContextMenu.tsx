@@ -1,13 +1,12 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import {
   handoffAvailability,
   isSnoozed,
   type MachineId,
-  type SessionMeta,
   snoozeUntil1h,
-  snoozeUntilTomorrow5am,
-} from '@podium/model/browser'
+  snoozeUntilTomorrow5am} from '@podium/model/browser'
 import {
   AlarmClock,
   AlarmClockOff,

@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { agentBadge, type MotionPhase, mostUrgentSession } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
@@ -5,7 +6,7 @@ import { compareStructural, computed, observer } from '@podium/client-graph/reac
 import { motionPhase } from '@podium/client-graph/worklist/rollup'
 import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
 import { Fragment, type JSX, useMemo, useState } from 'react'
 import { openAddProject } from '@/app/desktop-menu'

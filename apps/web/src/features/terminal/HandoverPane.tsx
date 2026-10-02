@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model/browser'
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'

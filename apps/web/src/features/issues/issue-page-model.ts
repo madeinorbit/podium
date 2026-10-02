@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 /**
  * Viewmodel for the issue page (P5d, issue #264): the busy/error mutation
  * runner, the lazy comment thread, the event-log drain, and the pure
@@ -13,7 +14,7 @@ import {
   type IssueEvent,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model/browser'
+import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'

@@ -1,7 +1,8 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { headerDataLayer } from '@/lib/header-data-layer'
 import { usePoolConcurrencyHistory } from './header-data'
 import { Popover } from '@base-ui/react/popover'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { type JSX, useEffect, useMemo, useState } from 'react'
 import { StatusMetric } from './StatusMetric'
 import { shareAgentConcurrency } from './status-share'

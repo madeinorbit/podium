@@ -1,3 +1,4 @@
+import type { SessionView as SessionMeta } from '@podium/client-core/session-values'
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import {
   createTranscriptController,
@@ -5,7 +6,7 @@ import {
   type TranscriptFreshness,
 } from '@podium/client-core/transcript'
 import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model/browser'
+import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { TranscriptSearchState } from '@podium/client-core/viewmodels'
 import type { Dispatch, SetStateAction } from 'react'
 import {

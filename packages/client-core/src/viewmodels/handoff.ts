@@ -1,5 +1,6 @@
+import type { SessionView as SessionMeta } from '../session-values'
 import { issueAsked } from './slices/issues'
-import type { IssueId, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
+import type { IssueId, SessionId, TranscriptItem } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
 import {
