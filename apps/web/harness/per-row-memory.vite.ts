@@ -4,6 +4,17 @@ import config from './pool-memory.vite'
 
 export default {
   ...config,
+  resolve: {
+    ...config.resolve,
+    alias: {
+      ...config.resolve!.alias,
+      // The hand arm exposes a lazy native mount too. Use its established web
+      // harness alias; the memory fixture never mounts or loads that chunk.
+      'react-native': resolve(
+        'packages/worklist-proto/node_modules/react-native-web/dist/index.js',
+      ),
+    },
+  },
   plugins: [
     ...config.plugins!,
     {
