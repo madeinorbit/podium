@@ -102,7 +102,7 @@ function scopeOf(pool: LeanPool) {
     own: (id) => directParts(inputs, id).own,
     passed: inputs.passed,
   }
-  return { inputs, visible, rollupPartsOf, visiblePartsOf: (id) => directVisibleParts(visible, id, memo) }
+  return { inputs, visible, rollupPartsOf, visiblePartsOf: (id: string) => directVisibleParts(visible, id, memo) }
 }
 
 /** One filing derivation, with plain facts for whole-list consumers. */

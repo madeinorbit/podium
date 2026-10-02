@@ -19,7 +19,7 @@ for (const cell of ['1x', '4x', 'h10a1']) for (const arm of ['hand', 'lean']) {
   const ctx = await startEngineOnCorpus(corpus)
   const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
   const locals = createEngineLocals(ctx.engine)
-  const reads = createReadFence()
+  const reads = createReadFence({ enabled: true })
   const census = arm === 'lean' ? startCensus() : startHandCensus()
   census.enter('startup')
   const source = reads.wrapSource(feed.source)
@@ -43,7 +43,7 @@ for (const cell of ['1x', '4x', 'h10a1']) for (const arm of ['hand', 'lean']) {
     }
   }
   settle(); census.exit()
-  const startup = { rows: Object.fromEntries(Object.entries(pool.tables).map(([key, value]) => [key, value.size])), window: ids, census: census.snapshot(), reads: reads.stats() }
+  const startup = { rows: Object.fromEntries(Object.entries(pool.tables).map(([key, value]) => [key, value.size])), window: ids, visibleOrder: hand ? hand.pool.order() : (pool as LeanPool).filing.get().order, windowViews: ids.map((id) => hand ? hand.pool.view(id) : (pool as LeanPool).mountRow(id).get()), census: census.snapshot(), reads: reads.stats() }
   const changes = []
   for (const [name, write] of [['heartbeat', writeHeartbeat], ['phase', writePhaseChange], ['rename', writeTitleRename], ['burst50', writeBurst50]] as const) {
     reads.reset(); census.enter(name)
