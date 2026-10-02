@@ -1,3 +1,4 @@
+import { sessionView } from '@podium/client-core/session-values'
 import {
   asMachineId,
   asSessionId,
@@ -339,4 +340,17 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     await waitFor(() => expect(container.textContent).toContain('reconnected history'))
     expect(container.querySelector('[data-testid="transcript-machine-offline"]')).toBeNull()
   })
+})
+
+
+it('the live offline banner uses the replicated session machine name', async () => {
+  const raw = meta({ status: 'live', machineId: asMachineId('m1'), machineName: 'Old session name' })
+  storeSessions = [sessionView(raw, { machine: { name: 'Renamed home', loggedOutHarnesses: [] } })]
+  storeMachines = [{ id: 'm1', name: 'Stale live frame', online: false }]
+  act(() => { root.render(<ChatView sessionId={asSessionId('s1')} />) })
+  await act(async () => { reads[0]?.resolve({ items: [], hasMore: false }) })
+  await flush()
+  const marker = container.querySelector('[data-testid="transcript-machine-offline"]')
+  expect(marker?.textContent).toContain('Renamed home')
+  expect(marker?.textContent).not.toContain('Stale live frame')
 })
