@@ -62,7 +62,7 @@ const handoffValue = cachedGroup('missionHandoff', (node: MissionNode) => derive
 const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 const visible = (issue: { archived?: boolean; deletedAt?: string | null }) => !issue.archived && !issue.deletedAt
 const openSession = sessionPresentOnTask
-const underway = new Set(['planning', 'in_progress', 'shipping'])
+const underway = (stage: string) => stage === 'planning' || stage === 'in_progress' || stage === 'shipping'
 const leftMission = (issue: IssueNavigationModel) => !['proposed', 'backlog'].includes(issue.stage) && Boolean(issue.deps.find(dep => dep.type === 'discovered-from'))
 const originId = (issue: IssueNavigationModel) => issue.deps.find(dep => dep.type === 'discovered-from')?.id ?? null
 
@@ -504,7 +504,7 @@ function buildRows(ctx: MissionContext, root: IssueNavigationModel, members: Rea
       liveAgentCount: allSessions.filter(openSession).length, workingAgentCount: allSessions.filter(working).length,
       waitingAgentCount, matched: matches(issue), collapsedSummary: {
         tasks: hidden.length, done: hidden.filter(child => issueClosed(child) && !issueAbandoned(child)).length,
-        run: hidden.filter(child => !child.closedReason && (underway.has(child.stage) || child.stage === 'review')).length,
+        run: hidden.filter(child => !child.closedReason && (underway(child.stage) || child.stage === 'review')).length,
         kinds: [...new Set(allSessions.filter(openSession).map(session => session.agentKind))].slice(0, 2),
         crew: unique.sort((a, b) => rank(a) - rank(b)).slice(0, 12), needsYou: actionableCount > 0,
       } })
@@ -539,7 +539,7 @@ function progressFor(ctx: MissionContext, root: IssueNavigationModel, members: R
     if (issueClosed(issue)) result.done++
     else if (issue.blocked) result.block++
     else if (issue.stage === 'review') result.review++
-    else if (underway.has(issue.stage)) {
+    else if (underway(issue.stage)) {
       if (issue.stage === 'shipping' || staffed.has(issue.id)) result.run++
       else result.stall++
     }
