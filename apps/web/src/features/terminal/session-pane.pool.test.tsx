@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { useMemo, useSyncExternalStore } from 'react'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { Store, ClientRuntime } from '@podium/client-core/engine'
@@ -12,15 +12,17 @@ import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from '@podium/client-gr
 import { sessionPaneFixture, SESSION_PANE_NOW } from '@podium/client-graph/diagnostics/session-pane-fixture'
 
 const f = vi.hoisted(() => ({ mode: 'legacy' as 'legacy' | 'pool', state: {} as Store,
-  pool: null as MobxPool | null, owner: {},
+  pool: null as MobxPool | null, owner: { transcriptWindow: () => undefined, putTranscriptWindow: vi.fn() },
   end: vi.fn(async () => ({ ok: true })), resurrect: vi.fn(async () => {}), kill: vi.fn(async () => {}),
   hibernate: vi.fn(async () => {}), configure: vi.fn(async () => ({ ok: true })),
   resolveShell: vi.fn(async () => ({ sessionId: 'pane-19' })),
+  transcriptRead: vi.fn(async (_input: unknown) => ({ items: [], hasMore: false })),
   transcript: vi.fn(() => () => {}), confirm: vi.fn(async () => true) }))
 vi.mock('./session-pane-data-layer', () => ({ sessionPaneDataLayer: () => f.mode }))
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: Store) => unknown) => select(f.state),
   useReplicaIssues: () => [], useSessionDraft: () => '',
+  useSessionExitKind: () => undefined,
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T, empty: T) => {
@@ -55,6 +57,7 @@ vi.mock('./use-terminal-appearance', () => ({
 vi.mock('@/lib/useNow', () => ({ useNow: () => SESSION_PANE_NOW }))
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'
+import { useChatSurface } from '../chat/use-chat-surface'
 import { usePaneSession, usePaneMachines, usePanePanelModes, usePaneSpawnConfirmed, useDockPaneInputs, usePaneOwnership } from './use-session-pane-inputs'
 
 let sessions: SessionView[]
@@ -64,11 +67,12 @@ beforeEach(() => {
   const state = { sessions, machines: [{ id: 'machine-a', name: 'Host', online: true }, { id: 'machine-b', name: 'Offline host', online: false }],
     panelMode: Object.fromEntries(sessions.map(row => [row.sessionId, 'chat'])), dockShells: { '/synthetic/w19': 'pane-19' },
     reposLoaded: true, pendingSpawnIds: new Set(), pendingSpawnPrompts: new Map(), coarseNow: SESSION_PANE_NOW,
-    replica: f.owner, selectedIssueId: null, uiState: { get: () => null, set: vi.fn() },
+    replica: f.owner, selectedIssueId: null, uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
     hub: { subscribeTranscript: f.transcript }, trpc: { settings: { get: { query: async () => ({ roles: { coding: { startScreen: 'chat' } } }) } },
-      sessions: { configure: { mutate: f.configure } }, shells: { forWorktree: { mutate: f.resolveShell } } },
+      sessions: { configure: { mutate: f.configure }, transcriptRead: { query: f.transcriptRead } }, shells: { forWorktree: { mutate: f.resolveShell } } },
     startBtw: vi.fn(), setSessionDraft: vi.fn(), dismissOffer: vi.fn(), sendChat: vi.fn(), openFile: vi.fn(), navigateToSession: vi.fn(),
     endSession: f.end, resurrectSession: f.resurrect, killSession: f.kill, hibernateSession: f.hibernate,
+    chatSendsFor: () => [], getUserFocus: () => ({}), discardChat: vi.fn(),
     setPanelMode: vi.fn(), setDockShell: vi.fn(), setDockVisibleSession: vi.fn(),
   } as unknown as Store
   f.state = state
@@ -121,7 +125,7 @@ it('has zero legacy pane derivations while mounted and after an unrelated sessio
   f.mode = 'pool'
   const mounted = render(<AgentPanel sessionId={sessions[0]!.sessionId} />)
   const shell = render(<DockShellPanel cwd="/synthetic/w19" />)
-  f.pool!.apply({ type: 'update', rows: [{ kind: 'session', id: sessions[1]!.sessionId, value: { ...sessions[1]!, title: 'Other delta' } as never }] })
+  act(() => f.pool!.apply({ type: 'update', rows: [{ kind: 'session', id: sessions[1]!.sessionId, value: { ...sessions[1]!, title: 'Other delta' } as never }] }))
   expect(Object.entries(readRuntimeStoreStats(f.owner)?.slices ?? {}).filter(([name]) => name.startsWith('sessionPane.'))).toEqual([])
   mounted.unmount(); shell.unmount()
   f.mode = 'legacy'
@@ -148,4 +152,20 @@ it('never accesses legacy session, machine or window collections on the pool inp
     return <div>{row?.title} {machines.length} {modes[id]} {String(confirmed)} {dock.session?.sessionId}</div>
   }
   expect(render(<Inputs />).container.textContent).toBe('Synthetic pane 0 2 chat true pane-19')
+})
+
+it('uses pool facts in the real chat header while leaving transcript reads on the original transport', async () => {
+  f.mode = 'pool'
+  const row = sessions.find(row => row.machineId === 'machine-b' && row.condition === undefined)!
+  function Header() {
+    const chat = useChatSurface({ sessionId: row.sessionId, active: true, superThread: undefined,
+      compact: false, initialTurnRunning: false, initialPendingText: undefined, deferInitialTranscript: false })
+    return <div>{chat.session?.title} {chat.presenceOfflineMachineName}</div>
+  }
+  const mounted = render(<Header />)
+  await waitFor(() => expect(f.transcriptRead).toHaveBeenCalled())
+  expect(mounted.container.textContent).toBe(`${row.title} Offline host`)
+  expect(f.transcriptRead.mock.calls[0]?.[0]).toMatchObject({ sessionId: row.sessionId })
+  expect(f.transcript.mock.calls[0]?.[0]).toBe(row.sessionId)
+  expect(Object.entries(readRuntimeStoreStats(f.owner)?.slices ?? {}).filter(([name]) => name.startsWith('sessionPane.'))).toEqual([])
 })
