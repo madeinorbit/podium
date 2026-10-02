@@ -174,8 +174,13 @@ describe('POD-5284: stopping an unresumable session settles its dispatched mail'
     expect(await reg.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
 
     // The resume re-forwards the same row as a recovery — never a fresh write.
+    // (A bare rebind cannot revive a hibernated session — markLive only
+    // returns starting/reconnecting/exited to live — so this drives the real
+    // resume: resurrect spawns, the daemon binds, the bind-time drain forwards.)
     // The daemon settles a recovery without retyping (possible-write rule,
     // harness delivery-queue.ts), so this is where `dispatched` ends.
+    const resurrected = await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+    expect(resurrected.ok).toBe(true)
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId: asSessionId(sessionId),
