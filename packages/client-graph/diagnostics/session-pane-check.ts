@@ -2,7 +2,7 @@
  * Legacy input is diagnostic-only; it never enters the switched read path. */
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { attentionGroup } from '@podium/client-core/focus'
-import { sessionWaking, resumeCommand, sessionUrgencyRank, exitedRecovery } from '@podium/client-core/viewmodels'
+import { sessionWaking, resumeCommand, sessionUrgencyRank, exitedRecovery, deriveGitStamp } from '@podium/client-core/viewmodels'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
@@ -32,6 +32,8 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
   hex: (color: string | null | undefined) => string | undefined = color => color ?? undefined) {
   let pending = 0
   let acceptedOwnershipDifferences = 0
+  const stampFields = (issue: { id: string; branch?: string | null; gitState?: IssueViewModel['gitState'] } | undefined) =>
+    issue ? { id: issue.id, branch: issue.branch ?? null, gitState: issue.gitState, view: deriveGitStamp(issue.branch, issue.gitState) } : undefined
   const expected = ids.map((id): CheckRow => {
     const row = state.sessions.find(row => row.sessionId === id)
     const eligible = issues.filter(issue => !issue.archived && !issue.deletedAt)
@@ -40,7 +42,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     const approved = row && (eligible.find(issue => issue.id === row.issueId) ??
       [...candidates].sort((a, b) => (b.worktreePath?.length ?? 0) - (a.worktreePath?.length ?? 0))[0])
     if (candidates[0]?.id !== approved?.id) acceptedOwnershipDifferences++
-    return { id, fields: { ...paneComparable(row, state.coarseNow), stamp: approved ? { id: approved.id, branch: approved.branch, gitState: approved.gitState } : undefined } }
+    return { id, fields: { ...paneComparable(row, state.coarseNow), stamp: stampFields(approved) } }
   })
   const actual = ids.map((id): CheckRow => {
     const row = paneSession(pool, id)
@@ -48,7 +50,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     const loading = row === LOADING || stamp === LOADING
     if (loading) pending++
     return { id, pending: loading, fields: loading ? {} : { ...paneComparable(row === LOADING ? undefined : row, state.coarseNow),
-      stamp: stamp && stamp !== LOADING ? { id: stamp.id, branch: stamp.branch, gitState: stamp.gitState } : undefined } }
+      stamp: stampFields(stamp && stamp !== LOADING ? stamp : undefined) } }
   })
   const window = paneWindow(pool)
   const windowPending = window === LOADING
@@ -73,6 +75,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
   const selectedIssueId = pool.selection.keys().next().value ?? null
   const issueHex = paneIssueColor(pool, selectedIssueId, hex)
   if (issueHex === LOADING) pending++
+  const differenceFields: Record<string, number> = {}
   const result = compareSidebarSnapshots({ sections: [
     { key: 'sessions', fields: {}, rows: expected },
     { key: 'controls', fields: controls(state), rows: [] },
@@ -84,9 +87,9 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     { key: 'machines', fields: {}, rows: machineRows(paneMachines(pool)) },
     { key: 'ownership', fields: { selectedIssueId, issueHex: issueHex === LOADING ? undefined : issueHex },
       pendingFields: issueHex === LOADING ? ['issueHex'] : [], rows: [] },
-  ], pending })
+  ], pending }, difference => { differenceFields[difference.field] = (differenceFields[difference.field] ?? 0) + 1 })
   return { differences: result.differences, pending: result.pending, positions: result.rows, acceptedOwnershipDifferences,
-    first: result.first ? { section: result.first.sectionIndex, index: result.first.rowIndex, field: result.first.field } : null }
+    first: result.first ? { section: result.first.sectionIndex, index: result.first.rowIndex, field: result.first.field } : null, differenceFields }
 }
 export function installSessionPaneCheck(pool: MobxPool, runtime: ClientRuntime,
   hex?: (color: string | null | undefined) => string | undefined): () => void {
