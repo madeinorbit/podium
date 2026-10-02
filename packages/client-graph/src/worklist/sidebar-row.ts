@@ -64,7 +64,7 @@ export const SIDEBAR_ROW_FIELDS = [
 const exhaustive: Exclude<keyof SidebarRowValues, typeof SIDEBAR_ROW_FIELDS[number]> extends never ? true : never = true
 void exhaustive
 
-interface SidebarSessionOrder {
+export interface SidebarSessionOrder {
   readonly id: string
   readonly working: boolean
   readonly snoozedUntil: SliceSession['snoozedUntil']
@@ -73,56 +73,59 @@ interface SidebarSessionOrder {
   readonly offerOnly: boolean
 }
 
-/** Feed records are immutable. Issue title/cursor changes may rebuild their
- * roster, but do not change these ordering and rail facts. A replacement seat
- * gets new facts; weak keys release them when the borrowed record is released.
+/** The existing cached seat verdict owns these immutable-record facts.
+ * Replacing the session replaces its verdict; issue-only changes reuse it.
  * Facts are lazy so a singleton roster or a short-circuited comparison reads
  * only the fields it uses. Clock thresholds are read by the sorting caller
  * on every run. */
-const sessionOrders = new WeakMap<SliceSession, SidebarSessionOrder>()
 export function sidebarSessionOrder(session: SliceSession): SidebarSessionOrder {
-  let order = sessionOrders.get(session)
-  if (order === undefined) {
-    let id: string | undefined
-    let working: boolean | undefined
-    let hasSnoozedUntil = false
-    let snoozedUntil: SliceSession['snoozedUntil']
-    let recency: string | undefined
-    let createdAt: string | undefined
-    let offerOnly: boolean | undefined
-    order = {
-      get id() { return id ??= session.sessionId },
-      get working() { return working ??= attentionGroup(session) === 'working' },
-      get snoozedUntil() {
-        if (!hasSnoozedUntil) {
-          snoozedUntil = session.snoozedUntil
-          hasSnoozedUntil = true
-        }
-        return snoozedUntil
-      },
-      get recency() {
-        if (recency === undefined) {
-          const activeAt = session.lastActiveAt
-          const draftAt = session.draftUpdatedAt
-          recency = draftAt && draftAt > activeAt ? draftAt : activeAt
-        }
-        return recency
-      },
-      get createdAt() { return createdAt ??= session.createdAt ?? '' },
-      get offerOnly() {
-        return offerOnly ??= Boolean(session.offer) && attentionGroup(session, false) !== 'needsYou'
-      },
-    }
-    sessionOrders.set(session, order)
+  let id: string | undefined
+  let working: boolean | undefined
+  let hasSnoozedUntil = false
+  let snoozedUntil: SliceSession['snoozedUntil']
+  let recency: string | undefined
+  let createdAt: string | undefined
+  let offerOnly: boolean | undefined
+  return {
+    get id() { return id ??= session.sessionId },
+    get working() { return working ??= attentionGroup(session) === 'working' },
+    get snoozedUntil() {
+      if (!hasSnoozedUntil) {
+        snoozedUntil = session.snoozedUntil
+        hasSnoozedUntil = true
+      }
+      return snoozedUntil
+    },
+    get recency() {
+      if (recency === undefined) {
+        const activeAt = session.lastActiveAt
+        const draftAt = session.draftUpdatedAt
+        recency = draftAt && draftAt > activeAt ? draftAt : activeAt
+      }
+      return recency
+    },
+    get createdAt() { return createdAt ??= session.createdAt ?? '' },
+    get offerOnly() {
+      return offerOnly ??= Boolean(session.offer) && attentionGroup(session, false) !== 'needsYou'
+    },
   }
-  return order
 }
 
 export function sortedSidebarSessions(
   sessions: readonly SliceSession[],
   reached: (at: number) => boolean,
   coordinator?: string | null,
+  orderOf: (session: SliceSession) => SidebarSessionOrder = sidebarSessionOrder,
 ): SliceSession[] {
+  const orders = new Map<SliceSession, SidebarSessionOrder>()
+  const order = (session: SliceSession): SidebarSessionOrder => {
+    let facts = orders.get(session)
+    if (facts === undefined) {
+      facts = orderOf(session)
+      orders.set(session, facts)
+    }
+    return facts
+  }
   const snoozed = (s: SidebarSessionOrder): boolean => s.snoozedUntil === null ||
     (typeof s.snoozedUntil === 'string' && !reached(Date.parse(s.snoozedUntil)))
   const rank = (s: SidebarSessionOrder): number => s.working ? 2 : snoozed(s) ? 1 : 0
@@ -132,11 +135,11 @@ export function sortedSidebarSessions(
     return at
   }
   const sorted = [...sessions].sort((left, right) => {
-    const a = sidebarSessionOrder(left), b = sidebarSessionOrder(right)
+    const a = order(left), b = order(right)
     return rank(a) - rank(b) || recency(b).localeCompare(recency(a)) ||
       b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)
   })
-  const index = sorted.findIndex(s => sidebarSessionOrder(s).id === coordinator)
+  const index = sorted.findIndex(s => order(s).id === coordinator)
   if (index > 0) sorted.unshift(...sorted.splice(index, 1))
   return sorted
 }

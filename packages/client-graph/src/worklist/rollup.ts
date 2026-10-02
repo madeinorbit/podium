@@ -73,6 +73,7 @@ import {
   combineSidebarSessions,
   NO_SIDEBAR_SESSIONS,
   type SidebarSessionFacts,
+  type SidebarSessionOrder,
   sidebarSessionFacts,
   sidebarSessionOrder,
   sortedSidebarSessions,
@@ -219,6 +220,7 @@ export interface SeatVerdict {
   /** Borrowed resident seat; no second row read or per-seat cache. */
   readonly sidebarSession?: SliceSession
   readonly sidebarFacts?: SidebarSessionFacts
+  readonly sidebarOrder?: SidebarSessionOrder
 }
 
 export function seatVerdictOf(session: SliceSession): SeatVerdict {
@@ -231,6 +233,7 @@ export function seatVerdictOf(session: SliceSession): SeatVerdict {
     workingSinceMs: Number.isFinite(at) ? at : null,
     sidebarSession: session,
     sidebarFacts: sidebarSessionFacts(session),
+    sidebarOrder: sidebarSessionOrder(session),
   }
 }
 
@@ -770,13 +773,13 @@ export function ownAttentionPartOf(
   if (facts.state === 'unknown') return EMPTY_OWN
   let own = EMPTY_OWN
   let pending = 0
-  const seats = new Map<string, SeatVerdict>()
+  const seats = new Map<SliceSession, SeatVerdict>()
   for (const sessionId of self.rosterIds) {
     const seat = input.seat(sessionId)
     if (seat === LOADING) pending += 1
     else if (seat !== undefined) {
       own = withSeat(own, seat)
-      seats.set(sessionId, seat)
+      if (seat.sidebarSession !== undefined) seats.set(seat.sidebarSession, seat)
     }
   }
   let deciding = false
@@ -796,20 +799,20 @@ export function ownAttentionPartOf(
     own.sessions ?? [],
     input.reached ?? (() => false),
     facts.coordinatorSessionId,
+    session => seats.get(session)?.sidebarOrder ?? sidebarSessionOrder(session),
   )
   const sidebarFacts = sessions.reduce(
     (combined, session) =>
       combineSidebarSessions(
         combined,
-        seats.get(sidebarSessionOrder(session).id)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
+        seats.get(session)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
       ),
     NO_SIDEBAR_SESSIONS,
   )
   const railWaiting = { open: 0, finished: 0, decisions: deciding ? 1 : 0 }
   for (const session of sessions) {
-    const order = sidebarSessionOrder(session)
-    const verdict = seats.get(order.id)
-    if (deciding && order.offerOnly) continue
+    const verdict = seats.get(session)
+    if (deciding && (verdict?.sidebarOrder ?? sidebarSessionOrder(session)).offerOnly) continue
     if (verdict?.open === 'waiting') railWaiting.open += 1
     if (verdict?.finished === 'waiting') railWaiting.finished += 1
   }
