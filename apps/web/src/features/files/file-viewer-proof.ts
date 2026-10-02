@@ -33,7 +33,8 @@ try {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   const boot = await page.evaluate(() => window.__fileViewers.stats())
   if (arm === 'pool' && (boot.selectors || boot.legacyReads || boot.legacyDerivations)) throw new Error('Legacy file/Git reader executed during mount')
-  const result: Record<string, unknown> = { browser: browser.version(), boot }
+  const evidence = (stats: typeof boot) => { const { commitMs: _duration, ...counts } = stats; return countsOnly ? counts : stats }
+  const result: Record<string, unknown> = { browser: browser.version(), boot: evidence(boot) }
   const cdp = await page.context().newCDPSession(page)
   if (!countsOnly) await cdp.send('Performance.enable')
   const metrics = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((entry) => [entry.name, entry.value]))
@@ -42,7 +43,7 @@ try {
     const initial = countsOnly ? {} : await metrics()
     await page.evaluate((phase) => window.__fileViewers[phase](), phase)
     const final = countsOnly ? {} : await metrics(), stats = await page.evaluate(() => window.__fileViewers.stats())
-    result[phase] = { ...stats, ...(!countsOnly ? { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000,
+    result[phase] = { ...evidence(stats), ...(!countsOnly ? { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000,
       scriptMs: ((final.ScriptDuration ?? 0) - (initial.ScriptDuration ?? 0)) * 1000 } : {}) }
     if (arm === 'pool' && (stats.selectors || stats.legacyReads || stats.legacyDerivations)) throw new Error('Legacy file/Git reader executed')
     if (arm === 'legacy' && phase === 'activity' && stats.selectors === 0) throw new Error('Baseline positive control did not execute')
