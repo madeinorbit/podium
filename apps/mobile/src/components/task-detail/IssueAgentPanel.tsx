@@ -1,5 +1,5 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { artifactKind } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact } from '@podium/model'
 import { useState } from 'react'

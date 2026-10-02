@@ -1,14 +1,3 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
-import { shallowEqual } from '@podium/client-core/store'
-import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
-import {
-  chatActivity,
-  composerState,
-  defaultChatCapable,
-  latestPendingQuestion,
-  OPTIMISTIC_SEND_CEILING_MS,
-  pendingAskFromState,
-} from '@podium/client-core/viewmodels'
 import {
   type ConversationPendingTurn,
   createConversationController,
@@ -17,36 +6,56 @@ import {
   storeConversationOutbox,
   storeConversationRecords,
 } from '@podium/client-core/conversation'
-import { useStoreHandle } from '@podium/client-core/react'
 import { randomUUID } from '@podium/client-core/id'
+import { useStoreHandle } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { shallowEqual } from '@podium/client-core/store'
 import {
   createTranscriptController,
   transcriptActivitySignal,
 } from '@podium/client-core/transcript'
-import { asMutationId,
+import {
+  chatActivity,
+  composerState,
+  defaultChatCapable,
+  latestPendingQuestion,
+  matchesQuestionInteraction,
+  OPTIMISTIC_SEND_CEILING_MS,
+  pendingAskFromState,
+} from '@podium/client-core/viewmodels'
+import {
+  asMutationId,
   isAgentComputing,
   isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
-  type SessionMeta } from '@podium/model'
+  type SessionMeta,
+} from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
-import { useHub, useIssues, useMachines, useStoreSelector, useSessionDraft, useSessions } from '../client/hooks'
+import {
+  useHub,
+  useIssues,
+  useMachines,
+  useSessionDraft,
+  useSessions,
+  useStoreSelector,
+} from '../client/hooks'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
-import { interruptSession } from '../lib/interrupt-session'
 import { chatSendTransport } from '../lib/chat-send-transport'
+import { interruptSession } from '../lib/interrupt-session'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
-import { PendingInteractionBand } from './PendingInteractionBand'
 import { Composer } from './Composer'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
+import { PendingInteractionBand } from './PendingInteractionBand'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
+import { type LocalPendingTurn, pendingTurnOf } from './pending-delivery'
 import { SessionActionCard } from './SessionActionCard'
 import { MobileSessionLifecycle } from './SessionLifecycle'
 import { TaskSheet } from './TaskSheet'
-import { type LocalPendingTurn, pendingTurnOf } from './pending-delivery'
 import { type PendingTurn, TranscriptList } from './TranscriptList'
 import { type SentAttachment, useComposerAttachments } from './useComposerAttachments'
 import { WorkingMark } from './WorkingMark'
@@ -177,9 +186,11 @@ export function SessionConversation({
     if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
     return machine.name || session.machineName || 'This machine'
   }, [machines, session.machineId, session.machineName])
-  const currentQuestion = useStoreSelector((s) => (s.pendingInteractions ?? []).find(
-    (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
-  ))
+  const currentQuestion = useStoreSelector((s) =>
+    (s.pendingInteractions ?? []).find(
+      (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
+    ),
+  )
   const storedDraft = useSessionDraft(sessionId)
   // biome-ignore lint/correctness/useExhaustiveDependencies: one seed per addressed conversation
   const draftSeed = useMemo(() => storedDraft, [sessionId])
@@ -589,8 +600,12 @@ export function SessionConversation({
 
   const answerAsk = useCallback(
     async (answer: AskQuestionAnswer) => {
-      if (currentQuestion && (answer.interactionId !== currentQuestion.id ||
-          !answer.question || !matchesQuestionInteraction(currentQuestion, answer.question))) {
+      if (
+        currentQuestion &&
+        (answer.interactionId !== currentQuestion.id ||
+          !answer.question ||
+          !matchesQuestionInteraction(currentQuestion, answer.question))
+      ) {
         throw new Error('The question changed; wait for the current menu.')
       }
       const sent = await trpc.sessions.answerAskUserQuestion.mutate({

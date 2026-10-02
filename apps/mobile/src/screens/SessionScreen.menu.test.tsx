@@ -178,10 +178,7 @@ async function openDraftMenuWithSessions() {
 }
 
 function vesselDeletedAt(seen: { issues: IssueViewModel[] }): string | null | undefined {
-  return seen.issues.find((issue) => issue.id === vesselId)?.deletedAt as
-    | string
-    | null
-    | undefined
+  return seen.issues.find((issue) => issue.id === vesselId)?.deletedAt as string | null | undefined
 }
 
 describe('the draft chat menu', () => {

@@ -1,7 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId,
-  asSessionId,
-  type SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'

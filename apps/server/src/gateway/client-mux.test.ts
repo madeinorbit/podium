@@ -10,12 +10,12 @@ import { attachTestClient } from '../test-support/client-transport'
  * routes nothing at all.
  */
 
-import { firstAdminMemberId, asSessionId, asUserId } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import {
-  CLIENT_WIRE_VERSION,
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CLIENT_PLANE_CLASS,
+  CLIENT_WIRE_VERSION,
   type ClientMessage,
   type ServerMessage,
 } from '@podium/protocol'
@@ -288,12 +288,25 @@ describe('the connection lifecycle', () => {
       A_ROUTABLE_FRAME,
     )
     await h.feed.admissionSettled()
-    expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type))).toEqual([])
-    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: CLIENT_WIRE_VERSION + 1, wireVersionMin: 1, caps: [CAP_SYNC_HTTP_V1] })
+    expect(
+      sent.filter((msg) => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type)),
+    ).toEqual([])
+    await h.mux.routeClientFrame(id, {
+      type: 'hello',
+      clientId: id,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      wireVersion: CLIENT_WIRE_VERSION + 1,
+      wireVersionMin: 1,
+      caps: [CAP_SYNC_HTTP_V1],
+    })
     await h.feed.admissionSettled()
-    expect(sent.filter(msg => msg.type === 'feedResume')).toHaveLength(1)
-    expect(sent).toContainEqual(expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }))
-    expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual([])
+    expect(sent.filter((msg) => msg.type === 'feedResume')).toHaveLength(1)
+    expect(sent).toContainEqual(
+      expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }),
+    )
+    expect(sent.filter((msg) => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual(
+      [],
+    )
     expect(sent.some((msg) => msg.type === 'machinesChanged')).toBe(false)
     expect(sent.some((msg) => msg.type === 'approvalsChanged')).toBe(false)
     const feedEnd = sent.length
@@ -329,11 +342,21 @@ describe('the connection lifecycle', () => {
       await h.feed.admissionSettled()
       expect(sent[0]).toEqual({ type: 'welcome', clientId: id })
       expect(sent).toContainEqual({ type: 'pong' })
-      expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type))).toEqual([])
-    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: CLIENT_WIRE_VERSION, caps: [CAP_SYNC_HTTP_V1] })
-    await h.feed.admissionSettled()
-    expect(sent.filter(msg => msg.type === 'feedResume')).toHaveLength(1)
-    expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual([])
+      expect(
+        sent.filter((msg) => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type)),
+      ).toEqual([])
+      await h.mux.routeClientFrame(id, {
+        type: 'hello',
+        clientId: id,
+        viewport: { cols: 80, rows: 24, dpr: 1 },
+        wireVersion: CLIENT_WIRE_VERSION,
+        caps: [CAP_SYNC_HTTP_V1],
+      })
+      await h.feed.admissionSettled()
+      expect(sent.filter((msg) => msg.type === 'feedResume')).toHaveLength(1)
+      expect(sent.filter((msg) => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual(
+        [],
+      )
       expect(logs.at('error')).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -557,35 +580,44 @@ it('holds control and both input encodings behind a pending attach', async () =>
   expect(seen).toEqual(['attach', 'requestControl', 'input', 'binary'])
 })
 
-
 describe('HTTP sync hello enforcement', () => {
   it('refuses a cap-less hello before dispatch and serves no feed', async () => {
     const h = await harness()
     const terminate = vi.fn()
     h.registry.get(h.id)!.terminate = terminate
     const dispatches = vi.mocked(h.ports.sessions.onSessionClientFrame).mock.calls.length
-    await h.mux.routeClientFrame(h.id, { type: 'hello', clientId: h.id, viewport: { cols: 80, rows: 24, dpr: 1 } })
+    await h.mux.routeClientFrame(h.id, {
+      type: 'hello',
+      clientId: h.id,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
     expect(terminate).toHaveBeenCalledOnce()
     expect(h.registry.get(h.id)?.entityServingRefused).toBe(true)
     expect(vi.mocked(h.ports.sessions.onSessionClientFrame).mock.calls).toHaveLength(dispatches)
-    expect(h.sent.some(frame => ['feedBootstrap', 'feedResume', 'feedDelta'].includes(frame.type))).toBe(false)
+    expect(
+      h.sent.some((frame) => ['feedBootstrap', 'feedResume', 'feedDelta'].includes(frame.type)),
+    ).toBe(false)
   })
 })
-
 
 it('serves a newer client at the server maximum and welcomes it with that dialect', async () => {
   const h = await harness()
   const sent: ServerMessage[] = []
   const id = attachTestClient(h.mux, (msg) => sent.push(msg))
   await h.mux.routeClientFrame(id, {
-    type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 },
-    wireVersion: CLIENT_WIRE_VERSION + 1, wireVersionMin: 1, caps: [CAP_SYNC_HTTP_V1],
+    type: 'hello',
+    clientId: id,
+    viewport: { cols: 80, rows: 24, dpr: 1 },
+    wireVersion: CLIENT_WIRE_VERSION + 1,
+    wireVersionMin: 1,
+    caps: [CAP_SYNC_HTTP_V1],
   })
   expect(h.registry.get(id)?.wireVersion).toBe(CLIENT_WIRE_VERSION)
-  expect(sent).toContainEqual(expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }))
+  expect(sent).toContainEqual(
+    expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }),
+  )
   h.mux.detachClient(id)
 })
-
 
 describe('mobile version observation at the real gateway boundary', () => {
   it('records hello even for refused legacy clients, and records disconnect', async () => {

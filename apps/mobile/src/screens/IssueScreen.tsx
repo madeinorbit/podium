@@ -1,16 +1,17 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { withoutShells } from '@podium/client-core/focus'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { resolveIssueEdge, subIssuesOf } from '@podium/client-core/viewmodels'
-import { type IssueCloseReason,
+import {
+  type IssueCloseReason,
   type IssueId,
   IssueType,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
-  type SessionId } from '@podium/model'
+  type SessionId,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronDown, ChevronUp, MoreHorizontal } from '../components/icons'
 import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import {
@@ -27,22 +28,23 @@ import {
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
-import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { IssueTargetSheet } from '../components/IssueTargetSheet'
+import { ChevronDown, ChevronUp, MoreHorizontal } from '../components/icons'
+import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
 import { ErrorNote } from '../components/task-detail/chrome'
+import { GitReviewSection } from '../components/task-detail/GitReviewSection'
 import { IssueActivitySection, MailSection } from '../components/task-detail/IssueActivity'
 import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
 import { IssueBanners } from '../components/task-detail/IssueBanners'
-import { GitReviewSection } from '../components/task-detail/GitReviewSection'
 import {
   IssueBrief,
   IssueDescription,
@@ -58,8 +60,8 @@ import { EmptyState } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
-import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { issueCloseBlockers } from '../lib/issue-close'
+import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { useIssueActivity } from '../lib/use-issue-detail'
@@ -259,8 +261,7 @@ function IssueContent({
   const openIssue = (id: string) => router.replace(`/issue/${encodeURIComponent(id)}`)
   const openSession = (id: SessionId) =>
     router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
-  const askingSession =
-    sessions.find((s) => s.sessionId === issue.asked?.by) ?? sessions[0]
+  const askingSession = sessions.find((s) => s.sessionId === issue.asked?.by) ?? sessions[0]
 
   /**
    * Dismiss THIS sheet, and only if it is still the one showing.
@@ -354,7 +355,11 @@ function IssueContent({
                     ? async (answer) => {
                         // A chat send like any other (POD-4762): waits for the
                         // server, wakes a parked session first.
-                        await sendChat({ sessionId: askingSession.sessionId, text: answer, wake: true })
+                        await sendChat({
+                          sessionId: askingSession.sessionId,
+                          text: answer,
+                          wake: true,
+                        })
                       }
                     : undefined
                 }

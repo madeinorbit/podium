@@ -1,10 +1,12 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/viewmodels'
-import { type IssueCloseReason,
+import {
+  type IssueCloseReason,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
-  type SessionMeta } from '@podium/model'
+  type SessionMeta,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useMemo, useState } from 'react'
 import { useStoreActions } from '../client/hooks'

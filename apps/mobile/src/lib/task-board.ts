@@ -1,17 +1,17 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
-  boardIssues,
   type BoardFilter,
+  boardIssues,
   filterBoardIssues,
   filterBoardScope,
   flattenRowGroups,
   type IssueRow,
+  type IssuesOrdering,
   issueRowsByStage,
   orderIssues,
   partitionIssueTree,
   type TaskProgress,
   taskProgressMap,
-  type IssuesOrdering,
 } from '@podium/client-core/viewmodels'
 import type { IssueBoardStage } from '@podium/model'
 import { STAGE_LABEL } from '../theme/stage'
@@ -177,8 +177,7 @@ export function taskBoardSections(
     stage,
     title: STAGE_LABEL[stage],
     rows: byStage.get(stage) ?? [],
-  }))
-    .filter((section) => section.rows.length > 0)
+  })).filter((section) => section.rows.length > 0)
 }
 
 /**

@@ -1,8 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asArtifactId,
-  asIssueId,
-  type IssuePanelArtifact,
-  type SessionOffer } from '@podium/model'
+import { asArtifactId, asIssueId, type IssuePanelArtifact, type SessionOffer } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { offerArtifactRows, resolveOfferArtifacts } from './offer-artifacts'
 

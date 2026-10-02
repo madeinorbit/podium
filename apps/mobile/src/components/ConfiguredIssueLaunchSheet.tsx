@@ -5,8 +5,8 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useStoreSelector } from '../client/hooks'
-import { startConfiguredIssue } from '../lib/configured-issue-launch'
 import { issueDefaultAgentKind } from '../lib/agent-models'
+import { startConfiguredIssue } from '../lib/configured-issue-launch'
 import {
   type LaunchConfiguration,
   type LaunchPlan,

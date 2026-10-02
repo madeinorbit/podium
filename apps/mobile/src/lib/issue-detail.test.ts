@@ -1,8 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId,
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput } from '@podium/model'
+import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileTrpc } from '../client/trpc'
 import { issueCommands, shouldContinueEventDrain } from './issue-detail'
@@ -93,7 +90,9 @@ const session = (partial: Partial<SessionMetaInput> = {}): SessionMeta =>
     ...partial,
   }) as SessionMeta
 
-function harness(over: { issue?: IssueViewModel; sessions?: SessionMeta[]; guarded?: boolean } = {}) {
+function harness(
+  over: { issue?: IssueViewModel; sessions?: SessionMeta[]; guarded?: boolean } = {},
+) {
   const closeIssue = vi.fn(async () => ({}))
   const updateIssue = vi.fn(async () => ({}))
   const requestClose = vi.fn()

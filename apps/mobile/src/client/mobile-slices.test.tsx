@@ -185,13 +185,14 @@ describe('placement fails closed on the phone too (doc §3.1.4 M5)', () => {
     // The regression guard for the whole programme. `use` is optional and an
     // omission means NOT EVALUATED, read per LIST — reading it per machine as
     // denied-when-absent blanks every picker on today's deployments.
-    const unscoped = [{ id: 'mine', name: 'mine', online: true, serviceAssignment }] as unknown as MachineWire[]
+    const unscoped = [
+      { id: 'mine', name: 'mine', online: true, serviceAssignment },
+    ] as unknown as MachineWire[]
     const views = machineViewsFromWire(unscoped)
     expect(views[0]?.availability).toBe('available')
     expect(resolveSpawnTargetMachine(repoOn(['mine']), [], views).machineId).toBe('mine')
   })
 })
-
 
 it('updates the narrow host metrics hook without waking whole-store readers', async () => {
   let broadRenders = 0
@@ -204,7 +205,12 @@ it('updates the narrow host metrics hook without waking whole-store readers', as
     const metrics = useHostMetrics()
     return <span data-testid="hosts">{metrics.map((host) => host.hostname).join(',')}</span>
   }
-  const { emit } = await renderWithMobileStore(<><BroadReader /><HostReader /></>)
+  const { emit } = await renderWithMobileStore(
+    <>
+      <BroadReader />
+      <HostReader />
+    </>,
+  )
   const before = broadRenders
   for (const hostname of ['first', 'second']) {
     await act(async () => emit('hostMetrics', [{ hostname }]))

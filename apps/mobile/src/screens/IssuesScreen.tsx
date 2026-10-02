@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
+import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type BoardFilter,
   clearChip,
@@ -11,23 +12,24 @@ import {
   taskStateWord,
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/viewmodels'
-import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
-import { type IssueBoardStage,
+import {
+  type IssueBoardStage,
   type IssueCloseReason,
   issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
-  parseIssueStatusValue } from '@podium/model'
+  parseIssueStatusValue,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useBooting, useIssues, useStoreSelector, useSessions } from '../client/hooks'
+import { useBooting, useIssues, useSessions, useStoreSelector } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
-import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
+import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
 import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'

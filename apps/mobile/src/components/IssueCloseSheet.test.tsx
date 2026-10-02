@@ -1,8 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId,
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput } from '@podium/model'
+import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -120,7 +117,12 @@ describe('IssueCloseSheet', () => {
     open({
       issue: issue({
         needsHuman: true,
-        asked: { question: 'Which direction should we ship?', at: '', by: 'asking-session' as never, attribution: {} as never },
+        asked: {
+          question: 'Which direction should we ship?',
+          at: '',
+          by: 'asking-session' as never,
+          attribution: {} as never,
+        },
         childCount: 3,
         childDoneCount: 1,
         gitState: dirtyBranch,

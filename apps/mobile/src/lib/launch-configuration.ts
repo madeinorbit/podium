@@ -1,14 +1,14 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ModelCatalog, ModelCatalogStatus } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MachineId } from '@podium/model'
 import {
   AUTO,
   decodeModelPick,
   encodeModelPick,
+  type IssueAgentKind,
   isEffortValid,
   issueAgentKind,
   issueDefaultAgentKind,
-  type IssueAgentKind,
 } from './agent-models'
 
 export interface LaunchConfiguration {

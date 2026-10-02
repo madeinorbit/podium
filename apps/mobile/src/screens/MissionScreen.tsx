@@ -1,3 +1,4 @@
+import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -15,7 +16,8 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useBooting, useIssues, useStoreSelector, useSessions } from '../client/hooks'
+import { useBooting, useIssues, useSessions, useStoreSelector } from '../client/hooks'
+import type { MobileTrpc } from '../client/trpc'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
@@ -30,9 +32,7 @@ import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
-import { useHarnessDescriptors } from '@podium/client-core/react'
 import { issueAgentKind, issueAgentLabel, modelLabel } from '../lib/agent-models'
-import type { MobileTrpc } from '../client/trpc'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { mostRelevantSession } from '../lib/mission-session'
 import { alpha } from '../theme/mix'
@@ -211,7 +211,9 @@ export function MissionScreen() {
             : undefined
       }
       leading={
-        current ? <HarnessChip kind={current.agentKind} size={20} descriptors={served} /> : undefined
+        current ? (
+          <HarnessChip kind={current.agentKind} size={20} descriptors={served} />
+        ) : undefined
       }
       right={
         <>

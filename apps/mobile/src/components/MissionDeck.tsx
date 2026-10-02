@@ -1,5 +1,5 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   buildFlightDeckRows,
@@ -34,13 +34,13 @@ import {
 import type { IssueId, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { memo, useCallback, useEffect, useMemo } from 'react'
-import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from './icons'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { applyFolds, deckContentHeight } from '../lib/deck-rows'
 import { stageColor } from '../theme/stage'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from './icons'
 import { PressableScale } from './PressableScale'
 import {
   DeckSection,

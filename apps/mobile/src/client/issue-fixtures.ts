@@ -2,12 +2,12 @@
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import {
   asRepoId,
-  IssueProjection,
-  issueDepId,
   type IssueDepProjection,
   type IssueGitStateProjection,
+  IssueProjection,
   type IssueUserStateWire,
   type IssueWire,
+  issueDepId,
   type RepoProjection,
   type UserId,
 } from '@podium/model'
@@ -37,18 +37,34 @@ export function seedIssueFixtures(
     row.intentOrigin = source.intentOrigin ?? source.origin ?? 'human'
     row.isDraftVessel = source.isDraftVessel ?? source.draft ?? false
     if (!row.asked && typeof source.humanQuestion === 'string') {
-      row.asked = { question: source.humanQuestion, options: source.humanQuestionOptions,
-        by: source.humanQuestionAskedBy, at: source.humanQuestionAskedAt }
+      row.asked = {
+        question: source.humanQuestion,
+        options: source.humanQuestionOptions,
+        by: source.humanQuestionAskedBy,
+        at: source.humanQuestionAskedAt,
+      }
     }
     projections.push(row as unknown as IssueProjection)
-    markers.push({ userId, entityId: issue.id, readAt: issue.readAt ?? null,
-      tuckedAt: issue.tuckedAt ?? null, pinned: issue.pinned ?? false })
+    markers.push({
+      userId,
+      entityId: issue.id,
+      readAt: issue.readAt ?? null,
+      tuckedAt: issue.tuckedAt ?? null,
+      pinned: issue.pinned ?? false,
+    })
     if (issue.gitState) git.push({ ...issue.gitState, id: issue.id })
-    repos.set(repoId, { id: repoId, repoPath: issue.repoPath,
-      prefix: issue.prefix ?? issue.displayRef?.match(/^([A-Z][A-Z0-9]*)-/)?.[1] } as RepoProjection)
+    repos.set(repoId, {
+      id: repoId,
+      repoPath: issue.repoPath,
+      prefix: issue.prefix ?? issue.displayRef?.match(/^([A-Z][A-Z0-9]*)-/)?.[1],
+    } as RepoProjection)
     for (const dep of issue.deps ?? []) {
-      deps.push({ id: issueDepId(issue.id, dep.id, dep.type), fromId: issue.id,
-        toId: dep.id, type: dep.type } as IssueDepProjection)
+      deps.push({
+        id: issueDepId(issue.id, dep.id, dep.type),
+        fromId: issue.id,
+        toId: dep.id,
+        type: dep.type,
+      } as IssueDepProjection)
     }
   }
   replica.applySnapshot('issues', issues as IssueWire[])

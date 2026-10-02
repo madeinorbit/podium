@@ -1,5 +1,5 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { pendingAskFromState, sessionCardModel } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'

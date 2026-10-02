@@ -33,7 +33,9 @@ export function mobileVersionReport(
   }
   const minimum = parse(release)
   if (!minimum || !Number.isFinite(releasedAt) || releasedAt > now) {
-    throw new Error('A native release version (marketing+build) and its past release time are required')
+    throw new Error(
+      'A native release version (marketing+build) and its past release time are required',
+    )
   }
   const supported = (version: string): boolean => {
     if (supportedWebVersions.includes(version)) return true
@@ -44,12 +46,15 @@ export function mobileVersionReport(
     }
     return true
   }
-  const versions = history.versions.map(row => ({ ...row, supported: supported(row.appVersion) }))
-  const unsupported = versions.filter(row => !row.supported)
-  const quietSince = Math.max(releasedAt, history.observedSince,
-    ...unsupported.map(row => row.lastSeenAt))
-  const observationCurrent = now >= history.updatedAt &&
-    now - history.updatedAt <= MOBILE_OBSERVATION_MAX_GAP_MS
+  const versions = history.versions.map((row) => ({ ...row, supported: supported(row.appVersion) }))
+  const unsupported = versions.filter((row) => !row.supported)
+  const quietSince = Math.max(
+    releasedAt,
+    history.observedSince,
+    ...unsupported.map((row) => row.lastSeenAt),
+  )
+  const observationCurrent =
+    now >= history.updatedAt && now - history.updatedAt <= MOBILE_OBSERVATION_MAX_GAP_MS
   const connectedOlder = unsupported.reduce((sum, row) => sum + row.connected, 0)
   return {
     release,
@@ -62,8 +67,11 @@ export function mobileVersionReport(
     eligibleAt: new Date(quietSince + 7 * DAY).toISOString(),
     consecutiveQuietDays: Math.max(0, (now - quietSince) / DAY),
     step7Ready: observationCurrent && connectedOlder === 0 && now - quietSince >= 7 * DAY,
-    versions: versions.map(row => ({ ...row, firstSeenAt: new Date(row.firstSeenAt).toISOString(),
-      lastSeenAt: new Date(row.lastSeenAt).toISOString() })),
+    versions: versions.map((row) => ({
+      ...row,
+      firstSeenAt: new Date(row.firstSeenAt).toISOString(),
+      lastSeenAt: new Date(row.lastSeenAt).toISOString(),
+    })),
   }
 }
 
@@ -75,20 +83,40 @@ export class MobileClientVersions {
   private persistedAt: number
   private healthy = true
 
-  constructor(private readonly path: string, private readonly now = Date.now,
-    interval = 60_000) {
+  constructor(
+    private readonly path: string,
+    private readonly now = Date.now,
+    interval = 60_000,
+  ) {
     const time = now()
     let previous: MobileVersionHistory | undefined
     try {
       const value = JSON.parse(readFileSync(path, 'utf8')) as MobileVersionHistory
-      if (value.schema === 1 && Number.isFinite(value.observedSince) && Number.isFinite(value.updatedAt) &&
-        Array.isArray(value.versions) && value.versions.length <= 256 && value.versions.every(row =>
-          typeof row.appVersion === 'string' && Number.isFinite(row.firstSeenAt) &&
-          Number.isFinite(row.lastSeenAt) && Number.isFinite(row.connections))) previous = value
-    } catch { /* Missing/corrupt evidence starts a new observation window. */ }
+      if (
+        value.schema === 1 &&
+        Number.isFinite(value.observedSince) &&
+        Number.isFinite(value.updatedAt) &&
+        Array.isArray(value.versions) &&
+        value.versions.length <= 256 &&
+        value.versions.every(
+          (row) =>
+            typeof row.appVersion === 'string' &&
+            Number.isFinite(row.firstSeenAt) &&
+            Number.isFinite(row.lastSeenAt) &&
+            Number.isFinite(row.connections),
+        )
+      )
+        previous = value
+    } catch {
+      /* Missing/corrupt evidence starts a new observation window. */
+    }
     // Restart is a coverage boundary: no previous socket is still connected here.
-    this.history = { schema: 1, observedSince: time, updatedAt: time,
-      versions: (previous?.versions ?? []).map(row => ({ ...row, connected: 0 })) }
+    this.history = {
+      schema: 1,
+      observedSince: time,
+      updatedAt: time,
+      versions: (previous?.versions ?? []).map((row) => ({ ...row, connected: 0 })),
+    }
     this.persistedAt = time
     this.checkpoint()
     this.timer = setInterval(() => this.checkpoint(), interval)
@@ -96,18 +124,22 @@ export class MobileClientVersions {
   }
 
   connected(clientId: string, origin: ClientLogOrigin | undefined): void {
-    const version = origin?.role === 'mobile' ? (origin.v?.trim() || 'unknown')
-      : origin === undefined ? 'unidentified' : undefined
+    const version =
+      origin?.role === 'mobile'
+        ? origin.v?.trim() || 'unknown'
+        : origin === undefined
+          ? 'unidentified'
+          : undefined
     const previous = this.clients.get(clientId)
     if (previous === version) return
     if (previous !== undefined) this.disconnected(clientId)
     if (version === undefined) return
     const time = this.now()
-    let row = this.history.versions.find(item => item.appVersion === version)
+    let row = this.history.versions.find((item) => item.appVersion === version)
     if (!row) {
       // Overflow remains an unsupported observation, never an untracked connection.
       const key = this.history.versions.length >= 255 ? 'overflow' : version
-      row = this.history.versions.find(item => item.appVersion === key)
+      row = this.history.versions.find((item) => item.appVersion === key)
       if (!row) {
         row = { appVersion: key, firstSeenAt: time, lastSeenAt: time, connections: 0, connected: 0 }
         this.history.versions.push(row)
@@ -122,7 +154,7 @@ export class MobileClientVersions {
   disconnected(clientId: string): void {
     const version = this.clients.get(clientId)
     if (version === undefined) return
-    const row = this.history.versions.find(item => item.appVersion === version)
+    const row = this.history.versions.find((item) => item.appVersion === version)
     if (row) row.lastSeenAt = this.now()
     this.clients.delete(clientId)
     this.checkpoint()
@@ -131,7 +163,11 @@ export class MobileClientVersions {
   /** Heartbeat records long-lived older clients, including ones that send no further frames. */
   checkpoint(): void {
     const time = this.now()
-    if (!this.healthy || time < this.persistedAt || time - this.persistedAt > MOBILE_OBSERVATION_MAX_GAP_MS) {
+    if (
+      !this.healthy ||
+      time < this.persistedAt ||
+      time - this.persistedAt > MOBILE_OBSERVATION_MAX_GAP_MS
+    ) {
       this.history.observedSince = time
     }
     const counts = new Map<string, number>()
@@ -148,7 +184,9 @@ export class MobileClientVersions {
       renameSync(temporary, this.path)
       this.persistedAt = time
       this.healthy = true
-    } catch { this.healthy = false }
+    } catch {
+      this.healthy = false
+    }
   }
 
   close(): void {

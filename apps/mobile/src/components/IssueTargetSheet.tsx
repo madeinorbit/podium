@@ -59,9 +59,7 @@ export function IssueTargetSheet({
       }
       footerRule={false}
       footer={
-        <View
-          style={[styles.footer, { paddingBottom: footerPadding }]}
-        >
+        <View style={[styles.footer, { paddingBottom: footerPadding }]}>
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel="Cancel"

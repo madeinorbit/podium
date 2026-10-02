@@ -22,14 +22,14 @@
  *  - fatal errors, storage notices, sign-out erase → `./shell`
  */
 import type { Store } from '@podium/client-core/engine'
-import type { IssueViewModel } from '@podium/client-core/replica'
-import { useAllIssueViewModels, useIssueViewModel } from '@podium/client-core/react'
-import { asIssueId } from '@podium/model'
 import {
+  useAllIssueViewModels,
   useHostMetrics as useCoreHostMetrics,
+  useIssueViewModel,
   useStore,
   useStoreSelector,
 } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type {
@@ -39,6 +39,7 @@ import type {
   SessionId,
   SessionMeta,
 } from '@podium/model'
+import { asIssueId } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { demoEnabled } from './demoData'
 import type { MobileTrpc, TranscriptPage } from './trpc'
@@ -169,7 +170,11 @@ export function useSessions(): SessionMeta[] {
 /** The runtime's folded sources include normalized optimism and personal markers. */
 function useIssueSources() {
   return useMobileStoreSelector(
-    (s) => ({ replica: s.replica, issueProjections: s.issueProjections, issueUserStates: s.issueUserStates }),
+    (s) => ({
+      replica: s.replica,
+      issueProjections: s.issueProjections,
+      issueUserStates: s.issueUserStates,
+    }),
     shallowEqualPick,
   )
 }
@@ -281,7 +286,9 @@ export function useBooting(): boolean {
   return useStoreSelector<boolean, MobileTrpc>((s) =>
     demoEnabled()
       ? false
-      : s.replica.getCursor() === null && s.sessions.length === 0 && s.issueProjections.length === 0,
+      : s.replica.getCursor() === null &&
+        s.sessions.length === 0 &&
+        s.issueProjections.length === 0,
   )
 }
 

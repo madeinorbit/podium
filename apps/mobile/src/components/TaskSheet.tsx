@@ -1,5 +1,5 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   groupRelations,
   operationalState,
@@ -8,13 +8,15 @@ import {
   sessionTitle,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import { type IssueCloseReason,
+import {
+  type IssueCloseReason,
   type IssuePanelArtifact,
   issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
-  type SessionMeta } from '@podium/model'
+  type SessionMeta,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'

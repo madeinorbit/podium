@@ -1,12 +1,12 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { segmentOfferText } from '@podium/client-core/viewmodels'
 import type { SessionOffer } from '@podium/model'
-import { Lightbulb, X } from './icons'
 import { useState } from 'react'
 import { AccessibilityInfo, StyleSheet, Text, TextInput, View } from 'react-native'
 import { followPodiumLink } from '../lib/podium-link'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { Lightbulb, X } from './icons'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 import { PressableScale } from './PressableScale'
 

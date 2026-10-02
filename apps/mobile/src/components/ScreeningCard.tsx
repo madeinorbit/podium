@@ -1,7 +1,8 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
+import type { IssueViewModel } from '@podium/client-core/replica'
 
 import * as Haptics from 'expo-haptics'
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import Animated, {
   cancelAnimation,
@@ -15,7 +16,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'

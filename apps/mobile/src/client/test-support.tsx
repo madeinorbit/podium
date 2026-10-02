@@ -19,25 +19,25 @@
  */
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
-import { createReplica, memoryStorage, type IssueViewModel } from '@podium/client-core/replica'
-import { seedIssueFixtures } from './issue-fixtures'
+import { createReplica, type IssueViewModel, memoryStorage } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import {
   asUserId,
   type GitRepositoryWire,
-  type IssueWire,
+  type IssueDepProjection,
+  type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
-  type IssueGitStateProjection,
-  type RepoProjection,
-  type IssueDepProjection,
+  type IssueWire,
   type MachineWire,
   type MessageRecordWire,
+  type RepoProjection,
   type SessionMeta,
 } from '@podium/model'
 import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
+import { seedIssueFixtures } from './issue-fixtures'
 import { MobileShellProvider } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 import type { MobileTrpc } from './trpc'

@@ -1,5 +1,10 @@
+import {
+  CLIENT_WIRE_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
+  negotiateVersion,
+  type WireVersionOffer,
+} from '@podium/protocol'
 import type { MobileClientVersions } from './mobile-client-versions'
-import { negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, type WireVersionOffer } from '@podium/protocol'
 /**
  * THE CLIENT SOCKET MUX (POD-390, under POD-317's gateway).
  *
@@ -84,7 +89,11 @@ const toSessions = (mux: ClientMux, conn: ClientConn, msg: SessionsClientFrame):
     mux.ports.sessions.onSessionClientFrame(conn.principal, conn, msg),
   )
 
-const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMessage): Promise<void> =>
+const toPresence = (
+  mux: ClientMux,
+  conn: ClientConn,
+  msg: PresenceRoomClientMessage,
+): Promise<void> =>
   mux.enqueueSessionWork(conn, async () => {
     const joined = await mux.presence.route(conn, msg)
     if (joined) mux.ports.sessions.onRoomJoined(conn, joined)
@@ -389,7 +398,11 @@ export class ClientMux {
     // acts on for itself beyond the routing table, and it acts on the two
     // transport facts `hello` carries: the wire version and the delta capability.
     if (msg.type === 'hello') {
-      this.renegotiate(conn, { min: msg.wireVersionMin ?? msg.wireVersion ?? 1, max: msg.wireVersion ?? 1 }, msg.feedCursor)
+      this.renegotiate(
+        conn,
+        { min: msg.wireVersionMin ?? msg.wireVersion ?? 1, max: msg.wireVersion ?? 1 },
+        msg.feedCursor,
+      )
       if (conn.entityServingRefused) return Promise.resolve(completion)
       this.deps.registry.deliver(conn, {
         type: 'welcome',
@@ -419,7 +432,10 @@ export class ClientMux {
   ): void {
     // ABSENT MEANS 1. A pre-cutover client cannot send a field it was never built
     // with, so the absence is the advertisement.
-    const version = negotiateVersion(announced ?? 1, { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION })
+    const version = negotiateVersion(announced ?? 1, {
+      wire: CLIENT_WIRE_VERSION,
+      min: MIN_CLIENT_WIRE_VERSION,
+    })
     if (!version.ok) {
       this.deps.feed.detach(conn.id)
       conn.entityServingRefused = true
