@@ -108,6 +108,7 @@ describe('mission pane value differential', () => {
     const row = vi.spyOn(handle.pool, 'row')
     const legacyMission = missionIndexStats(), legacyOwnership = sessionOwnershipStats()
     const stop = autorun(() => readMissionView(reader, selected))
+    const paneReads = row.mock.calls.slice()
     try {
       const before = { ...reader.stats }
       const other = ids.find(id => id !== selected)!
@@ -115,8 +116,8 @@ describe('mission pane value differential', () => {
       if (!raw || raw === LOADING) throw new Error('Addressed synthetic row is not loaded')
       runInAction(() => handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: other, value: { ...raw, title: 'Unrelated title' } }] }))
       expect(reader.stats).toEqual(before)
-      expect(row.mock.calls.filter(([kind, id]) => kind === 'session').length).toBeLessThan(ctx.engine.getSnapshot().sessions.length)
-      expect(row.mock.calls.some(([, , absent]) => String(absent) === 'peek')).toBe(false)
+      expect(paneReads.filter(([kind]) => kind === 'session').length).toBeLessThan(ctx.engine.getSnapshot().sessions.length)
+      expect(paneReads.some(([, , absent]) => String(absent) === 'peek')).toBe(false)
       expect(missionIndexStats()).toEqual(legacyMission)
       expect(sessionOwnershipStats()).toEqual(legacyOwnership)
     } finally { stop(); row.mockRestore(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
