@@ -49,7 +49,7 @@ function replica() {
   const records = [
     { entity: 'issueProjection', entityId: id, value: projection, provenance: { seq: 1 } },
     { entity: 'repo', entityId: coldRepo,
-      value: { id: coldRepo, path: '/offline-reference', prefix: 'POD' }, provenance: { seq: 1 } },
+      value: { id: coldRepo, repoPath: '/offline-reference', prefix: 'POD' }, provenance: { seq: 1 } },
     { entity: 'issueProjection', entityId: coldId,
       value: { ...projection, id: coldId, repoId: coldRepo, seq: 1234, title: 'Cold offline issue',
         archived: true, deletedAt: null, stage: 'done', closedAt: '2026-01-01T00:00:00.000Z' }, provenance: { seq: 1 } },
