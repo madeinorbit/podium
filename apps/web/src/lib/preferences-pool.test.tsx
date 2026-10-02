@@ -113,7 +113,7 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
   ><Probe /></StoreProvider></StrictMode>
   storeStats.enable(); preferenceReadStats.enable(); preferenceReadStats.reset(); storeStats.reset()
   const view = render(tree('alice'))
-  await act(async () => { await vi.waitFor(() => expect(pool).not.toBeNull()) })
+  await vi.waitFor(async () => { await act(async () => {}); expect(pool).not.toBeNull() })
   await act(async () => {})
   expect(new Set(owners).size).toBe(1)
   expect(view.container.textContent).toBe('absent')
@@ -126,7 +126,7 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
   expect(storeStats.snapshot().runtimes.every((row) => row.selectorRuns === 0 && Object.values(row.slices).every((n) => n === 0))).toBe(true)
   view.rerender(tree('bob'))
   expect(view.container.textContent).toBe('absent')
-  await act(async () => { await vi.waitFor(() => expect(pool).not.toBeNull()) })
+  await vi.waitFor(async () => { await act(async () => {}); expect(pool).not.toBeNull() })
   expect(owner).not.toBe(oldOwner)
   expect(pool).not.toBe(oldPool)
   expect(oldPool.preferenceKeys()).toEqual([])
