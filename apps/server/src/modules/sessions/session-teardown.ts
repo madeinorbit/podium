@@ -87,6 +87,15 @@ export interface SessionTeardownPorts {
    *  teardown owns the trigger (issue close / worktree free); the kill verb
    *  stays in SessionKill — this port is the only line between them. */
   killSession(input: { sessionId: SessionId }): Promise<void>
+  /** Fail every message still waiting for sessions that stopped unresumably
+   *  (POD-5284): parked as `exited` with no resume ref, their durable queue
+   *  will never deliver — like a removal, but the row stays. Hibernated
+   *  sessions keep their queue for resume. Absent in fixtures without a
+   *  message ledger. */
+  failMessagesToRemovedSessions?: (
+    sessionIds: readonly SessionId[],
+    opts?: { endedIssueId?: IssueId },
+  ) => Promise<void>
   /** Issue meta / cwd ownership for stop/stopIssue. */
   issueAccess: DurableIssueAccessIndex
   /** Snapshot tail for auto-archive parent-issue check. The NORMALIZED record
@@ -97,6 +106,22 @@ export interface SessionTeardownPorts {
 
 export class SessionTeardown {
   constructor(private readonly ports: SessionTeardownPorts) {}
+
+  /**
+   * Settle mail orphaned by an unresumable park (POD-5284).
+   *
+   * A session parked as `exited` (non-shell, no resume ref) will never
+   * deliver: the sweep never re-pushes `dispatched`, and teardown
+   * abandonment skips durable rows for a next owner that will never come.
+   * Fail those messages and drop their queue rows, like a removal does —
+   * the row stays inspectable. Hibernated sessions (resumable) keep theirs.
+   */
+  private async failUnresumableMessages(sessionId: SessionId): Promise<void> {
+    const parked = this.ports.sessions.get(sessionId)
+    if (!parked || parked.status !== 'exited' || parked.agentKind === 'shell') return
+    await this.ports.failMessagesToRemovedSessions?.([sessionId])
+    await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)
+  }
 
   /**
    * Archive also stops the process (POD-108). Archive used to be pure metadata,
@@ -134,6 +159,7 @@ export class SessionTeardown {
       draft.stoppedAt = new Date(this.ports.now()).toISOString()
       draft.stopReason = 'parent'
     })
+    await this.failUnresumableMessages(sessionId)
     if (!await this.gracefulStopThenKill(session))
       throw new Error('process retirement was not confirmed')
     this.ports.broadcastSessions()
@@ -205,6 +231,7 @@ export class SessionTeardown {
       draft.stoppedAt = new Date(this.ports.now()).toISOString()
       draft.stopReason = 'parent'
     })
+    await this.failUnresumableMessages(sessionId)
     const retired = await this.gracefulStopThenKill(session)
     this.ports.broadcastSessions()
     return retired ? { ok: true } : { ok: false, reason: 'process retirement was not confirmed' }
@@ -366,6 +393,7 @@ export class SessionTeardown {
         async () => await this.ports.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
       )
       this.ports.broadcastSessions()
+      await this.failUnresumableMessages(input.sessionId)
     } else if (session.status !== 'hibernated' && session.status !== 'exited') {
       return { ok: false, reason: `cannot stop session in status '${session.status}'` }
     }

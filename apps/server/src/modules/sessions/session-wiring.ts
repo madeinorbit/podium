@@ -1143,6 +1143,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     issueAccess: bag.deps.issueAccess,
     snapshotTail: () => bag.deps.snapshotTail(),
     killSession: (input) => bag.sessionKill.killSession(input),
+    failMessagesToRemovedSessions: failMessagesToRemovedSessions(bag.deps),
   })
   bag.sessionKill = new SessionKill({
     store,
