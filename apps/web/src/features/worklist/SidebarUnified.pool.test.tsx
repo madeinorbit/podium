@@ -3,7 +3,13 @@ import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { worklistSlice } from '@podium/client-core/viewmodels'
-import { asIssueId, asSessionId, asUserId, issueUserStateRowId, type SessionId } from '@podium/model/browser'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  type SessionId,
+} from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandPalette } from '@/app/CommandPalette'
@@ -178,7 +184,9 @@ afterEach(() => {
 })
 
 describe('real sidebar pool cutover', () => {
-  it.each(LAYERS)('%s guest rows preserve the clock behavior of their data layer', async (layer) => {
+  it.each(
+    LAYERS,
+  )('%s guest rows preserve the clock behavior of their data layer', async (layer) => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount(layer)
@@ -190,10 +198,16 @@ describe('real sidebar pool cutover', () => {
     mode.commits.clear()
     await advanceClock(60_000)
     expect(runtime.getSnapshot().coarseNow).toBe(NOW + 60_000)
-    const guests = Object.fromEntries([...mode.commits].filter(([id]) => id.startsWith('synthetic-guest-')))
-    expect(guests).toEqual(layer === 'pool' ? {} : { 'synthetic-guest-0': 1, 'synthetic-guest-1': 1 })
+    const guests = Object.fromEntries(
+      [...mode.commits].filter(([id]) => id.startsWith('synthetic-guest-')),
+    )
+    expect(guests).toEqual(
+      layer === 'pool' ? {} : { 'synthetic-guest-0': 1, 'synthetic-guest-1': 1 },
+    )
     await advanceClock(60_000)
-    expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain('Unsnoozed')
+    expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain(
+      'Unsnoozed',
+    )
     if (layer === 'pool') expect(mode.reads).toBe(0)
   })
 
@@ -202,7 +216,9 @@ describe('real sidebar pool cutover', () => {
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
     await act(async () => {
-      fixture.patch('session', 'synthetic-guest-0', { snoozedUntil: new Date(NOW + 120_000).toISOString() })
+      fixture.patch('session', 'synthetic-guest-0', {
+        snoozedUntil: new Date(NOW + 120_000).toISOString(),
+      })
     })
     const guest = () => document.querySelector('[data-session="synthetic-guest-0"]')!
     expect(guest().textContent).not.toContain('Unsnoozed')
@@ -224,15 +240,22 @@ describe('real sidebar pool cutover', () => {
     expect(mode.reads).toBe(0)
   })
 
-  it.each([null, 'not-a-date'])('keeps a pool guest with snooze %s cold across ticks', async (snoozedUntil) => {
+  it.each([
+    null,
+    'not-a-date',
+  ])('keeps a pool guest with snooze %s cold across ticks', async (snoozedUntil) => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
-    await act(async () => { fixture.patch('session', 'synthetic-guest-0', { snoozedUntil }) })
+    await act(async () => {
+      fixture.patch('session', 'synthetic-guest-0', { snoozedUntil })
+    })
     mode.commits.clear()
     await advanceClock(120_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
-    expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).not.toContain('Unsnoozed')
+    expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).not.toContain(
+      'Unsnoozed',
+    )
     expect(mode.reads).toBe(0)
   })
 
@@ -243,7 +266,11 @@ describe('real sidebar pool cutover', () => {
     const stamp = new Date(NOW - (2 * 60 + 28) * 60_000).toISOString()
     await act(async () => {
       fixture.patch('issueProjection', 'synthetic-5', { closedAt: stamp })
-      fixture.patch('issueUserState', issueUserStateRowId(asUserId('sidebar-pool'), asIssueId('synthetic-5')), { tuckedAt: stamp })
+      fixture.patch(
+        'issueUserState',
+        issueUserStateRowId(asUserId('sidebar-pool'), asIssueId('synthetic-5')),
+        { tuckedAt: stamp },
+      )
     })
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     expect(screen.getByTestId('folded-work-row').textContent).toContain('2h ago')
