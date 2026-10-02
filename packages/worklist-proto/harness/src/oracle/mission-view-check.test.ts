@@ -93,7 +93,7 @@ describe('mission pane value differential', () => {
     const reader = missionView(handle.pool)
     const ids = roots(ctx.engine.getSnapshot()), selected = ids[0]!
     settle(handle.pool, [selected])
-    const row = vi.spyOn(handle.pool, 'row'), peek = vi.spyOn(handle.pool, 'peek')
+    const row = vi.spyOn(handle.pool, 'row')
     const legacyMission = missionIndexStats(), legacyOwnership = sessionOwnershipStats()
     const stop = autorun(() => readMissionView(reader, selected))
     try {
@@ -104,9 +104,9 @@ describe('mission pane value differential', () => {
       runInAction(() => handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: other, value: { ...raw, title: 'Unrelated title' } }] }))
       expect(reader.stats).toEqual(before)
       expect(row.mock.calls.filter(([kind, id]) => kind === 'session').length).toBeLessThan(ctx.engine.getSnapshot().sessions.length)
-      expect(peek).not.toHaveBeenCalled()
+      expect(row.mock.calls.some(([, , absent]) => absent === 'peek')).toBe(false)
       expect(missionIndexStats()).toEqual(legacyMission)
       expect(sessionOwnershipStats()).toEqual(legacyOwnership)
-    } finally { stop(); row.mockRestore(); peek.mockRestore(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
+    } finally { stop(); row.mockRestore(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 120_000)
 })

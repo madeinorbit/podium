@@ -8,6 +8,7 @@ import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { LOADING } from './worklist/rollup'
 
 const stamp = '2026-10-01T12:00:00Z', now = Date.parse(stamp)
+const coldRoot = () => issue('root', { stage: 'done', closedAt: '2026-09-20T12:00:00Z', updatedAt: '2026-09-20T12:00:00Z' })
 const pools: MobxPool[] = []
 afterEach(() => { for (const pool of pools.splice(0)) pool.dispose(); vi.restoreAllMocks() })
 const issue = (id: string, patch: Record<string, unknown> = {}) => ({ id, seq: 1, stage: 'in_progress', title: 'Mission', description: '',
@@ -27,12 +28,14 @@ function open(rows: IssueNavigationModel[], seats: SessionView[]) {
 }
 
 it('uses archived-inclusive relations, small scalar summaries and one batched load for cold display', () => {
-  const { pool, load, reader } = open([issue('root')], [session('old', 'root')])
+  const { pool, load, reader } = open([coldRoot()], [session('old', 'root')])
   expect(pool.tables.session.has('old')).toBe(false)
-  expect(tracked(() => pool.graph.many('issue', 'root', 'missionSessions'))).toEqual(['old'])
+  expect(tracked(() => [...pool.graph.many('issue', 'root', 'missionSessions')])).toEqual(['old'])
   const summary = tracked(() => pool.row('session', 'old', 'summary'))
   expect(summary).toMatchObject({ sessionId: 'old', issueId: 'root', archived: true })
   expect(summary).not.toHaveProperty('name'); expect(summary).not.toHaveProperty('title')
+  expect(tracked(() => reader.issue('root'))).toBe(LOADING)
+  expect(pool.hydrate()).toBe(1); load.mockClear()
   expect(tracked(() => readMissionView(reader, 'root'))).toBe(LOADING)
   expect(tracked(() => readMissionView(reader, 'root'))).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
@@ -45,7 +48,9 @@ it('uses archived-inclusive relations, small scalar summaries and one batched lo
 })
 
 it('a missing declared cold summary cannot invent an empty roster', () => {
-  const { pool, load, reader } = open([issue('root')], [session('old', 'root')])
+  const { pool, load, reader } = open([coldRoot()], [session('old', 'root')])
+  expect(tracked(() => reader.issue('root'))).toBe(LOADING)
+  expect(pool.hydrate()).toBe(1); load.mockClear()
   vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
   expect(tracked(() => readMissionView(reader, 'root'))).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
@@ -56,11 +61,11 @@ it('a missing declared cold summary cannot invent an empty roster', () => {
 it('reads only the selected mission attachment edges as unrelated sessions grow', () => {
   const { pool, reader } = open([issue('root'), issue('other')], [session('own', 'root', { archived: false, status: 'live' }),
     ...Array.from({ length: 1000 }, (_, index) => session(`other-${index}`, 'other', { archived: false, status: 'live' }))])
-  const read = vi.spyOn(pool, 'row'), peek = vi.spyOn(pool, 'peek')
+  const read = vi.spyOn(pool, 'row')
   const values = tracked(() => readMissionView(reader, 'root'))
   expect(values).not.toBe(LOADING)
   expect(read.mock.calls.filter(([entity]) => entity === 'session').every(([, id]) => id === 'own')).toBe(true)
-  expect(peek).not.toHaveBeenCalled()
+  expect(read.mock.calls.some(([, , absent]) => absent === 'peek')).toBe(false)
   runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'own', value: session('own', 'other', { archived: false, status: 'live' }) }] }))
   const moved = tracked(() => readMissionView(reader, 'root'))
   if (moved === LOADING) throw new Error('Unsettled fixture')

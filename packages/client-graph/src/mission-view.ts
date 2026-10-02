@@ -100,7 +100,7 @@ export class MissionViewReader {
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
     const members = attached.filter(session => session.agentKind !== 'shell')
-    const childIds = this.pool.graph.many('issue', id, 'treeChildren')
+    const childIds = [...this.pool.graph.many('issue', id, 'treeChildren')]
     let childDoneCount = 0, pending = false
     for (const childId of childIds) {
       const child = this.pool.row('issue', childId, 'summary') as Loaded<{ stage: string }>
@@ -118,8 +118,8 @@ export class MissionViewReader {
       unread ||= Date.parse(session.lastActiveAt) > Date.parse(row.readAt ?? '')
     }
     const dependents = [
-      ...this.pool.graph.many('issue', id, 'spinOffs').map(id => ({ id: asIssueId(id), type: 'discovered-from' })),
-      ...MISSION_VIEW_DEPS.flatMap(([type, , inverse]) => this.pool.graph.many('issue', id, inverse).map(id => ({ id: asIssueId(id), type }))),
+      ...[...this.pool.graph.many('issue', id, 'spinOffs')].map(id => ({ id: asIssueId(id), type: 'discovered-from' })),
+      ...MISSION_VIEW_DEPS.flatMap(([type, , inverse]) => [...this.pool.graph.many('issue', id, inverse)].map(id => ({ id: asIssueId(id), type }))),
     ].sort(rowOrder)
     const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
     const deferred = Number.isFinite(deferAt) && !this.pool.clock.reached(deferAt)
@@ -156,7 +156,7 @@ export class MissionViewReader {
     if (crew === LOADING) return LOADING
     return crew[0]?.name?.trim() || (crew[0] ? `New ${panelLabel(crew[0].agentKind)} session` : 'New agent')
   }
-  dispose() { this.nodes.clear() }
+  dispose = () => { this.nodes.clear() }
 }
 
 export function missionView(pool: MobxPool): MissionViewReader {
@@ -201,7 +201,7 @@ class MissionContext {
     const stack = [origin]
     while (stack.length) {
       const parentId = stack.pop()!
-      const children = this.view.pool.graph.many('issue', parentId, 'spinOffs').slice().sort()
+      const children = [...this.view.pool.graph.many('issue', parentId, 'spinOffs')].sort()
       for (const id of children) {
         if (seen.has(id)) continue
         seen.add(id)
@@ -325,7 +325,7 @@ function buildRows(ctx: MissionContext, root: IssueNavigationModel, members: Rea
     if (!facts || !visible(facts)) continue
     const issue = ctx.issue(id)
     if (!issue) continue
-    const kids = ctx.view.pool.graph.many('issue', id, 'children')
+    const kids = [...ctx.view.pool.graph.many('issue', id, 'children')]
     stack.push(...kids)
     const found = kids.flatMap(childId => {
       const childFacts = ctx.view.pool.row('issue', childId, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
@@ -421,7 +421,7 @@ function progressFor(ctx: MissionContext, root: IssueNavigationModel, members: R
   const scope = [...members].flatMap(id => { const issue = ctx.byId.get(id); return issue && visible(issue) ? [issue] : [] })
   const accepted = scope.filter(issue => formal.has(issue.id) && issue.stage !== 'proposed' && !issueAbandoned(issue))
   const units = (accepted.length ? accepted : [root]).filter(issue => !issueAbandoned(issue) &&
-    (ctx.live(issue.id) || (ctx.tips(issue.id, true).length === 0 && ctx.view.pool.graph.many('issue', issue.id, 'spinOffs').length === 0)))
+    (ctx.live(issue.id) || (ctx.tips(issue.id, true).length === 0 && ctx.view.pool.graph.size('issue', issue.id, 'spinOffs') === 0)))
   const staffed = new Set<string>()
   for (const issue of scope) {
     if (!ctx.live(issue.id)) continue
@@ -667,7 +667,7 @@ function poolHandoffNext(ctx: MissionContext, issues: readonly IssueNavigationMo
 }
 
 function poolOpenChildren(ctx: MissionContext, members: ReadonlySet<string>, parentId: string): IssueNavigationModel[] {
-  return ctx.view.pool.graph.many('issue', parentId, 'treeChildren').flatMap(id => {
+  return [...ctx.view.pool.graph.many('issue', parentId, 'treeChildren')].flatMap(id => {
     if (!members.has(id)) return []
     const issue = ctx.issue(id)
     return issue && issue.stage !== 'proposed' && visible(issue) && !issueClosed(issue) ? [issue] : []
@@ -698,12 +698,8 @@ export function readWorkspaceMission(view: MissionViewReader, selectedId: string
   if (focused === LOADING) return LOADING
   const missionOnScreen = view.selectedRoot(selectedId)
   if (missionOnScreen === LOADING) return LOADING
-  let hasAnyTask = Boolean(missionRoot)
-  if (!hasAnyTask) for (const id of knownIssueIds(view.pool)) {
-    const issue = view.pool.row('issue', id, 'summary')
-    if (issue === LOADING) return LOADING
-    if (issue && !issue.deletedAt) { hasAnyTask = true; break }
-  }
+  const hasAnyTask = view.pool.hasFirstTask
+  if (hasAnyTask === LOADING) return LOADING
   return { missionRoot, missionIds, missionIssues, issue: focused ?? missionRoot, missionOnScreen, hasAnyTask, loading: false as boolean }
 }
 
