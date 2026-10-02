@@ -2,8 +2,11 @@ import { machineViewsFromWire, reposToViews } from '@podium/client-core/viewmode
 import { shallowEqual } from '@podium/client-core/store'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
-import { missionView, readMissionHandoff, readMissionView, type MissionHandoffValues, type MissionViewValues } from '@podium/client-graph/mission-view'
-import { useCallback, useMemo, type JSX } from 'react'
+import { missionView, readMissionHandoff, readMissionView, readMissionActionInputs, type MissionHandoffValues, type MissionViewValues } from '@podium/client-graph/mission-view'
+import { useCallback, useMemo, type ComponentProps, type JSX } from 'react'
+import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
+import { SessionContextMenu } from '@/lib/SessionContextMenu'
+import { MissionSessionMenu } from './mission-session-menu'
 import { FlightDeckContent, SettlingDeck, type FlightDeckPreferences, type FlightDeckProps, type FlightDeckSource } from './FlightDeck'
 import { useStoreSelector } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
@@ -49,6 +52,7 @@ export default function PoolFlightDeck(props: FlightDeckProps & { preferences: F
     const reader = missionView(pool)
     return {
       kind: 'pool', mission: values.mission, handoff: values.handoff, agentHosts: values.hosts,
+      IssueMenu: PoolIssueContextMenu,
       issues: [...values.mission.byId.values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       sessions: [...values.mission.sessions], allWorktreePaths: [],
       issue: id => { const issue = reader.issue(id); return issue === LOADING ? undefined : issue },
@@ -57,5 +61,18 @@ export default function PoolFlightDeck(props: FlightDeckProps & { preferences: F
       attached: id => { const sessions = reader.attached(id); return sessions === LOADING ? [] : sessions },
     }
   }, [pool, values])
-  return source ? <FlightDeckContent {...props} source={source} /> : <SettlingDeck />
+  return source ? <MissionSessionMenu.Provider value={PoolSessionContextMenu}><FlightDeckContent {...props} source={source} /></MissionSessionMenu.Provider> : <SettlingDeck />
+}
+
+function PoolIssueContextMenu(props: ComponentProps<typeof IssueContextMenu>) {
+  const ids = props.issues.map(issue => issue.id).join('\n')
+  const read = useCallback((pool: MobxPool) => readMissionActionInputs(missionView(pool), ids.split('\n')), [ids])
+  const values = useWorklistPoolProjection(read, LOADING)
+  return values === LOADING ? null : <IssueContextMenu {...props} issues={values.issues} allIssues={values.allIssues} poolInputs={values} />
+}
+function PoolSessionContextMenu(props: ComponentProps<typeof SessionContextMenu>) {
+  const id = props.session.sessionId
+  const read = useCallback((pool: MobxPool) => readMissionActionInputs(missionView(pool), [], id), [id])
+  const values = useWorklistPoolProjection(read, LOADING)
+  return values === LOADING || !values.session ? null : <SessionContextMenu {...props} session={values.session} poolInputs={values} />
 }

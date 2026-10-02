@@ -7,13 +7,10 @@ import {
   allTabIds,
   emptyWorkspace,
   isCoordinatorSession,
-  missionIssueIds,
-  missionRootFor,
   orphanSessionFor,
   reposToViews,
   resizeSplit,
   type SplitAxis,
-  selectedMissionRoot,
 } from '@podium/client-core/viewmodels'
 import { asSessionId, type IssueId, type SessionId} from '@podium/model/browser'
 import {
@@ -70,7 +67,8 @@ import {
 } from './panel-deck'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
-import { type FileTab, useReplicaIssues, useStoreSelector } from './store'
+import { type FileTab, useStoreSelector } from './store'
+import { useWorkspaceMission } from './mission-pane-data'
 import { closeActiveWorkspaceTab } from './workspace-close'
 import type {
   PendingTabDragActivation,
@@ -280,7 +278,6 @@ export function Workspace({
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
   // Subscribe to the addressed raw value, not the ui-state collection object.
   // The runtime may replace that wrapper on unrelated publications; selecting
   // the string keeps this hot subtree asleep while still observing a launch
@@ -775,20 +772,8 @@ export function Workspace({
   // a worktree's. The mission scan survives only to answer "which issue is in
   // view" (the + menu's spawn target, the file-tab scope, the coordinator
   // badge) — it no longer decides tab MEMBERSHIP.
-  const missionIssue = selectedIssueId
-    ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
-    : undefined
-  const missionRoot = missionIssue ? missionRootFor(issues, missionIssue.id) : undefined
-  const missionIds = missionRoot
-    ? missionIssueIds(issues, missionRoot.id, sessions)
-    : new Set<string>()
-  const missionIssues = missionRoot
-    ? issues.filter((candidate) => missionIds.has(candidate.id))
-    : []
-  const issue =
-    (focusedIssueId && missionIds.has(focusedIssueId)
-      ? issues.find((candidate) => candidate.id === focusedIssueId)
-      : undefined) ?? missionRoot
+  const { missionRoot, missionIssues, issue, missionOnScreen, hasAnyTask, loading: missionLoading } =
+    useWorkspaceMission(selectedIssueId, focusedIssueId, sessions)
   const issueWorktree = issue?.worktreePath
     ? allWorktrees.find((w) => w.path === issue.worktreePath)
     : undefined
@@ -946,9 +931,8 @@ export function Workspace({
     )
   }
 
-  const missionOnScreen = selectedMissionRoot(issues, sessions, selectedIssueId)
+  if (missionLoading && deckTabs.length === 0) return <section className="native-agents-pane relative" aria-busy="true" />
   if (!missionOnScreen && deckTabs.length === 0) {
-    const hasAnyTask = issues.some((candidate) => !candidate.deletedAt)
     return (
       <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
         <div className="workspace-sheet relative flex min-h-0 flex-1">

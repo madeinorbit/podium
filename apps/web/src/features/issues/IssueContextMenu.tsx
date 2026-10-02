@@ -1,4 +1,5 @@
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { MissionActionInputs } from '@podium/client-graph/mission-view'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   discoveredPlacement,
@@ -101,6 +102,7 @@ export function IssueContextMenu({
   onRequestClose,
   surface = 'board',
   primaryStart = false,
+  poolInputs,
 }: {
   issues: IssueNavigationModel[]
   allIssues: IssueNavigationModel[]
@@ -121,6 +123,7 @@ export function IssueContextMenu({
   /** Flight Deck proposals use the sidebar's one-click start action instead of
    *  asking for an agent choice before the work has even been accepted. */
   primaryStart?: boolean
+  poolInputs?: MissionActionInputs
 }): JSX.Element | null {
   const {
     trpc,
@@ -134,9 +137,9 @@ export function IssueContextMenu({
     setIssueLabels,
     setIssuePlacement,
     restoreIssue,
-    sessions,
-    repos,
-    machines,
+    sessions: legacySessions,
+    repos: legacyRepos,
+    machines: legacyMachines,
   } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
@@ -150,12 +153,15 @@ export function IssueContextMenu({
       setIssueLabels: s.setIssueLabels,
       setIssuePlacement: s.setIssuePlacement,
       restoreIssue: s.restoreIssue,
-      sessions: s.sessions,
-      repos: s.repos,
-      machines: s.machines,
+      sessions: poolInputs ? undefined : s.sessions,
+      repos: poolInputs ? undefined : s.repos,
+      machines: poolInputs ? undefined : s.machines,
     }),
     shallowEqual,
   )
+  const sessions = poolInputs?.sessions ?? legacySessions ?? []
+  const repos = poolInputs?.repos ?? legacyRepos ?? []
+  const machines = poolInputs?.machines ?? legacyMachines ?? []
   const handoffEnabled = useFeature('session-handoff')
   // The app-wide dialog, replacing two raw `window.confirm` calls (POD-1077).
   // A native confirm cannot be styled, cannot be dismissed the way every other
@@ -167,7 +173,7 @@ export function IssueContextMenu({
   // its own. Non-null means the panel has handed over to the dialog.
   const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
-  const needsCloseGuard = useIssueCloseGuard()
+  const needsCloseGuard = useIssueCloseGuard(poolInputs?.sessions)
 
   // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two
   // other cursor-anchored panels (`use-cursor-menu.ts`). Dismissal is suspended
@@ -190,6 +196,7 @@ export function IssueContextMenu({
     return (
       <IssueCloseDialog
         issue={first}
+        sessions={poolInputs?.sessions}
         reason={pendingClose}
         busy={closing}
         onOpenChange={(open) => !open && dismiss()}

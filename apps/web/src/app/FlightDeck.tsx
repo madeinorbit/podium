@@ -2969,6 +2969,7 @@ export interface FlightDeckSource {
   rootFor: (id: string) => string | null
   attached: (id: string) => readonly SessionView[]
   legacyRead?: <T>(operation: string, read: () => T) => T
+  IssueMenu?: typeof IssueContextMenu
 }
 
 export function FlightDeck(props: FlightDeckProps): JSX.Element {
@@ -3014,10 +3015,11 @@ export function FlightDeckContent({
   const { issues, sessions, allWorktreePaths } = source
   const { view, mode, modes, setPreferredView } = preferences
   const poolValues = source.mission
+  const IssueMenu = source.IssueMenu ?? IssueContextMenu
   if (source.kind === 'pool' && !poolValues) throw new Error('Pool mission pane has no supplied values')
   const legacyRead = <T,>(operation: string, read: () => T): T => {
     if (source.kind === 'pool') throw new Error('Pool mission pane reached a legacy reader')
-    return source.legacyRead?.(operation, read) ?? read()
+    return source.legacyRead ? source.legacyRead(operation, read) : read()
   }
   const {
     selectedIssueId,
@@ -3129,7 +3131,7 @@ export function FlightDeckContent({
   // and its close guard once; a strip carries the id, and the REPLICA's model is
   // what the guard is handed — the mission tree's own row model is a navigation
   // shape, not the one `issueCloseConcerns` reads.
-  const rowStatus = useIssueStatusApply()
+  const rowStatus = useIssueStatusApply(poolValues?.sessions)
   const pickRowStatus = (id: string, value: string): void => {
     const issue = source.issue(id)
     if (issue) rowStatus.pick(issue, value)
@@ -3657,7 +3659,7 @@ export function FlightDeckContent({
    */
   const rootFinished = Boolean(root && (root.closedReason || root.stage === 'done'))
   const [signpostClosing, setSignpostClosing] = useState(false)
-  const needsCloseGuard = useIssueCloseGuard()
+  const needsCloseGuard = useIssueCloseGuard(poolValues?.sessions)
   const closeAndTuckRoot = (): void => {
     if (!root) return
     const id = root.id
@@ -4394,7 +4396,7 @@ export function FlightDeckContent({
         <EmptyDeck />
       )}
       {issueMenu && menuIssue && (
-        <IssueContextMenu
+        <IssueMenu
           issues={[menuIssue]}
           allIssues={issues}
           // `deck`, not `sidebar` (POD-1077). It was `sidebar` because that kept
@@ -4432,6 +4434,7 @@ export function FlightDeckContent({
       {rootIssue && (
         <IssueCloseDialog
           issue={rootIssue}
+          sessions={poolValues?.sessions}
           reason={signpostClosing ? 'done' : null}
           onOpenChange={(open) => setSignpostClosing(open)}
           onConfirm={closeAndTuckRoot}

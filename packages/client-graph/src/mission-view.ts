@@ -7,10 +7,12 @@ import {
   type PresenceNote, type HandoffNowEntry, type HandoffNextEntry,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE } from '@podium/model/browser'
+import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
 import { missions } from './mission'
 import { MISSION_VIEW_DEPS } from './mission-view-schema'
+import { knownIssueIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { overlayRow } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -673,6 +675,77 @@ export interface MissionHandoffValues {
   crew: readonly SessionView[]
   current: readonly HandoffNowEntry[]
   next: readonly HandoffNextEntry[]
+}
+
+export function readWorkspaceMission(view: MissionViewReader, selectedId: string | null, focusedId: string | null) {
+  const selected = selectedId ? view.issue(selectedId) : undefined
+  if (selected === LOADING) return LOADING
+  const rootId = selected && visible(selected) ? missions(view.pool).rootFor(selected.id) : undefined
+  if (rootId === LOADING) return LOADING
+  const missionRoot = rootId ? view.issue(rootId) : undefined
+  if (missionRoot === LOADING) return LOADING
+  const missionIds = missionRoot ? missions(view.pool).members(missionRoot.id) : new Set<string>()
+  if (missionIds === LOADING) return LOADING
+  const missionIssues: IssueNavigationModel[] = []
+  for (const id of [...missionIds].sort()) {
+    const issue = view.issue(id)
+    if (issue === LOADING) return LOADING
+    if (issue) missionIssues.push(issue)
+  }
+  const focused = focusedId && missionIds.has(focusedId) ? view.issue(focusedId) : undefined
+  if (focused === LOADING) return LOADING
+  const missionOnScreen = view.selectedRoot(selectedId)
+  if (missionOnScreen === LOADING) return LOADING
+  let hasAnyTask = Boolean(missionRoot)
+  if (!hasAnyTask) for (const id of knownIssueIds(view.pool)) {
+    const issue = view.pool.row('issue', id, 'summary')
+    if (issue === LOADING) return LOADING
+    if (issue && !issue.deletedAt) { hasAnyTask = true; break }
+  }
+  return { missionRoot, missionIds, missionIssues, issue: focused ?? missionRoot, missionOnScreen, hasAnyTask, loading: false as boolean }
+}
+
+export interface MissionActionInputs {
+  issues: IssueNavigationModel[]
+  allIssues: IssueNavigationModel[]
+  sessions: SessionView[]
+  repos: GitRepositoryWire[]
+  machines: MachineWire[]
+  session?: SessionView
+  issue?: IssueNavigationModel
+}
+/** The issue menu's label/duplicate catalogs are global UI values. Read them
+ * once when that menu is mounted, through the one row reader; never build a
+ * persistent catalog or a global session ownership index for mission rows. */
+export function readMissionActionInputs(view: MissionViewReader, issueIds: readonly string[], sessionId?: string): MissionActionInputs | typeof LOADING {
+  const selected: IssueNavigationModel[] = [], allIssues: IssueNavigationModel[] = []
+  const session = sessionId ? view.session(sessionId) : undefined
+  if (session === LOADING) return LOADING
+  const requested = sessionId ? (session?.issueId ? [session.issueId] : []) : issueIds
+  for (const id of requested) {
+    const issue = view.issue(id)
+    if (issue === LOADING) return LOADING
+    if (issue) selected.push(issue)
+  }
+  let pending = false
+  if (!sessionId) for (const id of knownIssueIds(view.pool).sort()) {
+    const issue = view.issue(id)
+    if (issue === LOADING) pending = true
+    else if (issue) allIssues.push(issue)
+  }
+  if (pending) return LOADING
+  const seats = new Map<string, SessionView>()
+  for (const issue of selected) {
+    const attached = view.attached(issue.id)
+    if (attached === LOADING) return LOADING
+    for (const seat of attached) seats.set(seat.sessionId, seat)
+  }
+  const repos = view.pool.headerViews.ids('repository').flatMap(id => {
+    const repo = view.pool.headerViews.row('repository', id)
+    return repo ? [repo] : []
+  })
+  return { issues: selected, allIssues, sessions: [...seats.values()].sort(sessionOrder), repos,
+    machines: view.pool.headerViews.machines(), session, issue: selected[0] }
 }
 export function readMissionHandoff(view: MissionViewReader, rootId: string): MissionHandoffValues | typeof LOADING {
   try {

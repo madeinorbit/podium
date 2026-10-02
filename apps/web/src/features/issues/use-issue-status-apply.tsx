@@ -1,4 +1,5 @@
 import { parseIssueStatusValue } from '@podium/model/browser'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -35,10 +36,10 @@ export interface IssueStatusApply {
   dialog: JSX.Element | null
 }
 
-export function useIssueStatusApply(): IssueStatusApply {
+export function useIssueStatusApply(suppliedSessions?: readonly SessionView[]): IssueStatusApply {
   const updateIssue = useStoreSelector((store) => store.updateIssue)
   const closeIssue = useStoreSelector((store) => store.closeIssue)
-  const needsCloseGuard = useIssueCloseGuard()
+  const needsCloseGuard = useIssueCloseGuard(suppliedSessions)
   // The ISSUE is held with the reason, not just its id: these lists repaint
   // under the open dialog, and the guard reads the row it was opened for.
   const [pending, setPending] = useState<{
@@ -68,6 +69,7 @@ export function useIssueStatusApply(): IssueStatusApply {
   const dialog = pending ? (
     <IssueCloseDialog
       issue={pending.issue}
+      sessions={suppliedSessions}
       reason={pending.reason}
       busy={closing}
       onOpenChange={(open) => {

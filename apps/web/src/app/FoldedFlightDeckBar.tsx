@@ -1,5 +1,7 @@
 import { measureLegacyHeader } from '@podium/client-core/perf'
 import { headerDataLayer } from '@/lib/header-data-layer'
+import { paneDataLayer } from '@/lib/pane-data-layer'
+import { usePoolMissionFolded } from './mission-pane-data'
 import { usePoolFolded } from './header-data'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -215,7 +217,7 @@ function FootStat({
 
 /** The Flight Deck's compact state keeps its operational payload visible. */
 export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX.Element {
-  const useRead = headerDataLayer() === 'pool' ? usePoolFolded : useLegacyFolded
+  const useRead = paneDataLayer() === 'pool' ? usePoolMissionFolded : headerDataLayer() === 'pool' ? usePoolFolded : useLegacyFolded
   const { root: sourceRoot, progress, live, working, needs } = useRead()
   const root = sourceRoot as ReturnType<typeof selectedMissionRoot>
   const crew = missionCrewLabel(live, working)

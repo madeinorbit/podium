@@ -1,4 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import type { MissionActionInputs } from '@podium/client-graph/mission-view'
+import { MissionSessionMenu } from '@/app/mission-session-menu'
 import { shallowEqual } from '@podium/client-core/store'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import {
@@ -22,7 +24,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react'
-import { type JSX, useState } from 'react'
+import { type JSX, type ComponentProps, useContext, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -65,17 +67,27 @@ import { sessionDisplayName } from './WorkerLabel'
  * outside-click / Escape / scroll.
  */
 export function SessionContextMenu({
+  ...props
+}: SessionContextMenuProps): JSX.Element {
+  const Override = useContext(MissionSessionMenu)
+  return Override && !props.poolInputs ? <Override {...props} /> : <SessionContextMenuContent {...props} />
+}
+
+interface SessionContextMenuProps {
+  session: SessionView
+  anchor: ContextMenuAnchor
+  onClose: () => void
+  onRename: () => void
+  poolInputs?: MissionActionInputs
+}
+function useSuppliedIssues(_poolInputs?: MissionActionInputs) { return [] }
+function SessionContextMenuContent({
   session,
   anchor,
   onClose,
   onRename,
-}: {
-  session: SessionView
-  anchor: ContextMenuAnchor
-  onClose: () => void
-  /** Enter inline rename mode in the host (sidebar row / tab). */
-  onRename: () => void
-}): JSX.Element {
+  poolInputs,
+}: SessionContextMenuProps): JSX.Element {
   const {
     setSnooze,
     clearSnooze,
@@ -85,8 +97,8 @@ export function SessionContextMenu({
     markSessionRead,
     markSessionUnread,
     trpc,
-    repos,
-    machines,
+    repos: legacyRepos,
+    machines: legacyMachines,
   } = useStoreSelector(
     (s) => ({
       setSnooze: s.setSnooze,
@@ -97,18 +109,21 @@ export function SessionContextMenu({
       markSessionRead: s.markSessionRead,
       markSessionUnread: s.markSessionUnread,
       trpc: s.trpc,
-      repos: s.repos,
-      machines: s.machines,
+      repos: poolInputs ? undefined : s.repos,
+      machines: poolInputs ? undefined : s.machines,
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
-  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard()
+  const useIssues = poolInputs ? useSuppliedIssues : useReplicaIssues
+  const issues = useIssues()
+  const repos = poolInputs?.repos ?? legacyRepos ?? []
+  const machines = poolInputs?.machines ?? legacyMachines ?? []
+  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined, poolInputs ? [session] : undefined)
   const handoffEnabled = useFeature('session-handoff')
   const now = useNow(60_000)
   // The attached issue is part of the handoff gate: a session whose cwd drifted
   // onto the main checkout is still eligible via the issue's worktree (SP-3f7a).
-  const issue = issues.find((i) => i.id === session.issueId)
+  const issue = poolInputs ? poolInputs.issue : issues.find((i) => i.id === session.issueId)
   const { blocker, candidates } = handoffAvailability(session, reposToViews(repos), machines, issue)
   // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two
   // other cursor-anchored panels (`use-cursor-menu.ts`).
