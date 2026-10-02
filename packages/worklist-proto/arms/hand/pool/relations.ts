@@ -880,6 +880,10 @@ export class PoolRelations implements RelationReader {
    * same action that moved the bucket (see `point`). Binary search by id
    * (default `.sort()` order) + splice at its position. Immutable: a new
    * array per change. Family-small: the copy + shift is trivial.
+   *
+   * Not counted in `indexUpdates` (the bucket move already counts its two
+   * elements there): the list follows the bucket, it is not a second index.
+   * The `Map.set` itself is one plain-structure op, like the bucket's own.
    */
   private addSeat(target: string, id: string): void {
     const held = this.seatSorted.get(target) ?? EMPTY_SEAT_LIST
@@ -887,7 +891,6 @@ export class PoolRelations implements RelationReader {
     if (at < held.length && held[at] === id) return
     const next = [...held.slice(0, at), id, ...held.slice(at)]
     this.seatSorted.set(target, Object.freeze(next) as readonly string[])
-    this.touched(1)
   }
 
   /** POD-4708 — drop one seat from its issue's maintained SORTED list (see `addSeat`). */
@@ -902,7 +905,6 @@ export class PoolRelations implements RelationReader {
       const next = [...held.slice(0, at), ...held.slice(at + 1)]
       this.seatSorted.set(target, Object.freeze(next) as readonly string[])
     }
-    this.touched(1)
   }
 
   /** Index `id` under every ancestor of its normalized source path (prefix links). */
