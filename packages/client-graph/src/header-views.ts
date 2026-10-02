@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { measureHeader } from '@podium/client-core/perf'
-import type { MachineId, SessionMeta } from '@podium/model/browser'
+import type { MachineId} from '@podium/model/browser'
 import { isMachineOfflineForLiveTerminal, normalizeOriginUrl } from '@podium/model/browser'
 import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
 import type { MobxPool } from './pool'
@@ -15,7 +16,7 @@ export const EMPTY_HOST_AGGREGATE = {
   phases: { working: 0, idle: 0, waiting: 0, other: 0 },
 }
 export type HeaderAggregate = typeof EMPTY_HOST_AGGREGATE
-const sessionPresentOnTask = (session: SessionMeta) => !session.archived && session.status !== 'exited'
+const sessionPresentOnTask = (session: SessionView) => !session.archived && session.status !== 'exited'
 const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
 const contains = (cwd: string, root: string) => cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
 
@@ -60,7 +61,7 @@ export function createHeaderViews(pool: MobxPool) {
     return memo('workingRoster', () => memo('sessionKeys', () => knownSessionIds(pool)).flatMap((id) => {
       const cold = pool.hidden('session', id)
       const member = cold ? (cold.status === 'live' && cold.archived !== true
-        ? memo(`coldWorking:${id}`, () => headerWorkingSession(pool.hidden('session', id) as unknown as SessionMeta, (at) => pool.clock.passed(at))) : null)
+        ? memo(`coldWorking:${id}`, () => headerWorkingSession(pool.hidden('session', id) as unknown as SessionView, (at) => pool.clock.passed(at))) : null)
         : pool.model('session', id)?.headerWorking
       return member ? [member] : []
     }))
@@ -74,7 +75,7 @@ export function createHeaderViews(pool: MobxPool) {
       // machine index over unloaded payloads.
       for (const id of coldSessionIds(pool)) {
         const summary = pool.hidden('session', id)
-        if (summary?.machineId === machineId) members.push(memo(`coldHost:${id}`, () => headerHostSession(pool.hidden('session', id) as unknown as SessionMeta)))
+        if (summary?.machineId === machineId) members.push(memo(`coldHost:${id}`, () => headerHostSession(pool.hidden('session', id) as unknown as SessionView)))
       }
       for (const member of members) {
         if (!member || member.archived) continue
@@ -99,7 +100,7 @@ export function createHeaderViews(pool: MobxPool) {
     }), ...coldSessionIds(pool).flatMap((id) => {
       const summary = pool.hidden('session', id)
       const member = summary && ['live', 'starting', 'reconnecting'].includes(summary.status as string)
-        ? memo(`coldHost:${id}`, () => headerHostSession(pool.hidden('session', id) as unknown as SessionMeta)) : null
+        ? memo(`coldHost:${id}`, () => headerHostSession(pool.hidden('session', id) as unknown as SessionView)) : null
       return member ? [member.cwd] : []
     })].sort().join('\n'))
   }
@@ -168,7 +169,7 @@ export function createHeaderViews(pool: MobxPool) {
           if (member === LOADING) { loading = true; continue }
           if (!member || member.archived || member.headless || member.agentKind === 'shell') continue
           sessions.set(sid, member)
-          staffed ||= sessionPresentOnTask(member as SessionMeta)
+          staffed ||= sessionPresentOnTask(member as SessionView)
           asking ||= member.agentState?.phase === 'needs_user' || member.agentState?.phase === 'errored' || !!member.offer
         }
         const vacated = !staffed && pool.graph.size('issue', id, 'spinOffs') > 0
@@ -177,7 +178,7 @@ export function createHeaderViews(pool: MobxPool) {
         for (const child of grafts.get(id) ?? []) collect(child)
       }
       collect(root.id)
-      const crew = [...sessions.values()].filter((member) => sessionPresentOnTask(member as SessionMeta))
+      const crew = [...sessions.values()].filter((member) => sessionPresentOnTask(member as SessionView))
       if (root.isDraftVessel && !root.worktreePath && ![...pool.graph.many('issue', root.id, 'sessions')].some((sid) => {
         const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
         return member && member !== LOADING && !member.archived
@@ -288,7 +289,7 @@ export function createHeaderViews(pool: MobxPool) {
     }),
     connection: () => row('connection', 'server'),
     working: workingRoster,
-    session: (id: string) => pool.row('session', id) as SessionMeta | typeof LOADING | undefined,
+    session: (id: string) => pool.row('session', id) as SessionView | typeof LOADING | undefined,
     clear: () => cache.clear(),
   }
 }

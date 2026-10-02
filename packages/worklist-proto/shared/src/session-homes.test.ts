@@ -52,9 +52,10 @@ function boot(mode: 'truth' | 'overlaid' = 'overlaid') {
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
   const pending = new Map()
+  const snapshot = { repos: [] }
   const runtime: RowSourceRuntime = {
     principal: { userId: 'b' },
-    getSnapshot: () => ({ repos: [] }),
+    getSnapshot: () => snapshot,
     subscribe: () => () => {},
     pendingOverlaysByRow: () => pending,
   }

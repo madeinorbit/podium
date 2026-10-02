@@ -25,4 +25,12 @@ describe('session reader lint boundary', () => {
     expect(legacySessionReads(source, 'packages/client-core/src/session-values.ts')).toEqual([])
     expect(legacySessionReads(source, 'packages/client-core/src/engine/overlay.ts')).not.toEqual([])
   })
+  it('guards inline imports and typed aliases outside the presentation layers', () => {
+    expect(legacySessionReads("function show(row: import('@podium/model').SessionMeta) { return row.displayRef }" )).not.toEqual([])
+    const prefix = "import type { SessionMeta as Raw } from '@podium/model'; "
+    for (const body of ["function show(row: Raw) { return row.unread }", "function show(row: Raw) { const { snoozedUntil } = row; return snoozedUntil }"]) {
+      expect(legacySessionReads(prefix + body, 'packages/client-core/src/engine/optimism.ts')).not.toEqual([])
+    }
+  })
+
 })

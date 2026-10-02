@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, isAgentComputing, } from '@podium/model/browser'
+import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, isAgentComputing } from '@podium/model/browser'
 import { measureHeader } from '@podium/client-core/perf'
 
 export type WorkingSession = Pick<SessionView, 'sessionId' | 'title' | 'name' | 'displayRef' | 'agentKind'>

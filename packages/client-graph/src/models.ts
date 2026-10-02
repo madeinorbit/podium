@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The pool's models: ONE object per row, one class per schema entity, built
  * by the pool the first time anything asks for it (Linear's "observable on
@@ -88,7 +89,7 @@ import {
   type RowViewField,
 } from './shared/row-view'
 import { headerWorkingSession, headerHostSession, headerDockSession } from './header-session'
-import type { SessionMeta } from '@podium/model/browser'
+
 import { type EntityName, SCHEMA } from './shared/schema'
 import type {
   SliceIssue,
@@ -960,13 +961,13 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel implements SessionVisibility {
   private static readonly headerWorking = cachedGroup('headerWorking', (session: SessionModel) =>
-    headerWorkingSession(session.row as SessionMeta | undefined, session.host.inputs.passed))
+    headerWorkingSession(session.row as SessionView | undefined, session.host.inputs.passed))
   private static readonly headerHost = cachedGroup('headerHost', (session: SessionModel) =>
-    headerHostSession(session.row as SessionMeta | undefined))
+    headerHostSession(session.row as SessionView | undefined))
   get headerWorking() { return SessionModel.headerWorking(this) }
   get headerHost() { return SessionModel.headerHost(this) }
   private static readonly headerDock = cachedGroup('headerDock', (session: SessionModel) =>
-    headerDockSession(session.row as SessionMeta | undefined))
+    headerDockSession(session.row as SessionView | undefined))
   get headerDock() { return SessionModel.headerDock(this) }
   private static readonly groups = {
     retention: cachedGroup('retention', (session: SessionModel) =>
