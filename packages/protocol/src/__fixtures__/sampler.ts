@@ -198,7 +198,9 @@ const sampleWalk = (schema: z.ZodTypeAny, opts: SampleOptions, path: string): un
       const element = def.type as z.ZodTypeAny
       const exact = (def.exactLength as { value: number } | null)?.value
       const min = (def.minLength as { value: number } | null)?.value ?? 0
-      const count = exact ?? Math.max(min, opts.mode === 'full' ? 1 : 0)
+      // A required compatibility field may admit only the empty array.
+      const emptyOnly = element._def.typeName === 'ZodNever'
+      const count = exact ?? Math.max(min, !emptyOnly && opts.mode === 'full' ? 1 : 0)
       return Array.from({ length: count }, (_unused, index) =>
         sampleNode(element, opts, `${path}[${index}]`),
       )
