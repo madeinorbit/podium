@@ -27,6 +27,27 @@ function legacyMap(issues: readonly IssueNavigationModel[]) {
   if (!map) { map = new Map(issues.map(issue => [issue.id, issue])); legacyMaps.set(issues, map) }
   return map
 }
+const deadlineExpectations = new WeakMap<readonly IssueNavigationModel[], { now: number; issues: readonly IssueNavigationModel[] }>()
+/** POD-4286's accepted exception: the new screen refreshes at the deadline.
+ * Legacy cached flags refresh only on a row change. Adjust those two flags,
+ * and the presentation derived from them, for finite deferral deadlines only. */
+function acceptedDeadlineIssues(issues: readonly IssueNavigationModel[], now: number): readonly IssueNavigationModel[] {
+  const cached = deadlineExpectations.get(issues)
+  if (cached?.now === now) return cached.issues
+  let changed = false
+  const expected = issues.map(issue => {
+    const deadline = issue.deferUntil ? Date.parse(issue.deferUntil) : NaN
+    if (!Number.isFinite(deadline)) return issue
+    const deferred = deadline > now
+    const ready = !issue.blocked && !deferred && issue.stage !== 'done'
+    if (issue.deferred === deferred && issue.ready === ready) return issue
+    changed = true
+    return { ...issue, deferred, ready }
+  })
+  const result = changed ? expected : issues
+  deadlineExpectations.set(issues, { now, issues: result })
+  return result
+}
 const noteFields = (note: ReturnType<typeof issueNote>) => note
 const continuationFields = (value: ReturnType<typeof issueContinuation>) => value ? { ...value, target: value.target?.id ?? null } : null
 const sessionFields = (session: SessionView) => ({ ...sessionComparable(session), model: session.model, effort: session.effort,
@@ -90,7 +111,8 @@ export function checkMissionView(pool: MobxPool, issues: readonly IssueNavigatio
   mode: FlightDeckMode = 'full', worktreePaths: string[] = [], onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
   const actual = poolMissionViewSnapshot(pool, selectedId, mode)
   if (actual === LOADING) return { differences: 0, first: null, pending: 1, sections: 0, rows: 0 }
-  return compareSidebarSnapshots(legacyMissionViewSnapshot(issues, sessions, selectedId, mode, worktreePaths), actual, onDifference)
+  const expectedIssues = acceptedDeadlineIssues(issues, pool.clock.current)
+  return compareSidebarSnapshots(legacyMissionViewSnapshot(expectedIssues, sessions, selectedId, mode, worktreePaths), actual, onDifference)
 }
 
 /** Store-facing entry matches POD-4954. Both sides share overlays and clock. */

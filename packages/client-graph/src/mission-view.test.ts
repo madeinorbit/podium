@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from './pool'
-import { missionView, readMissionView } from './mission-view'
+import { missionView, readMissionHandoff, readMissionView } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { LOADING } from './worklist/rollup'
 
@@ -126,4 +126,24 @@ it('keeps raw issue member IDs and the collapsed winner in its original roster p
   runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root',
     value: issue('root', { readAt: '2026-10-01T12:02:00Z' }) }] }))
   expect(tracked(() => reader.issue('root'))).toMatchObject({ readAt: '2026-10-01T12:02:00Z', unread: false })
+})
+
+it('updates ready and handoff at the deferral deadline without a row change', () => {
+  const deadline = now + 60_000
+  const { pool, reader } = open([issue('root', { stage: 'backlog', deferUntil: new Date(deadline).toISOString() })], [])
+  const seen: { deferred: boolean; ready: boolean; next: readonly string[] }[] = []
+  const stop = autorun(() => {
+    const values = readMissionView(reader, 'root'), handoff = readMissionHandoff(reader, 'root')
+    if (values === LOADING || handoff === LOADING || !values.root) throw new Error('Unsettled fixture')
+    seen.push({ deferred: values.root.deferred, ready: values.root.ready, next: handoff.next.map(entry => entry.issueId) })
+  })
+  try {
+    expect(seen).toEqual([{ deferred: true, ready: false, next: [] }])
+    pool.applyLocals({ selectedIssueId: null, coarseNow: deadline - 1 }, new Set(['coarseNow']))
+    expect(seen).toHaveLength(1)
+    pool.applyLocals({ selectedIssueId: null, coarseNow: deadline }, new Set(['coarseNow']))
+    expect(seen.at(-1)).toEqual({ deferred: false, ready: true, next: ['root'] })
+    pool.applyLocals({ selectedIssueId: null, coarseNow: deadline + 60_000 }, new Set(['coarseNow']))
+    expect(seen).toHaveLength(2)
+  } finally { stop() }
 })
