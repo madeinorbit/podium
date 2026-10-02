@@ -4581,6 +4581,10 @@ describe('pool shared runtime work', () => {
         spies.forEach(spy => { spy.mockClear() })
         seam.apply({ pendingSpawnIds: new Set(['pending']) })
         expect(spies[3]).toHaveBeenCalledTimes(1)
+        seam.apply({ issueProjections: [placeholderProjection(b11Issue())] })
+        spies.forEach(spy => { spy.mockClear() })
+        seam.apply({ sessions: [] }) // original pruning after a changed issue topology
+        expect(spies[3]).toHaveBeenCalledTimes(1)
         runs.push({ sessions: engine.getSnapshot().sessions, selected: engine.getSnapshot().selectedWorktree,
           workspaces: engine.getSnapshot().workspaces })
       } finally { spies.forEach(spy => { spy.mockRestore() }); engine.dispose() }

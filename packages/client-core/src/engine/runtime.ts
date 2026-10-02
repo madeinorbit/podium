@@ -386,6 +386,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private pendingReactions = new Set<keyof EngineState>()
   private poolRuntimeWork = false
   private sessionTopologyChanged = false
+  private workspaceMembershipDirty = false
   /** True when this runtime runs on the wire-v2 feed (POD-1223). */
   private readonly onFeed: boolean
   // ---- offline-first composer drafts (POD-2045) ----
@@ -1019,6 +1020,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       for (const k of Object.keys(patch) as Array<keyof EngineState>) {
         const next = patch[k]
         if (!Object.is(this.state[k], next)) {
+          if (this.poolRuntimeWork && (k === 'issueProjections' || k === 'issueDeps'))
+            this.workspaceMembershipDirty = true
           if (this.poolRuntimeWork && k === 'sessions' && !this.sessionTopologyChanged) {
             const sessions = next as EngineState['sessions']
             const previous = this.state.sessions
@@ -1107,8 +1110,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // A tab whose session or file is GONE (POD-710). Nothing else can remove it
     // — it renders nothing, so there is no ✕ to click — and it is persisted, so
     // it comes back on every reload until this drops it.
-    if (sessionTopology || any('fileTabs', 'workspaces', 'pendingSpawnIds'))
+    if (sessionTopology || (changed.has('sessions') && this.workspaceMembershipDirty) || any('fileTabs', 'workspaces', 'pendingSpawnIds')) {
+      // Issue topology can change membership between two session frames. The
+      // next frame must still perform the original pruning, even if only its
+      // activity moved. A title-only frame may conservatively dirty this bit.
+      this.workspaceMembershipDirty = false
       this.reactions.pruneWorkspaces()
+    }
     // State→URL mirror — the single URL writer.
     if (any('selectedWorktree', 'paneA'))
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
