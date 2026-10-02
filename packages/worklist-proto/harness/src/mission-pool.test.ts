@@ -66,7 +66,10 @@ describe('declared pool mission', () => {
       issue('formal-departed', { parentId: 'root', stage: 'planning', deps: [{ id: 'absent', type: 'discovered-from' }] }),
       issue('orphan-start', { startedBySession: 'missing-sender' })]
     const ctx = open(rows, [session('headless', 'child', { headless: true }),
-      session('archived-sender', 'spin', { archived: true }), session('cold-sender', 'cold-spin', { archived: true })])
+      session('archived-sender', 'spin', { archived: true }), session('cold-sender', 'cold-spin', { archived: true }),
+      // Occupied cycle: sessionless sidebar rescue has a separate recursion bug
+      // (POD-5262), outside mission root/member traversal.
+      session('cycle-a-seat', 'cycle-a'), session('cycle-b-seat', 'cycle-b')])
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
     expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root', 'child', 'formal-departed', 'spin', 'cold-spin', 'next-spin']))
     expect(tracked(() => ctx.view.rootFor('below-archived'))).toBe('below-archived')
