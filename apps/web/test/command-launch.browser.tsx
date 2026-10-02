@@ -10,6 +10,7 @@ import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { NewPanelMenu } from '../src/app/NewPanelMenu'
 import { NewIssueDialog } from '../src/features/issues/NewIssueDialog'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
+import { initializePoolScreens } from '../src/app/pool-screens'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { commandLaunchDataLayer, commandLaunchReadStats } from '../src/lib/command-launch-data-layer'
 import { createHeaderFixture } from './header-fixture'
@@ -32,6 +33,7 @@ storeStats.enable(); commandLaunchReadStats.enable()
 document.documentElement.classList.add('dark'); document.documentElement.dataset.theme = 'podium'
 function Surface() {
   owner = useStoreHandle() as ClientRuntime
+  initializePoolScreens(owner.getSnapshot().uiState)
   pool = useWorklistPool()
   const [newIssue, setNewIssue] = useState(false), [opened, setOpened] = useState('')
   useEffect(() => {
