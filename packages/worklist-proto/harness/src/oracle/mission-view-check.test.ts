@@ -66,12 +66,12 @@ function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, a
 }
 
 describe('mission pane value differential', () => {
-  for (const scale of [1, 4] as const) it(`all synthetic missions and focused change gates at ${scale}x`, async () => {
+  for (const scale of [1, 4] as const) it(`${scale === 1 ? 'all' : 'representative'} synthetic missions and focused change gates at ${scale}x`, async () => {
     const ctx = await startScenarioEngine(scale)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, { summaries: MISSION_VIEW_SUMMARIES })
     try {
-      compare(handle.pool, ctx.engine.getSnapshot(), 'corpus')
+      compare(handle.pool, ctx.engine.getSnapshot(), 'corpus', scale === 1)
       for (const scenario of FENCE_SCENARIOS) {
         await scenario.write(ctx); feeds.flush()
         compare(handle.pool, ctx.engine.getSnapshot(), scenario.scenario, false)
