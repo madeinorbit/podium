@@ -13,18 +13,32 @@ vi.mock('expo-haptics', () => ({
 
 const { DiffLine, GitReviewSection } = await import('./GitReviewSection')
 
-afterEach(() => { cleanup(); storeStats.enable(false) })
+afterEach(() => {
+  cleanup()
+  storeStats.enable(false)
+})
 
 describe('GitReviewSection accessibility', () => {
   it('uses the existing mobile owner with zero legacy derivations for status and diff reads', async () => {
     const status = vi.fn(async () => ({ ok: true, output: '## main\n M remote.ts' }))
     const diffFile = vi.fn(async () => ({ ok: true, output: '@@ -1 +1 @@\n-old\n+current' }))
-    const owners = new Set<ClientRuntime>(), machineId = asMachineId('remote-host')
-    function CaptureOwner() { owners.add(useStoreHandle() as ClientRuntime); return null }
-    storeStats.enable(); storeStats.reset()
-    const view = await renderWithMobileStore(<><CaptureOwner /><GitReviewSection root="/remote/repo" machineId={machineId} /></>, {
-      api: { git: { status: { query: status }, diffFile: { query: diffFile } } },
-    })
+    const owners = new Set<ClientRuntime>(),
+      machineId = asMachineId('remote-host')
+    function CaptureOwner() {
+      owners.add(useStoreHandle() as ClientRuntime)
+      return null
+    }
+    storeStats.enable()
+    storeStats.reset()
+    const view = await renderWithMobileStore(
+      <>
+        <CaptureOwner />
+        <GitReviewSection root="/remote/repo" machineId={machineId} />
+      </>,
+      {
+        api: { git: { status: { query: status }, diffFile: { query: diffFile } } },
+      },
+    )
     fireEvent.click(await screen.findByLabelText('remote.ts, modified'))
     expect(await screen.findByLabelText('Added line: current')).toBeTruthy()
     await act(async () => view.emit('machines', []))
@@ -33,7 +47,15 @@ describe('GitReviewSection accessibility', () => {
     expect(owners.size).toBe(1)
     expect(status).toHaveBeenCalledWith({ root: '/remote/repo', machineId })
     expect(diffFile).toHaveBeenCalledWith({ root: '/remote/repo', path: 'remote.ts', machineId })
-    expect(storeStats.snapshot().runtimes.reduce((sum, row) => sum + row.selectorRuns + Object.values(row.slices).reduce((n, count) => n + count, 0), 0)).toBe(0)
+    expect(
+      storeStats
+        .snapshot()
+        .runtimes.reduce(
+          (sum, row) =>
+            sum + row.selectorRuns + Object.values(row.slices).reduce((n, count) => n + count, 0),
+          0,
+        ),
+    ).toBe(0)
   })
   it('renders added and deleted rows with explicit screen-reader semantics', () => {
     render(
@@ -100,9 +122,7 @@ describe('GitReviewSection accessibility', () => {
 
     fireEvent.click(await screen.findByLabelText('new.ts, renamed'))
     await waitFor(() => expect(diffFile).toHaveBeenCalledWith({ root: '/repo', path: 'old.ts' }))
-    await waitFor(() =>
-      expect(readFile).toHaveBeenCalledWith({ root: '/repo', path: 'new.ts' }),
-    )
+    await waitFor(() => expect(readFile).toHaveBeenCalledWith({ root: '/repo', path: 'new.ts' }))
     expect(await screen.findByLabelText('Deleted line: old contents')).toBeTruthy()
     expect(await screen.findByLabelText('Added line: new contents')).toBeTruthy()
   })
