@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { Store } from '@podium/client-core/engine'
+import { dedupeSessions, type Store } from '@podium/client-core/engine'
+import { sessionViews } from '@podium/client-core/session-values'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { NdjsonLineReader, readSyncStream, SyncStreamFailed } from '@podium/client-core/sync-stream'
 import { asIssueId } from '@podium/model/browser'
@@ -73,7 +74,16 @@ async function main() {
   phase = 4
   const corpus = corpusFromLive(raw, Date.now())
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-  let store = { ...sidebarReplayStore(corpus, replica), paletteOpen: true, openIssueId: null, selectedIssueId: null,
+  const userStates = replica.rows('sessionUserStates')
+  const users = new Set(userStates.map(row => row.userId))
+  if (users.size > 1) throw new Error('Ambiguous replay principal')
+  // Match ClientRuntime's current normalized read view. Retired display cells
+  // from an older wire snapshot remain inert, including on the legacy side.
+  const sessions = dedupeSessions(sessionViews(replica.rows('sessions'), {
+    userId: userStates[0]?.userId ?? '', userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true,
+    userStates, repos: replica.rows('repos'), machines: replica.rows('machines'),
+  }))
+  let store = { ...sidebarReplayStore(corpus, replica), sessions, paletteOpen: true, openIssueId: null, selectedIssueId: null,
     selectedWorktree: null, paneA: null, recentFiles: [], sidebarSettings: {} } as unknown as Store<PodiumClientApi>
   const listeners = new Set<() => void>()
   const runtime = { replica, getSnapshot: () => store, pendingOverlaysByRow: () => new Map(),
