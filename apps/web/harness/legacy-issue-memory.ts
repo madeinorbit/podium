@@ -98,7 +98,7 @@ type MemorySample = {
   sha: string
 }
 const records: MemorySample[] = []
-const parity = new Map<string, string>()
+const parity = new Map<string, Awaited<ReturnType<Window['__memory']['fingerprint']>>>()
 let comparisons = 0
 try {
   for (const cell of cells)
@@ -138,7 +138,14 @@ try {
             const fingerprint = await page.evaluate(() => window.__memory.fingerprint())
             const key = `${cell}:${mode}:${sample}`
             if (parity.has(key)) {
-              if (parity.get(key) !== fingerprint) throw new Error('Screen/model parity RED')
+              const previous = parity.get(key)!
+              const differing = Object.keys(fingerprint).filter(
+                (key) =>
+                  previous[key as keyof typeof previous] !==
+                  fingerprint[key as keyof typeof fingerprint],
+              )
+              if (differing.length > 0)
+                throw new Error(`Screen/model parity RED (${differing.join(', ')})`)
               comparisons++
               parity.delete(key)
             } else parity.set(key, fingerprint)

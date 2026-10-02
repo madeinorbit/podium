@@ -223,18 +223,21 @@ const memory = {
   }),
   /** Only hashes leave the page; operator payloads stay on ludovico. */
   async fingerprint() {
-    const bytes = new TextEncoder().encode(
-      JSON.stringify({
-        models: allIssueViewModels(assembly.replica),
-        sidebar: document.querySelector('[data-sidebar-shell]')?.textContent,
-        visible: [...document.querySelectorAll('[data-issue-row]')].map((row) =>
+    const hash = async (value: unknown) => {
+      const bytes = new TextEncoder().encode(JSON.stringify(value))
+      return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('')
+    }
+    return {
+      models: await hash(allIssueViewModels(assembly.replica)),
+      sidebar: await hash(document.querySelector('[data-sidebar-shell]')?.textContent),
+      visible: await hash(
+        [...document.querySelectorAll('[data-issue-row]')].map((row) =>
           row.getAttribute('data-issue-row'),
         ),
-      }),
-    )
-    return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('')
+      ),
+    }
   },
   /** Ids of the synthetic issue and session rows, read once before capture. */
   ids: () => ({
