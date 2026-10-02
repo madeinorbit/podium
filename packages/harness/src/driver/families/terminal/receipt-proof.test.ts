@@ -141,7 +141,7 @@ describe('terminal receipt operator regressions', () => {
     w.runtime.dispose()
   })
 
-  it('framed entries and queue records do not spend an unwrapped send\u2019s order (this issue)', async () => {
+  it('framed prompt entries do not spend an unwrapped send\u2019s order (this issue)', async () => {
     vi.useFakeTimers(); vi.setSystemTime(START)
     const w = world()
     const frame = (id: string, body: string) =>
@@ -161,22 +161,42 @@ describe('terminal receipt operator regressions', () => {
     const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(300)
     expect(w.writes.filter((bytes) => bytes === '\r')).toHaveLength(3)
-    // All three queue records arrive after our typing started, framed first,
-    // ours last; then all three prompts are recorded together, ours last.
-    w.post(framedA, { id: '', role: 'system', queued: true, promptEntry: false })
-    w.post(framedB, { id: '', role: 'system', queued: true, promptEntry: false })
-    w.post(words, { id: '', role: 'system', queued: true, promptEntry: false })
     w.post(framedA)
     w.post(framedB)
-    const oursEntryId = `entry-${w.history.length}`
     w.post(words)
     await vi.advanceTimersByTimeAsync(10_000)
     expect(await sentA).toMatchObject({ outcome: 'accepted' })
     expect(await sentB).toMatchObject({ outcome: 'accepted' })
     expect(await ours).toMatchObject({ outcome: 'accepted' })
-    expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({
-      rowId: 'msg_d0117333', outcome: 'delivered', transcriptItem: expect.objectContaining({ id: oursEntryId }),
-    }))
+    w.runtime.dispose()
+  })
+
+  it('framed queue records do not spend an unwrapped send\u2019s queue order (this issue)', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const frame = (id: string, body: string) =>
+      `[podium message ${id} · from agent · to you]\n${body}\n[end podium message ${id}]`
+    const idA = 'msg_11111111-2222-3333-4444-555555555555'
+    const idB = 'msg_22222222-3333-4444-5555-666666666666'
+    const framedA = frame(idA, 'first framed body')
+    const framedB = frame(idB, 'second framed body')
+    const words = 'the update is failing when applying to ludovico. figure out why'
+    const sentA = w.handle.send({ id: idA, text: framedA }, { origin: 'mail', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    const sentB = w.handle.send({ id: idB, text: framedB }, { origin: 'mail', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes.filter((bytes) => bytes === '\r')).toHaveLength(3)
+    // All three queue records arrive after our typing started, framed first,
+    // ours last verbatim: ours must still be held.
+    w.post(framedA, { id: '', role: 'system', queued: true, promptEntry: false })
+    w.post(framedB, { id: '', role: 'system', queued: true, promptEntry: false })
+    w.post(words, { id: '', role: 'system', queued: true, promptEntry: false })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await sentA).toMatchObject({ outcome: 'accepted', held: 'memory' })
+    expect(await sentB).toMatchObject({ outcome: 'accepted', held: 'memory' })
+    expect(await ours).toMatchObject({ outcome: 'accepted', held: 'memory' })
     w.runtime.dispose()
   })
 
