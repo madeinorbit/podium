@@ -50,13 +50,13 @@ async function main() {
     db.exec('ROLLBACK')
   } finally { db.close() }
   step = 'pool'
-  const sessions = dedupeSessions(rawSessions), views = deriveIssueViews(issues, sessions)
-  const sessionById = new Map(sessions.map(session => [session.sessionId, session]))
+  const sessions = dedupeSessions(rawSessions), views = deriveIssueViews(issues, rawSessions)
+  const sessionById = new Map(rawSessions.map(session => [session.sessionId, session]))
   issues = issues.map(issue => { const view = views.get(issue.id)!; return { ...issue, ...view,
     ...deriveIssueRollups(issue, view.memberSessionIds, id => sessionById.get(id)),
   } })
   const rows = [...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
-    ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))]
+    ...rawSessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))]
   const source = new Map(rows.map(row => [`${row.kind}:${row.id}`, row.value]))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
     load: (kind, id) => source.get(`${kind}:${id}`), summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {},
