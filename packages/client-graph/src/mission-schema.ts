@@ -4,7 +4,7 @@
 export const MISSION_SCHEMA = {
   root: {
     parent: 'treeParent',
-    summary: ['parentId', 'archived', 'deletedAt'],
+    summary: ['parentId', 'archived', 'deletedAt', 'stage'],
     source: 'missionRootFor: stop before an archived, deleted or absent ancestor',
   },
   members: {

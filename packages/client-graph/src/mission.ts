@@ -49,7 +49,10 @@ export function createMissionViews(pool: MobxPool): MissionViews {
   function rootFacts(id: string): Loaded<RootFacts> {
     return memo(facts, id, 'topology', () => {
       // The one reader overlays pending values on both rows and summaries.
-      const row = pool.row('issue', id, 'summary')
+      let row = pool.row('issue', id, 'summary')
+      // stage is required on every full issue and on our declared summary.
+      // Without it an empty/partial summary cannot answer optional parents.
+      if (row && row !== LOADING && !Object.hasOwn(row, 'stage')) row = pool.row('issue', id)
       if (row === undefined || row === LOADING) return row
       const value = row as { parentId?: string | null; archived?: boolean; deletedAt?: string | null }
       return { parentId: value.parentId || null, hidden: Boolean(value.archived || value.deletedAt) }
