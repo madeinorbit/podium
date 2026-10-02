@@ -59,6 +59,49 @@ export interface IssueWireBatch {
   prefixesByRepoPath: Map<string, string | null>
 }
 
+/** Row identities only. Prefixes stay in the repo registry, so renaming one
+ * changes lookup immediately without rewriting any issue's index entry. */
+class IssueReferenceIndex {
+  private readonly bySeq = new Map<number, Set<string>>()
+  private readonly byRepo = new Map<string | null, Map<number, Set<string>>>()
+  private readonly order = new Map<string, number>()
+  nextOrder = 0
+
+  add(row: IssueRow): void {
+    if (!this.order.has(row.id)) this.order.set(row.id, this.nextOrder++)
+    const seq = this.bySeq.get(row.seq) ?? new Set<string>()
+    seq.add(row.id)
+    this.bySeq.set(row.seq, seq)
+    const repoId = row.repoId ?? null
+    const repo = this.byRepo.get(repoId) ?? new Map<number, Set<string>>()
+    const ids = repo.get(row.seq) ?? new Set<string>()
+    ids.add(row.id)
+    repo.set(row.seq, ids)
+    this.byRepo.set(repoId, repo)
+  }
+
+  remove(row: IssueRow, forgetOrder: boolean): void {
+    const seq = this.bySeq.get(row.seq)
+    seq?.delete(row.id)
+    if (seq?.size === 0) this.bySeq.delete(row.seq)
+    const repoId = row.repoId ?? null
+    const repo = this.byRepo.get(repoId)
+    const ids = repo?.get(row.seq)
+    ids?.delete(row.id)
+    if (ids?.size === 0) repo?.delete(row.seq)
+    if (repo?.size === 0) this.byRepo.delete(repoId)
+    if (forgetOrder) this.order.delete(row.id)
+  }
+
+  ids(seq: number, repoId?: string | null): Iterable<string> {
+    return (repoId === undefined ? this.bySeq.get(seq) : this.byRepo.get(repoId)?.get(seq)) ?? []
+  }
+
+  orderOf(id: string): number | undefined {
+    return this.order.get(id)
+  }
+}
+
 /**
  * The one mutable issue store shared by every tracker capability.
  *
@@ -115,6 +158,8 @@ export class IssueStore {
    * been staged, promoted or dropped since you last looked".
    */
   private composedRows: { version: number; rows: Map<string, IssueRow> } | undefined
+  private references = new IssueReferenceIndex()
+  private stagedReferences: { version: number; index: IssueReferenceIndex } | undefined
   constructor(readonly deps: IssueDeps) {
     this.stagedViewerState = new StagedOverlay(
       deps.applyCommit,
@@ -315,6 +360,10 @@ export class IssueStore {
   /** Write straight through to the committed map. */
   private applyRow(id: string, row: IssueRow | null): void {
     const committed = this.requireHydrated().rows
+    const previous = committed.get(id)
+    const identityChanged = !previous || !row || previous.seq !== row.seq || previous.repoId !== row.repoId
+    if (previous && identityChanged) this.references.remove(previous, row === null)
+    if (row && identityChanged) this.references.add(row)
     if (row === null) {
       committed.delete(id)
       // A purged issue's memo would otherwise outlive its row. `hydrate` used to
@@ -499,11 +548,17 @@ export class IssueStore {
     // (shipping CAS, renumber, reassignment and machine backfill).
     await this.deps.store.transact(async () => {
       const map = new Map<string, IssueRow>()
-      for (const r of await this.deps.store.issues.listIssueRows()) map.set(r.id, r)
+      const references = new IssueReferenceIndex()
+      for (const r of await this.deps.store.issues.listIssueRows()) {
+        map.set(r.id, r)
+        references.add(r)
+      }
       const viewerState = await this.deps.store.issues.listIssueUserState(await this.broadcastViewer())
       applyAfterCommit(() => {
         this.composedRows = undefined
         this.hydrated = map
+        this.references = references
+        this.stagedReferences = undefined
         this.viewerState = viewerState
         this.unsubscribeRows?.()
         this.unsubscribeRows = this.deps.store.issues.committed.subscribe(change => {
@@ -941,6 +996,76 @@ export class IssueStore {
     return (row: IssueRow) => scope !== null && (row.repoId ?? resolve(row.repoPath, row.machineId)) === scope
   }
 
+  /** Index only staged writes, once per overlay version. Copying the composed
+   * row map here would make an in-span point lookup scan every committed issue. */
+  private pendingReferences(): IssueReferenceIndex | undefined {
+    if (this.stagedRows.empty) return undefined
+    const version = this.stagedRows.version
+    if (this.stagedReferences?.version !== version) {
+      const index = new IssueReferenceIndex()
+      for (const [, row] of this.stagedRows.entries()) if (row) index.add(row)
+      this.stagedReferences = { version, index }
+    }
+    return this.stagedReferences.index
+  }
+
+  /** Read the matching bucket and overlay only. A staged rekey or removal must
+   * hide its committed entry, and a rollback drops it through StagedOverlay. */
+  private referenceRows(seq: number, repoId?: string | null): IssueRow[] {
+    const pending = this.pendingReferences()
+    const ids = new Set(this.references.ids(seq, repoId))
+    for (const id of pending?.ids(seq, repoId) ?? []) ids.add(id)
+    const committed = this.requireHydrated().rows
+    const matches: IssueRow[] = []
+    for (const id of ids) {
+      const staged = this.stagedRows.peek(id)
+      const row = staged ? staged.value : committed.get(id)
+      if (row && row.seq === seq && (repoId === undefined || (row.repoId ?? null) === repoId)) matches.push(row)
+    }
+    // Keep the row map's insertion order, including after a seq/repo rekey.
+    return this.sortReferenceRows(matches, pending)
+  }
+
+  private sortReferenceRows(matches: IssueRow[], pending = this.pendingReferences()): IssueRow[] {
+    const order = (id: string) => this.references.orderOf(id) ?? (this.references.nextOrder + (pending?.orderOf(id) ?? 0))
+    return matches.sort((a, b) => order(a.id) - order(b.id))
+  }
+
+  private async referenceInRepo(seq: number, repoId: string): Promise<IssueId | null> {
+    const matches = this.referenceRows(seq, repoId)
+    // Legacy rows without repo_id still use the live, machine-aware resolver.
+    // Its snapshot must not be held across repo-registry writes.
+    const legacy = this.referenceRows(seq, null)
+    if (legacy.length > 0) {
+      const resolve = await this.deps.store.repos.issueRepoIdResolver()
+      matches.push(...legacy.filter(row => resolve(row.repoPath, row.machineId) === repoId))
+      this.sortReferenceRows(matches)
+    }
+    return matches[0]?.id ?? null
+  }
+
+  /** The chip batch accepts display refs and unambiguous #N, as before.
+   * Prefix queries are indexed in storage and shared within the batch; issue
+   * lookups use the maintained repo/seq index rather than an issue-row pass. */
+  async resolveRefs(refs: readonly string[]): Promise<Array<{ ref: string; id: IssueId | null }>> {
+    const prefixes = new Map<string, ReturnType<IssueDeps['store']['repos']['repoForPrefix']>>()
+    return await Promise.all([...new Set(refs)].map(async ref => {
+      const nice = parseIssueRef(ref.trim().toUpperCase())
+      if (nice) {
+        let lookup = prefixes.get(nice.prefix)
+        if (!lookup) {
+          lookup = this.deps.store.repos.repoForPrefix(nice.prefix)
+          prefixes.set(nice.prefix, lookup)
+        }
+        const repo = await lookup
+        return { ref, id: repo ? await this.referenceInRepo(nice.seq, repo.repoId) : null }
+      }
+      const numeric = /^#(\d+)$/.exec(ref.trim())
+      const matches = numeric ? this.referenceRows(Number(numeric[1])) : []
+      return { ref, id: matches.length === 1 ? matches[0]!.id : null }
+    }))
+  }
+
   /** Resolve an issue reference to the internal id. Accepts the internal `iss_…` id
    *  (passthrough), a display seq (`10` / `#10` — what list/prime/search print), or a
    *  repo-qualified ref (`<repoPath>#10`, the form the ambiguity error prints; a
@@ -961,7 +1086,8 @@ export class IssueStore {
    *  which id SPACE a value belongs to, never that the row exists — existence is
    *  the throw's job, not the type's. */
   async resolveRef(ref: string, scopeRepoPath?: string): Promise<IssueId> {
-    if (ref.startsWith('iss_') || this.rows.has(ref)) return asIssueId(ref)
+    const staged = this.stagedRows.peek(ref)
+    if (ref.startsWith('iss_') || (staged ? staged.value !== undefined : this.requireHydrated().rows.has(ref))) return asIssueId(ref)
     // Human-facing nice id `PREFIX-seq` (#474). The prefix identifies the repo
     // server-wide, so this resolves without a path qualifier. A prefix that no
     // repo owns falls through to the other branches (and ultimately returns the
@@ -971,15 +1097,8 @@ export class IssueStore {
     if (nice) {
       const repo = await this.deps.store.repos.repoForPrefix(nice.prefix)
       if (repo) {
-        // One registry read for the scan, not one per row (POD-3257): every row
-        // without a stored repo_id used to re-resolve its path through the store
-        // from inside the filter.
-        const resolve = await this.deps.store.repos.issueRepoIdResolver()
-        const repoId = repo.repoId ?? resolve(repo.path)
-        const matches = [...this.rows.values()].filter(
-          (r) => r.seq === nice.seq && (r.repoId ?? resolve(r.repoPath, r.machineId)) === repoId,
-        )
-        if (matches.length >= 1) return matches[0]!.id
+        const id = await this.referenceInRepo(nice.seq, repo.repoId)
+        if (id) return id
       }
     }
     const qualified = /^(.+)#(\d+)$/.exec(ref.trim())
@@ -988,7 +1107,7 @@ export class IssueStore {
       const seq = Number(seqStr)
       // Repo qualifier matches the display path (exact or trailing suffix like
       // `podium#10`) OR the stable repo_id (#164) — path stays a lookup attribute.
-      const matches = [...this.rows.values()].filter(
+      const matches = this.referenceRows(seq).filter(
         (r) =>
           r.seq === seq &&
           (r.repoPath === repo || r.repoPath.endsWith(`/${repo}`) || r.repoId === repo),
@@ -1003,7 +1122,7 @@ export class IssueStore {
     const m = /^#?(\d+)$/.exec(ref.trim())
     if (!m) return asIssueId(ref)
     const seq = Number(m[1])
-    let matches = [...this.rows.values()].filter((r) => r.seq === seq)
+    let matches = this.referenceRows(seq)
     if (matches.length > 1 && scopeRepoPath) {
       const inScope = await this.repoScopeFilter(scopeRepoPath)
       const scoped = matches.filter((r) => inScope(r))
