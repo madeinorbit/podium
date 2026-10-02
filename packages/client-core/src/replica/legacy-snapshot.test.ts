@@ -4,10 +4,9 @@
  * `packages/sync/src/adapters/legacy-replica/migrate.test.ts` tests the migration
  * against a fixture produced by the REAL writer, which is the whole point of
  * capturing it. But a captured fixture has a failure mode a synthetic one does not:
- * it silently becomes HISTORICAL FICTION. Rename a collection key, change how the
+ * it silently stops covering the current writer. Rename a collection key, change how the
  * outbox is persisted, alter the awaiting-truth marker, and the fixture keeps
- * passing — it just stops describing anything that exists, and the migration is
- * then certified against a store no device has.
+ * passing against historical bytes while missing a change in the writer.
  *
  * So this file re-runs the capture and compares it to what was checked in. It lives
  * in `packages/client-core` because that is where the writer is, and `packages/sync`
@@ -20,7 +19,8 @@
  * a guard that fails every run — which is a guard that gets deleted. So the
  * comparison is over the STRUCTURE that the migration actually reads: which keys
  * exist, and the decoded payload of each row with those two volatile fields
- * stripped. Everything the importer looks at is in that set; nothing that changes
+ * stripped, allowing the known issue-key replacement on the fixture side only.
+ * Everything the importer looks at is in that set; nothing that changes
  * on its own is.
  *
  * THE CONTROL COMES FIRST. Before either direction is believed, the freshly
@@ -36,6 +36,15 @@ import {
   type LegacyReplicaSnapshot,
   MIGRATION_PROBE_TEXT,
 } from './legacy-snapshot'
+
+// Keep the captured issues.v1 store for migration tests: customers still have it,
+// and the importer must continue to recognize it. POD-4973 retired that collection
+// from the writer; only its current expectation uses issueProjections.v1.
+const { 'podium.replica.issues.v1': historicalIssue, ...unchangedCollections } = fixture.collections
+const currentCollections: LegacyReplicaSnapshot = {
+  ...unchangedCollections,
+  'podium.replica.issueProjections.v1': historicalIssue,
+}
 
 /**
  * Decode a store into the shape the importer reads, with the two fields that change
@@ -85,13 +94,13 @@ describe('the captured legacy snapshot still describes what the writer produces'
     const fresh = await captureLegacyReplicaSnapshot()
     expect(
       Object.keys(fresh.collections).sort(),
-      'the writer produces different keys than the checked-in capture; re-run `bun scripts/capture-legacy-replica-snapshot.ts` and re-read the migration tests',
-    ).toEqual(Object.keys(fixture.collections).sort())
+      'the writer produces unexpected keys after the known issue-key replacement; review the migration inventory before refreshing the capture',
+    ).toEqual(Object.keys(currentCollections).sort())
   })
 
   it('every DECODED payload still matches, volatile fields aside', async () => {
     const fresh = await captureLegacyReplicaSnapshot()
-    expect(normalize(fresh.collections)).toEqual(normalize(fixture.collections))
+    expect(normalize(fresh.collections)).toEqual(normalize(currentCollections))
     expect(normalize(fresh.preReplica)).toEqual(normalize(fixture.preReplica))
   })
 
