@@ -8,9 +8,8 @@ import { RELAY } from './_harness'
  *
  * The export splits the graph (MobX included) into its own lazily imported
  * `runtime-pool-*.js` chunk, so "a pool was built" is observable as that chunk's
- * request, and "nothing was built" as its absence. A release build lists the
- * Settings row only while the setting is on, so the on half writes the setting
- * where the row writes it: this principal's UI-state blob in device storage.
+ * request, and "nothing was built" as its absence. The release build lists the
+ * Settings row, so every change goes through it.
  */
 test.skip(
   ({ isMobile, browserName }) => !isMobile || browserName !== 'chromium',
@@ -39,18 +38,19 @@ async function launch(page: Page): Promise<string[]> {
 /** Let the write-behind storage bridge flush before the next app load. */
 const settle = (page: Page) => page.waitForTimeout(2_000)
 
-const uiStateKey = (page: Page) =>
-  page.evaluate(() =>
-    Object.keys(localStorage).find(
-      (key) => key.startsWith('podium.replica') && key.endsWith('.uistate.v1'),
-    ),
-  )
+const toggle = (page: Page) => page.getByLabel(PILOT, { exact: true })
+const thisLaunch = (page: Page, state: 'on' | 'off') =>
+  page.getByText(`Applies at the next app start. This launch: ${state}.`)
 
-test('the mobile pool switch is off by default', async ({ page }) => {
+test('the mobile pool switch is listed and off by default on the release build', async ({
+  page,
+}) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   const chunks = await launch(page)
-  await expect(page.getByLabel(PILOT, { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Experimental')).toBeVisible()
+  await expect(toggle(page)).not.toBeChecked()
+  await expect(thisLaunch(page, 'off')).toBeVisible()
   await settle(page)
   expect(chunks).toEqual([])
   expect(errors).toEqual([])
@@ -59,21 +59,17 @@ test('the mobile pool switch is off by default', async ({ page }) => {
 test('the saved setting builds the pool at the next start, and only then', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  expect(await launch(page)).toEqual([])
-  await expect.poll(() => uiStateKey(page), { timeout: 30_000 }).toBeTruthy()
+  const first = await launch(page)
+  await toggle(page).click()
+  await expect(toggle(page)).toBeChecked()
+  // Read once: the running app keeps its startup choice.
+  await expect(thisLaunch(page, 'off')).toBeVisible()
   await settle(page)
-  await page.evaluate(() => {
-    const key = Object.keys(localStorage).find(
-      (name) => name.startsWith('podium.replica') && name.endsWith('.uistate.v1'),
-    )
-    if (!key) throw new Error('no UI-state blob for this principal')
-    const ui = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, string>
-    localStorage.setItem(key, JSON.stringify({ ...ui, 'podium.mobxSidebar': '1' }))
-  })
+  expect(first).toEqual([])
 
   const on = await launch(page)
-  await expect(page.getByLabel(PILOT, { exact: true })).toBeChecked()
-  await expect(page.getByText('Applies at the next app start. This launch: on.')).toBeVisible()
+  await expect(toggle(page)).toBeChecked()
+  await expect(thisLaunch(page, 'on')).toBeVisible()
   // The graph chunk loads once, for this launch's pool; a failed build or
   // import would surface as a page error or in the shell's banner.
   await expect.poll(() => on.length, { timeout: 30_000 }).toBe(1)
@@ -81,13 +77,14 @@ test('the saved setting builds the pool at the next start, and only then', async
   expect(on).toHaveLength(1)
 
   // Turning it off is saved for the next start; this launch keeps its pool.
-  await page.getByLabel(PILOT, { exact: true }).click()
-  await expect(page.getByLabel(PILOT, { exact: true })).not.toBeChecked()
-  await expect(page.getByText('Applies at the next app start. This launch: on.')).toBeVisible()
+  await toggle(page).click()
+  await expect(toggle(page)).not.toBeChecked()
+  await expect(thisLaunch(page, 'on')).toBeVisible()
   await settle(page)
 
   const off = await launch(page)
-  await expect(page.getByLabel(PILOT, { exact: true })).toHaveCount(0)
+  await expect(toggle(page)).not.toBeChecked()
+  await expect(thisLaunch(page, 'off')).toBeVisible()
   await settle(page)
   expect(off).toEqual([])
   expect(errors).toEqual([])

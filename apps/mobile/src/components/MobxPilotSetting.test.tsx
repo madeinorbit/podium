@@ -18,7 +18,7 @@ const toggle = () => screen.getByLabelText('MobX pilot') as HTMLInputElement
 
 describe('Settings → Experimental: MobX pilot', () => {
   it('saves the device setting for the next start without changing this launch', async () => {
-    const { replica } = await renderWithMobileStore(<MobxPilotSetting dev />)
+    const { replica } = await renderWithMobileStore(<MobxPilotSetting />)
     expect(toggle().checked).toBe(false)
     expect(replica.uiState().get(MOBX_SIDEBAR_KEY)).toBeNull()
 
@@ -35,19 +35,18 @@ describe('Settings → Experimental: MobX pilot', () => {
     expect(replica.uiState().get(MOBX_SIDEBAR_KEY)).toBe('0')
   })
 
-  it('is not listed on a release build while off, and stays listed while on', async () => {
-    const off = await renderWithMobileStore(<MobxPilotSetting dev={false} />)
-    expect(screen.queryByText('Experimental')).toBeNull()
-    expect(screen.queryByLabelText('MobX pilot')).toBeNull()
-
-    act(() => off.replica.uiState().set(MOBX_SIDEBAR_KEY, '1'))
+  it('is listed, off by default, on every build including release', async () => {
+    // This lane runs as a release build (mobile vitest config: __DEV__ false).
+    expect(typeof __DEV__ !== 'undefined' && __DEV__).toBe(false)
+    await renderWithMobileStore(<MobxPilotSetting />)
     expect(screen.getByText('Experimental')).toBeTruthy()
-    expect(toggle().checked).toBe(true)
+    expect(toggle().checked).toBe(false)
+    expect(screen.getByText('Applies at the next app start. This launch: off.')).toBeTruthy()
   })
 
-  it('stays listed on a release build while this launch runs the pool', async () => {
+  it('says when this launch runs the pool after it was turned off', async () => {
     launch.layer = 'pool'
-    const { replica } = await renderWithMobileStore(<MobxPilotSetting dev={false} />)
+    const { replica } = await renderWithMobileStore(<MobxPilotSetting />)
     // Turned off for the next start; this launch still runs the pool.
     act(() => replica.uiState().set(MOBX_SIDEBAR_KEY, '0'))
     expect(toggle().checked).toBe(false)

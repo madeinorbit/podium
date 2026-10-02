@@ -9,18 +9,16 @@ const readPilotPreference = (raw: string | null): boolean => raw === '1'
 const writePilotPreference = (enabled: boolean): string => (enabled ? '1' : '0')
 
 /** Settings → Experimental: this device's MobX pilot setting (POD-4976), the
- * counterpart of the web's development-only row. Listed in development builds,
- * and on any build while the setting or this launch is on, so it can be turned
- * back off. Saved now and applied at the next app start; the running app keeps
- * its startup choice. */
-export function MobxPilotSetting({ dev = typeof __DEV__ !== 'undefined' && __DEV__ }) {
+ * counterpart of the web's row. Listed on every build, release included, so the
+ * pilot can be turned on on a real phone. Off by default; saved now and applied
+ * at the next app start, while the running app keeps its startup choice. */
+export function MobxPilotSetting() {
   const [enabled, setEnabled] = usePersistedUiState(
     MOBX_SIDEBAR_KEY,
     readPilotPreference,
     writePilotPreference,
   )
   const launchedOn = mobileDataLayer() === 'pool'
-  if (!enabled && !dev && !launchedOn) return null
   return (
     <>
       <SectionHeader label="Experimental" />
