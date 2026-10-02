@@ -18,6 +18,7 @@ const f = vi.hoisted(() => ({ mode: 'legacy' as 'legacy' | 'pool', state: {} as 
   resolveShell: vi.fn(async () => ({ sessionId: 'pane-19' })),
   transcriptRead: vi.fn(async (_input: unknown) => ({ items: [], hasMore: false })),
   transcript: vi.fn((_session: unknown, _since?: unknown, _listener?: unknown) => () => {}), confirm: vi.fn(async () => true) }))
+const paneStoreHandle = { getSnapshot: () => f.state, subscribe: (_listener: () => void) => () => {} }
 vi.mock('./session-pane-data-layer', () => ({ sessionPaneDataLayer: () => f.mode }))
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: Store) => unknown) => select(f.state),
@@ -32,7 +33,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
 }))
 vi.mock('@podium/client-core/react', async () => ({
   ...(await import('./test-support/presence-mock')).presenceSeamStub(),
-  useStoreHandle: () => ({ getSnapshot: () => f.state }),
+  useStoreHandle: () => paneStoreHandle,
 }))
 vi.mock('@/lib/hooks/use-confirm', () => ({ useConfirm: () => f.confirm }))
 vi.mock('@podium/terminal-client-react', () => ({

@@ -1,5 +1,5 @@
 import { legacySessionPaneRead } from '@podium/client-core/perf'
-import { sessionById } from '@podium/client-core/viewmodels'
+import { sessionById } from '@podium/client-core/store'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionId, MachineWire } from '@podium/model/browser'
 import { useCallback } from 'react'
