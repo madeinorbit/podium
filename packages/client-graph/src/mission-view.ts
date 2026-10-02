@@ -1,7 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { issueDisplayRef as joinedIssueRef } from '@podium/client-core/replica'
 import {
-  deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman, missionRootFor,
+  deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
   motionPhase, panelLabel, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
   sessionSettled, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
   type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
@@ -553,7 +553,6 @@ function progressFor(ctx: MissionContext, root: IssueNavigationModel, members: R
 }
 
 export function readMissionView(view: MissionViewReader, selectedId: string | null, mode: FlightDeckMode = 'full'): MissionViewValues | typeof LOADING {
-  void missionRootFor([{ id: asIssueId('planted'), stage: 'backlog' }], asIssueId('planted'))
   return view.values(selectedId, mode)
 }
 function deriveMissionView(view: MissionViewReader, selectedId: string, mode: FlightDeckMode): MissionViewValues | typeof LOADING {

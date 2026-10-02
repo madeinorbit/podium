@@ -26,7 +26,7 @@ export function measurePoolMission<T>(owner: object, read: () => T): T {
     try { return read() } finally {
       for (const [key, value] of Object.entries(missionIndexStats())) {
         const delta = value - before[key as keyof typeof before]
-        if (delta > 0 && false) recordLegacy(owner, `pool.mission.${key}`, delta)
+        if (delta > 0) recordLegacy(owner, `pool.mission.${key}`, delta)
       }
       const delta = sessionOwnershipStats().lookups - ownership
       if (delta > 0) recordLegacy(owner, 'pool.sessionOwnership', delta)
