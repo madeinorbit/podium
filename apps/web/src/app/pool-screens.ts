@@ -6,6 +6,7 @@ import { initializePreferencesDataLayer, preferencesDataLayer, preferencesCheckR
 import { initializeSidebarDataLayer, sidebarDataLayer, sidebarCheckRequested } from '@/lib/sidebar-data-layer'
 import { initializeHeaderDataLayer, headerDataLayer, headerCheckRequested } from '@/lib/header-data-layer'
 import { initializeChipsDataLayer, chipsDataLayer, chipsCheckRequested } from '@/lib/chips-data-layer'
+import { noticePoolScreen } from '@/features/chat/notice-pool-screen'
 import type { PoolScreen } from './pool-screen-registry'
 import { panePoolScreen } from './pane-pool-screen'
 import { commandLaunchScreen } from '@/lib/command-launch-data-layer'
@@ -21,6 +22,7 @@ export function initializePoolScreens(ui: UiState): void {
 export const poolBackedScreens: readonly PoolScreen[] = [
   panePoolScreen,
   commandLaunchScreen,
+  noticePoolScreen,
   { optional: true, initialize: initializeSettingsDataLayer, enabled: () => settingsDataLayer() === 'pool',
     options: () => ({ settings: true }),
     async attach(runtime, pool) {
