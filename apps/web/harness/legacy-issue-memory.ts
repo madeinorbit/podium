@@ -75,6 +75,7 @@ await new Promise<void>((done) => server.listen(41701, '127.0.0.1', done))
 const candidates = [
   `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,
   `${process.env.HOME}/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome`,
+  `${process.env.HOME}/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`,
 ]
 const executablePath = candidates.find((path) => existsSync(path))
 const browser = await chromium.launch({

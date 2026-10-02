@@ -157,7 +157,7 @@ describe('kernel replica cross-tab convergence', () => {
         value: IssueProjection.parse({
           ...makeIssue({ id: 'revoked-issue', title: 'visible before rescope' }),
           repoId: 'repo-a',
-          createdBy: actorUser(asUserId('alice')),
+          createdBy: { actor: actorUser(asUserId('alice')), onBehalfOf: asUserId('alice') },
           owner: 'alice',
           visibility: 'personal',
           description: { value: '' },
