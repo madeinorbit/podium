@@ -25,7 +25,6 @@ import {
 } from '../../../packages/worklist-proto/harness/src/fixture'
 import {
   pickTargets,
-  seedCacheFromCorpus,
 } from '../../../packages/worklist-proto/shared/src/scenarios'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { FlightDeck } from '../src/app/FlightDeck'
@@ -33,6 +32,7 @@ import { OperatorFocusProvider } from '../src/app/operator-focus'
 import { RightDock } from '../src/app/RightDock'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { initializePoolScreens } from '../src/app/pool-screens'
+import { seedAcceptanceCache } from './sidebar-acceptance-seed'
 import { Workspace } from '../src/app/Workspace'
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
@@ -98,7 +98,6 @@ const apiAt = (path: string[] = []): unknown =>
     },
   })
 const api = apiAt() as PodiumClientApi
-const seedRecords = seedCacheFromCorpus(corpus).readEntities()
 const database = await IndexedDbSyncStore.open({
   factory: indexedDB as unknown as Parameters<typeof IndexedDbSyncStore.open>[0]['factory'],
   databaseName: 'sidebar-acceptance-synthetic',
@@ -150,6 +149,7 @@ function instrumentRuntime(runtime: ClientRuntime) {
 async function assemble(name: string) {
   const principal = replicaNamespaceKey({ syncBoundaryId: 'acceptance-synthetic', memberId: name })
   const view = database.viewFor(principal)
+  const seedRecords = seedAcceptanceCache(corpus, name).readEntities()
   view.cache.installSnapshot(seedRecords, { feedId: 'synthetic-fixture', epoch: '1', seq: 1 }, [])
   await database.settled()
   const replica = createKernelReplica({
