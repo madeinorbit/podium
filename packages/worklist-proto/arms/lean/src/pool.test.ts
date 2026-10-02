@@ -53,7 +53,7 @@ describe('lean memory prototype', () => {
     expect(pool.tables.issue.has(cold)).toBe(false)
     expect(pool.row('issue', cold, 'summary')).toBeDefined()
     expect(pool.residency.queued()).toBe(0)
-    expect([...pool.engine.many('issue', cold, 'sessions')].every((id) => pool.tables.session.has(id))).toBe(true)
+    expect(pool.residency.ids('issue').every((issue) => [...pool.engine.many('issue', issue, 'sessions')].every((id) => pool.tables.session.has(id)))).toBe(true)
     expect(pool.row('issue', cold)).toBe(LOADING)
     expect(pool.row('issue', cold)).toBe(LOADING)
     expect(pool.row('issue', 'absent')).toBe(LOADING)
