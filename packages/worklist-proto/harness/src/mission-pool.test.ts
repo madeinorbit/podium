@@ -41,12 +41,13 @@ function open(issues: SliceIssue[], seats: SliceSession[] = [], lazy = false) {
   const check = () => runInAction(() => checkMissions(pool, topology(issues), sessions(seats)))
   const patchIssue = (id: string, patch: Partial<SliceIssue>) => {
     const index = issues.findIndex(row => row.id === id), value = { ...issues[index]!, ...patch }
-    issues[index] = value; input.set(`issue:${id}`, value)
+    // Legacy indexes key immutable publication arrays, like the real store.
+    issues = issues.map(row => row.id === id ? value : row); input.set(`issue:${id}`, value)
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value }] })
   }
   const patchSession = (id: string, patch: Partial<SliceSession>) => {
     const index = seats.findIndex(row => row.sessionId === id), value = { ...seats[index]!, ...patch }
-    seats[index] = value; input.set(`session:${id}`, value)
+    seats = seats.map(row => row.sessionId === id ? value : row); input.set(`session:${id}`, value)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id, value }] })
   }
   return { pool, view: missions(pool), load, check, patchIssue, patchSession }
