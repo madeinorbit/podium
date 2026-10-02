@@ -490,6 +490,29 @@ export class HandPool {
         const parts = this.visibleInputs.issue(id)
         return parts === undefined ? [] : retainedSeatIdsOf(this.visibleInputs, id, parts, false)
       },
+      // POD-4708 (plant/old): the mirror IS the relation — every id it
+      // yields counts, exactly as `many()` yields do. `[...seats].sort()`
+      // re-reads the whole family: over budget (true state). The plant uses
+      // it and must FAIL #10 at 1x and 4x. Closure-held via the engine's
+      // maintained map (ids only, never rows).
+      seats: (id) => {
+        const engine = this.engine
+        const fence = reads
+        return {
+          *[Symbol.iterator](): Generator<string> {
+            // The maintained list itself (tracked, no fence); each yield
+            // counts as a relation read, exactly as `many()` yields do.
+            for (const member of engine.seatList(id)) {
+              fence.touch('session', member, 'relation')
+              yield member
+            }
+          },
+        }
+      },
+      // POD-4708 (O(1) real): the maintained SORTED list itself, returned
+      // without iterating it. A membership change yields the new member
+      // only (its own row reads, already counted there).
+      seatList: (id) => this.engine.seatList(id),
       selected: (id) => {
         graph.track(this.selection, id)
         return this.selectedId === id
@@ -532,6 +555,25 @@ export class HandPool {
             : undefined),
       sessionActivity: (id) => this.sessionActivity(id),
       own: (id) => (tracked.issue.has(id) ? this.cellsOf(id).own : undefined),
+      // POD-4708 (plant/old): the mirror IS the relation — every id it
+      // yields counts, exactly as `many()` yields do. `[...seats].sort()`
+      // re-reads the whole family: over budget (true state). The plant uses
+      // it and must FAIL #10 at 1x and 4x.
+      seats: (id) => {
+        const engine = this.engine
+        const fence = reads
+        return {
+          *[Symbol.iterator](): Generator<string> {
+            for (const member of engine.seatList(id)) {
+              fence.touch('session', member, 'relation')
+              yield member
+            }
+          },
+        }
+      },
+      // POD-4708 (O(1) real): the maintained SORTED list itself, returned
+      // without iterating it.
+      seatList: (id) => this.engine.seatList(id),
       passed: (t) => this.clock.passed(t),
     }
     this.worklist = new VisibleCollection({
@@ -851,6 +893,11 @@ export class HandPool {
       own: () => {
         throw new Error('[pool] plain pass read the row view: rank is outside the closure read set')
       },
+      // POD-4708 — from scratch over the scanned relation (the live pool
+      // reads its maintained SORTED mirror). The plain pass counts nothing;
+      // values equal the live derivations' at a quiescent point.
+      seats: (id) => this.engine.members('issue', id, 'sessions'),
+      seatList: (id) => [...this.engine.members('issue', id, 'sessions')].sort(),
       passed: (t) => this.clock.passed(t),
     }
     return {

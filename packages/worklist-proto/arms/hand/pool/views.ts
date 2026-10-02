@@ -154,6 +154,17 @@ export interface ViewInputs {
    * cached contribution, so a seat's change re-reads that seat only.
    */
   retainedSeats(id: string): readonly string[]
+  /**
+   * POD-4708 (plant/old) — the explicit seats as the mirror IS the relation:
+   * every yielded id counts, exactly as `many()` yields do.
+   * `[...seats].sort()` re-reads the whole family and must FAIL #10.
+   */
+  seats(id: string): Iterable<string>
+  /**
+   * POD-4708 (O(1) real) — the maintained SORTED seat list itself, returned
+   * without iterating it. `sessionIds` reads it, never `seats()` nor `many()`.
+   */
+  seatList(id: string): readonly string[]
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
   /** `coarseNow >= t`. */
@@ -362,7 +373,9 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
   },
   /** `issue.sessions`, sorted: the order a draft's title needs, applied at view time. */
   sessionIds(input, id) {
-    return [...input.relations.many('issue', id, 'sessions')].sort()
+    // POD-4708 (O(1) real): the maintained SORTED list itself, returned
+    // without iterating it. Never `seats()` (fenced, plant/old) nor `many()`.
+    return input.seatList(id)
   },
   /**
    * Max `lastActiveAt` of the row's retained seats, else own `updatedAt`,
