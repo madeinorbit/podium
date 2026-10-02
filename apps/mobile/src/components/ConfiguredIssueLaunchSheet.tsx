@@ -1,10 +1,9 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { shallowEqual } from '@podium/client-core/store'
 
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useStoreSelector } from '../client/hooks'
+import { useTrpc } from '../client/hooks'
 import { issueDefaultAgentKind } from '../lib/agent-models'
 import { startConfiguredIssue } from '../lib/configured-issue-launch'
 import {
@@ -39,7 +38,7 @@ export function ConfiguredIssueLaunchSheet({
   onStarted?: () => void
   onClose: () => void
 }) {
-  const store = useStoreSelector((s) => ({ trpc: s.trpc }), shallowEqual)
+  const trpc = useTrpc()
   const [configuration, setConfiguration] = useState(() =>
     issue ? launchConfigurationForIssue(issue) : DEFAULT_CONFIGURATION,
   )
@@ -59,7 +58,7 @@ export function ConfiguredIssueLaunchSheet({
     setBusy(true)
     setError(null)
     try {
-      await startConfiguredIssue(store.trpc.issues, issue.id, plan)
+      await startConfiguredIssue(trpc.issues, issue.id, plan)
       onClose()
       onStarted?.()
     } catch (cause) {

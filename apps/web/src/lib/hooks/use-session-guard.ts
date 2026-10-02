@@ -1,7 +1,10 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { isSessionWorking } from '@podium/client-core/viewmodels'
+import { useStoreHandle } from '@podium/client-core/react'
+import type { SessionView } from '@podium/client-core/session-values'
+import type { Trpc } from '@/app/trpc'
 import type { SessionId } from '@podium/model/browser'
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { useConfirm } from './use-confirm'
 
@@ -26,21 +29,8 @@ import { useConfirm } from './use-confirm'
  * `isSessionWorking` (green-dot semantics) and the popup is the app-wide
  * `useConfirm` dialog.
  */
-export function useSessionGuard(
-  scopedSessionId?: SessionId,
-  knownWorking?: boolean,
-): {
-  /** Delete (kill) a session — ALWAYS confirms; the row does not come back. */
-  guardedDelete: (sessionId: SessionId) => Promise<void>
-  /** Clean end [spec:SP-9904] — stops the process, frees the worktree, keeps the
-   *  row. Prompts first only while the agent is working. Reports a server
-   *  refusal (e.g. an unsaved working tree) and offers to force past it. */
-  guardedEnd: (sessionId: SessionId) => Promise<void>
-  /** Archive/unarchive a session, prompting first only when archiving a
-   *  working session (unarchive is never destructive). */
-  guardedArchive: (sessionId: SessionId, archived: boolean) => Promise<void>
-} {
-  const { scopedWorking, sessions, killSession, archiveSession, endSession } = useStoreSelector(
+function useLegacyGuardInputs(scopedSessionId?: SessionId, knownWorking?: boolean, _supplied?: readonly SessionView[]) {
+  return useStoreSelector(
     (s) => ({
       scopedWorking:
         knownWorking !== undefined
@@ -60,6 +50,36 @@ export function useSessionGuard(
     }),
     shallowEqual,
   )
+}
+function useSuppliedGuardInputs(scopedSessionId?: SessionId, knownWorking?: boolean, supplied?: readonly SessionView[]) {
+  const owner = useStoreHandle<Trpc>()
+  const actions = useMemo(() => {
+    const { killSession, archiveSession, endSession } = owner.getSnapshot()
+    return { killSession, archiveSession, endSession }
+  }, [owner])
+  const scoped = supplied?.find(session => session.sessionId === scopedSessionId)
+  return { ...actions, sessions: supplied,
+    scopedWorking: knownWorking ?? (scoped ? isSessionWorking(scoped) : false) }
+}
+
+export function useSessionGuard(
+  scopedSessionId?: SessionId,
+  knownWorking?: boolean,
+  /** Pool hosts supply their sessions for the lifetime of this mount. */
+  suppliedSessions?: readonly SessionView[],
+): {
+  /** Delete (kill) a session — ALWAYS confirms; the row does not come back. */
+  guardedDelete: (sessionId: SessionId) => Promise<void>
+  /** Clean end [spec:SP-9904] — stops the process, frees the worktree, keeps the
+   *  row. Prompts first only while the agent is working. Reports a server
+   *  refusal (e.g. an unsaved working tree) and offers to force past it. */
+  guardedEnd: (sessionId: SessionId) => Promise<void>
+  /** Archive/unarchive a session, prompting first only when archiving a
+   *  working session (unarchive is never destructive). */
+  guardedArchive: (sessionId: SessionId, archived: boolean) => Promise<void>
+} {
+  const useInputs = suppliedSessions === undefined ? useLegacyGuardInputs : useSuppliedGuardInputs
+  const { scopedWorking, sessions, killSession, archiveSession, endSession } = useInputs(scopedSessionId, knownWorking, suppliedSessions)
   const confirm = useConfirm()
 
   const isWorking = useCallback(

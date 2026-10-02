@@ -1,5 +1,4 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { shallowEqual } from '@podium/client-core/store'
 import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import {
@@ -44,7 +43,8 @@ import { issueAgentDescriptors } from '@/lib/issue-agents'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_SECTION } from '@/lib/menu-surface'
 import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
-import { useStoreSelector } from './store'
+import { LOADING } from '@podium/client-graph'
+import { useCommandLaunchActions, useCommandLaunchData, useCommandRecentFiles } from './command-launch-data'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
 
@@ -119,7 +119,14 @@ const MACHINE_DOT = 'mx-[4px] size-1.5 flex-none'
  * and this file only says what is particular to it — its width, its header, its
  * search field, and the sections it names.
  */
-export function NewPanelMenu({
+export function NewPanelMenu(props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>): JSX.Element {
+  const data = useCommandLaunchData()
+  if (!data || data === LOADING) return <Button variant="ghost" size="icon" disabled aria-label="Loading launch choices"><SquarePlus className="size-4" /></Button>
+  return <NewPanelMenuBody {...props} data={data} />
+}
+
+function NewPanelMenuBody({
+  data,
   worktree,
   onOpened,
   open: controlledOpen,
@@ -127,6 +134,7 @@ export function NewPanelMenu({
   trigger,
   issueId,
 }: {
+  data: Exclude<ReturnType<typeof useCommandLaunchData>, typeof LOADING | undefined>
   worktree: WorktreeView
   onOpened: (sessionId: SessionId) => void
   /** Attach every session spawned from this menu to an issue (issue-as-workspace:
@@ -138,16 +146,9 @@ export function NewPanelMenu({
   /** Override the default "+" trigger button (e.g. a compact per-repo "+"). */
   trigger?: React.ReactElement
 }): JSX.Element {
-  const { trpc, repos, sessions, machines, setPanelMode } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      repos: s.repos,
-      sessions: s.sessions,
-      machines: s.machines,
-      setPanelMode: s.setPanelMode,
-    }),
-    shallowEqual,
-  )
+  const { repos, sessions, machines } = data
+  const { trpc, setPanelMode } = useCommandLaunchActions()
+  const repoViews = 'repoViews' in data ? data.repoViews : reposToViews(repos)
   // Uncontrolled fallback so the desktop/mobile "+" still works without a parent
   // driving its open state; the controlled props win when supplied.
   const [internalOpen, setInternalOpen] = useState(false)
@@ -161,7 +162,7 @@ export function NewPanelMenu({
 
   // Resolve the repo view for the current worktree (cross-machine merged view).
   const repoView = useMemo((): RepoView => {
-    const found = reposToViews(repos).find((r) => r.worktrees.some((w) => w.path === worktree.path))
+    const found = repoViews.find((r) => r.worktrees.some((w) => w.path === worktree.path))
     if (found) return found
     // Fallback: synthesize a minimal single-machine RepoView so the logic below
     // never has to branch on undefined.
@@ -171,7 +172,7 @@ export function NewPanelMenu({
       worktrees: [worktree],
       machines: worktree.machineId ? [{ machineId: worktree.machineId, path: worktree.path }] : [],
     }
-  }, [repos, worktree])
+  }, [repoViews, worktree])
 
   // The recommended machine is agent-specific: a host with the repo but without
   // this harness (or its login) must never receive an optimistic spawn.
@@ -406,14 +407,8 @@ function RecentFilesSection({
   worktree: WorktreeView
   issueId?: IssueId
 }): JSX.Element | null {
-  const { recentFiles, openFileInWorktree, openArtifact } = useStoreSelector(
-    (s) => ({
-      recentFiles: s.recentFiles,
-      openFileInWorktree: s.openFileInWorktree,
-      openArtifact: s.openArtifact,
-    }),
-    shallowEqual,
-  )
+  const recentFiles = useCommandRecentFiles()
+  const { openFileInWorktree, openArtifact } = useCommandLaunchActions()
   const now = Date.now()
   const entries = recentFiles.filter((f) => f.worktreePath === worktree.path).slice(0, RECENT_LIMIT)
   if (entries.length === 0) return null

@@ -1,14 +1,10 @@
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import type { SpawnTarget } from '@podium/client-core'
-import { shallowEqual } from '@podium/client-core/store'
 import {
   issueReferenceModel,
-  lastUsedMaps,
   panelLabel,
-  type RepoNavView,
   reposToViews,
   resolveDefaultAgent,
-  spawnTargetForRepo,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
@@ -56,7 +52,6 @@ import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
-import { useSidebarProjectSections } from '@/features/worklist/use-sidebar-projects'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph, WorkingMark } from '@/lib/motion'
@@ -82,7 +77,9 @@ import {
   type RightPanelTab,
   rightPanelAllowed,
 } from './shell-state'
-import { type IssueViewModel, type MainView, useReplicaIssues, useStoreSelector } from './store'
+import { type IssueViewModel, type MainView } from './store'
+import { LOADING } from '@podium/client-graph'
+import { useCommandLaunchActions, useCommandPaletteData, useCommandPaletteOpen, useCommandGuardSessions } from './command-launch-data'
 
 type PaletteIssue = Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'color' | 'parentId'>
 
@@ -99,7 +96,7 @@ const SEARCH_MIN_QUERY_LEN = 2
  * flight, which is the same predicate the agent-state grammar gates on.
  */
 function useIssueSearch(query: string, enabled: boolean): { hits: PaletteIssue[]; pending: boolean } {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const { trpc } = useCommandLaunchActions()
   const [hits, setHits] = useState<PaletteIssue[]>([])
   const [pending, setPending] = useState(false)
   const seq = useRef(0)
@@ -140,14 +137,9 @@ function useIssueSearch(query: string, enabled: boolean): { hits: PaletteIssue[]
  * `.cmdk-*` in styles.css for the surface.
  */
 export function CommandPalette(): JSX.Element {
-  const { paletteOpen, setPaletteOpen, closeIssue } = useStoreSelector(
-    (s) => ({
-      paletteOpen: s.paletteOpen,
-      setPaletteOpen: s.setPaletteOpen,
-      closeIssue: s.closeIssue,
-    }),
-    shallowEqual,
-  )
+  const paletteOpen = useCommandPaletteOpen()
+  const { setPaletteOpen, closeIssue } = useCommandLaunchActions()
+  const suppliedSessions = useCommandGuardSessions()
   // These flows outlive the palette (which closes on execute), so they live
   // here as siblings rather than inside the palette dialog.
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -164,7 +156,7 @@ export function CommandPalette(): JSX.Element {
   const [closeTarget, setCloseTarget] = useState<IssueNavigationModel | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
-  const needsCloseGuard = useIssueCloseGuard()
+  const needsCloseGuard = useIssueCloseGuard(suppliedSessions)
   const confirmClose = (reason: IssueCloseReason): void => {
     if (!closeTarget) return
     setClosing(true)
@@ -200,6 +192,7 @@ export function CommandPalette(): JSX.Element {
       {closeTarget && (
         <IssueCloseDialog
           issue={closeTarget}
+          sessions={suppliedSessions}
           reason={closeReason}
           busy={closing}
           onOpenChange={(open) => !open && setCloseReason(null)}
@@ -221,89 +214,33 @@ const GROUP_LABEL: Record<PaletteGroupId, string> = {
   action: 'Actions',
 }
 
-function PaletteDialog({
+function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data'>): JSX.Element {
+  const data = useCommandPaletteData()
+  if (!data || data === LOADING) return <Dialog open onOpenChange={open => !open && props.onClose()}><DialogContent><DialogTitle>Command palette</DialogTitle><p>Loading commands…</p></DialogContent></Dialog>
+  return <PaletteDialogBody {...props} data={data} />
+}
+
+function PaletteDialogBody({
   onClose,
   onNewIssue,
   onAddRepo,
   onRequestClose,
+  data,
 }: {
+  data: Exclude<ReturnType<typeof useCommandPaletteData>, typeof LOADING | undefined>
   onClose: () => void
   onNewIssue: () => void
   onAddRepo: () => void
   onRequestClose: (issue: IssueNavigationModel, reason: IssueCloseReason) => void
 }): JSX.Element {
-  const {
-    trpc,
-    repos,
-    sessions,
-    machines,
-    markIssueRead,
-    markIssueUnread,
-    updateIssue,
-    deleteIssue,
-    closeIssue,
-    deferIssue,
-    undeferIssue,
-    setIssueLabels,
-    restoreIssue,
-    markSessionRead,
-    markSessionUnread,
-    openIssueId,
-    pins,
-    paneA,
-    setPane,
-    setView,
-    setSettingsTab,
-    setSelectedWorktree,
-    setSelectedIssueId,
-    setOpenIssueId,
-    selectedIssueId,
-    setSnooze,
-    clearSnooze,
-    hibernateSession,
-    resurrectSession,
-    startBtw,
-    selectedWorktree,
-    spawnDraftAgent,
-  } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      repos: s.repos,
-      sessions: s.sessions,
-      machines: s.machines,
-      markIssueRead: s.markIssueRead,
-      markIssueUnread: s.markIssueUnread,
-      updateIssue: s.updateIssue,
-      deleteIssue: s.deleteIssue,
-      closeIssue: s.closeIssue,
-      deferIssue: s.deferIssue,
-      undeferIssue: s.undeferIssue,
-      setIssueLabels: s.setIssueLabels,
-      restoreIssue: s.restoreIssue,
-      markSessionRead: s.markSessionRead,
-      markSessionUnread: s.markSessionUnread,
-      openIssueId: s.openIssueId,
-      pins: s.pins,
-      paneA: s.paneA,
-      setPane: s.setPane,
-      setView: s.setView,
-      setSettingsTab: s.setSettingsTab,
-      setSelectedWorktree: s.setSelectedWorktree,
-      setSelectedIssueId: s.setSelectedIssueId,
-      setOpenIssueId: s.setOpenIssueId,
-      selectedIssueId: s.selectedIssueId,
-      setSnooze: s.setSnooze,
-      clearSnooze: s.clearSnooze,
-      hibernateSession: s.hibernateSession,
-      resurrectSession: s.resurrectSession,
-      startBtw: s.startBtw,
-      selectedWorktree: s.selectedWorktree,
-      spawnDraftAgent: s.spawnDraftAgent,
-    }),
-    shallowEqual,
-  )
-  const issues = useReplicaIssues()
-  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard()
+  const { repos, sessions, machines, pins, paneA, openIssueId, selectedIssueId, issues, spawnTargets } = data
+  const { trpc, markIssueRead, markIssueUnread, updateIssue, deleteIssue, closeIssue, deferIssue, undeferIssue,
+    setIssueLabels, restoreIssue, markSessionRead, markSessionUnread, setPane, setView, setSettingsTab,
+    setSelectedWorktree, setSelectedIssueId, setOpenIssueId, setSnooze, clearSnooze,
+    hibernateSession, resurrectSession, startBtw, spawnDraftAgent } = useCommandLaunchActions()
+  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined,
+    'repoViews' in data ? sessions : undefined)
+  const repoViews = 'repoViews' in data ? data.repoViews : reposToViews(repos)
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
@@ -343,29 +280,6 @@ function PaletteDialog({
   // sidebar "New <Agent> in <Repo>" button's default (the most recently active
   // repo's primary worktree) — both offered when they differ.
   const defaultAgent: AgentKind = resolveDefaultAgent(agentSetting, sessions)
-  // THE SECOND CONSUMER (POD-331). This used to call `sidebarSections` itself,
-  // with a bare `Date.now()` that only advanced when the unrelated memo deps
-  // below changed — so the palette and the sidebar derived the same worklist
-  // twice, against two different clocks. It now reads the published slice: one
-  // derivation per snapshot, shared, on the store's coarse clock.
-  const sections = useSidebarProjectSections()
-  const spawnTargets = useMemo((): SpawnTarget[] => {
-    const worktrees = reposToViews(repos).flatMap((r) => r.worktrees)
-    const current = worktrees.find((w) => w.path === selectedWorktree)
-    const { byRepo } = lastUsedMaps(sections, sessions)
-    const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
-    const defaultRepo = repoNavs.reduce<RepoNavView | undefined>(
-      (best, r) =>
-        best === undefined || (byRepo.get(r.path) ?? 0) > (byRepo.get(best.path) ?? 0) ? r : best,
-      undefined,
-    )
-    const primary = defaultRepo ? spawnTargetForRepo(defaultRepo).worktree : undefined
-    const out: SpawnTarget[] = []
-    if (current) out.push(current)
-    if (primary && primary.path !== current?.path) out.push(primary)
-    return out
-  }, [repos, sessions, sections, selectedWorktree])
-
   /** Close the palette, then run — optimistic close; errors toast downstream. */
   const execute = (run: () => void | Promise<void>): void => {
     onClose()
@@ -390,6 +304,7 @@ function PaletteDialog({
         repos,
         machines,
         handoffEnabled,
+        repoViews,
       }),
     [issues, openIssueId, selectedIssueId, sessions, repos, machines, handoffEnabled],
   )
@@ -460,7 +375,7 @@ function PaletteDialog({
     }
 
     // ── Worktrees ─────────────────────────────────────────────────────────
-    for (const repo of reposToViews(repos)) {
+    for (const repo of repoViews) {
       for (const w of repo.worktrees) {
         out.push({
           id: `place:${w.path}`,
@@ -720,6 +635,7 @@ function PaletteDialog({
   }, [
     sessions,
     repos,
+    repoViews,
     issues,
     serverIssueHits,
     pins,

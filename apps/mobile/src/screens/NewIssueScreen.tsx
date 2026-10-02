@@ -9,7 +9,7 @@ import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
-import { useStoreSelector, useSessions } from '../client/hooks'
+import { useStoreSelector, useSessions, useTrpc } from '../client/hooks'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
 import {
   type LaunchConfiguration,
@@ -44,7 +44,8 @@ export function NewIssueScreen() {
   // still has to clear the home indicator (the hook is the plain safe-area
   // inset here).
   const bottomInset = useContentBottomInset()
-  const store = useStoreSelector((s) => ({ repos: s.repos, trpc: s.trpc }), shallowEqual)
+  const trpc = useTrpc()
+  const store = useStoreSelector((s) => ({ repos: s.repos }), shallowEqual)
   const sessions = useSessions()
   const [fallbackRepos, setFallbackRepos] = useState<string[]>([])
   const repos = useMemo(() => {
@@ -70,15 +71,15 @@ export function NewIssueScreen() {
 
   useEffect(() => {
     if (store.repos.length > 0) return
-    store.trpc.repos.list
+    trpc.repos.list
       .query()
       .then(setFallbackRepos)
       .catch(() => setFallbackRepos([]))
-  }, [store.repos.length, store.trpc])
+  }, [store.repos.length, trpc])
 
   useEffect(() => {
     let cancelled = false
-    store.trpc.settings.get
+    trpc.settings.get
       .query()
       .then((settings) => {
         if (cancelled) return
@@ -92,7 +93,7 @@ export function NewIssueScreen() {
     return () => {
       cancelled = true
     }
-  }, [store.trpc])
+  }, [trpc])
 
   useEffect(() => {
     if (!repoPath || !repos.includes(repoPath)) setRepoPath(repos[0] ?? '')
@@ -110,7 +111,7 @@ export function NewIssueScreen() {
     setError(null)
     try {
       const configured = launchConfigurationPatch(launchPlan?.configuration ?? launch)
-      const issue = await store.trpc.issues.create.mutate(
+      const issue = await trpc.issues.create.mutate(
         newTaskInput({
           repoPath: repoPath.trim(),
           title: title.trim(),
@@ -122,7 +123,7 @@ export function NewIssueScreen() {
         }),
       )
       if (stage !== 'backlog') {
-        await store.trpc.issues.update.mutate({ id: issue.id, patch: { stage } })
+        await trpc.issues.update.mutate({ id: issue.id, patch: { stage } })
       }
       router.replace(`/issue/${encodeURIComponent(issue.id)}`)
     } catch (cause) {

@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { reposToViews } from '@podium/client-core/viewmodels'
+import { type RepoView, reposToViews } from '@podium/client-core/viewmodels'
 import type { MachineWire, IssueId } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import { handoffRejectionText } from '@/lib/session-context-menu'
@@ -13,12 +13,13 @@ export function paletteIssueMenuData(input: {
   repos: Parameters<typeof reposToViews>[0]
   machines: readonly MachineWire[]
   handoffEnabled: boolean
+  repoViews?: RepoView[]
 }): IssueMenuData | null {
   const issue = input.issues.find((candidate) => candidate.id === input.issueId)
   if (!issue) return null
 
   const handoff = input.handoffEnabled
-    ? issueHandoffAvailability(issue, input.sessions, reposToViews(input.repos), [
+    ? issueHandoffAvailability(issue, input.sessions, input.repoViews ?? reposToViews(input.repos), [
         ...input.machines,
       ])
     : null

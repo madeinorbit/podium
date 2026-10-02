@@ -81,8 +81,15 @@ export function issueMemberSessions(
  * is being closed until the press — the palette closes whatever the command was
  * run against, the menu is mounted over a selection.
  */
-export function useIssueCloseGuard(): (issue: IssueNavigationModel) => boolean {
-  const sessions = useStoreSelector((store) => store.sessions) ?? []
+function useLegacyCloseSessions(_supplied?: readonly SessionView[]) { return useStoreSelector(store => store.sessions) ?? [] }
+function useSuppliedCloseSessions(supplied?: readonly SessionView[]) { return supplied ?? [] }
+/** A host chooses its reader once per mount; pool hosts never subscribe here. */
+function useCloseSessions(supplied?: readonly SessionView[]) {
+  const useRead = supplied === undefined ? useLegacyCloseSessions : useSuppliedCloseSessions
+  return useRead(supplied)
+}
+export function useIssueCloseGuard(suppliedSessions?: readonly SessionView[]): (issue: IssueNavigationModel) => boolean {
+  const sessions = useCloseSessions(suppliedSessions)
   return (issue) =>
     blockingCloseConcerns(issueCloseConcerns(issue, issueMemberSessions(issue, sessions))).length >
     0
@@ -135,17 +142,20 @@ export function IssueCloseDialog({
   busy = false,
   onOpenChange,
   onConfirm,
+  sessions: suppliedSessions,
 }: {
   issue: IssueNavigationModel
   reason: IssueCloseReason | null
   busy?: boolean
+  /** Same pool roster as the initiating guard, chosen once per mount. */
+  sessions?: readonly SessionView[]
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element {
   // `?? []` because a host can mount this over a store slice that has not
   // populated yet; the guard then finds no sessions rather than throwing, which
   // is what the derivation's own session default used to absorb.
-  const sessions = useStoreSelector((store) => store.sessions) ?? []
+  const sessions = useCloseSessions(suppliedSessions)
   const concerns = issueCloseConcerns(issue, issueMemberSessions(issue, sessions))
   const blockers = blockingCloseConcerns(concerns)
   return (

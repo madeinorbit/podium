@@ -1,4 +1,3 @@
-import { shallowEqual } from '@podium/client-core/store'
 import { type RepoView, reposToViews, repoUsageAt } from '@podium/client-core/viewmodels'
 import {
   agentCapabilityRejection,
@@ -15,7 +14,8 @@ import { resolveRole } from '@podium/runtime'
 import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { LOADING } from '@podium/client-graph'
+import { useCommandLaunchActions, useCommandLaunchData } from '@/app/command-launch-data'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -206,25 +206,27 @@ function MachineMenu({
   )
 }
 
-export function NewIssueDialog({
+export function NewIssueDialog(props: Omit<Parameters<typeof NewIssueDialogBody>[0], 'data'>): JSX.Element {
+  const data = useCommandLaunchData()
+  if (!data || data === LOADING) return <Dialog open onOpenChange={open => !open && props.onClose()}><DialogContent><DialogTitle>New task</DialogTitle><p>Loading launch choices…</p></DialogContent></Dialog>
+  return <NewIssueDialogBody {...props} data={data} />
+}
+
+function NewIssueDialogBody({
+  data,
   onClose,
   initialStage,
 }: {
+  data: Exclude<ReturnType<typeof useCommandLaunchData>, typeof LOADING | undefined>
   onClose: () => void
   /** Lane the composer was opened from. Presets the Stage pill; creation itself is
    *  always Backlog server-side, so a non-backlog stage is applied as a post-create
    *  patch. */
   initialStage?: IssueStage
 }): JSX.Element {
-  const { trpc, repos, sessions, machines } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      repos: s.repos,
-      sessions: s.sessions ?? [],
-      machines: s.machines ?? [],
-    }),
-    shallowEqual,
-  )
+  const { repos, sessions, machines } = data
+  const { trpc } = useCommandLaunchActions()
+  const repoViews = 'repoViews' in data ? data.repoViews : reposToViews(repos)
   const isMobile = useIsMobile()
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
@@ -233,6 +235,7 @@ export function NewIssueDialog({
   const [priority, setPriority] = useState(2)
   // Default repo = the most recently used one (mount-time snapshot).
   const [repoPath, setRepoPath] = useState(() => {
+    if ('initialRepoPath' in data) return data.initialRepoPath
     const choices = repos.filter((r) => r.kind !== 'worktree')
     const mru = [...choices].sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))[0]
     return mru?.path ?? repos[0]?.path ?? ''
@@ -269,7 +272,7 @@ export function NewIssueDialog({
   }, [trpc])
 
   // Most-recently-used repos first — matches the sidebar's New-agent menu.
-  const repoChoices = repos
+  const repoChoices = 'repoChoices' in data ? data.repoChoices : repos
     .filter((r) => r.kind !== 'worktree')
     .sort(
       (a, b) =>
@@ -305,8 +308,8 @@ export function NewIssueDialog({
   // `machines` + `originUrl` off it, so a repo the replica has not merged into a
   // view yet simply offers no hosts rather than offering all of them.
   const repoView = useMemo(
-    (): RepoView | undefined => reposToViews(repos).find((r) => r.path === repoPath),
-    [repos, repoPath],
+    (): RepoView | undefined => repoViews.find((r) => r.path === repoPath),
+    [repoViews, repoPath],
   )
   const repoMachines = repoView ? machinesForRepoOrClone(repoView, machines) : []
   const agentOptions = issueAgentOptions(defaultAgent).map((option) => {
