@@ -13,22 +13,29 @@ import { readLive } from '../fixture/export-snapshot'
 import { corpusFromLive } from '../fixture/live-snapshot'
 import { sidebarReplayStore } from './sidebar-replay'
 
+let step = 'host'
 async function main() {
   if (hostname() !== 'ludovico') throw new Error('Mission replay is restricted to ludovico')
+  step = 'bootstrap'
   const { raw, bootstrapEntityCounts } = await readLive('http://127.0.0.1:18787')
+  step = 'corpus'
   const corpus = { ...corpusFromLive(raw, Date.now()), issueProjections: raw.issueProjections,
     issueUserStates: raw.issueUserStates ?? [], issueGitStates: raw.issueGitStates ?? [], repoProjections: raw.repoProjections }
+  step = 'replica'
   const cache = seedCacheFromCorpus(corpus)
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const store = sidebarReplayStore(corpus, replica)
   const runtime = { getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
+  step = 'pool'
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' }), locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: MISSION_SUMMARIES })
   try {
+    step = 'load'
     for (let round = 0; round < 64; round++) {
       runInAction(() => poolMissionSnapshot(handle.pool))
       if (handle.pool.hydrate() === 0) break
     }
+    step = 'compare'
     const locations: MissionDifference[] = []
     const result = runInAction(() => checkMissions(handle.pool,
       allIssueViewModels(replica, store.issueProjections, store.issueUserStates), store.sessions, diff => locations.push(diff)))
@@ -39,4 +46,11 @@ async function main() {
     if (result.differences || result.pending) process.exitCode = 1
   } finally { handle.dispose(); locals.dispose(); rows.dispose() }
 }
-if (import.meta.main) main().catch(() => { console.log(JSON.stringify({ replay: 'failed' })); process.exitCode = 1 })
+if (import.meta.main) main().catch(error => {
+  // Classification is fixed vocabulary. Never emit a private response/error.
+  const message = error instanceof Error ? error.message : ''
+  const cause = /expired/i.test(message) ? 'expired-session' : /401|403|unauth/i.test(message) ? 'authentication'
+    : /connect|fetch|timeout/i.test(message) ? 'transport' : 'execution'
+  console.log(JSON.stringify({ replay: 'failed', step, cause, errorKind: error instanceof Error ? error.name : 'unknown' }))
+  process.exitCode = 1
+})
