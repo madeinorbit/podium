@@ -51,11 +51,11 @@ export class NoticeSource {
     })]
   }
 
-  read<E extends NoticeEntity>(entity: E, id: string): Loaded<NoticeRows[E]> {
+  read(entity: NoticeEntity, id: string): Loaded<NoticeRows[NoticeEntity]> {
     if (this.disposed) return LOADING
     this.demanded = true
     if (!this.loaded.get()) { this.schedule(); return LOADING }
-    return this.rows.get(`${entity}:${id}`) as NoticeRows[E] | undefined
+    return this.rows.get(`${entity}:${id}`) as NoticeRows[NoticeEntity] | undefined
   }
 
   private set(key: string, value: object): void {
