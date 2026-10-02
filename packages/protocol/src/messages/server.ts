@@ -22,7 +22,6 @@ import {
   MachinesChangedMessage,
   WorktreesChangedMessage,
 } from './host'
-import { IssuesChangedMessage, IssueUpdatedMessage } from './issues'
 import { SetLogLevelMessage } from './logs'
 import {
   SessionAgentStateChangedMessage,
@@ -90,8 +89,6 @@ export const ServerMessage = z.discriminatedUnion('type', [
   TranscriptDeltaMessage,
   TurnPreviewMessage,
   ApprovalsChangedMessage,
-  IssuesChangedMessage,
-  IssueUpdatedMessage,
   MetadataDeltaMessage,
   FeedDeltaMessage,
   FeedRescopeMessage,

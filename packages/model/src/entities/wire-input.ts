@@ -34,7 +34,6 @@
 import type { BRAND } from 'zod'
 import type { AutomationRunWire, AutomationWire } from './automation'
 import type { ConversationSummaryWire } from './conversation'
-import type { IssueWire } from './issue'
 import type { SessionMeta } from './session'
 
 /**
@@ -57,8 +56,6 @@ type Unbrand<V> =
 
 /** {@link SessionMeta} with its branded ids on the input side (plain strings). */
 export type SessionMetaInput = UnbrandIds<SessionMeta>
-/** {@link IssueWire} with its branded ids on the input side. */
-export type IssueWireInput = UnbrandIds<IssueWire>
 /** {@link AutomationWire} with its branded ids on the input side. */
 export type AutomationWireInput = UnbrandIds<AutomationWire>
 /** {@link AutomationRunWire} with its branded ids on the input side. */

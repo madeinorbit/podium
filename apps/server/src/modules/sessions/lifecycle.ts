@@ -940,7 +940,7 @@ export class SessionLifecycle {
       // THE LAST SERVER READ OF THE OLD ISSUE RECORD (POD-4971). It answers
       // released clients, which read only `issues`, and is registered residue
       // (`scripts/rearch-audit.ts`) until step 7 of POD-4949 answers `[]`.
-      issues: values('issue'),
+      issues: [],
       issueProjections: values('issueProjection'),
       issueDeps: values('issueDep'),
       repos: values('repo'),

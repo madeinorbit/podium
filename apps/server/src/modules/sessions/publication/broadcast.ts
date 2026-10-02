@@ -17,7 +17,7 @@ const log = createLogger('server:sessions')
  * `IssueProjection` never did (`@podium/model` projections/issue-projection.ts —
  * "a session change cannot dirty an issue projection ... because the data to do
  * otherwise is not reachable from the signature"), and POD-797 removed
- * `sessions`, `sessionSummary` and `unread` from the legacy `IssueWire`
+ * `sessions`, `sessionSummary` and `unread` from the legacy `IssueProjection`
  * (entities/issue.ts). A session-list change has nothing on an issue to
  * reconcile, so the republish it triggered is deleted rather than repaired.
  */

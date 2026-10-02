@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueWire, IssueId, SessionId } from '@podium/model'
+import type { IssueProjection, IssueId, SessionId } from '@podium/model'
 import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import type { IssueStore } from './core'
@@ -36,7 +36,7 @@ export class IssueCommentsMailModule {
    * compile error, and `addComment-principal.test.ts` beside this file fails
    * the BUILD (not just the run) if a default comes back.
    */
-  async addComment(id: string, author: string, body: string, principal: CommandPrincipal): Promise<IssueWire> {
+  async addComment(id: string, author: string, body: string, principal: CommandPrincipal): Promise<IssueProjection> {
     const issueId = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(issueId)
     const attribution = attributionOf(principal)
@@ -61,7 +61,7 @@ export class IssueCommentsMailModule {
    * and integrate dedupe on those names, so a client that could choose its
    * author could also suppress their notes.
    */
-  async addCallerComment(id: string, body: string, principal: CommandPrincipal): Promise<IssueWire> {
+  async addCallerComment(id: string, body: string, principal: CommandPrincipal): Promise<IssueProjection> {
     return await this.addComment(id, await this.authorOf(principal), body, principal)
   }
 

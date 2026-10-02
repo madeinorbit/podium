@@ -70,7 +70,7 @@
 
 import { ROW } from '../annotations/matrix'
 import { HandoffManifest } from '../entities/handoff'
-import { IssueGraphNode, IssueWire, OrphanIssue } from '../entities/issue'
+import { IssueGraphNode, OrphanIssue } from '../entities/issue'
 import { SessionMeta } from '../entities/session'
 import { ShipOrderProjection } from '../shipping'
 import type { RetainedRepresentation } from './checks'
@@ -811,26 +811,6 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     },
     matrixRow: ROW.issueCore,
     visibility: 'personal',
-  },
-  {
-    symbol: 'IssueWire',
-    entity: 'issue',
-    site: 'packages/model/src/entities/issue.ts',
-    role: 'R4',
-    purpose: 'The issue as every replica receives it — the shape that rides the change feed.',
-    distinctSemantics:
-      'Byte-stability is its contract (POD-360 pins 87 fixtures), so it keeps the pre-rewrite ' +
-      'spellings the aggregate deliberately renamed (`blockedBy`, `origin`, `draft`), the ' +
-      'flattened needs-human tuple, plain strings where the aggregate wraps documents, and the ' +
-      'derived rollups R1 must not store.',
-    composition: {
-      state: 'pending',
-      owner: 'POD-1141',
-      blocker: CYCLE_BLOCKER,
-    },
-    matrixRow: ROW.issueCore,
-    visibility: 'personal',
-    schema: IssueWire,
   },
   {
     symbol: 'IssuePatch',

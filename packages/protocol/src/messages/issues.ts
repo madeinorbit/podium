@@ -1,18 +1,9 @@
-import { IssueWire, SessionIdField } from '@podium/model'
+import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 // The issue aggregate, its vocabularies (IssueStage/IssueType/IssueColor) and
 // its read projections live in @podium/model (POD-300). What stays here is the
 // FRAMES that carry them and the agent relay.
-
-export const IssuesChangedMessage = z.object({
-  type: z.literal('issuesChanged'),
-  issues: z.array(IssueWire),
-})
-export const IssueUpdatedMessage = z.object({
-  type: z.literal('issueUpdated'),
-  issue: IssueWire,
-})
 
 // Agent relay: an agent's daemon forwards a router/proc op (a tRPC-style call for
 // issues, messages, sessions, specs, workflows, locks, approvals, …) up to the

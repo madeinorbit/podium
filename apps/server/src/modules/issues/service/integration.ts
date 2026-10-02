@@ -3,7 +3,7 @@ import {
   integrationReceiptMatchesOrder,
   type DescendantTip,
   type IssueId,
-  type IssueWire,
+  type IssueProjection,
 } from '@podium/model'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { IssueRow } from '../../../store'
@@ -80,7 +80,7 @@ export class IssueEpicIntegrationModule {
   async integrate(
     id: string,
     principal: CommandPrincipal,
-  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     const row = await this.store.rowOrThrow(id)
     // Per-epic in-flight guard: two overlapping runs would interleave resets/rebases
     // in the SAME integration worktree. Re-entry refuses cleanly with zero repoOps.
@@ -88,7 +88,7 @@ export class IssueEpicIntegrationModule {
       return {
         ok: false,
         output: `integration already running for #${row.seq}`,
-        issue: await this.store.toWire(row),
+        issue: await this.store.projection(row),
       }
     }
     this.integratingEpics.add(row.id)
@@ -102,11 +102,11 @@ export class IssueEpicIntegrationModule {
   private async integrateRun(
     row: IssueRow,
     principal: CommandPrincipal,
-  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const refuse = async (output: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> => ({
+  ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
+    const refuse = async (output: string): Promise<{ ok: boolean; output: string; issue: IssueProjection }> => ({
       ok: false,
       output,
-      issue: await this.store.toWire(row),
+      issue: await this.store.projection(row),
     })
     // Preconditions: the target must have children, ≥1 of them closed with a branch.
     const children = [...this.store.rows.values()].filter((r) => r.parentId === row.id)
@@ -307,7 +307,7 @@ export class IssueEpicIntegrationModule {
       integrated,
       ...(blockedAt != null ? { blockedAt } : {}),
     })
-    return { ok: blockedAt == null, output: summary, issue: await this.store.toWire(row) }
+    return { ok: blockedAt == null, output: summary, issue: await this.store.projection(row) }
   }
 
   /** Current non-deleted descendant closure. Tips from this traversal are never

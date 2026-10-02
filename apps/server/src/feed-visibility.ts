@@ -290,7 +290,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (entity === 'issueUserState' || entity === 'sessionUserState') return 'per-user-state'
         if (
           entity === 'session' ||
-          entity === 'issue' ||
           entity === 'issueProjection' ||
           entity === 'issueGitState' ||
           entity === 'issueDep' ||
@@ -324,7 +323,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false
         if (
-          ref.entity === 'issue' ||
           ref.entity === 'issueProjection' ||
           ref.entity === 'issueGitState'
         ) {
@@ -472,7 +470,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const automationRunIds = new Set<string>()
     for (const ref of refs) {
       if (
-        ref.entity === 'issue' ||
         ref.entity === 'issueProjection' ||
         ref.entity === 'issueGitState'
       ) {

@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta, IssueId, SessionId } from '@podium/model'
+import type { IssueProjection, SessionMeta, IssueId, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { InlineButton } from './types'
 
@@ -23,22 +23,22 @@ export function parseSlashCommand(text: string): SlashCommand | null {
   return { command, args }
 }
 
-function boardVisible(issue: IssueWire): boolean {
+function boardVisible(issue: IssueProjection): boolean {
   return !issue.draft && !issue.archived && !issue.deletedAt && issue.audience !== 'agent'
 }
 
-function isOpen(issue: IssueWire): boolean {
+function isOpen(issue: IssueProjection): boolean {
   return issue.stage !== 'done' && !issue.closedReason
 }
 
-function formatIssueLine(issue: IssueWire): string {
+function formatIssueLine(issue: IssueProjection): string {
   const ref = issueDisplayRef(issue)
   const stage = issue.stage.replace(/_/g, ' ')
   return `• ${ref} ${issue.title} (${stage})`
 }
 
 /** Active board issues: open, human-facing, grouped by stage priority. */
-export function formatActiveIssues(issues: IssueWire[]): string {
+export function formatActiveIssues(issues: IssueProjection[]): string {
   const open = issues.filter((i) => boardVisible(i) && isOpen(i))
   const stageRank: Record<string, number> = {
     in_progress: 0,
@@ -61,7 +61,7 @@ export function formatActiveIssues(issues: IssueWire[]): string {
 }
 
 /** Recently updated board issues (any stage). */
-export function formatRecentIssues(issues: IssueWire[]): string {
+export function formatRecentIssues(issues: IssueProjection[]): string {
   const recent = issues
     .filter(boardVisible)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -72,7 +72,7 @@ export function formatRecentIssues(issues: IssueWire[]): string {
 }
 
 /** Ready-to-start issues (unblocked, not deferred). */
-export function formatReadyIssues(issues: IssueWire[]): string {
+export function formatReadyIssues(issues: IssueProjection[]): string {
   const ready = issues
     .filter((i) => boardVisible(i) && isOpen(i) && i.ready)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -82,7 +82,7 @@ export function formatReadyIssues(issues: IssueWire[]): string {
   return `Ready issues:\n${lines.join('\n')}`
 }
 
-export function formatIssues(issues: IssueWire[], mode: string | undefined): string {
+export function formatIssues(issues: IssueProjection[], mode: string | undefined): string {
   switch (mode) {
     case 'recent':
       return formatRecentIssues(issues)
@@ -109,7 +109,7 @@ export function parseIssueCallbackData(data: string): string | undefined {
   return m?.[1]
 }
 
-function listedIssues(issues: IssueWire[], mode: string | undefined): IssueWire[] {
+function listedIssues(issues: IssueProjection[], mode: string | undefined): IssueProjection[] {
   switch (mode) {
     case 'recent':
       return issues
@@ -145,7 +145,7 @@ function listedIssues(issues: IssueWire[], mode: string | undefined): IssueWire[
   }
 }
 
-function issueButtonLabel(issue: IssueWire): string {
+function issueButtonLabel(issue: IssueProjection): string {
   const ref = issueDisplayRef(issue)
   const title = issue.title.length > 24 ? `${issue.title.slice(0, 23)}…` : issue.title
   return `${ref} ${title}`
@@ -153,7 +153,7 @@ function issueButtonLabel(issue: IssueWire): string {
 
 /** Active/recent/ready issue list with one inline open button per row. */
 export function buildIssuesMessage(
-  issues: IssueWire[],
+  issues: IssueProjection[],
   mode: string | undefined,
 ): { text: string; buttons: InlineButton[][] } | { text: string; buttons?: undefined } {
   if (mode && mode !== 'active' && mode !== 'recent' && mode !== 'ready') {
@@ -180,7 +180,7 @@ export function pickIssueSession<
     name?: string | undefined
     title: string
   },
->(issue: Pick<IssueWire, 'id'>, heldSessions: readonly T[]): T | undefined {
+>(issue: Pick<IssueProjection, 'id'>, heldSessions: readonly T[]): T | undefined {
   const sessions = heldSessions.filter(
     (session) => session.issueId === issue.id && !session.archived && !session.headless,
   )

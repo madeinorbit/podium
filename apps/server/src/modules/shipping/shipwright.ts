@@ -4,7 +4,7 @@ import {
   DEFAULT_SHIPWRIGHT_BUDGET,
   type AccountId,
   type AgentQuotaWire,
-  type IssueWire,
+  type IssueProjection,
   ShipwrightEvidenceRef,
   type ShipwrightEvidenceRef as ShipwrightEvidenceRefValue,
   ShipwrightInspectionContract,
@@ -54,7 +54,7 @@ export interface ShipwrightDeps {
     agent: ShipwrightRoute['agent'],
     requested: AccountId,
   ): AccountId | null | Promise<AccountId | null>
-  validationProfile(issue: IssueWire): ShippingValidationProfile | Promise<ShippingValidationProfile>
+  validationProfile(issue: IssueProjection): ShippingValidationProfile | Promise<ShippingValidationProfile>
   /** Future stable-port seam: copy/register only authorized executor artifacts
    * and return repository-canonical opaque artifact:// references. */
   evidence: ShipwrightEvidenceMaterializer
@@ -104,7 +104,7 @@ export type ShipwrightOutcome =
 export interface ShipwrightRepairInput {
   order: ShipOrder
   attempt: ShipAttempt
-  issue: IssueWire
+  issue: IssueProjection
   failure: {
     operation: 'prepare-merge-group' | 'validate'
     classification: ShippingJobClassification
@@ -182,7 +182,7 @@ export function shipwrightApplyPatchThroughRelay(
 export interface ShipwrightContextInput {
   order: ShipOrder
   attempt: ShipAttempt
-  issue: IssueWire
+  issue: IssueProjection
   failure: {
     operation: ShipwrightRepairInput['failure']['operation']
     classification: ShippingJobClassification
@@ -427,7 +427,7 @@ function byteSlice(value: string, maxBytes: number): string {
   return `${bytes.subarray(0, maxBytes).toString('utf8')}\n[truncated by shipwright budget]`
 }
 
-function issueContext(issue: IssueWire): string {
+function issueContext(issue: IssueProjection): string {
   return [
     `Title: ${issue.title}`,
     `Description: ${issue.description}`,
@@ -506,7 +506,7 @@ function systemPrompt(level: ShipwrightLevel): string {
 
 function promptFor(
   level: ShipwrightLevel,
-  issue: IssueWire,
+  issue: IssueProjection,
   failure: ShipwrightFailure,
   budget: ShipwrightBudget,
   proposedPatch?: ShipwrightPatch,
@@ -824,7 +824,7 @@ export class ShipwrightService {
   async run(input: {
     order: ShipOrder
     attempt: ShipAttempt
-    issue: IssueWire
+    issue: IssueProjection
     failure: ShipwrightFailure
     level: ShipwrightLevel
     rung: number

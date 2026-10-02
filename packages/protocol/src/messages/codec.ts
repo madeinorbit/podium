@@ -3,7 +3,6 @@ import {
   AutomationWire,
   ConversationSummaryWire,
   HostMetricsWire,
-  IssueWire,
   SessionMeta,
 } from '@podium/model'
 import type { z } from 'zod'
@@ -59,7 +58,6 @@ const QUARANTINABLE: Record<
   { key: string; element: z.ZodTypeAny; envelope?: z.ZodTypeAny }
 > = {
   sessionsChanged: { key: 'sessions', element: SessionMeta },
-  issuesChanged: { key: 'issues', element: IssueWire },
   conversationsChanged: { key: 'conversations', element: ConversationSummaryWire },
   automationsChanged: { key: 'automations', element: AutomationWire },
   automationRunsChanged: { key: 'automationRuns', element: AutomationRunWire },

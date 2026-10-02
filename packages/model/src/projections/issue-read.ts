@@ -32,6 +32,29 @@
 
 import type { MachineId, SessionId } from '../ids/brands'
 import type { IssueTreeSession } from './session-read'
+import type { IssueProjection } from './issue-projection'
+import type { IssueDepWire, IssueGitState } from '../entities/issue-vocabulary'
+import type { IssueUserOverlay } from '../user-state/issue-state'
+
+/** An on-demand tracker report. The feed carries only IssueProjection and its
+ * independently keyed companions; a CLI without a replica requests these joins.
+ * This report is never stored, cached, or published on the entity feed. */
+export type IssueReport = Omit<IssueProjection, 'description' | 'notes'> & IssueUserOverlay & {
+  description: string
+  humanQuestion?: string
+  notes?: string
+  repoPath: string
+  prefix?: string
+  displayRef: string
+  deps: IssueDepWire[]
+  dependents: IssueDepWire[]
+  ready: boolean
+  blocked: boolean
+  deferred: boolean
+  childCount: number
+  childDoneCount: number
+  gitState?: IssueGitState
+}
 
 /**
  * One node of an epic subtree payload (issue #82).

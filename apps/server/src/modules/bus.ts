@@ -5,7 +5,7 @@ import type {
   ConversationSummaryWire,
   HarnessAgent,
   HostMetricsWire,
-  IssueWire,
+  IssueProjection,
   SessionId,
   SessionMeta,
   TranscriptItem,
@@ -106,7 +106,7 @@ export interface EventMap {
    */
   'issue.created': { issueId: IssueId; title: string; ownerUserId: UserId }
   /** One issue changed and was published (single-issue fast path, issue #22). */
-  'issue.updated': { issue: IssueWire }
+  'issue.updated': { issue: IssueProjection }
   /** An issue reached the closed stage. */
   'issue.closed': { issueId: IssueId }
   /** A closed issue was reopened. */

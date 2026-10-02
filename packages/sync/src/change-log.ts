@@ -125,50 +125,11 @@ export function conversationProjection(value: unknown): string {
   return JSON.stringify(stable)
 }
 
-/** OLD RECORD ONLY (`issue`, IssueWire). Issue fields derived from live-session
- *  state — EXCLUDED from change detection (POD-210, same shape as
- *  {@link conversationProjection}): the wire
- *  embeds the full member SessionMeta[] plus roll-ups, so every session
- *  heartbeat (working↔idle flip, read receipt, activity stamp) re-serializes
- *  the issue row and was re-recorded to the ledger ~each second per active
- *  session. Live clients keep getting these via the snapshot fan-out, and
- *  sessions are ledgered as their own entity; only the durable issue-change
- *  KEY ignores them. Staleness tradeoff: a delta client's embedded session
- *  snapshot inside an issue row refreshes when a stable field changes or on
- *  its next reconnect snapshot — acceptable for advisory live-state hints. */
-export function legacyIssueDetectionKey(value: unknown): string {
-  const {
-    sessions: _sessions,
-    sessionSummary: _sessionSummary,
-    unread: _unread,
-    ...stable
-  } = value as Record<string, unknown>
-  return JSON.stringify(stable)
-}
-
 /** The change-DETECTION key for one entity value: the stable-field projection
  *  for entities with churn-prone derived fields, else the full serialized wire
  *  JSON (`json` must be `JSON.stringify(value)`). */
 export function detectionKey(entity: MetadataEntityKind, value: unknown, json: string): string {
   if (entity === 'conversation') return conversationProjection(value)
-  // The NORMALIZED record (`issueProjection`) has no exemption and must not get
-  // one (POD-4971): it carries no derived field, so every byte of it is a real
-  // change. This arm serves only the old record and goes with it at step 7 of
-  // POD-4949.
-  if (entity === 'issue') {
-    const issue = value as Record<string, unknown>
-    // The normalized pilot's transitional IssueWire is already session-free.
-    // Reuse its serialized bytes instead of allocating a second projection;
-    // legacy embedded-session shapes still receive main's heartbeat filter.
-    if (
-      !Object.hasOwn(issue, 'sessions') &&
-      !Object.hasOwn(issue, 'sessionSummary') &&
-      !Object.hasOwn(issue, 'unread')
-    ) {
-      return json
-    }
-    return legacyIssueDetectionKey(value)
-  }
   return json
 }
 

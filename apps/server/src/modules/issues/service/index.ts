@@ -321,24 +321,6 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       }
     }
     try {
-      // The catch-up publish, and the one boot step whose cost scales with the
-      // install (POD-1597): every issue whose change-log baseline has aged out of
-      // retention re-stages here, and the server does not listen until it
-      // returns. Say so when it is slow rather than looking hung — the operator's
-      // only other signal is a port that has not opened yet.
-      const reconcileStart = performance.now()
-      const wire = await store.allWire()
-      await store.deps.ledger.reconcile(
-        'issue',
-        wire.map((i) => ({ id: i.id, value: i })),
-      )
-      const reconcileMs = performance.now() - reconcileStart
-      if (reconcileMs > 2000) {
-        log.warn('boot catch-up publish was slow', {
-          issues: wire.length,
-          durationMs: reconcileMs,
-        })
-      }
       const projections = await store.allProjections()
       if (projections) await store.deps.ledger.reconcile('issueProjection', projections)
       await store.reconcileCompanions()

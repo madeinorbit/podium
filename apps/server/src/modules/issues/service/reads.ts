@@ -7,9 +7,10 @@ import {
   type IssueCount,
   type IssueGraph,
   type IssueId,
+  type IssueProjection,
   type IssueSearchFilter,
   type IssueStats,
-  type IssueWire,
+  type IssueReport,
   isIssueStage,
   isReadyIssueStage,
   isSystemOwnedIssueStage,
@@ -34,8 +35,17 @@ import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore } from '../../../store'
 import type { SessionFacts } from '../../sessions/facts'
 import type { IssueStore } from './core'
+import { issueRowToProjection } from '../projection'
 import { IssueNotFound } from './not-found'
 import { countContextAwarePendingMail } from './mail-pending'
+
+interface IssueReportBatch {
+  labelsByIssue: Map<string, string[]>
+  depsByFrom: Map<string, { toId: IssueId; type: string }[]>
+  dependentsByTo: Map<string, { fromId: IssueId; type: string }[]>
+  childrenByParent: Map<string, IssueRow[]>
+  prefixesByRepoPath: Map<string, string | null>
+}
 
 type IssueReadPredicate = (id: string) => boolean | Promise<boolean>
 
@@ -90,8 +100,78 @@ export class IssueReportsModule {
     readonly visibilityPolicy: Readonly<IssueReportVisibilityPolicy> = DEFAULT_ISSUE_REPORT_VISIBILITY,
   ) {}
 
-  async list(...args: Parameters<IssueStore['list']>): Promise<Awaited<ReturnType<IssueStore['list']>>> {
-    return await this.store.list(...args)
+  async list(repoPath?: string): Promise<IssueReport[]> {
+    const batch = await this.reportBatch()
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const rows = [...this.store.rows.values()].filter(inScope).sort((a, b) => {
+      const ga = a.repoId ?? a.repoPath
+      const gb = b.repoId ?? b.repoPath
+      return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
+    })
+    return Promise.all(rows.map(row => this.report(row, batch)))
+  }
+
+  /** Joins only for a requested report. No publication path calls this method. */
+  private async report(row: IssueRow, batch?: IssueReportBatch): Promise<IssueReport> {
+    const labels = batch ? batch.labelsByIssue.get(row.id) ?? [] : await this.store.deps.store.issues.getIssueLabels(row.id)
+    const projection = issueRowToProjection(row, labels)
+    const children = batch ? batch.childrenByParent.get(row.id) ?? [] :
+      [...this.store.rows.values()].filter(child => child.parentId === row.id && !child.deletedAt)
+    const outgoing = batch ? batch.depsByFrom.get(row.id) ?? [] : await this.store.deps.store.issues.listIssueDeps(row.id)
+    const incoming = batch ? batch.dependentsByTo.get(row.id) ?? [] : await this.store.deps.store.issues.listDependents(row.id)
+    let prefix = batch?.prefixesByRepoPath.get(row.repoPath)
+    if (prefix === undefined) {
+      prefix = await this.store.deps.store.repos.prefixForPath(row.repoPath)
+      batch?.prefixesByRepoPath.set(row.repoPath, prefix)
+    }
+    return {
+      ...projection,
+      description: projection.description.value,
+      humanQuestion: projection.asked?.question,
+      notes: projection.notes?.value,
+      ...this.store.issueOverlay(row.id),
+      repoPath: row.repoPath,
+      ...(prefix ? { prefix } : {}),
+      displayRef: prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`,
+      deps: [...outgoing.map(dep => ({ id: dep.toId, type: dep.type })),
+        ...(row.parentId ? [{ id: row.parentId, type: 'parent-child' }] : [])],
+      dependents: [...incoming.map(dep => ({ id: dep.fromId, type: dep.type })),
+        ...children.map(child => ({ id: child.id, type: 'parent-child' }))],
+      blocked: await this.store.computeBlocked(row, batch),
+      ready: await this.store.isReady(row, batch),
+      deferred: this.store.isDeferred(row),
+      childCount: children.length,
+      childDoneCount: children.filter(child => this.store.isClosed(child)).length,
+      ...(row.deletedAt ? {} : { gitState: this.store.gitStates.get(row.id) }),
+    }
+  }
+
+  private async reportBatch(): Promise<IssueReportBatch> {
+    const labelsByIssue = await this.store.deps.store.issues.listIssueLabelsByIssue()
+    const depsByFrom = new Map<string, { toId: IssueId; type: string }[]>()
+    const dependentsByTo = new Map<string, { fromId: IssueId; type: string }[]>()
+    for (const dep of await this.store.deps.store.issues.listAllIssueDeps()) {
+      const outgoing = depsByFrom.get(dep.fromId)
+      if (outgoing) outgoing.push({ toId: dep.toId, type: dep.type })
+      else depsByFrom.set(dep.fromId, [{ toId: dep.toId, type: dep.type }])
+      const incoming = dependentsByTo.get(dep.toId)
+      if (incoming) incoming.push({ fromId: dep.fromId, type: dep.type })
+      else dependentsByTo.set(dep.toId, [{ fromId: dep.fromId, type: dep.type }])
+    }
+    const childrenByParent = new Map<string, IssueRow[]>()
+    for (const row of this.store.rows.values()) {
+      if (!row.parentId || row.deletedAt) continue
+      const children = childrenByParent.get(row.parentId)
+      if (children) children.push(row)
+      else childrenByParent.set(row.parentId, [row])
+    }
+    return {
+      labelsByIssue,
+      depsByFrom,
+      dependentsByTo,
+      childrenByParent,
+      prefixesByRepoPath: new Map(),
+    }
   }
 
   async resolveRef(...args: Parameters<IssueStore['resolveRef']>): Promise<Awaited<ReturnType<IssueStore['resolveRef']>>> {
@@ -111,29 +191,27 @@ export class IssueReportsModule {
   unreadFor(...args: Parameters<IssueStore['unreadFor']>): ReturnType<IssueStore['unreadFor']> {
     return this.store.unreadFor(...args)
   }
-  async readyList(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueWire[]> {
-    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = await this.store.wireBatch()
+  async readyList(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueReport[]> {
+    const batch = await this.reportBatch()
     const inScope = await this.store.repoScopeFilter(repoPath)
     const wires = await Promise.all(
       (await filterReadable(
         [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
         mayRead,
-      )).map(async (r) => await this.store.toWire(r, commentCounts, batch)),
+      )).map(async (r) => await this.report(r, batch)),
     )
     return wires
       .filter((w) => w.ready)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
-  async blockedList(repoPath?: string): Promise<IssueWire[]> {
-    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = await this.store.wireBatch()
+  async blockedList(repoPath?: string): Promise<IssueReport[]> {
+    const batch = await this.reportBatch()
     const inScope = await this.store.repoScopeFilter(repoPath)
     const wires = await Promise.all(
       [...this.store.rows.values()]
         .filter((r) => !r.deletedAt && inScope(r))
-        .map(async (r) => await this.store.toWire(r, commentCounts, batch)),
+        .map(async (r) => await this.report(r, batch)),
     )
     return wires
       .filter((w) => w.blocked)
@@ -146,10 +224,9 @@ export class IssueReportsModule {
       [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
       mayRead,
     )
-    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = await this.store.wireBatch()
+    const batch = await this.reportBatch()
     const nodes = await Promise.all(rows.map(async (r) => {
-      const w = await this.store.toWire(r, commentCounts, batch)
+      const w = await this.report(r, batch)
       return {
         id: r.id,
         seq: r.seq,
@@ -192,7 +269,7 @@ export class IssueReportsModule {
     id: string,
     recursive = false,
     mayRead: IssueReadPredicate = () => true,
-  ): Promise<IssueWire[]> {
+  ): Promise<IssueReport[]> {
     const root = await this.store.rowOrThrow(id)
     const rows: IssueRow[] = []
     const walk = async (pid: string): Promise<void> => {
@@ -204,10 +281,9 @@ export class IssueReportsModule {
       }
     }
     await walk(root.id)
-    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = await this.store.wireBatch()
+    const batch = await this.reportBatch()
     return await Promise.all(
-      rows.sort((a, b) => a.seq - b.seq).map(async (r) => await this.store.toWire(r, commentCounts, batch)),
+      rows.sort((a, b) => a.seq - b.seq).map(async (r) => await this.report(r, batch)),
     )
   }
 
@@ -252,7 +328,7 @@ export class IssueReportsModule {
     // ...and one dep read for the whole walk, for the same reason: `node` below
     // recurses over the subtree and asked for its own row's deps at every step
     // (POD-3257).
-    const batch = await this.store.wireBatch()
+    const batch = await this.reportBatch()
     let count = 0
     let omitted = 0
     const node = async (row: IssueRow, depth: number): Promise<IssueTreeNode> => {
@@ -369,7 +445,7 @@ export class IssueReportsModule {
         mayRead,
       )
     }
-    const batch = await this.store.wireBatch()
+    const batch = await this.reportBatch()
     const ref = (row: IssueRow, type: string): DepReportRef => ({
       seq: row.seq,
       title: row.title,
@@ -414,9 +490,8 @@ export class IssueReportsModule {
   async closeEligibleEpics(
     repoPath?: string,
     mayRead: IssueReadPredicate = () => true,
-  ): Promise<IssueWire[]> {
-    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = await this.store.wireBatch()
+  ): Promise<IssueReport[]> {
+    const batch = await this.reportBatch()
     const inScope = await this.store.repoScopeFilter(repoPath)
     const candidates = await filterReadable(
       [...this.store.rows.values()].filter(
@@ -426,7 +501,7 @@ export class IssueReportsModule {
     )
     const statuses = await Promise.all(candidates.map(async (r) => await this.epicStatus(r.id, mayRead)))
     const eligible = candidates.filter((_, index) => statuses[index]?.complete)
-    return await Promise.all(eligible.map(async (r) => await this.store.toWire(r, commentCounts, batch)))
+    return await Promise.all(eligible.map(async (r) => await this.report(r, batch)))
   }
 
   /** Mechanical (Jaccard) duplicate detection over open issues in a repo.
@@ -465,10 +540,9 @@ export class IssueReportsModule {
     days = 30,
     nowMs = Date.now(),
     mayRead: IssueReadPredicate = () => true,
-  ): Promise<IssueWire[]> {
+  ): Promise<IssueReport[]> {
     const cutoff = nowMs - days * 24 * 60 * 60 * 1000
-    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = await this.store.wireBatch()
+    const batch = await this.reportBatch()
     const inScope = await this.store.repoScopeFilter(repoPath)
     const rows = (await filterReadable(
       [...this.store.rows.values()].filter((r) => inScope(r) && !this.store.isClosed(r)),
@@ -476,7 +550,7 @@ export class IssueReportsModule {
     ))
       .filter((r) => Date.parse(r.updatedAt) < cutoff)
       .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
-    return await Promise.all(rows.map(async (r) => await this.store.toWire(r, commentCounts, batch)))
+    return await Promise.all(rows.map(async (r) => await this.report(r, batch)))
   }
 
   /** Open issues with ≥1 template-completeness finding (see `lintIssue`). */
@@ -575,15 +649,14 @@ export class IssueReportsModule {
     }))
   }
 
-  async search(filter: IssueSearchFilter, mayRead: IssueReadPredicate = () => true): Promise<IssueWire[]> {
+  async search(filter: IssueSearchFilter, mayRead: IssueReadPredicate = () => true): Promise<IssueReport[]> {
     const text = filter.text?.toLowerCase()
-    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = await this.store.wireBatch()
+    const batch = await this.reportBatch()
     const inScope = await this.store.repoScopeFilter(filter.repoPath)
     const wires = await Promise.all((await filterReadable(
       [...this.store.rows.values()].filter((r) => inScope(r)),
       mayRead,
-    )).map(async (r) => await this.store.toWire(r, commentCounts, batch)))
+    )).map(async (r) => await this.report(r, batch)))
     return wires
       .filter((r) => !r.deletedAt)
       .filter((w) => {
@@ -627,13 +700,12 @@ export class IssueReportsModule {
   }
 
   async stats(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueStats> {
-    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = await this.store.wireBatch()
+    const batch = await this.reportBatch()
     const inScope = await this.store.repoScopeFilter(repoPath)
     const wires = await Promise.all((await filterReadable(
       [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
       mayRead,
-    )).map(async (r) => await this.store.toWire(r, commentCounts, batch)))
+    )).map(async (r) => await this.report(r, batch)))
     const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length
     return {
       total: wires.length,
@@ -645,9 +717,9 @@ export class IssueReportsModule {
     }
   }
 
-  async get(id: string): Promise<IssueWire | null> {
+  async get(id: string): Promise<IssueReport | null> {
     const r = this.store.rows.get(await this.store.resolveRef(id))
-    return r ? await this.store.toWire(r) : null
+    return r ? await this.report(r) : null
   }
 
   /** Raw issue metadata for server-side readers that do not need the wire
@@ -683,7 +755,7 @@ export class IssueReportsModule {
   }
 
   /** One issue's comment thread, oldest-first (#175): comment BODIES left
-   *  IssueWire (it carries only commentCount now), so clients fetch them lazily
+   *  IssueProjection (it carries only commentCount now), so clients fetch them lazily
    *  through this read (the `issues.comments` proc / CLI show). */
   async comments(id: string): Promise<IssueComment[]> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
@@ -792,7 +864,7 @@ export class IssueReportsModule {
       const me = (await mayRead(opts.boundIssueId)) ? await this.get(opts.boundIssueId) : null
       if (me) {
         const kids = await filterReadable(
-          (await this.store.list(me.repoPath)).filter(
+          (await this.list(me.repoPath)).filter(
             (i) => i.parentId === me.id && i.stage !== 'done' && !i.closedReason,
           ),
           mayRead,
@@ -881,7 +953,7 @@ export class IssueReportsModule {
       }
     }
     const ready = await filterReadable(
-      (await this.store.list(opts.repoPath)).filter((i) => i.ready),
+      (await this.list(opts.repoPath)).filter((i) => i.ready),
       mayRead,
     )
     return [

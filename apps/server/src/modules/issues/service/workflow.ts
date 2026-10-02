@@ -6,7 +6,7 @@ import {
   DEFER_NEXT_MESSAGE,
   type IssueId,
   type IssueRehomeTarget,
-  type IssueWire,
+  type IssueProjection,
   isIssueStage,
   isSystemOwnedIssueStage,
   type MachineId,
@@ -177,7 +177,7 @@ export class IssueGitWorkflowModule {
    * POD-779. Refuses a target repo whose identity differs, which would silently
    * renumber the issue into another repo.
    */
-  async rehome(id: string, to: IssueRehomeTarget): Promise<IssueWire | null> {
+  async rehome(id: string, to: IssueRehomeTarget): Promise<IssueProjection | null> {
     const row = this.store.rows.get(await this.store.resolveRef(id))
     if (!row) return null
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -263,7 +263,7 @@ export class IssueGitWorkflowModule {
       effort?: string
     },
   ): Promise<
-    IssueWire &
+    IssueProjection &
       Partial<{
         agentId: string
         harness: string
@@ -290,7 +290,7 @@ export class IssueGitWorkflowModule {
             `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
         )
       }
-      return await this.store.toWire(row)
+      return await this.store.projection(row)
     }
     // Switching harness at start discards the stored model/effort: they were chosen
     // for the OLD harness and its slugs mean nothing on the new one.
@@ -483,7 +483,7 @@ export class IssueGitWorkflowModule {
     row.assignee = asUserId(`agent:${row.defaultAgent}`)
     const wire = await this.store.persistRow(row)
     if (wasClosed) {
-      await this.store.broadcastList() // reopen flip: dependents' blocked/ready changed (#22)
+
       await this.store.emitEvent('issue.reopened', row.id, {
         seq: row.seq,
         ...(row.parentId ? { parentId: row.parentId } : {}),
@@ -501,7 +501,7 @@ export class IssueGitWorkflowModule {
       for (const session of existing) {
         if (session.cwd !== path) await this.store.d.setSessionCwd?.(session.sessionId, path)
       }
-      const originId = wire.deps?.find((dep) => dep.type === 'discovered-from')?.id
+      const originId = (await this.store.deps.store.issues.listIssueDeps(row.id)).find(dep => dep.type === 'discovered-from')?.toId
       if (originId) {
         void this.releaseWorktreeIfIdle(originId, systemPrincipal('start')).catch(
           (err: unknown) => {
@@ -558,7 +558,7 @@ export class IssueGitWorkflowModule {
   async createAndMaybeStart(
     input: CreateIssueInput,
     opts?: { spawnedBy?: string },
-  ): Promise<IssueWire> {
+  ): Promise<IssueProjection> {
     const created = await this.crud().create(input)
     return input.startNow
       ? await this.start(created.id, undefined, {
@@ -571,7 +571,7 @@ export class IssueGitWorkflowModule {
   async action(
     id: string,
     kind: 'rebase' | 'pr' | 'merge',
-  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     /**
      * NO DRAFT SPANS A GIT OP HERE [POD-3375].
      *
@@ -603,7 +603,7 @@ export class IssueGitWorkflowModule {
     const { parentBranch, repoPath } = planned
     const machineId = planned.machineId ?? undefined
     /** The issue as COMMITTED right now, for the report. A read wants no draft. */
-    const issueNow = async (): Promise<IssueWire> => await this.store.toWire(await this.store.rowOrThrow(id))
+    const issueNow = async (): Promise<IssueProjection> => await this.store.projection(await this.store.rowOrThrow(id))
     const gw = (await this.store.d.getSettings()).gitWorkflow
     if (kind === 'rebase') {
       const r = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
@@ -804,7 +804,7 @@ export class IssueGitWorkflowModule {
     id: string,
     principal: CommandPrincipal,
     opts?: { force?: boolean },
-  ): Promise<{ ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean }> {
+  ): Promise<{ ok: boolean; output: string; issue: IssueProjection; worktreeFreed: boolean }> {
     /**
      * NO DRAFT SPANS THE INSPECTION [POD-3375].
      *
@@ -825,10 +825,10 @@ export class IssueGitWorkflowModule {
     const job = principal.kind === 'system' ? principal.job : 'stop'
     const refuse = async (
       output: string,
-    ): Promise<{ ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean }> => ({
+    ): Promise<{ ok: boolean; output: string; issue: IssueProjection; worktreeFreed: boolean }> => ({
       ok: false,
       output,
-      issue: await this.store.toWire(await this.store.rowOrThrow(id)),
+      issue: await this.store.projection(await this.store.rowOrThrow(id)),
       worktreeFreed: false,
     })
     if (!at.worktreePath) {
@@ -837,7 +837,7 @@ export class IssueGitWorkflowModule {
         output: at.branch
           ? `no worktree on disk; branch '${at.branch}' kept`
           : 'no worktree/branch recorded',
-        issue: await this.store.toWire(at),
+        issue: await this.store.projection(at),
         worktreeFreed: false,
       }
     }
@@ -862,7 +862,7 @@ export class IssueGitWorkflowModule {
         output: row.branch
           ? `worktree already gone at ${worktreePath}; branch '${row.branch}' kept`
           : `worktree already gone at ${worktreePath}; cleared stale path record`,
-        issue: await this.store.toWire(row),
+        issue: await this.store.projection(row),
         worktreeFreed: true,
       }
     }
@@ -1067,7 +1067,7 @@ export class IssueGitWorkflowModule {
   async ensureWorktree(
     id: string,
     requestedMachineId?: MachineId,
-  ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
+  ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueProjection }> {
     /**
      * NO DRAFT SPANS THE WORKTREE BUILD [POD-3375].
      *
@@ -1135,7 +1135,7 @@ export class IssueGitWorkflowModule {
           ok: true,
           output: 'worktree already present',
           worktreePath: recordedWorktreePath,
-          issue: await this.store.toWire(confirmed),
+          issue: await this.store.projection(confirmed),
         }
       }
       // Path recorded but missing — fall through to recreate at the same path
@@ -1145,7 +1145,7 @@ export class IssueGitWorkflowModule {
           ok: false,
           output: `cannot inspect worktree: ${st.output}`,
           worktreePath: recordedWorktreePath,
-          issue: await this.store.toWire(await this.store.rowOrThrow(id)),
+          issue: await this.store.projection(await this.store.rowOrThrow(id)),
         }
       }
     }
@@ -1157,7 +1157,7 @@ export class IssueGitWorkflowModule {
         ok: false,
         output: 'no branch recorded — cannot recreate worktree',
         worktreePath: null,
-        issue: await this.store.toWire(await this.store.rowOrThrow(id)),
+        issue: await this.store.projection(await this.store.rowOrThrow(id)),
       }
     }
     // The repository is on the PINNED machine at that machine's path, which is not
@@ -1185,7 +1185,7 @@ export class IssueGitWorkflowModule {
         ok: false,
         output: `worktree recreate failed: ${res.output}`,
         worktreePath: null,
-        issue: await this.store.toWire(await this.store.rowOrThrow(id)),
+        issue: await this.store.projection(await this.store.rowOrThrow(id)),
       }
     }
     const row = await this.store.draftOrThrow(id)
@@ -1200,7 +1200,7 @@ export class IssueGitWorkflowModule {
         ? `worktree already present at ${path} on branch '${branch}'`
         : `recreated worktree ${path} from branch '${branch}'`,
       worktreePath: path,
-      issue: await this.store.toWire(row),
+      issue: await this.store.projection(row),
     }
   }
 
@@ -1239,7 +1239,7 @@ export class IssueGitWorkflowModule {
   async cleanup(
     id: string,
     principal: CommandPrincipal,
-  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     /**
      * NO DRAFT SPANS A CLEANUP STEP [POD-3375].
      *
@@ -1266,10 +1266,10 @@ export class IssueGitWorkflowModule {
     const seq = at.seq
     const machineId = at.machineId ?? undefined
     const { repoPath, parentBranch } = at
-    const refuse = async (output: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> => ({
+    const refuse = async (output: string): Promise<{ ok: boolean; output: string; issue: IssueProjection }> => ({
       ok: false,
       output,
-      issue: await this.store.toWire(await this.store.rowOrThrow(id)),
+      issue: await this.store.projection(await this.store.rowOrThrow(id)),
     })
     // (a) only closed issues are cleanable.
     if (!this.store.isClosed(at)) {
@@ -1441,7 +1441,7 @@ export class IssueGitWorkflowModule {
   async integrate(
     id: string,
     principal: CommandPrincipal,
-  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     return await this.integration.integrate(id, principal)
   }
 
@@ -1489,7 +1489,7 @@ export class IssueGitWorkflowModule {
     id: string,
     agentKind?: string,
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
-  ): Promise<IssueWire | Promise<IssueWire>> {
+  ): Promise<IssueProjection | Promise<IssueProjection>> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot add a session')
@@ -1511,7 +1511,7 @@ export class IssueGitWorkflowModule {
     id: string,
     agentKind?: string,
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
-  ): Promise<IssueWire> {
+  ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot add a session')
@@ -1556,10 +1556,10 @@ export class IssueGitWorkflowModule {
       ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
-    return await this.store.toWire(row)
+    return await this.store.projection(row)
   }
 
-  async addShell(id: string, opts?: { spawnedBy?: string }): Promise<IssueWire | Promise<IssueWire>> {
+  async addShell(id: string, opts?: { spawnedBy?: string }): Promise<IssueProjection | Promise<IssueProjection>> {
     return await this.addSession(id, 'shell', opts)
   }
 
@@ -1899,7 +1899,7 @@ export class IssueGitWorkflowModule {
   }
 
   /** The LLM activity digest — see {@link IssueAssistantDigestModule}. */
-  async refreshAssistant(id: string): Promise<IssueWire> {
+  async refreshAssistant(id: string): Promise<IssueProjection> {
     return await this.assistant.refreshAssistant(id)
   }
 

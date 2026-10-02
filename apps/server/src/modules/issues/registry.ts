@@ -423,7 +423,7 @@ const defs = {
         }),
       ),
   }),
-  /** Lazy comment fetch (#175) — bodies left IssueWire (commentCount rides it).
+  /** Lazy comment fetch (#175) — bodies left IssueProjection (commentCount rides it).
    *  A read (like get/list). Hub-mirrored issues have no local thread: their
    *  comments live on the hub, so this returns []. */
   comments: def('comments', {

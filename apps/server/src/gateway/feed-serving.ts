@@ -35,7 +35,6 @@ import { traceFeedPeer } from './feed-peer-trace'
 import {
   type EdgePeer,
   type FeedFrame,
-  type LegacyAdvisoryKind,
   WireFeedEdge,
 } from './wire-feed-edge'
 
@@ -200,7 +199,6 @@ export class FeedServing {
       },
     })
     this.edge = new WireFeedEdge({
-      diagnostics: () => deps.diagnostics(),
       // Straight through to the Authority, which delegates to the policy object
       // it was constructed with. No value is stored anywhere on this path, so
       // there is nothing that can go stale (POD-376).
@@ -616,21 +614,6 @@ export class FeedServing {
   async bumpEpoch(cause: Parameters<FeedPublisher['bumpEpoch']>[0]): Promise<void> {
     await this.publisher.bumpEpoch(cause)
     await this.flush(await this.deps.authority.cursor())
-  }
-
-  /**
-   * Re-serve an advisory that is not feed content, to the wire versions that
-   * still carry it inside an entity message. See `WireFeedEdge.publishAdvisory`;
-   * on the current wire this is a no-op, which is the resting state a mechanism
-   * for expiring debt is supposed to have.
-   */
-  publishAdvisory(kind: LegacyAdvisoryKind): void {
-    // Advisory snapshots must follow the entity deliveries buffered before them.
-    // A microtask would now overtake the scheduler-idle publication boundary.
-    scheduleFeedFlush(async () => {
-      await this.flushPending()
-      await this.edge.publishAdvisory(kind)
-    }, this.deps.onPublicationIdle)
   }
 
   /** Connected-peer version telemetry — the rollout's "may I raise the floor". */

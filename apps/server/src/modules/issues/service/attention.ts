@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
-import type { IssueId, IssueWire, MachineId, SessionId, UserId } from '@podium/model'
+import type { IssueId, IssueProjection, MachineId, SessionId, UserId } from '@podium/model'
 import { DRAFT_ISSUE_TITLE } from '@podium/model'
 import {
   attributionOf,
@@ -53,7 +53,7 @@ export class IssueAttentionModule {
       | 'ensureCoordinator'
     >,
     private readonly hierarchy: () => {
-      addDep(fromRef: string, toRef: string, type?: string): Promise<IssueWire>
+      addDep(fromRef: string, toRef: string, type?: string): Promise<IssueProjection>
     },
     private readonly reports: () => Pick<IssueReportsModule, 'niceRef'>,
     private readonly gitWorkflow: () => IssueAttentionWorktreePort,
@@ -113,7 +113,7 @@ export class IssueAttentionModule {
     newSpinoff?: { title: string; origin: 'human' | 'agent' }
     confirmRehome?: boolean
     principal?: Exclude<CommandPrincipal, { kind: 'system' }>
-  }): Promise<IssueWire> {
+  }): Promise<IssueProjection> {
     const { getSessionIssueId, setSessionIssueId } = this.store.deps
     if (!getSessionIssueId || !setSessionIssueId) {
       throw new Error('attachSession unavailable: session registry hooks not injected')
@@ -209,7 +209,7 @@ export class IssueAttentionModule {
         )
       }
     }
-    if (prevId === target.id) return await this.store.toWire(target) // self-attach: no-op
+    if (prevId === target.id) return await this.store.projection(target) // self-attach: no-op
     await setSessionIssueId(opts.sessionId, target.id)
     await this.crud().ensureCoordinator(target.id, opts.sessionId, { onlyMember: true })
     await this.store.emitEvent('issue.session_attached', target.id, {
@@ -220,7 +220,7 @@ export class IssueAttentionModule {
     })
     // Clean up the abandoned draft vessel it came from, if now completely empty.
     if (prevId) await this.deleteIfEmptyDraft(prevId)
-    await this.store.broadcastList()
+
     if (prevId && (opts.newSpinoff || opts.newSubissue)) {
       // AN EXTERNAL EFFECT, and the only asynchronous one in this method
       // [POD-3260, spec §3.3 mechanism 3]. `IssueAttachOrchestrator` wraps this
@@ -238,7 +238,7 @@ export class IssueAttentionModule {
         })
       }, 'hopscotch-worktree-take-over')
     }
-    return await this.store.toWire(await this.store.rowOrThrow(target.id))
+    return await this.store.projection(await this.store.rowOrThrow(target.id))
   }
 
   /**
@@ -359,7 +359,7 @@ export class IssueAttentionModule {
     origin.branch = null
     await this.store.persistRow(origin)
     await this.store.persistRow(target)
-    await this.store.broadcastList()
+
     if (origin.repoPath)
       this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
   }
@@ -429,7 +429,7 @@ export class IssueAttentionModule {
     agentKind?: string,
     id?: IssueId,
     ownership?: { ownerUserId: UserId; createdByActor: string; createdByOnBehalfOf: UserId },
-  ): Promise<IssueWire> {
+  ): Promise<IssueProjection> {
     return await this.crud().create({
       repoPath,
       title: DRAFT_ISSUE_TITLE,
@@ -500,7 +500,7 @@ export class IssueAttentionModule {
     return await this.store.deps.store.events.getSubscription(id)
   }
 
-  async archive(id: string): Promise<IssueWire> {
+  async archive(id: string): Promise<IssueProjection> {
     return await this.crud().update(id, { archived: true })
   }
 
@@ -525,9 +525,9 @@ export class IssueAttentionModule {
   async sweepAutoArchive(
     nowMs: number = Date.parse(this.store.now()),
     principal?: SystemCommandPrincipal,
-  ): Promise<IssueWire[]> {
+  ): Promise<IssueProjection[]> {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
-    const out: IssueWire[] = []
+    const out: IssueProjection[] = []
     let sessionList: SessionFacts[] | undefined // taken lazily — only if a row clears the cheap gates
     for (const row of this.store.rows.values()) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
@@ -606,7 +606,7 @@ export class IssueAttentionModule {
    *  issueUpdated & issuesChanged) but logs a DISTINCT `issue.auto_archived` event
    *  instead of the manual `issue.archived` — the activity log (S3) renders it as
    *  its own line, and nothing downstream mistakes a sweep for a user action. */
-  private async autoArchive(row: IssueRow, principal?: SystemCommandPrincipal): Promise<IssueWire> {
+  private async autoArchive(row: IssueRow, principal?: SystemCommandPrincipal): Promise<IssueProjection> {
     // Drafted HERE rather than by the two callers: both reach this with a row
     // they read for a precondition check, and the sweep walks the map while it
     // archives, so the row it hands over is the map's own object [POD-3259].

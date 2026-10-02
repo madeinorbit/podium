@@ -13,7 +13,6 @@ import {
   IssueUserStateWire,
   SessionUserStateWire,
   MachineProjection,
-  IssueWire,
   LayoutWire,
   MessageRecordWire,
   ReadPositionWire,
@@ -141,7 +140,6 @@ const FeedIdShape = {
 
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
-  metadataChangeArm(z.literal('issue'), IssueWire),
   /** The NORMALIZED issue projection [POD-796, ADR 4 D7.1] — a SECOND kind
    *  alongside 'issue', not a reshaping of it, and that is the whole transition
    *  strategy.
@@ -269,7 +267,6 @@ export const MetadataChange = z.discriminatedUnion('entity', [
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
   'session',
-  'issue',
   'issueProjection',
   'issueDep',
   'repo',
@@ -389,7 +386,7 @@ const changesSinceSnapshotArm = () =>
     sessions: z.array(SessionMeta),
     sessionUserStates: z.array(SessionUserStateWire).optional(),
     machines: z.array(MachineProjection).optional(),
-    issues: z.array(IssueWire),
+    issues: z.array(z.never()),
     issueProjections: z.array(IssueProjection).optional(),
     issueDeps: z.array(IssueDepProjection).optional(),
     repos: z.array(RepoProjection).optional(),

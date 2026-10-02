@@ -2,7 +2,7 @@ import { createLogger, describeError } from '@podium/logger'
 import type {
   AgentRuntimeState,
   IssueId,
-  IssueWire,
+  IssueProjection,
   SessionId,
   SessionMeta,
   TelegramChatBinding,
@@ -99,7 +99,7 @@ export interface MessagingDeps {
   telegramBotToken(): Promise<string>
   superagent: SuperagentTurnPort
   /** Issue list for /issues slash commands. */
-  issues?: { list(): Promise<IssueWire[]> }
+  issues?: { list(): Promise<IssueProjection[]> }
   /** Sessions held by this server, resolved by explicit issueId membership.
    *  Facts, not the projection [POD-3857]: {@link pickIssueSession} reads
    *  `issueId`, `archived`, `headless`, `status` and `lastActiveAt`, and the
@@ -440,7 +440,7 @@ export class MessagingService implements TelegramNoticePort {
     return asThreadId('global')
   }
 
-  private async resolveIssueThread(issue: IssueWire, ownerUserId: UserId): Promise<ThreadId> {
+  private async resolveIssueThread(issue: IssueProjection, ownerUserId: UserId): Promise<ThreadId> {
     const sessions =
       this.deps.sessions?.sessionFactsByIssue(issue.worktreePath ?? null, issue.id) ?? []
     const session = pickIssueSession(issue, sessions)
@@ -453,7 +453,7 @@ export class MessagingService implements TelegramNoticePort {
     ).threadId
   }
 
-  private async issueThreadNote(issue: IssueWire): Promise<string> {
+  private async issueThreadNote(issue: IssueProjection): Promise<string> {
     const sessions =
       this.deps.sessions?.sessionFactsByIssue(issue.worktreePath ?? null, issue.id) ?? []
     const session = pickIssueSession(issue, sessions)
@@ -837,7 +837,7 @@ export class MessagingService implements TelegramNoticePort {
   private async openIssueTopic(
     ownerUserId: UserId,
     chatId: string,
-    issue: IssueWire,
+    issue: IssueProjection,
   ): Promise<{ threadRef: string; text: string; reused: boolean; superagentThreadId: ThreadId }> {
     const threadId = await this.resolveIssueThread(issue, ownerUserId)
     const ref = issueDisplayRef(issue)

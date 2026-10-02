@@ -115,7 +115,6 @@ import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { IssueGitWatch } from './modules/issues/git-watch'
 import { repoProjectionRows } from './modules/issues/projection'
-import { IssuePublisher } from './modules/issues/publish'
 import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
@@ -351,7 +350,6 @@ export interface RegistryModules {
   issues: IssueService
   /** Durable Shipping control plane; command registration is owned by POD-889. */
   shipping: ShippingService
-  issuePublisher: IssuePublisher
   issueCommands: IssueCommandDispatcher
   specs: SpecsService
   approvals: ApprovalService
@@ -1114,7 +1112,6 @@ export class SessionRegistry {
     // reconciles for write-less republishes — had no trigger left once POD-1574
     // deleted the never-bumped dirty gate that called it. Issue WRITES still
     // reconcile those same kinds; they do it from IssueService's own tail.
-    const publisher = new IssuePublisher({})
     const specs = new SpecsService({
       repoRoots: async () => await this.store.repos.listRepoPaths(),
     })
@@ -1149,7 +1146,6 @@ export class SessionRegistry {
         // versions that still need them (POD-1203).
         onDiagnosticsChanged: (diagnostics) => {
           conversationDiagnostics.current = diagnostics
-          feedServing.publishAdvisory('conversation-diagnostics')
         },
         // ONE correlator, handed over as itself (POD-318). It was constructed
         // above precisely so every consumer can take it directly instead of
@@ -2025,7 +2021,6 @@ export class SessionRegistry {
       // the appended rows ARE what a client is served.
       funnel,
       ledger: issueArbitration.ledger,
-      publishSpecs: publisher,
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
       onIssueClosed: async (input) => await stopClosedIssue?.(input),
     })
@@ -2154,7 +2149,7 @@ export class SessionRegistry {
     })
     // The `session.listChanged` republish tail is GONE (POD-1574). It re-derived
     // every issue's payload whenever the session list moved, gated by a dirty
-    // check that no writer ever advanced. Neither `IssueWire` (POD-797 removed
+    // check that no writer ever advanced. Neither `IssueProjection` (POD-797 removed
     // `sessions`/`sessionSummary`/`unread`) nor `IssueProjection` (never had one)
     // carries a session-derived field, so the tail had nothing to reconcile — and
     // the one time the gate did open, boot reconciliation had already published
@@ -3519,7 +3514,6 @@ export class SessionRegistry {
       issues,
       shipping,
       issueSessionLifecycle,
-      issuePublisher: publisher,
       issueCommands,
       specs,
       approvals,

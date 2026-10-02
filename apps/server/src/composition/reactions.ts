@@ -126,7 +126,7 @@ export const REACTIONS = [
   // rather than repaired because there is no session-derived issue field left for
   // it to reconcile — `IssueProjection` is a pure function of the issue's own row
   // by construction, and POD-797 removed `sessions`/`sessionSummary`/`unread`
-  // from the legacy `IssueWire`.
+  // from the legacy `IssueProjection`.
   {
     id: 'sessions.auto-continue-settings',
     description: 'Re-arm retryable sessions when their owner enables auto-continue.',
