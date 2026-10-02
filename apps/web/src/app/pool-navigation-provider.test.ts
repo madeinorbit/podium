@@ -83,10 +83,11 @@ describe('web pool navigation', () => {
     const later = '2026-09-24T00:00:00.000Z', outside = '2026-09-30T00:00:00.000Z'
     const rows = [issue('root'), issue('hidden', { parentId: 'root', archived: true }),
       issue('deleted', { parentId: 'hidden', deletedAt: stamp }), issue('leaf', { parentId: 'deleted' }),
+      issue('archived-owner', { parentId: 'root', archived: true }),
       issue('spin-off', { startedBySession: 'owner', updatedAt: outside }), issue('unrelated', { updatedAt: outside })]
     const seats = [
       { sessionId: 'owner', issueId: 'root', lastActiveAt: stamp, cwd: '/repo' },
-      { sessionId: 'archived-seat', issueId: 'hidden', lastActiveAt: later, archived: true, status: 'exited', stoppedAt: later, cwd: '/repo' },
+      { sessionId: 'archived-seat', issueId: 'archived-owner', lastActiveAt: later, archived: true, status: 'exited', stoppedAt: later, cwd: '/repo' },
       { sessionId: 'headless-seat', issueId: 'leaf', lastActiveAt: later, headless: true, cwd: '/repo' },
       { sessionId: 'cwd-only', lastActiveAt: outside, cwd: '/repo' },
     ] as SessionView[]
@@ -98,6 +99,8 @@ describe('web pool navigation', () => {
     try {
       expect(tracked(() => provider.activityAt('root'))).toBe(issueActivityAt(rows[0]!, seats, rows))
       expect(tracked(() => provider.activityAt('root'))).toBe(later)
+      expect(tracked(() => provider.activityAt('leaf'))).toBe(later)
+      expect(tracked(() => provider.activityAt('archived-owner'))).toBe(later)
       expect(tracked(() => provider.activityAt('absent'))).toBeUndefined()
       expect(pool.hydrate()).toBe(0)
       const newest = '2026-09-25T00:00:00.000Z'
