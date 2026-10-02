@@ -392,6 +392,7 @@ export function SessionConversation({
     return () => transcriptController.stop()
   }, [deferInitialTranscript, transcriptController])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mark each newly rendered item batch, including an unchanged controller
   useEffect(() => {
     transcriptController.markRendered()
   }, [items, transcriptController])

@@ -702,6 +702,7 @@ function MobileHubAttach({
   onDisconnected: () => void
 }): null {
   const hub = useStoreSelector((s) => s.hub)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: enabling network changes the connectivity controller lifetime
   useEffect(() => {
     // The AppState/NetInfo controller commands the transport (`suspend` on
     // background, `connectNow` on foreground and on network restore), so it
@@ -773,6 +774,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const { error, report: reportError, notices } = useShellErrorChannel()
   const [notice, setNotice] = useState<{ message: string; tone: NoticeTone } | null>(null)
   const authExpiryHandled = useRef(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a different credential or workspace resets expiry handling
   useEffect(() => {
     authExpiryHandled.current = false
   }, [bearer, config.httpOrigin, config.workspaceId])
@@ -784,6 +786,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       reportError(cause instanceof Error ? cause.message : String(cause))
     })
   }, [bearer, updateCredential, reportError])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: profile identity changes must replace the verification callback
   const verifyLiveCredential = useCallback(() => {
     if (activation === 'offline-cache') {
       void revalidateOfflineProfile?.().catch((cause: unknown) => {

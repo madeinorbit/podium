@@ -42,7 +42,9 @@ export function mobileVersionReport(
     const candidate = parse(version)
     if (!candidate) return false
     for (let index = 0; index < minimum.length; index++) {
-      if (candidate[index]! !== minimum[index]!) return candidate[index]! > minimum[index]!
+      const actual = candidate[index] ?? 0
+      const expected = minimum[index] ?? 0
+      if (actual !== expected) return actual > expected
     }
     return true
   }
