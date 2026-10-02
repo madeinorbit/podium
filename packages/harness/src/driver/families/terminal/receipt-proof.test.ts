@@ -151,40 +151,24 @@ describe('terminal receipt operator regressions', () => {
     const framedA = frame(idA, 'first framed body')
     const framedB = frame(idB, 'second framed body')
     const words = 'the update is failing when applying to ludovico. figure out why'
+    // Two framed mails are typed first, then our unwrapped words; Claude was
+    // busy, so all three prompts are recorded together after our typing
+    // started, framed first, ours last verbatim.
     const sentA = w.handle.send({ id: idA, text: framedA }, { origin: 'mail', delivery: 'when-ready' })
-    const sentB = w.handle.send({ id: idB, text: framedB }, { origin: 'mail', delivery: 'when-ready' })
-    const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
-    console.log('TEST5294: sends armed')
     await vi.advanceTimersByTimeAsync(300)
-    console.log('TEST5294: after 300ms writes=', JSON.stringify(w.writes.filter((b) => b === '\r').length), 'total=', w.writes.length)
+    const sentB = w.handle.send({ id: idB, text: framedB }, { origin: 'mail', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
     expect(w.writes.filter((bytes) => bytes === '\r')).toHaveLength(3)
-    // Claude was busy: all three prompts are recorded together after our typing
-    // started, framed first, ours last verbatim. (Queue records covered below.)
     w.post(framedA)
-    console.log('TEST5294: posted A')
     w.post(framedB)
-    console.log('TEST5294: posted B')
     const oursEntryId = `entry-${w.history.length}`
     w.post(words)
-    console.log('TEST5294: posted ours', oursEntryId)
     await vi.advanceTimersByTimeAsync(10_000)
-    console.log('TEST5294: after 10s')
-    const withTimeout = async <T>(p: Promise<T>, name: string): Promise<T> => {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      try {
-        return await Promise.race([
-          p.then((v) => { console.log(`TEST5294: ${name} resolved`); return v }),
-          new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(`${name} hung`)), 1000); }),
-        ])
-      } finally { if (timer) clearTimeout(timer) }
-    }
-    // Use real timers for the race timeout above (fake timers would freeze it).
-    vi.useRealTimers()
-    try {
-      expect(await withTimeout(sentA, 'sentA')).toMatchObject({ outcome: 'accepted' })
-      expect(await withTimeout(sentB, 'sentB')).toMatchObject({ outcome: 'accepted' })
-      expect(await withTimeout(ours, 'ours')).toMatchObject({ outcome: 'accepted' })
-    } finally { vi.useFakeTimers(); vi.setSystemTime(Date.now()) }
+    expect(await sentA).toMatchObject({ outcome: 'accepted' })
+    expect(await sentB).toMatchObject({ outcome: 'accepted' })
+    expect(await ours).toMatchObject({ outcome: 'accepted' })
     expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({
       rowId: 'msg_d0117333', outcome: 'delivered', transcriptItem: expect.objectContaining({ id: oursEntryId }),
     }))
