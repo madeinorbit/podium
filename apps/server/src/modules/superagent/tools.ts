@@ -131,10 +131,11 @@ export async function buildSuperagentTools(
           'issue worktree.',
         parameters: { type: 'object', properties: {} },
       },
-      run: async () =>
-        JSON.stringify(
+      run: async () => {
+        if (!listPrincipal) return '[]'
+        return JSON.stringify(
           await Promise.all(
-            (listPrincipal ? await sessions.listSessions(listPrincipal, 'listAllTool') : []).map(
+            (await sessions.listSessions(listPrincipal, 'listAllTool')).map(
               async (s) => {
                 // Reverse of issue_show's session list (issue #72): session cwd →
                 // bound issue, via the same worktree-containment rule as authz scope.
@@ -152,13 +153,14 @@ export async function buildSuperagentTools(
                   // Provenance + snooze (issue #62): who created it, and whether it's
                   // parked out of the attention flow (null = until next message).
                   spawnedBy: s.spawnedBy,
-                  snoozedUntil: (await store.sessions.sessionUserStateFor(listPrincipal!.userId, s.sessionId)).snoozedUntil,
+                  snoozedUntil: (await store.sessions.sessionUserStateFor(listPrincipal.userId, s.sessionId)).snoozedUntil,
                   ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
                 }
               },
             ),
           ),
-        ),
+        )
+      },
     },
     {
       spec: {

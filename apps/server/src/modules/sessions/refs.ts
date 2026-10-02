@@ -1,6 +1,6 @@
 import type { RepoId, SessionId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
-import type { SessionStore } from '../../store'
+import type { IssueRow, SessionStore } from '../../store'
 import { readIssues } from '../world-index/issue-reader'
 import type { SessionFacts } from './facts'
 
@@ -26,7 +26,9 @@ export async function readSessionRefs(
   const issueIds = [...new Set(sessions.flatMap(s =>
     s.refIssueId && s.refLetter ? [s.refIssueId] : [],
   ))]
-  const issues = await readIssues(store.issues, issueIds)
+  const issues = issueIds.length
+    ? await readIssues(store.issues, issueIds)
+    : new Map<string, IssueRow>()
   const needsPath = sessions.some(s =>
     s.refIssueId && s.refLetter
       ? !!issues.get(s.refIssueId) && !issues.get(s.refIssueId)?.repoId

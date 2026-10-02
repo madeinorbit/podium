@@ -67,8 +67,8 @@ export interface SessionViewPorts {
  *    projection by definition. Once per server start.
  *  - `rpc` — the `sessions.list` procedure. A client read, per request.
  *  - `listAllTool` — the superagent's `list_sessions` tool. Agent-facing and
- *    on demand; it reports each session's SNOOZE state, which lives in the
- *    per-user overlay and so exists only on the projection.
+ *    on demand; visibility is established here, and its snooze state is read
+ *    separately from the caller's per-user source row.
  */
 export type SessionListCaller = 'bootstrap' | 'rpc' | 'listAllTool'
 
