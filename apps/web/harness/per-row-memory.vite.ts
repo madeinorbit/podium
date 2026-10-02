@@ -32,15 +32,26 @@ export default {
     ...config.build,
     rollupOptions: {
       input: resolve('apps/web/harness/per-row-memory.browser.html'),
+      preserveEntrySignatures: 'allow-extension' as const,
       output: {
-        manualChunks(id: string) {
-          if (
-            id.endsWith('/client-graph/src/shared/row-source.ts') ||
-            id.endsWith('/client-graph/src/shared/engine-locals.ts')
-          )
-            return 'prototype-feed'
-          if (id.includes('/worklist-proto/arms/hand/')) return 'hand-pool'
-          if (id.includes('/worklist-proto/arms/lean/')) return 'lean-pool'
+        strictExecutionOrder: true,
+        codeSplitting: {
+          // Removal cuts select closures by script. Shared React/runtime
+          // dependencies must remain outside the prototype's named scripts.
+          includeDependenciesRecursively: false,
+          groups: [
+            {
+              name(id: string) {
+                if (
+                  id.endsWith('/client-graph/src/shared/row-source.ts') ||
+                  id.endsWith('/client-graph/src/shared/engine-locals.ts')
+                )
+                  return 'prototype-feed'
+                if (id.includes('/worklist-proto/arms/hand/')) return 'hand-pool'
+                if (id.includes('/worklist-proto/arms/lean/')) return 'lean-pool'
+              },
+            },
+          ],
         },
       },
     },
