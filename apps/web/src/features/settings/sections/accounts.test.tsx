@@ -27,10 +27,13 @@ function useTestStoreSelector<T>(
   isEqual: (left: T, right: T) => boolean = Object.is,
 ): T {
   const selectorRef = useRef(selector)
-  selectorRef.current = selector
   const equalityRef = useRef(isEqual)
   equalityRef.current = isEqual
   const cache = useRef<{ snapshot: typeof storeSnapshot; selected: T } | null>(null)
+  if (selectorRef.current !== selector) {
+    selectorRef.current = selector
+    cache.current = null
+  }
 
   return useSyncExternalStore(
     (listener) => {

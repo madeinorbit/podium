@@ -610,7 +610,7 @@ export class MobxPool {
   row(entity: EntityName, id: string, absent: 'peek'): object | undefined
   row(entity: EntityName, id: string, absent?: 'load' | 'mark'): Loaded<object>
   row(entity: EntityName | HeaderEntity | SettingsEntity | 'setupSession' | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
-    if (isSettingsEntity(entity)) return this.settingsSource?.read(entity, id) ?? LOADING
+    if (isSettingsEntity(entity)) return this.settingsSource ? this.settingsSource.read(entity, id) : LOADING
     if (entity === 'setupSession') {
       const cold = this.residency?.summary('session', id)
       if (cold && typeof cold['setupOrder'] === 'number') return setupSessionSummary(cold)
