@@ -1,4 +1,5 @@
-import { debugFlagEnabled, MOBX_SIDEBAR_KEY, type UiState } from '@podium/client-core/ui-state'
+import type { UiState } from '@podium/client-core/ui-state'
+import { mobxPilotEnabled } from './mobx-pilot'
 
 export type SidebarDataLayer = 'legacy' | 'pool'
 
@@ -10,19 +11,15 @@ let startupCheck = false
 
 export function initializeSidebarDataLayer(ui: Pick<UiState, 'get'>): void {
   if (startupDataLayer !== undefined) return
-  let override: boolean | undefined
   let params: URLSearchParams | undefined
   try {
     if (typeof location !== 'undefined') {
       params = new URLSearchParams(location.search)
-      const value = params.get('mobxSidebar')
-      if (value === '1' || value === 'true') override = true
-      if (value === '0' || value === 'false') override = false
     }
   } catch {
     // The authenticated principal's setting is the fallback, like echoHud.
   }
-  startupDataLayer = (override ?? debugFlagEnabled(ui, MOBX_SIDEBAR_KEY)) ? 'pool' : 'legacy'
+  startupDataLayer = mobxPilotEnabled(ui, params, 'mobxSidebar') ? 'pool' : 'legacy'
   startupCheck = startupDataLayer === 'pool' && params?.get('mobxSidebarCheck') === '1'
 }
 
