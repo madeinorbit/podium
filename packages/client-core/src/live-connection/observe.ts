@@ -8,7 +8,10 @@ export function onReconnect(
 ): () => void {
   let wasDown = false
   return subscribe((health) => {
-    if (health.status === 'down') { wasDown = true; return }
+    if (health.status === 'down') {
+      wasDown = true
+      return
+    }
     if (health.status !== 'ok' || !wasDown) return
     wasDown = false
     reconnected()
@@ -50,29 +53,41 @@ export interface LiveConnectionObservers {
 
 /** Both roots use this attachment. It owns subscriptions, not the hub or store;
  * hiding a page must never close its replica. Disposal is StrictMode-safe. */
-export function observeLiveConnection(hub: SocketHub, options: LiveConnectionObservers): () => void {
+export function observeLiveConnection(
+  hub: SocketHub,
+  options: LiveConnectionObservers,
+): () => void {
   const stops: (() => void)[] = []
   const detach = options.connectivity?.attachHub(hub)
   if (detach) stops.push(detach)
   if (options.onWireSkew) stops.push(hub.onWireSkew(options.onWireSkew))
-  if (options.onReconnect) stops.push(onReconnect(hub.onConnectionHealth.bind(hub), options.onReconnect))
+  if (options.onReconnect)
+    stops.push(onReconnect(hub.onConnectionHealth.bind(hub), options.onReconnect))
   if (options.onDisconnected) {
     let observedInitialHealth = false
-    stops.push(hub.onConnectionHealth(() => {
-      if (observedInitialHealth && !hub.connected) options.onDisconnected?.()
-      observedInitialHealth = true
-    }))
+    stops.push(
+      hub.onConnectionHealth(() => {
+        if (observedInitialHealth && !hub.connected) options.onDisconnected?.()
+        observedInitialHealth = true
+      }),
+    )
   }
   if (options.wakeSource) {
     let hidden = false
-    stops.push(options.wakeSource.subscribe(
-      () => { hidden = true },
-      () => {
-        if (!hidden) return
-        hidden = false
-        hub.wake()
-      },
-    ))
+    stops.push(
+      options.wakeSource.subscribe(
+        () => {
+          hidden = true
+        },
+        () => {
+          if (!hidden) return
+          hidden = false
+          hub.wake()
+        },
+      ),
+    )
   }
-  return () => { for (const stop of stops.splice(0).reverse()) stop() }
+  return () => {
+    for (const stop of stops.splice(0).reverse()) stop()
+  }
 }

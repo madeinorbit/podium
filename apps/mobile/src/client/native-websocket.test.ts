@@ -38,7 +38,11 @@ describe('React Native WebSocket bearer injection', () => {
   })
   it('the shared socket factory bypasses a stale ambient credential decorator', async () => {
     const calls: unknown[][] = []
-    class FakeWebSocket { constructor(...args: unknown[]) { calls.push(args) } }
+    class FakeWebSocket {
+      constructor(...args: unknown[]) {
+        calls.push(args)
+      }
+    }
     vi.stubGlobal('WebSocket', FakeWebSocket)
     const socketAuth = await import('./native-websocket.native')
     socketAuth.configureNativeWebSocketCredential('https://podium.example', 'ambient-other-owner')
@@ -53,8 +57,8 @@ describe('React Native WebSocket bearer injection', () => {
     released = null
     make('wss://podium.example/client')
     expect(calls.map((args) => args[2])).toEqual([
-      { headers: { Authorization: 'Bearer this-owner' } }, undefined,
+      { headers: { Authorization: 'Bearer this-owner' } },
+      undefined,
     ])
   })
-
 })

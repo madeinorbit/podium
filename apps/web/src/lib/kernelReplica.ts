@@ -1,6 +1,10 @@
 /** Web storage and cross-tab adapters for the shared replica assembly. */
 import type { CreateEngineOutbox, CreateReplicaForPrincipal } from '@podium/client-core/engine'
-import { browserFeedChannel, createFeedRelay, type FeedBroadcastChannel } from '@podium/client-core/live-connection'
+import {
+  browserFeedChannel,
+  createFeedRelay,
+  type FeedBroadcastChannel,
+} from '@podium/client-core/live-connection'
 import type { ClientPrincipal } from '@podium/client-core/principal'
 import { parseReplicaNamespaceKey, retainReplicaEntity } from '@podium/client-core/replica'
 import { openReplicaAssembly } from '@podium/client-core/replica-assembly'

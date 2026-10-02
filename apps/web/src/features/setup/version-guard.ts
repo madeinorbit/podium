@@ -1,11 +1,7 @@
 import { checkWireVersion } from '@podium/client-core/live-connection'
 import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
-import {
-  CLIENT_WIRE_VERSION,
-  type ServerVersion,
-  type SkewVerdict,
-} from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, type ServerVersion, type SkewVerdict } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
 import { forceReload } from '@/lib/force-reload'
 import { isIterationMode } from '@/lib/iteration-mode'

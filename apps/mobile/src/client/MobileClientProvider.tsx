@@ -33,7 +33,13 @@ import { seedIssueFixtures } from './issue-fixtures'
  * surface therefore exercises the same slices as the product.
  */
 
-import { browserServerRelocation, browserWakeSource, createFeedRelay, observeLiveConnection, type FeedBroadcastChannelFactory } from '@podium/client-core/live-connection'
+import {
+  browserServerRelocation,
+  browserWakeSource,
+  createFeedRelay,
+  observeLiveConnection,
+  type FeedBroadcastChannelFactory,
+} from '@podium/client-core/live-connection'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -262,17 +268,24 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   })
   let relay: ReturnType<typeof createFeedRelay> | undefined
   try {
-    if (deps.broadcastChannelFactory) relay = createFeedRelay(assembly.feed, {
-      principal,
-      channelName: `podium.mobile-replica.feed.v1:${MOBILE_REPLICA_DB}`,
-      createChannel: deps.broadcastChannelFactory,
-    })
+    if (deps.broadcastChannelFactory)
+      relay = createFeedRelay(assembly.feed, {
+        principal,
+        channelName: `podium.mobile-replica.feed.v1:${MOBILE_REPLICA_DB}`,
+        createChannel: deps.broadcastChannelFactory,
+      })
   } catch (error) {
     await assembly.dispose()
     throw error
   }
-  const erasePrincipalData = async () => { relay?.dispose(); await assembly.erasePrincipalData() }
-  const dispose = async () => { relay?.dispose(); await assembly.dispose() }
+  const erasePrincipalData = async () => {
+    relay?.dispose()
+    await assembly.erasePrincipalData()
+  }
+  const dispose = async () => {
+    relay?.dispose()
+    await assembly.dispose()
+  }
   const ownership = mobileAccountEraser.register(principal, { erasePrincipalData, dispose })
   return {
     replica: assembly.replica,
@@ -458,7 +471,10 @@ function MobileHubAttach({
       onWireSkew: version.onWireSkew,
       onReconnect: networkEnabled ? version.onReconnect : undefined,
     })
-    return () => { stop(); version.dispose() }
+    return () => {
+      stop()
+      version.dispose()
+    }
   }, [connectivity, hub, networkEnabled, onDisconnected, httpOrigin, bearer, onVersionNotice])
   return null
 }
@@ -544,12 +560,19 @@ function LiveProvider({ children }: { children: ReactNode }) {
         }
       : clientSeams
   const networkEnabled = activation !== 'offline-cache'
-  const makeSocket = useMemo(() => makePlatformSocketLogin({
-    credentials: mobileAccountCredentials,
-    httpOrigin: config.httpOrigin,
-    bearer: () => bearer,
-  }), [bearer, config.httpOrigin])
-  const reportVersionNotice = useCallback((message: string) => setNotice({ message, tone: 'warning' }), [])
+  const makeSocket = useMemo(
+    () =>
+      makePlatformSocketLogin({
+        credentials: mobileAccountCredentials,
+        httpOrigin: config.httpOrigin,
+        bearer: () => bearer,
+      }),
+    [bearer, config.httpOrigin],
+  )
+  const reportVersionNotice = useCallback(
+    (message: string) => setNotice({ message, tone: 'warning' }),
+    [],
+  )
   // AsyncStorage is Promise-only; hydrate the side-cache bridge before the store
   // boots. The migration and SQLite open then run BEFORE the store answers a
   // read and the app does not paint until they resolve — a replica read mid-
@@ -780,7 +803,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
       attachRuntime={(runtime) => attachMobilePool(runtime, (cause) => reportError(cause.message))}
       networkEnabled={networkEnabled}
       makeSocket={makeSocket}
-      onServerRelocation={Platform.OS === 'web' ? browserServerRelocation(window.location) : undefined}
+      onServerRelocation={
+        Platform.OS === 'web' ? browserServerRelocation(window.location) : undefined
+      }
       routerWindow={routerWindow}
       // Visibility, connectivity and ping cadence, from the platform rather
       // than from browser globals a phone does not have (POD-2055 WP-C).

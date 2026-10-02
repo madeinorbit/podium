@@ -24,9 +24,14 @@ export function socketLoginOptions(
   try {
     const socket = new URL(url)
     const origin = new URL(httpOrigin)
-    matches = socket.protocol === (origin.protocol === 'https:' ? 'wss:' : 'ws:') &&
-      socket.pathname === '/client' && socket.hostname === origin.hostname && socket.port === origin.port
-  } catch { /* Invalid URLs never receive a credential. */ }
+    matches =
+      socket.protocol === (origin.protocol === 'https:' ? 'wss:' : 'ws:') &&
+      socket.pathname === '/client' &&
+      socket.hostname === origin.hostname &&
+      socket.port === origin.port
+  } catch {
+    /* Invalid URLs never receive a credential. */
+  }
   return matches
     ? { ...options, headers: { ...options?.headers, Authorization: `Bearer ${bearer}` } }
     : options
@@ -42,7 +47,7 @@ export function createSocketLogin(options: {
   Socket?: SocketConstructor
 }): NonNullable<SocketHubOptions['makeSocket']> {
   return (url) => {
-    const Socket = options.Socket ?? globalThis.WebSocket as unknown as SocketConstructor
+    const Socket = options.Socket ?? (globalThis.WebSocket as unknown as SocketConstructor)
     if (options.credentials.delivery === 'browser') return new Socket(url)
     return new Socket(url, undefined, socketLoginOptions(url, options.httpOrigin, options.bearer()))
   }

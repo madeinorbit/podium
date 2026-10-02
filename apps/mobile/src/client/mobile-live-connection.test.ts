@@ -5,8 +5,12 @@ import { mobileVersionObservers } from './mobile-live-connection'
 
 describe('mobile version remedy over the shared observer', () => {
   it('reports unreadable rows immediately and probes only the first refused frame', async () => {
-    const fetchVersion = vi.fn(async () => ({ wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() }))
-    const report = vi.fn(), observer = mobileVersionObservers({ credentials: cookieCredentials, fetchVersion, report })
+    const fetchVersion = vi.fn(async () => ({
+      wireVersion: CLIENT_WIRE_VERSION,
+      wireSchemaDigest: wireSchemaDigest(),
+    }))
+    const report = vi.fn(),
+      observer = mobileVersionObservers({ credentials: cookieCredentials, fetchVersion, report })
     observer.onWireSkew!({ quarantined: 1, refusedFrames: 0, since: 1 })
     expect(fetchVersion).not.toHaveBeenCalled()
     expect(report.mock.calls[0]![0]).toContain('1 item')
@@ -20,32 +24,58 @@ describe('mobile version remedy over the shared observer', () => {
     observer.dispose()
   })
   it('names the server when the installed phone is ahead of it', async () => {
-    const report = vi.fn(), observer = mobileVersionObservers({
-      credentials: { ...cookieCredentials, delivery: 'native' },
-      fetchVersion: async () => ({ wireVersion: CLIENT_WIRE_VERSION - 1 }), report,
-    })
+    const report = vi.fn(),
+      observer = mobileVersionObservers({
+        credentials: { ...cookieCredentials, delivery: 'native' },
+        fetchVersion: async () => ({ wireVersion: CLIENT_WIRE_VERSION - 1 }),
+        report,
+      })
     observer.onReconnect!()
     await vi.waitFor(() => expect(report).toHaveBeenCalledOnce())
     expect(report.mock.calls[0]![0]).toContain('Update your server to continue.')
     observer.dispose()
   })
-  it.each(['browser', 'native'] as const)('offers the %s remedy after the server moves to a newer wire', async (delivery) => {
-    const report = vi.fn(), observer = mobileVersionObservers({
-      credentials: { ...cookieCredentials, delivery }, fetchVersion: async () => ({ wireVersion: CLIENT_WIRE_VERSION + 1 }), report,
-    })
+  it.each([
+    'browser',
+    'native',
+  ] as const)('offers the %s remedy after the server moves to a newer wire', async (delivery) => {
+    const report = vi.fn(),
+      observer = mobileVersionObservers({
+        credentials: { ...cookieCredentials, delivery },
+        fetchVersion: async () => ({ wireVersion: CLIENT_WIRE_VERSION + 1 }),
+        report,
+      })
     observer.onReconnect!()
     await vi.waitFor(() => expect(report).toHaveBeenCalledOnce())
-    expect(report.mock.calls[0]![0]).toContain(delivery === 'browser' ? 'Reload' : 'Update Podium on this device')
+    expect(report.mock.calls[0]![0]).toContain(
+      delivery === 'browser' ? 'Reload' : 'Update Podium on this device',
+    )
     observer.dispose()
   })
   it('ignores an unavailable version and an in-flight answer from the previous owner', async () => {
-    const report = vi.fn(), offline = mobileVersionObservers({ credentials: cookieCredentials, fetchVersion: async () => { throw new Error('offline') }, report })
+    const report = vi.fn(),
+      offline = mobileVersionObservers({
+        credentials: cookieCredentials,
+        fetchVersion: async () => {
+          throw new Error('offline')
+        },
+        report,
+      })
     offline.onReconnect!()
     let finish!: (value: unknown) => void
-    const pending = mobileVersionObservers({ credentials: cookieCredentials, fetchVersion: () => new Promise((resolve) => { finish = resolve }), report })
-    pending.onReconnect!(); pending.dispose()
+    const pending = mobileVersionObservers({
+      credentials: cookieCredentials,
+      fetchVersion: () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+      report,
+    })
+    pending.onReconnect!()
+    pending.dispose()
     finish({ wireVersion: CLIENT_WIRE_VERSION + 1 })
-    await Promise.resolve(); await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
     expect(report).not.toHaveBeenCalled()
     offline.dispose()
   })

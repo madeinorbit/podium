@@ -28,10 +28,7 @@ export type AppStateStatus = 'active' | 'background' | 'inactive' | 'unknown' | 
 /** The slice of RN's `AppState` this uses. */
 export interface AppStateLike {
   readonly currentState: AppStateStatus
-  addEventListener(
-    type: 'change',
-    handler: (state: AppStateStatus) => void,
-  ): { remove(): void }
+  addEventListener(type: 'change', handler: (state: AppStateStatus) => void): { remove(): void }
 }
 
 /** The slice of a NetInfo state this reads. Both fields are nullable upstream. */
@@ -166,7 +163,9 @@ export function createNativeConnectivity(deps: {
     isOnline: () => online,
     attachHub: (attached) => {
       hub = attached
-      return () => { if (hub === attached) hub = undefined }
+      return () => {
+        if (hub === attached) hub = undefined
+      }
     },
     dispose: () => {
       disposed = true

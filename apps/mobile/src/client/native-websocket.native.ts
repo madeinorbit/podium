@@ -1,4 +1,8 @@
-import { createSocketLogin, socketLoginOptions, type SocketConstructor } from '@podium/client-core/live-connection'
+import {
+  createSocketLogin,
+  socketLoginOptions,
+  type SocketConstructor,
+} from '@podium/client-core/live-connection'
 
 let activeOrigin: string | null = null
 let activeBearer: string | null = null
@@ -42,6 +46,7 @@ export function installNativeWebSocketAuthentication(): void {
 export function makePlatformSocketLogin(options: Parameters<typeof createSocketLogin>[0]) {
   return createSocketLogin({
     ...options,
-    Socket: originalSocket ?? globalThis.WebSocket as unknown as SocketConstructor,
+    Socket:
+      options.Socket ?? originalSocket ?? (globalThis.WebSocket as unknown as SocketConstructor),
   })
 }

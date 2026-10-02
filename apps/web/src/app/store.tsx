@@ -24,7 +24,7 @@ import {
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
-import type { SessionId} from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
@@ -144,9 +144,7 @@ export function useStoreSelector<T>(
  * identities, so Object.is keeps this reader asleep when another session moves. */
 export function useSession(sessionId: SessionId | undefined): SessionView | undefined {
   return useStoreSelector((s) =>
-    sessionId === undefined
-      ? undefined
-      : sessionById(s.sessions).get(sessionId),
+    sessionId === undefined ? undefined : sessionById(s.sessions).get(sessionId),
   )
 }
 
@@ -177,7 +175,11 @@ function useReplicaIssueSources(): Pick<Store, 'replica' | 'issueProjections'> &
   issueUserStates: Store['issueUserStates']
 } {
   return useStoreSelector(
-    (s) => ({ replica: s.replica, issueProjections: s.issueProjections, issueUserStates: s.issueUserStates }),
+    (s) => ({
+      replica: s.replica,
+      issueProjections: s.issueProjections,
+      issueUserStates: s.issueUserStates,
+    }),
     (a, b) =>
       a.replica === b.replica &&
       a.issueProjections === b.issueProjections &&

@@ -13,7 +13,9 @@ export function serverRelocationDestination(
   return claim.toString()
 }
 
-export function browserServerRelocation(location: Pick<Location, 'pathname' | 'search' | 'hash' | 'replace'>): ServerRelocation {
+export function browserServerRelocation(
+  location: Pick<Location, 'pathname' | 'search' | 'hash' | 'replace'>,
+): ServerRelocation {
   return (publicUrl, _transferId, claimToken) => {
     const next = `${location.pathname}${location.search}${location.hash}`
     location.replace(serverRelocationDestination(publicUrl, next, claimToken))

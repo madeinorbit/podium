@@ -40,7 +40,8 @@ function isRelayedMessage(value: unknown, principal: string): value is RelayedMe
     message.principal !== principal ||
     message.frame === null ||
     typeof message.frame !== 'object'
-  ) return false
+  )
+    return false
   return message.frame.type === 'feedDelta' || message.frame.type === 'feedRescope'
 }
 
@@ -76,19 +77,27 @@ export function createFeedRelay(
     sink.frame(frame)
     if (fromSocket) {
       channel?.postMessage({
-        kind: 'podium-kernel-feed', version: 1, principal: options.principal, frame,
+        kind: 'podium-kernel-feed',
+        version: 1,
+        principal: options.principal,
+        frame,
       } satisfies RelayedMessage)
     }
   }
-  if (channel) channel.onmessage = (event) => {
-    if (isRelayedMessage(event.data, options.principal)) deliver(event.data.frame, false)
-  }
+  if (channel)
+    channel.onmessage = (event) => {
+      if (isRelayedMessage(event.data, options.principal)) deliver(event.data.frame, false)
+    }
   return {
     feed: {
       syncHttp: sink.syncHttp,
-      requestRebootstrap: () => { if (!stopped) sink.requestRebootstrap?.() },
+      requestRebootstrap: () => {
+        if (!stopped) sink.requestRebootstrap?.()
+      },
       helloFields: () => sink.helloFields(),
-      connected: (worldPromised) => { if (!stopped) sink.connected(worldPromised) },
+      connected: (worldPromised) => {
+        if (!stopped) sink.connected(worldPromised)
+      },
       disconnected: () => sink.disconnected(),
       frame: (frame) => deliver(frame, true),
     },

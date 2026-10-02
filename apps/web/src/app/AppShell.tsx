@@ -1,5 +1,9 @@
 import { cookieCredentials } from '@podium/client-core/accounts'
-import { browserServerRelocation, createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
+import {
+  browserServerRelocation,
+  createSocketLogin,
+  observeLiveConnection,
+} from '@podium/client-core/live-connection'
 import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -205,13 +209,16 @@ function SheetFallback({
 function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
   const hub = useStoreSelector((s) => s.hub)
   useEffect(
-    () => observeLiveConnection(hub, {
-      onWireSkew: (skew) => {
-        reportSkew(describeWireSkew(skew))
-        void recoverFromWireSkew(httpOrigin, skew)
-      },
-      onReconnect: () => { void checkServedAssets(httpOrigin) },
-    }),
+    () =>
+      observeLiveConnection(hub, {
+        onWireSkew: (skew) => {
+          reportSkew(describeWireSkew(skew))
+          void recoverFromWireSkew(httpOrigin, skew)
+        },
+        onReconnect: () => {
+          void checkServedAssets(httpOrigin)
+        },
+      }),
     [hub, httpOrigin],
   )
   return null
@@ -249,11 +256,13 @@ export function AppShell({
   // screens — a drag released over a loading app would navigate it away too.
   useFileDropGuard()
   const [config] = useState(() => serverConfig(window.location))
-  const [makeSocket] = useState(() => createSocketLogin({
-    credentials: cookieCredentials,
-    httpOrigin: config.httpOrigin,
-    bearer: () => null,
-  }))
+  const [makeSocket] = useState(() =>
+    createSocketLogin({
+      credentials: cookieCredentials,
+      httpOrigin: config.httpOrigin,
+      bearer: () => null,
+    }),
+  )
   const [appError, setAppError] = useState<string | null>(null)
   // Keep the current value above AppShell's own error/provider branches. The
   // parent owns the same handoff above LoginGate for a whole-shell replacement.
