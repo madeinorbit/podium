@@ -69,8 +69,14 @@ export class IssueReferences implements IssueReferenceReader {
 
   /** An arriving cold row can satisfy a previously missing demand key.
    * Refresh only that key inside the pool's publication action. */
-  arrived(row: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'>): void {
-    const key = issueRefKey(canonicalIssueRef(row))
+  arrived(row: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'> & { repoId?: string | null }): void {
+    // Normalized projections carry repoId and seq, not a derived prefix.
+    // Use the same resident repo join as source(), without warming this issue.
+    const repo = row.repoId ? this.host.row('repo', row.repoId) : undefined
+    if (repo === LOADING) return
+    const prefix = (repo as { prefix?: string | null } | undefined)?.prefix ?? row.prefix
+    const ref = row.repoId ? (prefix ? `${prefix}-${row.seq}` : `#${row.seq}`) : canonicalIssueRef(row)
+    const key = issueRefKey(ref)
     if (!this.requests.has(key)) return
     this.requests.set(key, LOADING)
     this.queue(key)

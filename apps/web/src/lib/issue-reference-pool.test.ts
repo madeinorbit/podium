@@ -261,6 +261,34 @@ describe('per-issue pool references', () => {
     pool.dispose()
   })
 
+  it('refreshes a missing normalized cold ref through its repo identity', () => {
+    const cold = issue(1, { archived: true, repoId: 'r', prefix: undefined, displayRef: undefined })
+    const due: Array<() => void> = []
+    let localRow: typeof cold | undefined
+    const load = vi.fn(() => localRow)
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
+      load,
+      issueIdByRef: ref => ref === 'POD-1' ? localRow?.id : undefined,
+      schedule: run => { due.push(run); return () => {} },
+    })
+    pool.apply({ type: 'replace', rows: [
+      { kind: 'worktree', id: 'r', value: { id: 'r', prefix: 'POD', repoPath: '/r' } as never },
+    ] })
+    const paint = vi.fn()
+    const stop = reaction(() => pool.references.read('POD-1'), paint, { fireImmediately: true })
+    due.shift()!()
+    expect(paint.mock.calls.at(-1)?.[0]).toBeNull()
+    localRow = cold
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: cold.id, value: cold as never }] })
+    expect(paint.mock.calls.at(-1)?.[0]).toBe(LOADING)
+    expect(due).toHaveLength(1)
+    due.shift()!()
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(paint.mock.calls.at(-1)?.[0]).toMatchObject({ ref: 'POD-1', availability: 'archived' })
+    stop()
+    pool.dispose()
+  })
+
   it('refreshes missing refs when a cold row arrives and across scope replacements', () => {
     const cold = issue(1, { archived: true })
     const due: Array<() => void> = []
