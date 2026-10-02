@@ -24,7 +24,7 @@ vi.mock('expo-haptics', () => ({
   selectionAsync: vi.fn(async () => {}),
 }))
 vi.mock('expo-router', () => ({
-  Stack: { Screen: () => null },
+  Stack: { Screen: () => null, SearchBar: () => null },
   useLocalSearchParams: () => ({ issueId: 'root', missionId: 'root' }),
   useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn(), canGoBack: () => false }),
   usePathname: () => '/issue/root',
@@ -235,7 +235,10 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     expect(latest).not.toHaveProperty('draft')
     expect(latest).not.toHaveProperty('origin')
     expect(latest).not.toHaveProperty('humanQuestion')
-    expect(screen.getByTestId('model').textContent).toContain('"booting":false')
+    const rendered = JSON.parse(screen.getByTestId('model').textContent ?? '{}')
+    expect(rendered.list).toHaveLength(1)
+    expect(rendered.list[0].id).toBe(projection.id)
+    expect(rendered.booting).toBe(false)
   })
 
   it('renders before related kinds arrive, then follows evict and readmission', async () => {
