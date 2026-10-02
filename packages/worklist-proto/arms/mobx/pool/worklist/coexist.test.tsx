@@ -28,9 +28,6 @@ import { legacyControlArmFor } from '../../../../harness/src/legacy-control/arm'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
-import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
-import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 import {
   startScenarioEngine,
   type FixtureScale,
@@ -71,12 +68,10 @@ async function soloArm(scenario: 'heartbeat' | 'click', scale: FixtureScale): Pr
 
 async function soloControl(scenario: 'heartbeat' | 'click', scale: FixtureScale): Promise<SoloCounts> {
   const ctx = await startScenarioEngine(scale)
-  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
-  const locals: SliceLocals = {
-    selectedIssueId: null,
-    coarseNow: ctx.engine.getSnapshot().coarseNow,
-  }
-  const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixedLocals(locals))
+  // Use the same engine-backed channels as coRun: a fixed solo selection
+  // changes which publications the legacy control redraws on a click.
+  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), feeds.rows.source, feeds.locals)
   try {
     const result = await runCountScenario(mounted, {
       scenario: scenario === 'heartbeat' ? 'unrelatedHeartbeat' : 'selectionClick',
@@ -84,16 +79,16 @@ async function soloControl(scenario: 'heartbeat' | 'click', scale: FixtureScale)
       apply: async () => {
         if (scenario === 'heartbeat') await writeHeartbeat(ctx)
         else await writeSelectionClick(ctx)
-        source.flush()
+        feeds.flush()
       },
-      expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+      expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
     })
     expect(result.parity, `solo control ${scenario}: parity`).toBe(true)
     expect(result.readsPerChange).not.toBeNull()
     return { rows: result.rowsCommitted, stats: result.stats, reads: result.readsPerChange! }
   } finally {
     mounted.unmount()
-    source.dispose()
+    feeds.dispose()
     ctx.engine.destroy()
   }
 }
