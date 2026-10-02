@@ -47,9 +47,10 @@ try {
       if (stats.failures.length) throw new Error('Provider failed')
     }
     // The indirect Machines panel must be part of the zero-reader proof.
-    await page.getByRole('button', { name: 'Machines', exact: true }).click()
-    await page.getByText('Host 1', { exact: true }).first().waitFor()
     await page.evaluate(() => window.__settings.reset())
+    await page.getByRole('button', { name: 'Machines', exact: true }).click()
+    await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor()
+    await page.locator('.settings-label').filter({ hasText: /^Host 1$/ }).waitFor()
     await page.evaluate(() => window.__settings.activity(5))
     const machineStats = await page.evaluate(() => window.__settings.stats())
     results[`${mode}.machines`] = machineStats
