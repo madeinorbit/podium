@@ -53,6 +53,12 @@ class MissionNode {
 }
 const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id))
 const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
+const paneValues = {
+  full: cachedGroup('missionPaneFull', (node: MissionNode) => deriveMissionView(node.view, node.id, 'full')),
+  working: cachedGroup('missionPaneWorking', (node: MissionNode) => deriveMissionView(node.view, node.id, 'working')),
+  'needs-you': cachedGroup('missionPaneNeedsYou', (node: MissionNode) => deriveMissionView(node.view, node.id, 'needs-you')),
+}
+const handoffValue = cachedGroup('missionHandoff', (node: MissionNode) => deriveMissionHandoff(node.view, node.id))
 const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 const visible = (issue: { archived?: boolean; deletedAt?: string | null }) => !issue.archived && !issue.deletedAt
 const openSession = sessionPresentOnTask
@@ -71,6 +77,10 @@ export class MissionViewReader {
     return node
   }
   constructor(readonly pool: MobxPool) {}
+  values(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
+    return id ? paneValues[mode](this.node(id)) : EMPTY_MISSION_VIEW
+  }
+  handoff(id: string): MissionHandoffValues | typeof LOADING { return handoffValue(this.node(id)) }
   issue(id: string): Loaded<IssueNavigationModel> { return issueValue(this.node(id)) }
   /** Menu catalogs use authored labels and references, not other tasks' crew. */
   catalogIssue(id: string): Loaded<IssueNavigationModel> {
@@ -539,6 +549,9 @@ function progressFor(ctx: MissionContext, root: IssueNavigationModel, members: R
 }
 
 export function readMissionView(view: MissionViewReader, selectedId: string | null, mode: FlightDeckMode = 'full'): MissionViewValues | typeof LOADING {
+  return view.values(selectedId, mode)
+}
+function deriveMissionView(view: MissionViewReader, selectedId: string, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
   view.stats.values++
   try {
     const root = view.selectedRoot(selectedId)
@@ -846,6 +859,9 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
     machines: view.pool.headerViews.machines(), session, issue: selected[0] }
 }
 export function readMissionHandoff(view: MissionViewReader, rootId: string): MissionHandoffValues | typeof LOADING {
+  return view.handoff(rootId)
+}
+function deriveMissionHandoff(view: MissionViewReader, rootId: string): MissionHandoffValues | typeof LOADING {
   try {
     const members = missions(view.pool).members(rootId)
     if (members === LOADING) return LOADING
