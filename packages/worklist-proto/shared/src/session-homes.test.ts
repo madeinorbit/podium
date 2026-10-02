@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import type { PendingOverlay } from '@podium/client-core/engine'
 import { createRowSource, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
 import { asUserId, asSessionId, sessionUserStateRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -51,13 +52,20 @@ function boot(mode: 'truth' | 'overlaid' = 'overlaid') {
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
-  const pending = new Map()
+  const pending = new Map<string, PendingOverlay[]>()
+  const pendingUsers = new Map<string, PendingOverlay[]>()
+  const none = new Map<string, PendingOverlay[]>()
+  const listeners = new Set<() => void>()
   const snapshot = { repos: [] }
   const runtime: RowSourceRuntime = {
     principal: { userId: 'b' },
     getSnapshot: () => snapshot,
-    subscribe: () => () => {},
-    pendingOverlaysByRow: () => pending,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    pendingOverlaysByRow: (kind) =>
+      kind === 'sessions' ? pending : kind === 'sessionUserStates' ? pendingUsers : none,
   }
   const handle = createRowSource(runtime, replica, { mode })
   const push = (entity: string, id: string, payload?: unknown, op = 'upsert') => {
@@ -73,7 +81,10 @@ function boot(mode: 'truth' | 'overlaid' = 'overlaid') {
       } as never)
     }
   }
-  return { cache, replica, handle, push, pending }
+  const notify = () => {
+    for (const listener of listeners) listener()
+  }
+  return { cache, replica, handle, push, pending, pendingUsers, notify }
 }
 
 describe('session homes in the graph row source', () => {
@@ -224,6 +235,75 @@ describe('session homes in the graph row source', () => {
       handle.flush()
       push('repo', 'r1', { id: 'r1', prefix: 'NO_LONGER_USED' })
       expect(handle.flush()?.rows.filter((row) => row.kind === 'session')).toEqual([])
+    } finally {
+      handle.dispose()
+    }
+  })
+  const personalEdits = [
+    { name: 'mark read', before: { readAt: null }, patch: { readAt: at }, shown: { readAt: at, unread: false } },
+    { name: 'mark unread', before: { readAt: at }, patch: { readAt: null }, shown: { readAt: null, unread: true } },
+    { name: 'snooze', before: { readAt: at }, patch: { snoozedUntil: null }, shown: { readAt: at, unread: false, snoozedUntil: null } },
+    { name: 'clear snooze', before: { readAt: at, snoozedUntil: null }, patch: { snoozedUntil: undefined }, shown: { readAt: at, unread: false, snoozedUntil: undefined } },
+  ]
+  for (const edit of personalEdits) {
+    for (const mode of ['truth', 'overlaid'] as const) {
+      it(`${edit.name}: per-user paint and rollback in ${mode} mode`, () => {
+        const { handle, push, pendingUsers, notify } = boot(mode)
+        try {
+          push('sessionUserState', key('b'), { userId: 'b', sessionId: 's1', ...edit.before })
+          handle.flush()
+          const truth = handle.source.row!('session', 's1')
+          const other = handle.source.row!('session', 's2')
+          pendingUsers.set('s1', [{
+            key: edit.name,
+            entity: 'sessionUserStates',
+            id: 's1',
+            op: 'patch',
+            patch: edit.patch,
+            coveredBy: () => false,
+          }])
+          notify()
+          const painted = handle.flush()
+          if (mode === 'overlaid') {
+            expect(painted?.rows.map((row) => row.id)).toEqual(['s1'])
+            expect(handle.source.row!('session', 's1')).toMatchObject(edit.shown)
+          } else {
+            expect(painted).toBeNull()
+            expect(handle.source.row!('session', 's1')).toBe(truth)
+          }
+          expect(handle.source.row!('session', 's2')).toBe(other)
+          pendingUsers.clear()
+          notify()
+          const rollback = handle.flush()
+          expect(rollback?.rows.map((row) => row.id) ?? []).toEqual(mode === 'overlaid' ? ['s1'] : [])
+          expect(handle.source.row!('session', 's1')).toBe(truth)
+        } finally {
+          handle.dispose()
+        }
+      })
+    }
+  }
+  it('joins an optimistic spawn with its per-user insert and emits its rollback', () => {
+    const { handle, pending, pendingUsers, notify } = boot()
+    try {
+      const { readAt: _readAt, unread: _unread, snoozedUntil: _snooze, ...own } = row
+      pending.set('spawn', [{
+        key: 'spawn', entity: 'sessions', id: 'spawn', op: 'insert',
+        insert: { ...own, sessionId: 'spawn' } as never,
+      }])
+      pendingUsers.set('spawn', [{
+        key: 'spawn-user', entity: 'sessionUserStates', id: 'spawn', op: 'insert',
+        insert: { userId: asUserId('b'), sessionId: asSessionId('spawn'), readAt: at },
+      }])
+      notify()
+      expect(handle.flush()?.rows.map((row) => row.id)).toEqual(['spawn'])
+      expect(handle.source.row!('session', 'spawn')).toMatchObject({ readAt: at, unread: false })
+      expect(handle.source.snapshot('session').find((row) => row.id === 'spawn')?.value)
+        .toMatchObject({ readAt: at, unread: false })
+      pending.clear()
+      pendingUsers.clear()
+      notify()
+      expect(handle.flush()?.rows).toEqual([{ kind: 'session', id: 'spawn', value: undefined }])
     } finally {
       handle.dispose()
     }

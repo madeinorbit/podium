@@ -10,12 +10,14 @@ import { addSink, resetLevels, setLogLevel } from '@podium/logger'
 import {
   asIssueId,
   asMutationId,
+  asSessionId,
   asUserId,
   type IssueProjection,
   type IssueUserStateWire,
   type IssueWire,
   type SessionMeta,
   type SessionMetaInput,
+  type SessionUserStateWire,
 } from '@podium/model'
 
 import { describe, expect, it } from 'vitest'
@@ -62,6 +64,13 @@ const userState = (over: Partial<IssueUserStateWire> = {}): IssueUserStateWire =
   ...over,
 })
 
+const sessionUserState = (over: Partial<SessionUserStateWire> = {}): SessionUserStateWire => ({
+  userId: asUserId('u1'),
+  sessionId: asSessionId('s1'),
+  readAt: null,
+  ...over,
+})
+
 const sess = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
   ({
     sessionId: 's1',
@@ -85,7 +94,7 @@ describe('overlayForOutboxEntry projection', () => {
     expect(o.coveredBy(sess())).toBe(false)
   })
 
-  it('archive / work-state / snooze project their exact old optimistic patches', () => {
+  it('archive / work-state / snooze project patches on their owning rows', () => {
     const arch = overlayForOutboxEntry(entry('setArchived', { sessionId: 's1', archived: true }))
     if (arch?.op !== 'patch') throw new Error('expected patch')
     expect(arch.patch).toEqual({ archived: true })
@@ -101,14 +110,17 @@ describe('overlayForOutboxEntry projection', () => {
       entry('snoozeSet', { sessionId: 's1', until: '2026-07-10T00:00:00.000Z' }),
     )
     if (snooze?.op !== 'patch') throw new Error('expected patch')
+    expect(snooze.entity).toBe('sessionUserStates')
     expect(snooze.patch).toEqual({ snoozedUntil: '2026-07-10T00:00:00.000Z' })
-    expect(snooze.coveredBy(sess({ snoozedUntil: '2026-07-10T00:00:00.000Z' }))).toBe(true)
+    expect(snooze.coveredBy(sessionUserState({ snoozedUntil: '2026-07-10T00:00:00.000Z' }))).toBe(true)
 
     const clear = overlayForOutboxEntry(entry('snoozeClear', { sessionId: 's1' }))
     if (clear?.op !== 'patch') throw new Error('expected patch')
+    expect(clear.entity).toBe('sessionUserStates')
     expect(clear.patch).toEqual({ snoozedUntil: undefined })
-    expect(clear.coveredBy(sess())).toBe(true)
-    expect(clear.coveredBy(sess({ snoozedUntil: 'x' }))).toBe(false)
+    expect(clear.coveredBy(sessionUserState())).toBe(true)
+    expect(clear.coveredBy(sessionUserState({ snoozedUntil: 'x' }))).toBe(false)
+    expect(clear.coveredBy(sessionUserState({ snoozedUntil: null }))).toBe(false)
   })
 
   // POD-1110 — "none of these" queues like every other row edit, and this is the
@@ -137,10 +149,11 @@ describe('overlayForOutboxEntry projection', () => {
   it('mark read/unread target the owning readAt field; server clocks may differ', () => {
     const read = overlayForOutboxEntry(entry('sessionMarkRead', { sessionId: 's1' }, 1751500800000))
     if (read?.op !== 'patch') throw new Error('expected patch')
-    expect(read.patch).toEqual({ readAt: new Date(1751500800000).toISOString(), unread: false })
+    expect(read.entity).toBe('sessionUserStates')
+    expect(read.patch).toEqual({ readAt: new Date(1751500800000).toISOString() })
     // The server stamps its OWN clock — a different readAt still covers.
-    expect(read.coveredBy(sess({ unread: false, readAt: '2099-01-01T00:00:00.000Z' }))).toBe(true)
-    expect(read.coveredBy(sess({ unread: true }))).toBe(false)
+    expect(read.coveredBy(sessionUserState({ readAt: '2099-01-01T00:00:00.000Z' }))).toBe(true)
+    expect(read.coveredBy(sessionUserState())).toBe(false)
 
     const issueRead = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' }, 1751500800000))
     if (issueRead?.op !== 'patch') throw new Error('expected patch')
@@ -527,11 +540,11 @@ describe('foldOverlays', () => {
   it('composes multiple patches on one row in queue order (later fields win)', () => {
     const base = [sess()]
     const first = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'first' }))
-    const unread = overlayForOutboxEntry(entry('sessionMarkUnread', { sessionId: 's1' }))
+    const archived = overlayForOutboxEntry(entry('setArchived', { sessionId: 's1', archived: true }))
     const second = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'second' }))
-    const { rows } = foldOverlays(base, [first, unread, second] as PendingOverlay[], keyOf)
+    const { rows } = foldOverlays(base, [first, archived, second] as PendingOverlay[], keyOf)
     expect(rows[0]?.name).toBe('second')
-    expect(rows[0]?.unread).toBe(true)
+    expect(rows[0]?.archived).toBe(true)
     expect(base[0]?.name).toBeUndefined() // base rows are never mutated
   })
 
@@ -568,11 +581,16 @@ describe('foldOverlays', () => {
     expect(folded.rows[0]).toBe(base[0])
   })
 
-  it('reads null and absent as ONE value, the way the rows it folds are read', () => {
-    const base = [sess({ sessionId: 's1' })]
+  it('clearing an absent snooze preserves identity, but a null snooze is a value', () => {
+    const base = [sessionUserState()]
     expect(base[0] && 'snoozedUntil' in base[0]).toBe(false)
     const cleared = overlayForOutboxEntry(entry('snoozeClear', { sessionId: 's1' }))
-    expect(foldOverlays(base, [cleared as PendingOverlay], keyOf).rows).toBe(base)
+    const key = (s: SessionUserStateWire): string => s.sessionId
+    expect(foldOverlays(base, [cleared as PendingOverlay], key).rows).toBe(base)
+    const untilMessage = [sessionUserState({ snoozedUntil: null })]
+    const folded = foldOverlays(untilMessage, [cleared as PendingOverlay], key).rows
+    expect(folded).not.toBe(untilMessage)
+    expect(folded[0]?.snoozedUntil).toBeUndefined()
   })
 
   it('still mints a fresh row when the COMPOSED patches move a cell', () => {
@@ -603,15 +621,15 @@ describe('foldRowOverlays (POD-4553: the per-row fold agrees with foldOverlays)'
   const keyOf = (s: SessionMeta): string => s.sessionId
   const rename = (id: string, name: string) =>
     overlayForOutboxEntry(entry('rename', { sessionId: id, name })) as PendingOverlay
-  const unread = (id: string) =>
-    overlayForOutboxEntry(entry('sessionMarkUnread', { sessionId: id })) as PendingOverlay
+  const archived = (id: string) =>
+    overlayForOutboxEntry(entry('setArchived', { sessionId: id, archived: true })) as PendingOverlay
   const cases: { name: string; base: SessionMeta[]; overlays: PendingOverlay[] }[] = [
     { name: 'no overlays', base: [sess()], overlays: [] },
     { name: 'patch on a missing row', base: [sess()], overlays: [rename('ghost', 'x')] },
     {
       name: 'composed patches',
       base: [sess()],
-      overlays: [rename('s1', 'a'), unread('s1'), rename('s1', 'b')],
+      overlays: [rename('s1', 'a'), archived('s1'), rename('s1', 'b')],
     },
     {
       name: 'no-op paint',
