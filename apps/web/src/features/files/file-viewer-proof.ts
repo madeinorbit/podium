@@ -31,7 +31,9 @@ try {
   await page.goto(`${origin}${path}?mobxPreferences=${arm === 'pool' ? 1 : 0}`)
   await page.waitForFunction(() => window.__fileViewers?.ready() && document.querySelectorAll('.cm-editor').length >= 2 && document.querySelector('iframe'), null, { timeout: 60000 })
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
-  const result: Record<string, unknown> = { browser: browser.version(), boot: await page.evaluate(() => window.__fileViewers.stats()) }
+  const boot = await page.evaluate(() => window.__fileViewers.stats())
+  if (arm === 'pool' && (boot.selectors || boot.legacyReads || boot.legacyDerivations)) throw new Error('Legacy file/Git reader executed during mount')
+  const result: Record<string, unknown> = { browser: browser.version(), boot }
   const cdp = await page.context().newCDPSession(page)
   if (!countsOnly) await cdp.send('Performance.enable')
   const metrics = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((entry) => [entry.name, entry.value]))
