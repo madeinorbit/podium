@@ -12,7 +12,7 @@ import { LOADING } from '../src/worklist/rollup'
 export interface MissionCheckRow {
   readonly id: string
   readonly root: string | null | typeof LOADING
-  readonly members: readonly string[] | typeof LOADING
+  readonly members: readonly string[] | typeof LOADING | null
 }
 export interface MissionDifference {
   readonly issueId: string
@@ -31,20 +31,18 @@ export interface MissionCheckResult {
 }
 
 export function legacyMissionSnapshot(issues: readonly MissionIssueTopology[], sessions: readonly SessionView[]): MissionCheckRow[] {
-  return issues.map(issue => ({
-    id: issue.id,
-    root: missionRootFor(issues, asIssueId(issue.id))?.id ?? null,
-    // Compare every possible root, including a child explicitly used as a
-    // deck root. This catches invalid grafted descendants hidden by rootFor.
-    members: [...missionIssueIds(issues, issue.id, sessions)].sort(),
-  }))
+  return issues.map(issue => {
+    const root = missionRootFor(issues, asIssueId(issue.id))?.id ?? null
+    return { id: issue.id, root, members: root === issue.id ? [...missionIssueIds(issues, root, sessions)].sort() : null }
+  })
 }
 
 export function poolMissionSnapshot(pool: MobxPool): MissionCheckRow[] {
   const view = missions(pool)
   return knownIssueIds(pool).map(id => {
-    const members = view.members(id)
-    return { id, root: view.rootFor(id) ?? null, members: members === LOADING ? LOADING : [...members].sort() }
+    const root = view.rootFor(id) ?? null
+    const members = root === LOADING ? LOADING : root === id ? view.members(id) : null
+    return { id, root, members: members === LOADING || members === null ? members : [...members].sort() }
   })
 }
 
@@ -69,6 +67,10 @@ export function compareMissionSnapshots(expected: readonly MissionCheckRow[], ac
     if (e.root === LOADING || a.root === LOADING) pending++
     else if (e.root !== a.root) flag({ ...location, field: 'root', expectedId: e.root, actualId: a.root })
     if (e.members === LOADING || a.members === LOADING) { pending++; continue }
+    if (e.members === null || a.members === null) {
+      if (e.members !== a.members) flag({ ...location, field: 'member', expectedId: e.members === null ? null : id, actualId: a.members === null ? null : id })
+      continue
+    }
     for (const rows of [e.members, a.members]) {
       const seen = new Set<string>()
       for (const [position, member] of rows.entries()) {
@@ -84,7 +86,7 @@ export function compareMissionSnapshots(expected: readonly MissionCheckRow[], ac
   return {
     issues: expected.length,
     roots: new Set(expected.flatMap(row => row.root === null || row.root === LOADING ? [] : [row.root])).size,
-    memberships: expected.reduce((n, row) => n + (row.members === LOADING ? 0 : row.members.length), 0),
+    memberships: expected.reduce((n, row) => n + (row.members === LOADING || row.members === null ? 0 : row.members.length), 0),
     differences, pending, first,
   }
 }
