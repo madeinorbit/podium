@@ -1,4 +1,5 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineWire } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -14,7 +15,7 @@ function fixture() {
   const sessions = sessionPaneFixture()
   const machines = [{ id: 'machine-a', name: 'Host', online: true }, { id: 'machine-b', name: 'Offline host', online: false }] as MachineWire[]
   let state = { sessions, machines, panelMode: { 'pane-0': 'chat' }, dockShells: { '/synthetic/w19': 'pane-19' },
-    reposLoaded: true, pendingSpawnIds: new Set(['pane-11']), coarseNow: SESSION_PANE_NOW } as unknown as Store
+    reposLoaded: true, pendingSpawnIds: new Set(['pane-11']), coarseNow: SESSION_PANE_NOW, selectedIssueId: null } as unknown as Store
   const listeners = new Set<() => void>()
   const runtime = { getSnapshot: () => state, subscribe: (f: () => void) => { listeners.add(f); return () => { listeners.delete(f) } } } as ClientRuntime
   const load = vi.fn((_entity: string, id: string) => sessions.find(row => row.sessionId === id))
@@ -125,11 +126,22 @@ it('chooses the nearest eligible cwd ancestor at exact slash boundaries, includi
   } finally { pool.dispose() }
 })
 it('inherits the selected issue tint through summary fields and stops on a parent cycle', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW })
+  const pool = new MobxPool({ selectedIssueId: 'child', coarseNow: SESSION_PANE_NOW })
   try {
     pool.apply({ type: 'replace', rows: [issue('root', null, { color: 'violet' }), issue('child', null, { parentId: 'root' })].map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
     const hex = (name: string | null | undefined) => name === 'violet' ? '#abc' : undefined
     expect(paneIssueColor(pool, 'child', hex)).toBe('#abc')
+    const f = fixture()
+    try {
+      const rows = [issue('root', null, { color: 'violet' }), issue('child', null, { parentId: 'root' })]
+      f.pool.apply({ type: 'update', rows: rows.map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
+      f.pool.applyLocals({ selectedIssueId: 'child', coarseNow: SESSION_PANE_NOW }, new Set(['selectedIssueId']))
+      f.change({ selectedIssueId: 'child' as Store['selectedIssueId'] })
+      f.settle()
+      expect(checkSessionPanes(f.pool, f.state(), undefined, rows as never, hex).differences).toBe(0)
+      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: issue('root', null) as never }] })
+      expect(checkSessionPanes(f.pool, f.state(), undefined, rows as never, hex).first?.section).toBe(3)
+    } finally { f.pool.dispose() }
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: issue('root', null, { parentId: 'child' }) as never }] })
     expect(paneIssueColor(pool, 'child', hex)).toBeUndefined()
   } finally { pool.dispose() }

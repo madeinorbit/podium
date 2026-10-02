@@ -730,7 +730,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // Scoped to the superagent's own chat: the store field is one field for the
   // app, and a chip on an ordinary session's composer would name context that
   // composer will never send.
-  const attachedSession = useSession(attachedSessionId ?? undefined)
+  const attachedSession = usePaneSession(attachedSessionId ?? undefined)
   const attached = useMemo(
     () =>
       superThread && attachedSessionId

@@ -55,7 +55,7 @@ vi.mock('./use-terminal-appearance', () => ({
 vi.mock('@/lib/useNow', () => ({ useNow: () => SESSION_PANE_NOW }))
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'
-import { usePaneSession, usePaneMachines, usePanePanelModes, usePaneSpawnConfirmed, useDockPaneInputs } from './use-session-pane-inputs'
+import { usePaneSession, usePaneMachines, usePanePanelModes, usePaneSpawnConfirmed, useDockPaneInputs, usePaneOwnership } from './use-session-pane-inputs'
 
 let sessions: SessionView[]
 beforeEach(() => {
@@ -136,13 +136,15 @@ it('has zero legacy pane derivations while mounted and after an unrelated sessio
 it('never accesses legacy session, machine or window collections on the pool input path', () => {
   f.mode = 'pool'
   f.state = new Proxy(f.state, { get(target, key) {
-    if (['sessions', 'machines', 'panelMode', 'pendingSpawnIds', 'dockShells', 'reposLoaded'].includes(String(key))) throw new Error(`Legacy input read: ${String(key)}`)
+    if (['sessions', 'machines', 'panelMode', 'pendingSpawnIds', 'dockShells', 'reposLoaded', 'selectedIssueId', 'issueProjections', 'issueUserStates'].includes(String(key))) throw new Error(`Legacy input read: ${String(key)}`)
     return Reflect.get(target, key)
   } })
   function Inputs() {
     const id = sessions[0]!.sessionId
     const row = usePaneSession(id), machines = usePaneMachines(), modes = usePanePanelModes()
     const confirmed = usePaneSpawnConfirmed(id), dock = useDockPaneInputs('/synthetic/w19', null)
+    const ownership = usePaneOwnership(row)
+    expect(ownership).toMatchObject({ selectedIssueId: null, stampIssue: undefined, issueHex: undefined })
     return <div>{row?.title} {machines.length} {modes[id]} {String(confirmed)} {dock.session?.sessionId}</div>
   }
   expect(render(<Inputs />).container.textContent).toBe('Synthetic pane 0 2 chat true pane-19')

@@ -7,7 +7,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import type { MobxPool } from '../src/pool'
-import { paneSession, paneWindow, paneMachines, paneStampIssue } from '../src/session-pane'
+import { paneSession, paneWindow, paneMachines, paneStampIssue, paneIssueColor } from '../src/session-pane'
 import { SESSION_PANE_SCHEMA } from '../src/session-pane-schema'
 import { LOADING } from '../src/worklist/rollup'
 import { compareSidebarSnapshots, type CheckRow } from './sidebar-check'
@@ -27,8 +27,9 @@ export function paneComparable(row: SessionView | undefined, now: number): Recor
     dockDead: row.archived || row.status === 'exited', dockParked: !row.archived && row.status === 'hibernated',
   }
 }
-export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' | 'machines' | 'panelMode' | 'dockShells' | 'reposLoaded' | 'pendingSpawnIds' | 'coarseNow'>,
-  ids = state.sessions.map(row => row.sessionId as string), issues: readonly IssueViewModel[] = []) {
+export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' | 'machines' | 'panelMode' | 'dockShells' | 'reposLoaded' | 'pendingSpawnIds' | 'coarseNow' | 'selectedIssueId'>,
+  ids = state.sessions.map(row => row.sessionId as string), issues: readonly IssueViewModel[] = [],
+  hex: (color: string | null | undefined) => string | undefined = color => color ?? undefined) {
   let pending = 0
   let acceptedOwnershipDifferences = 0
   const expected = ids.map((id): CheckRow => {
@@ -57,23 +58,42 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     pendingSpawnIds: [...input.pendingSpawnIds].sort(),
   }
   const machineRows = (rows: typeof state.machines) => rows.map((row): CheckRow => ({ id: row.id, fields: { row } }))
+  const expectedColor = () => {
+    let row = issues.find(row => row.id === state.selectedIssueId && !row.archived && !row.deletedAt)
+    const seen = new Set<string>()
+    while (row) {
+      const own = hex(row.color)
+      if (own) return own
+      if (!row.parentId || seen.has(row.parentId)) return undefined
+      seen.add(row.parentId)
+      row = issues.find(candidate => candidate.id === row?.parentId)
+    }
+    return undefined
+  }
+  const selectedIssueId = pool.selection.keys().next().value ?? null
+  const issueHex = paneIssueColor(pool, selectedIssueId, hex)
+  if (issueHex === LOADING) pending++
   const result = compareSidebarSnapshots({ sections: [
     { key: 'sessions', fields: {}, rows: expected },
     { key: 'controls', fields: controls(state), rows: [] },
     { key: 'machines', fields: {}, rows: machineRows(state.machines) },
+    { key: 'ownership', fields: { selectedIssueId: state.selectedIssueId, issueHex: expectedColor() }, rows: [] },
   ], pending: 0 }, { sections: [
     { key: 'sessions', fields: {}, rows: actual },
     { key: 'controls', fields: controls(window), pendingFields: windowPending ? ['panelMode', 'dockShells', 'reposLoaded', 'pendingSpawnIds'] : [], rows: [] },
     { key: 'machines', fields: {}, rows: machineRows(paneMachines(pool)) },
+    { key: 'ownership', fields: { selectedIssueId, issueHex: issueHex === LOADING ? undefined : issueHex },
+      pendingFields: issueHex === LOADING ? ['issueHex'] : [], rows: [] },
   ], pending })
   return { differences: result.differences, pending: result.pending, positions: result.rows, acceptedOwnershipDifferences,
     first: result.first ? { section: result.first.sectionIndex, index: result.first.rowIndex, field: result.first.field } : null }
 }
-export function installSessionPaneCheck(pool: MobxPool, runtime: ClientRuntime): () => void {
+export function installSessionPaneCheck(pool: MobxPool, runtime: ClientRuntime,
+  hex?: (color: string | null | undefined) => string | undefined): () => void {
   if (typeof window === 'undefined') return () => {}
   const check = () => {
     const state = runtime.getSnapshot()
-    return checkSessionPanes(pool, state, undefined, allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates))
+    return checkSessionPanes(pool, state, undefined, allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates), hex)
   }
   Object.assign(window, { __sessionPaneCheck: check })
   return () => { if (Reflect.get(window, '__sessionPaneCheck') === check) Reflect.deleteProperty(window, '__sessionPaneCheck') }

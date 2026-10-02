@@ -529,6 +529,7 @@ export class MobxPool {
       headerState: false,
       preferenceSource: false,
       sources: false,
+      sessionPanes: false,
       settingsSequence: false,
       settingsEnabled: false,
       settingsViews: false,

@@ -1,6 +1,7 @@
 import type { PoolScreen } from '@/app/pool-screen-registry'
 import { SESSION_PANE_SUMMARIES } from '@podium/client-graph/session-pane-schema'
 import { initializeSessionPaneDataLayer, sessionPaneDataLayer, sessionPaneCheckRequested } from './session-pane-data-layer'
+import { issueColorHex } from '@/lib/issueColors'
 
 export const sessionPanePoolScreen: PoolScreen = {
   id: 'sessionPane',
@@ -14,6 +15,6 @@ export const sessionPanePoolScreen: PoolScreen = {
     pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime))
     if (!sessionPaneCheckRequested()) return
     const { installSessionPaneCheck } = await import('@podium/client-graph/diagnostics/session-pane-check')
-    return installSessionPaneCheck(pool, runtime)
+    return installSessionPaneCheck(pool, runtime, issueColorHex)
   },
 }
