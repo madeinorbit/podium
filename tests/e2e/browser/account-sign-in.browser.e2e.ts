@@ -59,7 +59,7 @@ test('web signs in through the form, reloads with its cookie, and erases on sign
 })
 
 test.describe('phone Expo web', () => {
-  const phone = devices['Pixel 7']
+  const phone = devices['Pixel 7']!
   test.use({
     viewport: phone.viewport,
     userAgent: phone.userAgent,
