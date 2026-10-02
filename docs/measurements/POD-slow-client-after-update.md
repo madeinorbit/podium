@@ -1,107 +1,253 @@
 # Client slowness after the sidebar pilot landing
 
-Issue: POD-5175, under POD-4286. Date: 2026-10-02.
+POD-5175, for POD-4286. Measured 2026-10-02 on ludovico.
 
-Status: measurement in progress. No performance or memory conclusions yet.
+The periodic side-by-side checker is expensive, but it is not the only source of
+slowness. The old client and the updated client with the pilot **off** already
+spend most of a busy hands-off minute on the main thread. Turning on the pool
+removes much of the legacy sidebar work; main-pane, React and shared runtime work
+still delay real row clicks. The measured heap behaviour is dominated by allocation
+churn and temporary retention, not a demonstrated multi-gigabyte retained leak.
+The macOS shell itself and its local switch state were not measurable on this
+Linux host; the all-switches-off Chromium comparison is the agreed fallback.
 
-Compare production web clients built in detached worktrees at `a5f55925f` and
-`721dd6937`, against the operator’s running server on ludovico. The report branch
-starts at `integrate/4286-pilot` (`e3108bf53f`). No product changes are planned.
+## Build, data and measurement controls
 
-Use one local headless Chromium sequentially, with isolated browser storage and the
-existing CLI session. Exercise startup, idle, incoming updates and scrolling only.
-Measure retained heap after forced GC for at least ten minutes in each supported
-mode: sidebar off, sidebar on, and sidebar on with the legacy comparison enabled.
-Capture CPU attribution and allocation/GC evidence locally, reduce to counts,
-timings, function names and sizes, and delete raw captures before handoff.
+- Before: `a5f55925fa73fa1b4d0de40e2ad37a1046cd849f`.
+  Updated: `721dd693787c863eb9c6d8c6fe58ab3d0da8d4b0`.
+  Separate `git worktree add --detach` checkouts; pinned Bun 1.4.2,
+  checkout-local frozen dependency graphs and production web build helpers.
+  Both build tasks reused their cache and were restamped for the exact commit.
+  Neither the operator's checkout nor product source was edited.
+- The operator's running server stayed on `0.1.1-dev.233+721dd69`, wire version 3,
+  schema digest `6ce8d313a50dba81`, at loopback port 18787. Both frontends used
+  **this same current backend**. This is not an old/new backend or daemon test.
+- Chromium for Testing 151.0.7922.34, Linux headless, 1920 × 1080, one browser at
+  a time, fresh isolated profile for each mode, nice level 10. Existing CLI-session
+  authentication was read locally as in `export-snapshot.ts`. Nothing was copied
+  to flatblock or another machine. No server/daemon restart or reconfiguration.
+- Local routing served the exact build's static assets while reads and feed traffic
+  reached the real server. The switches were `mobxSidebar=0`, `mobxSidebar=1`, or
+  `mobxSidebar=1&mobxSidebarCheck=1`. Both off controls had the perf panel disabled.
+- After mount and 30 seconds of settling, collect 12 forced-GC samples at nominal
+  minutes 0–11, heap usage every 5 seconds, CPU samples every 4 ms, and a timeline
+  trace for the final minute. Schedule 48 wheel inputs in four bursts and 12 clicks
+  in three bursts. Every primary mode spans more than ten minutes after GC.
+- The operator subsequently authorized real row clicks and mark-read writes.
+  Exactly two fixed mission rows were used: 70 and 40 direct children, seven direct
+  sessions each at setup. All other business writes were intercepted. Selection
+  began empty in each isolated profile; the operator's device-local selection was
+  not copied or changed. No archive, rename, drag, text input or preference write
+  reached the server. The server sidebar preference was unchanged after each run.
+- Native terminal `attach` was blocked because its server handler reconciles the
+  active renderer and broadcasts state. These measurements cover navigation,
+  FlightDeck and permitted transcript reads, **not terminal attachment readiness,
+  live PTY replay, macOS WebKit, GPU memory or native-process memory**.
 
-The Linux Chromium measurements can distinguish shared web-client costs. They do
-not establish the operator’s macOS switch state or reproduce WebKit/native-shell
-costs; those limits will remain explicit.
+Times below use decimal MB and wall-clock seconds. Startup means the first visible
+sidebar shell, not that every lazy surface is ready. Incoming traffic and host load
+were uncontrolled: roughly 6–9+ background load on seven logical CPUs. The modes
+ran sequentially against changing data. Counts and bytes make that confounding
+visible; totals must not be read as a matched-event A/B experiment.
 
-## Confirmed setup and visibility facts
+## (a) Off, on, check, and before/after
 
-The live server reports `0.1.1-dev.233+721dd69`, wire version 3, and schema digest
-`6ce8d313a50dba81`. The two detached web build tasks were cache hits and were
-restamped for their exact commits using the repository build helpers; no source
-files in those worktrees were changed.
+| Measurement | Before: off | Updated: off | Updated: on | Updated: on + check |
+| --- | ---: | ---: | ---: | ---: |
+| Sidebar mounted, s | 10.5 | 15.3 | 14.0 | 30.7 |
+| GC observation span, s | 660.2 | 657.5 | 661.8 | 661.1 |
+| Main-thread task time, s | 447.3 | 614.2 | 423.9 | 524.2 |
+| Received delta frames | 798 | 1521 | 1227 | 1384 |
+| Received WebSocket data, MB | 30.7 | 21.5 | 22.4 | 21.9 |
+| Scroll p50 / p95, ms | 118.4 / 1015.8 | 900.7 / 1509.8 | 133.8 / 1124.4 | 156.7 / 1231.7 |
+| Largest 5-second sampled used heap, MB | 745.9 | 1184.6 | 1059.4 | 1109.0 |
+| computeMissionIssueIds self CPU, s | 71.7 | 115.8 | 4.6 | 32.3 |
 
-The existing principal’s shared layout restores a **collapsed sidebar**. The
-read-only matrix measures that rail. Expanding it writes a synchronized preference,
-so no expanded-sidebar measurement is claimed. The first harness readiness check
-incorrectly waited for the expanded list; those four-minute attempts are excluded
-from startup timing and leak conclusions. The corrected baseline mounted the rail
-in 10.095 seconds. A separate local decoder consumed 24,983 bootstrap rows in
-5.968 seconds; this is a transfer/decode measurement, not the browser’s startup.
+The initial hands-off interval, before any clicks or scrolling, consumed:
 
-The installed server’s `features.state` returns `devMode=false`, `channel=edge`,
-`podium-development.enabled=true`, and `mobx-sidebar` with `visibility=hidden`,
-`listed=false`. `getFeatureStates` defines dev mode as the version being exactly
-`dev`; a packaged `0.1.1-dev…` release does not satisfy that sentinel. The Podium
-development preference does not set this sentinel. `ExperimentalSection` filters
-on `listed` before its special pilot toggle can render. The toggle’s local pilot
-preference is also distinct from the catalog flag’s enabled value.
+| Mode | Interval, s | Main-thread tasks, s | Live delta frames |
+| --- | ---: | ---: | ---: |
+| Before, off | 57.3 | 55.2 | 136 |
+| Updated, off | 59.9 | 59.8 | 186 |
+| Updated, on | 61.0 | 22.2 | 134 |
+| Updated, on + check | 60.1 | 26.1 | 102 |
 
-The input-to-paint panel counts click and keydown events until a double-rAF
-boundary. It includes all main-thread work before that boundary, not just sidebar
-rendering, and it does not count wheel events. This investigation uses a separate
-wheel timestamp → double-rAF collector. Reproducing the operator’s exact selection
-percentiles would mark rows read, so it is excluded and the limitation was mailed
-to POD-4286. Linux Chromium cannot establish the macOS app’s local pilot preference
-or native/WebKit-specific costs.
+This is a user-idle client receiving live updates, not a quiescent feed. The pilot's
+own idle counter can be near zero while replica publication and main-pane work
+keep the main thread busy. For example, on-only minute 5 reported 0.3 ms of idle
+sidebar work while the whole 11-minute window consumed 423.9 seconds of tasks.
+Its sampled last incoming-update measurements included 39.0 and 144.4 ms; these
+are individual partially pending counter readings, not update latency percentiles.
 
-## Completed legacy controls (interim)
+The source-mapped expensive legacy path is `SocketHub.drainFeedIngress` → feed
+application/replica publication → synchronous selectors/legacy worklist derivation.
+`computeMissionIssueIds` repeatedly traverses mission membership; `modelsFor`,
+`deriveIssueViews`, `indexMissionSessions` and `buildUnifiedRows` also appear.
+The mission, issue-view derivation and worklist-row implementation files are
+unchanged between the two commits. Shared runtime, normalized issue-user state,
+optimism and cache initialization did change; this experiment does not isolate
+one of those changes as a new regression.
 
-Each control used a fresh profile, one browser, the unchanged production bundle,
-48 wheel inputs in four short bursts, continuous real updates, 4 ms CPU sampling,
-5-second heap-size sampling, and forced GC once per minute. The updated off-mode
-also opened its new perf panel; the old commit has no such panel. Its sampled
-instrumentation ancestry accounts for 4.40 seconds of the ten-minute CPU profile,
-so these controls are not a perfectly identical instrumentation comparison.
+On-only reduced `computeMissionIssueIds` self CPU from 115.8 to 4.6 seconds in the
+updated windows. With the checker enabled it returned to 32.3 seconds. The checker
+alone sampled **84.8 seconds across 110 completed checks**, about 771 ms/check.
+Its own rolling counter reported **7.20–9.31 seconds per minute** after settling.
+All settled check samples matched with zero differences; an initial loading sample
+was waiting with two differences and cleared by minute 1.
 
-| Measurement | `a5f55925f`, legacy | `721dd6937`, pilot off |
-| --- | ---: | ---: |
-| Retained-heap observation span | 600.0 s | 598.8 s |
-| Retained heap, first → last forced GC | 138.8 → 144.2 MB | 153.1 → 146.8 MB |
-| Largest 5-second sampled used heap | 552.1 MB | 619.9 MB |
-| Main-thread task time | 269.8 s | 309.5 s |
-| Received live delta frames | 1,066 | 1,115 |
-| Scroll timestamp → double-rAF p50 / p95 | 51.8 / 670.2 ms | 54.3 / 617.0 ms |
-| Scroll event queue delay p95 | 521.4 ms | 494.4 ms |
-| `computeMissionIssueIds` sampled self time | 68.5 s | 79.5 s |
-| Natural GC reclaimed in final-minute trace | 4,181.1 MB / 60.2 s | 3,718.2 MB / 60.4 s |
+`attachWorklistPool` returns before importing or subscribing the pool when off;
+the checker is attached only inside the pool path with the check URL flag.
+Therefore a verified off-mode slowdown cannot be execution of the pool/checker.
+The old build already reproduces severe work, while the updated off window was
+busier and had a worse scroll p95. Different event traffic, selected content and
+host scheduling prevent assigning that difference causally to the landing.
+There is **no measured basis to blame the new sidebar for all macOS slowness**, or
+to claim this investigation cleared every shared-client regression in 721dd6937.
 
-The old build already has severe update-driven main-thread work and allocation
-churn. The newer off-mode window consumed 14.7% more task time while receiving
-4.6% more delta frames, but its scroll p95 was lower. These sequential windows
-have different live events and background host load; they do not establish a
-causal version regression. GC reclamation is measured churn, not an exact
-allocation-rate counter. The deliberately forced final collection is excluded
-from the natural-GC figures.
+## (b) Retained heap versus allocation churn
 
-Source-mapped hot functions include `computeMissionIssueIds`, `modelsFor`,
-`deriveIssueViews`, `indexMissionSessions`, `buildUnifiedRows`, and
-`dedupeSessionsByResume`. The expensive update ancestry runs through
-`SocketHub.drainFeedIngress`, replica commit/publication, and legacy derivation.
-The new sidebar's own idle meter does not cover this whole path.
+The following is `Runtime.getHeapUsage.usedSize` immediately after
+`HeapProfiler.collectGarbage`, in MB. Live delivery can allocate between collection
+and the following read; this is not a retained-object graph or a retainer proof.
+Clicks follow the minute 2, 6 and 10 samples, warming main-pane state as well as
+changing selection.
 
-## Completed collapsed-rail pilot controls (interim)
+| Minute | Before: off | Updated: off | Updated: on | Updated: on + check |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 162.5 | 190.2 | 183.1 | 191.9 |
+| 1 | 150.3 | 246.2 | 181.5 | 198.8 |
+| 2 | 148.6 | 305.5 | 189.4 | 204.1 |
+| 3 | 164.7 | 370.0 | 204.5 | 248.7 |
+| 4 | 178.8 | 421.5 | 203.6 | 240.6 |
+| 5 | 171.1 | 385.4 | 200.7 | 225.3 |
+| 6 | 172.1 | 183.0 | 207.8 | 216.2 |
+| 7 | 171.1 | 213.8 | 232.3 | 224.0 |
+| 8 | 172.5 | 268.4 | 232.5 | 217.2 |
+| 9 | 173.7 | 192.3 | 241.5 | 217.7 |
+| 10 | 173.7 | 176.3 | 230.9 | 230.1 |
+| 11 | 226.2 | 176.1 | 225.1 | 227.8 |
 
-The on-only window retained 195.7 → 193.4 MB after GC (599.2 s); on+check
-retained 196.3 → 200.8 MB (600.4 s). The latter has a small positive drift,
-not a demonstrated multi-gigabyte retained leak. Natural GC reclaimed
-1,590.7 MB in the on-only final-minute trace and 1,758.4 MB with checking.
-The 2.5 GB peak did not reproduce in these fresh, collapsed, unselected clients.
+The updated off client temporarily retained 421.5 MB, then released it to 183.0 MB
+and ended at 176.1 MB. The checker rose to 248.7 MB after the first selection burst,
+then ended at 227.8 MB. Neither shows an unbounded climb. On-only ended 41.9 MB
+above its initial sample and the old build 63.7 MB above its initial sample;
+changing selection/live caches and temporary queues make those endpoints
+insufficient to call either a leak. On-only's final three samples decline
+241.5 → 230.9 → 225.1 MB. A slower or route-specific leak is not ruled out.
 
-Pilot-on task time was 152.6 s versus 309.5 s off. Adding the checker raised
-it to 202.0 s; source-mapped comparison ancestry accounted for 50.6 s across
-109 completed checks, about 464 ms per check. The comparison revived
-`computeMissionIssueIds` (22.4 s self time; absent from on-only samples).
-The final checker state was a match with zero differences.
+| Final-minute natural GC | Before: off | Updated: off | Updated: on | Updated: on + check |
+| --- | ---: | ---: | ---: | ---: |
+| Trace duration, s | 62.0 | 58.5 | 60.8 | 58.8 |
+| Minor / major collections | 171 / 2 | 157 / 2 | 159 / 2 | 181 / 2 |
+| Summed main-thread GC event duration, ms | 2497.8 | 2472.4 | 3585.3 | 2220.0 |
+| Reclaimed heap, MB | 4683.4 | 4335.6 | 3929.3 | 5506.2 |
 
-Additional expanded-sidebar and diagnostics-off controls are pending. The
-coordinator relayed permission for real row clicks, but automatic approval
-review rejected that authority as insufficient to override the original
-no-click constraint. Direct operator approval has been requested; no row
-click or mark-read write has occurred. The newer no-click expansion probe
-restored an already-open sidebar; server layout before/after was identical.
+GC totals count top-level MinorGC/MajorGC events on the renderer main thread,
+exclude workers and exclude deliberate low-memory/forced collections. Reclaimed
+bytes are evidence of churn, not an exact allocation-rate measurement. About
+3.9–5.5 GB was reclaimed naturally in one final-minute window, including when the
+checker was off. The check adds full reference derivations and allocation work;
+it is not the only allocator.
+
+The largest 5-second sampled heap in the expanded matrix was 1,184.6 MB. The
+operator's 2.5 GB peak did **not** reproduce. Once-per-minute forced GC changes
+natural peak cadence, 5-second sampling can miss brief peaks, and fresh profiles
+lack the operator's long-lived state. The observed sawtooth is consistent with
+heavy churn, but these runs do not prove every byte of the reported 2.5 GB was
+transient or that there are no smaller leaks.
+
+A secondary matrix at 1440 × 1000, with a collapsed rail and no selected mission,
+helps separate selection warm-up. Updated off retained 153.1 → 146.8 MB, on-only
+195.7 → 193.4 MB, and on+check 196.3 → 200.8 MB over approximately ten minutes.
+The pool therefore had an approximately **46.6 MB / 32% larger retained footprint**
+in those live windows. That is a footprint problem, not by itself a leak. The old
+control retained 138.8 → 144.2 MB. On-only task time was 152.6 seconds, versus 202.0
+with checking and 309.5 off. Checker ancestry accounted for 50.6 seconds across
+109 checks (~464 ms/check), reproducing the operator's ~5.1 seconds/minute.
+The secondary updated-off control had its perf panel enabled, so it is not the
+primary all-switches-off comparison.
+
+The collapsed rail was caused by the automatic responsive fold below 1600 pixels,
+not a changed operator preference. Initial attempts that waited for an expanded
+scroller at that width are excluded. A separate bootstrap decoder read 24,983 rows
+in 5.968 seconds; this is transfer/decode evidence, not UI startup time.
+
+## (c) Where selection delay goes
+
+The shipped panel measures click/keydown `event.timeStamp` to two consecutive
+`requestAnimationFrame` callbacks. It is a whole-main-thread next-paint proxy,
+not sidebar-only CPU or proof that the selected terminal is ready. The local
+collector mirrors that boundary and separately records wheel events. The original
+219/961 ms percentiles cannot be reconstructed without the operator's trace.
+
+The primary matrix's 12 clicks per mode measured p50/p95 of 990/1796 ms before,
+749/1770 ms updated off, 856/2187 ms on, and 796/1937 ms on+check. Their initial
+write allowance expired on some delayed commands, leaving 9/4/7/5 actual server
+mark-read receipts respectively. Those figures are kept as guarded navigation
+observations, not represented as fully acknowledged write-path measurements.
+
+CLICK_REPLAY_PENDING
+
+For attribution, source maps classify samples inside the union of the
+click-timestamp → double-rAF intervals. Categories are exclusive stack ancestry:
+checker first, then main-pane, sidebar/pool, shared replica/runtime, other React,
+GC and unclassified work. A wrapper named measurement is not counted as overhead
+when it encloses real row rendering. This includes unrelated live work which
+happens during the wait, not only work caused by the click. Sampling and scheduling
+mean bucket sums approximate wall time, not exact React commit durations.
+
+In the primary on-only run, main-pane plus other React ancestry accounted for
+8.32 seconds across the 12 click windows, sidebar/pool 1.72 seconds, shared
+runtime 0.73 seconds and GC 0.67 seconds. `FlightDeck.readBriefMetrics` alone
+sampled 1.13 seconds; it reads geometry/scrollHeight in a layout effect. Shared
+hot functions include `selected`, `issueActivityAt`, `lastUsedMachine`,
+`buildFlightDeckRows`, session ownership and transcript `reconcileLayout`.
+The existing POD-5104 covers the forced-layout work.
+
+The primary check run had no comparison samples inside those particular click
+windows, but **3.48 seconds of checker ancestry inside the scroll wait windows**.
+Periodic checking can block an unlucky input; its total cost does not mean it
+caused every slow click. GC is measurable but did not dominate these click
+windows. Pool-only still has large main-pane/shared-state costs.
+
+## (d) Missing Settings switch
+
+The live `features.state` response was `channel=edge`, `devMode=false`,
+`podium-development.enabled=true`, and `mobx-sidebar` hidden/unlisted.
+`packages/protocol/src/features.ts` declares the pilot hidden. The server's
+`getFeatureStates` sets dev mode only for a version exactly equal to `dev`;
+`0.1.1-dev.233+721dd69` does not satisfy that sentinel. The Podium development
+preference does not change server dev mode. `ExperimentalSection` filters out
+unlisted flags before rendering its special pilot setting.
+
+That explains the absent entry on this packaged build. The pilot is a separate,
+startup-only device-local preference with a URL override; the catalog's disabled
+value cannot establish the macOS app's actual local pilot state.
+
+## (e) Fix ownership and recommendations
+
+No product fix is included in this issue. Evidence was mailed to the relevant
+owners. Independently shippable discoveries were filed unclaimed in Proposed
+with `discovered-from` links, as required by the tracker workflow; POD-4286's
+coordinator recreated the checker proposal as its delivery sub-issue.
+
+| Recommendation | Evidence and owner |
+| --- | --- |
+| Replace continuous full parity checking with explicitly requested, bounded work; show its cost. An idle callback alone does not split a synchronous 0.5–0.8 s calculation. | POD-5184, child of POD-4286; original proposal POD-5183. 50.6 s/109 checks collapsed, 84.8 s/110 expanded; 7.20–9.31 s/min expanded counter. |
+| Remove repeated legacy mission/worklist derivation and reduce broad shared-state publication/selection work. Preserve the off fallback while making the main pane consume narrow data. | Existing POD-5127 and the main-pane migration under POD-4286. `computeMissionIssueIds` 71.7 s before, 115.8 s updated off; expensive main-pane/shared paths remain on. |
+| Remove synchronous FlightDeck brief geometry measurement from the selection critical path. | Existing POD-5104; 1.13 s sampled self time across 12 real-data on-mode click windows. |
+| Measure and reduce duplicate retained pool/legacy state; distinguish stable graph residency from leaking retainers. | Existing POD-5126; ~46.6 MB / 32% live collapsed-window overhead, no reproduced multi-GB retained growth. |
+| Expose the startup-only pilot control to the intended packaged-development audience without changing its default-off semantics. | POD-5180; direct live feature-state and listing-path evidence above. |
+
+## Evidence handling and validation
+
+Raw traces, CPU profiles, browser storage, console/DOM captures and selected-row
+identifiers remain in an issue-private scratch directory on ludovico while the
+last reduction finishes. They will be deleted before handoff. Only aggregate
+counts, timings, function names, sizes and necessary build/configuration facts
+are included here or in issue mail; no live titles, paths, transcripts or logins.
+
+This deliverable changes documentation only. The runtime test gate is skipped
+under AGENTS.md's docs-only exception; final validation is report-data review and
+`git diff --check`. The profiling runs are evidence, not a claim that a product
+fix or the full test suite passed.
