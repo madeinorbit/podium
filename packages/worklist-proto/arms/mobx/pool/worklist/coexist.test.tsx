@@ -31,10 +31,13 @@ import { diffSnapshots } from '../../../../shared/src/gen/check'
 import {
   startScenarioEngine,
   type FixtureScale,
+  upsert,
   writeHeartbeat,
   writeSelectionClick,
 } from '../../../../shared/src/scenarios'
-import { harnessMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, tracked } from '../../../../harness/src/adapters/mobx-pool'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 interface SoloCounts {
   rows: number
@@ -68,8 +71,7 @@ async function soloArm(scenario: 'heartbeat' | 'click', scale: FixtureScale): Pr
 
 async function soloControl(scenario: 'heartbeat' | 'click', scale: FixtureScale): Promise<SoloCounts> {
   const ctx = await startScenarioEngine(scale)
-  // Use the same engine-backed channels as coRun: a fixed solo selection
-  // changes which publications the legacy control redraws on a click.
+  // Match coRun's row and engine-locals feeds, including their drain.
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), feeds.rows.source, feeds.locals)
   try {
@@ -85,6 +87,7 @@ async function soloControl(scenario: 'heartbeat' | 'click', scale: FixtureScale)
     })
     expect(result.parity, `solo control ${scenario}: parity`).toBe(true)
     expect(result.readsPerChange).not.toBeNull()
+    console.info(`[control-counts] ${scenario} ${scale}x solo: ${JSON.stringify({ rows: result.rowsCommitted, stats: result.stats, reads: result.readsPerChange, locals: result.locals })}`)
     return { rows: result.rowsCommitted, stats: result.stats, reads: result.readsPerChange! }
   } finally {
     mounted.unmount()
@@ -94,6 +97,55 @@ async function soloControl(scenario: 'heartbeat' | 'click', scale: FixtureScale)
 }
 
 describe('coexistence: arm and control on one runtime (POD-4576)', () => {
+  it('cached firstSessionId follows a new roster head and stays within the click budget', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const mounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
+    try {
+      const handle = mounted.handle as { pool: MobxPool; settleLoads(): void }
+      const pool = handle.pool
+      await act(async () => {
+        handle.settleLoads()
+      })
+      const id = ctx.targets.visibleRootId
+      const before = tracked(() => pool.issue(id)!.sidebar)
+      if (before === undefined || before === LOADING) throw new Error('roster head fixture did not load')
+      const next = before.sessions.find(session => session.sessionId !== before.firstSessionId)?.sessionId
+      expect(next, 'fixture has a different own session to promote').toBeDefined()
+      const wire = ctx.cache.read('issue', id)!.value as object
+      const projection = ctx.cache.read('issueProjection', id)!.value as object
+      const moved = await runCountScenario(mounted, {
+        scenario: 'coordinatorRosterHead',
+        methodology: 'sidebar roster head',
+        apply: () => {
+          ctx.replica.batch(() => {
+            upsert(ctx, 'issue', id, { ...wire, coordinatorSessionId: next })
+            upsert(ctx, 'issueProjection', id, { ...projection, coordinatorSessionId: next })
+          })
+          feeds.flush()
+        },
+        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
+      })
+      expect(moved.parity).toBe(true)
+      assertReads(moved, { readsPerChange: 3 })
+      const readHead = () => tracked(() => {
+        const row = pool.issue(id)!.sidebar
+        return row === undefined || row === LOADING ? null : row.firstSessionId
+      })
+      expect(readHead(), 'cached ID follows the promoted roster head').toBe(next)
+      const entry = FENCE_SCENARIOS.find(candidate => candidate.methodology === '#3')!
+      const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
+      assertReads(result, { readsPerChange: readsBudget })
+      expect(result.parity).toBe(true)
+      expect(readHead(), 'mark-read reuses the updated roster head').toBe(next)
+      writeResult('mobx-roster-head-click', { headReads: moved.reads, clickReads: result.reads })
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 60_000)
+
   it.each([1, 4] as const)('heartbeat and click count the same solo and co-mounted, on both sides (%ix corpus)', async (scale) => {
     const soloArmHeartbeat = await soloArm('heartbeat', scale)
     const soloControlHeartbeat = await soloControl('heartbeat', scale)
@@ -149,6 +201,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         const armReads = armMounted.reads.stats()
         const controlReads = controlMounted.reads.stats()
         console.info(`[sidebar-reads] ${scenario} ${scale}x co-mounted: ${JSON.stringify(armReads)}`)
+        console.info(`[control-counts] ${scenario} ${scale}x co-mounted: ${JSON.stringify({ rows: controlRows, stats: controlMounted.handle.stats, reads: controlReads.rows, locals: feeds.locals.stats })}`)
         const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
         expect(
           diffSnapshots(armMounted.handle.snapshot(), oracle),

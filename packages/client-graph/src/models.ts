@@ -629,7 +629,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       internal: own.audience === 'agent',
       ...sidebarLifecycle(issue, this.asking, this.host.inputs.passed, this.host.inputs.reached),
       draftAgentOnly: own.isDraftVessel === true && !own.worktreePath && sessions.length > 0,
-      firstSessionId: sessions[0]?.sessionId ?? null, continuation,
+      firstSessionId: this.ownAttention.firstSessionId ?? null, continuation,
       fleet: sessionFacts.fleet, issue, sessions, aggregateSessions,
       awaitingFirstPrompt: own.isDraftVessel === true && this.phase === 'queued' && aggregateSessions.length > 0 && sessionFacts.allUnstarted,
     }
