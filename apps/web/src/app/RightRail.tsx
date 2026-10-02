@@ -165,7 +165,7 @@ function useLegacyShipping() {
       measureLegacyHeader(owner, 'shipping', () =>
         shippingPanelModel(shipOrders, issues, repoId, shipLanes),
       ),
-    [issues, repoId, shipOrders, shipLanes],
+    [issues, owner, repoId, shipOrders, shipLanes],
   )
   return shipping
 }
