@@ -7,6 +7,7 @@
  * notice. "Send again" lives in the chat, beside the words it puts back into
  * the composer. Appears only when there is something to say.
  */
+import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import { type MessageNotice, messageNotices } from '@podium/client-core/viewmodels'
 import { MessageSquareWarning } from 'lucide-react'
@@ -23,6 +24,8 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { noticesDataLayer, recordLegacyNoticeWork } from './notice-data-layer'
+import { usePoolMessageNotices } from './use-pool-notices'
 
 function NoticeRow({
   notice,
@@ -31,10 +34,7 @@ function NoticeRow({
   notice: MessageNotice
   onOpen: () => void
 }): JSX.Element {
-  const { trpc, openSessionTab } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, openSessionTab: s.openSessionTab }),
-    shallowEqual,
-  )
+  const { trpc, openSessionTab } = useStoreHandle().getSnapshot()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   return (
@@ -77,11 +77,25 @@ function NoticeRow({
 }
 
 export function MessageNoticeIndicator({ compact }: { compact?: boolean }): JSX.Element | null {
-  const { records, sessions } = useStoreSelector(
-    (s) => ({ records: s.messageRecords, sessions: s.sessions }),
-    shallowEqual,
-  )
-  const notices = useMemo(() => messageNotices(records ?? [], sessions ?? []), [records, sessions])
+  return noticesDataLayer() === 'pool' ? <PoolNoticeIndicator compact={compact} /> : <LegacyNoticeIndicator compact={compact} />
+}
+function PoolNoticeIndicator({ compact }: { compact?: boolean }) {
+  const notices = usePoolMessageNotices()
+  return <NoticeIndicatorBody notices={notices} compact={compact} />
+}
+function LegacyNoticeIndicator({ compact }: { compact?: boolean }) {
+  const owner = useStoreHandle()
+  const { records, sessions } = useStoreSelector((s) => {
+    recordLegacyNoticeWork(owner, 'messageSelectors')
+    return { records: s.messageRecords, sessions: s.sessions }
+  }, shallowEqual)
+  const notices = useMemo(() => {
+    recordLegacyNoticeWork(owner, 'messageDerivations')
+    return messageNotices(records ?? [], sessions ?? [])
+  }, [records, sessions, owner])
+  return <NoticeIndicatorBody notices={notices} compact={compact} />
+}
+function NoticeIndicatorBody({ notices, compact }: { notices: readonly MessageNotice[]; compact?: boolean }): JSX.Element | null {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     if (notices.length === 0) setOpen(false)

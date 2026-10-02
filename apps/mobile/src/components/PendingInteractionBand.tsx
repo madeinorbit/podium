@@ -8,6 +8,7 @@ import type { PendingInteractionWire } from '@podium/protocol'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useStoreSelector } from '@podium/client-core/react'
+import { useTrpc } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
@@ -42,7 +43,7 @@ export function PendingInteractionBand({ sessionId }: { sessionId: SessionId }) 
   const rows = useStoreSelector<PendingInteractionWire[], MobileTrpc>(
     (s) => s.pendingInteractions ?? NO_ASKS,
   )
-  const trpc = useStoreSelector<MobileTrpc, MobileTrpc>((s) => s.trpc)
+  const trpc = useTrpc()
   const [sending, setSending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const cards = pendingInteractionCards(rows, sessionId).filter(

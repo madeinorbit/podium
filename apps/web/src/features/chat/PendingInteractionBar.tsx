@@ -1,11 +1,13 @@
-import { shallowEqual } from '@podium/client-core/store'
-import { pendingInteractionCards } from '@podium/client-core/viewmodels'
+import { useStoreHandle } from '@podium/client-core/react'
+import { type PendingInteractionCard, pendingInteractionCards } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { OctagonAlert } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { cn } from '@/lib/utils'
+import { noticesDataLayer, recordLegacyNoticeWork } from './notice-data-layer'
+import { usePoolInteractionCards } from './use-pool-notices'
 
 /**
  * THE BLOCKED-SESSION BAR (POD-2414; spec §4).
@@ -38,29 +40,30 @@ import { cn } from '@/lib/utils'
  */
 const NO_ASKS: PendingInteractionWire[] = []
 
-export function PendingInteractionBar({
-  sessionId,
-  compact,
-}: {
-  sessionId: SessionId
-  compact?: boolean
-}): JSX.Element | null {
-  const { trpc, rows } = useStoreSelector(
-    // `?? NO_ASKS` rather than a bare read, and the constant is module-level so
-    // the fallback keeps one identity: a replica whose `pendingInteraction`
-    // collection has not arrived yet is a PARTIAL WORLD, not an error, and a
-    // bar for blocking asks must never be the reason the transcript beside it
-    // fails to render.
-    (s) => ({ trpc: s.trpc, rows: s.pendingInteractions ?? NO_ASKS }),
-    shallowEqual,
-  )
+type BarProps = { sessionId: SessionId; compact?: boolean }
+export function PendingInteractionBar(props: BarProps): JSX.Element | null {
+  return noticesDataLayer() === 'pool' ? <PoolInteractionBar {...props} /> : <LegacyInteractionBar {...props} />
+}
+function PoolInteractionBar({ sessionId, compact }: BarProps) {
+  const cards = usePoolInteractionCards(sessionId)
+  return <InteractionBarBody cards={cards} compact={compact} />
+}
+function LegacyInteractionBar({ sessionId, compact }: BarProps) {
+  const owner = useStoreHandle()
+  const rows = useStoreSelector(s => {
+    recordLegacyNoticeWork(owner, 'interactionSelectors')
+    return s.pendingInteractions ?? NO_ASKS
+  })
+  recordLegacyNoticeWork(owner, 'interactionDerivations')
+  const cards = pendingInteractionCards(rows, sessionId).filter(card => card.surface === 'aggregate')
+  return <InteractionBarBody cards={cards} compact={compact} />
+}
+function InteractionBarBody({ cards, compact }: { cards: readonly PendingInteractionCard[]; compact?: boolean }): JSX.Element | null {
+  const { trpc } = useStoreHandle().getSnapshot()
   // Keyed by `${interactionId}:${actionId}` so two bars for one session (chat
   // mode keeps the native dock mounted) cannot disable each other's buttons.
   const [sending, setSending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const cards = pendingInteractionCards(rows, sessionId).filter(
-    (card) => card.surface === 'aggregate',
-  )
   if (cards.length === 0) return null
 
   return (

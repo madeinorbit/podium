@@ -1,3 +1,5 @@
+import { useStoreHandle } from '@podium/client-core/react'
+import type { MobileTrpc } from '../client/trpc'
 import { shallowEqual } from '@podium/client-core/store'
 import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
@@ -25,10 +27,7 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
 }
 
 function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
-  const { recoverOutbox } = useStoreSelector(
-    (s) => ({ recoverOutbox: s.recoverOutbox }),
-    shallowEqual,
-  )
+  const { recoverOutbox } = useStoreHandle<MobileTrpc>().getSnapshot()
   const plan = recoveryPlanFor(parked.reason.code)
   const baseCopy = recoveryCopyFor(parked.reason.code)
   const rule = confirmationRuleFor(parked.entry.kind)

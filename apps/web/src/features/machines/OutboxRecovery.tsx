@@ -29,6 +29,7 @@
  *    So the buttons are derived from `recoveryPlanFor(code)` and the words from
  *    `recoveryCopyFor(code)` — both functions of the code alone.
  */
+import { useStoreHandle } from '@podium/client-core/react'
 import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import {
@@ -58,6 +59,8 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { noticesDataLayer, recordLegacyNoticeWork } from '@/features/chat/notice-data-layer'
+import { usePoolRecovery } from '@/features/chat/use-pool-notices'
 
 function DeadLetterRow({
   parked,
@@ -66,7 +69,7 @@ function DeadLetterRow({
   parked: OutboxDeadLetterEntry
   lone: boolean
 }): JSX.Element {
-  const recover = useStoreSelector((s) => s.recoverOutbox)
+  const recover = useStoreHandle().getSnapshot().recoverOutbox
   const plan = recoveryPlanFor(parked.reason.code)
   const baseCopy = recoveryCopyFor(parked.reason.code)
   // THE CONSUMER for `CommandPolicy.confirmation` (POD-1224). A
@@ -239,10 +242,21 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
  * interruption when it is real.
  */
 export function OutboxRecoveryIndicator({ compact }: { compact?: boolean }): JSX.Element | null {
-  const { deadLetters } = useStoreSelector(
-    (s) => ({ deadLetters: s.outboxDeadLetters }),
-    shallowEqual,
-  )
+  return noticesDataLayer() === 'pool' ? <PoolRecoveryIndicator compact={compact} /> : <LegacyRecoveryIndicator compact={compact} />
+}
+function PoolRecoveryIndicator({ compact }: { compact?: boolean }) {
+  const deadLetters = usePoolRecovery()
+  return <RecoveryIndicatorBody deadLetters={deadLetters} compact={compact} />
+}
+function LegacyRecoveryIndicator({ compact }: { compact?: boolean }) {
+  const owner = useStoreHandle()
+  const { deadLetters } = useStoreSelector(s => {
+    recordLegacyNoticeWork(owner, 'recoverySelectors')
+    return { deadLetters: s.outboxDeadLetters }
+  }, shallowEqual)
+  return <RecoveryIndicatorBody deadLetters={deadLetters} compact={compact} />
+}
+function RecoveryIndicatorBody({ deadLetters, compact }: { deadLetters: readonly OutboxDeadLetterEntry[]; compact?: boolean }): JSX.Element | null {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     if (deadLetters.length === 0) setOpen(false)
