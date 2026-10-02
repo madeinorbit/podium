@@ -4,6 +4,7 @@ import { ChevronUp, Folder, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
@@ -28,7 +29,7 @@ export function FileBrowserModal({
   title: string
   onClose: () => void
 }): JSX.Element {
-  const { listDir, openFileInWorktree } = useStoreHandle().getSnapshot()
+  const { listDir, openFileInWorktree } = useStoreHandle<Trpc>().getSnapshot()
   const isMobile = useIsMobile()
   const [path, setPath] = useState(root)
   const [entries, setEntries] = useState<Entry[]>([])

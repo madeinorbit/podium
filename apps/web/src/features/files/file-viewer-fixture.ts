@@ -2,7 +2,7 @@
 import { HTML_MODE_MAP_KEY, JSON_MODE_MAP_KEY, MD_MODE_MAP_KEY } from '@podium/client-core/ui-state'
 import { type FileScope, tabIdFor } from '@podium/client-core/viewmodels'
 import { asMachineId } from '@podium/model/browser'
-import { createHeaderFixture } from '../../../../test/header-fixture'
+import { createHeaderFixture } from '../../../test/header-fixture'
 import type { FileViewerPreference } from './file-viewer-check'
 
 export const VIEWER_SCOPE: FileScope = {

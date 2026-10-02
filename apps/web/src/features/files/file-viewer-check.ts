@@ -56,7 +56,7 @@ export function checkFileViewerPreferences(
     actual.push({
       id: String(actual.length),
       pending: loading,
-      fields: { value: !row || loading ? null : row.value },
+      fields: { value: typeof row === 'object' && row !== null ? row.value : null },
     })
   }
   for (const tab of tabs) {
@@ -66,7 +66,7 @@ export function checkFileViewerPreferences(
     actual.push({
       id: String(actual.length),
       pending: loading,
-      fields: { mode: mode(!row || loading ? null : row.value, tab) },
+      fields: { mode: mode(typeof row === 'object' && row !== null ? row.value : null, tab) },
     })
   }
   const snapshot = (values: CheckRow[], loading: number) => ({
