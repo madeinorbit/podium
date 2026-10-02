@@ -1,7 +1,13 @@
 import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { hidesDraftDot } from './SessionCard'
+
+// Haptics are an iOS boundary; the draft-dot gate has no native host here.
+vi.mock('expo-haptics', () => ({
+  ImpactFeedbackStyle: { Light: 'light' },
+  impactAsync: vi.fn(async () => {}),
+}))
 
 /**
  * What this file guards is the DRAFT-DOT GATE: a draft chat that has never
