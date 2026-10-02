@@ -24,7 +24,6 @@ import type {
 } from '@podium/model'
 import {
   parseSessionRef,
-  resolveSessionIdentifier,
   type SessionIdentifierResolution,
 } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
@@ -34,6 +33,7 @@ import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { buildBtwDelta, buildBtwRecap, lineForItem } from '../superagent/btw'
 import type { SessionFacts } from './facts'
+import type { SessionRefFacts } from './refs'
 import { ambiguousSessionPrefixMessage } from './session-access'
 
 /** Hard caps: transcript lines per read call and turns per window. */
@@ -68,6 +68,10 @@ export interface SessionReadToolkitDeps {
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** A KNOWN SET, wired [POD-2322] — the subagent tree, once it is known. */
   sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>
+  /** Refs from durable session inputs and the current issue/repo source rows. */
+  sessionRefs(sessions: readonly SessionRefFacts[]): Promise<ReadonlyMap<SessionId, string>>
+  /** Current machine label from the machines service, including its id fallback. */
+  machineName(machineId: MachineId): Promise<string>
   issues: IssueService
   messages: MessageDeliveryService
   events: Pick<EventsRepository, 'appendEvent'>
@@ -126,9 +130,8 @@ export class SessionReadToolkit {
    * of the queue, and a status read on a session with no children used to build
    * the full reader-scoped projection to discover exactly that.
    *
-   * `displayRef` is why the survivors still need wiring: it resolves the ref
-   * issue's row and its repo prefix, which is a store read per session and so
-   * cannot come from memory.
+   * The narrow wired read establishes visibility. Labels then come directly
+   * from the source rows through the same helper as typed-ref resolution.
    */
   private async subagentsOf(target: { sessionId: SessionId }): Promise<SessionStatusSubagent[]> {
     const all = this.deps.sessionFacts()
@@ -174,9 +177,12 @@ export class SessionReadToolkit {
       }
     }
     const result: SessionStatusSubagent[] = []
+    const refs = await this.deps.sessionRefs(
+      found.filter(({ child }) => visible.has(child.sessionId)).map(({ child }) => child),
+    )
     for (const { child, parentSessionId } of found) {
       if (!visible.has(child.sessionId)) continue
-      const displayRef = wired.get(child.sessionId)?.displayRef
+      const displayRef = refs.get(child.sessionId)
       result.push({
         sessionId: child.sessionId,
         ...(displayRef ? { displayRef } : {}),
@@ -197,16 +203,14 @@ export class SessionReadToolkit {
    *
    * An internal id answers off facts alone — that is the overwhelmingly common
    * case and it costs a `find`. A human-facing BIRTH REF cannot: `displayRef`
-   * is formatted from the ref issue's row and its repo's prefix, so it lives
-   * only on the projection.
+   * is formatted from the ref issue's row and its repo's current prefix.
    *
    * What makes the ref case cheap anyway is that the ref's own SHAPE narrows
    * the candidates first. `PREFIX-seq-LETTER` can only be a session holding
    * that letter, and `PREFIX-DRAFT-n` only one holding that draft ordinal — a
    * handful of sessions across the fleet, and usually exactly one. Those are
-   * wired, and {@link resolveSessionIdentifier} then makes the SAME comparison
-   * against the SAME formatted string it always did. A ref that matches nothing
-   * still matches nothing.
+   * visibility-checked, then their refs are read from those sources. Matching
+   * keeps the protocol's trimmed, exact comparison.
    */
   private async resolveFacts(
     identifier: string,
@@ -252,8 +256,9 @@ export class SessionReadToolkit {
     )
     if (candidates.length === 0) return { kind: 'absent' }
     const wired = await this.deps.sessionsById(candidates.map((c) => c.sessionId))
-    const hit = resolveSessionIdentifier(identifier, wired)
-    const facts = hit ? all.find((session) => session.sessionId === hit.sessionId) : undefined
+    const readable = new Set(wired.map(session => session.sessionId))
+    const refs = await this.deps.sessionRefs(candidates.filter(c => readable.has(c.sessionId)))
+    const facts = candidates.find(c => refs.get(c.sessionId) === identifier.trim())
     return facts ? { kind: 'session', facts } : { kind: 'absent' }
   }
 
@@ -325,10 +330,8 @@ export class SessionReadToolkit {
     const found = await this.resolveTarget(ref)
     if (!found) throw new Error(`no session found for ${ref}`)
     // SELECTED from facts, WIRED once [POD-3857]. The status payload names the
-    // machine and the bound driver, and `machineName` is resolved by the
-    // machines service rather than held on the session, so the ONE session this
-    // read is about goes through the by-id projection. Everything above chose
-    // it without projecting anything.
+    // bound driver and checks visibility on this one session. Its machine
+    // label is read directly from the machines service.
     const target = await this.deps.sessionById(found.sessionId)
     if (!target) throw new Error(`no session found for ${ref}`)
     await this.logRead('session.status_read', target.sessionId, reader)
@@ -362,7 +365,7 @@ export class SessionReadToolkit {
       requestedDriverId: target.requestedDriverId ?? null,
       status: target.status,
       phase,
-      machine: target.machineName || target.machineId || null,
+      machine: (target.machineId ? await this.deps.machineName(target.machineId) : null) || target.machineId || null,
       /**
        * OBSERVED, THEN REQUESTED, THEN LAUNCHED (POD-3081).
        *

@@ -152,7 +152,7 @@ export async function buildSuperagentTools(
                   // Provenance + snooze (issue #62): who created it, and whether it's
                   // parked out of the attention flow (null = until next message).
                   spawnedBy: s.spawnedBy,
-                  snoozedUntil: s.snoozedUntil,
+                  snoozedUntil: (await store.sessions.sessionUserStateFor(listPrincipal!.userId, s.sessionId)).snoozedUntil,
                   ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
                 }
               },

@@ -58,11 +58,11 @@ import type { Session } from './session'
  *    (`Session.queuedMessageCount` — carried here — is the registry's transient
  *    mirror of it, which is what the inbox reasons about.)
  *
- * A caller that genuinely needs one of those wants a WIRED session, and the
- * narrow projections already exist for exactly that: `sessionById` (POD-1646),
- * `sessionsById` (POD-2322) and `listSessionsForIssue` (POD-1639). The pattern
- * every migrated caller follows is SELECT WITH FACTS, WIRE THE FEW: decide over
- * the cheap snapshot, then project only the handful of sessions that survive.
+ * Internal readers obtain joined values from their sources: `readSessionRefs`
+ * for refs, MachinesService for machine labels, and the caller's per-user row
+ * for read/snooze state. The narrow projections `sessionById` (POD-1646),
+ * `sessionsById` (POD-2322) and `listSessionsForIssue` (POD-1639) still provide
+ * visibility checks and the session's own fields for outward-facing reads.
  *
  * ---------------------------------------------------------------------------
  * NOT A WIRE TYPE

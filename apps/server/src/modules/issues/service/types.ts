@@ -203,6 +203,8 @@ export interface IssueDeps {
   /** A KNOWN SET of sessions, wired [POD-2322]. The issue tree selects member
    *  ids across the whole subtree from facts, then projects only those. */
   sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>
+  /** Current label from MachinesService; omitted by fixtures that only know ids. */
+  machineName?(machineId: MachineId): Promise<string>
   getSettings(): Promise<PodiumSettings>
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —

@@ -515,7 +515,9 @@ export class IssueGitWorkflowModule {
       }
       return {
         ...wire,
-        machine: existing[0]?.machineName ?? existing[0]?.machineId ?? 'local',
+        machine: existing[0]?.machineId
+          ? await this.store.d.machineName?.(existing[0].machineId) ?? existing[0].machineId
+          : 'local',
       }
     }
     // The human summary leads; the technical brief follows verbatim. [spec:SP-6144]

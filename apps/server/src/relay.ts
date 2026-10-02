@@ -162,6 +162,7 @@ import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/session
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
+import { readSessionRefs } from './modules/sessions/refs'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { DockShellService, resolveSampledShellOwners } from './modules/shells/service'
@@ -1946,6 +1947,7 @@ export class SessionRegistry {
         await sessionsSvc.listSessionsForIssue(worktreePath, issueId),
       // A known set, wired [POD-2322] — the issue tree's members.
       sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
+      machineName: async (machineId) => await machines.machineName(machineId),
       // Shell lifetime verbs for the worktree-free trigger (POD-4525): live
       // reads off the registry map, viewer state for held/watched, and the
       // teardown/kill verbs the policy maps onto.
@@ -2582,6 +2584,8 @@ export class SessionRegistry {
       sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
       issues,
       messages: messagesSvc,
+      sessionRefs: async (sessions) => await readSessionRefs(this.store, sessions),
+      machineName: async (machineId) => await machines.machineName(machineId),
       events: this.store.events,
       // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
       watermarks: this.store.readWatermarks,
