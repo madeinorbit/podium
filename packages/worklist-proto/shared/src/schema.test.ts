@@ -384,6 +384,13 @@ describe('validateStructure', () => {
   })
 })
 
+it.each(['many', 'allTypes'] as const)('rejects edge matching or cardinality disagreement: %s', policy => {
+  const schema = clone(), original = schema.issue.relations.pageDependencies
+  if (original?.kind !== 'edge') throw new Error('Missing edge collection declaration')
+  ;(schema.issue.relations as Record<string, RelationSpec>).pageDependencies = { ...original, [policy]: undefined }
+  expect(validateStructure(schema).join('\n')).toMatch(/edge matching\/cardinality disagrees with its inverse/)
+})
+
 describe('validateSources', () => {
   it('resolves every declared field against @podium/model', () => {
     expect(validateSources()).toEqual([])

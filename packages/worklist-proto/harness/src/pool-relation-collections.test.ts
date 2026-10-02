@@ -7,6 +7,7 @@ import { HandPool } from '../../arms/hand/pool/pool'
 import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { checkRelations } from '../../shared/src/probes/relations-check'
 import type { RowRecord } from '../../shared/src/stats'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { scanRelations as handScan } from '../../arms/hand/pool/enumerate'
 import { scanRelations as mobxScan } from './adapters/mobx-rebuild'
 import { tracked } from './adapters/mobx-pool'
@@ -14,15 +15,17 @@ import { installMobxWarnTrap } from './mobx-trap'
 
 installMobxWarnTrap({ errors: true })
 const STAMP = '2026-09-01T12:00:00Z'
-const issue = (id: string, deps: { id: string; type: string }[] = []): RowRecord => ({ kind: 'issue', id,
-  value: { id, seq: 1, title: 'Synthetic', repoPath: '/synthetic', createdAt: STAMP, updatedAt: STAMP, stage: 'backlog', deps } })
-const session = (id: string): RowRecord => ({ kind: 'session', id, value: { sessionId: id, issueId: 'a',
-  status: 'exited', cwd: '/synthetic', agentKind: 'codex', lastActiveAt: STAMP, resume: { kind: 'codex-thread', value: 'same' } } })
+const issue = (id: string, deps: { id: string; type: string }[] = [], patch: Partial<SliceIssue> = {}): RowRecord & { kind: 'issue'; value: SliceIssue } => ({ kind: 'issue', id,
+  value: { id, seq: 1, title: 'Synthetic', repoPath: '/synthetic', createdAt: STAMP, updatedAt: STAMP, stage: 'backlog', deps, ...patch } })
+const session = (id: string, patch: Partial<SliceSession> = {}): RowRecord & { kind: 'session'; value: SliceSession } => ({ kind: 'session', id, value: { sessionId: id, issueId: 'a',
+  status: 'exited', cwd: '/synthetic', agentKind: 'codex', lastActiveAt: STAMP, resume: { kind: 'codex-thread', value: 'same' }, ...patch } })
 
 describe('page schema generic relation collections', () => {
   it('keeps every same-type target while singular provenance still takes its first edge', () => {
-    const dependencies = { ...SCHEMA.issue.relations.pageDependencies, allTypes: undefined, edgeType: 'blocks' }
-    const dependents = { ...SCHEMA.issue.relations.pageDependents, allTypes: undefined, edgeType: 'blocks' }
+    const forward = SCHEMA.issue.relations.pageDependencies, inverse = SCHEMA.issue.relations.pageDependents
+    if (forward?.kind !== 'edge' || inverse?.kind !== 'edge') throw new Error('Missing edge collection declarations')
+    const dependencies = { ...forward, allTypes: undefined, edgeType: 'blocks' }
+    const dependents = { ...inverse, allTypes: undefined, edgeType: 'blocks' }
     const schema: ModelSchema = { ...SCHEMA, issue: { ...SCHEMA.issue,
       relations: { ...SCHEMA.issue.relations, pageDependencies: dependencies, pageDependents: dependents } } }
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(STAMP) }, schema)
@@ -41,8 +44,8 @@ describe('page schema generic relation collections', () => {
   })
 
   it('exposes collection model getters and retains cold edge keys without loading payloads', () => {
-    const rows = [issue('a'), issue('b'), { ...issue('owner', [{ id: 'a', type: 'custom' }, { id: 'b', type: 'blocks' }]),
-      value: { ...issue('owner').value, stage: 'done', archived: true, deps: [{ id: 'a', type: 'custom' }, { id: 'b', type: 'blocks' }] } }]
+    const rows = [issue('a'), issue('b'), issue('owner', [{ id: 'a', type: 'custom' }, { id: 'b', type: 'blocks' }],
+      { stage: 'done', archived: true })]
     const loads: string[] = []
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(STAMP) }, undefined,
       { load: (entity, id) => { loads.push(`${entity}:${id}`); return rows.find(row => row.kind === entity && row.id === id)?.value },
@@ -68,14 +71,14 @@ describe('page schema generic relation collections', () => {
 
   it('places a resumed winner in the first member slot and restores live twins in ID order', () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(STAMP) })
-    const first = session('a-first'), winner = { ...session('z-winner'), value: { ...session('z-winner').value, status: 'hibernated' } }
+    const first = session('a-first'), winner = session('z-winner', { status: 'hibernated' })
     try {
       pool.apply({ type: 'replace', rows: [issue('a'), first, winner,
-        { ...session('m-middle'), value: { ...session('m-middle').value, resume: undefined } }] })
+        session('m-middle', { resume: undefined })] })
       const order = () => tracked(() => [...pool.graph.many('issue', 'a', 'missionSessions')]
         .sort((a, b) => pool.graph.orderKey('session', a).localeCompare(pool.graph.orderKey('session', b))))
       expect(order()).toEqual(['z-winner', 'm-middle'])
-      pool.apply({ type: 'update', rows: [{ ...first, value: { ...first.value, status: 'live' } }] })
+      pool.apply({ type: 'update', rows: [session('a-first', { status: 'live' })] })
       expect(order()).toEqual(['a-first', 'm-middle', 'z-winner'])
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'a-first', value: undefined }] })
       expect(order()).toEqual(['m-middle', 'z-winner'])
