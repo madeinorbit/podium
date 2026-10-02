@@ -70,7 +70,8 @@ test('phone Expo web signs in with the same cookie protocol and survives reload'
     await page.getByLabel('Email', { exact: true }).fill('user:sole')
     await page.getByLabel('Password', { exact: true }).fill(password!)
     await page.getByRole('button', { name: 'Log in', exact: true }).click()
-    await expect(page.getByText('Inbox', { exact: true }).first()).toBeVisible({ timeout: 45_000 })
+    await expect(page.getByRole('tab', { name: 'Work', exact: true })).toBeVisible({ timeout: 45_000 })
+    await expect(page.getByLabel('Password', { exact: true })).toBeHidden()
     expect((await context.cookies()).find((row) => row.name === 'podium_session')?.httpOnly).toBe(
       true,
     )
@@ -83,7 +84,7 @@ test('phone Expo web signs in with the same cookie protocol and survives reload'
     ).toBe(true)
     await page.screenshot({ path: resolve(evidence, 'phone-signed-in.png'), fullPage: true })
     await page.reload()
-    await expect(page.getByText('Inbox', { exact: true }).first()).toBeVisible({ timeout: 45_000 })
+    await expect(page.getByRole('tab', { name: 'Work', exact: true })).toBeVisible({ timeout: 45_000 })
     await expect(page.getByLabel('Password', { exact: true })).toBeHidden()
   } finally {
     await context.close()
