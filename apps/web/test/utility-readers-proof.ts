@@ -54,7 +54,7 @@ export async function runUtilityReadersProof(options: { countsOnly?: boolean; re
       browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
       let pageErrors = 0
-      page.on('pageerror', () => { pageErrors++ })
+      page.on('pageerror', (error) => { pageErrors++; console.error(`Synthetic utility fixture: ${error.message}`) })
       await page.addInitScript(({ clock }) => {
         const fixed = new Proxy(Date, {
           construct: (target, args) => Reflect.construct(target, args.length ? args : [clock]),
