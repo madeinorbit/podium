@@ -73,6 +73,15 @@ export class MissionViewReader {
   }
   constructor(readonly pool: MobxPool) {}
   issue(id: string): Loaded<IssueNavigationModel> { return issueValue(this.node(id)) }
+  /** Menu catalogs use authored labels and references, not other tasks' crew. */
+  catalogIssue(id: string): Loaded<IssueNavigationModel> {
+    const raw = this.pool.row('issue', id)
+    if (!raw || raw === LOADING) return raw
+    const row = raw as IssueNavigationModel
+    const repoId = this.pool.graph.one('issue', id, 'repo')
+    const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
+    return overlayRow(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
+  }
   attached(id: string): readonly SessionView[] | typeof LOADING { return attachedValue(this.node(id)) }
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
@@ -182,14 +191,22 @@ export class MissionViewReader {
     }
     for (const id of tips) {
       addressed.add(id)
-      for (const [, relation] of MISSION_VIEW_DEPS) for (const target of this.pool.graph.many('issue', id, relation)) addressed.add(target)
+      for (const [, relation] of MISSION_VIEW_DEPS) {
+        const target = this.pool.graph.one('issue', id, relation)
+        if (target) addressed.add(target)
+      }
       for (const relation of ['treeParent', 'viewSupersededBy', 'viewDuplicateOf']) {
         const target = this.pool.graph.one('issue', id, relation)
         if (target) addressed.add(target)
       }
     }
     for (const id of addressed) {
-      if (this.issue(id) === LOADING) pending = true
+      const issue = this.issue(id)
+      if (issue === LOADING) pending = true
+      else if (issue && tips.has(id)) for (const dep of issue.deps) {
+        if (this.issue(dep.id) === LOADING) pending = true
+        if (this.attached(dep.id) === LOADING) pending = true
+      }
       if (this.attached(id) === LOADING) pending = true
     }
     return !pending
@@ -784,7 +801,7 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   }
   let pending = false
   if (!sessionId) for (const id of knownIssueIds(view.pool).sort()) {
-    const issue = view.issue(id)
+    const issue = view.catalogIssue(id)
     if (issue === LOADING) pending = true
     else if (issue) allIssues.push(issue)
   }
