@@ -14,7 +14,7 @@ function boot() {
     sessions: corpus.sliceSessions.map((value) => ({ kind: 'session', id: value.sessionId, value })),
     worktrees: corpus.sliceWorktrees.map((value) => ({ kind: 'worktree', id: value.path, value })),
   })
-  const locals = fixedLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
+  const locals = fixedLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow }).source
   const pool = new LeanPool(replay.source, locals, undefined, () => () => {})
   return { pool, replay, locals }
 }
