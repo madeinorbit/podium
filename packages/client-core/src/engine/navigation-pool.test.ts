@@ -22,7 +22,7 @@ const provider: NavigationProvider = {
   session: id => id === seat.sessionId ? seat : undefined,
 }
 const state = (navigation?: NavigationProvider) => ({
-  navigation, issueProjections: [root, child], issueUserStates: [], issueDeps: [], sessions: [seat],
+  navigation, issueProjections: [root, child], issueUserStates: [], issueDeps: [], sessions: [seat], repos: [],
   selectedIssueId: null, selectedWorktree: '/repo', workspaces: {}, paneA: null, paneB: null,
   focusedPane: 'A', split: false, fileTabs: [], recentFiles: [], view: 'issues',
   settingsTab: null, openIssueId: null, issueVisitBaseline: null,
