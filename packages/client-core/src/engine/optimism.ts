@@ -189,6 +189,48 @@ export interface OptimismPorts<TApi extends PodiumClientApi> {
 }
 
 export class OptimismLedger<TApi extends PodiumClientApi> {
+  private keyedFolds = false
+  private readonly basePositions = new Map<OverlayTarget, {
+    base: object[]; positions: Map<string, number>; unique: boolean
+  }>()
+
+  enableKeyedFolds(): void { this.keyedFolds = true }
+
+  /** An index of the writer's current base array, not a second row store. */
+  private positionsFor<T extends object>(entity: OverlayTarget, base: T[], keyOf: (row: T) => string) {
+    const previous = this.basePositions.get(entity)
+    if (previous?.base === base) return previous
+    const positions = new Map<string, number>()
+    let unique = true
+    for (let i = 0; i < base.length; i++) {
+      const id = keyOf(base[i]!)
+      if (positions.has(id)) unique = false
+      positions.set(id, i)
+    }
+    const next = { base, positions, unique }
+    this.basePositions.set(entity, next)
+    return next
+  }
+
+  /** Fold only addressed bases, then copy the legacy snapshot array if a cell
+   * moved. Inserts and absent-user markers still use the original fold rules. */
+  private foldKeyed<T extends object>(entity: OverlayTarget, base: T[], overlays: PendingOverlay[], keyOf: (row: T) => string) {
+    if (!overlays.length) return foldOverlays(base, overlays, keyOf)
+    const index = this.positionsFor(entity, base, keyOf)
+    if (!index.unique) return foldOverlays(base, overlays, keyOf)
+    const positions = [...new Set(overlays.flatMap(o => {
+      const position = index.positions.get(o.id)
+      return position === undefined ? [] : [position]
+    }))].sort((a, b) => a - b)
+    const subset = positions.map(position => base[position]!)
+    const folded = foldOverlays(subset, overlays, keyOf)
+    const moved = folded.rows.length > subset.length || positions.some((position, i) => base[position] !== folded.rows[i])
+    if (!moved) return { rows: base, pendingInsertIds: folded.pendingInsertIds }
+    const rows = base.slice()
+    for (let i = 0; i < positions.length; i++) rows[positions[i]!] = folded.rows[i]!
+    rows.push(...folded.rows.slice(subset.length))
+    return { rows, pendingInsertIds: folded.pendingInsertIds }
+  }
   private readonly ports: OptimismPorts<TApi>
   private readonly spawnConfirmGraceMs: number
   private spawnOverlays: PendingOverlay[] = []
@@ -280,6 +322,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     // successor reads the queue from storage and paints whatever committed.
     this.localOverlays.clear()
     this.folds.clear()
+    this.basePositions.clear()
     this.spawnPrompts = new Map()
     if (this.awaitingSweepTimer !== null) {
       clearTimeout(this.awaitingSweepTimer)
@@ -534,6 +577,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     keyOf: (row: T) => string,
     overlays: PendingOverlay[] = this.overlaysFor(entity),
   ): { rows: T[]; pendingInsertIds: ReadonlySet<string> } {
+    // A scope replacement must release the former base even when the new
+    // slice has no pending overlay that would ask for an index.
+    if (this.keyedFolds && this.basePositions.get(entity)?.base !== base) this.basePositions.delete(entity)
     const previous = this.folds.get(entity)
     // Membership/stage and coverage predicates do not affect the pure fold.
     // Compare the ordered paint, including edits to an existing queued entry.
@@ -553,13 +599,15 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     ) {
       return previous.result as { rows: T[]; pendingInsertIds: ReadonlySet<string> }
     }
-    const result = foldOverlays(base, overlays, keyOf)
+    const result = this.keyedFolds ? this.foldKeyed(entity, base, overlays, keyOf) : foldOverlays(base, overlays, keyOf)
     // Changed inputs can still compose to the same effective rows. Retain
     // their identity without comparing serialized data or hiding new cells.
     if (
       previous &&
       previous.result.rows.length === result.rows.length &&
-      result.rows.every((row, i) => shallowEqual(row, previous.result.rows[i]))
+      (this.keyedFolds && previous.base === base
+        ? this.samePaint(entity, base, keyOf, previous.overlays, overlays, result.rows, previous.result.rows)
+        : result.rows.every((row, i) => shallowEqual(row, previous.result.rows[i])))
     ) {
       result.rows = previous.result.rows as T[]
     }
@@ -572,6 +620,18 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     }
     this.folds.set(entity, { base, overlays, result })
     return result
+  }
+
+  private samePaint<T extends object>(entity: OverlayTarget, base: T[], keyOf: (row: T) => string,
+    before: PendingOverlay[], after: PendingOverlay[], rows: T[], previous: object[]): boolean {
+    const index = this.positionsFor(entity, base, keyOf)
+    if (!index.unique) return rows.every((row, i) => shallowEqual(row, previous[i]))
+    for (const overlay of [...before, ...after]) {
+      const position = index.positions.get(overlay.id)
+      if (position !== undefined && !shallowEqual(rows[position], previous[position])) return false
+    }
+    for (let i = base.length; i < rows.length; i++) if (!shallowEqual(rows[i], previous[i])) return false
+    return true
   }
 
   /** Arm (once) a timer that forces a recompute shortly after the earliest
@@ -632,10 +692,20 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       })
       if (keep.length !== this.spawnOverlays.length) this.spawnOverlays = keep
     }
+    const awaiting = this.keyedFolds ? this.awaitingTruth.filter(a => a.overlay.entity === entity) : []
+    const checkedBase = awaiting.length > 0
+      ? (() => {
+        const index = this.positionsFor(entity, base, keyOf)
+        if (!index.unique) return base
+        return [...new Set(awaiting.flatMap(a => {
+          const position = index.positions.get(a.overlay.id)
+          return position === undefined ? [] : [position]
+        }))].map(position => base[position]!)
+      })() : base
     const pruned = pruneAwaiting(
       this.awaitingTruth,
       entity,
-      base,
+      checkedBase,
       keyOf,
       Date.now(),
       undefined,

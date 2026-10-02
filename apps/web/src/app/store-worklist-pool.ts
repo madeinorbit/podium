@@ -82,6 +82,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   // Structural legacy/test runtimes without UI state request no pool screen.
   if (!runtime.ui) return () => {}
   for (const screen of poolBackedScreens) screen.initialize(runtime.ui)
+  if (sidebarDataLayer() === 'pool') runtime.enablePoolRuntimeWork?.()
   let stopCensus = (): void => {}
   if (chipsPerfRequested() && typeof window !== 'undefined') {
     chipPerf.enable()

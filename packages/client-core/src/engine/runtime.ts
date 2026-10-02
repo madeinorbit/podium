@@ -108,6 +108,7 @@ import {
   asIssueIdOrNull,
   type EngineState,
   type EngineStatics,
+  enableWorkspaceKeyCache,
   initialEngineState,
   userFocus,
   type WorkspacePatch,
@@ -383,6 +384,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private batchDepth = 0
   private pendingChanges = new Set<keyof EngineState>()
   private pendingReactions = new Set<keyof EngineState>()
+  private poolRuntimeWork = false
+  private sessionTopologyChanged = false
   /** True when this runtime runs on the wire-v2 feed (POD-1223). */
   private readonly onFeed: boolean
   // ---- offline-first composer drafts (POD-2045) ----
@@ -994,6 +997,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     return this.destroyed
   }
 
+  /** Startup-only opt-in from the sidebar's existing attachment. The legacy
+   * runtime keeps its exact reaction/fold path when the screen is switched off. */
+  enablePoolRuntimeWork(): void {
+    if (this.poolRuntimeWork || this.destroyed) return
+    this.poolRuntimeWork = true
+    enableWorkspaceKeyCache(this.state)
+    this.optimism.enableKeyedFolds()
+  }
+
   // ------------------------------------------------------------ state pipeline
 
   /** Writes are immediate; subscribers see only the completed batch, including
@@ -1007,6 +1019,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       for (const k of Object.keys(patch) as Array<keyof EngineState>) {
         const next = patch[k]
         if (!Object.is(this.state[k], next)) {
+          if (this.poolRuntimeWork && k === 'sessions' && !this.sessionTopologyChanged) {
+            const sessions = next as EngineState['sessions']
+            const previous = this.state.sessions
+            this.sessionTopologyChanged = previous.length !== sessions.length || sessions.some((row, i) => {
+              const old = previous[i]!
+              return old.sessionId !== row.sessionId || old.cwd !== row.cwd || old.issueId !== row.issueId
+            })
+          }
           ;(this.state as unknown as Record<string, unknown>)[k as string] = next
           changed.add(k)
           this.pendingChanges.add(k)
@@ -1053,6 +1073,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         if (this.batchDepth === 0) {
           const changed = this.pendingChanges
           this.pendingChanges = new Set()
+          this.sessionTopologyChanged = false
           // Clear bookkeeping before notifying: listeners may write again.
           if (changed.size > 0 && !this.destroyed)
             this.subStore.publish(this.buildSnapshot(), changed)
@@ -1068,14 +1089,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // ONE persistence reaction; routing and serialization live in ui-state.ts.
     if (!this.applyingHydratedUi) this.routerUi.flush(workspaceUiSnapshot(this.state), changed)
     // Session-follows-view policy: diffs consecutive session snapshots.
-    if (changed.has('sessions')) {
+    const sessionTopology = changed.has('sessions') && (!this.poolRuntimeWork || this.sessionTopologyChanged)
+    if (sessionTopology) {
       this.reactions.worktreeFollow()
       this.reactions.sessionIssueFollow()
-      // A linked session that arrived after its link (POD-4642).
-      if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
     }
+    // Link arrival is a membership change, but keep its independent guard.
+    if (changed.has('sessions') && this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
     // Worktree fallback selection.
-    if (any('sessions', 'repos', 'reposLoaded', 'selectedWorktree'))
+    if (sessionTopology || any('repos', 'reposLoaded', 'selectedWorktree'))
       this.reactions.worktreeFallback()
     // TASK SWITCH → restore that workspace's panes (POD-710). The layouts are
     // the truth; the pane scalars follow whichever workspace is now on screen.
@@ -1085,7 +1107,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // A tab whose session or file is GONE (POD-710). Nothing else can remove it
     // — it renders nothing, so there is no ✕ to click — and it is persisted, so
     // it comes back on every reload until this drops it.
-    if (any('sessions', 'fileTabs', 'workspaces', 'pendingSpawnIds'))
+    if (sessionTopology || any('fileTabs', 'workspaces', 'pendingSpawnIds'))
       this.reactions.pruneWorkspaces()
     // State→URL mirror — the single URL writer.
     if (any('selectedWorktree', 'paneA'))

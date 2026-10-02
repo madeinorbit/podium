@@ -14,6 +14,62 @@ import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { navigationIssue } from './pool-row-data'
 
+/** Addressed mission target seam shared with the explorer. It reads the raw
+ * parent relation so an archived ancestor stops the walk, as in navigation. */
+export function poolMissionRoot(pool: MobxPool, id: string | null): SliceIssue | typeof LOADING | undefined {
+  if (!id) return undefined
+  let current = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
+  const seen = new Set<string>()
+  while (current !== undefined && current !== LOADING && current.parentId && !seen.has(current.id)) {
+    seen.add(current.id)
+    const parentId = pool.graph.one('issue', current.id, 'treeParent')
+    if (!parentId) break
+    const hidden = pool.hidden('issue', parentId)
+    if (hidden?.archived || hidden?.deletedAt) break
+    const parent = pool.row('issue', parentId) as SliceIssue | typeof LOADING | undefined
+    if (parent === LOADING) return LOADING
+    if (parent === undefined || parent.archived || parent.deletedAt) break
+    current = parent
+  }
+  return current
+}
+
+/** Resolve one focus through formal parents and sender provenance. The sender
+ * may be headless (outside R2) or cold; its declared owner summary still names
+ * the issue, without a second membership index or an enumeration. */
+export function poolMissionContains(pool: MobxPool, rootId: string, id: string): boolean | typeof LOADING {
+  const seen = new Set<string>()
+  const visit = (member: string): boolean | typeof LOADING => {
+    if (member === rootId) return true
+    if (seen.has(member)) return false
+    seen.add(member)
+    const issue = pool.row('issue', member) as SliceIssue | typeof LOADING | undefined
+    if (issue === LOADING) return LOADING
+    if (!issue) return false
+    // Formal closure is rooted at the original mission only. A child of a
+    // provenance member does not join unless it has its own sender route.
+    const parents = new Set<string>([member])
+    let parent = pool.graph.one('issue', member, 'parent')
+    while (parent && !parents.has(parent)) {
+      if (parent === rootId) return true
+      parents.add(parent)
+      const ancestor = pool.row('issue', parent)
+      if (ancestor === LOADING) return LOADING
+      if (!ancestor) break
+      parent = pool.graph.one('issue', parent, 'parent')
+    }
+    if (issue.stage !== 'proposed' && issue.stage !== 'backlog' &&
+      issue.deps?.some(dep => dep.type === 'discovered-from')) return false
+    const starter = pool.graph.one('issue', member, 'startedBy')
+    if (!starter) return false
+    const sender = pool.hidden('session', starter) ?? pool.row('session', starter)
+    if (sender === LOADING) return LOADING
+    const owner = (sender as { issueId?: string } | undefined)?.issueId
+    return owner ? visit(owner) : false
+  }
+  return visit(id)
+}
+
 /** Navigation includes the formal mission at every depth and tasks filed by
  * its explicitly attached sessions. Display nesting is narrower than this:
  * hidden descendants and unstarted spin-offs can still supply a pane. */

@@ -51,7 +51,7 @@ import { sessionById } from '../session-index'
 import { readStoreStats, storeStats } from '../perf/store-stats'
 import { Reactions } from './reactions'
 import { foregroundIssue, type EngineState } from './state'
-import { foldOverlays, insertOverlay, type OverlayEntity } from './overlay'
+import { foldOverlays, insertOverlay, type OverlayEntity, type OverlayTarget, type PendingOverlay, type AwaitingTruth, pruneAwaiting } from './overlay'
 import { type OptimismLedger, placeholderProjection } from './optimism'
 import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
 
@@ -4551,5 +4551,105 @@ describe('session home reads in the shared runtime', () => {
     try {
       expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: true, readAt: null, snoozedUntil: null })
     } finally { engine.destroy() }
+  })
+})
+
+describe('pool shared runtime work', () => {
+  it('suppresses activity-only routing, but retains rehome, arrival, removal and pane pruning', () => {
+    const runs: unknown[] = []
+    for (const enabled of [false, true]) {
+      const { engine } = makeEngine()
+      if (enabled) engine.enablePoolRuntimeWork()
+      const seam = engine as unknown as { apply(patch: Partial<EngineState>): void; reactions: Reactions }
+      const names = ['worktreeFollow', 'sessionIssueFollow', 'worktreeFallback', 'pruneWorkspaces'] as const
+      const spies = names.map(name => vi.spyOn(seam.reactions, name))
+      const row = { ...session('s', '/wt'), issueId: 'before' } as SessionMeta
+      try {
+        seam.apply({ sessions: [row] })
+        spies.forEach(spy => spy.mockClear())
+        seam.apply({ sessions: [{ ...row, name: 'new title', lastActiveAt: '2026-08-01T00:00:00Z' }] })
+        expect(spies.map(spy => spy.mock.calls.length)).toEqual(enabled ? [0, 0, 0, 0] : [1, 1, 1, 1])
+        for (const rows of [
+          [{ ...row, cwd: '/new', issueId: 'after' }],
+          [{ ...row, cwd: '/new', issueId: 'after' }, session('arrived', '/new')],
+          [],
+        ]) {
+          spies.forEach(spy => spy.mockClear())
+          seam.apply({ sessions: rows as SessionMeta[] })
+          expect(spies.map(spy => spy.mock.calls.length)).toEqual([1, 1, 1, 1])
+        }
+        spies.forEach(spy => spy.mockClear())
+        seam.apply({ pendingSpawnIds: new Set(['pending']) })
+        expect(spies[3]).toHaveBeenCalledTimes(1)
+        runs.push({ sessions: engine.getSnapshot().sessions, selected: engine.getSnapshot().selectedWorktree,
+          workspaces: engine.getSnapshot().workspaces })
+      } finally { spies.forEach(spy => spy.mockRestore()); engine.dispose() }
+    }
+    expect(runs[1]).toEqual(runs[0])
+  })
+
+  it('keyed folds equal the original for patches, inserts, absent markers, duplicate ids and reordered bases', () => {
+    const { engine } = makeEngine()
+    const ledger = (engine as unknown as { optimism: OptimismLedger<PodiumClientApi> }).optimism
+    ledger.enableKeyedFolds()
+    const seam = ledger as unknown as { foldStable(entity: OverlayTarget, base: object[], keyOf: (row: object) => string): ReturnType<typeof foldOverlays> }
+    let overlays: PendingOverlay[] = []
+    const spy = vi.spyOn(ledger, 'overlaysFor').mockImplementation(() => overlays)
+    let reads = 0
+    const keyOf = (row: object) => { reads++; return (row as { id: string }).id }
+    const patch = (id: string, value: number, absent?: object): PendingOverlay => ({
+      op: 'patch', entity: 'issues', id, key: `${id}:${value}`, patch: { value }, coveredBy: () => false, absent,
+    })
+    const base = Array.from({ length: 2000 }, (_, i) => ({ id: String(i), value: 0 }))
+    try {
+      overlays = [patch('1999', 1)]
+      seam.foldStable('issues', base, keyOf) // build the current base's index once
+      reads = 0
+      overlays = [patch('1999', 2)]
+      expect(seam.foldStable('issues', base, keyOf).rows[1999]).toEqual({ id: '1999', value: 2 })
+      expect(reads).toBeLessThan(20)
+      for (const rows of [base, [...base].reverse(), [base[0]!, base[0]!, base[1]!], []]) {
+        for (const next of [
+          [patch('0', 3), patch('0', 4), patch('1', 5)],
+          [insertOverlay('issues', 'new', { id: 'new', value: 7 } as never), patch('new', 8)],
+          [patch('absent', 9, { id: 'absent', value: 0 })],
+          [patch('missing', 10)], [],
+        ]) {
+          overlays = next
+          const expected = foldOverlays(rows, overlays, keyOf)
+          const actual = seam.foldStable('issues', rows, keyOf)
+          expect(actual.rows).toEqual(expected.rows)
+          expect(actual.pendingInsertIds).toEqual(expected.pendingInsertIds)
+        }
+      }
+      overlays = [patch('0', 1)]
+      const previous = seam.foldStable('issues', base, keyOf)
+      overlays = [patch('0', 8), patch('0', 1)] // changed queue, identical paint
+      expect(seam.foldStable('issues', base, keyOf).rows).toBe(previous.rows)
+      overlays = []
+      expect(seam.foldStable('issues', base, keyOf).rows).toEqual(base)
+    } finally { spy.mockRestore(); engine.dispose() }
+  })
+
+  it('addressed awaiting retirement preserves coverage, evict and TTL decisions', () => {
+    const { engine } = makeEngine()
+    const ledger = (engine as unknown as { optimism: OptimismLedger<PodiumClientApi> }).optimism
+    ledger.enableKeyedFolds()
+    const seam = ledger as unknown as { awaitingTruth: AwaitingTruth[]; retireCovered(entity: OverlayTarget, base: object[], keyOf: (row: object) => string): void }
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const keyOf = (row: object) => (row as { id: string }).id
+    const awaiting = (id: string, resolvedAt = 999_999): AwaitingTruth => ({
+      resolvedAt, overlay: { op: 'patch', entity: 'issues', key: id, id, patch: { title: 'covered' },
+        coveredBy: row => (row as IssueWire).title === 'covered' },
+    })
+    try {
+      for (const base of [[{ id: 'keep', title: 'old' }, { id: 'cover', title: 'covered' }], []]) {
+        const entries = [awaiting('keep'), awaiting('cover'), awaiting('absent'), awaiting('keep', 0)]
+        const expected = pruneAwaiting(entries, 'issues', base, keyOf, Date.now())
+        seam.awaitingTruth = entries
+        seam.retireCovered('issues', base, keyOf)
+        expect(seam.awaitingTruth).toEqual(expected)
+      }
+    } finally { clock.mockRestore(); engine.dispose() }
   })
 })

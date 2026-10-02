@@ -13,6 +13,11 @@ import {
 } from 'react'
 import { resolveFocus, useOperatorFocus } from '@/app/operator-focus'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
+import { LOADING, type MobxPool } from '@podium/client-graph'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import { poolMissionContains, poolMissionRoot } from '@/features/worklist/use-pool-unified-work'
 import { EXPLORER_TABS, type ExplorerTab } from './explorer-list'
 import { type ExplorerStack, popToDepth, pushLevel, resetTo } from './explorer-nav'
 
@@ -82,6 +87,40 @@ const IssueExplorerContext = createContext<IssueExplorerNav>({
 })
 
 export function IssueExplorerProvider({ children }: { children: ReactNode }): ReactElement {
+  return sidebarDataLayer() === 'pool'
+    ? <PoolIssueExplorerProvider>{children}</PoolIssueExplorerProvider>
+    : <LegacyIssueExplorerProvider>{children}</LegacyIssueExplorerProvider>
+}
+
+/** Only the selected/focused path is read. Step 01 can share this target seam
+ * without subscribing a navigation provider to every legacy issue model. */
+export function poolExplorerTarget(pool: MobxPool, selectedId: string | null, focusedId: string | null): string | null | typeof LOADING {
+  const root = poolMissionRoot(pool, selectedId)
+  if (root === LOADING) return LOADING
+  if (!root || root.archived || root.deletedAt) return null
+  if (root.isDraftVessel && !root.worktreePath && !root.sessionFacts?.tipActivityAt) {
+    let occupied = false
+    for (const id of pool.graph.many('issue', root.id, 'sessions')) {
+      const session = pool.hidden('session', id) ?? pool.row('session', id)
+      if (session === LOADING) return LOADING
+      if (session && (session as { archived?: boolean }).archived !== true) { occupied = true; break }
+    }
+    if (!occupied) return null
+  }
+  if (!focusedId) return root.id
+  const focused = pool.hidden('issue', focusedId) ?? pool.row('issue', focusedId)
+  if (focused === LOADING) return LOADING
+  if (!focused || (focused as SliceIssue).deletedAt) return root.id
+  const belongs = poolMissionContains(pool, root.id, focusedId)
+  return belongs === LOADING ? LOADING : belongs ? focusedId : root.id
+}
+
+function poolPresence(pool: MobxPool, id: string): boolean | typeof LOADING {
+  const row = pool.hidden('issue', id) ?? pool.row('issue', id)
+  return row === LOADING ? LOADING : Boolean(row && !(row as SliceIssue).deletedAt)
+}
+
+function LegacyIssueExplorerProvider({ children }: { children: ReactNode }): ReactElement {
   const { selectedIssueId, sessions } = useStoreSelector(
     (s) => ({ selectedIssueId: s.selectedIssueId, sessions: s.sessions }),
     shallowEqual,
@@ -232,6 +271,163 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
     setMotion(null)
     setSeq((n) => n + 1)
   }, [missing, issues])
+
+  const value = useMemo<IssueExplorerNav>(
+    () => ({
+      stack,
+      current,
+      motion,
+      seq,
+      push,
+      popTo,
+      back,
+      retarget,
+      tab,
+      setTab,
+      query,
+      setQuery,
+      listScrollTop,
+      rememberListScrollTop,
+    }),
+    [
+      stack,
+      current,
+      motion,
+      seq,
+      push,
+      popTo,
+      back,
+      retarget,
+      tab,
+      query,
+      listScrollTop,
+      rememberListScrollTop,
+    ],
+  )
+  return <IssueExplorerContext.Provider value={value}>{children}</IssueExplorerContext.Provider>
+}
+
+const EMPTY_POOL_TARGET: { target: string | null | typeof LOADING; grounded: boolean } = { target: LOADING, grounded: false }
+
+function PoolIssueExplorerProvider({ children }: { children: ReactNode }): ReactElement {
+  const selectedId = useStoreSelector(s => s.selectedIssueId)
+  const { focusedIssueId } = useOperatorFocus()
+  const pool = useWorklistPool()
+  const readTarget = useCallback((pool: MobxPool) => ({
+    target: poolExplorerTarget(pool, selectedId, focusedIssueId),
+    grounded: pool.tables.issue.size > 0,
+  }), [selectedId, focusedIssueId])
+  const { target, grounded } = useWorklistPoolProjection(readTarget, EMPTY_POOL_TARGET)
+  const [stack, setStack] = useState<ExplorerStack>(() => (target !== LOADING && target ? [target] : []))
+  const [motion, setMotion] = useState<'push' | 'pop' | null>(null)
+  const [seq, setSeq] = useState(0)
+  const lastTarget = useRef(target)
+
+  // AN EMPTY REPLICA IS NOT EVIDENCE OF ABSENCE (POD-1277). A reconnect
+  // mid-flight empties `issues` for a frame, which resolves every pointer to
+  // null and marks every level's subject gone. Riding one out costs nothing;
+  // acting on it would throw the operator back to level 0 every time the socket
+  // blinks. Both rules below therefore only run once the replica has content.
+  // A retarget is silent: no transition, because nothing on this surface was
+  // touched to cause it, and a panel that slides every time you click a session
+  // in another column is a panel that is always moving.
+  useEffect(() => {
+    if (!grounded || target === LOADING) return
+    if (target === lastTarget.current) return
+    lastTarget.current = target
+    setStack((prev) => resetTo(prev, target))
+    setMotion(null)
+    setSeq((n) => n + 1)
+  }, [target, grounded])
+
+  const [tab, setTab] = useState<ExplorerTab | null>(null)
+  const [query, setQuery] = useState('')
+  const listScrollPositions = useRef(new Map<string, number>())
+  const listScrollTop = useCallback(
+    (scope: string): number => {
+      const positions = listScrollPositions.current
+      const top = positions.get(scope) ?? 0
+      if (positions.has(scope)) {
+        positions.delete(scope)
+        positions.set(scope, top)
+      }
+      return top
+    },
+    [],
+  )
+  const rememberListScrollTop = useCallback((scope: string, top: number): void => {
+    const positions = listScrollPositions.current
+    positions.delete(scope)
+    positions.set(scope, top)
+    while (positions.size > EXPLORER_SCROLL_CACHE_LIMIT) {
+      const oldest = positions.keys().next().value as string | undefined
+      if (oldest === undefined) break
+      positions.delete(oldest)
+    }
+  }, [])
+
+  const push = useCallback((id: string): void => {
+    setStack((prev) => pushLevel(prev, id))
+    setMotion('push')
+    setSeq((n) => n + 1)
+  }, [])
+  const popTo = useCallback((depth: number): void => {
+    setStack((prev) => popToDepth(prev, depth))
+    setMotion('pop')
+    setSeq((n) => n + 1)
+  }, [])
+  const back = useCallback((): void => {
+    setStack((prev) => popToDepth(prev, prev.length - 1))
+    setMotion('pop')
+    setSeq((n) => n + 1)
+  }, [])
+  // Silent, like the shell-driven retarget above: the operator touched another
+  // surface, and a panel that slides whenever something elsewhere is clicked is
+  // a panel that is always moving. `lastTarget` is deliberately NOT written —
+  // the shell still points where it did, so if the selection later lands on this
+  // same task the effect above may still collapse a trail walked from here.
+  const retarget = useCallback((id: string): void => {
+    setStack((prev) => resetTo(prev, id))
+    setMotion(null)
+    setSeq((n) => n + 1)
+  }, [])
+
+  const current = stack.length ? (stack[stack.length - 1] ?? null) : null
+
+  // A LEVEL WHOSE TASK IS GONE GOES HOME. The check is the stack TOP only, so a
+  // dead rung further down survives until you walk back onto it — same reach the
+  // panel-side rule had. Deletion is the one way a level can outlive its subject
+  // — archived tasks still open, and the trail labels them.
+  //
+  // This lives in the PROVIDER, not in the panel that renders the trail, because
+  // the pointer outlives the panel by design: the dock unmounts the explorer
+  // whenever it closes or another tab is picked, and a rule that only runs while
+  // someone is looking is not a rule about the pointer, it is a rule about the
+  // view. Deleting a task from the Flight Deck with the dock shut used to leave
+  // the dead id in the stack until the panel was next mounted, so reopening the
+  // dock landed on a task that no longer existed (POD-1471).
+  //
+  // HOME IS THE LIST, and nothing else. Deleting the task the explorer is on
+  // usually re-aims the subject in the same commit, and the re-aim effect above
+  // runs first — so this reads the stack THROUGH the updater, after that effect's
+  // write, and leaves a strand alone once something has already repaired it.
+  // Substituting the subject here instead would be wrong the other way round: a
+  // ref card pointed at a deleted task (POD-1265) would silently land on whatever
+  // the deck happens to be showing, which is not what anyone asked to see.
+  const readPresence = useCallback((pool: MobxPool) => current === null ? true : poolPresence(pool, current), [current])
+  const present = useWorklistPoolProjection(readPresence, LOADING)
+  const missing = grounded && present === false
+
+  useEffect(() => {
+    if (!missing) return
+    setStack((prev) => {
+      const head = prev[prev.length - 1]
+      if (head === undefined) return prev
+      return !pool || poolPresence(pool, head) !== false ? prev : []
+    })
+    setMotion(null)
+    setSeq((n) => n + 1)
+  }, [missing, pool])
 
   const value = useMemo<IssueExplorerNav>(
     () => ({

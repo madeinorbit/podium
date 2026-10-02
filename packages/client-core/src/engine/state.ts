@@ -297,16 +297,35 @@ export type WorkspaceSelection = Pick<
  * here so the engine and the view cannot disagree about which task's tabs they
  * are writing.
  */
+const workspaceKeys = new WeakMap<WorkspaceSelection, {
+  source?: WorkspaceSelection['issueProjections']
+  issue?: WorkspaceSelection['selectedIssueId']
+  worktree?: WorkspaceSelection['selectedWorktree']
+  value?: WorkspaceKey
+}>()
+
+/** The existing runtime opts in at startup. Cache one scalar answer, never
+ * rows or relations; a replaced issue array (including evict/rescope) misses. */
+export function enableWorkspaceKeyCache(st: WorkspaceSelection): void {
+  if (!workspaceKeys.has(st)) workspaceKeys.set(st, {})
+}
+
 export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
+  const cached = workspaceKeys.get(st)
+  if (cached?.value !== undefined && cached.source === st.issueProjections &&
+    cached.issue === st.selectedIssueId && cached.worktree === st.selectedWorktree) return cached.value
   const selected = st.selectedIssueId
     ? st.issueProjections.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
   const root = selected ? missionRootFor(st.issueProjections, selected.id) : undefined
-  return workspaceKeyFor({
+  const value = workspaceKeyFor({
     missionRootId: root?.id ?? null,
     issueId: st.selectedIssueId,
     worktreePath: st.selectedWorktree,
   })
+  if (cached) Object.assign(cached, { source: st.issueProjections, issue: st.selectedIssueId,
+    worktree: st.selectedWorktree, value })
+  return value
 }
 
 /** The layout for a key — always a layout, never undefined, so no caller has to

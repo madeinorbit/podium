@@ -18,11 +18,12 @@
  */
 
 import type { IssueWire, SessionMeta } from '@podium/model'
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab, WorkspaceKey } from '../viewmodels'
 import { missionIssueIds } from '../viewmodels'
 import type { EngineState } from './state'
-import { knownTabIdsForWorkspace, sessionBelongsToWorkspace } from './state'
+import { enableWorkspaceKeyCache, knownTabIdsForWorkspace, sessionBelongsToWorkspace, workspaceKeyForState } from './state'
 
 /** Exactly the slices the membership rule reads. */
 type MembershipState = Pick<
@@ -290,5 +291,36 @@ describe('workspace membership budget', () => {
     // subsequent `issue:` keys must not each re-index the slice.
     for (let i = 1; i < 20; i += 1) knownTabIdsForWorkspace(st, `issue:iss-${i}`)
     expect(counted.reads()).toBe(afterFirst)
+  })
+})
+
+// One scalar memo, on the existing mutable engine state only. The reference
+// answer remains the unopted path; every topology/selection input invalidates.
+describe('pool workspace scalar cache', () => {
+  it('avoids a repeated corpus walk and invalidates selection, topology and rescope', () => {
+    let reads = 0
+    const projections = membership([issue('root'), issue('child', { parentId: 'root' })], []).issueProjections
+      .map(row => new Proxy(row, { get(target, key, receiver) { reads++; return Reflect.get(target, key, receiver) } }))
+    const st = { issueProjections: projections, selectedIssueId: 'child', selectedWorktree: '/wt' } as EngineState
+    const reference = () => workspaceKeyForState({ ...st })
+    enableWorkspaceKeyCache(st)
+    expect(workspaceKeyForState(st)).toBe(reference())
+    reads = 0
+    for (let i = 0; i < 100; i++) expect(workspaceKeyForState(st)).toBe('mission:root')
+    expect(reads).toBe(0)
+    st.selectedIssueId = asIssueId('missing')
+    expect(workspaceKeyForState(st)).toBe(reference())
+    st.selectedWorktree = '/other'
+    expect(workspaceKeyForState(st)).toBe(reference())
+    st.selectedIssueId = asIssueId('child')
+    st.issueProjections = membership([issue('root', { archived: true }), issue('child', { parentId: 'root' })], []).issueProjections
+    expect(workspaceKeyForState(st)).toBe('mission:child')
+    expect(workspaceKeyForState(st)).toBe(reference())
+    st.issueProjections = [] // an evict/rescope cannot retain the former root
+    expect(workspaceKeyForState(st)).toBe(reference())
+    st.selectedIssueId = null
+    expect(workspaceKeyForState(st)).toBe('wt:/other')
+    st.selectedWorktree = null
+    expect(workspaceKeyForState(st)).toBe('none')
   })
 })
