@@ -59,7 +59,14 @@ test('web signs in through the form, reloads with its cookie, and erases on sign
 })
 
 test.describe('phone Expo web', () => {
-  test.use({ ...devices['Pixel 7'] })
+  const phone = devices['Pixel 7']
+  test.use({
+    viewport: phone.viewport,
+    userAgent: phone.userAgent,
+    deviceScaleFactor: phone.deviceScaleFactor,
+    isMobile: phone.isMobile,
+    hasTouch: phone.hasTouch,
+  })
 
   test('signs in with the same cookie protocol and survives reload', async ({ page }) => {
     mkdirSync(evidence, { recursive: true })
