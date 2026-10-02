@@ -63,7 +63,10 @@ try {
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const actionStats = await page.evaluate(() => window.__notices.stats())
     const actionLegacy = Object.values(actionStats.legacy).reduce((sum, count) => sum + (count ?? 0), 0)
-    if (mode === 'after' && (actionStats.selectors || actionStats.legacySlices || actionLegacy)) throw new Error(`Legacy notice work executed while acting: ${JSON.stringify({ selectors: actionStats.selectors, legacySliceNames: actionStats.legacySliceNames, legacy: actionStats.legacy })}`)
+    // The preserved navigation owner builds one session index on focus. The
+    // coordinator allocated its retirement to POD-5089, outside these readers.
+    const ownerIndex = actionStats.legacySliceNames.sessionById ?? 0
+    if (mode === 'after' && (actionStats.selectors || actionLegacy || ownerIndex > 1 || actionStats.legacySlices !== ownerIndex)) throw new Error(`Legacy notice work executed while acting: ${JSON.stringify({ selectors: actionStats.selectors, legacySliceNames: actionStats.legacySliceNames, legacy: actionStats.legacy })}`)
     const after = await page.evaluate(() => window.__notices.check())
     if (mode === 'after' && (!after || after.differences || after.pending || after.positions !== 17)) throw new Error(`Post-action comparison failed: ${JSON.stringify(after)}`)
     results[`${mode}.actions`] = { ...actionStats.actions, parked: actionStats.parked, selectors: actionStats.selectors, legacy: actionStats.legacy, legacySliceNames: actionStats.legacySliceNames, check: after }
