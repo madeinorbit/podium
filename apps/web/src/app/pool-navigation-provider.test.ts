@@ -25,7 +25,7 @@ const issue = (id: string, patch: Partial<SliceIssue> = {}): SliceIssue => ({
 })
 const legacyActivity = (rows: SliceIssue[], sessions: SessionView[]) => issueActivityAt(
   { ...rows[0]!, id: asIssueId(rows[0]!.id) }, sessions,
-  rows.map(row => ({ ...row, id: asIssueId(row.id), parentId: row.parentId ? asIssueId(row.parentId) : row.parentId })),
+  rows.map(row => ({ ...row, id: asIssueId(row.id), parentId: row.parentId ? asIssueId(row.parentId) : undefined })),
 )
 
 describe('web pool navigation', () => {
