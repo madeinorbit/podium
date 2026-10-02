@@ -55,8 +55,6 @@ async function mount(mode: 'legacy' | 'pool') {
     const pool = useWorklistPool()
     useEffect(() => {
       runtime = owner
-      fixture.publishMachines()
-      fixture.publishMetrics(0)
       ready = mode === 'legacy' || pool !== null
     }, [owner, pool])
     return <HeaderHostIndicators />
@@ -68,6 +66,8 @@ async function mount(mode: 'legacy' | 'pool') {
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
         fixture.bindHub(owner.hub)
+        fixture.publishMachines()
+        fixture.publishMetrics(0)
         return attachWorklistPool(owner, (error) => failures.push(error.message))
       }}>
       <Header />

@@ -40,7 +40,6 @@ function Surfaces() {
   const graph = useWorklistPool()
   useEffect(() => {
     runtime = owner; pool = graph
-    fixture.publishMachines(); fixture.publishMetrics(0)
     owner.getSnapshot().setSelectedIssueId(asIssueId('synthetic-1'))
     ready = headerDataLayer() === 'legacy' || graph !== null
     return () => { ready = false; runtime = undefined; pool = null }
@@ -60,7 +59,13 @@ const root = createRoot(document.getElementById('root')!)
 root.render(<StoreProvider principal={asClientPrincipal(asUserId('header-synthetic'))}
   config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
   createReplicaFn={() => fixture.newReplica()} networkEnabled={false}
-  onFatalError={(error) => failures.push(error)} attachRuntime={(owner) => { fixture.bindHub(owner.hub); return attachWorklistPool(owner, (error) => failures.push(error.message)) }}>
+  onFatalError={(error) => failures.push(error)} attachRuntime={(owner) => {
+    // StoreProvider starts the runtime before attachment: the hub listeners now
+    // exist in both arms, even when no asynchronous pool import is requested.
+    fixture.bindHub(owner.hub)
+    fixture.publishMachines(); fixture.publishMetrics(0)
+    return attachWorklistPool(owner, (error) => failures.push(error.message))
+  }}>
   <ConfirmProvider><Surfaces /></ConfirmProvider>
 </StoreProvider>)
 const driver = {
