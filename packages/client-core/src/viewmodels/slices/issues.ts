@@ -444,7 +444,7 @@ export function pendingDecisionTitle(
 }
 
 export function issueDraftVessel(issue: Pick<IssueProjection, 'isDraftVessel'>): boolean {
-  return issue.isDraftVessel
+  return issue.isDraftVessel === true
 }
 export function issueAsked(issue: Pick<IssueProjection, 'asked'>): IssueProjection['asked'] {
   return issue.asked

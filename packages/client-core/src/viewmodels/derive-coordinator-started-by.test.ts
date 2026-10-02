@@ -129,6 +129,14 @@ describe('issueIdOwningSession', () => {
 })
 
 describe('isDraftAgentVessel', () => {
+  it('returns false for a newly inserted normalized issue without a draft flag', () => {
+    const fresh = issue()
+    // The new-issue replay inserts a sparse projection before any draft flag
+    // is present. The sidebar predicate must still produce a boolean.
+    Reflect.deleteProperty(fresh, 'isDraftVessel')
+    expect(isDraftAgentVessel(fresh, [sess('w')])).toBe(false)
+  })
+
   it('is a draft with agents and no worktree of its own', () => {
     const draft = issue({ isDraftVessel: true })
     const worker = sess('w')
