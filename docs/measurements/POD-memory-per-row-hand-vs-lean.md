@@ -4,6 +4,140 @@ Measurement and prototype only, on flatblock, 2026-10-02 UTC. Product files
 are unchanged. This follows [the pool memory breakdown](POD-pool-memory-breakdown.md)
 and supplies evidence for the operator's next decision.
 
+## Findings
+
+- **The existing hand pool does not meet the budget.** Its machinery costs
+  **6,765 / 6,402 / 27,585 bytes per resident row** at 1× / 4× / 10× history.
+  It keeps 31,391 / 124,006 / 99,375 live derivation cells even with only 20
+  mounted views. Replacing MobX with that implementation would preserve the
+  basic memory problem and make history retention worse.
+- **Lean MobX can meet the ~1 KB pool budget at 1× and 4×:**
+  **867 / 661 bytes per resident row**, including plain indexes, residency and
+  the matched pool code. At 10× history it is **3,436 bytes**, of which 2,918
+  are residency. The resident reactive layer is small; cold history remains
+  a separate allocation. The MobX-only removal cut is about **17 KiB total**
+  at every cell, with no per-row reactive state outside the mounted window.
+- **The input adapter is additional.** Pool plus canonical feed/local adapter
+  costs **1,280 / 1,039 / 5,334 bytes per resident row**. Shared normalized input
+  memoization also remains outside that cut. Whole-browser lean coexistence
+  is still **+38.1% / +36.2% / +41.7%** above legacy; this prototype does not
+  establish the product's ≤10% end-state target.
+- **The memory saving has a large work cost.** One lean rename reads
+  **3,798 / 15,472 / 3,798 resident data rows**, runs 27,875 / 109,881 / 27,875
+  plain rule bodies, and makes 18,203 / 71,964 / 180,914 summary accesses.
+  Hand rename reads one row and runs three cells. The small MobX census must
+  not be read as a small amount of work.
+
+**Operator decision:** the measurements support a lean reactive layer as a
+memory direction, but this coarse filing implementation needs incremental
+invalidation before it can be judged for interactive use. Choosing that next
+prototype, the existing hand design, or a different pool strategy remains the
+operator's decision. No product change follows automatically from this report.
+
+## Memory results
+
+KB means 1,000 bytes; MiB means 1,048,576 bytes. Each V8 value is the median
+of five fresh contexts. Every arm/cell's full sample range is less than
+0.13 MiB. Flatblock's one-minute load averages were 0.73–4.15 for controls and
+0.95–4.50 for prototypes; the benchmark lease covered each entire capture.
+
+### Retained V8 used heap after two GCs, MiB
+
+| Cell | Legacy | Product pool | Hand | Lean | Lean minus legacy | Lean regression |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1× | 31.4 | 67.6 | 67.5 | 43.4 | 12.0 | +38.1% |
+| 4× | 97.3 | 229.8 | 227.9 | 132.6 | 35.2 | +36.2% |
+| 10× history | 110.4 | 196.9 | 255.5 | 156.4 | 46.0 | +41.7% |
+
+The refreshed product machinery reproduces POD-5133's 6.4–7.2 KB basic cost
+and 13.3 KB history cost. Its whole-browser totals have changed on the newer
+product tree, so the table uses refreshed controls rather than mixing today's
+prototypes with the older report's legacy baseline.
+
+### Pool removal cut divided by resident rows, bytes
+
+| Cell | Product resident rows | Hand/lean resident rows | Product pool | Hand pool | Lean pool | Hand with feed | Lean with feed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1× | 4,746 | 4,306 | 7,157 | 6,765 | 867 | 7,179 | 1,280 |
+| 4× | 18,801 | 17,432 | 6,398 | 6,402 | 661 | 6,780 | 1,039 |
+| 10× history | 5,066 | 4,306 | 13,346 | 27,585 | 3,436 | 29,484 | 5,334 |
+
+These are amortized costs at each corpus/window, not the marginal allocation
+of loading one more row. They include fixed pool code and cold metadata in
+the numerator. The 1×→4× pool-cut growth divided by resident-row growth is
+**6,283 bytes for hand and 594 for lean**; this scale slope also grows history,
+so it is not an independent marginal-row measurement.
+
+| Resident entity | Product 1× | Hand/lean 1× | Product 4× | Hand/lean 4× | Product history | Hand/lean history |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Issue | 2,805 | 2,393 | 10,916 | 9,620 | 2,964 | 2,393 |
+| Session | 1,445 | 1,417 | 5,985 | 5,912 | 1,606 | 1,417 |
+| Worktree | 485 | 485 | 1,889 | 1,889 | 485 | 485 |
+| Repo | 11 | 11 | 11 | 11 | 11 | 11 |
+
+### Removal counterfactuals, MiB
+
+Each row is cut alone; rows overlap. “All pool” blocks named pool handles,
+every MobX object and closures from the pool's own scripts. “Pool and feed”
+additionally blocks the canonical feed/local handles and their own scripts.
+The [group definitions](../../apps/web/harness/per-row-memory-groups.json)
+exclude shared React/runtime modules from those script cuts.
+
+| Cut | Hand 1× | Hand 4× | Hand history | Lean 1× | Lean 4× | Lean history |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All pool machinery | 27.781 | 106.425 | 113.279 | 3.559 | 10.997 | 14.109 |
+| Residency | 1.391 | 5.502 | 11.469 | 1.438 | 5.687 | 11.982 |
+| Maintained relation engine | 2.415 | 9.591 | 15.589 | 0.939 | 3.785 | 0.939 |
+| Plain tables | 0.089 | 0.356 | 0.089 | 0.089 | 0.356 | 0.089 |
+| MobX bookkeeping | 0.001 | 0.001 | 0.001 | 0.017 | 0.017 | 0.017 |
+| Feed/local adapter | 1.673 | 6.191 | 7.773 | 1.672 | 6.187 | 7.772 |
+| Pool and feed together | 29.480 | 112.711 | 121.077 | 5.257 | 17.278 | 21.906 |
+
+Lean's maintained relations stay flat from 1× to 10× history. Residency grows
+from 1.438 to 11.982 MiB and accounts for 85% of its history pool cut. The
+hand arm also retains cold relation and filing state; its live cell count
+nearly triples with history. This is the existing hand arm as measured,
+not a claim about every possible hand implementation.
+
+The browser snapshot has 21 ComputedValues, 22 window Reactions and 25 Atoms
+in lean at every cell. The pool itself creates 24 atoms; the cut also catches
+one global atom present in hand. React adds an order subscription beyond the
+census's 21 observers. Hand has no per-row MobX state, but each plain cell
+holds closures, dependency entries and listener/index tables. Those account
+for most of its cost; removing MobX alone is not sufficient.
+
+### Snapshot cross-checks, MiB
+
+The post-release columns are V8 used heap after dropping fixture inputs and
+two further GCs. The live columns are the analyzer's snapshot totals, including
+native objects; neither replaces the five-context statistic above. All six
+prototype analyses resolve their named owners with zero missing/non-live owners.
+
+| Cell | Legacy released V8 / snapshot live | Product released V8 / snapshot live | Hand released V8 / snapshot live | Lean released V8 / snapshot live |
+| --- | ---: | ---: | ---: | ---: |
+| 1× | 30.0 / 45.7 | 66.0 / 82.9 | 66.0 / 82.4 | 41.8 / 58.2 |
+| 4× | 91.4 / 128.3 | 223.7 / 261.8 | 221.9 / 259.4 | 126.5 / 164.1 |
+| 10× history | 101.5 / 117.3 | 188.0 / 204.9 | 246.6 / 263.0 | 147.5 / 163.9 |
+
+### Shared input memory remains
+
+The pool/feed removal cut does not fully explain the prototype's extra
+whole-browser heap. There are shared compiled/runtime structures and warmed
+input caches that survive removing those owners. In particular, snapshots
+show **42 WeakMaps in legacy**, **29,244 / 116,850 / 165,648 in product**, and
+**29,247 / 116,853 / 165,651 in both prototypes**. The difference is six maps
+per issue over the full history, plus three extra maps in prototypes.
+
+Code inspection of
+[issue-input.ts](../../packages/client-graph/src/shared/issue-input.ts)
+identifies a global composition memo with six nested WeakMap keys, warmed by
+the canonical source's full issue snapshot. Its participation in the residual
+is an inference from that code and the object counts; **its total retained cost
+has not been attributed here**. The maps' shallow bytes omit their tables,
+memo nodes and composed values. POD-5155 records that separate attribution
+as an unclaimed proposal, with a
+`discovered-from` link to this measurement. It requires no product edit here.
+
 ## Method and comparison limits
 
 The collector and analyzer are the unchanged
@@ -111,6 +245,10 @@ it does not avoid the scan. This version therefore trades retained derivation
 state for repeated work, and its memory result cannot establish acceptable
 interactive speed.
 
+The plain-rule column counts `VISIBLE_RULES`, `SESSION_RULES` and `PART_RULES`,
+not every arithmetic/helper operation or allocation. Counts establish the
+scaling cost; they do not estimate milliseconds or transient allocation peaks.
+
 ## Verification
 
 On flatblock with the pinned Bun 1.4.2 and checkout-local dependencies:
@@ -137,3 +275,37 @@ On flatblock with the pinned Bun 1.4.2 and checkout-local dependencies:
 No files in `packages/client-graph`, `packages/client-core` or `apps/web/src`
 were changed. The existing hand arm, corpus, collector and analyzer are
 unchanged. No product memory fix is made here.
+
+## Reproduction and evidence
+
+In the isolated flatblock checkout, with its private toolchain on PATH, the
+memory commands are below. Acquire `bench:flatblock` from the issue session
+before capture and hold it until both captures finish; renew as needed. Follow
+the issue's WIP checkpoint rule before each edit batch and run. Analyze after
+capture; analysis does not launch the browser.
+
+```bash
+export PATH="$PWD/.toolchain:$PATH"
+timeout 240s bun apps/web/harness/pool-memory.ts --phase=build
+timeout 1200s bun apps/web/harness/pool-memory.ts --phase=capture --out=controls --samples=5 --lease-confirmed
+timeout 240s bun apps/web/node_modules/vite/bin/vite.js build --config apps/web/harness/per-row-memory.vite.ts
+mkdir -p .artifacts/pool-memory/prototypes
+cp apps/web/harness/per-row-memory-groups.json .artifacts/pool-memory/prototypes/groups.json
+timeout 1200s bun apps/web/harness/pool-memory.ts --phase=capture --out=prototypes --samples=5 --lease-confirmed
+timeout 2400s bun apps/web/harness/pool-memory.ts --phase=analyze --out=controls
+timeout 2400s bun apps/web/harness/pool-memory.ts --phase=analyze --out=prototypes
+timeout 300s bun --conditions=@podium/source packages/worklist-proto/harness/src/per-row-census.ts
+```
+
+Use fresh output folders when reproducing: the unchanged collector appends
+usage records. The prototype build relocates only its emitted HTML to the
+collector's existing URL. Its named chunk module inventory is retained with
+the evidence; no shared dependencies occur in the ownership scripts.
+
+Issue artifacts on POD-5153 contain this report and
+`.artifacts/pool-memory/per-row-memory-evidence.tar.gz`: control/prototype
+records, provenance, twelve analyses and meta files, snapshot SHA-256 hashes,
+group definitions, module inventories, the full census and compact count
+summaries, and focused validation/planted-fault evidence. The six control and
+six prototype raw snapshots were deleted after successful analysis to recover
+flatblock disk space; their hashes remain. No operator data was collected.
