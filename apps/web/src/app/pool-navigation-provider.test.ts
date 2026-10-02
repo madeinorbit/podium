@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startScenarioEngine, upsert } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 import { NAVIGATION_SUMMARIES, panePoolScreen } from './pane-pool-screen'
-import { preparePoolScreens, screenOptions } from './pool-screen-registry'
+import { preparePoolScreens, screenOptions } from '@podium/client-graph/host'
 import { attachWorklistPool } from './store-worklist-pool'
 
 const choice = vi.hoisted(() => ({ mode: 'pool' }))

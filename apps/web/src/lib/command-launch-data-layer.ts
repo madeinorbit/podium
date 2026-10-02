@@ -1,18 +1,11 @@
 import type { UiState } from '@podium/client-core/ui-state'
-import { mobxPilotEnabled } from './mobx-pilot'
+import { webPoolSwitch } from './mobx-pilot'
 
 /** The shared device setting defaults OFF; frozen for this app load. */
-let startup: 'legacy' | 'pool' | undefined
-let check = false
-export function initializeCommandLaunchDataLayer(ui: Pick<UiState, 'get'>): void {
-  if (startup !== undefined) return
-  let params: URLSearchParams | undefined
-  try { params = new URLSearchParams(location.search) } catch { /* SSR */ }
-  startup = mobxPilotEnabled(ui, params, 'mobxCommands') ? 'pool' : 'legacy'
-  check = startup === 'pool' && params?.get('mobxCommandsCheck') === '1'
-}
-export function commandLaunchDataLayer(): 'legacy' | 'pool' { return startup ?? 'legacy' }
-export function commandLaunchCheckRequested(): boolean { return check }
+const commands = webPoolSwitch('mobxCommands', 'mobxCommandsCheck')
+export function initializeCommandLaunchDataLayer(ui: Pick<UiState, 'get'>): void { commands.initialize(ui) }
+export function commandLaunchDataLayer(): 'legacy' | 'pool' { return commands.layer() }
+export function commandLaunchCheckRequested(): boolean { return commands.checkRequested() }
 
 const owners = new WeakMap<object, { legacyReads: number }>()
 let enabled = false

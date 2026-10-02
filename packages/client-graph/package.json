@@ -17,6 +17,11 @@
       "types": "./src/react/index.ts",
       "import": "./src/react/index.ts"
     },
+    "./host": {
+      "@podium/source": "./src/host/index.ts",
+      "types": "./src/host/index.ts",
+      "import": "./src/host/index.ts"
+    },
     "./shared": {
       "@podium/source": "./src/shared/index.ts",
       "types": "./src/shared/index.ts",

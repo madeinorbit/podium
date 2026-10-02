@@ -1,31 +1,26 @@
 import type { UiState } from '@podium/client-core/ui-state'
-import { mobxPilotEnabled } from './mobx-pilot'
+import type { PoolDataLayer } from '@podium/client-graph/host'
+import { webPoolSwitch } from './mobx-pilot'
 
 export { MOBX_CHIPS_KEY } from '@podium/client-core/ui-state'
 
-export type ChipsDataLayer = 'legacy' | 'pool'
+export type ChipsDataLayer = PoolDataLayer
 
 // One choice per app load. Principal rebuilds and preference edits never change
 // a mounted reader's data source; the operator's rollback takes a reload.
-let startup: ChipsDataLayer | undefined
-let check = false
+const chips = webPoolSwitch('mobxChips', 'mobxChipsCheck')
 let perf = false
 
 export function initializeChipsDataLayer(ui: Pick<UiState, 'get'>): void {
-  if (startup !== undefined) return
-  const params =
-    typeof location === 'undefined' ? new URLSearchParams() : new URLSearchParams(location.search)
-  perf = params.get('chipsPerf') === '1'
-  const enabled = mobxPilotEnabled(ui, params, 'mobxChips')
-  startup = enabled ? 'pool' : 'legacy'
-  check = enabled && params.get('mobxChipsCheck') === '1'
+  const storage = chips.initialize(ui)
+  if (storage) perf = storage.get('chipsPerf') === '1'
 }
 
 export function chipsDataLayer(): ChipsDataLayer {
-  return startup ?? 'legacy'
+  return chips.layer()
 }
 export function chipsCheckRequested(): boolean {
-  return check
+  return chips.checkRequested()
 }
 export function chipsPerfRequested(): boolean {
   return perf

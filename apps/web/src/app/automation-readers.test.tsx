@@ -16,7 +16,7 @@ import { createAutomationsFixture } from '../../test/automations-fixture'
 import { automationTargetChoices } from '@/features/automations/automation-form'
 import { automationReadStats } from '@/lib/automations-data-layer'
 import { useAutomationList, useAutomationRunSession, useAutomationTargets, useSpecsRepositories } from './automation-readers'
-import { attachPoolScreens, screenOptions, type PoolScreen } from './pool-screen-registry'
+import { attachPoolScreens, screenOptions, type PoolScreen } from '@podium/client-graph/host'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 

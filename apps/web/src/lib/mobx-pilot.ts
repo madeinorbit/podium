@@ -1,14 +1,15 @@
-import { debugFlagEnabled, MOBX_SIDEBAR_KEY, type UiState } from '@podium/client-core/ui-state'
+import { debugFlagEnabled, MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
+import { poolSwitches } from '@podium/client-graph/host'
 
-/** Converted screens share the existing device setting and keep independent URL
- * overrides. Call from each screen's startup latch, once UI state is available. */
-export function mobxPilotEnabled(
-  ui: Pick<UiState, 'get'>,
-  params: URLSearchParams | undefined,
-  queryKey: string,
-): boolean {
-  const value = params?.get(queryKey)
-  if (value === '1' || value === 'true') return true
-  if (value === '0' || value === 'false') return false
-  return debugFlagEnabled(ui, MOBX_SIDEBAR_KEY)
-}
+/** The web's switch storage (TEMPORARY with the per-screen switches): converted
+ * screens share the existing device setting and keep independent URL overrides.
+ * Each screen's startup latch reads it once, when UI state is available. */
+export const webPoolSwitch = poolSwitches((ui) => {
+  let params: URLSearchParams | undefined
+  try {
+    if (typeof location !== 'undefined') params = new URLSearchParams(location.search)
+  } catch {
+    // SSR: the authenticated principal's setting is the fallback, like echoHud.
+  }
+  return { get: (key) => params?.get(key), device: () => debugFlagEnabled(ui, MOBX_SIDEBAR_KEY) }
+})

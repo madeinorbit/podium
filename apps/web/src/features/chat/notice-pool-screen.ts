@@ -1,5 +1,5 @@
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
-import type { PoolScreen } from '@/app/pool-screen-registry'
+import type { PoolScreen } from '@podium/client-graph/host'
 import { initializeNoticesDataLayer, noticesCheckRequested, noticesDataLayer } from './notice-data-layer'
 
 export const noticePoolScreen: PoolScreen = {

@@ -1,18 +1,11 @@
 import type { UiState } from '@podium/client-core/ui-state'
-import { mobxPilotEnabled } from '@/lib/mobx-pilot'
+import { webPoolSwitch } from '@/lib/mobx-pilot'
 
 /** Settings and activation share one startup choice. Reload to roll back;
  * principal changes and navigation never change a mounted hook's order. */
-let startup: 'legacy' | 'pool' | undefined
-let check = false
+const settings = webPoolSwitch('mobxSettings', 'mobxSettingsCheck')
 
-export function initializeSettingsDataLayer(ui: Pick<UiState, 'get'>): void {
-  if (startup !== undefined) return
-  let params: URLSearchParams | undefined
-  try { params = new URLSearchParams(location.search) } catch { /* SSR. */ }
-  startup = mobxPilotEnabled(ui, params, 'mobxSettings') ? 'pool' : 'legacy'
-  check = startup === 'pool' && params?.get('mobxSettingsCheck') === '1'
-}
+export function initializeSettingsDataLayer(ui: Pick<UiState, 'get'>): void { settings.initialize(ui) }
 
-export function settingsDataLayer(): 'legacy' | 'pool' { return startup ?? 'legacy' }
-export function settingsCheckRequested(): boolean { return check }
+export function settingsDataLayer(): 'legacy' | 'pool' { return settings.layer() }
+export function settingsCheckRequested(): boolean { return settings.checkRequested() }

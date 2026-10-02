@@ -1,7 +1,7 @@
 import { type ClientRuntime, loadingNavigationProvider } from '@podium/client-core/engine'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { initializePaneDataLayer, paneDataLayer } from '@/lib/pane-data-layer'
-import type { PoolScreen } from './pool-screen-registry'
+import type { PoolScreen } from '@podium/client-graph/host'
 
 const generations = new WeakMap<ClientRuntime, object>()
 

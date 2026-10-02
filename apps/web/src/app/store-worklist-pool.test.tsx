@@ -5,6 +5,7 @@ import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/pri
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
+import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { startSidebarCheck } from '@podium/client-graph/diagnostics/runtime-check'
 import * as runtimePool from '@podium/client-graph/runtime-pool'
 import { asUserId } from '@podium/model'
@@ -135,7 +136,7 @@ describe('StoreProvider owns the sidebar pool', () => {
     render()
     const pool = await ready()
     expect(create).toHaveBeenCalledTimes(1)
-    expect(create).toHaveBeenCalledWith(runtime)
+    expect(create).toHaveBeenCalledExactlyOnceWith(runtime, { summaries: MISSION_SUMMARIES })
     expect(replicaFactory).toHaveBeenCalledTimes(1)
     expect(runtime!.replica).toBe(runtime!.getSnapshot().replica)
     render()

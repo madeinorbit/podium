@@ -1,5 +1,4 @@
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
-import { recordChipWork } from '@podium/client-core/perf'
 import type { UiState } from '@podium/client-core/ui-state'
 import { initializeSettingsDataLayer, settingsDataLayer, settingsCheckRequested } from '@/features/settings/data-layer'
 import { initializePreferencesDataLayer, preferencesDataLayer, preferencesCheckRequested } from '@/lib/preferences-data-layer'
@@ -8,7 +7,7 @@ import { initializeHeaderDataLayer, headerDataLayer, headerCheckRequested } from
 import { initializeChipsDataLayer, chipsDataLayer, chipsCheckRequested } from '@/lib/chips-data-layer'
 import { noticePoolScreen } from '@/features/chat/notice-pool-screen'
 import { initializeAutomationsDataLayer, automationsDataLayer, specsDataLayer, automationsCheckRequested } from '@/lib/automations-data-layer'
-import type { PoolScreen } from './pool-screen-registry'
+import type { PoolScreen } from '@podium/client-graph/host'
 import { panePoolScreen } from './pane-pool-screen'
 import { commandLaunchScreen } from '@/lib/command-launch-data-layer'
 
