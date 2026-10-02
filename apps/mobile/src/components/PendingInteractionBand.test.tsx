@@ -26,6 +26,8 @@ vi.mock('@podium/client-core/react', () => ({
     select({ trpc: { interactions: { answer: { mutate: answer } } }, pendingInteractions: rows }),
 }))
 
+vi.mock('../client/hooks', () => ({ useTrpc: () => ({ interactions: { answer: { mutate: answer } } }) }))
+
 const { PendingInteractionBand } = await import('./PendingInteractionBand')
 
 const recovery = (): Record<string, unknown> => ({

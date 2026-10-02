@@ -1,0 +1,18 @@
+import { afterEach, expect, it, vi } from 'vitest'
+afterEach(() => { history.replaceState(null, '', '/'); vi.resetModules() })
+it('defaults off and latches notices and their diagnostic choice once', async () => {
+  history.replaceState(null, '', '/')
+  vi.resetModules()
+  const off = await import('./notice-data-layer')
+  expect(off.noticesDataLayer()).toBe('legacy')
+  history.replaceState(null, '', '/?mobxNotices=1&mobxNoticesCheck=1')
+  off.initializeNoticesDataLayer()
+  expect(off.noticesDataLayer()).toBe('legacy')
+  vi.resetModules()
+  const on = await import('./notice-data-layer')
+  expect(on.noticesDataLayer()).toBe('pool')
+  expect(on.noticesCheckRequested()).toBe(true)
+  history.replaceState(null, '', '/?mobxNotices=0')
+  on.initializeNoticesDataLayer()
+  expect(on.noticesDataLayer()).toBe('pool')
+})

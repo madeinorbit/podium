@@ -11,6 +11,7 @@ type RecordEntity = 'messageRecord' | 'pendingInteraction' | 'outboxDeadLetter'
  * ordinary replica deltas read just their addressed rows. */
 export class NoticeSource {
   private readonly rows = observable.map<string, object>(undefined, { deep: false })
+  private deadLetterOrder: readonly string[] = []
   private readonly refs = new Map<string, string>()
   private readonly members = new Map<string, readonly string[]>()
   private readonly loaded = observable.box(false)
@@ -77,7 +78,7 @@ export class NoticeSource {
         const inverse = `${relation.to}:${target}:${relation.inverse}`
         const rest = (this.members.get(inverse) ?? []).filter(member => member !== id)
         if (target === current) rest.push(id)
-        if (rest.length) this.members.set(inverse, rest)
+        if (rest.length) this.members.set(inverse, rest.sort())
         else this.members.delete(inverse)
         const summary = {
           messages: this.members.get(`session:${target}:messages`) ?? [],
@@ -101,8 +102,8 @@ export class NoticeSource {
   }
 
   private catalog(): void {
-    const ids = (kind: RecordEntity) => [...this.rows.keys()].filter(key => key.startsWith(`${kind}:`)).map(key => key.slice(kind.length + 1))
-    this.set('noticeCatalog:catalog', { messages: ids('messageRecord'), interactions: ids('pendingInteraction'), deadLetters: ids('outboxDeadLetter') })
+    const ids = (kind: RecordEntity) => [...this.rows.keys()].filter(key => key.startsWith(`${kind}:`)).map(key => key.slice(kind.length + 1)).sort()
+    this.set('noticeCatalog:catalog', { messages: ids('messageRecord'), interactions: ids('pendingInteraction'), deadLetters: this.deadLetterOrder })
   }
 
   private schedule(): void {
@@ -124,9 +125,8 @@ export class NoticeSource {
         if (parked) {
           this.replace('outboxDeadLetter', parked.map(row => [row.entry.mutationId, row]))
           // Recovery preserves the existing outbox's order, including re-parks.
+          this.deadLetterOrder = parked.map(row => row.entry.mutationId)
           this.catalog()
-          const catalog = this.rows.get('noticeCatalog:catalog') as NoticeRows['noticeCatalog']
-          this.set('noticeCatalog:catalog', { ...catalog, deadLetters: parked.map(row => row.entry.mutationId) })
         } else this.catalog()
         this.loaded.set(true)
         this.counts.batches++

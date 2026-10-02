@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'

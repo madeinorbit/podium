@@ -18,6 +18,8 @@ vi.mock('../client/hooks', () => ({
   useStoreSelector: (select: (state: typeof mobile.state) => unknown) => select(mobile.state),
 }))
 
+vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => ({ getSnapshot: () => mobile.state }) }))
+
 import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'
 
 function parked(code: 'invalid' | 'conflict' | 'max-age' = 'invalid') {
