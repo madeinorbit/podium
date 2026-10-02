@@ -15,6 +15,7 @@
  */
 
 import { act } from 'react'
+import { flushSync } from 'react-dom'
 import { describe, expect, it } from 'vitest'
 import {
   assertReads,
@@ -43,6 +44,15 @@ interface SoloCounts {
   rows: number
   stats: CountStats
   reads: number
+}
+
+function countStats(stats: CountStats): CountStats {
+  return {
+    rowsDerived: stats.rowsDerived,
+    rollupsDerived: stats.rollupsDerived,
+    indexUpdates: stats.indexUpdates,
+    notifications: stats.notifications,
+  }
 }
 
 async function soloArm(scenario: 'heartbeat' | 'click', scale: FixtureScale): Promise<SoloCounts> {
@@ -75,6 +85,11 @@ async function soloControl(scenario: 'heartbeat' | 'click', scale: FixtureScale)
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), feeds.rows.source, feeds.locals)
   try {
+    // coRun's pre-step load settle flushes every mounted root. Give this
+    // eager solo control the same async React boundary before the counters
+    // reset: otherwise the click's three publications commit three times
+    // solo and twice beside the already-settled pool.
+    await act(async () => { flushSync(() => {}) })
     const result = await runCountScenario(mounted, {
       scenario: scenario === 'heartbeat' ? 'unrelatedHeartbeat' : 'selectionClick',
       methodology: scenario === 'heartbeat' ? '#1' : '#3',
@@ -180,6 +195,8 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           pool.settleLoads?.()
         })
         expect(pool.pendingLoads?.() ?? 0, `${scenario}: mount loads settled`).toBe(0)
+        armMounted.handle.stats.reset()
+        controlMounted.handle.stats.reset()
         armMounted.log.reset()
         controlMounted.log.reset()
         armMounted.reads.reset()
@@ -217,6 +234,8 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         expect(controlRows, `${scenario}: control rows co == solo`).toBe(soloControlCounts.rows)
         expect(armReads.rows, `${scenario}: arm reads co == solo`).toBe(soloArmCounts.reads)
         expect(controlReads.rows, `${scenario}: control reads co == solo`).toBe(soloControlCounts.reads)
+        expect(countStats(armMounted.handle.stats), `${scenario}: arm work co == solo`).toEqual(soloArmCounts.stats)
+        expect(countStats(controlMounted.handle.stats), `${scenario}: control work co == solo`).toEqual(soloControlCounts.stats)
         co[scenario] = {
           armRows,
           controlRows,
