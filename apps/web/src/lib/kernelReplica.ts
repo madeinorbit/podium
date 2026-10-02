@@ -1,9 +1,10 @@
 /** Web storage and cross-tab adapters for the shared replica assembly. */
 import type { CreateEngineOutbox, CreateReplicaForPrincipal } from '@podium/client-core/engine'
+import { browserFeedChannel, createFeedRelay, type FeedBroadcastChannel } from '@podium/client-core/live-connection'
 import type { ClientPrincipal } from '@podium/client-core/principal'
 import { parseReplicaNamespaceKey, retainReplicaEntity } from '@podium/client-core/replica'
 import { openReplicaAssembly } from '@podium/client-core/replica-assembly'
-import type { FeedServerFrame, FeedSinkPort } from '@podium/client-core/socket-transport'
+import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import { createLogger } from '@podium/logger'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
@@ -62,43 +63,7 @@ export interface OpenKernelAssemblyOptions {
   readonly broadcastChannelFactory?: (name: string) => KernelBroadcastChannel
 }
 
-export interface KernelBroadcastChannel {
-  onmessage: ((event: MessageEvent<unknown>) => void) | null
-  postMessage(message: unknown): void
-  close(): void
-}
-
-type CrossTabFeedFrame = Extract<FeedServerFrame, { type: 'feedDelta' | 'feedRescope' }>
-
-interface CrossTabFeedMessage {
-  readonly kind: 'podium-kernel-feed'
-  readonly version: 1
-  readonly principal: string
-  readonly frame: CrossTabFeedFrame
-}
-
-const CROSS_TAB_SEEN_LIMIT = 512
-
-function crossTabFrameKey(frame: CrossTabFeedFrame): string {
-  return frame.type === 'feedDelta'
-    ? `${frame.type}\0${frame.feedId}\0${frame.epoch}\0${frame.fromSeq}\0${frame.seq}`
-    : `${frame.type}\0${frame.feedId}\0${frame.epoch}\0${frame.seq}`
-}
-
-function isCrossTabFeedMessage(value: unknown, principal: string): value is CrossTabFeedMessage {
-  if (value === null || typeof value !== 'object') return false
-  const message = value as Partial<CrossTabFeedMessage>
-  if (
-    message.kind !== 'podium-kernel-feed' ||
-    message.version !== 1 ||
-    message.principal !== principal ||
-    message.frame === null ||
-    typeof message.frame !== 'object'
-  ) {
-    return false
-  }
-  return message.frame.type === 'feedDelta' || message.frame.type === 'feedRescope'
-}
+export type KernelBroadcastChannel = FeedBroadcastChannel
 
 export async function openKernelAssembly(
   options: OpenKernelAssemblyOptions,
@@ -134,87 +99,26 @@ export async function openKernelAssembly(
     onAuthExpired: () => window.dispatchEvent(new Event('podium:sync-auth-expired')),
     createProgress: (now) => new WebSyncProgressStore(now),
   })
-  let stopped = false
-  const createBroadcastChannel =
-    options.broadcastChannelFactory ??
-    (typeof globalThis.BroadcastChannel === 'function'
-      ? (name: string) => new globalThis.BroadcastChannel(name)
-      : undefined)
-  let crossTab: KernelBroadcastChannel | undefined
+  let relay: ReturnType<typeof createFeedRelay>
   try {
-    crossTab = createBroadcastChannel?.(`podium.kernel-replica.feed.v1:${databaseName}`)
+    relay = createFeedRelay(assembly.feed, {
+      principal: options.principal,
+      channelName: `podium.kernel-replica.feed.v1:${databaseName}`,
+      createChannel: options.broadcastChannelFactory ?? browserFeedChannel(),
+    })
   } catch (error) {
     await assembly.dispose()
     throw error
   }
-  const seenFrames = new Map<string, undefined>()
-  const remember = (key: string): boolean => {
-    if (seenFrames.has(key)) return false
-    seenFrames.set(key, undefined)
-    if (seenFrames.size > CROSS_TAB_SEEN_LIMIT) {
-      const oldest = seenFrames.keys().next().value
-      if (oldest !== undefined) seenFrames.delete(oldest)
-    }
-    return true
-  }
-  const relayFrame = (frame: FeedServerFrame, fromSocket: boolean): void => {
-    // HTTP snapshots never enter this relay. Socket bootstrap and resync
-    // frames belong to this exact tab's state-machine walk. Ordered deltas and rescopes are the shared client-install
-    // convergence path: either can advance the durable cursor before another
-    // tab's socket delivery reaches its in-memory replica.
-    if (frame.type !== 'feedDelta' && frame.type !== 'feedRescope') {
-      if (fromSocket) {
-        assembly.feed.frame(frame)
-      }
-      return
-    }
-    const key = crossTabFrameKey(frame)
-    if (!remember(key)) return
-    assembly.feed.frame(frame)
-    if (fromSocket) {
-      crossTab?.postMessage({
-        kind: 'podium-kernel-feed',
-        version: 1,
-        principal: options.principal,
-        frame,
-      } satisfies CrossTabFeedMessage)
-    }
-  }
-  if (crossTab !== undefined) {
-    crossTab.onmessage = (event) => {
-      if (isCrossTabFeedMessage(event.data, options.principal)) relayFrame(event.data.frame, false)
-    }
-  }
-  const feed: FeedSinkPort = {
-    // Straight through, both of them: the hub reads the position it sends and
-    // reports back what that bought (POD-2061), and this assembly has no
-    // business between the two — a cursor rewritten here would be a position
-    // nothing in the replica holds.
-    syncHttp: true,
-    requestRebootstrap: () => {
-      if (!stopped) assembly.feed.requestRebootstrap?.()
-    },
-    helloFields: () => assembly.feed.helloFields(),
-    connected: (worldPromised) => {
-      if (!stopped) assembly.feed.connected(worldPromised)
-    },
-    disconnected: () => assembly.feed.disconnected(),
-    frame: (frame) => {
-      if (!stopped) relayFrame(frame, true)
-    },
-  }
-
   return {
     ...assembly,
-    feed,
+    feed: relay.feed,
     erasePrincipalData: async () => {
-      stopped = true
-      crossTab?.close()
+      relay.dispose()
       await assembly.erasePrincipalData()
     },
     dispose: async () => {
-      stopped = true
-      crossTab?.close()
+      relay.dispose()
       await assembly.dispose()
     },
   }

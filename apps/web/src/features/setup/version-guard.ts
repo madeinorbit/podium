@@ -1,12 +1,11 @@
+import { checkWireVersion } from '@podium/client-core/live-connection'
 import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import {
   CLIENT_WIRE_VERSION,
-  classifySkew,
   parseServerVersion,
   type ServerVersion,
   type SkewVerdict,
-  wireSchemaDigest,
 } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
 import { forceReload } from '@/lib/force-reload'
@@ -146,15 +145,12 @@ export async function checkServerVersion(
   /** Injected for the test; production reads the build define. */
   iterating: boolean = isIterationMode(),
 ): Promise<VersionCheck> {
-  let server: ReturnType<typeof parseServerVersion>
-  try {
+  const compatibility = await checkWireVersion(async () => {
     const res = await workspaceFetch(`${httpOrigin}/version`)
-    server = parseServerVersion(await res.json())
-  } catch {
-    return 'ok' // unreachable or non-JSON /version → proceed rather than block
-  }
-
-  const verdict = classifySkew(server, { wire: CLIENT_WIRE_VERSION, digest: wireSchemaDigest() })
+    return await res.json()
+  })
+  if (!compatibility) return 'ok'
+  const { server, verdict } = compatibility
 
   if (verdict === 'ok') {
     clearReloadCounter()

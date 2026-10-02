@@ -33,6 +33,7 @@ import { seedIssueFixtures } from './issue-fixtures'
  * surface therefore exercises the same slices as the product.
  */
 
+import { browserServerRelocation, browserWakeSource, createFeedRelay, observeLiveConnection, type FeedBroadcastChannelFactory } from '@podium/client-core/live-connection'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -73,6 +74,10 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Platform } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
+import { mobileAccountCredentials } from './account-credentials'
+import { mobileVersionObservers } from './mobile-live-connection'
+import { makePlatformSocketLogin } from './native-websocket'
+import { platformFeedChannel } from './platform-feed-channel'
 import { checkLiveAuth, fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
 import {
@@ -196,6 +201,7 @@ export interface MobileReplicaDeps {
   /** Surfaced, never swallowed (ADR 6 D4.4). */
   readonly onDegraded: (message: string, tone?: NoticeTone) => void
   readonly now?: () => number
+  readonly broadcastChannelFactory?: FeedBroadcastChannelFactory
   readonly onAuthExpired?: () => void
 }
 
@@ -254,11 +260,24 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     },
     onAuthExpired: deps.onAuthExpired,
   })
-  const ownership = mobileAccountEraser.register(principal, assembly)
+  let relay: ReturnType<typeof createFeedRelay> | undefined
+  try {
+    if (deps.broadcastChannelFactory) relay = createFeedRelay(assembly.feed, {
+      principal,
+      channelName: `podium.mobile-replica.feed.v1:${MOBILE_REPLICA_DB}`,
+      createChannel: deps.broadcastChannelFactory,
+    })
+  } catch (error) {
+    await assembly.dispose()
+    throw error
+  }
+  const erasePrincipalData = async () => { relay?.dispose(); await assembly.erasePrincipalData() }
+  const dispose = async () => { relay?.dispose(); await assembly.dispose() }
+  const ownership = mobileAccountEraser.register(principal, { erasePrincipalData, dispose })
   return {
     replica: assembly.replica,
     createReplicaFn: assembly.createReplicaFn,
-    feed: assembly.feed,
+    feed: relay?.feed ?? assembly.feed,
     syncProgress: new MobileSyncProgressStore(assembly.progress),
     createOutboxFn: assembly.createOutboxFn,
     outcome: assembly.migrations[0]!,
@@ -266,7 +285,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     principal,
     clientPrincipal,
     settled: assembly.settled,
-    erase: assembly.erasePrincipalData,
+    erase: erasePrincipalData,
     dispose: ownership.dispose,
   }
 }
@@ -402,65 +421,45 @@ function demoTrpc(): MobileTrpc {
   } as unknown as MobileTrpc
 }
 
-/** Bind native foreground/network lifecycle to the engine's existing hub. */
+/** The same connection observers as web, with the phone's platform plugs. */
 function MobileHubAttach({
   connectivity,
   networkEnabled,
   onDisconnected,
+  httpOrigin,
+  bearer,
+  onVersionNotice,
 }: {
   connectivity: NativeConnectivity | undefined
   networkEnabled: boolean
   onDisconnected: () => void
+  httpOrigin: string
+  bearer: string | null
+  onVersionNotice: (message: string) => void
 }): null {
   const hub = useStoreSelector((s) => s.hub)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: enabling network changes the connectivity controller lifetime
   useEffect(() => {
-    // The AppState/NetInfo controller commands the transport (`suspend` on
-    // background, `connectNow` on foreground and on network restore), so it
-    // needs the hub the same way the bootstrap source does. `undefined` on web,
-    // where the listeners below are the ones that answer instead.
-    connectivity?.attachHub(hub)
-    let observedInitialHealth = false
-    const stopConnectionWatch = hub.onConnectionHealth(() => {
-      const connected = hub.connected
-      if (observedInitialHealth && !connected) onDisconnected()
-      observedInitialHealth = true
+    const version = mobileVersionObservers({
+      credentials: mobileAccountCredentials,
+      fetchVersion: async () => {
+        const browser = mobileAccountCredentials.delivery === 'browser'
+        const response = await fetch(`${httpOrigin}/version`, {
+          credentials: browser ? 'include' : 'omit',
+          headers: !browser && bearer ? { Authorization: `Bearer ${bearer}` } : undefined,
+        })
+        return await response.json()
+      },
+      report: onVersionNotice,
     })
-    // iOS Safari keeps a dead WebSocket after backgrounding and does not fire
-    // `close`. The replica stays open (pagehide must not close IndexedDB); this
-    // is the only thing that has to happen on the way back: drop the zombie
-    // and dial now, so the first tap is not the thing that discovers the
-    // socket is gone.
-    let hidden = false
-    const onHide = (): void => {
-      hidden = true
-    }
-    const onShow = (): void => {
-      if (!hidden) return
-      hidden = false
-      hub.wake()
-    }
-    const onVisibility = (): void => {
-      if (document.visibilityState === 'hidden') onHide()
-      else onShow()
-    }
-    // Web only — and NOT `typeof window`: Hermes aliases `window` to the JS
-    // global, so it exists on a phone while `addEventListener` does not. On
-    // native the AppState controller above already answers hide/show.
-    if (Platform.OS === 'web') {
-      window.addEventListener('pagehide', onHide)
-      window.addEventListener('pageshow', onShow)
-      document.addEventListener('visibilitychange', onVisibility)
-    }
-    return () => {
-      stopConnectionWatch()
-      if (Platform.OS === 'web') {
-        window.removeEventListener('pagehide', onHide)
-        window.removeEventListener('pageshow', onShow)
-        document.removeEventListener('visibilitychange', onVisibility)
-      }
-    }
-  }, [connectivity, hub, networkEnabled, onDisconnected])
+    const stop = observeLiveConnection(hub, {
+      connectivity,
+      wakeSource: Platform.OS === 'web' ? browserWakeSource() : undefined,
+      onDisconnected,
+      onWireSkew: version.onWireSkew,
+      onReconnect: networkEnabled ? version.onReconnect : undefined,
+    })
+    return () => { stop(); version.dispose() }
+  }, [connectivity, hub, networkEnabled, onDisconnected, httpOrigin, bearer, onVersionNotice])
   return null
 }
 
@@ -545,6 +544,12 @@ function LiveProvider({ children }: { children: ReactNode }) {
         }
       : clientSeams
   const networkEnabled = activation !== 'offline-cache'
+  const makeSocket = useMemo(() => makePlatformSocketLogin({
+    credentials: mobileAccountCredentials,
+    httpOrigin: config.httpOrigin,
+    bearer: () => bearer,
+  }), [bearer, config.httpOrigin])
+  const reportVersionNotice = useCallback((message: string) => setNotice({ message, tone: 'warning' }), [])
   // AsyncStorage is Promise-only; hydrate the side-cache bridge before the store
   // boots. The migration and SQLite open then run BEFORE the store answers a
   // read and the app does not paint until they resolve — a replica read mid-
@@ -624,6 +629,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
           // The same client the store gets, so the queue sends through the
           // transport the rest of the app is authenticated on (POD-2073).
           api: trpc,
+          broadcastChannelFactory: platformFeedChannel(),
           storage: bridge.storage,
           enumerateKeys: bridge.keys,
           flushStorage: bridge.flushDurable,
@@ -773,6 +779,8 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // sign-out or user switch disposes it with the signed-in user's store.
       attachRuntime={(runtime) => attachMobilePool(runtime, (cause) => reportError(cause.message))}
       networkEnabled={networkEnabled}
+      makeSocket={makeSocket}
+      onServerRelocation={Platform.OS === 'web' ? browserServerRelocation(window.location) : undefined}
       routerWindow={routerWindow}
       // Visibility, connectivity and ping cadence, from the platform rather
       // than from browser globals a phone does not have (POD-2055 WP-C).
@@ -783,6 +791,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
         connectivity={connectivity}
         networkEnabled={networkEnabled}
         onDisconnected={verifyLiveCredential}
+        httpOrigin={config.httpOrigin}
+        bearer={bearer}
+        onVersionNotice={reportVersionNotice}
       />
       <MobileShellSurface value={shell}>
         <MobileSyncBoundary

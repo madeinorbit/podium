@@ -73,6 +73,7 @@ export function StoreProvider({
   feed,
   createOutboxFn,
   onServerRelocation,
+  makeSocket,
   children,
 }: {
   /** The authenticated principal (from `/auth/status` via the boot gate).
@@ -90,6 +91,7 @@ export function StoreProvider({
   /** Kernel Outbox factory paired with the kernel replica assembly. */
   createOutboxFn?: CreateEngineOutbox
   onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
+  makeSocket?: import('@podium/client-core/socket-transport').SocketHubOptions['makeSocket']
   children: ReactNode
 }): JSX.Element {
   const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
@@ -114,6 +116,7 @@ export function StoreProvider({
       feed={feed}
       createOutboxFn={createOutboxFn}
       onServerRelocation={onServerRelocation}
+      makeSocket={makeSocket}
       attachRuntime={(runtime) =>
         attachWorklistPool(runtime, (error) => onFatalError(error.message))
       }

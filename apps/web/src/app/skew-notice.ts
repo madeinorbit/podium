@@ -53,20 +53,7 @@ export interface SkewNotice {
  * and the empty board of POD-1610. Both say the same remedy, because there is
  * only one: get a build that matches the server.
  */
-export function describeWireSkew(skew: { quarantined: number; refusedFrames: number }): SkewNotice {
-  const severe = skew.refusedFrames > 0
-  return {
-    source: 'dropped-frames',
-    severe,
-    message: severe
-      ? 'This app build cannot read what the server is sending, so parts of it may be ' +
-        'empty or stuck. It is older than the server. Reload to pick up a newer build — ' +
-        'if that does not help, the build being served needs rebuilding.'
-      : `${skew.quarantined} item${skew.quarantined === 1 ? '' : 's'} from the server could ` +
-        'not be read by this app build and are missing from these views. Reload to pick up ' +
-        'a newer build.',
-  }
-}
+export { describeWireSkew } from '@podium/client-core/live-connection'
 
 let current: SkewNotice | null = null
 const listeners = new Set<(notice: SkewNotice | null) => void>()

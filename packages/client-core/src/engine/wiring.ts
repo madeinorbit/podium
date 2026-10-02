@@ -697,6 +697,7 @@ export function createEngineHub(args: {
   feed?: FeedSinkPort
   /** Liveness ping cadence, when the platform has an opinion (native: 10 s). */
   heartbeatIntervalMs?: number
+  makeSocket?: import('../socket-transport').SocketHubOptions['makeSocket']
   onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
 }): SocketHub {
   const { api, replica } = args
@@ -712,6 +713,7 @@ export function createEngineHub(args: {
         if (!isInitialConnectivityError(message)) args.onFatalError(message)
       },
       feed: args.feed,
+      ...(args.makeSocket ? { makeSocket: args.makeSocket } : {}),
       ...(args.onServerRelocation ? { onServerRelocation: args.onServerRelocation } : {}),
       ...heartbeat,
     })
@@ -721,6 +723,7 @@ export function createEngineHub(args: {
     onError: (message) => args.onFatalError(message),
     ...heartbeat,
     issuesNormalized: true,
+    ...(args.makeSocket ? { makeSocket: args.makeSocket } : {}),
     ...(args.onServerRelocation ? { onServerRelocation: args.onServerRelocation } : {}),
     legacyFeed: new LegacyWireV1Feed({
       fetchChangesSince: (cursor) => api.sync.changesSince.query({ cursor }),

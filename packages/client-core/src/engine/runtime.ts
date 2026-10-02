@@ -240,6 +240,8 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   isOnline?: () => boolean
   /** Liveness ping cadence. Default: the hub's own (2.5 s). Native passes 10 s. */
   heartbeatIntervalMs?: number
+  /** Login carriage supplied by the authenticated platform owner. */
+  makeSocket?: import('../socket-transport').SocketHubOptions['makeSocket']
   /** Platform-owned persistence/navigation for a promoted server endpoint. */
   onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
   /** Open the local runtime without contacting the configured authority. */
@@ -450,6 +452,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       replica: this.replica,
       onFatalError: (m) => this.onFatalError(m),
       createHub: init.createHub,
+      makeSocket: init.makeSocket,
       feed: init.feed,
       ...(init.onServerRelocation ? { onServerRelocation: init.onServerRelocation } : {}),
       ...(init.heartbeatIntervalMs !== undefined

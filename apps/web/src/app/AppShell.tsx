@@ -1,3 +1,5 @@
+import { cookieCredentials } from '@podium/client-core/accounts'
+import { browserServerRelocation, createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
 import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -49,7 +51,6 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
-import { onReconnect } from '@/lib/on-reconnect'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import type { SyncProgressStore } from '@/lib/sync-progress'
@@ -203,47 +204,14 @@ function SheetFallback({
 /** Observe socket build skew; HTTP bootstrap has no hub attachment cycle. */
 function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
   const hub = useStoreSelector((s) => s.hub)
-  // The transport's ground truth about build skew (POD-1610): rows or whole
-  // frames this build could not read. Routed to the module-level notice rather
-  // than to local state so the banner can live OUTSIDE this subtree — the failure
-  // it reports is one where this subtree is the thing that did not come up.
-  //
-  // AND, since POD-2253, it is more than a report. A banner asks the tab to
-  // reload; refused frames mean the tab may no longer be able to do anything it
-  // is asked. So the same evidence re-runs the version handshake, which forces
-  // the takeover when the server really is serving a different build — and does
-  // nothing at all when it is not.
   useEffect(
-    () =>
-      hub.onWireSkew((skew) => {
+    () => observeLiveConnection(hub, {
+      onWireSkew: (skew) => {
         reportSkew(describeWireSkew(skew))
         void recoverFromWireSkew(httpOrigin, skew)
-      }),
-    [hub, httpOrigin],
-  )
-  /**
-   * THE MOMENT THE ASSETS CAN HAVE MOVED (POD-2721).
-   *
-   * A server cannot swap the website it serves without going away and coming
-   * back, so a socket that dropped and reconnected is the exact — and only —
-   * instant worth re-asking "am I still the app you are serving?". That makes
-   * this free: no polling, no timer, one `/version` read per genuine outage.
-   *
-   * It is also the answer to the awkward part of this problem, which is that a
-   * page cannot ask the server what to do when the server it was talking to has
-   * just been replaced. It does not have to. It only has to notice that what it
-   * reconnected TO is not what it was loaded FROM, and the reconnect is where
-   * that becomes askable again.
-   *
-   * The "down and back, never merely `ok`" rule is the subtle half, so it lives
-   * in `onReconnect` where it is tested against the sequence the sandbox
-   * actually logged — a socket that closed and was back inside two seconds.
-   */
-  useEffect(
-    () =>
-      onReconnect(hub.onConnectionHealth.bind(hub), () => {
-        void checkServedAssets(httpOrigin)
-      }),
+      },
+      onReconnect: () => { void checkServedAssets(httpOrigin) },
+    }),
     [hub, httpOrigin],
   )
   return null
@@ -281,6 +249,11 @@ export function AppShell({
   // screens — a drag released over a loading app would navigate it away too.
   useFileDropGuard()
   const [config] = useState(() => serverConfig(window.location))
+  const [makeSocket] = useState(() => createSocketLogin({
+    credentials: cookieCredentials,
+    httpOrigin: config.httpOrigin,
+    bearer: () => null,
+  }))
   const [appError, setAppError] = useState<string | null>(null)
   // Keep the current value above AppShell's own error/provider branches. The
   // parent owns the same handoff above LoginGate for a whole-shell replacement.
@@ -357,17 +330,8 @@ export function AppShell({
                 createReplicaFn={kernel.assembly.createReplicaFn}
                 feed={kernel.assembly.feed}
                 createOutboxFn={kernel.assembly.createOutboxFn}
-                onServerRelocation={(publicUrl, _transferId, claimToken) => {
-                  const next = `${window.location.pathname}${window.location.search}${window.location.hash}`
-                  const destination = new URL(next, `${publicUrl.replace(/\/$/, '')}/`)
-                  if (!claimToken) {
-                    window.location.replace(destination.toString())
-                    return
-                  }
-                  const claim = new URL('/auth/server-transfer-claim', publicUrl)
-                  claim.hash = new URLSearchParams({ token: claimToken, next }).toString()
-                  window.location.replace(claim.toString())
-                }}
+                makeSocket={makeSocket}
+                onServerRelocation={browserServerRelocation(window.location)}
               >
                 <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
                 <ReplicaReadyPodiumLinkHost

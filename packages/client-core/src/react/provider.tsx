@@ -177,6 +177,7 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   onlineEvents?: OnlineEvents
   isOnline?: () => boolean
   heartbeatIntervalMs?: number
+  makeSocket?: import('../socket-transport').SocketHubOptions['makeSocket']
   /** Platform-owned persistence/navigation for a promoted server endpoint. */
   onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
   /** False for a trusted local-only boot whose remote identity has not yet been
@@ -212,6 +213,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   onlineEvents,
   isOnline,
   heartbeatIntervalMs,
+  makeSocket,
   onServerRelocation,
   networkEnabled,
   routerWindow,
@@ -289,6 +291,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         onlineEvents,
         isOnline,
         heartbeatIntervalMs,
+        makeSocket,
         onServerRelocation,
         networkEnabled,
         routerWindow,
