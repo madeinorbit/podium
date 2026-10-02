@@ -572,7 +572,7 @@ async function main() {
     const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
     browser = await chromium.launch({
       headless: true,
-      executablePath: chromium.executablePath(),
+      executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,
       env: {
         ...process.env,
         LD_LIBRARY_PATH: [resolve('.toolchain/lib'), process.env.LD_LIBRARY_PATH]
