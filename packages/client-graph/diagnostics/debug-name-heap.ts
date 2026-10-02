@@ -17,6 +17,7 @@ const common = {
   resolve: { conditions: ['@podium/source'], dedupe: ['mobx'] },
   cacheDir: resolve('node_modules/.cache/debug-name-heap'),
 }
+process.env.NODE_ENV = 'production'
 await build({ ...common, build: {
   outDir, emptyOutDir: true, minify: false, sourcemap: false,
   rollupOptions: { input: resolve(root, 'debug-name.browser.html') },
@@ -34,6 +35,7 @@ const production = httpServer(async (request, response) => {
 await new Promise<void>(done => production.listen(0, '127.0.0.1', done))
 const address = production.address()
 assert(address && typeof address === 'object')
+process.env.NODE_ENV = 'development'
 const dev = await createServer({ ...common, server: {
   host: '127.0.0.1', port: 0, hmr: false, fs: { allow: [process.cwd()] },
 } })
