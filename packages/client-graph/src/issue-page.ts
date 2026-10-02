@@ -205,6 +205,22 @@ export function createIssuePageViews(pool: MobxPool) {
       children.sort((a, b) => a.seq - b.seq)
       for (const target of pool.graph.many('issue', id, 'pageDependencies')) neighbours.add(target)
       for (const source of pool.graph.many('issue', id, 'pageDependents')) neighbours.add(source)
+      // A continuation can hop through several closed spin-offs before a
+      // staffed, unstarted tip. Read those session owners through the already
+      // declared origin relation, without loading an unrelated session world.
+      const seenOrigins = new Set([id]), origins = [id]
+      while (origins.length) {
+        const origin = origins.pop()!
+        for (const next of pool.graph.many('issue', origin, 'spinOffs')) {
+          if (seenOrigins.has(next)) continue
+          seenOrigins.add(next)
+          const branch = summary(next)
+          if (branch === LOADING) return LOADING
+          if (!branch || branch.archived || branch.deletedAt) continue
+          neighbours.add(next)
+          origins.push(next)
+        }
+      }
       const sessionIds = new Set<string>(pool.graph.many('issue', id, 'bornSessions'))
       for (const neighbour of neighbours) for (const sid of pool.graph.many('issue', neighbour, 'missionSessions')) sessionIds.add(sid)
       const sessions: SessionView[] = []

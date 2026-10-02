@@ -103,6 +103,19 @@ describe('declared issue page', () => {
         .toMatchObject({ differences: 1, first: { field: 'fields.ready' }, acceptedDeadlineDifferences: 0 })
     } finally { stop() }
   })
+  it('keeps a staffed continuation through every spin-off hop in the page neighbourhood', () => {
+    const ctx = open([task('root', { stage: 'in_progress' }),
+      task('hop', { seq: 2, stage: 'done', deps: [{ id: 'root', type: 'discovered-from' }] }),
+      task('tip', { seq: 3, deps: [{ id: 'hop', type: 'discovered-from' }] }),
+      task('unrelated')], [seat('worker', 'tip', { agentState: { phase: 'working' } }), seat('elsewhere', 'unrelated')])
+    const page = tracked(() => ctx.views.data('root'))
+    if (!page || page === LOADING) throw new Error('Missing continuation fixture page')
+    const world = ctx.world(), current = world.find(row => row.id === 'root')!
+    expect(page.presence).toEqual(presenceNote(current, [], new Map(world.map(row => [row.id, row])), ctx.visible()))
+    expect(page.presence).toMatchObject({ text: 'Work continued in T-3' })
+    expect(page.sessions.map(row => row.sessionId)).toEqual(['worker'])
+  })
+
   it('reacts to a cursor-only mark without replacing the issue payload', () => {
     const ctx = open([task('root', { readAt: null })])
     const stop = reaction(() => ctx.views.issue('root'), () => {}, { fireImmediately: true })

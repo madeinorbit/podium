@@ -73,7 +73,7 @@ const session = (id: string, issueId: string, patch: Record<string, unknown> = {
   name: `Named ${id}`, title: `Session ${id}`, displayRef: `S-${id}`, agentKind: 'codex', status: 'live', archived: false,
   createdAt: STAMP, lastActiveAt: STAMP, resumable: true, agentState: { phase: 'working', since: STAMP }, ...patch,
 }) as unknown as SessionView
-function seed(patch: Partial<IssueViewModel> = {}) {
+function seed(patch: Partial<IssueViewModel> = {}, extra: IssueViewModel[] = [], roster?: SessionView[]) {
   const raw = [makeIssue({ id: 'parent', seq: 5, title: 'Archived parent', repoPath: '/synthetic', repoId: 'R', prefix: 'SYN', archived: true, stage: 'done', updatedAt: STAMP, createdAt: STAMP }),
     makeIssue({ id: 'root', seq: 10, title: 'Exact page title', repoPath: '/synthetic', repoId: 'R', prefix: 'SYN', parentId: 'parent',
       description: 'The complete synthetic description.', brief: 'The synthetic brief.', design: 'The design text.', acceptance: 'The acceptance text.',
@@ -87,12 +87,13 @@ function seed(patch: Partial<IssueViewModel> = {}) {
     makeIssue({ id: 'child-b', seq: 11, title: 'Archived done child', parentId: 'root', stage: 'done', archived: true, repoPath: '/synthetic', repoId: 'R', prefix: 'SYN', createdAt: STAMP, updatedAt: STAMP }),
     makeIssue({ id: 'target', seq: 20, title: 'Blocking task', repoPath: '/synthetic', repoId: 'R', prefix: 'SYN', createdAt: STAMP, updatedAt: STAMP }),
     makeIssue({ id: 'source', seq: 21, title: 'Related source', repoPath: '/synthetic', repoId: 'R', prefix: 'SYN', deps: [{ id: 'root', type: 'blocks' }, { id: 'root', type: 'custom' }], createdAt: STAMP, updatedAt: STAMP }),
+    ...extra,
   ].sort((a, b) => a.id.localeCompare(b.id))
-  const seats = [session('worker-a', 'root'), session('worker-b', 'root', { agentState: { phase: 'waiting', since: STAMP, idle: { kind: 'needs-input' } } }),
+  const seats = (roster ?? [session('worker-a', 'root'), session('worker-b', 'root', { agentState: { phase: 'waiting', since: STAMP, idle: { kind: 'needs-input' } } }),
     session('headless', 'root', { headless: true }), session('shell', 'root', { agentKind: 'shell' }),
     session('twin-a', 'root', { status: 'hibernated', resume: { kind: 'codex-thread', value: 'same' } }),
     session('twin-b', 'root', { status: 'exited', resume: { kind: 'codex-thread', value: 'same' } }),
-    session('moved', 'child-a', { refIssueId: asIssueId('root') })].sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+    session('moved', 'child-a', { refIssueId: asIssueId('root') })]).sort((a, b) => a.sessionId.localeCompare(b.sessionId))
   const inputs = raw as unknown as IssueViewInput[]
   const rollupSeats = seats.map(seat => ({ ...seat, phase: seat.agentState?.phase }))
   const index = new Map(rollupSeats.map(seat => [seat.sessionId, seat]))
@@ -149,8 +150,9 @@ async function arm(surface: 'page' | 'panel' | 'list', mode: 'legacy' | 'pool') 
   const expanded = rendered(document.body)
   const counts = storeStats.snapshot().runtimes.flatMap(row => Object.entries(row.slices))
   const reads = legacyReads
+  const text = view.container.textContent
   cleanup()
-  return { main, expanded, counts, reads, actions: actions() }
+  return { main, expanded, counts, reads, text, actions: actions() }
 }
 
 beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW); storeStats.enable(); seed() })
@@ -167,6 +169,23 @@ describe('issue page rendered pool parity', () => {
     expect(next.reads).toBe(0)
     expect(next.counts.filter(([name]) => name.startsWith('issue-page.') || name === 'replica.issueViews')).toEqual([])
     if (surface !== 'list') { expect(comments).toHaveBeenCalled(); expect(events).toHaveBeenCalled() }
+  })
+
+  it('preserves the rendered continuation after multiple spin-off hops', async () => {
+    pool.dispose()
+    seed({ stage: 'in_progress', needsHuman: false }, [
+      makeIssue({ id: 'hop', seq: 23, title: 'Finished continuation', stage: 'done', repoPath: '/synthetic', repoId: 'R', prefix: 'SYN',
+        deps: [{ id: 'root', type: 'discovered-from' }], createdAt: STAMP, updatedAt: STAMP }),
+      makeIssue({ id: 'tip', seq: 24, title: 'Staffed continuation', stage: 'backlog', repoPath: '/synthetic', repoId: 'R', prefix: 'SYN',
+        deps: [{ id: 'hop', type: 'discovered-from' }], createdAt: STAMP, updatedAt: STAMP }),
+    ], [session('tip-worker', 'tip')])
+    const old = await arm('panel', 'legacy')
+    expect(old.text).toContain('Work continued in SYN-24')
+    vi.clearAllMocks()
+    const next = await arm('panel', 'pool')
+    expect(next.main).toEqual(old.main)
+    expect(next.expanded).toEqual(old.expanded)
+    expect(next.reads).toBe(0)
   })
 
   it('leaves once per issue ID, matching the legacy latch when the same row returns', async () => {
