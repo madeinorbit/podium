@@ -54,26 +54,26 @@ describe('replica snapshot binding', () => {
     await Promise.resolve()
     publications.length = 0
     const changed = { ...lane, trains: [], blockedOrderIds: ['ship-a'] }
-    cache.put('shipLane', lane.id, changed)
+    const changedRecord = cache.put('shipLane', lane.id, changed)
     replica.onKernelEvent({
       type: 'upserted',
-      record: cache.read('shipLane', lane.id)!,
+      record: changedRecord,
       readmitted: false,
     })
     expect(publications).toHaveLength(1)
-    expect([...publications[0]!.changed]).toEqual(['shipLanes'])
-    expect(publications[0]!.snapshot.shipLanes).toEqual([changed])
+    expect([...(publications[0]?.changed ?? [])]).toEqual(['shipLanes'])
+    expect(publications[0]?.snapshot.shipLanes).toEqual([changed])
     for (const kind of ['evicted', 'removed'] as const) {
       cache.drop('shipLane', lane.id)
       exits.set(lane.id, kind)
       replica.onKernelEvent({ type: kind, entity: 'shipLane', entityId: lane.id })
       expect(binding.snapshot().shipLanes).toEqual([])
       expect(replica.exitKind?.('shipLane', lane.id)).toBe(kind)
-      cache.put('shipLane', lane.id, lane)
+      const readmittedRecord = cache.put('shipLane', lane.id, lane)
       exits.delete(lane.id)
       replica.onKernelEvent({
         type: 'upserted',
-        record: cache.read('shipLane', lane.id)!,
+        record: readmittedRecord,
         readmitted: kind === 'evicted',
       })
       expect(binding.snapshot().shipLanes).toEqual([lane])
@@ -200,11 +200,13 @@ class BindingCache implements KernelCacheRead {
     return 'durable'
   }
 
-  put(entity: string, entityId: string, value: unknown): void {
+  put(entity: string, entityId: string, value: unknown): EntityRecord {
+    const record = { entity, entityId, value, provenance: { seq: this.cursor?.seq ?? 0 } }
     this.records = [
       ...this.records.filter((record) => record.entity !== entity || record.entityId !== entityId),
-      { entity, entityId, value, provenance: { seq: this.cursor?.seq ?? 0 } },
+      record,
     ]
+    return record
   }
 
   drop(entity: string, entityId: string): void {

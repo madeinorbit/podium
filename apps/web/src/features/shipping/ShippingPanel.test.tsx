@@ -56,12 +56,12 @@ describe('ShippingPanel', () => {
         destination: 'refs/heads/main',
         queueRank: 1,
       }),
-    ]
+    ] as const
     const lane: ShipLaneProjection = {
-      id: shipLaneId(orders[0]!.repoId, 'local:main'),
-      repoId: orders[0]!.repoId,
+      id: shipLaneId(orders[0].repoId, 'local:main'),
+      repoId: orders[0].repoId,
       destination: 'local:main',
-      trains: [{ orderIds: [orders[0]!.id] }, { orderIds: [orders[1]!.id] }],
+      trains: [{ orderIds: [orders[0].id] }, { orderIds: [orders[1].id] }],
       blockedOrderIds: [],
     }
     const props = {
@@ -86,8 +86,8 @@ describe('ShippingPanel', () => {
     expect(screen.getByText(/Next/)).toBeTruthy()
     const blocked = {
       ...lane,
-      trains: [{ orderIds: [orders[1]!.id] }],
-      blockedOrderIds: [orders[0]!.id],
+      trains: [{ orderIds: [orders[1].id] }],
+      blockedOrderIds: [orders[0].id],
     }
     rerender(<ShippingPanel {...props} lanes={[blocked]} />)
     expect(screen.getByText(/^Waiting\s*·/)).toBeTruthy()

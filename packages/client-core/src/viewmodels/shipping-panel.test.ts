@@ -94,8 +94,8 @@ describe('shippingPanelModel', () => {
       order('ranked', { destination: 'local:main', queueRank: 7 }),
       order('not-in-lane', { destination: 'refs/heads/main', queueRank: 2 }),
       order('no-rank', { destination: 'local:main' }),
-    ]
-    const local = lane('local:main', [['ranked']], { blockedOrderIds: [orders[0]!.id] })
+    ] as const
+    const local = lane('local:main', [['ranked']], { blockedOrderIds: [orders[0].id] })
     const ranks = (records: ShipLaneProjection[]) =>
       shippingPanelModel(orders, [], 'repo-a', records).waiting[0]?.rows.map((row) => [
         row.order.id,
