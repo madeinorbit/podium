@@ -19,11 +19,23 @@ function replay(stripped: boolean) {
   const homes = fixtureSessionHomes(corpus)
   const sessions = stripped ? homes.sessions.map(stripSessionLegacy) : homes.sessions
   const cache = seedCacheFromCorpus({ ...corpus, sessions })
-  for (const state of homes.userStates) cache.put('sessionUserState', sessionUserStateRowId(state.userId, state.sessionId), state)
+  for (const state of homes.userStates)
+    cache.put('sessionUserState', sessionUserStateRowId(state.userId, state.sessionId), state)
   for (const machine of homes.machines) cache.put('machine', machine.id, machine)
-  const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-  const store = { ...sidebarReplayStore(corpus, replica), sessions: sessionViews(replica.rows('sessions'), homes) }
-  const runtime = { principal: { userId: homes.userId }, getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
+  const replica = createKernelReplica({
+    cache,
+    side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+  })
+  const store = {
+    ...sidebarReplayStore(corpus, replica),
+    sessions: sessionViews(replica.rows('sessions'), homes),
+  }
+  const runtime = {
+    principal: { userId: homes.userId },
+    getSnapshot: () => store,
+    subscribe: () => () => {},
+    pendingOverlaysByRow: () => new Map(),
+  }
   const source = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
   const pool = createWorklistPool(source.source, locals.source)
@@ -33,10 +45,22 @@ function replay(stripped: boolean) {
       sidebar = runInAction(() => poolSidebarSnapshot(pool.pool))
       if (!pool.pool.hydrate()) break
     }
-    return { values: store.sessions.map(session => ({ id: session.sessionId, ...sessionValues(session) })),
-      graph: source.source.snapshot('session').map(record => ({ id: record.id, ...sessionValues(record.value as never) })),
-      models: snapshotFromStore(store, { selectedIssueId: null, coarseNow: corpus.fixedNow }), sidebar }
-  } finally { pool.dispose(); source.dispose(); locals.dispose() }
+    return {
+      values: store.sessions.map((session) => ({
+        id: session.sessionId,
+        ...sessionValues(session),
+      })),
+      graph: source.source
+        .snapshot('session')
+        .map((record) => ({ id: record.id, ...sessionValues(record.value as never) })),
+      models: snapshotFromStore(store, { selectedIssueId: null, coarseNow: corpus.fixedNow }),
+      sidebar,
+    }
+  } finally {
+    pool.dispose()
+    source.dispose()
+    locals.dispose()
+  }
 }
 
 describe('session legacy-field stripping on the corpus', () => {
