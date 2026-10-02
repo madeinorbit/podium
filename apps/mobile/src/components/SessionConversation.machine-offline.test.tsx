@@ -202,7 +202,9 @@ describe('phone offline machine label from session homes', () => {
     const { replica } = await renderWithMobileStore(<LiveConversation />, {
       sessions: [row],
       machines: [machine({ online: false, name: 'Stale live label' })],
-      machineProjections: [{ id: asMachineId('m1'), name: 'Replicated desk', loggedOutHarnesses: [] }],
+      machineProjections: [
+        { id: asMachineId('m1'), name: 'Replicated desk', loggedOutHarnesses: [] },
+      ],
     })
     const stored = replica.rows('sessions')[0]
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Replicated desk')
@@ -217,7 +219,11 @@ describe('phone offline machine label from session homes', () => {
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Renamed desk')
     expect(replica.rows('sessions')[0]).toBe(stored)
     await act(async () => {
-      replica.applyChanges('machines', [{ id: asMachineId('m1'), name: '', loggedOutHarnesses: [] }], [])
+      replica.applyChanges(
+        'machines',
+        [{ id: asMachineId('m1'), name: '', loggedOutHarnesses: [] }],
+        [],
+      )
     })
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('This machine')
   })
