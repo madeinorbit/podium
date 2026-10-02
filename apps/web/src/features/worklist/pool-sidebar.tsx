@@ -209,6 +209,7 @@ const MemoPanelRow = memo(
     a.active === b.active &&
     a.onSelect === b.onSelect &&
     a.issueDisplayRef === b.issueDisplayRef &&
+    compareStructural(a.snoozeState, b.snoozeState) &&
     compareStructural(stampPaint(a.trailingMeta), stampPaint(b.trailingMeta)) &&
     compareStructural(poolSessionPaint(a.session), poolSessionPaint(b.session)),
 )
@@ -899,6 +900,20 @@ const PoolPanelRow = observer(function PoolPanelRow({
     [pool, id],
   ).get()
   const select = useCallback(() => actions.selectPanel(path, id as SessionId), [actions, path, id])
+  const snoozeState = useMemo(
+    () =>
+      computed(() => {
+        if (value === undefined || value === LOADING) return undefined
+        const until = typeof value.snoozedUntil === 'string' ? Date.parse(value.snoozedUntil) : NaN
+        const timed = Number.isFinite(until)
+        const returned = timed && pool.clock.reached(until)
+        return {
+          snoozed: value.snoozedUntil === null || (timed && !returned),
+          returned,
+        }
+      }, { equals: compareStructural }),
+    [pool, value],
+  ).get()
   return value === LOADING ? (
     <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" />
   ) : value === undefined ? null : (
@@ -909,6 +924,7 @@ const PoolPanelRow = observer(function PoolPanelRow({
       dotRight
       roster
       guardWorking={isSessionWorking(value)}
+      snoozeState={snoozeState}
       issueDisplayRef={issueDisplayRef}
       trailingMeta={trailingMeta}
     />
