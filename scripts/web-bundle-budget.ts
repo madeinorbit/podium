@@ -567,9 +567,23 @@ if (checkBudget) {
   // the same graph through four lenses, so a paydown that moves one moves all
   // four, and a proportional rule means the four go red at roughly the same
   // point instead of one becoming the sentinel by accident.
-  atMost('eager raw bytes', report.eager.raw, 1_650_000)
-  atMost('eager gzip bytes', report.eager.gzip, 520_000)
-  atMost('eager Brotli bytes', report.eager.brotli, 447_000)
+  // TEMPORARY RAISE (2026-10-02, operator decision, POD-4286; paydown is POD-5240).
+  // The MobX pool package (@podium/client-graph) became EAGER during the POD-4286
+  // landings: value imports from its root in eager web modules pulled ~188k of
+  // pool source into first paint even with every pool switch off (dev/mw 721dd6937
+  // had it lazy). Measured on dev/mw 4a4b38667: raw 1,683,664, gzip 541,812,
+  // Brotli 465,996, source 7,206,316. The operator lifted the limit so the dev
+  // build ships; POD-5240 makes the pool lazy again and must bring all four back
+  // to 1_650_000 / 520_000 / 447_000 / 7_000_000.
+  //
+  //                    old ceiling   measured        temporary ceiling   headroom
+  //     raw            1,650,000     1,683,664       1,740,000            56,336
+  //     gzip             520,000       541,812         560,000            18,188
+  //     Brotli           447,000       465,996         482,000            16,004
+  //     source         7,000,000     7,206,316       7,450,000           243,684
+  atMost('eager raw bytes', report.eager.raw, 1_740_000)
+  atMost('eager gzip bytes', report.eager.gzip, 560_000)
+  atMost('eager Brotli bytes', report.eager.brotli, 482_000)
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000
   // (2026-08-16; see the measured split above) → 7_700_000 (2026-08-17, on the
   // release line; the first 0.1.0 edge build measured 7,689,167 while every
@@ -709,7 +723,8 @@ if (checkBudget) {
   // deferral survives in DEFERRED_FIRST_PAINT_MODULES above, so both sides' named
   // guards hold. Raising the ceiling to carry growth that is no longer eager would
   // hand the paydown straight back.
-  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_000_000)
+  // TEMPORARY 7_450_000 (2026-10-02, POD-4286; see the raise note above; POD-5240 restores 7_000_000).
+  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_450_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)
   atMost('settings Brotli bytes', report.settings.brotli, 26_000)
