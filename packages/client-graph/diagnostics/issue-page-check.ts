@@ -25,7 +25,7 @@ export const ISSUE_PAGE_CHECK_FIELDS = [
   'deps', 'dependents', 'childIds', 'childCount', 'childDoneCount', 'memberSessionIds',
   'blocked', 'ready', 'deferred', 'unread', 'sessionSummary', 'supersededBy', 'duplicateOf', 'coordinatorSessionId', 'startedBySession',
 ] as const
-const SESSION_FIELDS = ['sessionId', 'issueId', 'refIssueId', 'displayRef', 'name', 'title',
+export const SESSION_FIELDS = ['sessionId', 'issueId', 'refIssueId', 'displayRef', 'name', 'title',
   'agentKind', 'agentColor', 'headless', 'status', 'archived', 'agentState', 'lastActiveAt',
   'createdAt', 'stoppedAt', 'stopReason', 'handoffTarget', 'offer', 'readAt', 'unread',
   'snoozedUntil', 'createdBy', 'machineId', 'resumable'] as const
