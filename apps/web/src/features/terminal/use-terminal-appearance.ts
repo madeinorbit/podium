@@ -1,5 +1,6 @@
 import type { TerminalAppearance } from '@podium/terminal-client/appearance'
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo } from 'react'
+import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { useStoreHandle } from '@podium/client-core/react'
 import {
   parseTerminalAppearance,
@@ -21,11 +22,7 @@ export interface UseTerminalAppearanceResult {
  *  change applies everywhere, live — including across tabs. */
 export function useTerminalAppearance(): UseTerminalAppearanceResult {
   const ui = useStoreHandle().getSnapshot().uiState
-  const raw = useSyncExternalStore(
-    (cb) => ui.subscribe(cb),
-    () => ui.get(TERMINAL_APPEARANCE_KEY),
-  )
-  const settings = useMemo(() => parseTerminalAppearance(raw), [raw])
+  const settings = usePersistedUiValue(TERMINAL_APPEARANCE_KEY, parseTerminalAppearance)
   const appearance = useMemo(() => toTerminalAppearance(settings), [settings])
   return {
     settings,

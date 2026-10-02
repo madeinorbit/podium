@@ -1,3 +1,5 @@
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
+import { preferencesDataLayer } from '@/lib/preferences-data-layer'
 import {
   readStoredDensity,
   SHELL_DENSITY_KEY,
@@ -26,7 +28,7 @@ interface DensityContextValue {
 
 const DensityContext = createContext<DensityContextValue | null>(null)
 
-export function DensityProvider({
+function LegacyDensityProvider({
   children,
   uiState,
   densityEnabled,
@@ -48,6 +50,26 @@ export function DensityProvider({
       {children}
     </DensityContext.Provider>
   )
+}
+
+const parseDensity = (raw: string | null): ShellDensity => raw === 'compact' ? 'compact' : 'balanced'
+const serializeDensity = (value: ShellDensity): string => value
+
+function PoolDensityProvider({ children, densityEnabled }: {
+  children: ReactNode; densityEnabled: boolean
+}): JSX.Element {
+  const [preferred, setPreferred] = usePersistedUiState(SHELL_DENSITY_KEY, parseDensity, serializeDensity)
+  const density = resolveDensity(preferred, densityEnabled)
+  useLayoutEffect(() => applyDensity(density, document.documentElement), [density])
+  return <DensityContext.Provider value={{ density, setDensity: setPreferred }}>{children}</DensityContext.Provider>
+}
+
+export function DensityProvider(props: {
+  children: ReactNode; uiState: Pick<UiState, 'get' | 'set'>; densityEnabled: boolean
+}): JSX.Element {
+  return preferencesDataLayer() === 'pool'
+    ? <PoolDensityProvider children={props.children} densityEnabled={props.densityEnabled} />
+    : <LegacyDensityProvider {...props} />
 }
 
 export function useDensity(): DensityContextValue {

@@ -1,3 +1,6 @@
+import type { MobxPool } from '@podium/client-graph'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { preferencesDataLayer, recordLegacyPreferenceRead } from './preferences-data-layer'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import { useStoreHandle } from '@podium/client-core/react'
@@ -30,16 +33,29 @@ import { useStoreHandle } from '@podium/client-core/react'
  * want a stable object identity out.
  */
 export function usePersistedUiValue<T>(key: string, parse: (raw: string | null) => T): T {
-  // Lightweight consumers (tests, embeds) may not expose the UI collection at
-  // all; fall back to the parsed default rather than making a surface depend on
-  // optional preference storage. Same guard as chat-verbosity / sticky-prompts.
-  const ui = useStoreHandle().getSnapshot().uiState as RoutedUiState | undefined
-  const raw = useSyncExternalStore(
+  // The choice is immutable for this app load, so the hook order is fixed.
+  const raw = preferencesDataLayer() === 'pool' ? usePoolPreference(key) : useLegacyPreference(key)
+  return useMemo(() => parse(raw), [raw, parse])
+}
+
+function usePoolPreference(key: string): string | null {
+  const read = useCallback((pool: MobxPool) => {
+    const row = pool.row('preference', key)
+    // LOADING paints the parsed default until the shared batch arrives. Never
+    // fall through to a legacy preference read while the pool imports/loads.
+    return typeof row === 'object' && row !== null ? row.value : null
+  }, [key])
+  return useWorklistPoolProjection(read, null)
+}
+
+function useLegacyPreference(key: string): string | null {
+  const owner = useStoreHandle()
+  const ui = owner.getSnapshot().uiState as RoutedUiState | undefined
+  return useSyncExternalStore(
     ui ? (cb) => ui.subscribe(cb) : subscribeUnavailable,
-    ui ? () => ui.get(key) : readUnavailable,
+    ui ? () => { recordLegacyPreferenceRead(owner); return ui.get(key) } : readUnavailable,
     readUnavailable,
   )
-  return useMemo(() => parse(raw), [raw, parse])
 }
 
 /**
