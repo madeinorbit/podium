@@ -10,6 +10,8 @@ import { encodeCursor } from '@podium/harness/browser'
 import { claudePromptTextMatches, transcriptRecordMapperFor } from '@podium/harness'
 import measured283 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.283-gate-on.jsonl?raw'
 import measured285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-boundaries.jsonl?raw'
+import queued283 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.283-gate-on-queued.jsonl?raw'
+import queued285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-queued.jsonl?raw'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -722,6 +724,49 @@ describe('ChatView composer', () => {
       const prompts = container.querySelectorAll<HTMLElement>('.transcript-row[data-operator-prompt="true"]')
       expect(prompts).toHaveLength(1)
       expect(prompts[0]?.textContent).toContain(measured.input)
+      expect(container.textContent).not.toContain('pasted_content')
+      expect(entry.id).toBe(measured.record.uuid)
+    },
+  )
+
+  it.each(['2.1.283', '2.1.285'])(
+    'shows Claude %s queued pasted content once, without recorder tags, after confirmation',
+    async (version) => {
+      const raw = version === '2.1.283' ? queued283 : queued285
+      const measured = raw.trim().split('\n')
+        .map((line) => JSON.parse(line) as {
+          case: string; input: string; record: { uuid: string; message: { content: string } }
+        }).find((row) => row.case === 'queued-paste-944')
+      if (!measured) throw new Error('missing measured queued prompt')
+      expect(measured.record.message.content).toContain('<pasted_content id=')
+      // Queued form is trimmed: no leading/trailing separators (POD-5269).
+      expect(measured.record.message.content.startsWith('<pasted_content')).toBe(true)
+      const toItems = transcriptRecordMapperFor('claude-code')
+      if (!toItems) throw new Error('no Claude reader')
+      const entry = toItems(measured.record)[0]
+      if (!entry) throw new Error('no prompt entry')
+      entry.cursor = encodeCursor({ fileId: 'claude-paste-queued', offset: 100, uuid: entry.id, sub: 0 })
+      const id = 'msg-person-queued-paste'
+      fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+      setFakeStore({ messageRecords: [sentRecord(id, measured.input, { status: 'typed' })] })
+      act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
+      await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))
+      await flush()
+      expect(container.querySelectorAll('.transcript-pending')).toHaveLength(1)
+
+      const confirmed = claudePromptTextMatches(measured.input, entry.text)
+      setFakeStore({ messageRecords: [sentRecord(id, measured.input, {
+        status: confirmed ? 'confirmed' : 'unknown',
+        ...(confirmed ? { transcriptItem: { id: entry.id, cursor: entry.cursor } } : {}),
+      })] })
+      act(() => {
+        for (const sub of fakeHub.subscribes) sub.cb([entry], { reset: false })
+      })
+      await flush()
+      expect(container.querySelectorAll('.transcript-pending')).toHaveLength(0)
+      const prompts = container.querySelectorAll<HTMLElement>('.transcript-row[data-operator-prompt="true"]')
+      expect(prompts).toHaveLength(1)
+      expect(prompts[0]?.textContent).toContain(measured.input.slice(0, 40))
       expect(container.textContent).not.toContain('pasted_content')
       expect(entry.id).toBe(measured.record.uuid)
     },
