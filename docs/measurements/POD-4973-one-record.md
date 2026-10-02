@@ -142,8 +142,42 @@ as invalid rather than reported as a negative heap.
 
 ## Validation and deliberate-defect evidence
 
-Final run totals are recorded below. Restored assertions are checked after every
-planted source change is removed; no deliberate defect is included in the commit.
+Validation ran sequentially on flatblock in `~/podium-test-4973`. The last lean
+candidate is `251648110a`, rebased onto `c6a96d0b94`; final type-only refinements at
+`cb6ae71519` passed the filtered typecheck. Documentation and one exact test-fixture
+audit exclusion follow that code. These are focused results, not a full-suite claim.
+
+| Check | Result |
+| --- | --- |
+| Lean gate | **153 passed**, 4 of 1,736 node-project files (0.2%); typecheck 26/26 and span-effect lint green |
+| Final type-only check | **16/16 tasks**, 10 cached; web and client-core filters with dependencies |
+| Mobile package | **1,084 passed**, 4 skipped; 166 files passed, 1 skipped |
+| Corrected protocol message goldens | **129 passed** |
+| Web attribution and stored unattributed question | **15 passed** across 2 files |
+| Web guard, banner and workspace final focused group | **106 passed** across the other 3 files of the restored web group |
+| Runtime and issue-view cache | **160 + 11 passed**, including provisional edits, truthful dependency blocking and pending personal state |
+| Native cache retirement / database migration | **4 + 1 passed** |
+| Normalized wire, supported root lane | **7 passed**; `bun run test:lane -- normalized-wire apps/server/src/issues.normalized-wire.test.ts` |
+| Prototype corrected cases | **10 passed**, 23 intentionally filtered out, across 5 files |
+| Hidden-row fence after POD-5219 | **6 passed** |
+| Optimistic write receipts | **12 passed** |
+| CLI/RPC JSON compatibility / publish-cost guard | **3 + 2 passed** |
+| Formatting / shadowing lint | Green |
+
+Logs are on flatblock at `/tmp/pod-4973-{lean-final-v9,typeonly-final-v9,mobile-final-v8,corrected-final-v9,restored-final-v8,normalized-wire-root-v9,prototype-corrected-v8,report-test,publication-after}.log`.
+The server shard wrapper initially executed all seven normalized-wire cases but
+failed to locate its JSON report. **POD-5253** records that runner bug. The supported
+root lane then ran and verified the seven cases successfully; no runner was bypassed.
+
+Each of these deliberate defects failed its focused assertion, then was removed:
+missing report `commentCount`; dropping the stored unattributed question (web and
+mobile); a comment-count query during publication; stale projection reuse after a
+label change; dropping provisional optimistic rows; treating the bundled desktop
+origin as reloadable; reviving a deleted shipping rank; writing pending session
+unread to the wrong collection; deriving dependency blocking from optimistic
+neighbor stages; retaining the retired native-cache kind; and leaving the retired
+replication rows in the migration. Restored assertions pass. **POD-5178** is closed
+with the normalized shipping/read-state assertions and their negative controls.
 
 Additional clean-baseline findings at `11ba47b2d7`:
 
@@ -161,6 +195,21 @@ Additional clean-baseline findings at `11ba47b2d7`:
   therefore **blocked by the pre-existing bundle budget**, not passed. POD-4286
   owns budget attribution and explicitly directed continuing the other checks;
   no budget or runner was weakened.
+
+The protocol transparency assertion also fails unchanged on clean `11ba47b2d7`:
+**4 failed, 32 passed, 81 filtered out**, in model/runtime/runtime-state/sync. It
+reports pre-existing normalization of delivery status and driver-family fields.
+**POD-5252** retains the exact cases; the assertion was not weakened.
+
+The deletion audit fails on that clean base in **13 pre-existing counters**;
+**POD-5254** records their exact sites. Retirement removes the two obsolete residue
+detectors, reduces issue-shape findings **46 → 25**, personal-state findings
+**23 → 16**, and dirty publication state **2 → 0**. No inherited debt count was
+raised in the committed baseline. One newly visible deck-harness value factory is
+explicitly classified alongside the existing test/demo fixtures; its type is
+composed from the current render model. The outer `test:rearch` command remains
+baseline-red and stops before its unit-test stage. After one clean-base proof,
+POD-4286 explicitly directed stopping that investigation and landing.
 
 Existing baseline failures are explicitly outside this retirement's landing gate:
 POD-5223 (the representation audit's serialized delegation capability snapshot)

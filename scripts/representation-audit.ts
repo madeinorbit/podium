@@ -865,11 +865,12 @@ export const NOT_A_REPRESENTATION: readonly {
   })),
 
   // --- Characterization and demo fixtures. Inventory §3 excludes 5 test
-  // fixtures by rule; these two live in files `isTestFile` does not match.
+  // fixtures by rule; these live in files `isTestFile` does not match.
   ...(
     [
       ['apps/server/src/modules/messages/characterization-support.ts', 'SessionFixture'],
       ['apps/mobile/src/client/demoData.ts', 'DEMO_SESSIONS'],
+      ['apps/web/harness/deck-store-stub.ts', 'issue'],
     ] as const
   ).map(([file, symbol]) => ({
     file,
