@@ -1160,7 +1160,7 @@ export async function writePhaseChange(ctx: ScenarioEngine): Promise<string> {
 }
 
 /** The ledger entities an optimistic write can paint. */
-const OVERLAY_ENTITIES = ['sessions', 'issues', 'issueProjections'] as const
+const OVERLAY_ENTITIES = ['sessions', 'sessionUserStates', 'issues', 'issueProjections'] as const
 
 /**
  * The rows the runtime's optimism ledger still holds a write for — queued,

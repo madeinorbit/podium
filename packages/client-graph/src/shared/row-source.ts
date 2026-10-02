@@ -217,11 +217,17 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'repos',
 ])
 
-const OVERLAID: readonly OverlayTarget[] = ['sessions', 'issueUserStates', 'issueProjections']
+const OVERLAID: readonly OverlayTarget[] = [
+  'sessions',
+  'sessionUserStates',
+  'issueUserStates',
+  'issueProjections',
+]
 const NO_OVERLAYS: readonly PendingOverlay[] = []
 type PendingByRow = Record<OverlayTarget, ReadonlyMap<string, readonly PendingOverlay[]>>
 const NO_PENDING: PendingByRow = {
   sessions: new Map(),
+  sessionUserStates: new Map(),
   issues: new Map(),
   issueUserStates: new Map(),
   issueProjections: new Map(),
@@ -354,12 +360,24 @@ export function createRowSource(
       if (id) installSessionJoin(id, row)
     }
   }
-  function sessionInput(id: string): AnyRow | undefined {
-    const raw = authority('sessions', id)
+  /** One session's view: its row joined with this principal's per-user row
+   *  (read, snooze) folded over that row's own pending overlays (POD-4974 S3),
+   *  its repo and its machines. A placeholder with no server row yet is the
+   *  spawn insert, joined the same way. */
+  function sessionInput(id: string, pending: PendingByRow | null): AnyRow | undefined {
+    const overlays = pending?.sessions.get(id) ?? NO_OVERLAYS
+    const raw =
+      authority('sessions', id) ??
+      (overlays.find((o) => o.op === 'insert') as Extract<PendingOverlay, { op: 'insert' }> | undefined)
+        ?.insert
     if (!raw) return undefined
     const value = raw as AnyRow & SessionValueInput
+    const userState = foldRowOverlays(
+      sessionUserKeys.has(id) ? authority('sessionUserStates', sessionUserKeys.get(id)!) : undefined,
+      pending?.sessionUserStates.get(id) ?? NO_OVERLAYS,
+    )
     return sessionView(value, {
-      userState: sessionUserKeys.has(id) ? authority('sessionUserStates', sessionUserKeys.get(id)!) : undefined,
+      userState,
       repo: value.refRepoId ? authority('repos', value.refRepoId) : undefined,
       machine: value.machineId ? authority('machines', value.machineId) : undefined,
       handoffMachine: value.handoffTargetMachineId ? authority('machines', value.handoffTargetMachineId) : undefined,
@@ -443,6 +461,7 @@ export function createRowSource(
     if (mode === 'truth') return NO_PENDING
     return {
       sessions: runtime.pendingOverlaysByRow('sessions'),
+      sessionUserStates: runtime.pendingOverlaysByRow('sessionUserStates'),
       issues: new Map(),
       issueUserStates: runtime.pendingOverlaysByRow('issueUserStates'),
       issueProjections: runtime.pendingOverlaysByRow('issueProjections'),
@@ -572,7 +591,7 @@ export function createRowSource(
     id: string,
     pending: PendingByRow | null,
   ): RowRecord['value'] {
-    if (kind === 'session') return foldRowOverlays(sessionInput(id), pending?.sessions.get(id) ?? NO_OVERLAYS) as SliceSession | undefined
+    if (kind === 'session') return foldRowOverlays(sessionInput(id, pending), pending?.sessions.get(id) ?? NO_OVERLAYS) as SliceSession | undefined
     ensureEdges()
     ensureSessionFacts()
     const projection = folded('issueProjections', id, pending)
@@ -585,7 +604,7 @@ export function createRowSource(
   }
 
   function hasOverlays(kind: 'session' | 'issue', id: string, pending: PendingByRow): boolean {
-    if (kind === 'session') return pending.sessions.has(id)
+    if (kind === 'session') return pending.sessions.has(id) || pending.sessionUserStates.has(id)
     return pending.issueUserStates.has(id) || pending.issueProjections.has(id)
   }
 
@@ -761,6 +780,7 @@ export function createRowSource(
     if (kind === 'session') {
       for (const row of replica.rows('sessions')) add(sessionIdOf(row))
       for (const id of pending.sessions.keys()) add(id)
+      for (const id of pending.sessionUserStates.keys()) add(id)
     } else {
       for (const row of replica.rows('issueProjections')) add(idOf(row))
       for (const id of pending.issueUserStates.keys()) add(id)
@@ -913,6 +933,8 @@ export function createRowSource(
     const ledgerRows = new Map<string, { kind: 'session' | 'issue'; id: string }>()
     for (const id of pending.sessions.keys())
       ledgerRows.set(`session:${id}`, { kind: 'session', id })
+    for (const id of pending.sessionUserStates.keys())
+      ledgerRows.set(`session:${id}`, { kind: 'session', id })
     for (const id of pending.issueUserStates.keys()) ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
     for (const id of pending.issueProjections.keys())
       ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
@@ -1013,7 +1035,7 @@ export function createRowSource(
     const pending = readPending()
     for (const kind of OVERLAID) {
       for (const id of pending[kind].keys()) {
-        const row = kind === 'sessions' ? 'session' : 'issue'
+        const row = kind === 'sessions' || kind === 'sessionUserStates' ? 'session' : 'issue'
         overlaid.set(`${row}:${id}`, resolve(row, id, pending))
       }
     }

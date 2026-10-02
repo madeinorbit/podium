@@ -349,6 +349,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   // ---- internal (non-snapshot) state ----
   /** Server truth for this principal's slice — the replica's rows, unpainted. */
   private baseSessions: EngineState['sessions'] = []
+  /** The per-user session rows, raw: the ledger paints this principal's and
+   *  joins them over `baseSessions` (POD-4974 S3). */
+  private baseSessionUserStates: ReplicaPublication['snapshot']['sessionUserStates'] = []
   private baseIssues: EngineState['issues'] = []
   private baseIssueProjections: EngineState['issueProjections'] = []
   private baseIssueUserStates: EngineState['issueUserStates'] = []
@@ -475,6 +478,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       userId: this.principal.userId,
       base: () => ({
         sessions: this.baseSessions,
+        sessionUserStates: this.baseSessionUserStates,
         issues: this.baseIssues,
         issueProjections: this.baseIssueProjections,
         issueUserStates: this.baseIssueUserStates,
@@ -524,6 +528,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // that into "not found" flashes until start() (a passive effect) ran.
     const replicaSeed = this.replicaBinding.snapshot()
     this.baseSessions = this.readSessionViews(replicaSeed)
+    this.baseSessionUserStates = replicaSeed.sessionUserStates
     this.baseIssues = replicaSeed.issues
     this.baseIssueProjections = replicaSeed.issueProjections
     this.baseIssueUserStates = replicaSeed.issueUserStates
@@ -545,11 +550,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.reactions.seedIssueIds(this.baseSessions)
     // Fold queued outbox entries over the seed (#263): after an offline reload
     // the durable queue still paints its optimism in the VERY FIRST snapshot.
-    const seededSessionFold = this.optimism.foldSeed(
-      'sessions',
-      this.baseSessions,
-      (s) => s.sessionId,
-    )
+    const seededSessionFold = this.optimism.foldSeedSessions()
     const seededProjectionFold = this.optimism.foldSeed(
       'issueProjections',
       this.baseIssueProjections,
@@ -1384,6 +1385,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.batch(() => {
         if (['sessions', 'sessionUserStates', 'machines', 'repos'].some(kind => changed.has(kind as ReplicaKind))) {
           this.baseSessions = this.readSessionViews(snapshot)
+          this.baseSessionUserStates = snapshot.sessionUserStates
           this.optimism.recomputeSessions()
         }
         // Any issue kind repaints all three (POD-4969): the overlays of record

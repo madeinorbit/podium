@@ -1,4 +1,5 @@
 import { sessionById } from '../session-index'
+import { sessionValues, sessionView } from '../session-values'
 /**
  * THE OPTIMISTIC LEDGER (POD-404, split out of the old `engine.ts`).
  *
@@ -39,6 +40,7 @@ import type {
   MutationId,
   SessionId,
   SessionMeta,
+  SessionUserStateWire,
   UserId,
 } from '@podium/model'
 import {
@@ -48,6 +50,7 @@ import {
   dedupeSessionsByResume,
   IssueProjection,
   issueUserStateRowId,
+  sessionUserStateRowId,
 } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
@@ -64,8 +67,10 @@ import {
 import {
   optimisticDraftIssue,
   optimisticDraftSortKey,
+  optimisticSessionUserState,
   optimisticStartedIssue,
   optimisticStartingSession,
+  type StartingSessionRow,
 } from '../viewmodels'
 import {
   AWAITING_TRUTH_TTL_MS,
@@ -119,7 +124,12 @@ interface LocalOverlay {
 
 /** The replica's unpainted rows — server truth for this principal's slice. */
 export interface OptimismBase {
+  /** Session views over UNPAINTED per-user truth (`session-values.ts`): the
+   *  ledger joins its painted per-user rows over them (POD-4974 S3). */
   sessions: SessionMeta[]
+  /** The per-user session markers, raw. As for issues, the ledger only ever
+   *  paints the rows whose `userId` is {@link OptimismPorts.userId}. */
+  sessionUserStates: SessionUserStateWire[]
   issues: IssueWire[]
   issueProjections: IssueProjection[]
   /** The per-user issue markers. The ledger only ever paints the rows whose
@@ -226,6 +236,12 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   >()
   /** The issue ids in the normalized slice, cached per base array. */
   private sliceIds: { base: readonly IssueProjection[]; ids: ReadonlySet<string> } | null = null
+  /** The session list with painted per-user rows joined in, per input pair. */
+  private joined: {
+    sessions: readonly SessionMeta[]
+    users: readonly SessionUserStateWire[]
+    rows: SessionMeta[]
+  } | null = null
 
   constructor(ports: OptimismPorts<TApi>) {
     this.ports = ports
@@ -382,6 +398,39 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   private readonly userStateKey = (row: IssueUserStateWire): string =>
     row.userId === this.ports.userId ? row.entityId : issueUserStateRowId(row.userId, row.entityId)
 
+  /** {@link userStateKey} for the per-user session rows. */
+  private readonly sessionUserStateKey = (row: SessionUserStateWire): string =>
+    row.userId === this.ports.userId
+      ? row.sessionId
+      : sessionUserStateRowId(row.userId, row.sessionId)
+
+  /**
+   * What an absent `(user, session)` row means for this principal (POD-4974
+   * S3): NOT "nothing set", unlike an issue's. The server publishes a session's
+   * per-user row explicitly, cleared cells included, so absence is "not loaded
+   * yet" (an older server, or before the first sync), and until then the
+   * session row's own legacy cells speak for this user (S2's fallback). The
+   * absent row repeats them, so a patch folded over it changes only what it
+   * patches, and coverage on it is judged against what the reader shows.
+   * Undefined once the session has left the slice: absence is real then.
+   */
+  private absentSessionUserState(sessionId: string): SessionUserStateWire | undefined {
+    const session =
+      sessionById(this.ports.base().sessions).get(sessionId) ??
+      this.spawnOverlays.find(
+        (o): o is Extract<PendingOverlay, { op: 'insert' }> =>
+          o.op === 'insert' && o.entity === 'sessions' && o.id === sessionId,
+      )?.insert
+    if (session === undefined) return undefined
+    const { readAt, snoozedUntil } = sessionValues(session)
+    return {
+      userId: this.ports.userId,
+      sessionId: asSessionId(sessionId),
+      readAt,
+      ...(snoozedUntil !== undefined ? { snoozedUntil } : {}),
+    }
+  }
+
   /** The current server-truth row an overlay of record is judged against. */
   private truthRow(entity: OverlayTarget, id: string): OverlayRow | undefined {
     const base = this.ports.base()
@@ -397,6 +446,11 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
           base.issueUserStates.find((row) => this.userStateKey(row) === id) ??
           this.absentUserState(asIssueId(id))
         )
+      case 'sessionUserStates':
+        return (
+          base.sessionUserStates.find((row) => this.sessionUserStateKey(row) === id) ??
+          this.absentSessionUserState(id)
+        )
     }
   }
 
@@ -411,11 +465,16 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const out: PendingOverlay[] = []
     const include = (overlay: PendingOverlay): void => {
       if (overlay.entity !== entity) return
-      // An absent per-user row is "nothing set" while the issue is in the slice.
+      // An absent per-user row is "nothing set" while the issue is in the slice,
+      // and the session's own legacy cells while the session is.
       const absent =
-        overlay.op === 'patch' && entity === 'issueUserStates'
-          ? this.absentUserState(asIssueId(overlay.id))
-          : undefined
+        overlay.op !== 'patch'
+          ? undefined
+          : entity === 'issueUserStates'
+            ? this.absentUserState(asIssueId(overlay.id))
+            : entity === 'sessionUserStates'
+              ? this.absentSessionUserState(overlay.id)
+              : undefined
       out.push(overlay.op === 'patch' && absent !== undefined ? { ...overlay, absent } : overlay)
     }
     for (const overlay of this.spawnOverlays) include(overlay)
@@ -463,12 +522,18 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     return this.foldStable('issueUserStates', base, this.userStateKey).rows
   }
 
+  /** {@link foldSeed} for the session list: per-user rows joined, then the
+   *  session's own overlays (see {@link paintSessions}). */
+  foldSeedSessions(): { rows: SessionMeta[]; pendingInsertIds: ReadonlySet<string> } {
+    return this.paintSessions()
+  }
+
   private foldStable<T extends object>(
     entity: OverlayTarget,
     base: T[],
     keyOf: (row: T) => string,
+    overlays: PendingOverlay[] = this.overlaysFor(entity),
   ): { rows: T[]; pendingInsertIds: ReadonlySet<string> } {
-    const overlays = this.overlaysFor(entity)
     const previous = this.folds.get(entity)
     // Membership/stage and coverage predicates do not affect the pure fold.
     // Compare the ordered paint, including edits to an existing queued entry.
@@ -559,6 +624,10 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         if (entity === 'issueUserStates') {
           return this.spawnOverlays.some((p) => p.entity === 'issueProjections' && p.id === o.id)
         }
+        // The same for a session's (POD-4974 S3c).
+        if (entity === 'sessionUserStates') {
+          return this.spawnOverlays.some((p) => p.entity === 'sessions' && p.id === o.id)
+        }
         return !known.has(o.id)
       })
       if (keep.length !== this.spawnOverlays.length) this.spawnOverlays = keep
@@ -586,14 +655,71 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     }
   }
 
+  /**
+   * The painted session list, in two folds (POD-4974 S3). First this
+   * principal's per-user rows (`readAt`, `snoozedUntil`), then the session
+   * views with those painted rows joined in, then the session's own overlays
+   * (rename, archive, offer, wake) and the spawn placeholder.
+   *
+   * The join is a view over the base view (`sessionView` with only the user
+   * row), so refs, machine labels and handoff labels pass through unchanged,
+   * and `unread` is derived from the painted cursor. Only sessions whose
+   * per-user row the fold moved are re-viewed; with nothing painted the base
+   * list itself is folded. A spawn placeholder is joined the same way, so an
+   * edit pressed during its "Starting…" window shows on it too.
+   */
+  private paintSessions(): { rows: SessionMeta[]; pendingInsertIds: ReadonlySet<string> } {
+    const { sessions, sessionUserStates } = this.ports.base()
+    const users = this.foldStable(
+      'sessionUserStates',
+      sessionUserStates,
+      this.sessionUserStateKey,
+    ).rows
+    const painted = new Map<string, SessionUserStateWire>()
+    if (users !== sessionUserStates) {
+      const truth = new Map(
+        sessionUserStates
+          .filter((row) => row.userId === this.ports.userId)
+          .map((row) => [row.sessionId as string, row]),
+      )
+      for (const row of users) {
+        if (row.userId === this.ports.userId && truth.get(row.sessionId) !== row) {
+          painted.set(row.sessionId, row)
+        }
+      }
+    }
+    const join = (session: SessionMeta): SessionMeta => {
+      const userState = painted.get(session.sessionId)
+      return userState === undefined ? session : (sessionView(session, { userState }) as SessionMeta)
+    }
+    if (this.joined?.sessions !== sessions || this.joined.users !== users) {
+      this.joined = {
+        sessions,
+        users,
+        rows: painted.size === 0 ? sessions : sessions.map(join),
+      }
+    }
+    const overlays = this.overlaysFor('sessions').map((o) =>
+      o.op === 'insert' && painted.has(o.id)
+        ? { ...o, insert: join(o.insert as SessionMeta) }
+        : o,
+    )
+    return this.foldStable('sessions', this.joined.rows, (s) => s.sessionId, overlays)
+  }
+
   /** Fold `replica rows + pending mutations' overlays` into the snapshot's
    *  session list, and derive pendingSpawnIds — the ids AgentPanel must not
-   *  attach to yet (#119). */
+   *  attach to yet (#119). The per-user session overlays retire here too:
+   *  their only reader is this list's join. */
   recomputeSessions(): void {
-    const base = this.ports.base().sessions
-    const keyOf = (s: SessionMeta): string => s.sessionId
-    this.retireCovered('sessions', base, keyOf)
-    const { rows, pendingInsertIds } = this.foldStable('sessions', base, keyOf)
+    const { sessions, sessionUserStates } = this.ports.base()
+    // Sessions first: a spawn placeholder's per-user row lives as long as the
+    // session placeholder, so both leave in the same recompute.
+    this.retireCovered('sessions', sessions, (s: SessionMeta): string => s.sessionId)
+    this.retireCovered('sessionUserStates', sessionUserStates, this.sessionUserStateKey, (id) =>
+      this.absentSessionUserState(id),
+    )
+    const { rows, pendingInsertIds } = this.paintSessions()
     if ([...this.spawnPrompts.keys()].some((id) => !pendingInsertIds.has(id))) {
       this.spawnPrompts = new Map([...this.spawnPrompts].filter(([id]) => pendingInsertIds.has(id)))
     }
@@ -639,7 +765,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const set = new Set(targets)
     if (set.size === 0) return
     this.batched(() => {
-      if (set.has('sessions')) this.recomputeSessions()
+      if (set.has('sessions') || set.has('sessionUserStates')) this.recomputeSessions()
       if (set.has('issueProjections')) this.recomputeIssueProjections()
       if (set.has('issueUserStates')) this.recomputeIssueUserStates()
       if (set.has('issues')) this.recomputeIssues()
@@ -773,9 +899,18 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       // per-user part see that row as already moved and back off at resolution
       // instead of masking until its TTL. A client that stops storing the old
       // record (POD-4970) has no such row, and the normalized rows decide alone.
+      //
+      // A per-user SESSION row merges over its session view (POD-4974 S3). The
+      // row carries no activity clock, and mark-read paints at least the
+      // session's `lastActiveAt`; the per-user cells are the per-user row's own.
+      // That is also the shape older builds stored (a session-row fingerprint),
+      // so an entry from before S3 reads the same cells off its baseline.
       const rows = [...probe]
         .sort((a, b) => Number(a.entity === 'issues') - Number(b.entity === 'issues'))
-        .map((o) => this.truthRow(o.entity, o.id))
+        .flatMap((o) => [
+          ...(o.entity === 'sessionUserStates' ? [this.truthRow('sessions', o.id)] : []),
+          this.truthRow(o.entity, o.id),
+        ])
         .filter((row): row is OverlayRow => row !== undefined)
       if (rows.length > 0) baseline = rowFingerprint(Object.assign({}, ...rows))
       // Chained stamp (#263 review round 2): a same-row entry already pending
@@ -830,7 +965,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   private paintSpawn(args: {
     sessionId: SessionId
     issueId: IssueId
-    session: SessionMeta
+    session: StartingSessionRow
     issue: IssueWire
     prompt?: string
     create: () => Promise<void>
@@ -847,10 +982,22 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     // principal's markers beside it (just created by them, so read), and on the
     // old record for the readers that have not moved. Each insert of record
     // retires when its own row lands; the per-user one with its issue's, since
-    // the server writes no marker on create.
+    // the server writes no marker on create. The session's per-user cells are
+    // its own per-user row too (POD-4974 S3c), joined in by `paintSessions`;
+    // the placeholder session carries none (the wire's defaults stand in for a
+    // reader that joins nothing: read, not unread).
     this.spawnOverlays = [
       ...this.spawnOverlays,
-      insertOverlay('sessions', sessionId, args.session),
+      insertOverlay('sessions', sessionId, args.session as SessionMeta),
+      insertOverlay(
+        'sessionUserStates',
+        sessionId,
+        optimisticSessionUserState({
+          userId: this.ports.userId,
+          sessionId,
+          nowIso: args.session.lastActiveAt,
+        }),
+      ),
       insertOverlay('issueProjections', issueId, placeholderProjection(args.issue)),
       insertOverlay('issueUserStates', issueId, {
         userId: this.ports.userId,

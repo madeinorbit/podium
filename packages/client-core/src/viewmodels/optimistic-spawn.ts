@@ -1,4 +1,4 @@
-import type { SessionView } from '../session-values'
+import type { SessionValues, SessionView } from '../session-values'
 import { DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
 import {
   isSortKey,
@@ -8,7 +8,9 @@ import {
   type IssueWire,
   type MachineId,
   type RepoId,
-  type SessionId} from '@podium/model'
+  type SessionId,
+  type SessionUserStateWire,
+  type UserId} from '@podium/model'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).
@@ -55,8 +57,13 @@ export interface OptimisticSpawnArgs {
   nowIso: string
 }
 
+/** The placeholder session's own facts. Its per-user cells are not among them:
+ *  they are {@link optimisticSessionUserState}, joined in by the reader
+ *  (POD-4974 S3c). */
+export type StartingSessionRow = Omit<SessionView, keyof Pick<SessionValues, 'readAt' | 'unread'>>
+
 /** A just-clicked, not-yet-booted session: `status: 'starting'`, no controller. */
-export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionView {
+export function optimisticStartingSession(args: OptimisticSpawnArgs): StartingSessionRow {
   return {
     sessionId: args.sessionId,
     agentKind: args.agentKind,
@@ -72,12 +79,19 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionVie
     lastActiveAt: args.nowIso,
     origin: { kind: 'spawn' },
     archived: false,
-    // Just spawned by this user → they're looking at it: read, not unread.
-    readAt: args.nowIso,
-    unread: false,
     issueId: args.issueId,
     spawnedBy: spawnedByTag({ kind: 'user' }),
   }
+}
+
+/** The spawning user's own row for the placeholder session: just spawned by
+ *  them, so they are looking at it — read at its first activity, not unread. */
+export function optimisticSessionUserState(args: {
+  userId: UserId
+  sessionId: SessionId
+  nowIso: string
+}): SessionUserStateWire {
+  return { userId: args.userId, sessionId: args.sessionId, readAt: args.nowIso }
 }
 
 /** The draft-issue vessel the server auto-creates for a low-friction start —
