@@ -13,15 +13,13 @@ import type { Trpc } from './trpc'
 
 /** Only identity-stable handles/actions are acquired here. No live field is
  * borrowed from a snapshot on the pool branch. The mutation owner is unchanged. */
-const statics = (s: Store) => ({ trpc: s.trpc, setPaletteOpen: s.setPaletteOpen, closeIssue: s.closeIssue,
-  markIssueRead: s.markIssueRead, markIssueUnread: s.markIssueUnread, updateIssue: s.updateIssue, deleteIssue: s.deleteIssue,
-  deferIssue: s.deferIssue, undeferIssue: s.undeferIssue, setIssueLabels: s.setIssueLabels, restoreIssue: s.restoreIssue,
-  markSessionRead: s.markSessionRead, markSessionUnread: s.markSessionUnread, setPane: s.setPane, setView: s.setView,
-  setSettingsTab: s.setSettingsTab, setSelectedWorktree: s.setSelectedWorktree, setSelectedIssueId: s.setSelectedIssueId,
-  setOpenIssueId: s.setOpenIssueId, setSnooze: s.setSnooze, clearSnooze: s.clearSnooze, hibernateSession: s.hibernateSession,
-  resurrectSession: s.resurrectSession, startBtw: s.startBtw, spawnDraftAgent: s.spawnDraftAgent,
-  setPanelMode: s.setPanelMode, openFileInWorktree: s.openFileInWorktree, openArtifact: s.openArtifact })
-export function useCommandLaunchActions() {
+const ACTION_KEYS = ['trpc', 'setPaletteOpen', 'closeIssue', 'markIssueRead', 'markIssueUnread', 'updateIssue', 'deleteIssue',
+  'deferIssue', 'undeferIssue', 'setIssueLabels', 'restoreIssue', 'markSessionRead', 'markSessionUnread', 'setPane', 'setView',
+  'setSettingsTab', 'setSelectedWorktree', 'setSelectedIssueId', 'setOpenIssueId', 'setSnooze', 'clearSnooze', 'hibernateSession',
+  'resurrectSession', 'startBtw', 'spawnDraftAgent', 'setPanelMode', 'openFileInWorktree', 'openArtifact'] as const satisfies readonly (keyof Store)[]
+type CommandLaunchActions = Pick<Store, typeof ACTION_KEYS[number]>
+const statics = (s: Store): CommandLaunchActions => Object.fromEntries(ACTION_KEYS.map(key => [key, s[key]])) as CommandLaunchActions
+export function useCommandLaunchActions(): CommandLaunchActions {
   const owner = useStoreHandle<Trpc>()
   return useMemo(() => statics(owner.getSnapshot()), [owner])
 }
