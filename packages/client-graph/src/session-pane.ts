@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { MachineWire } from '@podium/model/browser'
+import { asIssueId, type MachineWire } from '@podium/model/browser'
 import type { MobxPool } from './pool'
 import { headerIds } from './enumerate'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -107,7 +107,8 @@ export function createSessionPaneReader(pool: MobxPool) {
         hasSessions: paneHasSessions(pool), reposLoaded: controls.reposLoaded, loading: row === LOADING }
     },
     ownership(row: SessionView | undefined, hex: (color: string | null | undefined) => string | undefined) {
-      const selectedIssueId = pool.selection.keys().next().value ?? null
+      const selected = pool.selection.keys().next().value
+      const selectedIssueId = selected === undefined ? null : asIssueId(selected)
       const stamp = paneStampIssue(pool, row), color = paneIssueColor(pool, selectedIssueId, hex)
       return { selectedIssueId, stampIssue: stamp === LOADING ? undefined : stamp, issueHex: color === LOADING ? undefined : color }
     },

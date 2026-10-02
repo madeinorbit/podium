@@ -51,8 +51,8 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     const stamp = row === LOADING ? LOADING : paneStampIssue(pool, row)
     const loading = row === LOADING || stamp === LOADING
     if (loading) pending++
-    return { id, pending: loading, fields: loading ? {} : { ...paneComparable(row === LOADING ? undefined : row, state.coarseNow),
-      stamp: stampFields(stamp && stamp !== LOADING ? stamp : undefined) } }
+    return { id, pending: loading, fields: loading ? {} : { ...paneComparable(row, state.coarseNow),
+      stamp: stampFields(stamp) } }
   })
   const window = paneWindow(pool)
   const windowPending = window === LOADING

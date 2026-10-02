@@ -3,7 +3,7 @@ import { useMemo, useSyncExternalStore } from 'react'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { Store, ClientRuntime } from '@podium/client-core/engine'
+import type { Store } from '@podium/client-core/engine'
 import { bindStoreStatsOwner, readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -82,7 +82,7 @@ beforeEach(() => {
   f.pool.apply({ type: 'replace', rows: sessions.map(row => ({ kind: 'session', id: row.sessionId, value: row as never })) })
   f.pool.header.apply(state.machines.map(row => ({ kind: 'machine', id: row.id, value: row })))
   f.pool.header.order('machine', state.machines.map(row => row.id))
-  f.pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource({ getSnapshot: () => state, subscribe: () => () => {} } as ClientRuntime))
+  f.pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource({ getSnapshot: () => state, subscribe: () => () => {} }))
   for (const row of sessions) f.pool.row('session', row.sessionId)
   f.pool.hydrate()
   bindStoreStatsOwner(f.owner, f.owner)
