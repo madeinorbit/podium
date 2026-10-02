@@ -1,11 +1,18 @@
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { recordChipWork } from '@podium/client-core/perf'
+import type { UiState } from '@podium/client-core/ui-state'
 import { initializeSettingsDataLayer, settingsDataLayer, settingsCheckRequested } from '@/features/settings/data-layer'
 import { initializePreferencesDataLayer, preferencesDataLayer, preferencesCheckRequested } from '@/lib/preferences-data-layer'
 import { initializeSidebarDataLayer, sidebarDataLayer, sidebarCheckRequested } from '@/lib/sidebar-data-layer'
 import { initializeHeaderDataLayer, headerDataLayer, headerCheckRequested } from '@/lib/header-data-layer'
 import { initializeChipsDataLayer, chipsDataLayer, chipsCheckRequested } from '@/lib/chips-data-layer'
 import type { PoolScreen } from './pool-screen-registry'
+
+/** Latch with hydrated UI state before rendering any screen, including settings.
+ * Provider attachments and principal rebuilds reuse the same app-load choices. */
+export function initializePoolScreens(ui: UiState): void {
+  for (const screen of poolBackedScreens) screen.initialize(ui)
+}
 
 /** Screen declarations are the only provider registration surface. Graph code
  * stays behind startup choices; every entry uses the existing runtime/pool. */

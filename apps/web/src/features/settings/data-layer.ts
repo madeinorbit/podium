@@ -1,3 +1,6 @@
+import type { UiState } from '@podium/client-core/ui-state'
+import { mobxPilotEnabled } from '@/lib/mobx-pilot'
+
 /** Settings and activation share one startup choice. Reload to roll back;
  * principal changes and navigation never change a mounted hook's order. */
 let startup: 'legacy' | 'pool' | undefined
@@ -13,5 +16,3 @@ export function initializeSettingsDataLayer(ui: Pick<UiState, 'get'>): void {
 
 export function settingsDataLayer(): 'legacy' | 'pool' { return startup ?? 'legacy' }
 export function settingsCheckRequested(): boolean { return check }
-import type { UiState } from '@podium/client-core/ui-state'
-import { mobxPilotEnabled } from '@/lib/mobx-pilot'

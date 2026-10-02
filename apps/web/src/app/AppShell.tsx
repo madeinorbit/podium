@@ -51,7 +51,7 @@ import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { onReconnect } from '@/lib/on-reconnect'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
-import { initializeSidebarDataLayer, sidebarDataLayer } from '@/lib/sidebar-data-layer'
+import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
 import { useFileDropGuard } from '@/lib/use-file-drop-guard'
@@ -60,6 +60,7 @@ import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
+import { initializePoolScreens } from './pool-screens'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
@@ -415,6 +416,9 @@ export function AppShell({
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
   const uiState = useStoreHandle().getSnapshot().uiState
+  // Hydrated principal-local state is available now. Freeze every screen's
+  // choice before its first render so mounted readers never change hook order.
+  initializePoolScreens(uiState)
   const densityEnabled = useFeature('shell-density')
   return (
     <DensityProvider uiState={uiState} densityEnabled={densityEnabled}>
@@ -452,10 +456,6 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     }),
     shallowEqual,
   )
-  // The principal-bound device-local UI collection is hydrated now. Latch the
-  // module's startup choice before mounting any worklist reader; never subscribe
-  // to this key or choose a different hook under a mounted sidebar.
-  initializeSidebarDataLayer(uiState)
   initializeSidebarMeasurements()
   const view = useStoreSelector((s) => s.view)
   const setView = useStoreSelector((s) => s.setView)

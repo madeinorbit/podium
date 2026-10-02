@@ -63,16 +63,17 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-describe('principal-local sidebar pilot preference', () => {
+describe('principal-local MobX pilot preference', () => {
   it('saves on/off immediately to ui-state without changing the running mode or shared settings', () => {
     initializeSidebarDataLayer(state.ui)
     const patch = vi.fn()
     const props = { settings: DEFAULT_SETTINGS, patch, onReset: vi.fn() }
     const { unmount } = render(<ExperimentalSection {...props} />)
-    let toggle = screen.getByRole('switch', { name: 'Sidebar MobX pilot' })
+    let toggle = screen.getByRole('switch', { name: 'MobX pilot' })
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     expect(toggle.hasAttribute('disabled')).toBe(false)
     expect(screen.getByText('Saved immediately for your next app load.')).toBeTruthy()
+    expect(screen.getByText('Use the new data layer for every converted screen. Reload to apply.')).toBeTruthy()
 
     fireEvent.click(toggle)
     expect(state.ui.get(MOBX_SIDEBAR_KEY)).toBe('1')
@@ -84,7 +85,7 @@ describe('principal-local sidebar pilot preference', () => {
     // Closing/reopening Settings preserves the choice, without reselecting hooks.
     unmount()
     render(<ExperimentalSection {...props} />)
-    toggle = screen.getByRole('switch', { name: 'Sidebar MobX pilot' })
+    toggle = screen.getByRole('switch', { name: 'MobX pilot' })
     expect(toggle.getAttribute('aria-checked')).toBe('true')
     fireEvent.click(toggle)
     expect(state.ui.get(MOBX_SIDEBAR_KEY)).toBe('0')
@@ -103,19 +104,19 @@ describe('principal-local sidebar pilot preference', () => {
       />,
     )
     expect(
-      screen.getByRole('switch', { name: 'Sidebar MobX pilot' }).getAttribute('aria-checked'),
+      screen.getByRole('switch', { name: 'MobX pilot' }).getAttribute('aria-checked'),
     ).toBe('false')
     state.values.set(MOBX_SIDEBAR_KEY, '1')
     rerender(<ExperimentalSection settings={DEFAULT_SETTINGS} patch={vi.fn()} onReset={vi.fn()} />)
     expect(
-      screen.getByRole('switch', { name: 'Sidebar MobX pilot' }).getAttribute('aria-checked'),
+      screen.getByRole('switch', { name: 'MobX pilot' }).getAttribute('aria-checked'),
     ).toBe('true')
   })
 
   it('does not expose the control when the catalog entry is unlisted', () => {
     state.listed = false
     render(<ExperimentalSection settings={DEFAULT_SETTINGS} patch={vi.fn()} onReset={vi.fn()} />)
-    expect(screen.queryByRole('switch', { name: 'Sidebar MobX pilot' })).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'MobX pilot' })).toBeNull()
   })
 
   it.each([
@@ -134,7 +135,7 @@ describe('principal-local sidebar pilot preference', () => {
     expect(state.features.devMode).toBe(false)
     const patch = vi.fn()
     render(<ExperimentalSection settings={settings} patch={patch} onReset={vi.fn()} />)
-    const toggle = screen.queryByRole('switch', { name: 'Sidebar MobX pilot' })
+    const toggle = screen.queryByRole('switch', { name: 'MobX pilot' })
     if (listed) {
       expect(toggle).not.toBeNull()
       expect(toggle?.getAttribute('aria-checked')).toBe('false')
