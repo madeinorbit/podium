@@ -1047,17 +1047,20 @@ describe('SessionRegistry', () => {
     expect(frames[0]).toMatchObject({ sessionId: s1, data: 'QQ==' })
   })
 
-  it('replays buffered output to a client that attaches after frames were produced', async () => {
+  it('serves a cached picture and its tail to a late attaching client', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { ...bind(s1), pictures: true })
     // Frames arrive before any client attaches (e.g. a boot session, or a re-mount).
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: s1,
       seq: 0,
       data: 'QQ==',
+    })
+    reg.gateway.routeDaemonOutput(reg.sessionStore.hostMachineId, {
+      type: 'ptyPicture', sessionId: s1, reason: 'reset', ...G, bytes: Buffer.from('PICTURE'),
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
@@ -1069,14 +1072,14 @@ describe('SessionRegistry', () => {
     const id = await attachCurrent(reg, c.send)
     await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
-    expect(frames.map((f) => (f as { data: string }).data)).toEqual(['QQ==', 'Qg=='])
+    expect(frames.map((f) => (f as { data: string }).data)).toEqual([Buffer.from('PICTURE').toString('base64'), 'Qg=='])
   })
 
-  it('resets the replay buffer on a screen clear so replay starts from the clear', async () => {
+  it('serves the new reset picture without raw frames from before the clear', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { ...bind(s1), pictures: true })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: s1,
@@ -1089,6 +1092,9 @@ describe('SessionRegistry', () => {
       sessionId: s1,
       seq: 1,
       data: clearFrame,
+    })
+    reg.gateway.routeDaemonOutput(reg.sessionStore.hostMachineId, {
+      type: 'ptyPicture', sessionId: s1, reason: 'reset', ...G, bytes: Buffer.from(clearFrame, 'base64'),
     })
     const c = sink()
     const id = await attachCurrent(reg, c.send)

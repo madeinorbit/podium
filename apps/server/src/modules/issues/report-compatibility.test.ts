@@ -98,3 +98,26 @@ it('joins an issue list once per request and never counts comments per issue', a
     for (const spy of [deps, labels, counts, scalar]) spy.mockRestore()
   }
 })
+
+it('reuses only own-row projections while labels, hierarchy, comments and personal state stay fresh', async () => {
+  const { registry, api } = await fixture()
+  const parent = await api.create({ repoPath: '/report-fixture', title: 'Cached report parent', startNow: false })
+  const read = async () => (await api.list({ repoPath: '/report-fixture' })).find(row => row.id === parent.id)!
+  expect(await read()).toMatchObject({ labels: [], commentCount: 0, childCount: 0, pinned: false })
+  await registry.sessionStore.issues.setIssueLabels(parent.id, ['alpha'])
+  expect(await read()).toMatchObject({ labels: ['alpha'] })
+  await registry.sessionStore.issues.setIssueLabels(parent.id, ['beta'])
+  await api.addComment({ id: parent.id, body: 'Fresh comment count' })
+  const child = await api.create({ repoPath: '/report-fixture', title: 'Fresh child count', parentId: parent.id, startNow: false })
+  await api.update({ id: parent.id, patch: { pinned: true, title: 'Changed report parent' } })
+  expect(await read()).toMatchObject({ title: 'Changed report parent', labels: ['beta'], commentCount: 1, childCount: 1, childDoneCount: 0, pinned: true })
+  await api.close({ id: child.id })
+  expect(await read()).toMatchObject({ childCount: 1, childDoneCount: 1 })
+  const labels = vi.spyOn(registry.sessionStore.issues, 'listIssueLabelsByIssue')
+  const counts = vi.spyOn(registry.sessionStore.issues, 'countIssueCommentsByIssue')
+  try {
+    expect((await api.tree({ id: parent.id, maxNodes: 1000 })).totalNodes).toBe(2)
+    expect(labels).not.toHaveBeenCalled()
+    expect(counts).not.toHaveBeenCalled()
+  } finally { labels.mockRestore(); counts.mockRestore() }
+})

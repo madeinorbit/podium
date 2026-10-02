@@ -58,15 +58,12 @@ function sink() {
 
 // ---------------------------------------------------------------------------
 // Contract 1 — session lifecycle roundtrip across a daemon reconnect.
-// The pieces (spawn shape, buffered replay, resume cursors, reconnecting →
-// bind → live) are each covered in relay.test.ts / session.test.ts; this test
-// composes them into the one roundtrip a refactor is most likely to break:
-// seq continuity, epoch stability, and buffer preservation THROUGH a daemon
-// disconnect + reattach.
+// Compose spawn, reconnecting → bind → live, sequence continuity and epoch
+// stability. Late viewers catch up from the current screen and its tail.
 // ---------------------------------------------------------------------------
 
 describe('characterization: session roundtrip across daemon reconnect (contract 1)', () => {
-  it('server seq stays monotonic, the epoch does not bump, and the replay buffer survives a daemon disconnect + rebind', async () => {
+  it('server seq stays monotonic across reconnect and late viewers catch up from the new picture', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon1: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon1.push(m))
@@ -142,8 +139,16 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     ])
     expect(new Set(live.map((f) => f.epoch))).toEqual(new Set([0]))
 
-    // A client that disconnected mid-way resumes from its cursor: sinceSeq=2 →
-    // resumed:true and EXACTLY the two missed frames, in order.
+    // The rebound host supplies the authoritative screen. Late viewers receive
+    // that picture and its tail, regardless of an obsolete byte-stream cursor.
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { ...bind(sessionId), pictures: true })
+    const screen = Buffer.from('RECONNECTED SCREEN')
+    reg.gateway.routeDaemonOutput(reg.sessionStore.hostMachineId, {
+      type: 'ptyPicture', sessionId, reason: 'reset', ...G, bytes: screen,
+    })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentFrame', sessionId, seq: 99, data: 'Rg==',
+    })
     const resumer = sink()
     const resumerId = attachTestClient(reg.clientGateway, resumer.send)
     await reg.clientGateway.routeClientFrame(resumerId, {
@@ -159,12 +164,11 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     expect(
       resumer.sent.filter((m) => m.type === 'outputFrame').map((f) => [f.seq, f.data]),
     ).toEqual([
-      [3, 'RA=='],
-      [4, 'RQ=='],
+      [5, screen.toString('base64')],
+      [6, 'Rg=='],
     ])
 
-    // A fresh mount (no cursor) gets the FULL buffer — pre-disconnect frames were
-    // not dropped by the reconnect.
+    // A fresh mount gets the same picture and tail, with no obsolete bytes.
     const fresh = sink()
     const freshId = attachTestClient(reg.clientGateway, fresh.send)
     await reg.clientGateway.routeClientFrame(freshId, {
@@ -172,9 +176,9 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
       viewport: { cols: 80, rows: 24, dpr: 1 }, caps: ['sync.http.v1'],
     })
     await reg.clientGateway.routeClientFrame(freshId, { type: 'attach', sessionId })
-    expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
+    expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
     expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([
-      0, 1, 2, 3, 4,
+      5, 6,
     ])
     await reg.dispose()
   })

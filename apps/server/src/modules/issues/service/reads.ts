@@ -1,4 +1,3 @@
-import { fromStorage } from '../../../store/issue-storage'
 import { readResourceGrants } from '../../world-index/grant-reader'
 import {
   type DoctorReport,
@@ -103,6 +102,19 @@ function issueTitleNeedsRetitle(title: string): boolean {
  * agent prime context. Pure reads — no store writes, no broadcasts.
  */
 export class IssueReportsModule {
+  // Committed rows are immutable; staged edits get new row objects. Cache only
+  // the own-row mapping, never joins or personal state. A label-only write is
+  // detected by its values because labels live in their own relation.
+  private readonly projections = new WeakMap<IssueRow, { labels: readonly string[]; projection: IssueProjection }>()
+
+  private projection(row: IssueRow, labels: string[]): IssueProjection {
+    const cached = this.projections.get(row)
+    if (cached && cached.labels.length === labels.length && cached.labels.every((label, index) => label === labels[index])) return cached.projection
+    const projection = issueRowToProjection(row, labels)
+    this.projections.set(row, { labels: [...labels], projection })
+    return projection
+  }
+
   constructor(
     readonly store: IssueStore,
     readonly visibilityPolicy: Readonly<IssueReportVisibilityPolicy> = DEFAULT_ISSUE_REPORT_VISIBILITY,
@@ -154,10 +166,10 @@ export class IssueReportsModule {
   /** Joins only for a requested report. No publication path calls this method. */
   private async report(row: IssueRow, batch?: IssueReportBatch, own?: IssueProjection): Promise<IssueReport> {
     const labels = batch ? batch.labelsByIssue.get(row.id) ?? [] : await this.store.deps.store.issues.getIssueLabels(row.id)
-    const projection = own ?? issueRowToProjection(row, labels)
+    const projection = own ?? this.projection(row, labels)
     const { asked, intentOrigin, isDraftVessel, owner: _owner, visibility: _visibility,
       createdBy: _createdBy, lastLifecycleActor: _lastLifecycleActor, ...facts } = projection
-    const question = asked ?? fromStorage(row).askedLegacy
+    const question = asked
     const children = batch ? batch.childrenByParent.get(row.id) ?? [] :
       [...this.store.rows.values()].filter(child => child.parentId === row.id && !child.deletedAt)
     const outgoing = batch ? batch.depsByFrom.get(row.id) ?? [] : await this.store.deps.store.issues.listIssueDeps(row.id)
@@ -200,8 +212,7 @@ export class IssueReportsModule {
     }
   }
 
-  private async reportBatch(includeCommentCounts = true): Promise<IssueReportBatch> {
-    const labelsByIssue = await this.store.deps.store.issues.listIssueLabelsByIssue()
+  private async dependencyBatch() {
     const depsByFrom = new Map<string, { toId: IssueId; type: string }[]>()
     const dependentsByTo = new Map<string, { fromId: IssueId; type: string }[]>()
     for (const dep of await this.store.deps.store.issues.listAllIssueDeps()) {
@@ -212,6 +223,12 @@ export class IssueReportsModule {
       if (incoming) incoming.push({ fromId: dep.fromId, type: dep.type })
       else dependentsByTo.set(dep.toId, [{ fromId: dep.fromId, type: dep.type }])
     }
+    return { depsByFrom, dependentsByTo }
+  }
+
+  private async reportBatch(): Promise<IssueReportBatch> {
+    const labelsByIssue = await this.store.deps.store.issues.listIssueLabelsByIssue()
+    const deps = await this.dependencyBatch()
     const childrenByParent = new Map<string, IssueRow[]>()
     for (const row of this.store.rows.values()) {
       if (!row.parentId || row.deletedAt) continue
@@ -220,10 +237,9 @@ export class IssueReportsModule {
       else childrenByParent.set(row.parentId, [row])
     }
     return {
-      commentCounts: includeCommentCounts ? await this.store.deps.store.issues.countIssueCommentsByIssue() : new Map(),
+      commentCounts: await this.store.deps.store.issues.countIssueCommentsByIssue(),
       labelsByIssue,
-      depsByFrom,
-      dependentsByTo,
+      ...deps,
       childrenByParent,
       prefixesByRepoPath: new Map(await Promise.all([...new Set([...this.store.rows.values()].map(row => row.repoPath))].map(async path => [path, await this.store.deps.store.repos.prefixForPath(path)] as const))),
     }
@@ -382,7 +398,7 @@ export class IssueReportsModule {
     // ...and one dep read for the whole walk, for the same reason: `node` below
     // recurses over the subtree and asked for its own row's deps at every step
     // (POD-3257).
-    const batch = await this.reportBatch(false)
+    const batch = await this.dependencyBatch()
     let count = 0
     let omitted = 0
     const node = async (row: IssueRow, depth: number): Promise<IssueTreeNode> => {
