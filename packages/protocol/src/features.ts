@@ -6,7 +6,7 @@
  * a listed user toggle turns it on.
  */
 
-export type FeatureVisibility = 'hidden' | 'edge' | 'stable'
+export type FeatureVisibility = 'hidden' | 'development' | 'edge' | 'stable'
 
 export interface FeatureDefinition {
   /** Stable kebab-case id — the key used in config.json and settings. Never renamed. */
@@ -130,10 +130,12 @@ export const FEATURES = [
   {
     // Listing only: the app reads its principal-scoped device-local debug key
     // once at startup, never the live features.state enablement.
+    // Packaged development builds list this with Podium development enabled;
+    // source dev builds retain their usual access to every experimental flag.
     id: 'mobx-sidebar',
     name: 'Sidebar MobX pilot',
     description: 'Request the sidebar data-layer pilot on this device. Reload to apply.',
-    visibility: 'hidden',
+    visibility: 'development',
   },
   {
     // The shipwright repair engine (`apps/server/src/modules/shipping/shipwright.ts`)
@@ -164,6 +166,8 @@ export interface FeatureResolveInput {
   userValue?: boolean
   channel: 'stable' | 'edge'
   devMode: boolean
+  /** Packaged development version with the Podium development feature enabled. */
+  developmentAudience?: boolean
 }
 
 export interface FeatureState {
@@ -177,7 +181,8 @@ export interface FeatureState {
 
 /**
  * Pure feature resolve rules [spec:SP-f4b9]:
- * - listed = devMode || stable || (edge && channel edge)
+ * - source dev lists all; development requires its audience; stable lists all
+ *   releases; edge requires the edge channel
  * - configValue present → enabled/source/locked from config (force on or off)
  * - else listed && userValue present → user toggle
  * - else default off
@@ -188,6 +193,7 @@ export function resolveFeatureState(
 ): FeatureState {
   const listed =
     input.devMode ||
+    (def.visibility === 'development' && input.developmentAudience === true) ||
     def.visibility === 'stable' ||
     (def.visibility === 'edge' && input.channel === 'edge')
 

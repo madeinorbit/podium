@@ -3,6 +3,8 @@ import { DEFAULT_SETTINGS } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeSidebarDataLayer, sidebarDataLayer } from '@/lib/sidebar-data-layer'
+import type { FeaturesStateSnapshot } from '@/lib/use-feature'
+import { getFeatureStates } from '../../../../../server/src/features'
 import { ExperimentalSection } from './experimental'
 
 const state = vi.hoisted(() => {
@@ -10,6 +12,7 @@ const state = vi.hoisted(() => {
   const listeners = new Set<() => void>()
   return {
     listed: true,
+    features: null as FeaturesStateSnapshot | null,
     ui: {
       get: (key: string) => values.get(key) ?? null,
       set: (key: string, value: string | null) => {
@@ -31,28 +34,30 @@ vi.mock('@/app/store', () => ({
     select({ uiState: state.ui }),
 }))
 vi.mock('@/lib/use-feature', () => ({
-  useFeaturesState: () => ({
-    devMode: true,
-    channel: 'stable',
-    flags: [
-      {
-        id: 'mobx-sidebar',
-        name: 'Sidebar MobX pilot',
-        description: 'Request the sidebar data-layer pilot on this device. Reload to apply.',
-        visibility: 'hidden',
-        listed: state.listed,
-        // Catalog enablement/config is deliberately NOT the switch's storage.
-        enabled: true,
-        source: 'config',
-        locked: true,
-      },
-    ],
-  }),
+  useFeaturesState: () =>
+    state.features ?? {
+      devMode: true,
+      channel: 'stable',
+      flags: [
+        {
+          id: 'mobx-sidebar',
+          name: 'Sidebar MobX pilot',
+          description: 'Request the sidebar data-layer pilot on this device. Reload to apply.',
+          visibility: 'development',
+          listed: state.listed,
+          // Catalog enablement/config is deliberately NOT the switch's storage.
+          enabled: true,
+          source: 'config',
+          locked: true,
+        },
+      ],
+    },
 }))
 
 beforeEach(() => {
   state.values.clear()
   state.listed = true
+  state.features = null
   history.replaceState(null, '', '/')
 })
 afterEach(cleanup)
@@ -106,9 +111,37 @@ describe('principal-local sidebar pilot preference', () => {
     ).toBe('true')
   })
 
-  it('does not expose the control when the hidden catalog entry is unlisted', () => {
+  it('does not expose the control when the catalog entry is unlisted', () => {
     state.listed = false
     render(<ExperimentalSection settings={DEFAULT_SETTINGS} patch={vi.fn()} onReset={vi.fn()} />)
     expect(screen.queryByRole('switch', { name: 'Sidebar MobX pilot' })).toBeNull()
+  })
+
+  it.each([
+    ['packaged development with Podium development on', '0.1.1-dev.233+721dd69', true, true],
+    ['packaged development with Podium development off', '0.1.1-dev.233+721dd69', false, false],
+    ['stable release with Podium development on', '0.1.1', true, false],
+  ] as const)('lists the local opt-in for %s', (_name, version, development, listed) => {
+    const settings = { ...DEFAULT_SETTINGS, experimental: { 'podium-development': development } }
+    // Use the real server resolution, including the packaged version and channel,
+    // so a correct local switch cannot hide a broken catalog-listing rule.
+    state.features = getFeatureStates(
+      settings,
+      { updateChannel: 'dev' },
+      { PODIUM_APP_VERSION: version },
+    )
+    expect(state.features.devMode).toBe(false)
+    const patch = vi.fn()
+    render(<ExperimentalSection settings={settings} patch={patch} onReset={vi.fn()} />)
+    const toggle = screen.queryByRole('switch', { name: 'Sidebar MobX pilot' })
+    if (listed) {
+      expect(toggle).not.toBeNull()
+      expect(toggle?.getAttribute('aria-checked')).toBe('false')
+      expect(screen.getByText('Saved immediately for your next app load.')).toBeTruthy()
+    } else {
+      expect(toggle).toBeNull()
+    }
+    expect(state.ui.get(MOBX_SIDEBAR_KEY)).toBeNull()
+    expect(patch).not.toHaveBeenCalled()
   })
 })

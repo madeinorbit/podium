@@ -11,7 +11,7 @@
  * stops `settings -> experimental` (and the next caller) from being a feature-to-
  * feature edge; see features/README.md + test/features.structure.test.ts.
  */
-import type { FeatureId } from '@podium/protocol'
+import type { FeatureId, FeatureVisibility } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
@@ -23,7 +23,7 @@ export interface FeaturesStateSnapshot {
     id: string
     name: string
     description: string
-    visibility: 'hidden' | 'edge' | 'stable'
+    visibility: FeatureVisibility
     listed: boolean
     enabled: boolean
     source: 'config' | 'user' | 'default'

@@ -133,6 +133,53 @@ describe('runtime-drivers feature', () => {
   })
 })
 
+describe('sidebar pilot development audience', () => {
+  it.each([
+    ['packaged dev with development on', '0.1.1-dev.233+721dd69', 'dev', true, true],
+    ['packaged dev on edge with development on', '0.1.1-dev.233+721dd69', 'edge', true, true],
+    ['packaged dev with development off', '0.1.1-dev.233+721dd69', 'dev', false, false],
+    ['packaged dev with development unset', '0.1.1-dev.233+721dd69', 'dev', undefined, false],
+    ['stable release with development on', '0.1.1', 'stable', true, false],
+    ['stable release on dev channel', '0.1.1', 'dev', true, false],
+    ['edge release with development on', '0.1.1-edge.4', 'edge', true, false],
+  ] as const)('%s', (_name, version, updateChannel, development, listed) => {
+    const result = getFeatureStates(
+      settings(development === undefined ? {} : { 'podium-development': development }),
+      { updateChannel },
+      { PODIUM_APP_VERSION: version },
+    )
+    expect(result.devMode).toBe(false)
+    expect(result.flags.find((flag) => flag.id === 'mobx-sidebar')).toMatchObject({
+      visibility: 'development',
+      listed,
+      enabled: false,
+      source: 'default',
+      locked: false,
+    })
+    expect(result.flags.find((flag) => flag.id === HIDDEN)?.listed).toBe(false)
+  })
+
+  it.each([true, false])('honors the Podium development config override: %s', (development) => {
+    const result = getFeatureStates(
+      settings({ 'podium-development': !development }),
+      { updateChannel: 'dev', features: { 'podium-development': development } },
+      { PODIUM_APP_VERSION: '0.1.1-dev.233+721dd69' },
+    )
+    expect(result.flags.find((flag) => flag.id === 'mobx-sidebar')).toMatchObject({
+      listed: development,
+      enabled: false,
+    })
+  })
+
+  it('retains source dev listing without turning the pilot on', () => {
+    expect(
+      getFeatureStates(settings(), {}, { PODIUM_APP_VERSION: 'dev' }).flags.find(
+        (flag) => flag.id === 'mobx-sidebar',
+      ),
+    ).toMatchObject({ listed: true, enabled: false })
+  })
+})
+
 describe('isFeatureEnabled', () => {
   it('returns false by default', () => {
     expect(isFeatureEnabled(HIDDEN, settings(), {}, { PODIUM_APP_VERSION: 'dev' })).toBe(false)

@@ -122,7 +122,7 @@ describe('FEATURES registry', () => {
           id: 'mobx-sidebar',
           name: 'Sidebar MobX pilot',
           description: 'Request the sidebar data-layer pilot on this device. Reload to apply.',
-          visibility: 'hidden',
+          visibility: 'development',
         },
         {
           id: 'command-palette',
@@ -216,6 +216,39 @@ describe('resolveFeatureState matrix', () => {
         userValue: true,
       }),
     ).toEqual({ listed: true, enabled: false, source: 'config', locked: true })
+  })
+})
+
+describe('sidebar pilot development visibility', () => {
+  const def = FEATURES.find((flag) => flag.id === 'mobx-sidebar')!
+
+  it('lists the development audience with the pilot off by default', () => {
+    expect(
+      resolveFeatureState(def, {
+        channel: 'edge',
+        devMode: false,
+        developmentAudience: true,
+      }),
+    ).toEqual({ listed: true, enabled: false, source: 'default', locked: false })
+  })
+
+  it('does not list the pilot for the edge audience alone', () => {
+    expect(resolveFeatureState(def, { channel: 'edge', devMode: false, userValue: true })).toEqual({
+      listed: false,
+      enabled: false,
+      source: 'default',
+      locked: false,
+    })
+  })
+
+  it('does not widen other hidden flags for the development audience', () => {
+    expect(
+      resolveFeatureState(defs.hidden, {
+        channel: 'edge',
+        devMode: false,
+        developmentAudience: true,
+      }).listed,
+    ).toBe(false)
   })
 })
 

@@ -12,20 +12,11 @@ import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { useFeaturesState } from '@/lib/use-feature'
+import { type FeaturesStateSnapshot, useFeaturesState } from '@/lib/use-feature'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { Section, Subsection } from './shared'
 
-interface FeatureFlagWire {
-  id: string
-  name: string
-  description: string
-  visibility: 'hidden' | 'edge' | 'stable'
-  listed: boolean
-  enabled: boolean
-  source: 'config' | 'user' | 'default'
-  locked: boolean
-}
+type FeatureFlagWire = FeaturesStateSnapshot['flags'][number]
 
 /** Listed only because of dev mode (invisible on this channel in release builds). */
 function isDevOnlyListed(flag: FeatureFlagWire, channel: 'stable' | 'edge'): boolean {
