@@ -97,6 +97,7 @@ export function createIssuePageViews(pool: MobxPool) {
       const value = row as IssueViewModel
       const members = memberSessions(id)
       if (members === LOADING) return LOADING
+      const rawMemberIds = [...pool.graph.many('issue', id, 'pageSessions')].sort(byId)
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
       let childDoneCount = 0
       for (const childId of childIds) {
@@ -113,27 +114,28 @@ export function createIssuePageViews(pool: MobxPool) {
       const p = prefix(id)
       const deferred = Boolean(value.deferUntil && !pool.clock.passed(Date.parse(value.deferUntil)))
       const readAt = Date.parse(value.readAt ?? '')
-      const unread = !value.deletedAt && (!Number.isFinite(readAt) || Date.parse(value.updatedAt) > readAt ||
-        members.some(s => Date.parse(s.lastActiveAt) > readAt))
+      let unread = !Number.isFinite(readAt) || Date.parse(value.updatedAt) > readAt
+      for (const sid of rawMemberIds) {
+        const seat = pool.row('session', sid, 'summary') as Loaded<{ lastActiveAt: string }>
+        if (seat === LOADING) return LOADING
+        if (seat && Date.parse(seat.lastActiveAt) > readAt) unread = true
+      }
       return { ...value, id: asIssueId(id),
         description: text(value.description as DocumentValue), notes: value.notes === undefined ? undefined : text(value.notes as DocumentValue),
         branch: value.branch ?? null, worktreePath: value.worktreePath ?? null,
         readAt: value.readAt ?? null, tuckedAt: value.tuckedAt ?? null, pinned: value.pinned ?? false,
         prefix: p, displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
         deps: (value.deps ?? []).map(dep => ({ ...dep, id: asIssueId(dep.id) })), dependents,
-        memberSessionIds: members.map(s => asSessionId(s.sessionId)),
+        memberSessionIds: rawMemberIds.map(asSessionId),
         childIds: childIds.map(asIssueId), childCount: childIds.length, childDoneCount,
-        blocked: value.blocked ?? false, deferred, ready: !value.blocked && !deferred && value.stage !== 'done', unread,
+        blocked: value.blocked ?? false, deferred, ready: !value.blocked && !deferred && value.stage !== 'done', unread: !value.deletedAt && unread,
       }
     })
   }
   function menuIssues(): IssueViewModel[] {
     return issues().map(value => {
       const childIds = [...pool.graph.many('issue', value.id, 'treeChildren')].sort(byId)
-      const memberSessionIds = [...pool.graph.many('issue', value.id, 'missionSessions')].sort(byId).filter(id => {
-        const seat = pool.row('session', id, 'summary') as Loaded<{ agentKind?: string }>
-        return seat && seat !== LOADING && seat.agentKind !== 'shell'
-      }).map(asSessionId)
+      const memberSessionIds = [...pool.graph.many('issue', value.id, 'pageSessions')].sort(byId).map(asSessionId)
       return { ...value, memberSessionIds, childIds: childIds.map(asIssueId), childCount: childIds.length,
         childDoneCount: childIds.filter(id => {
           const child = pool.row('issue', id, 'summary') as Loaded<{ stage?: string }>
