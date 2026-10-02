@@ -4,7 +4,6 @@ import { MISSION_SCHEMA } from './mission-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 interface RootFacts {
-  readonly parentId: string | null
   readonly hidden: boolean
 }
 
@@ -55,7 +54,7 @@ export function createMissionViews(pool: MobxPool): MissionViews {
       if (row && row !== LOADING && !Object.hasOwn(row, 'stage')) row = pool.row('issue', id)
       if (row === undefined || row === LOADING) return row
       const value = row as { parentId?: string | null; archived?: boolean; deletedAt?: string | null }
-      return { parentId: value.parentId || null, hidden: Boolean(value.archived || value.deletedAt) }
+      return { hidden: Boolean(value.archived || value.deletedAt) }
     })
   }
 
@@ -65,16 +64,17 @@ export function createMissionViews(pool: MobxPool): MissionViews {
     return memo(roots, id, 'root', () => {
       stats.roots++
       let current = id
-      let value = rootFacts(current)
+      const value = rootFacts(current)
       if (value === undefined || value === LOADING) return value
       const seen = new Set<string>()
-      while (value.parentId && !seen.has(current)) {
+      while (!seen.has(current)) {
         seen.add(current)
-        const parent = rootFacts(value.parentId)
+        const parentId = pool.graph.one('issue', current, MISSION_SCHEMA.root.parent)
+        if (!parentId) break
+        const parent = rootFacts(parentId)
         if (parent === LOADING) return LOADING
         if (parent === undefined || parent.hidden) break
-        current = value.parentId
-        value = parent
+        current = parentId
       }
       return current
     })
