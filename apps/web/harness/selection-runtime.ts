@@ -33,7 +33,7 @@ if (phase === 'build') {
         for (const [object, prefix, methods] of [
           [seam, 'runtime', ['react', 'buildSnapshot', 'readSessionViews']],
           [seam.subStore, 'store', ['publish']],
-          [seam.optimism, 'optimism', ['recomputeSessions', 'recomputeIssues', 'recomputeIssueProjections', 'recomputeIssueUserStates', 'paintSessions', 'pendingByRow']],
+          [seam.optimism, 'optimism', ['recomputeSessions', 'recomputeIssueProjections', 'recomputeIssueUserStates', 'paintSessions', 'pendingByRow']],
           [seam.reactions, 'reaction', ['worktreeFollow', 'sessionIssueFollow', 'worktreeFallback', 'pruneWorkspaces', 'reportViewState', 'updateMarkReadTimer', 'updateIssueVisitBaseline', 'updateIssueMarkReadTimer']],
         ] as const) for (const method of methods) patchBoundary(object, method, 'shared:' + prefix + '.' + method)
       `), map: null }
@@ -100,7 +100,15 @@ try {
       if (errors.length || state.errors.length) throw new Error(`Fixture errors: ${[...errors, ...state.errors].join('; ')}`)
       pages[mode] = { page, cdp: await context.newCDPSession(page), close: () => context.close() }
     }
-    if (phase === 'guard') { console.log('Both startup mode guards green'); break }
+    if (phase === 'guard') {
+      for (const { page } of Object.values(pages)) {
+        const id = await page.evaluate(() => window.__acceptance.targets.visibleRootId)
+        await page.evaluate(() => window.__acceptance.event('title', 5260))
+        await page.waitForFunction(({ id, title }) => document.querySelector(`[data-issue-row="${id}"]`)?.textContent?.includes(title), { id, title: 'Acceptance renamed 5260' })
+      }
+      console.log('Both startup mode guards and projection title events green')
+      break
+    }
     const rowIds = await pages.legacy.page.locator('[data-issue-row]').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute('data-issue-row')!))])
     const shapes = await pages.legacy.page.evaluate(ids => window.__acceptance.shape(ids), rowIds)
     const ranked = shapes.filter(shape => shape.rows > 0).sort((a, b) => b.rows - a.rows)

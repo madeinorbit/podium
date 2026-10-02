@@ -128,7 +128,9 @@ const patched = new WeakSet<object>()
 function patchBoundary(object: object, key: string, kind: string) {
   const obj = object as Record<string, (...args: unknown[]) => unknown>
   const original = obj[key]
-  if (typeof original !== 'function') throw new Error(`Missing measurement boundary ${key}`)
+  // Runtime methods are retired as reads move to the pool. Only instrument
+  // measurement boundaries that still exist in this production build.
+  if (typeof original !== 'function') return
   obj[key] = function (...args: unknown[]) {
     if (!active) return original.apply(this, args)
     const start = performance.now()
@@ -376,7 +378,6 @@ const fixture = {
     if (kind === 'unrelated') patch('session', targets.heartbeatSessionId, { lastActiveAt: stamp })
     else if (kind === 'title')
       assembly.replica.batch(() => {
-        patch('issue', targets.visibleRootId, { title: `Acceptance renamed ${iteration}` })
         patch('issueProjection', targets.visibleRootId, {
           title: `Acceptance renamed ${iteration}`,
         })
