@@ -6431,13 +6431,15 @@ describe('POD-3504 — promise-only issue ports', () => {
   it('listSessionsForIssue: start reuses resolved members without spawning', async () => {
     const { svc, deps } = await harness()
     const issue = await svc.create({ repoPath: '/r', title: 'Existing', startNow: false })
-    const member = { ...sess('/r'), issueId: issue.id, machineName: 'existing-machine' }
+    const member = { ...sess('/r'), issueId: issue.id, machineId: asMachineId('existing-id'), machineName: 'stale-machine' }
     deps.listSessionsForIssue = vi.fn(async () => [member])
+    deps.machineName = vi.fn(async () => 'existing-machine')
 
     const started = await svc.start(issue.id)
 
     expect(deps.listSessionsForIssue).toHaveBeenCalledWith(started.worktreePath, issue.id)
     expect(started.machine).toBe('existing-machine')
+    expect(deps.machineName).toHaveBeenCalledWith(member.machineId)
     expect(deps.spawnSession).not.toHaveBeenCalled()
   })
 
