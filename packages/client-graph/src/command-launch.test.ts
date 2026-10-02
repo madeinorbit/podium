@@ -86,7 +86,7 @@ describe('declared command and launch targets', () => {
       expect(f.pool.row('commandWindow', 'window')).toBe(window)
       f.parity('heartbeat relations')
       const id = f.ctx.targets.phaseSessionId, row = f.ctx.cache.read('session', id)!.value as { issueId: string }
-      expect(f.pool.resident('session', id)).toBe(true)
+      expect(f.pool.resident('session', id)).toBe('resident')
       expect(f.pool.sources.related('commandIssue', row.issueId, 'sessions')).toContain(id)
       const nextIssueId = 'command-relation-next'
       upsert(f.ctx, 'session', id, { ...row, issueId: nextIssueId })
@@ -104,13 +104,14 @@ describe('declared command and launch targets', () => {
       const expected = legacyCommandLaunchSnapshot(f.ctx.engine.getSnapshot()), actual = runInAction(() => poolCommandLaunchSnapshot(f.pool))
       for (const fault of ['value', 'order', 'membership'] as const) {
         const damaged = { ...structuredClone(actual), pending: 1 }
-        const section = damaged.sections.find(section => section.key === 'machines')!
+        const section = damaged.sections.find(section => section.key === 'issues')!
+        expect(section.rows.length).toBeGreaterThan(1)
         if (fault === 'value') (section.fields as Record<string, unknown>).fault = true
         if (fault === 'order') (section.rows as unknown[]).reverse()
         if (fault === 'membership') (section.rows as unknown[]).pop()
         const result = compareCommandLaunchSnapshots(expected, damaged)
         expect(result.differences, fault).toBeGreaterThan(0)
-        expect(result.first?.section, fault).toBe('machines')
+        expect(result.first?.section, fault).toBe('issues')
       }
     } finally { f.close() }
   }, 120_000)

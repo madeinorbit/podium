@@ -60,7 +60,9 @@ export function createCommandLaunchViews(pool: MobxPool) {
       return value ? [value as SessionView] : []
     })
     const usage: Record<string, number> = {}, visibleSessions = new Set(catalog.sessions)
-    const coldSessions = sessions.filter(session => !pool.resident('session', session.sessionId))
+    // resident() is a demand read that queues cold rows. Membership alone
+    // distinguishes the summary-only rows without opening a load window.
+    const coldSessions = sessions.filter(session => !pool.tables.session.has(session.sessionId))
     for (let index = 0; index < repos.length; index++) {
       const repo = repos[index]!, key = JSON.stringify([repo.machineId ?? '', repo.path])
       let at = 0
