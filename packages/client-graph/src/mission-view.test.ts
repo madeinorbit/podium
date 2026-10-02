@@ -58,6 +58,17 @@ it('a missing declared cold summary cannot invent an empty roster', () => {
   expect(load).toHaveBeenCalledTimes(1)
 })
 
+it('requests cold mission ancestry together without changing the shared root answer', () => {
+  const rows = Array.from({ length: 100 }, (_, index) => issue(`ancestor-${index}`, {
+    ...coldRoot(), id: `ancestor-${index}`, parentId: index ? `ancestor-${index - 1}` : null,
+  }))
+  const { pool, load, reader } = open(rows, [])
+  expect(tracked(() => reader.rootFor('ancestor-99'))).toBe(LOADING)
+  expect(load).not.toHaveBeenCalled()
+  expect(pool.hydrate()).toBe(100)
+  expect(tracked(() => reader.rootFor('ancestor-99'))).toBe('ancestor-0')
+})
+
 it('reads only the selected mission attachment edges as unrelated sessions grow', () => {
   const { pool, reader } = open([issue('root'), issue('other')], [session('own', 'root', { archived: false, status: 'live' }),
     ...Array.from({ length: 1000 }, (_, index) => session(`other-${index}`, 'other', { archived: false, status: 'live' }))])

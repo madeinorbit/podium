@@ -13,7 +13,7 @@ import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema
 import { checkMissionView, checkWorkspaceMission, poolMissionViewSnapshot } from '@podium/client-graph/diagnostics/mission-view-check'
 import { missionView, readWorkspaceMission } from '@podium/client-graph/mission-view'
 import type { SidebarCheckResult } from '@podium/client-graph/diagnostics/sidebar-check'
-import { runInAction } from 'mobx'
+import { reaction, runInAction } from 'mobx'
 
 let step = 'host'
 async function main() {
@@ -68,19 +68,24 @@ async function main() {
       const root = missionRootFor(issues, issue.id)
       return root && !root.archived && !root.deletedAt ? [root.id] : []
     }))].filter(id => !requested || requested.includes(id))
-    step = 'load'
-    for (let round = 0; round < 64; round++) {
-      runInAction(() => { for (const id of roots) { poolMissionViewSnapshot(pool, id); readWorkspaceMission(missionView(pool), id, null) } })
-      if (pool.hydrate() === 0) break
-    }
-    step = 'compare'
     let differences = 0, pending = 0, rowsCompared = 0, selections = 0, first: SidebarCheckResult['first'] = null
     const locations: { missionId: string; sectionIndex: number; rowIndex: number | null; field: string; expectedId: string | null; actualId: string | null }[] = []
     const pendingIds = new Set<string>()
     const progressCounts: unknown[] = []
     const opaque = (id: string | null) => id && /^iss_[\w-]+$/.test(id) ? id : null
     const add = (result: SidebarCheckResult) => { differences += result.differences; pending += result.pending; rowsCompared += result.rows; first ??= result.first; selections++ }
-    runInAction(() => { for (const id of roots) {
+    for (const id of roots) {
+      step = 'load'
+      const stop = reaction(() => {
+        poolMissionViewSnapshot(pool, id); return readWorkspaceMission(missionView(pool), id, null)
+      }, () => {}, { fireImmediately: true })
+      try {
+      for (let round = 0; round < 64; round++) {
+        runInAction(() => { poolMissionViewSnapshot(pool, id); readWorkspaceMission(missionView(pool), id, null) })
+        if (pool.hydrate() === 0) break
+      }
+      step = 'compare'
+      runInAction(() => {
       for (const mode of ['full', 'working', 'needs-you'] as const) {
         const result = checkMissionView(pool, issues, sessions, id, mode, [], difference => {
           if (locations.length < 40) locations.push({ missionId: opaque(id)!, sectionIndex: difference.sectionIndex, rowIndex: difference.rowIndex,
@@ -96,10 +101,12 @@ async function main() {
         const values = poolMissionViewSnapshot(pool, id)
         progressCounts.push({ missionId: opaque(id), expected: missionProgress(issues, sessions, id), actual: typeof values === 'symbol' ? null : values.sections[0]?.fields.progress,
           incoming: issues.find(issue => issue.id === id)?.dependents.filter(dep => dep.type === 'discovered-from').length,
-          graphIncoming: pool.graph.size('issue', id, 'spinOffs'), ownSessions: sessions.filter(session => session.issueId === id).length,
+          graphIncoming: pool.graph.size('issue', id, 'viewDiscoveries'), ownSessions: sessions.filter(session => session.issueId === id).length,
         })
       }
-    } })
+      })
+      } finally { stop() }
+    }
     const location = first as SidebarCheckResult['first']
     console.log(JSON.stringify({ persistedTopology: true, displayBodiesCompared: false, issues: issues.length,
       sessions: rawSessions.length, retainedSessions: sessions.length, missions: roots.length, selections,

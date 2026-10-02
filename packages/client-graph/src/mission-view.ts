@@ -148,8 +148,24 @@ export class MissionViewReader {
     const attached = this.attached(id)
     return attached === LOADING ? LOADING : attached.filter(session => !session.headless && session.agentKind !== 'shell' && Boolean(session.archived) === archived)
   }
+  rootFor(selectedId: string | null): Loaded<string> {
+    const root = missions(this.pool).rootFor(selectedId)
+    if (root !== LOADING || !selectedId) return root
+    // The shared root reader supplies the answer. Request its cold ancestry
+    // together so a long retained parent chain does not load one row per frame.
+    const seen = new Set<string>()
+    let id: string | null = selectedId
+    while (id && !seen.has(id)) {
+      seen.add(id)
+      const facts = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
+      if (facts === undefined || (facts !== LOADING && !visible(facts))) break
+      void this.pool.row('issue', id)
+      id = this.pool.graph.one('issue', id, 'parent')
+    }
+    return LOADING
+  }
   selectedRoot(selectedId: string | null): Loaded<IssueNavigationModel> {
-    const rootId = missions(this.pool).rootFor(selectedId)
+    const rootId = this.rootFor(selectedId)
     if (rootId === LOADING || !rootId) return rootId === LOADING ? LOADING : undefined
     const root = this.issue(rootId)
     if (root === LOADING || !root || !visible(root)) return root === LOADING ? LOADING : undefined
@@ -752,7 +768,7 @@ export interface MissionHandoffValues {
 export function readWorkspaceMission(view: MissionViewReader, selectedId: string | null, focusedId: string | null) {
   const selected = selectedId ? view.issue(selectedId) : undefined
   if (selected === LOADING) return LOADING
-  const rootId = selected && visible(selected) ? missions(view.pool).rootFor(selected.id) : undefined
+  const rootId = selected && visible(selected) ? view.rootFor(selected.id) : undefined
   if (rootId === LOADING) return LOADING
   const missionRoot = rootId ? view.issue(rootId) : undefined
   if (missionRoot === LOADING) return LOADING
