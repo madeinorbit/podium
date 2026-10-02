@@ -5,7 +5,7 @@ import { compareStructural, computed, observable, observe, runInAction } from 'm
 import type { MobxPool } from './pool'
 import { allResidentSessions, knownIssueIds, knownSessionIds } from './enumerate'
 import { COMMAND_ENTITIES, COMMAND_RELATIONS, type CommandEntity, type CommandLaunchRows } from './command-launch-schema'
-import type { PoolSource } from './source-registry'
+import type { PoolSource, PoolSourceRows } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** A read-side extension of the ONE pool. No sessions/issue viewmodel array is
@@ -136,10 +136,10 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     }
   }
 
-  read<K extends CommandEntity>(entity: K, id: string): Loaded<CommandLaunchRows[K]> {
+  read<K extends CommandEntity>(entity: K, id: string): Loaded<PoolSourceRows[K]> {
     if (this.disposed) return LOADING
-    if (entity === 'commandIssue') return this.pool.row('issue', id, 'summary') as Loaded<CommandLaunchRows[K]>
-    return (entity === 'commandCatalog' && id === 'catalog' ? this.catalog.get() : this.tables[entity].get(id)) as Loaded<CommandLaunchRows[K]>
+    if (entity === 'commandIssue') return this.pool.row('issue', id, 'summary') as Loaded<PoolSourceRows[K]>
+    return (entity === 'commandCatalog' && id === 'catalog' ? this.catalog.get() : this.tables[entity].get(id)) as Loaded<PoolSourceRows[K]>
   }
   related(entity: string, id: string, name: string): readonly string[] { return this.members.get(`${entity}:${id}:${name}`) ?? [] }
   dispose(): void {

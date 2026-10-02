@@ -1,14 +1,12 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { shallowEqual } from '@podium/client-core/store'
 import { lastUsedMaps, reposToViews, spawnTargetForRepo, type RepoNavView } from '@podium/client-core/viewmodels'
-import { COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
 import { commandLaunchViews, type CommandLaunchData } from '@podium/client-graph/command-launch-views'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
 import { useMemo } from 'react'
 import { useSidebarProjectSections } from '@/features/worklist/use-sidebar-projects'
-import { commandLaunchCheckRequested, commandLaunchDataLayer, commandLaunchReadStats, initializeCommandLaunchDataLayer } from '@/lib/command-launch-data-layer'
+import { commandLaunchDataLayer, commandLaunchReadStats } from '@/lib/command-launch-data-layer'
 import { useReplicaIssues, useStoreSelector, type Store } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 import type { Trpc } from './trpc'
@@ -80,23 +78,4 @@ function useLegacyFiles() { return useStoreSelector(s => s.recentFiles) }
 export function useCommandRecentFiles() {
   const useRead = commandLaunchDataLayer() === 'pool' ? usePoolFiles : useLegacyFiles
   return useRead()
-}
-
-/** Registered by the shared provider seam; imports happen before any async
- * turn can outlive the pool. Its registry owns this source's disposal. */
-export const commandLaunchScreen = {
-  id: 'commands',
-  initialize: initializeCommandLaunchDataLayer,
-  enabled: () => commandLaunchDataLayer() === 'pool',
-  options: () => ({ summaries: COMMAND_SUMMARIES }),
-  async attach(runtime: ClientRuntime, pool: MobxPool) {
-    const { attachCommandLaunchSource } = await import('@podium/client-graph/command-launch-source')
-    const source = attachCommandLaunchSource(pool, runtime)
-    let stopCheck: (() => void) | undefined
-    if (commandLaunchCheckRequested()) {
-      const { startCommandLaunchCheck } = await import('@podium/client-graph/diagnostics/command-launch-check')
-      stopCheck = startCommandLaunchCheck(runtime, pool)
-    }
-    return () => { stopCheck?.(); source.dispose() }
-  },
 }

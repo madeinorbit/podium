@@ -17,6 +17,8 @@ afterEach(() => { vi.useRealTimers(); storeStats.enable(false); storeStats.reset
 async function fixture() {
   const ctx = await startScenarioEngine(1)
   const handle = createRuntimeWorklistPool(ctx.engine, { summaries: COMMAND_SUMMARIES })
+  // Isolate menu demand from the existing pool's bootstrap requests.
+  for (let turn = 0; turn < 32 && handle.pool.hydrate(); turn++) { /* baseline boot */ }
   const source = attachCommandLaunchSource(handle.pool, ctx.engine)
   function settle() {
     for (let turn = 0; turn < 32; turn++) {
@@ -77,7 +79,7 @@ describe('declared command and launch targets', () => {
     try {
       const before = { ...f.source.counts }
       const window = f.pool.row('commandWindow', 'window')
-      await writeHeartbeat(f.ctx); await Promise.resolve()
+      await writePhaseChange(f.ctx); await Promise.resolve()
       expect(f.source.counts.repoChanges).toBe(before.repoChanges)
       expect(f.source.counts.windowChanges).toBe(before.windowChanges)
       expect(f.source.counts.sessionChanges).toBeGreaterThan(before.sessionChanges)

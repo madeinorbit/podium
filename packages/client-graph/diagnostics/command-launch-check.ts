@@ -25,7 +25,7 @@ function snapshot(data: Pick<CommandLaunchData, 'repos' | 'repoViews' | 'machine
     { key: 'issues', fields: {}, rows: issueRows },
     { key: 'selected', fields: selected ? fields(selected, ['id', 'unread', 'readAt', 'memberSessionIds', 'childCount', 'childDoneCount', 'gitState', 'needsHuman', 'blocked', 'stage', 'closedReason']) : { id: null }, rows: [] },
     { key: 'repoChoices', fields: { initialRepoPath: data.initialRepoPath }, rows: data.repoChoices.map(repo => ({ id: JSON.stringify([repo.machineId ?? '', repo.path]), fields: {} })) },
-    { key: 'spawn', fields: {}, rows: data.spawnTargets.map(tree => ({ id: tree.path, fields: { value: tree } })) },
+    { key: 'spawn', fields: {}, rows: data.spawnTargets.map(tree => ({ id: tree.path, fields: fields(tree, ['path', 'repoPath', 'repoId', 'machineId', 'placement']) })) },
   ] }
 }
 export function poolCommandLaunchSnapshot(pool: MobxPool): SidebarSnapshot {

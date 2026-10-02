@@ -8,7 +8,7 @@ import { initializeHeaderDataLayer, headerDataLayer, headerCheckRequested } from
 import { initializeChipsDataLayer, chipsDataLayer, chipsCheckRequested } from '@/lib/chips-data-layer'
 import type { PoolScreen } from './pool-screen-registry'
 import { panePoolScreen } from './pane-pool-screen'
-import { commandLaunchScreen } from './command-launch-data'
+import { commandLaunchScreen } from '@/lib/command-launch-data-layer'
 
 /** Latch with hydrated UI state before rendering any screen, including settings.
  * Provider attachments and principal rebuilds reuse the same app-load choices. */
