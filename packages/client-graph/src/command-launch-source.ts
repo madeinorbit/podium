@@ -4,7 +4,7 @@ import { normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
 import type { MobxPool } from './pool'
 import { allResidentSessions, knownIssueIds, knownSessionIds } from './enumerate'
-import { COMMAND_ENTITIES, COMMAND_RELATIONS, type CommandEntity, type CommandLaunchRows } from './command-launch-schema'
+import { COMMAND_ENTITIES, COMMAND_RELATIONS, type CommandEntity, type CommandLaunchRows, type CommandSessionSummary } from './command-launch-schema'
 import type { PoolSource, PoolSourceRows } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -65,7 +65,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     // Transient placement from the declared two-string resume identity. The
     // existing pool alone chooses winners; no cold relation index is retained.
     for (const id of ids) {
-      const row = this.pool.row('session', id, 'summary')
+      const row = this.pool.row('session', id, 'summary') as Loaded<CommandSessionSummary>
       if (!row || row === LOADING || row.headless || !row.resume) continue
       const key = JSON.stringify([row.resume.kind, row.resume.value])
       groups.set(id, key)
