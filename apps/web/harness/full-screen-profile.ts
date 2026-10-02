@@ -84,7 +84,9 @@ export async function installCommitObserver(page: Page) {
             // commit. React reuses those exact objects; they did not render now.
             if (previousFibers.has(fiber)) { reused++; continue }
             if (!observing) continue
-            if (!(fiber.flags & 1) || ![0, 1, 11, 14, 15].includes(fiber.tag)) continue
+            // MemoComponent (14) marks wrapper work but invokes its function
+            // through a child fiber. Counting both would duplicate the render.
+            if (!(fiber.flags & 1) || ![0, 1, 11, 15].includes(fiber.tag)) continue
             let type = fiber.type as Function | { render?: Function; type?: Function } | null
             if (type && typeof type !== 'function') type = type.render ?? type.type ?? null
             if (typeof type !== 'function') continue
