@@ -176,7 +176,31 @@ def run(version, port):
 
         enqueue = wait_until(find_enqueue, timeout=25)
 
-        # 4. Wait for idle (both turns done), then find the recorded prompt.
+        # 4. Wait for the queued prompt to be recorded (next turn), then idle.
+        # The first idle gap (between turns) still shows the queued message as
+        # pending ("Press up to edit queued messages"), so waiting for idle
+        # alone returns too early -- poll for the record itself.
+        def find_record():
+            for rec in all_records()[before_n:]:
+                if rec.get("type") == "user":
+                    msg = rec.get("message") or {}
+                    content = msg.get("content")
+                    if isinstance(content, str) and "queued-paste" in content:
+                        return rec
+                    if isinstance(content, list):
+                        texts = [
+                            b.get("text", "") for b in content
+                            if isinstance(b, dict) and b.get("type") == "text"
+                        ]
+                        if any("queued-paste" in t for t in texts):
+                            return rec
+                if isinstance(rec.get("attachment"), dict):
+                    att = rec["attachment"]
+                    if att.get("type") == "queued_command" and "queued-paste" in str(att.get("prompt", "")):
+                        return rec
+            return None
+
+        record = wait_until(find_record, timeout=120)
         wait_until(lambda: "esc to interrupt" not in screen().lower(), timeout=60)
         time.sleep(1.0)
         (scratch / "screen-final.txt").write_text(screen())
