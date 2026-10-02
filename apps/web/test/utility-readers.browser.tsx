@@ -5,6 +5,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
+import type { TaskCostRowWire, TaskCostWire } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { FlightDeckHandoff } from '../src/app/FlightDeckHandoff'
@@ -39,11 +40,11 @@ const answers: Record<string, unknown> = {
     firstSeenAt: new Date(now - 7 * 86400000).toISOString(), lastSeenAt: stamp,
     firstPercent: 0, peakPercent: 71, lastPercent: 71, sampleCount: 400, closed: true, partial: false, source: 'live' }],
   tasks: [{ issueId: issue.id, seq: 1, title: issue.title, stage: 'review', models, messages: 50,
-    rollupModels: models, rollupMessages: 50, descendantCount: 0,
-    windowModels: models, windowMessages: 50, sessionCount: 1, floor: 'none', harnesses: ['claude-code'] }],
+    rollupModels: models, rollupMessages: 50, uncostedSessionCount: 0,
+    windowModels: models, windowMessages: 50, sessionCount: 1, floor: 'none', harnesses: ['claude-code'] }] satisfies TaskCostRowWire[],
   cost: { issueId: issue.id, state: 'costed', own: { models, messages: 50, sessionCount: 1 },
     rollup: { models, messages: 50, sessionCount: 1 }, descendantCount: 0, provisional: false,
-    floor: 'none', harnesses: ['claude-code'], sessions: [] },
+    floor: 'none', harnesses: ['claude-code'], uncostedSessionCount: 0, sessions: [] } satisfies TaskCostWire,
   ledger: [{ id: 'utility-message', threadId: 'utility-thread', inReplyTo: null, from: 'Synthetic sender', to: 'Synthetic recipient',
     kind: 'note', urgency: 'next-turn', lifecycle: 'wait', body: 'Synthetic message', createdAt: stamp,
     deliveryStatus: 'confirmed', ackedBy: session.sessionId, deliveredAt: stamp, deliveredTo: session.sessionId,

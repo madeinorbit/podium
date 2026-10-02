@@ -5,7 +5,7 @@ import { StoreProvider } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createSubscriptionStore } from '@podium/client-core/store'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
-import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
+import { asIssueId, asSessionId, asUserId, type TaskCostWire } from '@podium/model/browser'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -56,7 +56,7 @@ function setup() {
     quota: vi.fn(async () => []), tasks: vi.fn(async () => []),
     cost: vi.fn(async () => ({ issueId: issue.id, state: 'pending',
       own: { models: [], messages: 0, sessionCount: 0 }, rollup: { models: [], messages: 0, sessionCount: 0 },
-      descendantCount: 0, provisional: false, floor: 'none', harnesses: [], sessions: [] })),
+      descendantCount: 0, provisional: false, floor: 'none', harnesses: [], uncostedSessionCount: 0, sessions: [] } satisfies TaskCostWire)),
     ledger: vi.fn(async () => []),
     events: vi.fn(async () => []),
     history: vi.fn(async () => ({ sessions: { [session.sessionId]: [{ at: session.createdAt, phase: 'working' }] } })),
