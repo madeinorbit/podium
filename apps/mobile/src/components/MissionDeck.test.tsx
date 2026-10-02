@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, asRepoId, asSessionId, type SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useSessions } from '../client/hooks'
@@ -254,14 +254,14 @@ describe('MissionDeck session homes', () => {
     const { replica } = await renderWithMobileStore(<LiveDeck />, {
       sessions: [row],
       issues: [root, proposal],
-      repoProjections: [{ id: 'repo-birth', prefix: 'POD' }],
+      repoProjections: [{ id: asRepoId('repo-birth'), prefix: 'POD' }],
     })
     // The session band and proposal author are separate mobile readers.
     expect(screen.getByText('POD-42-B')).toBeTruthy()
     expect(screen.getByText('by POD-42-B')).toBeTruthy()
     expect(screen.queryByText(/STALE-42-B/)).toBeNull()
     await act(async () => {
-      replica.applyChanges('repos', [{ id: 'repo-birth', prefix: 'NEW' }], [])
+      replica.applyChanges('repos', [{ id: asRepoId('repo-birth'), prefix: 'NEW' }], [])
     })
     expect(screen.getByText('NEW-42-B')).toBeTruthy()
     expect(screen.getByText('by NEW-42-B')).toBeTruthy()
@@ -276,7 +276,7 @@ describe('MissionDeck session homes', () => {
     expect(screen.getByText('STALE-42-B')).toBeTruthy()
     expect(screen.getByText('by STALE-42-B')).toBeTruthy()
     await act(async () => {
-      replica.applyChanges('repos', [{ id: 'repo-birth', prefix: null }], [])
+      replica.applyChanges('repos', [{ id: asRepoId('repo-birth'), prefix: '' }], [])
     })
     expect(screen.queryByText(/STALE-42-B/)).toBeNull()
     expect(screen.getByText('Author agent')).toBeTruthy()

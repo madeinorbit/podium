@@ -12,6 +12,7 @@
  * loss (online false) and supervised daemon loss (online true, daemon false).
  */
 import type { MachineWire, SessionMeta } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
@@ -201,21 +202,21 @@ describe('phone offline machine label from session homes', () => {
     const { replica } = await renderWithMobileStore(<LiveConversation />, {
       sessions: [row],
       machines: [machine({ online: false, name: 'Stale live label' })],
-      machineProjections: [{ id: 'm1', name: 'Replicated desk', loggedOutHarnesses: [] }],
+      machineProjections: [{ id: asMachineId('m1'), name: 'Replicated desk', loggedOutHarnesses: [] }],
     })
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Replicated desk')
     expect(screen.getByTestId('machine-offline-banner').textContent).not.toContain('Stale')
     await act(async () => {
       replica.applyChanges(
         'machines',
-        [{ id: 'm1', name: 'Renamed desk', loggedOutHarnesses: [] }],
+        [{ id: asMachineId('m1'), name: 'Renamed desk', loggedOutHarnesses: [] }],
         [],
       )
     })
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Renamed desk')
     expect(replica.rows('sessions')[0]).toBe(row)
     await act(async () => {
-      replica.applyChanges('machines', [{ id: 'm1', name: '', loggedOutHarnesses: [] }], [])
+      replica.applyChanges('machines', [{ id: asMachineId('m1'), name: '', loggedOutHarnesses: [] }], [])
     })
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('This machine')
   })

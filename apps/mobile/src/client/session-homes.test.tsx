@@ -1,6 +1,6 @@
 import { type SessionView, sessionValues, sessionViews } from '@podium/client-core/session-values'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
-import { asSessionId, asUserId, type SessionMeta } from '@podium/model'
+import { asMachineId, asRepoId, asSessionId, asUserId, type SessionMeta } from '@podium/model'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
@@ -23,6 +23,12 @@ const raw = {
   title: 'Agent',
   status: 'live',
   archived: false,
+  controllerId: null,
+  geometry: { cols: 80, rows: 24 },
+  epoch: 0,
+  clientCount: 0,
+  createdAt: active,
+  origin: { kind: 'spawn' },
   lastActiveAt: active,
   refRepoId: 'repo-born',
   refSeq: 42,
@@ -57,10 +63,10 @@ describe('mobile session read seam', () => {
     const { replica } = await renderWithMobileStore(<Probe seen={seen} />, {
       sessions: [row],
       sessionUserStates: [personal],
-      repoProjections: [{ id: 'repo-born', prefix: 'NEW' }],
+      repoProjections: [{ id: asRepoId('repo-born'), prefix: 'NEW' }],
       machineProjections: [
-        { id: 'machine-born', name: 'Desk', loggedOutHarnesses: [] },
-        { id: 'machine-target', name: 'Target', loggedOutHarnesses: [] },
+        { id: asMachineId('machine-born'), name: 'Desk', loggedOutHarnesses: [] },
+        { id: asMachineId('machine-target'), name: 'Target', loggedOutHarnesses: [] },
       ],
     })
     const values = () => JSON.parse(screen.getByTestId('values').textContent ?? '{}')
