@@ -135,9 +135,6 @@ export function createCommandLaunchViews(pool: MobxPool) {
   const launch = computed(() => projection(false), { equals: compareStructural }), palette = computed(() => projection(true), { equals: compareStructural })
   return { launch: () => launch.get(), palette: () => palette.get() }
 }
-const views = new WeakMap<MobxPool, ReturnType<typeof createCommandLaunchViews>>()
 export function commandLaunchViews(pool: MobxPool) {
-  let value = views.get(pool)
-  if (!value) { value = createCommandLaunchViews(pool); views.set(pool, value) }
-  return value
+  return pool.sources.view('commands', () => createCommandLaunchViews(pool))
 }
