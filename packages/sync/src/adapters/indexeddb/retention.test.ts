@@ -51,7 +51,12 @@ describe('IndexedDB optional entity retention', () => {
         .viewFor(principal)
         .cache.installSnapshot([row('issue'), row('issueProjection'), row('future')], cursor(9), [])
     }
-    await old.viewFor('alice').outbox.apply({ put: [queued], expect: [] })
+    await old
+      .viewFor('alice')
+      .outbox.apply({
+        put: [queued],
+        expect: [{ mutationId: queued.mutationId, expect: 'absent' }],
+      })
     await old.settled()
     old.close()
     const before = await readDurable(factory)
@@ -142,17 +147,22 @@ describe('IndexedDB optional entity retention', () => {
     const bob = store.viewFor('bob')
     alice.cache.installSnapshot([row('issueProjection')], cursor(1), [])
     bob.cache.installSnapshot([row('issueProjection')], cursor(1), [])
-    await alice.outbox.apply({ put: [queued], expect: [] })
+    await alice.outbox.apply({
+      put: [queued],
+      expect: [{ mutationId: queued.mutationId, expect: 'absent' }],
+    })
     const events: unknown[] = []
     const replica = new Replica({
       store: alice.cache,
       unitOfWork: store.unitOfWork,
       authority: {
         bootstrap: async function* () {},
-        changesRange: async () => ({ kind: 'bootstrap-required', reason: 'compacted' }),
+        changesRange: async () => (async function* () {})(),
       },
       onEvent: (event) => events.push(event),
     })
+    replica.connect()
+    await replica.settled()
     const change = (
       seq: number,
       op: 'upsert' | 'remove' | 'evict',

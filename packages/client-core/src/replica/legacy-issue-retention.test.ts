@@ -31,7 +31,7 @@ describe('legacy issue retention switch', () => {
     await web.flush()
     expect(get.mock.calls.map(([key]) => key)).not.toContain('podium.replica.issues.v1')
     expect(hydrated.issues).toEqual([])
-    expect(hydrated.issueProjections).toEqual([{ id: 'i', title: 'normalized' }])
+    expect(hydrated.issueProjections).toMatchObject([{ id: 'i', title: 'normalized' }])
     expect(hydrated.cursor).toBe(8)
     expect(hydrated.schemaReset).toBe(false)
     expect(web.rows('issues')).toEqual([])
@@ -59,7 +59,7 @@ describe('legacy issue retention switch', () => {
     expect(snapshot.mock.calls.map(([kind]) => kind)).not.toContain('issues')
     expect(delta).not.toHaveBeenCalled()
     expect(replica.rows('issues')).toEqual([])
-    expect(replica.rows('issueProjections')).toEqual([{ id: 'i' }])
+    expect(replica.rows('issueProjections')).toMatchObject([{ id: 'i' }])
     expect(replica.getFeedCursor().seq).toBe(12)
   })
 

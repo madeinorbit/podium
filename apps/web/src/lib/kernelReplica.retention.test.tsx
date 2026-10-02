@@ -2,6 +2,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
 import { asUserId, ISSUE_STAGES, IssueWire, issueUserStateRowId } from '@podium/model/browser'
 import { IDBFactory } from 'fake-indexeddb'
+import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueListView } from '@/features/issues/IssueListView'
@@ -17,6 +18,7 @@ beforeEach(() => localStorage.clear())
 afterEach(async () => {
   cleanup()
   for (const assembly of assemblies.splice(0)) await assembly.dispose()
+  vi.unstubAllGlobals()
 })
 async function open(factory: IDBFactory, dropLegacyIssues?: boolean) {
   const assembly = await openKernelAssembly({
@@ -167,6 +169,35 @@ describe('web legacy issue retention', () => {
     expect(allIssueViewModels(after.replica)).toEqual(beforeModels)
     expect(screenOutput(allIssueViewModels(after.replica))).toEqual(screens)
     // A dropped row remains ignored on the live feed; its sequence still commits.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            [
+              {
+                type: 'syncMeta',
+                formatVersion: 1,
+                mode: 'delta',
+                transferId: 't',
+                feedId: 'f',
+                epoch: 'e',
+                fromSeq: 10,
+                seq: 10,
+                minAvailableSeq: 0,
+                wireVersion: CLIENT_WIRE_VERSION,
+                wireSchemaDigest: wireSchemaDigest(),
+              },
+              { type: 'syncComplete', transferId: 't', seq: 10, records: 0, rows: 0 },
+            ]
+              .map((record) => JSON.stringify(record) + '\n')
+              .join(''),
+            { headers: { 'content-type': 'application/x-ndjson' } },
+          ),
+      ),
+    )
+    after.assembly.feed.connected(true)
+    await vi.waitFor(() => expect(after.assembly.progress.getSnapshot().phase).toBe('ready'))
     after.assembly.feed.frame({
       type: 'feedDelta',
       feedId: 'f',

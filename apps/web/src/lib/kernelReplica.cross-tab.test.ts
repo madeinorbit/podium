@@ -1,4 +1,4 @@
-import { IssueProjection } from '@podium/model'
+import { IssueProjection, actorUser } from '@podium/model'
 import { makeIssue } from './test-issue'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { asUserId } from '@podium/model'
@@ -157,6 +157,9 @@ describe('kernel replica cross-tab convergence', () => {
         value: IssueProjection.parse({
           ...makeIssue({ id: 'revoked-issue', title: 'visible before rescope' }),
           repoId: 'repo-a',
+          createdBy: actorUser(asUserId('alice')),
+          owner: 'alice',
+          visibility: 'personal',
           description: { value: '' },
         }),
       },
