@@ -118,6 +118,11 @@
       "inputs": ["$TURBO_DEFAULT$"],
       "outputs": ["*.tsbuildinfo"]
     },
+    "@podium/worklist-proto#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/diagnostics/issue-chips-replay.ts"],
+      "outputs": ["*.tsbuildinfo"]
+    },
     "@podium/scripts#typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": [
