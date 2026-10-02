@@ -10,8 +10,8 @@ import {
   MD_MODE_MAP_KEY,
 } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
-import { checkFileViewerPreferences, type FileViewerPreference } from './file-viewer-check'
 import { isMarkdownPath } from './file-kind'
+import { checkFileViewerPreferences, type FileViewerPreference } from './file-viewer-check'
 
 if (hostname() !== 'ludovico') throw new Error('Operator file-mode replay is ludovico-only')
 const { token, expiresAt } = JSON.parse(

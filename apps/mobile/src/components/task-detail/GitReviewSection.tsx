@@ -9,9 +9,9 @@ import {
   entryStatus,
   GIT_DIFF_PAGE,
   GIT_FILE_PAGE,
+  type ParsedDiff,
   parseDiff,
   parseStatus,
-  type ParsedDiff,
   type StatusEntry,
   untrackedDiff,
 } from '../../lib/git-review'

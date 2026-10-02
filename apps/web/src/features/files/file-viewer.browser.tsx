@@ -12,6 +12,8 @@ import { preferenceReadStats, preferencesDataLayer } from '@/lib/preferences-dat
 import { DiffSheet } from '../git/DiffSheet'
 import { GitPanelView } from '../git/GitPanelView'
 import { parseStatus } from '../git/git-panel'
+import { FileBrowserModal } from './FileBrowserModal'
+import { FilePanel } from './FilePanel'
 import { checkFileViewerPreferences } from './file-viewer-check'
 import {
   createFileViewerFixture,
@@ -19,8 +21,6 @@ import {
   VIEWER_SCOPE,
   VIEWER_TABS,
 } from './file-viewer-fixture'
-import { FileBrowserModal } from './FileBrowserModal'
-import { FilePanel } from './FilePanel'
 import { WorktreeFileTree } from './WorktreeFileTree'
 import '@/index.css'
 

@@ -1,8 +1,9 @@
 /** Foreground synthetic Chromium measurement. Timed runs require bench:flatblock.
  * Run --legacy with the baseline screen files, then restore and run the pool arm.
  * Owns one Vite PID and browser; never starts a Podium server or daemon. */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+
 import { spawn } from 'node:child_process'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium } from '@playwright/test'
 import type {} from './file-viewer.browser'

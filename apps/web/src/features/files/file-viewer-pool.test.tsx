@@ -21,6 +21,8 @@ import { preferenceReadStats } from '@/lib/preferences-data-layer'
 import { DiffSheet } from '../git/DiffSheet'
 import { GitPanelView } from '../git/GitPanelView'
 import { parseStatus } from '../git/git-panel'
+import { FileBrowserModal } from './FileBrowserModal'
+import { FilePanel } from './FilePanel'
 import { checkFileViewerPreferences, FILE_VIEWER_PREFERENCE_KEYS } from './file-viewer-check'
 import {
   createFileViewerFixture,
@@ -28,8 +30,6 @@ import {
   VIEWER_SCOPE,
   VIEWER_TABS,
 } from './file-viewer-fixture'
-import { FileBrowserModal } from './FileBrowserModal'
-import { FilePanel } from './FilePanel'
 import { useFileDocument } from './useFileDocument'
 import { WorktreeFileTree } from './WorktreeFileTree'
 
@@ -210,9 +210,11 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
   await act(async () => {
     for (const tab of VIEWER_TABS) writeFilePanelMode(owner.ui, tab.mapKey, tab.tabId, 'source')
   })
+  // Utility dialogs intentionally hide the surrounding mounted file panels.
   for (const { path } of VIEWER_FILES)
-    // Utility dialogs intentionally hide the surrounding mounted file panels.
-    expect(within(view.getByTestId(path)).getByRole('textbox', { name: path, hidden: true })).toBeTruthy()
+    expect(
+      within(view.getByTestId(path)).getByRole('textbox', { name: path, hidden: true }),
+    ).toBeTruthy()
   expect(checkFileViewerPreferences(pool!, owner.ui, VIEWER_TABS)).toMatchObject({
     differences: 0,
     pending: 0,

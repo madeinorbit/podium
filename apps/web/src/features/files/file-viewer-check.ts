@@ -2,17 +2,17 @@
  * reports contain counts and positions, using the sidebar-check contract. */
 import {
   DIFF_SHEET_WRAP_KEY,
+  type FilePanelMode,
   HTML_MODE_MAP_KEY,
   JSON_MODE_MAP_KEY,
   MD_MODE_MAP_KEY,
-  readFilePanelMode,
-  type FilePanelMode,
   type RoutedUiState,
+  readFilePanelMode,
 } from '@podium/client-core/ui-state'
 import type { MobxPool } from '@podium/client-graph'
 import {
-  compareSidebarSnapshots,
   type CheckRow,
+  compareSidebarSnapshots,
 } from '@podium/client-graph/diagnostics/sidebar-check'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 

@@ -1,6 +1,6 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
 import { useStoreHandle } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MachineId } from '@podium/model/browser'
 import { ChevronRight, GitBranch, Maximize2, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
