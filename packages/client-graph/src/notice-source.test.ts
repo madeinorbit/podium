@@ -2,6 +2,7 @@ import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
+import { asSessionId } from '@podium/model'
 import { checkNotices } from '../diagnostics/notice-check'
 import { noticeFixture } from '../diagnostics/notice-fixture'
 import { MobxPool } from './pool'
@@ -67,7 +68,7 @@ it('maintains session membership, ordering and removal from addressed deltas', a
     await f.load()
     const stop = autorun(() => { noticeMessages(f.pool); noticeInteractions(f.pool, 'synthetic-session-0') })
     f.updateMessages(f.data.messages.map(row => row.id === 'notice-message-0' ? { ...row, status: 'confirmed' } : row))
-    f.updateAsks(f.data.interactions.map((row, i) => i === 0 ? { ...row, sessionId: 'other-session' } : row))
+    f.updateAsks(f.data.interactions.map((row, i) => i === 0 ? { ...row, sessionId: asSessionId('other-session') } : row))
     expect(f.check()).toMatchObject({ differences: 0, pending: 0 })
     f.updateAsks(f.data.interactions.slice(1), ['notice-ask-0'])
     expect(f.pool.row('noticeSession', 'other-session')).toBeUndefined()
@@ -111,7 +112,7 @@ it('preserves outbox order across message updates and never reads recovery targe
     f.updateMessages(f.data.messages.map(row => ({ ...row, body: `${row.body}!` })))
     const read = vi.spyOn(f.pool, 'row')
     expect(noticeRecovery(f.pool).deadLetters).toEqual([...f.data.deadLetters].reverse())
-    expect(read.mock.calls.every(([entity]) => entity === 'noticeCatalog' || entity === 'outboxDeadLetter')).toBe(true)
+    expect(read.mock.calls.every(([entity]) => ['noticeCatalog', 'outboxDeadLetter'].includes(entity))).toBe(true)
     expect(f.check().differences).toBe(0)
     expect(f.rows.mock.calls.every(([kind]) => kind === 'messageRecords' || kind === 'pendingInteractions')).toBe(true)
   } finally { f.pool.dispose() }

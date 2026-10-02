@@ -1,6 +1,6 @@
 /** Operator rows never leave ludovico. Read only the local database, with a
  * bounded busy timeout; no credentials, RPC, backend or exported payloads. */
-import { Database } from 'bun:sqlite'
+import { createRequire } from 'node:module'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
@@ -12,10 +12,21 @@ import { NOTICE_ENTITIES, NOTICE_SUMMARIES } from '../src/notice-schema'
 import { NoticeSource } from '../src/notice-source'
 import { checkNotices } from './notice-check'
 
+/** The browser package does not install Bun globals. This local-only adapter
+ * exposes just the SQLite operations used by the bounded, read-only replay. */
+interface ReplayDatabase {
+  exec(sql: string): void
+  query(sql: string): { all(): unknown[] }
+  close(): void
+}
+
 let phase = 0
 try {
   if (hostname() !== 'ludovico') throw new Error('Replay host unavailable')
   phase = 1
+  const { Database } = createRequire(import.meta.url)('bun:sqlite') as {
+    Database: new (path: string, options: { readonly: true }) => ReplayDatabase
+  }
   const db = new Database(join(homedir(), '.podium/podium.db'), { readonly: true })
   let sessions: SessionView[], messages: MessageRecordWire[], interactions: PendingInteractionWire[]
   try {
