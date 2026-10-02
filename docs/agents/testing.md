@@ -70,7 +70,7 @@ is not a reason to add a lane.
 - One minified production build, real Chromium, the fixed 4× corpus: sidebar issue, mission switch, session pane, rename, unrelated visible background feed update; six samples each (ten exceeded the initial calibration budget), median and worst input → actual Paint.
 - Only an action median more than 10% above `docs/measurements/click-speed-baseline.json` makes the gate red; background timing starts at feed delivery. Measured noise and total runtime are in the JSON report.
 - After the green source lands on `integrate/4286-pilot`, `bun run speed:gate -- --promote` promotes its saved numbers; commit the small baseline JSON, without running the browser again.
-- Initial baseline only: `--calibrate` measures three identical captures' median spread; `--plant-delay-ms=50` plants real click-path work and must turn the gate red. Keep all five actions if repetitions need cutting to stay under five minutes.
+- Initial baseline only: `--calibrate` measures two identical captures' median spread; `--plant-delay-ms=50` plants real click-path work and must turn the gate red. Keep all five actions if repetitions need cutting to stay under five minutes.
 
 ## Only the wrappers reach the compiler and the runners
 

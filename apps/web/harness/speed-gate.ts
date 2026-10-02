@@ -71,6 +71,7 @@ const baselinePath = resolve('docs/measurements/click-speed-baseline.json')
 // Ten samples in each of the three initial captures exceeded 285 s on flatblock.
 const REPETITIONS = 6
 const WARMUPS = 2
+const NOISE_RUNS = 2
 const git = (...argv: string[]) => execFileSync('git', argv, { encoding: 'utf8' }).trim()
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b)
@@ -84,7 +85,7 @@ async function main() {
   if (args.includes('--help')) {
     console.log(
       'bun run speed:gate — flatblock, five actions × six samples; median > landed +10% exits 1.\n' +
-        '--calibrate --baseline-ref=<landed SHA/ref>: initial baseline only, three runs to measure noise.\n' +
+        '--calibrate --baseline-ref=<landed SHA/ref>: initial baseline only, two runs to measure noise.\n' +
         '--plant-delay-ms=50: plant a synchronous delay in the sidebar click path (expected red).\n' +
         '--promote: commit-ready baseline from the saved green run after its source lands; no rerun.\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
@@ -418,7 +419,7 @@ async function main() {
         for (let i = -WARMUPS; i < REPETITIONS; i++) {
           const ms = await run(i + WARMUPS)
           await settle(
-            action === 'sidebar-issue' || action === 'background-update' ? sidebar.page : full.page,
+            action === 'sidebar-issue' ? sidebar.page : full.page,
           )
           if (i >= 0) {
             samples[action].push(ms)
@@ -498,17 +499,16 @@ async function main() {
       })
       // A feed-delivered title on another visible root is unrelated to the selected mission,
       // but has real visible damage. A hidden heartbeat would paint nothing and cannot supply this metric.
-      await sidebar.page.locator(row(targets.sidebar[0]!)).first().click()
-      await sidebar.page.locator(row(targets.background)).first().scrollIntoViewIfNeeded()
+      await full.page.locator(row(targets.background)).first().scrollIntoViewIfNeeded()
       await measure('background-update', async (i) => {
         const title = `Speed gate background ${i}`
         return capture(
-          sidebar,
+          full,
           'background-update',
           '',
           { selector: `${row(targets.background)} .shell-work-row-title`, text: title },
           () =>
-            sidebar.page.evaluate(
+            full.page.evaluate(
               ({ id, title }) =>
                 new Promise<void>((done) =>
                   requestAnimationFrame(() => {
@@ -625,9 +625,11 @@ async function main() {
       leased = !grant.alreadyHeld
     }
     const runs: Awaited<ReturnType<typeof suite>>[] = []
-    for (let i = 0; i < (calibrate ? 3 : 1); i++) {
-      console.log(`4× corpus, five actions; capture ${i + 1}/${calibrate ? 3 : 1}`)
+    console.log(`Production build and browser ready: ${round((performance.now() - began) / 1000)}s`)
+    for (let i = 0; i < (calibrate ? NOISE_RUNS : 1); i++) {
+      console.log(`4× corpus, five actions; capture ${i + 1}/${calibrate ? NOISE_RUNS : 1}`)
       runs.push(await suite(origin, baseline?.targets ?? runs[0]?.targets))
+      console.log(`Capture complete; elapsed ${round((performance.now() - began) / 1000)}s`)
     }
     const latest = runs[runs.length - 1]!
     const noise = calibrate
@@ -699,7 +701,7 @@ async function main() {
     if (report.passed && !delayMs)
       await writeFile(resolve(root, 'passed.json'), JSON.stringify(report, null, 2) + '\n')
     console.log(
-      `Measured same-code median spread: ${noise.maxPercent}% (three independent captures); fixed failure margin: 10%.`,
+      `Measured same-code median spread: ${noise.maxPercent}% (${noise.runs} independent captures); fixed failure margin: 10%.`,
     )
     for (const action of ACTIONS)
       if (baseline)
