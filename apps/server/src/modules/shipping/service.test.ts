@@ -2887,7 +2887,11 @@ describe('POD-4974 O2 ship lanes', () => {
     const { store, ledger, issues, service } = await harness(undefined, { checkOrderPlane: false })
     try {
       const first = await seedOrder(issues, store, { title: 'first', minute: 1 })
-      const second = await seedOrder(issues, store, { title: 'second', minute: 2 })
+      const second = await seedOrder(issues, store, {
+        title: 'second',
+        minute: 2,
+        baseSha: 'other-base',
+      })
       const truth = await service['fullProjection']()
       expect(truth.orders.map((row) => row.id)).toEqual([first.id, second.id])
       for (const row of truth.orders) expect(row.value).not.toHaveProperty('queueRank')
@@ -2913,7 +2917,11 @@ describe('POD-4974 O2 ship lanes', () => {
     const { store, ledger, issues, service } = await harness(undefined, { checkOrderPlane: false })
     try {
       const first = await seedOrder(issues, store, { title: 'first', minute: 1 })
-      const second = await seedOrder(issues, store, { title: 'second', minute: 2 })
+      const second = await seedOrder(issues, store, {
+        title: 'second',
+        minute: 2,
+        baseSha: 'other-base',
+      })
       const elsewhere = await seedOrder(issues, store, {
         title: 'elsewhere',
         minute: 3,
