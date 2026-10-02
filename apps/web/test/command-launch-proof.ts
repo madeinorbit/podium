@@ -57,6 +57,12 @@ try {
     await page.waitForFunction(() => document.querySelector('[data-launched]')?.textContent === 'synthetic-launched')
     await page.getByRole('button', { name: 'New task composer', exact: true }).click()
     await page.getByLabel('Title', { exact: true }).fill('Synthetic pool task')
+    await page.evaluate(() => window.__commandLaunch.reset())
+    await page.evaluate(() => window.__commandLaunch.activity(10))
+    const composerStats = await page.evaluate(() => window.__commandLaunch.stats())
+    const { commitMs: composerCommitMs, ...composerCounts } = composerStats
+    results[`${mode}.composer`] = { ...composerCounts, ...(!countsOnly ? { commitMs: composerCommitMs } : {}) }
+    if (mode === 'pool' && (composerStats.selectors || composerStats.legacyReads || composerStats.legacyDerivations)) throw new Error(`Enabled composer path read legacy: ${JSON.stringify(composerCounts)}`)
     await page.screenshot({ path: `${output}/${mode}-composer.png` })
     await page.getByRole('button', { name: 'Create', exact: true }).click()
     await page.waitForFunction(() => window.__commandLaunch.calls().some(call => call.kind === 'issue'))
