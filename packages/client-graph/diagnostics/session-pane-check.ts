@@ -33,14 +33,15 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
   hex: (color: string | null | undefined) => string | undefined = color => color ?? undefined) {
   let pending = 0
   let acceptedOwnershipDifferences = 0
+  const eligible = issues.filter(issue => !issue.archived && !issue.deletedAt)
   const stampFields = (issue: { id: string; branch?: string | null; gitState?: IssueViewModel['gitState'] } | undefined) =>
     issue ? { id: issue.id, branch: issue.branch ?? null, gitState: issue.gitState, view: deriveGitStamp(issue.branch, issue.gitState) } : undefined
-  const expected = ids.map((id): CheckRow => {
-    const row = state.sessions.find(row => row.sessionId === id)
-    const eligible = issues.filter(issue => !issue.archived && !issue.deletedAt)
+  const expected = ids.map((id, index): CheckRow => {
+    const at = state.sessions[index]
+    const row = at?.sessionId === id ? at : state.sessions.find(row => row.sessionId === id)
     const candidates = eligible.filter(issue => row && (row.issueId === issue.id ||
       (issue.worktreePath !== null && (row.cwd === issue.worktreePath || row.cwd.startsWith(`${issue.worktreePath}/`)))))
-    const approved = row && (eligible.find(issue => issue.id === row.issueId) ??
+    const approved = row && (candidates.find(issue => issue.id === row.issueId) ??
       [...candidates].sort((a, b) => (b.worktreePath?.length ?? 0) - (a.worktreePath?.length ?? 0))[0])
     if (candidates[0]?.id !== approved?.id) acceptedOwnershipDifferences++
     return { id, fields: { ...paneComparable(row, state.coarseNow), stamp: stampFields(approved) } }
