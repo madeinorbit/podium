@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 /**
  * Workspace membership: WHICH tabs a workspace may keep.
  *
@@ -17,7 +18,7 @@
  *     answer needed was rebuilt inside the loop that consumed it.
  */
 
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab, WorkspaceKey } from '../viewmodels'
@@ -31,7 +32,7 @@ type MembershipState = Pick<
   'issueProjections' | 'issueDeps' | 'sessions' | 'pendingSpawnIds' | 'pendingSpawnPrompts' | 'fileTabs'
 >
 
-function issue(id: string, over: Record<string, unknown> = {}): IssueWire {
+function issue(id: string, over: Record<string, unknown> = {}): IssueViewModel {
   return {
     id,
     repoPath: '/r/acme',
@@ -59,11 +60,11 @@ function issue(id: string, over: Record<string, unknown> = {}): IssueWire {
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     ...over,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 function sess(id: string, over: Record<string, unknown> = {}): SessionMeta {
@@ -82,12 +83,12 @@ function sess(id: string, over: Record<string, unknown> = {}): SessionMeta {
 }
 
 function membership(
-  issues: IssueWire[],
+  issues: IssueViewModel[],
   sessions: SessionMeta[],
   over: Partial<MembershipState> = {},
 ): MembershipState {
   return {
-    issueProjections: issues.map(row => ({ ...row, description: { value: row.description }, isDraftVessel: row.draft, intentOrigin: row.origin } as unknown as import('@podium/model').IssueProjection)),
+    issueProjections: issues.map(row => ({ ...row, description: { value: row.description }, isDraftVessel: row.isDraftVessel, intentOrigin: row.intentOrigin } as unknown as import('@podium/model').IssueProjection)),
     issueDeps: issues.flatMap(row => row.deps.map((dep, index) => ({ id: `${row.id}:${index}`, fromId: row.id, toId: dep.id, type: dep.type } as import('@podium/model').IssueDepProjection))),
     sessions,
     pendingSpawnIds: new Set<string>(),
@@ -233,7 +234,7 @@ describe('workspace membership', () => {
 /** Counts ELEMENT reads of the issue slice. The old code's per-session `find`
  *  and per-session index rebuild are both visible here and nowhere else: they
  *  are pure array traversal. */
-function countingIssues(rows: IssueWire[]): { issues: IssueWire[]; reads: () => number } {
+function countingIssues(rows: IssueViewModel[]): { issues: IssueViewModel[]; reads: () => number } {
   let reads = 0
   const proxy = new Proxy(rows, {
     get(target, prop, receiver) {
@@ -248,7 +249,7 @@ describe('workspace membership budget', () => {
   const ISSUES = 500
   const SESSIONS = 400
 
-  function world(): { rows: IssueWire[]; sessions: SessionMeta[] } {
+  function world(): { rows: IssueViewModel[]; sessions: SessionMeta[] } {
     const rows = [issue('root', { worktreePath: '/wt/root' })]
     for (let i = 0; i < ISSUES - 1; i += 1) {
       rows.push(issue(`iss-${i}`, { parentId: 'root', worktreePath: `/wt/iss-${i}` }))

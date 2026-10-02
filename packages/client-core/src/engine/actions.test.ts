@@ -48,7 +48,6 @@ function harness(
     pins: { panels: [], worktrees: [], repos: [] },
     tabOrders: {},
     sessions: [],
-    issues: [],
     issueProjections: [],
     issueUserStates: [],
     issueDeps: [],

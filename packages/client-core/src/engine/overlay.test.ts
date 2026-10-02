@@ -14,7 +14,6 @@ import {
   asUserId,
   type IssueProjection,
   type IssueUserStateWire,
-  type IssueWire,
   type SessionMeta,
   type SessionMetaInput,
   type SessionUserStateWire,
@@ -31,8 +30,8 @@ import {
   foldRowOverlays,
   insertOverlay,
   issueUpdateRoute,
-  legacyIssuePart,
   overlaysForOutboxEntry,
+  type OverlayRow,
   type PendingOverlay,
   PRESENCE_REDUCER_KINDS,
   pruneAwaiting,
@@ -48,9 +47,9 @@ const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEn
 
 /** The one overlay of record an entry paints on its own row — every kind but
  *  a mixed `issueUpdate` has at most one. An issue entry's old-record part
- *  (`legacyIssuePart`) is pinned by its own tests below. */
+ *  is covered by the normalized row tests below. */
 function overlayForOutboxEntry(e: OutboxEntry): PendingOverlay | null {
-  const overlays = overlaysForOutboxEntry(e).filter((o) => o.entity !== 'issues')
+  const overlays = overlaysForOutboxEntry(e)
   expect(overlays.length).toBeLessThanOrEqual(1)
   return overlays[0] ?? null
 }
@@ -160,8 +159,8 @@ describe('overlayForOutboxEntry projection', () => {
     expect(issueRead.entity).toBe('issueUserStates')
     expect(issueRead.patch).toEqual({ readAt: new Date(1751500800000).toISOString() })
     // Persistence stamps its own clock on this SAME row, so presence covers.
-    expect(issueRead.coveredBy({ readAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
-    expect(issueRead.coveredBy({ readAt: null } as IssueWire)).toBe(false)
+    expect(issueRead.coveredBy({ readAt: '2099-01-01T00:00:00.000Z' } as OverlayRow)).toBe(true)
+    expect(issueRead.coveredBy({ readAt: null } as OverlayRow)).toBe(false)
 
     const reread = overlayForOutboxEntry({
       ...entry('issueMarkRead', { id: 'i1' }, 1751500800000),
@@ -170,14 +169,14 @@ describe('overlayForOutboxEntry projection', () => {
     if (reread?.op !== 'patch') throw new Error('expected patch')
     // An older non-null cursor is pre-mutation truth, not coverage. The server's
     // new covering cursor may use a different clock, so movement is sufficient.
-    expect(reread.coveredBy({ readAt: '2026-07-01T00:00:00.000Z' } as IssueWire)).toBe(false)
-    expect(reread.coveredBy({ readAt: '2026-07-01T00:05:00.000Z' } as IssueWire)).toBe(true)
+    expect(reread.coveredBy({ readAt: '2026-07-01T00:00:00.000Z' } as OverlayRow)).toBe(false)
+    expect(reread.coveredBy({ readAt: '2026-07-01T00:05:00.000Z' } as OverlayRow)).toBe(true)
 
     const unread = overlayForOutboxEntry(entry('issueMarkUnread', { id: 'i1' }))
     if (unread?.op !== 'patch') throw new Error('expected patch')
     expect(unread.entity).toBe('issueUserStates')
     expect(unread.patch).toEqual({ readAt: null })
-    expect(unread.coveredBy({ readAt: null } as IssueWire)).toBe(true)
+    expect(unread.coveredBy({ readAt: null } as OverlayRow)).toBe(true)
   })
 
   // Tuck-away rides the SAME optimistic mechanism as the rest (POD-333), which is
@@ -193,17 +192,17 @@ describe('overlayForOutboxEntry projection', () => {
     expect(tuck.id).toBe('i1')
     expect(tuck.patch).toEqual({ tuckedAt: new Date(1751500800000).toISOString() })
     // The server stamps its own clock, so ANY stamp covers…
-    expect(tuck.coveredBy({ tuckedAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
+    expect(tuck.coveredBy({ tuckedAt: '2099-01-01T00:00:00.000Z' } as OverlayRow)).toBe(true)
     // …but pre-mutation truth (a heal snapshot mid-flight) does NOT: the row
     // stays folded instead of flickering back into the live list.
-    expect(tuck.coveredBy({ tuckedAt: null } as IssueWire)).toBe(false)
-    expect(tuck.coveredBy({} as IssueWire)).toBe(false)
+    expect(tuck.coveredBy({ tuckedAt: null } as OverlayRow)).toBe(false)
+    expect(tuck.coveredBy({} as OverlayRow)).toBe(false)
 
     const untuck = overlayForOutboxEntry(entry('issueSetTucked', { id: 'i1', tucked: false }))
     if (untuck?.op !== 'patch') throw new Error('expected patch overlay')
     expect(untuck.patch).toEqual({ tuckedAt: null })
-    expect(untuck.coveredBy({ tuckedAt: null } as IssueWire)).toBe(true)
-    expect(untuck.coveredBy({ tuckedAt: '2026-07-03T00:00:00.000Z' } as IssueWire)).toBe(false)
+    expect(untuck.coveredBy({ tuckedAt: null } as OverlayRow)).toBe(true)
+    expect(untuck.coveredBy({ tuckedAt: '2026-07-03T00:00:00.000Z' } as OverlayRow)).toBe(false)
   })
 
   it('an unknown kind projects to nothing', () => {
@@ -222,28 +221,28 @@ describe('overlayForOutboxEntry projection', () => {
     expect(o.entity).toBe('issueProjections')
     expect(o.id).toBe('i1')
     expect(o.patch).toEqual({ title: 'Renamed', priority: 2 })
-    expect(o.coveredBy({ title: 'Renamed', priority: 2 } as IssueWire)).toBe(true)
+    expect(o.coveredBy({ title: 'Renamed', priority: 2 } as OverlayRow)).toBe(true)
     // HALF-landed truth is not coverage: a row carrying the rename but not the
     // priority must keep painting, or the second field flashes back.
-    expect(o.coveredBy({ title: 'Renamed', priority: 0 } as IssueWire)).toBe(false)
-    expect(o.coveredBy({ title: 'Old', priority: 2 } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ title: 'Renamed', priority: 0 } as OverlayRow)).toBe(false)
+    expect(o.coveredBy({ title: 'Old', priority: 2 } as OverlayRow)).toBe(false)
     // A competing writer moving some OTHER field neither covers nor un-covers.
     // pruneAwaiting agrees: only a patched cell moving to a third value is a
     // competing write. An extra field on a fully-covered row is just coverage.
-    expect(o.coveredBy({ title: 'Renamed', priority: 2, stage: 'done' } as IssueWire)).toBe(true)
+    expect(o.coveredBy({ title: 'Renamed', priority: 2, stage: 'done' } as OverlayRow)).toBe(true)
   })
 
   it('issueUpdate treats a cleared field as covered by an ABSENT one — null and undefined are one value', () => {
-    // `issues.update` clears a colour with `color: null`; `IssueWire.color` is
+    // `issues.update` clears a colour with `color: null`; `OverlayRow.color` is
     // optional and simply absent once cleared. A strict `===` would leave every
     // clear painted until its TTL.
     const cleared = overlayForOutboxEntry(
       entry('issueUpdate', { id: 'i1', patch: { color: null } }),
     )
     if (cleared?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(cleared.coveredBy({} as IssueWire)).toBe(true)
-    expect(cleared.coveredBy({ color: undefined } as IssueWire)).toBe(true)
-    expect(cleared.coveredBy({ color: 'amber' } as unknown as IssueWire)).toBe(false)
+    expect(cleared.coveredBy({} as OverlayRow)).toBe(true)
+    expect(cleared.coveredBy({ color: undefined } as OverlayRow)).toBe(true)
+    expect(cleared.coveredBy({ color: 'amber' } as unknown as OverlayRow)).toBe(false)
   })
 
   it('an EMPTY issueUpdate patch projects to null rather than parking a no-op overlay', () => {
@@ -255,8 +254,8 @@ describe('overlayForOutboxEntry projection', () => {
     if (o?.op !== 'patch') throw new Error('expected patch overlay')
     expect(o.entity).toBe('issueProjections')
     expect(o.patch).toEqual({ archived: true })
-    expect(o.coveredBy({ archived: true } as IssueWire)).toBe(true)
-    expect(o.coveredBy({ archived: false } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ archived: true } as OverlayRow)).toBe(true)
+    expect(o.coveredBy({ archived: false } as OverlayRow)).toBe(false)
   })
 
   it('issueDelete stamps deletedAt from queuedAt; covering truth is judged on PRESENCE', () => {
@@ -266,10 +265,10 @@ describe('overlayForOutboxEntry projection', () => {
     expect(o.id).toBe('i1')
     expect(o.patch).toEqual({ deletedAt: new Date(1751500800000).toISOString() })
     // The server stamps its own tombstone clock, so any stamp covers…
-    expect(o.coveredBy({ deletedAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
+    expect(o.coveredBy({ deletedAt: '2099-01-01T00:00:00.000Z' } as OverlayRow)).toBe(true)
     // …and a heal snapshot taken before the delete reached the server does not,
     // so the row cannot flicker back into the list mid-flight.
-    expect(o.coveredBy({} as IssueWire)).toBe(false)
+    expect(o.coveredBy({} as OverlayRow)).toBe(false)
   })
 
   it('issueClose settles the stage and stamps the reason, and is covered by the DERIVED closed fact', () => {
@@ -279,11 +278,11 @@ describe('overlayForOutboxEntry projection', () => {
     expect(o.patch).toEqual({ stage: 'done', closedReason: 'wontfix' })
     // Covered on stage + a reason being PRESENT, not on the reason matching: the
     // server supplies its own default when the caller omits one.
-    expect(o.coveredBy({ stage: 'done', closedReason: 'wontfix' } as IssueWire)).toBe(true)
-    expect(o.coveredBy({ stage: 'done', closedReason: 'done' } as IssueWire)).toBe(true)
+    expect(o.coveredBy({ stage: 'done', closedReason: 'wontfix' } as OverlayRow)).toBe(true)
+    expect(o.coveredBy({ stage: 'done', closedReason: 'done' } as OverlayRow)).toBe(true)
     // Half-landed truth is not coverage in either direction.
-    expect(o.coveredBy({ stage: 'done' } as IssueWire)).toBe(false)
-    expect(o.coveredBy({ stage: 'review', closedReason: 'wontfix' } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ stage: 'done' } as OverlayRow)).toBe(false)
+    expect(o.coveredBy({ stage: 'review', closedReason: 'wontfix' } as OverlayRow)).toBe(false)
   })
 
   it('issueClose with no reason paints only what the caller said — the stage', () => {
@@ -296,13 +295,13 @@ describe('overlayForOutboxEntry projection', () => {
     const until = overlayForOutboxEntry(entry('issueDefer', { id: 'i1', until: 'next-message' }))
     if (until?.op !== 'patch') throw new Error('expected patch overlay')
     expect(until.patch).toEqual({ deferUntil: 'next-message' })
-    expect(until.coveredBy({ deferUntil: 'next-message' } as IssueWire)).toBe(true)
-    expect(until.coveredBy({ deferUntil: '2099-01-01' } as IssueWire)).toBe(false)
+    expect(until.coveredBy({ deferUntil: 'next-message' } as OverlayRow)).toBe(true)
+    expect(until.coveredBy({ deferUntil: '2099-01-01' } as OverlayRow)).toBe(false)
 
     const cleared = overlayForOutboxEntry(entry('issueDefer', { id: 'i1', until: null }))
     if (cleared?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(cleared.coveredBy({} as IssueWire)).toBe(true)
-    expect(cleared.coveredBy({ deferUntil: '2099-01-01' } as IssueWire)).toBe(false)
+    expect(cleared.coveredBy({} as OverlayRow)).toBe(true)
+    expect(cleared.coveredBy({ deferUntil: '2099-01-01' } as OverlayRow)).toBe(false)
   })
 
   it('issueUndefer BACKDATES rather than clearing, and is covered by the row no longer being deferred', () => {
@@ -317,14 +316,14 @@ describe('overlayForOutboxEntry projection', () => {
     // Coverage is the predicate, not the instant: the server backdates from its
     // OWN clock at apply time, so a queued undefer that drains late lands a
     // different timestamp than the one painted here.
-    expect(o.coveredBy({ deferUntil: '2020-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
+    expect(o.coveredBy({ deferUntil: '2020-01-01T00:00:00.000Z' } as OverlayRow)).toBe(true)
     // A row with no defer at all covers it too: undefer on a non-deferred issue
     // is a server-side no-op, so there is nothing for truth to catch up to.
-    expect(o.coveredBy({} as IssueWire)).toBe(true)
-    expect(o.coveredBy({ deferUntil: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(false)
+    expect(o.coveredBy({} as OverlayRow)).toBe(true)
+    expect(o.coveredBy({ deferUntil: '2099-01-01T00:00:00.000Z' } as OverlayRow)).toBe(false)
     // The sentinel never lapses by time, so an un-drained `next-message` snooze
     // must not read as covered.
-    expect(o.coveredBy({ deferUntil: 'next-message' } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ deferUntil: 'next-message' } as OverlayRow)).toBe(false)
   })
 
   it('issueSetLabels paints the set the server will store, and is covered as a SET', () => {
@@ -336,21 +335,21 @@ describe('overlayForOutboxEntry projection', () => {
     // stores and what the read side returns, so the chip row does not repaint
     // when truth lands.
     expect(o.patch).toEqual({ labels: ['bug', 'ui'] })
-    expect(o.coveredBy({ labels: ['bug', 'ui'] } as IssueWire)).toBe(true)
+    expect(o.coveredBy({ labels: ['bug', 'ui'] } as OverlayRow)).toBe(true)
     // Membership, not order: SQLite orders TEXT by byte and JS by UTF-16 code
     // unit, and a difference nobody can see must not hang the overlay to its TTL.
-    expect(o.coveredBy({ labels: ['ui', 'bug'] } as IssueWire)).toBe(true)
-    expect(o.coveredBy({ labels: ['bug'] } as IssueWire)).toBe(false)
-    expect(o.coveredBy({ labels: ['bug', 'ui', 'perf'] } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ labels: ['ui', 'bug'] } as OverlayRow)).toBe(true)
+    expect(o.coveredBy({ labels: ['bug'] } as OverlayRow)).toBe(false)
+    expect(o.coveredBy({ labels: ['bug', 'ui', 'perf'] } as OverlayRow)).toBe(false)
   })
 
   it('issueSetLabels clears to the empty set — covered by a row with no labels at all', () => {
     const o = overlayForOutboxEntry(entry('issueSetLabels', { id: 'i1', labels: [] }))
     if (o?.op !== 'patch') throw new Error('expected patch overlay')
     expect(o.patch).toEqual({ labels: [] })
-    expect(o.coveredBy({ labels: [] as string[] } as IssueWire)).toBe(true)
-    expect(o.coveredBy({} as IssueWire)).toBe(true)
-    expect(o.coveredBy({ labels: ['bug'] } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ labels: [] as string[] } as OverlayRow)).toBe(true)
+    expect(o.coveredBy({} as OverlayRow)).toBe(true)
+    expect(o.coveredBy({ labels: ['bug'] } as OverlayRow)).toBe(false)
   })
 
   it('issueSetPlacement paints the PARENT LINK — into a mission, and back out of one', () => {
@@ -361,9 +360,9 @@ describe('overlayForOutboxEntry projection', () => {
     expect(intoMission.entity).toBe('issueProjections')
     expect(intoMission.id).toBe('i1')
     expect(intoMission.patch).toEqual({ parentId: 'origin-1' })
-    expect(intoMission.coveredBy({ parentId: 'origin-1' } as IssueWire)).toBe(true)
-    expect(intoMission.coveredBy({ parentId: 'someone-else' } as IssueWire)).toBe(false)
-    expect(intoMission.coveredBy({} as IssueWire)).toBe(false)
+    expect(intoMission.coveredBy({ parentId: 'origin-1' } as OverlayRow)).toBe(true)
+    expect(intoMission.coveredBy({ parentId: 'someone-else' } as OverlayRow)).toBe(false)
+    expect(intoMission.coveredBy({} as OverlayRow)).toBe(false)
 
     const ownThing = overlayForOutboxEntry(
       entry('issueSetPlacement', { id: 'i1', placement: 'own', originId: 'origin-1' }),
@@ -372,8 +371,8 @@ describe('overlayForOutboxEntry projection', () => {
     expect(ownThing.patch).toEqual({ parentId: null })
     // Top-level is spelled BOTH ways on the wire — `parentId` is optional — so
     // an absent field covers a cleared one, as it does for a cleared colour.
-    expect(ownThing.coveredBy({} as IssueWire)).toBe(true)
-    expect(ownThing.coveredBy({ parentId: 'origin-1' } as IssueWire)).toBe(false)
+    expect(ownThing.coveredBy({} as OverlayRow)).toBe(true)
+    expect(ownThing.coveredBy({ parentId: 'origin-1' } as OverlayRow)).toBe(false)
   })
 
   it('issueRestore clears the tombstone — the exact inverse of what issueDelete paints', () => {
@@ -385,12 +384,12 @@ describe('overlayForOutboxEntry projection', () => {
     expect(o.patch).toEqual({ deletedAt: null })
     // They write the one cell, which is why they share a collapse key.
     expect(Object.keys(o.patch)).toEqual(Object.keys(del.patch))
-    // Truth spells "not deleted" as an ABSENT field — `IssueWire.deletedAt` is
+    // Truth spells "not deleted" as an ABSENT field — `OverlayRow.deletedAt` is
     // optional, which is why the wire type refuses the null form below without a
     // cast, and why `sameCell` is what judges this rather than `===`.
-    expect(o.coveredBy({ deletedAt: null } as unknown as IssueWire)).toBe(true)
-    expect(o.coveredBy({} as IssueWire)).toBe(true)
-    expect(o.coveredBy({ deletedAt: '2026-07-03T00:00:00.000Z' } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ deletedAt: null } as unknown as OverlayRow)).toBe(true)
+    expect(o.coveredBy({} as OverlayRow)).toBe(true)
+    expect(o.coveredBy({ deletedAt: '2026-07-03T00:00:00.000Z' } as OverlayRow)).toBe(false)
   })
 
   // ---------------------------------------------------------------------------
@@ -405,7 +404,7 @@ describe('overlayForOutboxEntry projection', () => {
         patch: { title: 'Renamed', description: 'new prose', pinned: true },
       }),
     )
-    expect(overlays.map((o) => o.entity)).toEqual(['issueProjections', 'issueUserStates', 'issues'])
+    expect(overlays.map((o) => o.entity)).toEqual(['issueProjections', 'issueUserStates'])
     const [issue, user, legacy] = overlays
     if (issue?.op !== 'patch' || user?.op !== 'patch' || legacy?.op !== 'patch') {
       throw new Error('expected patch overlays')
@@ -439,64 +438,6 @@ describe('overlayForOutboxEntry projection', () => {
         `${key} must land on exactly one normalized row`,
       ).toEqual([0, 1])
     }
-  })
-
-  it('carries ONE old-record part per issue entry, in the old spelling, covered on the old row', () => {
-    const overlays = overlaysForOutboxEntry(
-      entry('issueUpdate', { id: 'i1', patch: { title: 'Renamed', notes: 'n', pinned: true } }),
-    )
-    const legacy = overlays.filter((o) => o.entity === 'issues')
-    expect(legacy).toHaveLength(1)
-    const [part] = legacy
-    if (part?.op !== 'patch') throw new Error('expected a patch part')
-    expect(part.id).toBe('i1')
-    expect(part.key).toBe(overlays[0]?.key)
-    // Plain text where the old record keeps plain text; the per-user cell too.
-    expect(part.patch).toEqual({ title: 'Renamed', notes: 'n', pinned: true })
-    // Covered only when the OLD row reflects every part of the write.
-    expect(part.coveredBy({ title: 'Renamed', notes: 'n', pinned: true } as IssueWire)).toBe(true)
-    expect(part.coveredBy({ title: 'Renamed', notes: 'n', pinned: false } as IssueWire)).toBe(false)
-    expect(part.coveredBy({ title: 'Old', notes: 'n', pinned: true } as IssueWire)).toBe(false)
-  })
-
-  it('every per-user write carries its old-record part, judged on the old row', () => {
-    for (const [kind, input, patch, covering] of [
-      [
-        'issueMarkRead',
-        { id: 'i1' },
-        { readAt: new Date(1751500800000).toISOString() },
-        { readAt: '2099-01-01T00:00:00.000Z' },
-      ],
-      ['issueMarkUnread', { id: 'i1' }, { readAt: null }, { readAt: null }],
-      [
-        'issueSetTucked',
-        { id: 'i1', tucked: true },
-        { tuckedAt: new Date(1751500800000).toISOString() },
-        { tuckedAt: '2099-01-01T00:00:00.000Z' },
-      ],
-      ['issueUpdate', { id: 'i1', patch: { pinned: true } }, { pinned: true }, { pinned: true }],
-    ] as const) {
-      const overlays = overlaysForOutboxEntry(entry(kind, input))
-      expect(
-        overlays.map((o) => o.entity),
-        kind,
-      ).toEqual(['issueUserStates', 'issues'])
-      const part = overlays[1]
-      if (part?.op !== 'patch') throw new Error(`expected a part for ${kind}`)
-      expect(part, kind).toMatchObject({ id: 'i1', patch })
-      // The server republishes the old record in a SECOND commit after the
-      // per-user row (IssueCrud): until that lands, the part keeps painting.
-      expect(part.coveredBy({ ...covering } as unknown as IssueWire), kind).toBe(true)
-    }
-  })
-
-  it('carries no old-record part for a session write or a placeholder insert', () => {
-    expect(
-      overlaysForOutboxEntry(entry('rename', { sessionId: 's1', name: 'x' })).map((o) => o.entity),
-    ).toEqual(['sessions'])
-    expect(
-      legacyIssuePart([insertOverlay('issueProjections', 'i1', {} as IssueProjection)]),
-    ).toBeNull()
   })
 
   // POD-762: a wake is row-visible. The queue depth is the fact — the operator's
@@ -784,21 +725,21 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     // with the OLD sortKey. Whole-row fingerprint divergence used to retire
     // the overlay and snap the row back; only a competing write on sortKey
     // itself (or coverage, or the TTL) may.
-    const base = { id: 'i1', sortKey: 'c', title: 'Task', childCount: 0, revision: 1 } as IssueWire
+    const base = { id: 'i1', sortKey: 'c', title: 'Task', childCount: 0, revision: 1 } as OverlayRow
     const o = overlayForOutboxEntry(entry('issueUpdate', { id: 'i1', patch: { sortKey: 'a1' } }))
     if (o?.op !== 'patch') throw new Error('expected patch')
     const awaiting: AwaitingTruth[] = [
       { overlay: o, baseline: rowFingerprint(base), resolvedAt: NOW },
     ]
-    const issueKey = (i: IssueWire): string => i.id
-    const noisy = { ...base, childCount: 2, revision: 4, commentCount: 3 } as IssueWire
+    const issueKey = (i: IssueProjection): string => i.id
+    const noisy = { ...base, childCount: 2, revision: 4, commentCount: 3 } as OverlayRow
     expect(pruneAwaiting(awaiting, 'issueProjections', [noisy], issueKey, NOW)).toBe(awaiting)
     // A competing reorder of the SAME cell does retire.
     expect(
       pruneAwaiting(
         awaiting,
         'issueProjections',
-        [{ ...base, sortKey: 'z9' } as IssueWire],
+        [{ ...base, sortKey: 'z9' } as IssueProjection],
         issueKey,
         NOW,
       ),
@@ -852,7 +793,7 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     const awaiting = [awaitRename(sess())]
     const removed = new Set([sess().sessionId])
     expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW, removed)).toEqual([])
-    expect(pruneAwaiting(awaiting, 'issues', [], (i: IssueWire) => i.id, NOW, removed)).toBe(
+    expect(pruneAwaiting(awaiting, 'issueProjections', [], (i: IssueProjection) => i.id, NOW, removed)).toBe(
       awaiting,
     )
   })

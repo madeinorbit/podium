@@ -1,29 +1,15 @@
+import { allIssueViewModels } from '../replica/issue-view-cache'
+import type { IssueViewModel } from '../replica/issue-view-models'
 // @vitest-environment happy-dom
 // (the runtime resolves its router window from the DOM when none is given.)
-/**
- * POD-4969 — optimistic issue edits land on the NORMALIZED rows.
- *
- * Every issue overlay of record now targets `issueProjections` (durable fields)
- * or `issueUserStates` (this principal's `readAt` / `tuckedAt` / `pinned`), is
- * held and retired against those rows, and is copied onto the old record
- * (`issues`) for the readers that have not moved yet. These tests drive the
- * real runtime, one edit kind at a time, through the three moments that matter:
- *
- *   - the PRESS paints the normalized row (and the old record's copy);
- *   - a REFUSAL rolls both back to server truth;
- *   - the ECHO settles it: the awaiting stage empties and server truth shows.
- *
- * The server is modelled the way it publishes since POD-4967: one commit
- * carries the old record, the normalized row and the per-user row (deleted when
- * all three markers clear).
- */
+/** Issue edits paint normalized rows and derived render models immediately,
+ * survive offline reload, and retire only when their own truth arrives. */
 
 import {
   asIssueId,
   asUserId,
   type IssueProjection,
   type IssueUserStateWire,
-  type IssueWire,
   issueUserStateRowId,
 } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -140,12 +126,9 @@ function makeEngine(opts: { api?: unknown; storage?: StorageApi; principal?: str
 
 type Engine = ReturnType<typeof makeEngine>['engine']
 
-/** What the server's one commit publishes for these issue rows (POD-4967):
- *  the old record, the normalized row, and the viewer's per-user row — removed
- *  when its markers all clear. */
-function publish(engine: Engine, rows: IssueWire[], userId = ME): void {
+/** Publish durable issue facts and this principal's personal markers. */
+function publish(engine: Engine, rows: IssueViewModel[], userId = ME): void {
   engine.replica.batch(() => {
-    engine.replica.applyChanges('issues', rows, [])
     engine.replica.applyChanges('issueProjections', rows.map(placeholderProjection), [])
     const upserts: IssueUserStateWire[] = []
     const removes: string[] = []
@@ -159,7 +142,7 @@ function publish(engine: Engine, rows: IssueWire[], userId = ME): void {
   })
 }
 
-function userStateOf(row: IssueWire, userId = ME): IssueUserStateWire {
+function userStateOf(row: IssueViewModel, userId = ME): IssueUserStateWire {
   return {
     userId: asUserId(userId),
     entityId: asIssueId(row.id),
@@ -172,7 +155,7 @@ function userStateOf(row: IssueWire, userId = ME): IssueUserStateWire {
 const ID = asIssueId('iss_1')
 const T0 = '2026-07-01T00:00:00.000Z'
 
-function baseIssue(over: Partial<IssueWire> = {}): IssueWire {
+function baseIssue(over: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id: ID,
     seq: 1,
@@ -198,19 +181,19 @@ function baseIssue(over: Partial<IssueWire> = {}): IssueWire {
     updatedAt: T0,
     archived: false,
     readAt: T0,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     ...over,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 const projectionOf = (engine: Engine): IssueProjection | undefined =>
   engine.getSnapshot().issueProjections.find((row) => row.id === ID)
 const userRowOf = (engine: Engine, userId = ME): IssueUserStateWire | undefined =>
   engine.getSnapshot().issueUserStates.find((row) => row.entityId === ID && row.userId === userId)
-const legacyOf = (engine: Engine): IssueWire | undefined =>
-  engine.getSnapshot().issues.find((row) => row.id === ID)
+const viewOf = (engine: Engine): IssueViewModel | undefined =>
+  allIssueViewModels(engine.replica, engine.getSnapshot().issueProjections, engine.getSnapshot().issueUserStates).find((row) => row.id === ID)
 
 interface Case {
   /** The edit, as the operator presses it. */
@@ -220,19 +203,19 @@ interface Case {
   /** Which normalized row the edit lands on. */
   home: 'issueProjections' | 'issueUserStates'
   /** Server truth before the press. */
-  before?: Partial<IssueWire>
+  before?: Partial<IssueViewModel>
   /** The painted cell, read off the normalized row (projection or per-user). */
   cell: (row: Record<string, unknown> | undefined) => unknown
-  /** The same fact, read off the old record. */
-  legacyCell: (row: IssueWire | undefined) => unknown
+  /** The same fact, read through the render model. */
+  viewCell: (row: IssueViewModel | undefined) => unknown
   /** True when a painted value is the edit's (clock-stamped cells vary). */
   painted: (value: unknown) => boolean
   /** Server truth after the command applied. */
-  after: Partial<IssueWire>
+  after: Partial<IssueViewModel>
 }
 
 const at = (key: string) => (row: Record<string, unknown> | undefined) => row?.[key]
-const legacyAt = (key: string) => (row: IssueWire | undefined) =>
+const viewAt = (key: string) => (row: IssueViewModel | undefined) =>
   (row as unknown as Record<string, unknown> | undefined)?.[key]
 const stamped = (value: unknown) => typeof value === 'string' && value !== T0
 const is = (expected: unknown) => (value: unknown) =>
@@ -244,7 +227,7 @@ const CASES: Record<string, Case> = {
     command: 'markRead',
     home: 'issueUserStates',
     cell: at('readAt'),
-    legacyCell: legacyAt('readAt'),
+    viewCell: viewAt('readAt'),
     painted: stamped,
     after: { readAt: '2026-07-09T00:00:00.000Z' },
   },
@@ -255,7 +238,7 @@ const CASES: Record<string, Case> = {
     // Unread on a row with no other marker: the server DELETES the row, so the
     // echo is an absent row — the "nothing set" the ledger folds absence as.
     cell: at('readAt'),
-    legacyCell: legacyAt('readAt'),
+    viewCell: viewAt('readAt'),
     painted: is(null),
     after: { readAt: null },
   },
@@ -264,7 +247,7 @@ const CASES: Record<string, Case> = {
     command: 'setTucked',
     home: 'issueUserStates',
     cell: at('tuckedAt'),
-    legacyCell: legacyAt('tuckedAt'),
+    viewCell: viewAt('tuckedAt'),
     painted: stamped,
     after: { tuckedAt: '2026-07-09T00:00:00.000Z' },
   },
@@ -273,7 +256,7 @@ const CASES: Record<string, Case> = {
     command: 'update',
     home: 'issueUserStates',
     cell: at('pinned'),
-    legacyCell: legacyAt('pinned'),
+    viewCell: viewAt('pinned'),
     painted: is(true),
     after: { pinned: true },
   },
@@ -282,7 +265,7 @@ const CASES: Record<string, Case> = {
     command: 'update',
     home: 'issueProjections',
     cell: at('title'),
-    legacyCell: legacyAt('title'),
+    viewCell: viewAt('title'),
     painted: is('After'),
     after: { title: 'After' },
   },
@@ -291,7 +274,7 @@ const CASES: Record<string, Case> = {
     command: 'update',
     home: 'issueProjections',
     cell: (row) => (row?.description as { value?: string } | undefined)?.value,
-    legacyCell: legacyAt('description'),
+    viewCell: viewAt('description'),
     painted: is('new prose'),
     after: { description: 'new prose' },
   },
@@ -300,7 +283,7 @@ const CASES: Record<string, Case> = {
     command: 'update',
     home: 'issueProjections',
     cell: at('color'),
-    legacyCell: legacyAt('color'),
+    viewCell: viewAt('color'),
     painted: is('teal'),
     after: { color: 'teal' },
   },
@@ -309,7 +292,7 @@ const CASES: Record<string, Case> = {
     command: 'archive',
     home: 'issueProjections',
     cell: at('archived'),
-    legacyCell: legacyAt('archived'),
+    viewCell: viewAt('archived'),
     painted: is(true),
     after: { archived: true },
   },
@@ -318,7 +301,7 @@ const CASES: Record<string, Case> = {
     command: 'delete',
     home: 'issueProjections',
     cell: at('deletedAt'),
-    legacyCell: legacyAt('deletedAt'),
+    viewCell: viewAt('deletedAt'),
     painted: (v) => typeof v === 'string',
     after: { deletedAt: '2026-07-09T00:00:00.000Z' },
   },
@@ -328,7 +311,7 @@ const CASES: Record<string, Case> = {
     home: 'issueProjections',
     before: { deletedAt: T0 },
     cell: at('deletedAt'),
-    legacyCell: legacyAt('deletedAt'),
+    viewCell: viewAt('deletedAt'),
     painted: is(null),
     after: { deletedAt: undefined },
   },
@@ -337,7 +320,7 @@ const CASES: Record<string, Case> = {
     command: 'close',
     home: 'issueProjections',
     cell: (row) => [row?.stage, row?.closedReason],
-    legacyCell: (row) => [row?.stage, row?.closedReason],
+    viewCell: (row) => [row?.stage, row?.closedReason],
     painted: is(['done', 'wontfix']),
     after: { stage: 'done', closedReason: 'wontfix' },
   },
@@ -346,7 +329,7 @@ const CASES: Record<string, Case> = {
     command: 'defer',
     home: 'issueProjections',
     cell: at('deferUntil'),
-    legacyCell: legacyAt('deferUntil'),
+    viewCell: viewAt('deferUntil'),
     painted: is('2099-01-01'),
     after: { deferUntil: '2099-01-01' },
   },
@@ -356,7 +339,7 @@ const CASES: Record<string, Case> = {
     home: 'issueProjections',
     before: { deferUntil: '2099-01-01' },
     cell: at('deferUntil'),
-    legacyCell: legacyAt('deferUntil'),
+    viewCell: viewAt('deferUntil'),
     // Backdated, not cleared (issue #133).
     painted: (v) => typeof v === 'string' && Date.parse(v) < Date.now(),
     after: { deferUntil: '2020-01-01T00:00:00.000Z' },
@@ -366,7 +349,7 @@ const CASES: Record<string, Case> = {
     command: 'setLabels',
     home: 'issueProjections',
     cell: at('labels'),
-    legacyCell: legacyAt('labels'),
+    viewCell: viewAt('labels'),
     painted: is(['bug', 'ui']),
     after: { labels: ['bug', 'ui'] },
   },
@@ -375,7 +358,7 @@ const CASES: Record<string, Case> = {
     command: 'setPlacement',
     home: 'issueProjections',
     cell: at('parentId'),
-    legacyCell: legacyAt('parentId'),
+    viewCell: viewAt('parentId'),
     painted: is('iss_origin'),
     after: { parentId: asIssueId('iss_origin') },
   },
@@ -393,7 +376,7 @@ afterEach(() => {
 describe('optimistic issue edits land on the normalized rows (POD-4969)', () => {
   for (const [name, c] of Object.entries(CASES)) {
     describe(name, () => {
-      it('paints the normalized row on the press, and the old record copies it', async () => {
+      it('paints normalized truth and the render model on the press', async () => {
         const api = makeApi()
         // Hold the command in flight: what shows is the overlay, not truth.
         api.issues[c.command].mutate = vi.fn(() => new Promise(() => {}))
@@ -407,11 +390,11 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
         void c.press(engine.getSnapshot())
         // Synchronous with the press — nothing was awaited.
         expect(c.painted(c.cell(homeRow(engine, c.home)))).toBe(true)
-        expect(c.painted(c.legacyCell(legacyOf(engine)))).toBe(true)
+        expect(c.painted(c.viewCell(viewOf(engine)))).toBe(true)
         // It stays painted while the command is in flight.
         await settle()
         expect(c.painted(c.cell(homeRow(engine, c.home)))).toBe(true)
-        expect(c.painted(c.legacyCell(legacyOf(engine)))).toBe(true)
+        expect(c.painted(c.viewCell(viewOf(engine)))).toBe(true)
         engine.dispose()
       })
 
@@ -426,13 +409,13 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
         publish(engine, [baseIssue(c.before)])
         await settle()
         const truth = c.cell(homeRow(engine, c.home))
-        const legacyTruth = c.legacyCell(legacyOf(engine))
+        const legacyTruth = c.viewCell(viewOf(engine))
 
         await c.press(engine.getSnapshot()).catch(() => {})
         await settle(60)
         expect(api.issues[c.command].mutate).toHaveBeenCalled()
         expect(c.cell(homeRow(engine, c.home))).toEqual(truth)
-        expect(c.legacyCell(legacyOf(engine))).toEqual(legacyTruth)
+        expect(c.viewCell(viewOf(engine))).toEqual(legacyTruth)
         expect(engine.outbox.awaiting()).toHaveLength(0)
         engine.dispose()
       })
@@ -451,7 +434,7 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
         // Resolved, truth not landed: the overlay waits on the normalized row.
         expect(engine.outbox.awaiting()).toHaveLength(1)
         expect(c.painted(c.cell(homeRow(engine, c.home)))).toBe(true)
-        expect(c.painted(c.legacyCell(legacyOf(engine)))).toBe(true)
+        expect(c.painted(c.viewCell(viewOf(engine)))).toBe(true)
 
         const echoed = baseIssue({ ...c.before, ...c.after })
         publish(engine, [echoed])
@@ -469,7 +452,7 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
                 : userStateOf(echoed)) as Record<string, unknown> | undefined,
           ),
         )
-        expect(c.legacyCell(legacyOf(engine))).toEqual(c.legacyCell(echoed))
+        expect(c.viewCell(viewOf(engine))).toEqual(c.viewCell(echoed))
         engine.dispose()
       })
     })
@@ -498,7 +481,7 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
     )
     await settle()
     expect(userRowOf(engine)?.pinned).toBe(true)
-    expect(legacyOf(engine)?.pinned).toBe(true)
+    expect(viewOf(engine)?.pinned).toBe(true)
     expect(engine.outbox.awaiting()).toHaveLength(1)
 
     publish(engine, [baseIssue({ title: 'After', pinned: true })])
@@ -507,33 +490,21 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
     engine.dispose()
   })
 
-  // The server commits the per-user row FIRST and republishes the old record in
-  // a second commit (IssueCrud.markIssueRead: writeIssueUserState, then
-  // persist). The old record's readers must not see the edit undone between.
-  it('the old record keeps the edit until ITS echo lands, when the per-user echo comes first', async () => {
-    const api = makeApi()
-    const { engine } = makeEngine({ api })
+  it('a personal-marker echo settles the edit without another issue publication', async () => {
+    const { engine } = makeEngine()
     engine.start()
     await settle(40)
     publish(engine, [baseIssue({ readAt: null })])
     await settle()
+    const projection = projectionOf(engine)
     await engine.getSnapshot().markIssueRead(ID)
     await settle()
-    const painted = legacyOf(engine)?.readAt
-    expect(painted).toEqual(expect.any(String))
-
-    // Commit 1: the per-user row only.
-    const echoed = baseIssue({ readAt: '2026-07-09T00:00:00.000Z' })
-    engine.replica.applyChanges('issueUserStates', [userStateOf(echoed)], [])
-    await settle()
-    expect(userRowOf(engine)?.readAt).toBe('2026-07-09T00:00:00.000Z')
-    expect(legacyOf(engine)?.readAt).toBe(painted) // not null: no flicker
+    expect(viewOf(engine)?.readAt).toEqual(expect.any(String))
     expect(engine.outbox.awaiting()).toHaveLength(1)
-
-    // Commit 2: the old record (and the normalized issue row) republished.
-    publish(engine, [echoed])
+    engine.replica.applyChanges('issueUserStates', [userStateOf(baseIssue({ readAt: '2026-07-09T00:00:00.000Z' }))], [])
     await settle()
-    expect(legacyOf(engine)?.readAt).toBe('2026-07-09T00:00:00.000Z')
+    expect(viewOf(engine)?.readAt).toBe('2026-07-09T00:00:00.000Z')
+    expect(projectionOf(engine)).toBe(projection)
     expect(engine.outbox.awaiting()).toHaveLength(0)
     engine.dispose()
   })
@@ -557,7 +528,7 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
     const second = makeEngine({ api, storage })
     // Before start(): the hydrate-first snapshot already carries the paint.
     expect(userRowOf(second.engine)?.tuckedAt).toEqual(expect.any(String))
-    expect(legacyOf(second.engine)?.tuckedAt).toEqual(expect.any(String))
+    expect(viewOf(second.engine)?.tuckedAt).toEqual(expect.any(String))
     second.engine.dispose()
   })
 
@@ -575,7 +546,6 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
 
     // Evicted from this principal's view: every record of the issue leaves.
     engine.replica.batch(() => {
-      engine.replica.applyChanges('issues', [], [ID])
       engine.replica.applyChanges('issueProjections', [], [ID])
     })
     await settle()
@@ -588,7 +558,7 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
 describe('the spawn placeholder (POD-4969)', () => {
   const target = { path: '/w', repoPath: '/w' }
 
-  it("inserts a normalized row and this principal's markers beside the old record", async () => {
+  it("inserts only the normalized row and this principal's markers", async () => {
     const api = makeApi()
     let release!: () => void
     api.sessions.create = {
@@ -613,14 +583,12 @@ describe('the spawn placeholder (POD-4969)', () => {
     expect(engine.getSnapshot().issueUserStates).toContainEqual(
       expect.objectContaining({ userId: ME, entityId: made.issueId, readAt: expect.any(String) }),
     )
-    expect(engine.getSnapshot().issues.some((row) => row.id === made.issueId)).toBe(true)
+    expect(allIssueViewModels(engine.replica, engine.getSnapshot().issueProjections, engine.getSnapshot().issueUserStates).some((row) => row.id === made.issueId)).toBe(true)
 
     // Truth for the issue lands: no duplicate row, and the per-user placeholder
     // retires with the issue's (the server writes no marker on create).
-    const legacy = engine.getSnapshot().issues.find((row) => row.id === made.issueId)
-    if (legacy === undefined || projection === undefined) throw new Error('missing placeholder')
+    if (projection === undefined) throw new Error('missing placeholder')
     engine.replica.batch(() => {
-      engine.replica.applyChanges('issues', [{ ...legacy, seq: 7, readAt: null }], [])
       engine.replica.applyChanges('issueProjections', [{ ...projection, seq: 7 }], [])
     })
     await settle()
@@ -650,7 +618,7 @@ describe('the spawn placeholder (POD-4969)', () => {
     expect(engine.getSnapshot().issueUserStates.some((row) => row.entityId === made.issueId)).toBe(
       false,
     )
-    expect(engine.getSnapshot().issues.some((row) => row.id === made.issueId)).toBe(false)
+    expect(allIssueViewModels(engine.replica, engine.getSnapshot().issueProjections, engine.getSnapshot().issueUserStates).some((row) => row.id === made.issueId)).toBe(false)
     expect(errors.some((m) => m.includes('spawn refused'))).toBe(true)
     engine.dispose()
   })
@@ -704,7 +672,7 @@ describe('principal isolation of per-user overlays (POD-4969)', () => {
     expect(userRowOf(a.engine, 'alice')?.tuckedAt).toEqual(expect.any(String))
     // Bob's view of Alice's row is whatever the server says, and Bob has no row.
     expect(b.engine.getSnapshot().issueUserStates.filter((row) => row.entityId === ID)).toEqual([])
-    expect(b.engine.getSnapshot().issues.find((row) => row.id === ID)?.tuckedAt ?? null).toBeNull()
+    expect(allIssueViewModels(b.engine.replica, b.engine.getSnapshot().issueProjections, b.engine.getSnapshot().issueUserStates).find((row) => row.id === ID)?.tuckedAt ?? null).toBeNull()
     a.engine.dispose()
     b.engine.dispose()
   })

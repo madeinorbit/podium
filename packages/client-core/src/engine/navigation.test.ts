@@ -8,7 +8,7 @@ import { type EngineState, workspaceMirrorPatch } from './state'
 const context = { visible: true, now: '2026-09-18T00:00:00.000Z' }
 const issue = { id: asIssueId('issue'), archived: false } as IssueProjection
 function state(): EngineState {
-  return { issues: [], issueProjections: [issue], issueUserStates: [], issueDeps: [], sessions: [],
+  return { issueProjections: [issue], issueUserStates: [], issueDeps: [], sessions: [],
     selectedIssueId: null, selectedWorktree: '/repo', workspaces: {},
     paneA: null, paneB: null, focusedPane: 'A', split: false, fileTabs: [], recentFiles: [],
     view: 'issues', settingsTab: null, openIssueId: null, issueVisitBaseline: null } as unknown as EngineState
