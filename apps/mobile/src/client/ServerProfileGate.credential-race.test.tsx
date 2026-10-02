@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { PODIUM_SCHEME, formatPodiumLink } from '@podium/protocol'
+import { offlineProfileStatus } from '@podium/client-core/accounts'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServerProfileContextValue } from './server-profile-context'
@@ -454,8 +455,10 @@ describe('handoff profile selection', () => {
     expect(seams.router.replace.mock.calls.map(([route]) => route)).toEqual(['/', '/work'])
     expect(seams.preflight.mock.calls.map(([origin]) => origin)).toEqual(['https://a.example'])
     expect(seams.getInitialUrl).toHaveBeenCalledTimes(1)
-    expect(seams.announce).toHaveBeenCalledWith(
-      'Opened Work because the matching saved server is unavailable.',
+    await waitFor(() =>
+      expect(seams.announce).toHaveBeenCalledWith(
+        'Opened Work because the matching saved server is unavailable.',
+      ),
     )
   })
 
@@ -1148,6 +1151,42 @@ describe('pairing supersedes handoff intent', () => {
 })
 
 describe('profile credential completion races', () => {
+  it('restores offline access only after a fresh verified identity follows expiry', async () => {
+    await mountActiveProfileA()
+    const other = seams.durableProfiles!.profiles[1]
+    await act(async () => {
+      await seams.activeContext!.updateCredential(null)
+    })
+    const retired = seams.durableProfiles!.profiles[0]!
+    expect(retired).toMatchObject({
+      signedOut: true,
+      userId: 'user:a',
+      syncBoundaryId: 'installation-a',
+      memberId: 'user:a',
+    })
+    expect(seams.credentials.has('profile-a')).toBe(false)
+    expect(offlineProfileStatus(retired)).toBeUndefined()
+    expect(seams.durableProfiles!.profiles[1]).toEqual(other)
+
+    await act(async () => {
+      await seams.activeContext!.updateCredential('fresh-token-a')
+    })
+    expect(seams.activeContext!.profile.signedOut).toBe(true)
+    await act(async () => {
+      await seams.activeContext!.recordUser('user:a', {
+        syncBoundaryId: 'installation-a',
+        memberId: 'user:a',
+      })
+    })
+    expect(seams.durableProfiles!.profiles[0]!.signedOut).toBeUndefined()
+    expect(offlineProfileStatus(seams.durableProfiles!.profiles[0]!)).toMatchObject({
+      authed: true,
+      memberId: 'user:a',
+      syncBoundaryId: 'installation-a',
+    })
+    expect(seams.activeContext!.bearer).toBe('fresh-token-a')
+  })
+
   it('merges a delayed A principal record before handoff activates B', async () => {
     await mountActiveProfileA()
     const recordUserA = seams.activeContext!.recordUser

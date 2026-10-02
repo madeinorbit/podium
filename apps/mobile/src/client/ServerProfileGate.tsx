@@ -1147,7 +1147,8 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         if (
           (profile.userId === userId &&
             profile.syncBoundaryId === identity.syncBoundaryId &&
-            profile.memberId === identity.memberId) ||
+            profile.memberId === identity.memberId &&
+            !profile.signedOut) ||
           config.override
         )
           return
@@ -1175,7 +1176,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             ...current,
             profiles: current.profiles.map((row) =>
               row.id === profile.id
-                ? { ...row, userId, ...identity, updatedAt: new Date().toISOString() }
+                ? {
+                    ...row,
+                    userId,
+                    ...identity,
+                    signedOut: undefined,
+                    updatedAt: new Date().toISOString(),
+                  }
                 : row,
             ),
           }

@@ -18,7 +18,7 @@ export interface ProfileActivation {
   activation: 'verified' | 'offline-cache'
 }
 
-/** A confirmed sign-out/expiry cannot keep authorising a native offline identity. */
+/** Deny offline access after sign-out/expiry, retaining the tuple for later erasure. */
 export async function clearProfileIdentity(
   profiles: ServerProfiles,
   profileId: string,
@@ -31,8 +31,7 @@ export async function clearProfileIdentity(
     ...before,
     profiles: before.profiles.map((profile) => {
       if (profile.id !== profileId) return profile
-      const { userId: _userId, syncBoundaryId: _boundary, memberId: _member, ...rest } = profile
-      return { ...rest, updatedAt: new Date().toISOString() }
+      return { ...profile, signedOut: true as const, updatedAt: new Date().toISOString() }
     }),
   }
   await profiles.saveServerProfiles(next)

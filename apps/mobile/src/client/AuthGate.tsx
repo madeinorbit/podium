@@ -64,6 +64,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     profile.userId,
     profile.syncBoundaryId,
     profile.memberId,
+    profile.signedOut,
     profile.workspaceId,
   ])
 

@@ -24,6 +24,8 @@ export interface ServerProfile {
   syncBoundaryId?: string
   memberId?: string
   userId?: string
+  /** Retain cleanup ownership after expiry, without authorising offline access. */
+  signedOut?: true
   createdAt: string
   updatedAt: string
 }
@@ -70,6 +72,7 @@ export function canOpenProfileOffline(
 ): boolean {
   return (
     failureKind === 'unreachable' &&
+    profile.signedOut !== true &&
     typeof profile.instanceId === 'string' &&
     profile.instanceId.length > 0 &&
     typeof profile.syncBoundaryId === 'string' &&
@@ -172,6 +175,7 @@ function isProfile(value: unknown, cookieTransport = false): value is ServerProf
     (row.memberId === undefined || (typeof row.memberId === 'string' && row.memberId.length > 0)) &&
     (row.userId === undefined ||
       (typeof row.userId === 'string' && row.userId.length > 0 && row.userId.length <= 256)) &&
+    (row.signedOut === undefined || row.signedOut === true) &&
     typeof row.createdAt === 'string' &&
     typeof row.updatedAt === 'string'
   )

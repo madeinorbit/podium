@@ -134,7 +134,13 @@ function browserProbeDecision(body: unknown): AccountDecision {
 
 /** Only previously verified, server-authored identity can open a native offline profile. */
 export function offlineProfileStatus(profile: ServerProfile): AuthStatus | undefined {
-  if (!profile.instanceId || !profile.userId || !profile.syncBoundaryId || !profile.memberId)
+  if (
+    profile.signedOut ||
+    !profile.instanceId ||
+    !profile.userId ||
+    !profile.syncBoundaryId ||
+    !profile.memberId
+  )
     return undefined
   return {
     needsAuth: profile.mode === 'protected',

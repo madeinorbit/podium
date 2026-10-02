@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   activateServerProfile,
+  canOpenProfileOffline,
   clearProfileIdentity,
   cookieCredentials,
   createAccountEraser,
@@ -218,8 +219,33 @@ describe('switching profiles and removing account data', () => {
     await args.profiles.saveServerProfiles({ ...before, profiles: [profile, other] })
     const next = await clearProfileIdentity(args.profiles, profile.id, () => true)
     expect(offlineProfileStatus(next.profiles[0]!)).toBeUndefined()
+    expect(canOpenProfileOffline(next.profiles[0]!, 'unreachable')).toBe(false)
+    expect(next.profiles[0]).toMatchObject({
+      signedOut: true,
+      userId: 'alice',
+      syncBoundaryId: 'installation-a',
+      memberId: 'alice',
+    })
+    expect(await args.profiles.loadServerProfiles()).toEqual(next)
     expect(next.profiles[1]).toEqual(other)
     expect(next.activeProfileId).toBe(profile.id)
+  })
+
+  it('erases an expired native account using the retained cleanup identity', async () => {
+    const args = await activation()
+    await clearProfileIdentity(args.profiles, profile.id, () => true)
+    // Removal happens after a new launch, using only persisted metadata.
+    const retired = (await args.profiles.loadServerProfiles()).profiles[0]!
+    expect(offlineProfileStatus(retired)).toBeUndefined()
+    const erase = vi.fn(async (_principal: string) => {})
+    await removeServerProfile({ ...args, profile: retired, erasePrincipal: erase })
+    expect(erase).toHaveBeenCalledExactlyOnceWith(ALICE)
+    expect(args.credentials.remove).toHaveBeenCalledExactlyOnceWith(profile.id)
+    expect(await args.profiles.loadPendingProfileCleanups()).toEqual([])
+    expect(await args.profiles.loadServerProfiles()).toEqual({
+      profiles: [],
+      activeProfileId: null,
+    })
   })
 
   it('never reads the saved credential from a replacement server', async () => {
