@@ -107,8 +107,8 @@ describe('web legacy issue retention', () => {
         seq: 2,
         title: 'Waiting to merge',
         stage: 'review',
-        humanQuestion: 'Approve?',
-        humanQuestionOptions: ['Yes', 'No'],
+        needsHuman: true,
+        asked: { question: 'Approve?', options: ['Yes', 'No'] },
         gitState: {
           updatedAt: 'probe',
           branch: 'feature',
@@ -147,6 +147,7 @@ describe('web legacy issue retention', () => {
     await before.settled()
     expect(cache.readEntities().filter((row) => row.entity === 'issue')).toHaveLength(2)
     const beforeModels = allIssueViewModels(fixture.replica)
+    expect(beforeModels.find(issue => issue.id === 'i2')).toMatchObject({ needsHuman: true, asked: { question: 'Approve?' } })
     expect(beforeModels).toHaveLength(2)
     const screens = screenOutput(beforeModels)
     expect(screens.listRows).toEqual(['i1', 'i2'])
@@ -157,6 +158,9 @@ describe('web legacy issue retention', () => {
     const hydrated = await after.replica.hydrate()
     expect(hydrated).not.toHaveProperty('issues')
     expect(hydrated.schemaReset).toBe(false)
+    const question = allIssueViewModels(after.replica).find(issue => issue.id === 'i2')
+    expect(question?.needsHuman).toBe(true)
+    expect(question?.asked).toEqual({ question: 'Approve?', options: ['Yes', 'No'] })
     expect(after.replica.getCursor()).toBe(10)
     expect(
       after.assembly.store

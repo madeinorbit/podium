@@ -494,6 +494,7 @@ export type IssuePatch = Partial<
     | 'humanQuestionOptions'
     | 'humanQuestionAskedBy'
     | 'humanQuestionAskedAt'
+    | 'humanQuestionAttribution'
     | 'coordinatorSessionId'
   >
 > & {

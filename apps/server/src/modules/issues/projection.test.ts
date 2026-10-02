@@ -96,6 +96,21 @@ function row(over: Partial<UnbrandIds<IssueRow>> = {}): IssueRow {
 const NO_LABELS: string[] = []
 
 describe('issueRowToProjection [POD-796]', () => {
+  it.each([null, '2026-07-02T00:00:00.000Z'])('preserves a stored question with no asker and timestamp %s', at => {
+    const projected = issueRowToProjection(row({
+      needsHuman: true, humanQuestion: 'Keep this unanswered question?',
+      humanQuestionAskedBy: null, humanQuestionAskedAt: at,
+      humanQuestionAttribution: null,
+    }), NO_LABELS)
+    expect(projected.needsHuman).toBe(true)
+    expect(projected.asked).toEqual({
+      question: 'Keep this unanswered question?', options: ['left', 'right'],
+      ...(at ? { at } : {}),
+    })
+    expect(projected.asked).not.toHaveProperty('by')
+    expect(projected.asked).not.toHaveProperty('attribution')
+  })
+
   it('carries the durable row through, revision included', () => {
     const p = issueRowToProjection(row(), NO_LABELS)
     // Spot-checks across every field group, not an exhaustive restatement: an

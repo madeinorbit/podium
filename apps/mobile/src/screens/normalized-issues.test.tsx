@@ -209,7 +209,7 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     ['issue detail', IssueScreen],
   ])('renders the %s screen from normalized homes', async (_name, Surface) => {
     const mounted = await renderWithMobileStore(<Surface />, fixture)
-    expect(mounted.replica.rows('issues')).toEqual([])
+    expect(await mounted.replica.hydrate()).not.toHaveProperty('issues')
     await waitFor(() =>
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0),
     )
@@ -222,6 +222,14 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
       expect(screen.getByText('The normalized description.')).toBeTruthy()
       expect(screen.getByText('Ship normalized mobile?')).toBeTruthy()
     }
+  })
+
+  it('renders an outstanding question whose historical asker is unknown', async () => {
+    const question = { ...projection, asked: { question: 'Keep this unanswered question?' } }
+    await renderWithMobileStore(<><IssueScreen /><Probe /></>, { ...fixture, issueProjections: [question] })
+    await waitFor(() => expect(screen.getByText('Keep this unanswered question?')).toBeTruthy())
+    expect(latest?.needsHuman).toBe(true)
+    expect(latest?.asked).toEqual({ question: 'Keep this unanswered question?' })
   })
 
   it('joins repo/git/personal kinds, and exposes no legacy spellings', async () => {
