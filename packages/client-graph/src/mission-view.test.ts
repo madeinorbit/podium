@@ -91,8 +91,7 @@ it('counts every same-type dependency while preserving first-origin navigation',
   const { pool, reader } = open([issue('first', { stage: 'backlog' }), issue('second', { stage: 'backlog' }),
     issue('source', { stage: 'proposed', deps })], [])
   expect(tracked(() => pool.graph.one('issue', 'source', 'discoveredFrom'))).toBe('first')
-  expect(tracked(() => [...pool.graph.many('issue', 'source', 'viewOrigins')]).sort()).toEqual(['first', 'second'])
-  expect(tracked(() => [...pool.graph.many('issue', 'source', 'viewRelated')]).sort()).toEqual(['first', 'second'])
+  expect(tracked(() => [...pool.graph.many('issue', 'source', 'pageDependencies')]).sort()).toEqual(['first', 'second'])
   expect(tracked(() => reader.issue('second'))).toMatchObject({ dependents: [
     { id: 'source', type: 'discovered-from' }, { id: 'source', type: 'related' },
   ] })
@@ -102,7 +101,7 @@ it('counts every same-type dependency while preserving first-origin navigation',
   expect(values.progress.total).toBe(0)
   runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'source',
     value: issue('source', { stage: 'proposed', deps: deps.filter(dep => dep.id !== 'second') }) }] }))
-  expect(tracked(() => pool.graph.size('issue', 'second', 'viewDiscoveries'))).toBe(0)
+  expect(tracked(() => pool.graph.size('issue', 'second', 'pageDependents'))).toBe(0)
   expect(tracked(() => reader.issue('second'))).toMatchObject({ dependents: [] })
   const removed = tracked(() => readMissionView(reader, 'second'))
   if (removed === LOADING) throw new Error('Unsettled fixture')

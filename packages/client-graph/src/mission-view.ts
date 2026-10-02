@@ -12,7 +12,6 @@ import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
 import { missions } from './mission'
-import { MISSION_VIEW_DEPS } from './mission-view-schema'
 import { knownIssueIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { overlayRow } from './shared/overlay-row'
@@ -123,7 +122,7 @@ export class MissionViewReader {
     if (attached === LOADING) return LOADING
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
-    const memberIds = [...this.pool.graph.many('issue', id, 'viewMemberSessions')].sort()
+    const memberIds = [...this.pool.graph.many('issue', id, 'pageSessions')].sort()
     const members: SessionView[] = []
     let pending = false
     for (const sessionId of memberIds) {
@@ -138,6 +137,16 @@ export class MissionViewReader {
       if (child === LOADING) pending = true
       else if (child?.stage === 'done') childDoneCount++
     }
+    // One declared inverse yields source IDs. Reading each source's declared
+    // edge list preserves custom types, duplicate edges and per-source order.
+    const dependents: IssueNavigationModel['dependents'] = []
+    for (const sourceId of [...this.pool.graph.many('issue', id, 'pageDependents')].sort()) {
+      const source = this.pool.row('issue', sourceId) as Loaded<IssueNavigationModel>
+      if (source === LOADING) pending = true
+      else if (source) for (const dep of source.deps ?? []) {
+        if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
+      }
+    }
     if (pending) return LOADING
     const repoId = this.pool.graph.one('issue', id, 'repo')
     const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
@@ -149,9 +158,6 @@ export class MissionViewReader {
       byPhase[phase] = (byPhase[phase] ?? 0) + 1
       unread ||= Date.parse(session.lastActiveAt) > Date.parse(readAt ?? '')
     }
-    const dependents = [
-      ...MISSION_VIEW_DEPS.flatMap(([type, , inverse]) => [...this.pool.graph.many('issue', id, inverse)].map(id => ({ id: asIssueId(id), type }))),
-    ].sort(rowOrder)
     const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
     const deferred = Number.isFinite(deferAt) && !this.pool.clock.reached(deferAt)
     return overlayRow(row, {
@@ -227,10 +233,8 @@ export class MissionViewReader {
     }
     for (const id of tips) {
       addressed.add(id)
-      for (const [, relation] of MISSION_VIEW_DEPS) {
-        for (const target of this.pool.graph.many('issue', id, relation)) addressed.add(target)
-      }
-      for (const relation of ['treeParent', 'viewSupersededBy', 'viewDuplicateOf']) {
+      for (const target of this.pool.graph.many('issue', id, 'pageDependencies')) addressed.add(target)
+      for (const relation of ['treeParent', 'supersedingIssue', 'canonicalIssue']) {
         const target = this.pool.graph.one('issue', id, relation)
         if (target) addressed.add(target)
       }
@@ -327,8 +331,8 @@ class MissionContext {
   }
   continuation(issue: IssueNavigationModel, local = false): IssueContinuation | null {
     const targetId = issue.supersededBy
-      ? this.view.pool.graph.one('issue', issue.id, 'viewSupersededBy') ?? issue.supersededBy
-      : this.view.pool.graph.one('issue', issue.id, 'viewDuplicateOf') ?? issue.duplicateOf
+      ? this.view.pool.graph.one('issue', issue.id, 'supersedingIssue') ?? issue.supersededBy
+      : this.view.pool.graph.one('issue', issue.id, 'canonicalIssue') ?? issue.duplicateOf
     if (targetId) {
       const target = this.issue(targetId), ref = target ? issueDisplayRef(target) : 'another task'
       return issue.supersededBy ? { kind: 'superseded', ...(target ? { target } : {}), short: ref,
@@ -527,7 +531,7 @@ function progressFor(ctx: MissionContext, root: IssueNavigationModel, members: R
   const scope = [...members].flatMap(id => { const issue = ctx.byId.get(id); return issue && visible(issue) ? [issue] : [] })
   const accepted = scope.filter(issue => formal.has(issue.id) && issue.stage !== 'proposed' && !issueAbandoned(issue))
   const units = (accepted.length ? accepted : [root]).filter(issue => !issueAbandoned(issue) &&
-    (ctx.live(issue.id) || (ctx.tips(issue.id, true).length === 0 && ctx.view.pool.graph.size('issue', issue.id, 'viewDiscoveries') === 0)))
+    (ctx.live(issue.id) || (ctx.tips(issue.id, true).length === 0 && !issue.dependents.some(dep => dep.type === 'discovered-from'))))
   const staffed = new Set<string>()
   for (const issue of scope) {
     if (!ctx.live(issue.id)) continue

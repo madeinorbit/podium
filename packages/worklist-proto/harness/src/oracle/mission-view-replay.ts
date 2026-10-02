@@ -101,7 +101,7 @@ async function main() {
         const values = poolMissionViewSnapshot(pool, id)
         progressCounts.push({ missionId: opaque(id), expected: missionProgress(issues, sessions, id), actual: typeof values === 'symbol' ? null : values.sections[0]?.fields.progress,
           incoming: issues.find(issue => issue.id === id)?.dependents.filter(dep => dep.type === 'discovered-from').length,
-          graphIncoming: pool.graph.size('issue', id, 'viewDiscoveries'), ownSessions: sessions.filter(session => session.issueId === id).length,
+          declaredDependentSources: pool.graph.size('issue', id, 'pageDependents'), ownSessions: sessions.filter(session => session.issueId === id).length,
         })
       }
       })
