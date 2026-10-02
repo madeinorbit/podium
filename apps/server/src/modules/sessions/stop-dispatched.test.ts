@@ -12,10 +12,17 @@
  * instead of leaving them `dispatched` forever. The sweep never retries
  * `dispatched` (only `stored`), and teardown abandonment skips durable rows
  * for the next owner that will never come.
+ *
+ * Hibernated sessions are the other half (msg_57ee6766 → 7d1541b0, still
+ * `dispatched` with 7 queued rows): the queue is kept for resume on purpose,
+ * and the next bind re-forwards each row as a recovery the daemon settles
+ * without retyping (`unknown`), so nothing is lost — it just waits for the
+ * resume. The second test pins that half.
  */
 
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { actorAgent, asAgentIdentityId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, afterEach, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -39,7 +46,8 @@ async function makeRegistry() {
   })
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
-  await attachHostDaemon(reg, () => {})
+  const toDaemon: ControlMessage[] = []
+  await attachHostDaemon(reg, (m) => toDaemon.push(m))
   await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId, 'git@github.com:example/r.git')
   const rpc = (reg.modules.sessions as unknown as {
     rpc: {
@@ -51,7 +59,7 @@ async function makeRegistry() {
   rpc.runtimeLifecycle = async (input) => {
     return { sessionId: input.sessionId, result: { ok: true, retirement: 'confirmed' } }
   }
-  return { reg, store }
+  return { reg, store, toDaemon }
 }
 
 async function bindLiveNoResume(reg: SessionRegistry, sessionId: string) {
@@ -65,6 +73,31 @@ async function bindLiveNoResume(reg: SessionRegistry, sessionId: string) {
   })
   // No sessionResumeRef: this session can never resume, so a stop parks it
   // as `exited` — the prod shape of 11dfae83 (stop_reason=parent, no resume).
+}
+
+async function bindLiveResumable(reg: SessionRegistry, sessionId: string) {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    type: 'bind',
+    sessionId: asSessionId(sessionId),
+    cmd: 'claude',
+    cwd: '/r',
+    agentKind: 'claude-code',
+    geometry: { cols: 80, rows: 24 },
+  })
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    type: 'sessionResumeRef',
+    sessionId: asSessionId(sessionId),
+    resume: { kind: 'claude-session', value: 'native-1' },
+  })
+}
+
+type DurableSendRequest = Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }>
+
+function durableSends(toDaemon: ControlMessage[], sessionId: string): DurableSendRequest[] {
+  return toDaemon.filter(
+    (m): m is DurableSendRequest =>
+      m.type === 'runtimeDurableSendRequest' && m.sessionId === sessionId,
+  )
 }
 
 const AGENT_SENDER = {
@@ -109,5 +142,76 @@ describe('POD-5284: stopping an unresumable session settles its dispatched mail'
     expect(after?.deliveryStatus).toBe('failed')
     const queuedAfter = await store.sync.listQueuedMessages(asSessionId(sessionId))
     expect(queuedAfter.map((q) => q.sourceMessageId)).not.toContain(sent.message.id)
+  })
+
+  it('a hibernated session keeps its dispatched mail, and resume re-forwards it as a recovery', async () => {
+    const { reg, store, toDaemon } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    await bindLiveResumable(reg, sessionId)
+
+    const sent = await reg.modules.messages.send(AGENT_SENDER as never, {
+      to: { kind: 'session', id: sessionId },
+      body: 'hibernated mail waits for resume',
+      urgency: 'fyi',
+    })
+    expect(sent.ok).toBe(true)
+    await vi.waitFor(() => expect(durableSends(toDaemon, sessionId)).toHaveLength(1))
+    expect(durableSends(toDaemon, sessionId)[0]).toMatchObject({
+      rowId: sent.message.id,
+      deliveryRecovery: false,
+    })
+
+    const stopped = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
+    expect(stopped.ok).toBe(true)
+    expect((await reg.modules.sessions.sessionById(sessionId))?.status).toBe('hibernated')
+
+    // Resumable parks keep the queue: the row must survive for the resume.
+    // Prod shape of msg_57ee6766 → 7d1541b0 (still `dispatched`, queue kept).
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('dispatched')
+    expect(await reg.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
+
+    // The resume re-forwards the same row as a recovery — never a fresh write.
+    // The daemon settles a recovery without retyping (possible-write rule,
+    // harness delivery-queue.ts), so this is where `dispatched` ends.
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId: asSessionId(sessionId),
+      cmd: 'claude',
+      cwd: '/r',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    await vi.waitFor(() => expect(durableSends(toDaemon, sessionId)).toHaveLength(2))
+    expect(durableSends(toDaemon, sessionId)[1]).toMatchObject({
+      rowId: sent.message.id,
+      deliveryRecovery: true,
+    })
+
+    // What the real daemon files for that recovery (unverified write): the
+    // row settles `unknown`, honestly, instead of reading as sent forever.
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: `delivery-${sent.message.id}`,
+      event: {
+        t: 'delivery',
+        rowId: sent.message.id,
+        outcome: 'failed',
+        cause: 'unconfirmed',
+        reason: "the agent's machine could not confirm delivery",
+        at: new Date().toISOString(),
+        provenance: 'live',
+        cursor: { segmentId: `delivery-${sessionId}`, components: { seq: 1 } },
+        observerGeneration: 1,
+        turnEpoch: 0,
+      },
+    })
+    await vi.waitFor(async () =>
+      expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('unknown'),
+    )
+    expect(await reg.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(false)
   })
 })
