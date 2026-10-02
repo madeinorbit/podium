@@ -1,0 +1,1 @@
+ALTER TABLE `issues` ADD `human_question_attribution` text;
