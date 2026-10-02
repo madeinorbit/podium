@@ -26,6 +26,7 @@ import { PrivacySection } from './sections/privacy'
 import { ReposSection } from './sections/repos'
 import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
 import { LoginPasswordSection } from './sections/security'
+import { PodiumAccountSection } from './sections/podium-account'
 import { SessionsSection } from './sections/sessions'
 import type { AccountView } from './sections/shared'
 import { SuperagentSection } from './sections/superagent'
@@ -225,7 +226,12 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   repos: () => <ReposSection />,
   machines: () => <MachinesPanel />,
   members: () => <MembersSection />,
-  security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,
+  security: ({ trpc }) => (
+    <>
+      <PodiumAccountSection />
+      <LoginPasswordSection trpc={trpc} />
+    </>
+  ),
   // Self-persisting (config.json, not the settings blob) — see privacy.tsx.
   privacy: ({ settings, patch }) => <PrivacySection settings={settings} patch={patch} />,
   updates: () => (

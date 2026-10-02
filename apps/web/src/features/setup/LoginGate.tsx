@@ -1,4 +1,5 @@
-import { webAuth } from '@/lib/accounts'
+import { webAuth, webAccounts } from '@/lib/accounts'
+import { AccountContext } from '@/lib/account-context'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { InviteView } from './InviteView'
 import {
@@ -163,7 +164,7 @@ export function LoginView({
   leaving = false,
 }: {
   httpOrigin: string
-  onLoggedIn: (principal: string) => void
+  onLoggedIn: (principal: string) => void | Promise<void>
   leaving?: boolean
 }): ReactNode {
   const [email, setEmail] = useState('')
@@ -187,9 +188,9 @@ export function LoginView({
     try {
       const result = await webAuth.login(httpOrigin, password, undefined, email)
       if (result.ok && result.principal) {
+        await onLoggedIn(result.principal)
         setBusy(false)
         setOk(true)
-        onLoggedIn(result.principal)
         return
       }
       setError('✗ ' + (result.ok ? "couldn't verify the signed-in account" : result.error))
@@ -478,8 +479,11 @@ export function LoginGate({
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [auth, setAuth] = useState<AuthBootstrap>()
   const [authAttempt, setAuthAttempt] = useState(0)
+  const authGeneration = useRef(0)
+  const credentialOwner = authGeneration.current
   useEffect(() => {
     const expired = () => {
+      authGeneration.current += 1
       setAuth(undefined)
       setPhase('loading')
       setAuthAttempt((n) => n + 1)
@@ -492,22 +496,57 @@ export function LoginGate({
   useEffect(() => {
     if (inviteToken) return
     let alive = true
-    webAuth.probeAuth(httpOrigin).then((decision) => {
-      if (!alive) return
-      if (decision.kind !== 'ready') {
-        setMode(decision.status.mode ?? 'local')
-        setSignInUrl(decision.status.signInUrl)
-        setDeniedReason(decision.kind === 'membership-denied' ? decision.reason : undefined)
-        setPhase('login')
-        return
-      }
-      setAuth(decision.auth)
-      setPhase('ready')
-    })
+    const generation = ++authGeneration.current
+    const current = () => alive && generation === authGeneration.current
+    const accounts = webAccounts(httpOrigin)
+    void (async () => {
+      await accounts.drain()
+      const decision = await webAuth.probeAuth(httpOrigin)
+      if (current() && decision.kind === 'ready' && decision.auth.kind === 'principal')
+        await accounts.recordPrincipal(decision.auth.principal, current)
+      return decision
+    })()
+      .then((decision) => {
+        if (!current()) return
+        if (decision.kind !== 'ready') {
+          setMode(decision.status.mode ?? 'local')
+          setSignInUrl(decision.status.signInUrl)
+          setDeniedReason(decision.kind === 'membership-denied' ? decision.reason : undefined)
+          setPhase('login')
+          return
+        }
+        setAuth(decision.auth)
+        setPhase('ready')
+      })
+      .catch((cause) => {
+        if (!current()) return
+        setAuth({ kind: 'failure', message: String(cause), failure: { kind: 'replica-blocked' } })
+        setPhase('ready')
+      })
     return () => {
       alive = false
     }
   }, [httpOrigin, inviteToken, authAttempt])
+
+  const removeLocalAccount = async () => {
+    authGeneration.current += 1
+    setPhase('loading')
+    try {
+      await webAccounts(httpOrigin).remove()
+    } catch (cause) {
+      setAuth({ kind: 'failure', message: String(cause), failure: { kind: 'replica-blocked' } })
+      setPhase('ready')
+      throw cause
+    }
+    setAuth(undefined)
+    setAuthAttempt((n) => n + 1)
+  }
+  const account = {
+    signOut: async () => {
+      await webAuth.logout(httpOrigin)
+      await removeLocalAccount()
+    },
+  }
 
   useEffect(() => {
     if (phase === 'success') {
@@ -534,7 +573,12 @@ export function LoginGate({
       />
     )
   if (phase === 'loading' || (phase === 'ready' && auth === undefined)) return <LoadingScreen />
-  const app = auth === undefined ? null : typeof children === 'function' ? children(auth) : children
+  const app =
+    auth === undefined ? null : (
+      <AccountContext.Provider value={account}>
+        {typeof children === 'function' ? children(auth) : children}
+      </AccountContext.Provider>
+    )
   if (phase === 'ready') return <>{app}</>
 
   if (mode === 'cloud') return <CloudLoginView signInUrl={signInUrl} deniedReason={deniedReason} />
@@ -558,7 +602,13 @@ export function LoginGate({
       <LoginView
         httpOrigin={httpOrigin}
         leaving={phase === 'reveal'}
-        onLoggedIn={(principal) => {
+        onLoggedIn={async (principal) => {
+          if (credentialOwner !== authGeneration.current) return
+          await webAccounts(httpOrigin).recordPrincipal(
+            principal,
+            () => credentialOwner === authGeneration.current,
+          )
+          if (credentialOwner !== authGeneration.current) return
           setAuth({ kind: 'principal', principal })
           setPhase('success')
         }}

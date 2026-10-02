@@ -1,4 +1,5 @@
 import { resolveAccountPrincipal, type AuthBootstrap } from '@podium/client-core/accounts'
+import { webAccountEraser, webAccounts } from './accounts'
 
 export type { AuthBootstrap } from '@podium/client-core/accounts'
 import { workspaceFetch } from '@/lib/workspace-request'
@@ -194,10 +195,13 @@ export function useKernelReplica(args: {
   useEffect(() => {
     return startReplicaBoot({
       open: async () => {
+        await webAccounts(httpOrigin).drain()
         const principal =
           auth === undefined || auth.kind === 'provisional-failure'
             ? await (principalResolver ?? resolveReplicaPrincipal)({ httpOrigin })
             : principalFromAuthBootstrap(auth)
+        if (auth === undefined || auth.kind === 'provisional-failure')
+          await webAccounts(httpOrigin).recordPrincipal(principal)
         let notice: string | undefined
         const assembly = await openAssembly({
           trpc,
@@ -221,9 +225,10 @@ export function useKernelReplica(args: {
             kind: 'replica-blocked',
           })
         })
-        return { assembly, notice }
+        const ownership = webAccountEraser.register(principal, assembly)
+        return { assembly, notice, ownership }
       },
-      dispose: ({ assembly }) => assembly.dispose(),
+      dispose: ({ ownership }) => ownership.dispose(),
       onCleanupError: (error) => log.warn('replica cleanup failed', { err: error }),
       // Web has no boot watchdog, and a re-run keeps the current gate until the
       // new open settles: only an outcome changes what the shell renders.
