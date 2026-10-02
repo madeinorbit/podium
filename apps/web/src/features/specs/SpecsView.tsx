@@ -2,7 +2,7 @@ import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { BlockNoteView } from '@blocknote/mantine'
 import { useCreateBlockNote } from '@blocknote/react'
-import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import { TRPCClientError } from '@trpc/client'
 import {
   BookOpenText,
@@ -17,7 +17,8 @@ import {
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
-import { useStoreSelector } from '@/app/store'
+import { useSpecsRepositories } from '@/app/automation-readers'
+import type { Trpc } from '@/app/trpc'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { useConfirm } from '@/lib/hooks/use-confirm'
@@ -60,7 +61,8 @@ function useIsDark(): boolean {
 }
 
 export function SpecsView(): JSX.Element {
-  const { trpc, repos } = useStoreSelector((s) => ({ trpc: s.trpc, repos: s.repos }), shallowEqual)
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const { repos, pending: repositoryPending } = useSpecsRepositories()
   const confirm = useConfirm()
   const isDark = useIsDark()
 
@@ -284,7 +286,7 @@ export function SpecsView(): JSX.Element {
   if (!activeRepo) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        Add a repository to start a spec.
+        {repositoryPending ? <span role="status">Loading repositories…</span> : 'Add a repository to start a spec.'}
       </div>
     )
   }

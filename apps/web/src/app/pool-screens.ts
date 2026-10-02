@@ -7,6 +7,7 @@ import { initializeSidebarDataLayer, sidebarDataLayer, sidebarCheckRequested } f
 import { initializeHeaderDataLayer, headerDataLayer, headerCheckRequested } from '@/lib/header-data-layer'
 import { initializeChipsDataLayer, chipsDataLayer, chipsCheckRequested } from '@/lib/chips-data-layer'
 import { noticePoolScreen } from '@/features/chat/notice-pool-screen'
+import { initializeAutomationsDataLayer, automationsDataLayer, specsDataLayer, automationsCheckRequested } from '@/lib/automations-data-layer'
 import type { PoolScreen } from './pool-screen-registry'
 import { panePoolScreen } from './pane-pool-screen'
 import { commandLaunchScreen } from '@/lib/command-launch-data-layer'
@@ -78,6 +79,25 @@ export const poolBackedScreens: readonly PoolScreen[] = [
       if (!chipsCheckRequested()) return
       const { startChipCheck } = await import('@podium/client-graph/diagnostics/chip-check')
       return startChipCheck(runtime, references, () => [...document.querySelectorAll('a.ref-link--issue[data-ref], [data-issue-reference]')].map(node => node.getAttribute('data-ref') ?? node.getAttribute('data-issue-reference')!))
+    },
+  },
+  { initialize: initializeAutomationsDataLayer, enabled: () => automationsDataLayer() === 'pool' || specsDataLayer() === 'pool',
+    options: () => ({ settings: true }),
+    async attach(runtime, pool) {
+      const [{ AutomationSource }, { AUTOMATION_ENTITIES }] = await Promise.all([
+        import('@podium/client-graph/automation-source'), import('@podium/client-graph/automation-schema'),
+      ])
+      pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(runtime.replica))
+      if (!automationsCheckRequested() || typeof window === 'undefined') return
+      const [{ checkAutomations }, { automationTargetChoices }, { machineViewsFromWire }] = await Promise.all([
+        import('@podium/client-graph/diagnostics/automation-check'), import('@/features/automations/automation-form'), import('@podium/client-core/viewmodels'),
+      ])
+      const check = () => {
+        const state = runtime.getSnapshot()
+        return checkAutomations(pool, state, path => automationTargetChoices(state.repos, state.sessions, machineViewsFromWire(state.machines), path))
+      }
+      Object.assign(window, { __automationCheck: check })
+      return () => { if (Reflect.get(window, '__automationCheck') === check) Reflect.deleteProperty(window, '__automationCheck') }
     },
   },
 ]

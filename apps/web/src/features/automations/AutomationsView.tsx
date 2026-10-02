@@ -1,11 +1,11 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import type { AutomationRunWire, AutomationWire } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useAutomationList } from '@/app/automation-readers'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
-import { userAutomations } from './automation-form'
 import { NewAutomationDialog } from './NewAutomationDialog'
 import { ScheduledSection } from './ScheduledSection'
 import { TriggersSection } from './TriggersSection'
@@ -15,14 +15,8 @@ export type AutomationRun = AutomationRunWire
 
 /** Live, replica-backed automations and honest run history [spec:SP-17db]. */
 export function AutomationsView(): JSX.Element {
-  const { trpc, automations, automationRuns } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      automations: s.automations,
-      automationRuns: s.automationRuns,
-    }),
-    shallowEqual,
-  )
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const { automations, automationRuns, runGroups, pending } = useAutomationList()
   const [error, setError] = useState('')
   const [dialogAutomation, setDialogAutomation] = useState<Automation | null | undefined>()
 
@@ -47,8 +41,10 @@ export function AutomationsView(): JSX.Element {
               behind them. They are not user work and are not listed here. */}
           <ScheduledSection
             trpc={trpc}
-            automations={userAutomations(automations)}
+            automations={automations}
             automationRuns={automationRuns}
+            runGroups={runGroups}
+            loading={pending > 0}
             error={error}
             onEdit={setDialogAutomation}
             onError={setError}

@@ -1,9 +1,7 @@
-import { shallowEqual } from '@podium/client-core/store'
-import { machineViewsFromWire } from '@podium/client-core/viewmodels'
 import type { AutomationSessionMode, MachineId } from '@podium/model/browser'
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useState } from 'react'
+import { useAutomationTargets } from '@/app/automation-readers'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
@@ -41,7 +39,6 @@ import {
   automationInput,
   automationRight,
   automationSubform,
-  automationTargetChoices,
   canSaveAutomation,
   GLOBAL_TARGET,
   NEW_AUTOMATION_RIGHTS,
@@ -107,28 +104,25 @@ export function NewAutomationDialog({
   onClose: () => void
   onSaved: () => void
 }): JSX.Element {
-  const { repos, sessions, machines } = useStoreSelector(
-    (s) => ({
-      repos: s.repos,
-      sessions: s.sessions ?? [],
-      machines: s.machines ?? [],
-    }),
-    shallowEqual,
+  const targets = useAutomationTargets(automation?.repoPath ?? null)
+  // Mount the form only after batched catalogs/summaries settle, so its initial
+  // target is the most recently used usable repository on the first render.
+  if (targets.pending) return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent><DialogHeader><DialogTitle>{automation ? 'Edit automation' : 'New automation'}</DialogTitle></DialogHeader>
+        <p role="status">Loading automation targets…</p>
+      </DialogContent>
+    </Dialog>
   )
-  const editing = automation !== null
+  return <AutomationForm trpc={trpc} automation={automation} onClose={onClose} onSaved={onSaved} targets={targets} />
+}
 
-  // Targets are OWNED COMPUTE: bounded by the machines this principal may USE,
-  // with unauthorized and unreachable counted separately (§3.1.4 M5).
-  const { choices, excluded } = useMemo(
-    () =>
-      automationTargetChoices(
-        repos,
-        sessions,
-        machineViewsFromWire(machines),
-        automation?.repoPath ?? null,
-      ),
-    [repos, sessions, machines, automation?.repoPath],
-  )
+function AutomationForm({ trpc, automation, onClose, onSaved, targets }: {
+  trpc: Trpc; automation: Automation | null; onClose: () => void; onSaved: () => void
+  targets: ReturnType<typeof useAutomationTargets>
+}): JSX.Element {
+  const { repos, choices, excluded } = targets
+  const editing = automation !== null
   const ctx: AutomationFormContext = { targets: choices, excluded }
 
   const [state, setState] = useState<AutomationFormState>(() =>

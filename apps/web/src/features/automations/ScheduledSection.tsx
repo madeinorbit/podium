@@ -1,3 +1,4 @@
+import { useStoreHandle } from '@podium/client-core/react'
 import type { AutomationId } from '@podium/model'
 import {
   ChevronDown,
@@ -13,7 +14,7 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useSession, useStoreSelector } from '@/app/store'
+import { useAutomationRunSession } from '@/app/automation-readers'
 import type { Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -87,6 +88,8 @@ export function ScheduledSection({
   trpc,
   automations,
   automationRuns,
+  runGroups,
+  loading = false,
   error,
   onEdit,
   onError,
@@ -94,6 +97,8 @@ export function ScheduledSection({
   trpc: Trpc
   automations: Automation[]
   automationRuns: AutomationRun[]
+  runGroups?: Record<string, AutomationRun[]>
+  loading?: boolean
   error: string
   onEdit: (automation: Automation) => void
   onError: (message: string) => void
@@ -126,7 +131,7 @@ export function ScheduledSection({
         </div>
       )}
 
-      {automations.length === 0 ? (
+      {loading ? <p role="status" className="text-[12px] text-muted-foreground">Loading scheduled automations…</p> : automations.length === 0 ? (
         <div className="rounded-md border border-border border-dashed bg-card px-3 py-4 text-center text-[12px] text-muted-foreground">
           No scheduled automations yet. Create one with “New automation”.
         </div>
@@ -136,7 +141,7 @@ export function ScheduledSection({
             <AutomationCard
               key={a.id}
               automation={a}
-              runs={automationRuns
+              runs={runGroups?.[a.id] ?? automationRuns
                 .filter((run) => run.automationId === a.id)
                 .sort((left, right) => right.firedAt.localeCompare(left.firedAt))}
               busy={busyId === a.id}
@@ -301,10 +306,10 @@ function AutomationCard({
 
 /** One run: what happened, when, and — for a spawn — the session it produced. */
 function RunRow({ run }: { run: AutomationRun }): JSX.Element {
-  const navigateToSession = useStoreSelector((s) => s.navigateToSession)
+  const navigateToSession = useStoreHandle<Trpc>().getSnapshot().navigateToSession
   // Only a session that still exists can be opened — a deleted one leaves the run
   // row intact (the history is the truth about what happened, not about what lives).
-  const session = useSession(run.sessionId ?? undefined)
+  const session = useAutomationRunSession(run.sessionId ?? undefined)
 
   const open = (): void => {
     if (session) navigateToSession(session.sessionId)

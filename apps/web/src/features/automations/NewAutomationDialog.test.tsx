@@ -5,24 +5,13 @@ import '@/test-support/model-catalog-mock'
 
 const create = vi.fn(async () => ({}))
 const update = vi.fn(async () => ({}))
-const trpc = {
-  automations: {
-    create: { mutate: create },
-    update: { mutate: update },
-  },
-}
-
-vi.mock('@/app/store', () => {
-  const state = () => ({
-    trpc,
+vi.mock('@/app/automation-readers', () => ({
+  useAutomationTargets: () => ({
     repos: [{ path: '/repos/podium', kind: 'repository', branch: 'main', worktrees: [] }],
-    sessions: [],
-  })
-  return {
-    useReplicaIssues: () => [],
-    useStoreSelector: (selector: (store: ReturnType<typeof state>) => unknown) => selector(state()),
-  }
-})
+    choices: [{ value: '/repos/podium', label: 'podium', availability: 'available' }],
+    excluded: { unauthorized: 0, unreachable: 0, incapable: 0, disabled: 0, degraded: 0 }, pending: 0,
+  }),
+}))
 
 const { NewAutomationDialog } = await import('./NewAutomationDialog')
 
