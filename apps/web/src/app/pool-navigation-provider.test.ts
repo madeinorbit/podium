@@ -206,7 +206,7 @@ describe('web pool navigation', () => {
     }
   })
 
-  it('watches navigation fields without waking for a personal read marker', async () => {
+  it('watches navigation fields without waking for display metadata', async () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const target = asIssueId(ctx.targets.visibleRootId)
@@ -223,13 +223,13 @@ describe('web pool navigation', () => {
       vi.spyOn(reactions, name as keyof typeof reactions))
     try {
       const row = tracked(() => handle.pool.row('issue', target)) as SliceIssue
-      handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: target, value: { ...row, readAt: ctx.stamp() } }] })
+      handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: target, value: { ...row, title: 'Changed display title' } }] })
       await turn()
       expect(spies.map(spy => spy.mock.calls.length)).toEqual([0, 0, 0])
       handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: target, value: { ...row, updatedAt: ctx.stamp() } }] })
       await vi.waitFor(() => expect(spies[0]).toHaveBeenCalled())
     } finally {
-      spies.forEach(spy => spy.mockRestore())
+      spies.forEach(spy => { spy.mockRestore() })
       runtime.setNavigationProvider(loadingNavigationProvider); handle.dispose(); runtime.destroy()
     }
   })
