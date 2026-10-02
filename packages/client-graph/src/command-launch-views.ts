@@ -6,7 +6,7 @@ import type { RepoView } from '@podium/client-core/viewmodels'
 import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import { computed, compareStructural } from 'mobx'
 import type { MobxPool } from './pool'
-import type { CommandLaunchRows } from './command-launch-schema'
+import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type CommandLaunchData = CommandLaunchRows['commandWindow'] & {
@@ -86,7 +86,8 @@ export function createCommandLaunchViews(pool: MobxPool) {
       const value = pool.row('commandIssue', id)
       if (value === LOADING) { pending++; continue }
       if (!value) continue
-      const row = value as IssueViewModel
+      const row = Object.fromEntries(COMMAND_SUMMARIES.issue.map(field => [field,
+        (value as unknown as Record<string, unknown>)[field]])) as unknown as IssueViewModel
       // Full selected detail is requested through the existing batch window.
       const selected = id === (window.openIssueId ?? window.selectedIssueId)
       if (selected) {
