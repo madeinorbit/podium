@@ -3,6 +3,7 @@ import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { worklistSlice } from '@podium/client-core/viewmodels'
+import { sessionUserStateRowId } from '@podium/model'
 import {
   asIssueId,
   asSessionId,
@@ -99,6 +100,10 @@ function Capture() {
 const NOW = Date.parse('2026-10-01T08:00:00Z')
 const LAYERS = ['legacy', 'pool'] as const
 
+function guestUserStateId(layer: 'legacy' | 'pool') {
+  return sessionUserStateRowId(asUserId(`sidebar-${layer}`), asSessionId('synthetic-guest-0'))
+}
+
 async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
   localStorage.clear()
   window.history.replaceState(null, '', '/')
@@ -191,7 +196,7 @@ describe('real sidebar pool cutover', () => {
     vi.setSystemTime(NOW)
     const fixture = await mount(layer)
     await act(async () => {
-      fixture.patch('session', 'synthetic-guest-0', {
+      fixture.patch('sessionUserState', guestUserStateId(layer), {
         snoozedUntil: new Date(NOW + 120_000).toISOString(),
       })
     })
@@ -216,7 +221,7 @@ describe('real sidebar pool cutover', () => {
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
     await act(async () => {
-      fixture.patch('session', 'synthetic-guest-0', {
+      fixture.patch('sessionUserState', guestUserStateId('pool'), {
         snoozedUntil: new Date(NOW + 120_000).toISOString(),
       })
     })
@@ -248,7 +253,7 @@ describe('real sidebar pool cutover', () => {
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
     await act(async () => {
-      fixture.patch('session', 'synthetic-guest-0', { snoozedUntil })
+      fixture.patch('sessionUserState', guestUserStateId('pool'), { snoozedUntil })
     })
     mode.commits.clear()
     await advanceClock(120_000)

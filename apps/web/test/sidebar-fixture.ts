@@ -2,7 +2,13 @@
  * connection, operator cache, export, or second runtime is used by this fixture. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  sessionUserStateRowId,
+} from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 
 export function createSidebarFixture(
@@ -121,6 +127,11 @@ export function createSidebarFixture(
         issueId: undefined,
         cwd: '/synthetic/project/guests',
         title: `Synthetic guest ${i}`,
+      })
+      put('sessionUserState', sessionUserStateRowId(asUserId(userId), asSessionId(sessionId)), {
+        userId,
+        sessionId,
+        readAt: null,
       })
     }
   let replica = makeReplica()
