@@ -1389,6 +1389,17 @@ export class SessionInbox {
                 rowId: row.id,
                 refusal: receipt.refusal,
               })
+            } else if (recovery) {
+              // POD-5296: a recovery forward re-asks an id the daemon already
+              // had (accepted, typed, typing or dispatched with a prior
+              // attempt). A slow answer says nothing about that custody, so it
+              // must never undo the known delivery: the row stays queued for
+              // the next bind/sweep and only the daemon's fenced delivery
+              // outcome settles it.
+              log.warn('contract queue recovery forward unanswered; the row stays queued', {
+                sessionId,
+                rowId: row.id,
+              })
             } else {
               await this.reportContractUnconfirmed(
                 sessionId,
@@ -1402,11 +1413,15 @@ export class SessionInbox {
           if (!current()) return
           binding.ids.delete(row.id)
           log.warn('contract queue forwarding failed', { sessionId, err: error })
-          await this.reportContractUnconfirmed(
-            sessionId,
-            row,
-            "the agent's machine did not answer the forward",
-          )
+          // POD-5296: same as above — a failed recovery forward keeps the
+          // known delivery and stays queued for the next bind/sweep.
+          if (!recovery) {
+            await this.reportContractUnconfirmed(
+              sessionId,
+              row,
+              "the agent's machine did not answer the forward",
+            )
+          }
           return
         }
       }
@@ -1433,7 +1448,11 @@ export class SessionInbox {
   }
 
   /**
-   * A FORWARD WHOSE ANSWER NEVER CAME IS `unknown`, NOT FAILED (POD-4775).
+   * A FIRST FORWARD WHOSE ANSWER NEVER CAME IS `unknown`, NOT FAILED (POD-4775).
+   *
+   * Recovery forwards never reach here (POD-5296): re-asking an id the daemon
+   * already had cannot undo the known delivery, so a slow answer to one keeps
+   * the row queued for the next bind/sweep instead.
    *
    * The frame went toward the machine, so the text may still be typed; the row
    * stays queued, the next forward carries it as a recovery the daemon answers
