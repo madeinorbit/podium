@@ -165,6 +165,11 @@ seed, load callback and subscriptions match `handPoolArm.create`.
 | Ownership | Named pool/feed handles; only prototype modules in named ownership chunks, with shared React/runtime dependencies excluded |
 | Isolation | Own `~/podium-test-5153` checkout and toolchain; `bench:flatblock` held throughout each reported capture |
 
+After capture, the issue rebased onto integration `5e8bfd77ac7e104d15f0d16c560d653e33a8e364`,
+which includes later session-feed and UI changes. That product tree was not
+heap-measured here. All four-arm numbers above come from the common captured
+`a904aa6276` base; focused prototype validation also checks the landing tree.
+
 In prototype raw records the original collector's **`legacy` slot means hand**
 and **`pool` slot means lean**; `state.prototype` records the actual arm.
 The control records retain their original meanings. This mapping reuses the
