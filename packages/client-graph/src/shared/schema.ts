@@ -1,3 +1,5 @@
+import { MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS, MISSION_VIEW_RELATIONS } from '../mission-view-schema'
+
 /**
  * POD-4546 (L1a) — the ONE declared model schema both round-three substrates
  * build their pool-and-graph from.
@@ -765,6 +767,7 @@ const DECLARED = defineSchema({
       },
     },
     fields: {
+      ...MISSION_VIEW_ISSUE_FIELDS,
       id: { type: 'id', source: projection() },
       parentId: { type: 'id', optional: true, nullable: true, source: projection() },
       seq: { type: 'number', source: projection(), note: 'Immutable creation order key (slice §3 R-ORDER).' },
@@ -826,6 +829,7 @@ const DECLARED = defineSchema({
       ...ISSUE_PAGE_FIELDS,
     },
     relations: {
+      ...MISSION_VIEW_RELATIONS,
       parent: belongsTo({
         to: 'issue',
         foreignKey: 'parentId',
@@ -1030,6 +1034,7 @@ const DECLARED = defineSchema({
       },
     },
     fields: {
+      ...MISSION_VIEW_SESSION_FIELDS,
       sessionId: { type: 'id', source: meta() },
       issueId: { type: 'id', optional: true, nullable: true, source: meta(), note: 'Foreign key of the `issue` relation.' },
       cwd: { type: 'string', source: meta(), note: "The path the `worktree` prefix relation places. There is no `session.worktreePath`." },
