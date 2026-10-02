@@ -13,6 +13,7 @@ import {
   mountWindow,
   WINDOW_ROWS,
 } from '../../../packages/worklist-proto/arms/lean/src/window'
+import { DISABLED_READ_FENCE } from '../../../packages/worklist-proto/shared/src/instrument/reads'
 
 const requested = new URLSearchParams(location.search).get('mobxSidebar') === '1' ? 'lean' : 'hand'
 const originalUrl = new URL(location.href)
@@ -37,7 +38,7 @@ const locals = createEngineLocals(runtime)
 // unused web/native list imports. Both arms mount the common window below.
 const hand =
   requested === 'hand'
-    ? new HandPool(undefined, locals.source.get(), undefined, {
+    ? new HandPool(DISABLED_READ_FENCE, locals.source.get(), undefined, {
         load: feed.source.row!.bind(feed.source),
       })
     : null
