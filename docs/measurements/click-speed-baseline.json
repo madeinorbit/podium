@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sourceSha": "5d34d1bdf990b53cd9129d878604f36988486d5f",
+  "sourceSha": "0f77a997ed217117cf284f9fa142080c453efae6",
   "landedRef": "integrate/4286-pilot",
   "machine": {
     "host": "flatblock",
@@ -31,24 +31,24 @@
   },
   "actions": {
     "sidebar-issue": {
-      "medianMs": 160.129,
-      "worstMs": 198.04
+      "medianMs": 159.506,
+      "worstMs": 171.797
     },
     "mission-switch": {
-      "medianMs": 1324.666,
-      "worstMs": 1431.585
+      "medianMs": 4020.656,
+      "worstMs": 5449.769
     },
     "session-pane": {
-      "medianMs": 1023.713,
-      "worstMs": 1124.305
+      "medianMs": 3405.917,
+      "worstMs": 3508.903
     },
     "issue-rename": {
-      "medianMs": 791.937,
-      "worstMs": 1185.643
+      "medianMs": 2972.887,
+      "worstMs": 3193.263
     },
     "background-update": {
-      "medianMs": 905.981,
-      "worstMs": 941.386
+      "medianMs": 3257.451,
+      "worstMs": 3454.444
     }
   },
   "noise": {
@@ -61,5 +61,8 @@
       "background-update": 3.56
     },
     "maxPercent": 17.639
-  }
+  },
+  "scenario": "Canonical session homes; mobxPane=0",
+  "noiseSourceSha": "5d34d1bdf990b53cd9129d878604f36988486d5f",
+  "noiseNote": "Historical calibration from the previous fixture; not recalibrated by the OFF/ON pair. The failure margin remains 10%."
 }
