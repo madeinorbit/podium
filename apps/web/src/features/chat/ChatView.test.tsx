@@ -161,7 +161,11 @@ vi.mock('@/lib/voice', () => ({
 vi.mock('@/lib/markdown', () => ({
   renderMarkdown: (t: string) => `<p>${t}</p>`,
 }))
-vi.mock('@/lib/markdown-references', () => ({ isKnownRefPrefix: () => true }))
+vi.mock('@/lib/markdown-references', () => ({
+  isKnownRefPrefix: () => true,
+  getKnownRefPrefixesVersion: () => 0,
+  subscribeKnownRefPrefixes: () => () => {},
+}))
 
 const { ChatView } = await import('./ChatView')
 
