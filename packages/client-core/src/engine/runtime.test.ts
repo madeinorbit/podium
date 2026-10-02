@@ -67,7 +67,7 @@ import {
 } from './overlay'
 import { Reactions } from './reactions'
 import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
-import { type EngineState } from './state'
+import type { EngineState } from './state'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -1473,7 +1473,11 @@ describe('unified optimistic overlay (#263)', () => {
     engine.start()
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
-    const personal = { userId: asUserId('operator'), sessionId: asSessionId('s1'), readAt: '2026-07-01T00:00:00.000Z' }
+    const personal = {
+      userId: asUserId('operator'),
+      sessionId: asSessionId('s1'),
+      readAt: '2026-07-01T00:00:00.000Z',
+    }
     engine.replica.applySnapshot('sessionUserStates', [personal])
     await settle()
     void engine.getSnapshot().renameSession(asSessionId('s1'), 'first')
@@ -1484,7 +1488,9 @@ describe('unified optimistic overlay (#263)', () => {
     // Later rename wins over the earlier one; the mark-unread composes with it.
     expect(row?.name).toBe('second')
     expect(row?.unread).toBe(true)
-    expect(engine.getSnapshot().sessionUserStates.find((state) => state.sessionId === 's1')).toMatchObject({ userId: 'operator', readAt: null })
+    expect(
+      engine.getSnapshot().sessionUserStates.find((state) => state.sessionId === 's1'),
+    ).toMatchObject({ userId: 'operator', readAt: null })
     expect(engine.replica.rows('sessionUserStates')[0]).toMatchObject(personal)
     expect(engine.getSnapshot().outboxSize).toBe(3)
     engine.dispose()

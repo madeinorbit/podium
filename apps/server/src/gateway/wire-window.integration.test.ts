@@ -47,7 +47,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
-import { CAP_METADATA_DELTA, MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { CAP_METADATA_DELTA, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { noJanitorWorkerForTests } from '../janitor-host'
@@ -149,11 +149,20 @@ describe('the wire window, over real sockets', () => {
   it('serves the minimum supported build and refuses stale, previous and future builds', async () => {
     // Both an unversioned shell and the previous bundled build are refused.
     const stale = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'] })
-    const previous = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: MIN_CLIENT_WIRE_VERSION - 1 })
+    const previous = await connect({
+      caps: [CAP_METADATA_DELTA, 'sync.http.v1'],
+      wireVersion: MIN_CLIENT_WIRE_VERSION - 1,
+    })
     // The minimum supported build uses the canonical projection vocabulary.
-    const current = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: MIN_CLIENT_WIRE_VERSION })
+    const current = await connect({
+      caps: [CAP_METADATA_DELTA, 'sync.http.v1'],
+      wireVersion: MIN_CLIENT_WIRE_VERSION,
+    })
     // 3. BEYOND THE WINDOW.
-    const beyond = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: CLIENT_WIRE_VERSION + 1 })
+    const beyond = await connect({
+      caps: [CAP_METADATA_DELTA, 'sync.http.v1'],
+      wireVersion: CLIENT_WIRE_VERSION + 1,
+    })
 
     // Control plane works for every admitted socket (auth + welcome), including
     // the two peers the entity plane will refuse. Wait on current's world first
@@ -174,9 +183,16 @@ describe('the wire window, over real sockets', () => {
       headers: { Cookie: cookieHeader },
     })
     expect(response.status).toBe(200)
-    const records = (await response.text()).trim().split('\n').map(line => JSON.parse(line))
-    const changes = records.filter(record => record.type === 'feedBootstrap').flatMap(record => record.changes)
-    expect(changes.some(c => c.entity === 'session' && c.value?.cwd === '/repo/before-the-deploy')).toBe(true)
+    const records = (await response.text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    const changes = records
+      .filter((record) => record.type === 'feedBootstrap')
+      .flatMap((record) => record.changes)
+    expect(
+      changes.some((c) => c.entity === 'session' && c.value?.cwd === '/repo/before-the-deploy'),
+    ).toBe(true)
 
     // Snapshot refused peers AFTER the admitted peer has been fully served: by
     // then their hellos have been processed (connect order is stale → current →
@@ -226,7 +242,12 @@ describe('the wire window, over real sockets', () => {
         .slice(staleAfterHello)
         .filter((t) => ENTITY_FRAMES.has(t)),
     ).toEqual([])
-    expect(previous.types().slice(previousAfterHello).filter((t) => ENTITY_FRAMES.has(t))).toEqual([])
+    expect(
+      previous
+        .types()
+        .slice(previousAfterHello)
+        .filter((t) => ENTITY_FRAMES.has(t)),
+    ).toEqual([])
     expect(
       beyond
         .types()

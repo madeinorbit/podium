@@ -26,20 +26,19 @@ import { type AgentKind, spawnedByParentSessionId, type UserId } from '@podium/m
 export type SessionWirePrincipal = SessionStatePrincipal
 
 const log = createLogger('server:sessions')
+
 import { isIssueClosed } from '@podium/model'
 import type {
   DaemonPtyInputBatch,
   DaemonPtyOutputBatch,
   InteractionEvent,
+  LiveServerMessage,
   MachinePrincipal,
+  MetadataChange,
   PendingInteraction,
   Principal,
-} from '@podium/protocol'
-import {
-  type LiveServerMessage,
-  type MetadataChange,
-  type SessionBindingAdoptLaunchInstruction,
-  type SyncChangesSinceResult,
+  SessionBindingAdoptLaunchInstruction,
+  SyncChangesSinceResult,
 } from '@podium/protocol'
 import type { ControlMessage, TurnEvent, TurnReceipt } from '@podium/protocol/daemon'
 import {
@@ -68,7 +67,7 @@ import type { SessionDaemonProjection } from './daemon-projection'
 import { type SessionFacts, SessionFactsReader } from './facts'
 import { machineUseGateFor } from './handoff/access'
 import type { AssertMachineUse, HandoffCaller } from './handoff/ports'
-import { type AnswerChoice, type InboxPrincipalReference, type SessionInbox } from './inbox'
+import type { AnswerChoice, InboxPrincipalReference, SessionInbox } from './inbox'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { ReceiptSender, ReceiptSendInput, ReceiptSendVia } from './receipt-send'
 import type { RuntimeEventGate } from './runtime-event-gate'
