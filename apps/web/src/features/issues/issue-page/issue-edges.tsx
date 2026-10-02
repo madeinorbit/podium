@@ -58,7 +58,7 @@ import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/viewmod
 import type { IssueId, } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
-import { useIssuePageIssues } from './issue-page-data'
+import { useIssuePageData, useIssuePageIssues } from './issue-page-data'
 import { issueRefLong } from '../issue-card'
 
 /**
@@ -121,8 +121,11 @@ function useReplicaExitLookup(): IssueExitLookup {
  *  lookup, so a section resolving five edges does one index build. */
 export function useIssueEdgeResolver(): (id: string | undefined | null) => IssueEdge<IssueViewModel> {
   const issues = useIssuePageIssues()
+  const page = useIssuePageData()
   const override = useContext(IssueExitContext)
-  const fromReplica = useReplicaExitLookup()
+  const exits = page?.data.exits
+  const fromPool = useMemo(() => (id: string) => exits?.[id], [exits])
+  const fromReplica = page ? fromPool : useReplicaExitLookup()
   const exitOf = override ?? fromReplica
   return useMemo(() => {
     const byId = new Map(issues.map((i) => [i.id as string, i]))

@@ -1,9 +1,9 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { groupRelations, isEmptyDraftVessel, issueDisplayTitle, presenceNote } from '@podium/client-core/viewmodels'
+import { groupRelations, isEmptyDraftVessel, issueDisplayTitle, presenceNote, type ReferentExit } from '@podium/client-core/viewmodels'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { compareStructural, computed, onBecomeUnobserved, _isComputingDerivation, type IComputedValue } from 'mobx'
-import { knownIssueIds, residentWorktreeIds } from './enumerate'
+import { knownIssueIds, knownSessionIds, residentWorktreeIds } from './enumerate'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
@@ -20,6 +20,7 @@ export interface IssuePageData {
   title: string
   presence: ReturnType<typeof presenceNote>
   worktreePaths: string[]
+  exits: Readonly<Record<string, ReferentExit | undefined>>
 }
 
 type DocumentValue = string | { value: string } | undefined
@@ -68,6 +69,18 @@ export function createIssuePageViews(pool: MobxPool) {
     const repo = repoId ? pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
     return repo?.prefix ?? undefined
   }
+  function dependents(id: string): Loaded<IssueViewModel['dependents']> {
+    return memo(`dependents:${id}`, () => {
+      const result: IssueViewModel['dependents'] = []
+      let pending = false
+      for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
+        const source = pool.row('issue', sourceId, 'summary') as Loaded<{ deps?: { id: string; type: string }[] }>
+        if (source === LOADING) pending = true
+        else for (const dep of source?.deps ?? []) if (dep.id === id) result.push({ id: asIssueId(sourceId), type: dep.type })
+      }
+      return pending ? LOADING : result
+    })
+  }
   function summary(id: string): Loaded<IssueViewModel> {
     return memo(`summary:${id}`, () => {
       const row = pool.row('issue', id, 'summary')
@@ -76,10 +89,13 @@ export function createIssuePageViews(pool: MobxPool) {
       // body update cannot invalidate the whole menu/edge lookup world.
       const value = row as Record<string, unknown>
       const fields = Object.fromEntries(ISSUE_PAGE_SUMMARIES.issue.map(key => [key, value[key]]))
+      const inverse = dependents(id)
+      if (inverse === LOADING) return LOADING
       const p = prefix(id)
+      const deferred = Boolean(value.deferUntil && !pool.clock.passed(Date.parse(value.deferUntil as string)))
       return { ...fields, id, prefix: p, displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
-        labels: value.labels ?? [], deps: value.deps ?? [], dependents: [], memberSessionIds: [], childIds: [],
-        childCount: 0, childDoneCount: 0,
+        labels: value.labels ?? [], deps: value.deps ?? [], dependents: inverse ?? [], memberSessionIds: [], childIds: [],
+        childCount: 0, childDoneCount: 0, deferred, ready: !value.blocked && !deferred && value.stage !== 'done',
       } as unknown as IssueViewModel
     })
   }
@@ -111,12 +127,8 @@ export function createIssuePageViews(pool: MobxPool) {
         if (child === LOADING) return LOADING
         if (child?.stage === 'done') childDoneCount++
       }
-      const dependents: IssueViewModel['dependents'] = []
-      for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
-        const source = pool.row('issue', sourceId, 'summary') as Loaded<{ deps?: { id: string; type: string }[] }>
-        if (source === LOADING) return LOADING
-        for (const dep of source?.deps ?? []) if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
-      }
+      const inverse = dependents(id)
+      if (inverse === LOADING) return LOADING
       const p = prefix(id)
       const deferred = Boolean(value.deferUntil && !pool.clock.passed(Date.parse(value.deferUntil)))
       const readAt = Date.parse(value.readAt ?? '')
@@ -138,7 +150,7 @@ export function createIssuePageViews(pool: MobxPool) {
         branch: value.branch ?? null, worktreePath: value.worktreePath ?? null,
         readAt: value.readAt ?? null, tuckedAt: value.tuckedAt ?? null, pinned: value.pinned ?? false,
         prefix: p, displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
-        deps: (value.deps ?? []).map(dep => ({ ...dep, id: asIssueId(dep.id) })), dependents,
+        deps: (value.deps ?? []).map(dep => ({ ...dep, id: asIssueId(dep.id) })), dependents: inverse ?? [],
         memberSessionIds: rawMemberIds.map(asSessionId),
         childIds: childIds.map(asIssueId), childCount: childIds.length, childDoneCount,
         blocked: value.blocked ?? false, deferred, ready: !value.blocked && !deferred && value.stage !== 'done', unread: !value.deletedAt && unread,
@@ -190,6 +202,12 @@ export function createIssuePageViews(pool: MobxPool) {
       const world = issues()
       if (!world || world === LOADING) return world
       const worldById = new Map(world.map(row => [row.id as string, row]))
+      const exits: Record<string, ReferentExit | undefined> = {}
+      for (const neighbour of neighbours) if (!worldById.has(neighbour)) {
+        const exit = pool.row('issueExit', neighbour)
+        if (exit === LOADING) return LOADING
+        exits[neighbour] = exit?.kind
+      }
       const own = attachedSessions(id)
       if (own === LOADING) return LOADING
       const worktreePaths = residentWorktreeIds(pool).flatMap(path => {
@@ -198,7 +216,7 @@ export function createIssuePageViews(pool: MobxPool) {
       })
       return { issue: value, issues: world, children, memberSessions: members, sessions,
         relations: groupRelations(value), title: issueDisplayTitle(value, sessions, worktreePaths),
-        presence: presenceNote(value, own ?? [], worldById, sessions), worktreePaths,
+        presence: presenceNote(value, own ?? [], worldById, sessions), worktreePaths, exits,
       }
     })
   }
@@ -244,7 +262,22 @@ export function createIssuePageViews(pool: MobxPool) {
     const members = attachedSessions(rootId)
     return members === LOADING ? LOADING : isEmptyDraftVessel(root, members) ? undefined : root
   }
-  return { issue, summary, issues, menuIssues, data, panel, destination, memberSessions, attachedSessions, stats,
+  function explorer(): Loaded<{ issues: IssueViewModel[]; sessions: SessionView[] }> {
+    return memo('explorer', () => {
+      const world = issues()
+      if (!world || world === LOADING) return world
+      const seats: SessionView[] = []
+      let pending = false
+      for (const id of knownSessionIds(pool)) {
+        if (pool.graph.isCollapsed('session', id)) continue
+        const seat = pool.row('session', id, 'summary') as Loaded<SessionView>
+        if (seat === LOADING) pending = true
+        else if (seat) seats.push(seat)
+      }
+      return pending ? LOADING : { issues: world, sessions: seats }
+    })
+  }
+  return { issue, summary, issues, menuIssues, data, panel, destination, explorer, memberSessions, attachedSessions, stats,
     dispose() { disposed = true; cache.clear() },
   }
 }

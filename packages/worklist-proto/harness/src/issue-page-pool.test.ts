@@ -34,6 +34,8 @@ const summaries = { issue: [...new Set([...ISSUE_PAGE_SUMMARIES.issue, ...MISSIO
 function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
   // The kernel's canonical publication order is by opaque primary key.
   issues = [...issues].sort((a, b) => a.id.localeCompare(b.id))
+  issues = issues.map(row => ({ ...row, blocked: (row.deps ?? []).some(dep => dep.type === 'blocks' &&
+    issues.some(target => target.id === dep.id && target.stage !== 'done')) }))
   seats = [...seats].sort((a, b) => a.sessionId.localeCompare(b.sessionId))
   const input = new Map<string, object>([
     ...issues.map(row => [`issue:${row.id}`, row] as const), ...seats.map(row => [`session:${row.sessionId}`, row] as const),

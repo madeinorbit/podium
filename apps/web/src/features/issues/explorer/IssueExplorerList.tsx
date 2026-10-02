@@ -6,7 +6,8 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Search, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
+import { useIssuePageIssues, useIssuePageSessions } from '../issue-page/issue-page-data'
 import { GhostBar, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
 import { DOCK_ROW, DOCK_STAMP } from '../IssueCompactControls'
@@ -35,8 +36,8 @@ export function IssueExplorerList(): JSX.Element {
     listScrollTop,
     rememberListScrollTop,
   } = useIssueExplorer()
-  const sessions = useStoreSelector((s) => s.sessions)
-  const issues = useReplicaIssues()
+  const sessions = useIssuePageSessions()
+  const issues = useIssuePageIssues()
   // One apply and one close guard for every row's status glyph (POD-1271) —
   // held here rather than per row, which the virtualizer would unmount.
   const rowStatus = useIssueStatusApply()
