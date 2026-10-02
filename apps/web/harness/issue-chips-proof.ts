@@ -4,7 +4,9 @@ import type {} from '../test/issue-chips.browser'
 
 const origin = 'http://127.0.0.1:41678'
 const out = '.artifacts/issue-chips'
-const correctnessOnly = process.argv.includes('--correctness-only')
+const tailProof = process.argv.includes('--tail-proof')
+const correctnessOnly = process.argv.includes('--correctness-only') || tailProof
+const modes = process.argv.includes('--pool-only') ? (['pool'] as const) : (['legacy', 'pool'] as const)
 await mkdir(out, { recursive: true })
 const server = Bun.spawn(
   [
@@ -46,7 +48,7 @@ try {
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
   const results: Array<Record<string, unknown>> = []
   const snapshots: unknown[] = []
-  for (const mode of ['legacy', 'pool'] as const) {
+  for (const mode of modes) {
     const page = await browser.newPage({
       viewport: { width: 1200, height: 900 },
       reducedMotion: 'reduce',
@@ -156,11 +158,47 @@ try {
         return { added, changed }
       }, previous)
     const mounted = await captureChips()
+    const conversation = await page.evaluateHandle(() => ({
+      rows: [...document.querySelectorAll('[data-row-key]')].map((row) => ({
+        key: row.getAttribute('data-row-key')!,
+        element: row,
+        body: row.querySelector('.chat-md'),
+        paragraph: row.querySelector('.chat-md')?.firstChild,
+      })),
+      pinned: document.querySelector('.brief-shelf-text'),
+      pinnedParagraph: document.querySelector('.brief-shelf-text')?.firstChild,
+    }))
+    const retainedConversation = () => page.evaluate((previous) => ({
+      rows: previous.rows.length,
+      retainedRows: previous.rows.filter(({ key, element, body, paragraph }) => {
+        const row = document.querySelector(`[data-row-key="${key}"]`)
+        return row === element && row.querySelector('.chat-md') === body &&
+          row.querySelector('.chat-md')?.firstChild === paragraph
+      }).length,
+      pinnedPresent: previous.pinned !== null,
+      pinnedRetained: document.querySelector('.brief-shelf-text') === previous.pinned &&
+        document.querySelector('.brief-shelf-text')?.firstChild === previous.pinnedParagraph,
+    }), conversation)
     await page.evaluate(() => window.__issueChips.traffic())
     await page.waitForTimeout(200)
     const traffic = await page.evaluate(() => window.__issueChips.stats())
     const trafficMounts = await mountsSince(mounted)
+    const trafficDom = await retainedConversation()
     await mounted.dispose()
+    if (tailProof) {
+      const evidence = {
+        mode, shape, trafficMounts, trafficDom,
+        reads: traffic.reads - before.reads,
+        paints: traffic.redraws - before.redraws,
+        legacyScans: traffic.legacyScans,
+      }
+      await writeFile(`${out}/tail-${mode}.json`, JSON.stringify(evidence, null, 2))
+      if (trafficMounts.added !== 0 || trafficMounts.changed !== 0 ||
+          trafficDom.rows !== 120 || trafficDom.retainedRows !== 120 ||
+          !trafficDom.pinnedPresent || !trafficDom.pinnedRetained ||
+          (mode === 'pool' && (evidence.reads !== 0 || evidence.paints !== 0)))
+        throw new Error(`Unchanged conversation DOM replaced: ${JSON.stringify(evidence)}`)
+    }
     if (
       mode === 'pool' &&
       (traffic.legacyScans !== 0 ||
@@ -198,7 +236,11 @@ try {
     await page.waitForTimeout(200)
     const changed = await paint()
     const issueMounts = await mountsSince(issueBefore)
+    const issueDom = await retainedConversation()
     await issueBefore.dispose()
+    await conversation.dispose()
+    if (tailProof && (issueMounts.added !== 0 || issueDom.retainedRows !== 120 || !issueDom.pinnedRetained))
+      throw new Error(`Issue decoration replaced conversation DOM: ${JSON.stringify({ issueMounts, issueDom })}`)
     const after = await page.evaluate(() => window.__issueChips.stats())
     const changedChips = changed.filter(
       (row, i) => JSON.stringify(row) !== JSON.stringify(initial[i]),
@@ -241,6 +283,40 @@ try {
     )
       throw new Error('The pool miniview called a legacy issue derivation')
     await page.screenshot({ path: `${out}/${mode}-miniview.png`, fullPage: false })
+    let streaming: unknown = null
+    if (tailProof) {
+      const tail = page.locator('[data-row-key="message-119"]')
+      const tailElement = await tail.elementHandle()
+      const partial = 'Streamed partial SYN-1000'
+      await page.evaluate((text) => window.__issueChips.streamTail(text), partial)
+      await page.waitForFunction((text) =>
+        document.querySelector('[data-row-key="message-119"] .chat-md')?.textContent?.trim() === text,
+        partial,
+      )
+      const complete = 'Streamed partial completed SYN-1001'
+      await page.evaluate((text) => window.__issueChips.streamTail(text), complete)
+      await page.waitForFunction((text) =>
+        document.querySelector('[data-row-key="message-119"] .chat-md')?.textContent?.trim() === text,
+        complete,
+      )
+      const tailRetained = await page.evaluate((previous) =>
+        document.querySelector('[data-row-key="message-119"]') === previous,
+        tailElement,
+      )
+      const text = 'Appended streamed reply SYN-1002'
+      const appendedId = await page.evaluate((text) => window.__issueChips.streamTail(text, true), text)
+      await page.waitForFunction(({ id, text }) =>
+        document.querySelector(`[data-row-key="${id}"] .chat-md`)?.textContent?.trim() === text,
+        { id: appendedId, text },
+      )
+      const retainedOnAppend = await page.evaluate((previous) =>
+        document.querySelector('[data-row-key="message-119"]') === previous,
+        tailElement,
+      )
+      await tailElement?.dispose()
+      if (!tailRetained || !retainedOnAppend) throw new Error('Streaming replaced the existing tail row')
+      streaming = { sameIdPartial: true, sameIdComplete: true, append: true, tailRetained, retainedOnAppend }
+    }
     times.sort((a, b) => a - b)
     results.push({
       mode,
@@ -254,6 +330,7 @@ try {
       before,
       traffic,
       trafficMounts,
+      ...(tailProof ? { trafficDom, issueDom, streaming } : {}),
       after,
       changedChips,
       issueMounts,
@@ -263,11 +340,11 @@ try {
     snapshots.push({ initial, changed, miniview })
     await page.close()
   }
-  if (JSON.stringify(snapshots[0]) !== JSON.stringify(snapshots[1]))
+  if (snapshots.length === 2 && JSON.stringify(snapshots[0]) !== JSON.stringify(snapshots[1]))
     throw new Error('Legacy/pool chip values differ')
   await writeFile(
     `${out}/result.json`,
-    JSON.stringify({ results, identicalChipValues: true }, null, 2),
+    JSON.stringify({ results, ...(snapshots.length === 2 ? { identicalChipValues: true } : {}) }, null, 2),
   )
   console.log(JSON.stringify(results))
 } finally {

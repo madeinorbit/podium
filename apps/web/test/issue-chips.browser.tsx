@@ -45,7 +45,7 @@ synthetic.api.issues = {
 }
 Object.assign(synthetic.api.issues, { comments: { query: async () => [] } })
 const sessionId = asSessionId('synthetic-session-0')
-const items = Array.from(
+let items = Array.from(
   { length: 120 },
   (_, i): TranscriptItem => ({
     id: `message-${i}`,
@@ -66,6 +66,7 @@ let runtime: ClientRuntime | undefined
 let pool: ReturnType<typeof useWorklistPool> = null
 let open: ((value: boolean) => void) | undefined
 const failures: string[] = []
+const transcriptListeners = new Set<Parameters<ClientRuntime['hub']['subscribeTranscript']>[2]>()
 
 function Fixture() {
   const owner = useStoreHandle() as ClientRuntime
@@ -117,7 +118,16 @@ root.render(
     createReplicaFn={() => synthetic.replica}
     networkEnabled={false}
     onFatalError={(message) => failures.push(message)}
-    attachRuntime={(owner) => attachWorklistPool(owner, (error) => failures.push(error.message))}
+    attachRuntime={(owner) => {
+      // Feed synthetic deltas through the real transcript controller and
+      // compute worker without connecting this fixture to a server.
+      owner.hub.subscribeTranscript = (id, _since, listener) => {
+        if (id !== sessionId) throw new Error('Unexpected fixture transcript')
+        transcriptListeners.add(listener)
+        return () => { transcriptListeners.delete(listener) }
+      }
+      return attachWorklistPool(owner, (error) => failures.push(error.message))
+    }}
   >
     <Fixture />
   </StoreProvider>,
@@ -150,6 +160,16 @@ const proof = {
     synthetic.patch('session', 'synthetic-session-673', {
       agentState: { phase: 'working', since: new Date().toISOString() },
     })
+  },
+  streamTail(text: string, append = false) {
+    if (transcriptListeners.size === 0) throw new Error('Transcript subscription absent')
+    const previous = items.at(-1)!
+    const next: TranscriptItem = append
+      ? { id: `message-${items.length}`, cursor: `cursor-${items.length}`, role: 'assistant', text }
+      : { ...previous, text }
+    items = append ? [...items, next] : [...items.slice(0, -1), next]
+    for (const listener of transcriptListeners) listener([next], { reset: false })
+    return next.id
   },
   async check() {
     if (!runtime || !pool) throw new Error('Pool absent')
