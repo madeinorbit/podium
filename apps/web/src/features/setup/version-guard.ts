@@ -3,7 +3,6 @@ import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import {
   CLIENT_WIRE_VERSION,
-  parseServerVersion,
   type ServerVersion,
   type SkewVerdict,
 } from '@podium/protocol'

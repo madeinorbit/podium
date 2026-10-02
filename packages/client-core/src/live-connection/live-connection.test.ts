@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { PodiumClientApi } from '../api'
+import { createEngineHub } from '../engine/wiring'
+import { createReplica, memoryStorage } from '../replica'
 import { cookieCredentials } from '../accounts/storage'
 import type { FeedServerFrame, FeedSinkPort, SocketHub, WebSocketLike, WireSkew } from '../socket-transport'
 import {
@@ -109,6 +112,21 @@ describe('login carriage', () => {
     return { calls, Socket }
   }
   const native = { ...cookieCredentials, delivery: 'native' as const, get: vi.fn(async () => 'unreleased-secret') }
+
+  it.each([false, true])('the engine threads login carriage into a hub with feed=%s', (onFeed) => {
+    const { calls, Socket } = socketCalls()
+    const hub = createEngineHub({
+      wsClientUrl: 'wss://one.test/client', api: {} as PodiumClientApi,
+      replica: createReplica({ storage: memoryStorage() }), onFatalError: vi.fn(),
+      feed: onFeed ? sink() : undefined,
+      makeSocket: createSocketLogin({ credentials: native, httpOrigin: 'https://one.test', bearer: () => 'released', Socket }),
+    })
+    try {
+      hub.connect()
+      expect(calls).toHaveLength(1)
+      expect(calls[0]![2]).toEqual({ headers: { Authorization: 'Bearer released' } })
+    } finally { hub.dispose() }
+  })
 
   it('leaves HttpOnly cookies to the browser constructor without exposing a token', () => {
     const { calls, Socket } = socketCalls(), bearer = vi.fn(() => 'must-not-read')
