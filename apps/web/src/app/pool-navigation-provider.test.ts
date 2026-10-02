@@ -161,6 +161,23 @@ describe('web pool navigation', () => {
     } finally { detach(); runtime.destroy() }
   })
 
+  it('restores the current visit when the loading provider becomes ready', async () => {
+    const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
+    const runtime = ctx.engine
+    const target = asIssueId(ctx.targets.visibleRootId)
+    runtime.getSnapshot().setView('workspace')
+    runtime.getSnapshot().setSelectedIssueId(target)
+    expect(runtime.getSnapshot().issueVisitBaseline?.issueId).toBe(target)
+    const detach = preparePoolScreens([panePoolScreen], runtime)
+    const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
+    const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
+    try {
+      expect(runtime.getSnapshot().issueVisitBaseline).toBeNull()
+      runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
+      expect(runtime.getSnapshot().issueVisitBaseline?.issueId).toBe(target)
+    } finally { detach(); handle.dispose(); runtime.destroy() }
+  })
+
   it('matches navigation plans for every issue in the operator-sized synthetic corpus', async () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine

@@ -1197,11 +1197,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     )
       this.reactions.reportViewState()
     // Mark-the-viewed-session-read reaction.
-    if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces'))
+    if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'navigation'))
       this.reactions.updateMarkReadTimer()
     // …and the same for the issue the operator has in the foreground (POD-272).
     if (
       any(
+        'navigation',
         'issueProjections',
         'issueUserStates',
         'sessions',
@@ -1213,6 +1214,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.reactions.updateIssueVisitBaseline()
     if (
       any(
+        'navigation',
         'issueProjections',
         'issueUserStates',
         'sessions',
@@ -1472,7 +1474,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Open a linked session this replica holds; false when it holds none. */
   private openLinkedSession(sessionId: string, worktree: string | null): boolean {
-    const meta = navigationSession(this.state, sessionId)
+    const meta = this.state.navigation
+      ? navigationSession(this.state, sessionId)
+      : this.state.sessions.find((session) => session.sessionId === sessionId)
     if (!meta) return false
     this.dropPaneLink()
     const selection = sessionLinkSelection(this.state, meta, worktree)
