@@ -38,6 +38,7 @@ export interface IssuePageCheckRow {
 export interface IssuePageDifference { issueId: string; position: number; field: string }
 export interface IssuePageCheckResult {
   issues: number; positions: number; differences: number; pending: number; first: IssuePageDifference | null
+  acceptedDeadlineDifferences: number
 }
 
 function snapshot(issue: IssueViewModel, children: IssueViewModel[], roster: SessionView[], moved: SessionView[]) {
@@ -126,18 +127,31 @@ export function compareIssuePageSnapshots(expected: readonly IssuePageCheckRow[]
     const field = issuePageFirstDifference(e.value, a.value)
     if (field) flag({ issueId, position, field })
   }
-  return { issues: expected.length, positions: ids.length, differences, pending, first }
+  return { issues: expected.length, positions: ids.length, differences, pending, first, acceptedDeadlineDifferences: 0 }
 }
 export function checkIssuePages(pool: MobxPool, issues: readonly IssueViewModel[], sessions: readonly SessionView[],
   report?: (difference: IssuePageDifference) => void): IssuePageCheckResult {
-  return compareIssuePageSnapshots(legacyIssuePageSnapshot(issues, sessions), poolIssuePageSnapshot(pool), report)
+  // Operator decision via POD-4286 (2026-10-02): deadlines update without a
+  // row publication. The legacy view cache waits for a row/marker change.
+  // Compute that one expected change independently of the pool's deadline
+  // reader; a broken pool expiry still fails, as does every other field.
+  let acceptedDeadlineDifferences = 0
+  const expected = issues.map(issue => {
+    const deferred = issue.deferUntil != null && Date.parse(issue.deferUntil) > pool.clock.current
+    if (deferred === issue.deferred) return issue
+    const ready = !issue.blocked && !deferred && issue.stage !== 'done'
+    acceptedDeadlineDifferences += 1 + Number(ready !== issue.ready)
+    return { ...issue, deferred, ready }
+  })
+  return { ...compareIssuePageSnapshots(legacyIssuePageSnapshot(expected, sessions), poolIssuePageSnapshot(pool), report),
+    acceptedDeadlineDifferences }
 }
 
 export function startIssuePageCheck(runtime: ClientRuntime<PodiumClientApi>, pool: MobxPool,
   report: (result: IssuePageCheckResult & { state: string; checks: number }) => void, intervalMs = 5000): () => void {
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new Error('Page check interval must be positive')
   let checks = 0, disposed = false
-  const empty = { issues: 0, positions: 0, differences: 0, pending: 0, first: null }
+  const empty = { issues: 0, positions: 0, differences: 0, pending: 0, first: null, acceptedDeadlineDifferences: 0 }
   report({ ...empty, state: 'waiting', checks })
   const timer = setInterval(() => {
     if (disposed) return

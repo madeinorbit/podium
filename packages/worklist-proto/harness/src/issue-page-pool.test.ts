@@ -78,6 +78,31 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
 }
 
 describe('declared issue page', () => {
+  it('publishes the accepted deadline change on a clock-only tick without hiding other differences', () => {
+    const ctx = open([task('root', { deferUntil: new Date(NOW + 1000).toISOString() })])
+    const values: boolean[][] = []
+    const stop = reaction(() => {
+      const row = ctx.views.issue('root')
+      if (!row || row === LOADING) throw new Error('Missing clock fixture')
+      return [row.deferred, row.ready]
+    }, next => values.push(next), { fireImmediately: true })
+    const payload = tracked(() => ctx.pool.row('issue', 'root'))
+    try {
+      ctx.pool.applyLocals({ selectedIssueId: null, coarseNow: NOW + 999 }, new Set(['coarseNow'] as const))
+      expect(values).toEqual([[true, false]])
+      ctx.pool.applyLocals({ selectedIssueId: null, coarseNow: NOW + 1000 }, new Set(['coarseNow'] as const))
+      expect(values).toEqual([[true, false], [false, true]])
+      expect(tracked(() => ctx.pool.row('issue', 'root'))).toBe(payload)
+      expect(ctx.check()).toMatchObject({ differences: 0, acceptedDeadlineDifferences: 2 })
+      const wrongTitle = ctx.world().map(row => ({ ...row, title: 'Different title' }))
+      expect(tracked(() => checkIssuePages(ctx.pool, wrongTitle, ctx.visible())))
+        .toMatchObject({ differences: 1, first: { field: 'fields.title' }, acceptedDeadlineDifferences: 2 })
+      const ordinary = open([task('ordinary')])
+      const wrongReady = ordinary.world().map(row => ({ ...row, ready: false }))
+      expect(tracked(() => checkIssuePages(ordinary.pool, wrongReady, ordinary.visible())))
+        .toMatchObject({ differences: 1, first: { field: 'fields.ready' }, acceptedDeadlineDifferences: 0 })
+    } finally { stop() }
+  })
   it('reacts to a cursor-only mark without replacing the issue payload', () => {
     const ctx = open([task('root', { readAt: null })])
     const stop = reaction(() => ctx.views.issue('root'), () => {}, { fireImmediately: true })

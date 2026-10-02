@@ -46,6 +46,7 @@ async function main() {
     // Kind names are schema vocabulary; only their counts leave the process.
     console.log(JSON.stringify({ inputCounts: Object.values(bootstrapEntityCounts), issues: result.issues,
       positions: result.positions, differences: result.differences, pending: result.pending,
+      acceptedDeadlineDifferences: result.acceptedDeadlineDifferences,
       first: result.first ? safe(result.first) : null, locations: locations.map(safe) }))
     if (result.differences || result.pending) process.exitCode = 1
   } finally { handle.dispose(); locals.dispose(); rows.dispose() }

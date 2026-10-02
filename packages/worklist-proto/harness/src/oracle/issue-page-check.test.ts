@@ -95,6 +95,7 @@ describe('issue page differential replay', () => {
     let handle = createWorklistPool(feed.source, locals.source, { summaries: ISSUE_PAGE_SUMMARIES })
     const observe = () => reaction(() => poolIssuePageSnapshot(handle.pool), () => {}, { fireImmediately: true })
     let stop = observe()
+    let acceptedDeadlineDifferences = 0
     try {
       for (const [index, change] of changes.entries()) {
         await run.apply(change)
@@ -105,10 +106,12 @@ describe('issue page differential replay', () => {
         }
         locals.flush(); settle(handle.pool)
         const store = run.ctx.engine.getSnapshot()
-        expect(tracked(() => checkIssuePages(handle.pool, allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions)),
+        const result = tracked(() => checkIssuePages(handle.pool, allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions))
+        acceptedDeadlineDifferences += result.acceptedDeadlineDifferences
+        expect(result,
           `seed ${seed} step ${index} ${change.kind}`).toMatchObject({ differences: 0, first: null, pending: 0 })
       }
-      writeResult(`issue-page-check-seed-${seed}`, { issue: 'POD-5091', seed, steps: changes.length, differences: 0 })
+      writeResult(`issue-page-check-seed-${seed}`, { issue: 'POD-5091', seed, steps: changes.length, differences: 0, acceptedDeadlineDifferences })
     } finally { stop(); handle.dispose(); locals.dispose(); run.dispose() }
   }, 600_000)
 })
