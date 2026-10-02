@@ -81,4 +81,12 @@ async function main() {
     if (result.differences || result.pending) process.exitCode = 1
   } finally { handle.dispose() }
 }
-if (import.meta.main) main().catch(() => { console.log(JSON.stringify({ replay: 'unavailable', phase, httpStatus })); process.exitCode = 1 })
+if (import.meta.main) main().catch((error: unknown) => {
+  // Classification only; fetch errors may contain private URLs in their message.
+  const name = error instanceof Error ? error.name : 'unknown'
+  const cause = error instanceof Error ? error.cause : undefined
+  const code = cause && typeof cause === 'object' ? Reflect.get(cause, 'code') : undefined
+  const transport = ['ECONNREFUSED', 'ECONNRESET', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_SOCKET'].includes(code) ? code : undefined
+  console.log(JSON.stringify({ replay: 'unavailable', phase, httpStatus, name, transport }))
+  process.exitCode = 1
+})
