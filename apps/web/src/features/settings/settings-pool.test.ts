@@ -8,7 +8,6 @@ import type { SettingsOwner } from '@podium/client-graph/settings-source'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
-import { autorun, observe } from 'mobx'
 
 const disposals: (() => void)[] = []
 afterEach(() => { for (const dispose of disposals.splice(0)) dispose() })
@@ -47,8 +46,8 @@ describe('declared settings readers', () => {
   it('keeps borrowed row identity and stays quiet for unchanged settings publications', () => {
     const row = session('hot', 'codex'), { pool } = fixture([row])
     expect(pool.row('session', row.sessionId)).toBe(row)
-    const changed = vi.fn(), stop = observe(pool.tables.session, changed)
-    disposals.push(stop)
+    const changed = vi.spyOn(pool.tables.session, 'set')
+    disposals.push(() => changed.mockRestore())
     const setup = pool.row('setupSession', row.sessionId)
     expect(Object.isFrozen(setup)).toBe(true)
     expect(pool.row('setupSession', row.sessionId)).toBe(setup)
@@ -64,14 +63,15 @@ describe('declared settings readers', () => {
     let payloadReads = 0
     const cold = { ...session('cold', 'codex', true), get privatePayload() { payloadReads++; return 'large payload' } }
     const hot = session('hot', 'claude-code'), { pool, load } = fixture([cold, hot])
-    let agent = ''
-    const stop = autorun(() => { agent = pool.settingsViews.setup().defaultAgent })
+    const view = createPoolProjection(pool, current => current.settingsViews.setup().defaultAgent)
+    const wake = vi.fn(), stop = view.subscribe(wake)
     disposals.push(stop)
-    expect(agent).toBe('codex')
+    expect(view.getSnapshot()).toBe('codex')
     const first = pool.row('setupSession', 'cold')
     expect(first).toMatchObject({ setupOrder: 1 })
     pool.apply({ type: 'replace', rows: [hot, cold].map(value => ({ kind: 'session' as const, id: value.sessionId, value })) })
-    expect(agent).toBe('claude-code')
+    expect(wake).toHaveBeenCalledTimes(1)
+    expect(view.getSnapshot()).toBe('claude-code')
     expect(pool.row('session', 'hot')).toBe(hot)
     expect(pool.row('setupSession', 'cold')).toMatchObject({ setupOrder: 2 })
     expect(pool.row('setupSession', 'cold')).not.toBe(first)
