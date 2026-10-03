@@ -14,13 +14,19 @@ import {
 import { vpsIntroState } from './vps-activation'
 
 const uiValues = new Map<string, string>()
+const uiListeners = new Set<() => void>()
 const uiSet = vi.fn((key: string, value: string | null) => {
   if (value === null) uiValues.delete(key)
   else uiValues.set(key, value)
+  for (const wake of uiListeners) wake()
 })
 const uiState = {
   get: (key: string) => uiValues.get(key) ?? null,
   set: uiSet,
+  subscribe: (wake: () => void) => {
+    uiListeners.add(wake)
+    return () => { uiListeners.delete(wake) }
+  },
 }
 
 vi.mock('@/app/store', () => ({
@@ -31,6 +37,7 @@ vi.mock('@/app/store', () => ({
 afterEach(() => {
   cleanup()
   uiValues.clear()
+  uiListeners.clear()
   vi.clearAllMocks()
   vi.restoreAllMocks()
 })

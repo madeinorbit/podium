@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import '@/test-support/mock-screen-pool'
 import { GITHUB_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -7,12 +8,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GitHubProjectIntake } from './GitHubProjectIntake'
 
 const values = new Map<string, string>()
+const uiListeners = new Set<() => void>()
 const uiState = {
   get: (key: string) => values.get(key) ?? null,
   set: vi.fn((key: string, value: string | null) => {
     if (value === null) values.delete(key)
     else values.set(key, value)
+    for (const wake of uiListeners) wake()
   }),
+  subscribe: (wake: () => void) => {
+    uiListeners.add(wake)
+    return () => { uiListeners.delete(wake) }
+  },
 }
 const githubList = vi.fn()
 let publication = 0
@@ -76,6 +83,7 @@ const machine = {
 afterEach(() => {
   cleanup()
   values.clear()
+  uiListeners.clear()
   vi.clearAllMocks()
   publication = 0
   storeSnapshot = {

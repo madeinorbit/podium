@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { dedupeSessions } from '@podium/client-core/engine'
+import type { RoutedUiState } from '@podium/client-core/ui-state'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -121,6 +122,7 @@ beforeEach(() => {
     sessions: { transcriptRead: { query: async () => ({ items: [], hasMore: false }) } },
   }
   pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
+  pool.attachPreferences(state.uiState as RoutedUiState)
   pool.apply({
     type: 'replace',
     rows: [

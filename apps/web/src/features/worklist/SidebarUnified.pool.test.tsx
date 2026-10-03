@@ -269,7 +269,9 @@ describe('real sidebar pool cutover', () => {
         { tuckedAt: stamp },
       )
     })
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    })
     expect(screen.getByTestId('folded-work-row').textContent).toContain('2h ago')
     mode.commits.clear()
     await advanceClock(60_000)
@@ -367,8 +369,10 @@ describe('real sidebar pool cutover', () => {
       },
       'rows and bands',
     )
-    fireEvent.click(screen.getByTestId('snoozed-fold-toggle'))
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('snoozed-fold-toggle'))
+      fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    })
     expect(screen.getAllByTestId('folded-work-row')).toHaveLength(2)
     fireEvent.click(screen.getByTestId('manage-projects'))
     expect(screen.getByRole('dialog')).toBeTruthy()

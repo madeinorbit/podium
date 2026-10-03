@@ -66,8 +66,10 @@ try:
         path.write_text(re.sub(pattern, lambda _: replacement, text))
         git('add', file)
         git('-c', 'user.name=Podium Control', '-c', 'user.email=control@podium.invalid', 'commit', '-q', '-m', 'WIP reader fault ' + name)
+        # The focused runner owns test timeouts; admission may wait behind other
+        # worktrees without turning this assertion plant into an invalid run.
         result = subprocess.run(['bun', 'run', 'test:file', '--', test, '-t', title], cwd=root, env=env,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         clean = re.sub(r'\x1b\[[0-9;]*m', '', result.stdout.decode(errors='replace'))
         (out / (name + '.log')).write_text(clean)
         failed = re.search(r'Tests\s+([1-9][0-9]*) failed', clean)

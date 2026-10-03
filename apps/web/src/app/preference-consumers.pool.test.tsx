@@ -13,6 +13,8 @@ import {
 } from '@/features/settings/readers'
 import { DensityProvider, SHELL_DENSITY_KEY, useDensity } from './density'
 
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 const ports = vi.hoisted(() => ({
   pool: null as MobxPool | null,
   ui: null as RoutedUiState | null,

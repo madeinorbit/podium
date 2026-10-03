@@ -7,8 +7,9 @@ export function fixtureStoreSnapshot(
   onMutation?: () => void,
 ): Store & { batchGesture: (fn: () => void) => void } {
   const state = input as Store & { batchGesture?: (fn: () => void) => void }
-  return {
-    ...state,
+  // Preserve tripwire getters without evaluating unrelated reader inputs while
+  // borrowing the action owner. The pool fixtures read those inputs explicitly.
+  const plumbing: Pick<Store, 'fileTabs' | 'navigateWorkspace'> & { batchGesture: (fn: () => void) => void } = {
     fileTabs: state.fileTabs ?? [],
     batchGesture: (fn) => {
       if (state.batchGesture) state.batchGesture(fn)
@@ -26,4 +27,8 @@ export function fixtureStoreSnapshot(
         return true
       }),
   }
+  return Object.create(Object.getPrototypeOf(state), {
+    ...Object.getOwnPropertyDescriptors(state),
+    ...Object.getOwnPropertyDescriptors(plumbing),
+  })
 }

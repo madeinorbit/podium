@@ -1,6 +1,6 @@
 import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
-import '@/test-support/mock-core-store-handle'
+import '@/test-support/mock-store-action-ports'
 import '@/test-support/model-catalog-mock'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { dedupeSessions } from '@podium/client-core/engine'
