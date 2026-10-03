@@ -65,7 +65,7 @@ vi.mock('../components/PressableScale', () => ({ PressableScale: ({ children, ac
   children: ReactNode; accessibilityLabel?: string; onPress?: () => void; onLongPress?: () => void
 }) => <Profiler id={accessibilityLabel ?? 'chrome'} onRender={(_, phase) => {
   if (phase === 'mount') return
-  const key = accessibilityLabel?.match(/^([A-Z]+-\d+) /)?.[1] ?? (accessibilityLabel?.startsWith('Worktree ') ? accessibilityLabel : null)
+  const key = accessibilityLabel?.match(/^([A-Z]+-\d+|#\d+) /)?.[1] ?? (accessibilityLabel?.startsWith('Worktree ') ? accessibilityLabel : null)
   if (key) state.counts.set(key, (state.counts.get(key) ?? 0) + 1)
 }}><div data-label={accessibilityLabel} aria-label={accessibilityLabel} onClick={onPress} onContextMenu={onLongPress}
   {...('aria-expanded' in props ? { 'aria-expanded': props['aria-expanded'] as boolean } : {})}>{children}</div></Profiler> }))
@@ -131,11 +131,11 @@ describe('mobile WorkScreen pool consumer', () => {
     expect(new Set(keys).size).toBe(keys.length)
   }, 120_000)
 
-  it('only commits changed paint, keeps native lane identity, and never exceeds legacy', async () => {
+  for (const scale of [1, 4] as const) it(`only commits changed paint, keeps native lane identity, and never exceeds legacy at ${scale}x`, async () => {
     const cells: unknown[] = []
     let legacyCounts: number[] = []
     for (const on of [false, true]) {
-      const { view, corpus } = await mount(on, 1)
+      const { view, corpus } = await mount(on, scale)
       const initial = output(view.container)
       const label = view.container.querySelector('[data-label^="POD-"]')!.getAttribute('data-label')!
       const seq = Number(label.match(/POD-(\d+)/)![1])
