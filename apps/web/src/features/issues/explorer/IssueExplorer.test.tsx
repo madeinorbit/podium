@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
 import { poolMissionContains } from '@/features/worklist/use-pool-unified-work'
 import { makeIssue } from '@/lib/test-issue'
-import { normalizedFixtureIssues } from '@/test-support/normalized-issues'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { ISSUE_VIRTUAL_MAX_ITEMS } from '../use-bounded-virtual-list'
 import {
   EXPLORER_SCROLL_CACHE_LIMIT,
@@ -598,11 +598,16 @@ function explorerPool(issues: SliceIssue[], sessions: SliceSession[] = []): Mobx
 
 function fixturePool(): MobxPool {
   const signature = JSON.stringify([state.issues, state.sessions])
-  if (!poolMode.pool) poolMode.pool = explorerPool(normalizedFixtureIssues(state), state.sessions)
+  const repos = normalizedFixtureStore(state).replica.rows('repos').map((value) => ({ kind: 'repo' as const, id: value.id, value }))
+  if (!poolMode.pool) {
+    poolMode.pool = explorerPool(normalizedFixtureIssues(state), state.sessions)
+    poolMode.pool.apply({ type: 'update', rows: repos })
+  }
   else if (poolMode.signature && poolMode.signature !== signature) {
     poolMode.pool.apply({
       type: 'replace',
       rows: [
+        ...repos,
         ...normalizedFixtureIssues(state).map((value) => ({
           kind: 'issue' as const,
           id: value.id,

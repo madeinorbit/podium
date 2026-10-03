@@ -194,7 +194,8 @@ type Issue = Record<string, unknown>
 const issue = (id: string, over: Issue = {}): Issue => ({
   id,
   seq: Number(id.replace(/\D/g, '')) || 1,
-  displayRef: id.toUpperCase(),
+  prefix: 'POD',
+  displayRef: `POD-${Number(id.replace(/\D/g, '')) || 1}`,
   title: `Task ${id}`,
   stage: 'in_progress',
   archived: false,
@@ -2178,7 +2179,7 @@ describe('flight deck task menu (POD-771)', () => {
     fireEvent.contextMenu(stripOf('t4'))
     // t4 hangs under t3, so the placement correction is the one that applies —
     // and it states the OUTCOME, which is the row appearing in the sidebar.
-    fireEvent.click(screen.getByText('Move to top level (out of T3)'))
+    fireEvent.click(screen.getByText('Move to top level (out of POD-3)'))
     expect(harness.setPlacement).toHaveBeenCalledWith({
       id: 't4',
       placement: 'own',
