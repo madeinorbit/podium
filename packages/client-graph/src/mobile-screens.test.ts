@@ -121,6 +121,7 @@ it('observes an addressed mission without subscribing to unrelated issue content
   disposals.push(stop)
   while (pool.hydrate()) {}
   const before = draws
+  const beforeWork = { ...reader.stats }
   runInAction(() =>
     pool.apply({
       type: 'update',
@@ -128,6 +129,7 @@ it('observes an addressed mission without subscribing to unrelated issue content
     }),
   )
   expect(draws).toBe(before)
+  expect(reader.stats).toEqual(beforeWork)
   expect(reader.mission('root')).toMatchObject({ root: { title: 'root' }, progress: { total: 1 } })
   runInAction(() => selected.set('unrelated'))
   expect(reader.mission('unrelated')).toMatchObject({ root: { title: 'new title' } })

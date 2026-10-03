@@ -201,6 +201,12 @@ vi.mock('expo-crypto', () => ({
   digest: async () => new ArrayBuffer(32),
   CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
 }))
+vi.mock('expo-clipboard', () => ({
+  setStringAsync: async () => {},
+  getStringAsync: async () => '',
+  isPasteButtonAvailable: false,
+  ClipboardPasteButton: () => null,
+}))
 vi.mock('expo-haptics', () => ({
   selectionAsync: async () => {},
   impactAsync: async () => {},

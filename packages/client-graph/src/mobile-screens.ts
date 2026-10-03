@@ -54,6 +54,7 @@ const requireRow = <T>(row: Loaded<T>): T | undefined => {
 export function createMobileScreenReader(pool: MobxPool) {
   const mission = new MobileMissionReader(pool)
   const cache = new Map<string, IComputedValue<unknown>>()
+  const stats = { tasks: 0, mission: 0, deck: 0 }
   let disposed = false
   function memo<T>(key: string, read: () => T): T | typeof LOADING {
     if (disposed) return LOADING
@@ -80,6 +81,7 @@ export function createMobileScreenReader(pool: MobxPool) {
   }
   function tasks(options: MobileTasksOptions): MobileTasksData | typeof LOADING {
     return memo(`tasks:${JSON.stringify(options)}`, () => {
+      stats.tasks++
       // The shared source owns the resident index and declared cold questions.
       // This map is this mounted query's borrowed presentation, never an index.
       const models = new Map<string, IssueViewModel>()
@@ -305,6 +307,7 @@ export function createMobileScreenReader(pool: MobxPool) {
   }
   function deck(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
     return memo(`deck:${id}:${mode}`, () => {
+      stats.deck++
       const values = readMissionView(mission, id, mode)
       if (values === LOADING) throw LOADING
       return values.rows.some((row) => row.issue.id === values.root?.id)
@@ -314,6 +317,7 @@ export function createMobileScreenReader(pool: MobxPool) {
   }
   function readMission(id: string | null): MobileMissionData | typeof LOADING {
     return memo(`mission:${id}`, () => {
+      stats.mission++
       const values = deck(id, 'full')
       if (values === LOADING) throw LOADING
       if (!values.root) return EMPTY_MOBILE_MISSION
@@ -354,6 +358,7 @@ export function createMobileScreenReader(pool: MobxPool) {
     })
   }
   return {
+    stats,
     tasks,
     mission: readMission,
     deck,
