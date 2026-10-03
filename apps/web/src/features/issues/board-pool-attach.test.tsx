@@ -20,6 +20,10 @@ it('attaches a real pool after the pending board render without legacy derivatio
     cache: { readCursor: () => null, readEntities: () => [], read: () => undefined, durability: () => 'durable' },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
+  const api = {
+    settings: { get: { query: async () => ({}) } },
+    quota: { summary: { query: async () => [] } },
+  } as unknown as PodiumClientApi
   const container = document.createElement('div')
   const root = createRoot(container)
   const errors: unknown[] = []
@@ -38,7 +42,7 @@ it('attaches a real pool after the pending board render without legacy derivatio
       root.render(<StoreProvider
         principal={asClientPrincipal(asUserId('board-attach'))}
         config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
-        api={{} as PodiumClientApi} createReplicaFn={() => replica} networkEnabled={false}
+        api={api} createReplicaFn={() => replica} networkEnabled={false}
         attachRuntime={(runtime) => attachWorklistPool(runtime, (cause) => errors.push(cause))}
         onFatalError={(message) => { throw new Error(message) }}
       ><Probe /></StoreProvider>)
