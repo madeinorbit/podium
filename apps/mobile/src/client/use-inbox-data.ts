@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/useHookAtTopLevel: accessor branches use the app-load device latch, which never changes while mounted
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
@@ -62,7 +63,6 @@ function useLegacyInbox(): InboxData {
 /** This branch is the app-load latch, never the asynchronous pool attachment.
  * The enabled hook stays mounted while null becomes an attached pool. */
 export function useInboxData(): InboxData {
-  // biome-ignore lint/correctness/useHookAtTopLevel: the device switch is latched once before this hook mounts
   const data =
     mobileDataLayer() === 'pool'
       ? useMobilePoolProjection(readInbox, EMPTY_INBOX)
@@ -77,7 +77,6 @@ function useLegacyQueue() {
   return { queue, booting, legacyIssues: issues }
 }
 export function useScreeningQueue(): typeof EMPTY_QUEUE {
-  // biome-ignore lint/correctness/useHookAtTopLevel: the device switch is latched once before this hook mounts
   const data =
     mobileDataLayer() === 'pool'
       ? useMobilePoolProjection(readQueue, EMPTY_QUEUE)
@@ -97,7 +96,6 @@ export function useScreeningRows(ids: readonly string[], legacyIssues?: IssueVie
     }),
     [legacyIssues],
   )
-  // biome-ignore lint/correctness/useHookAtTopLevel: the device switch is latched once before this hook mounts
   return mobileDataLayer() === 'pool' ? useMobilePoolProjection(read, EMPTY_ROWS) : legacy
 }
 
@@ -120,7 +118,6 @@ function usePoolPulseLive() {
   return { machines, hosts }
 }
 export function usePulseLive() {
-  // biome-ignore lint/correctness/useHookAtTopLevel: the device switch is latched once before this hook mounts
   return mobileDataLayer() === 'pool' ? usePoolPulseLive() : useLegacyPulseLive()
 }
 
