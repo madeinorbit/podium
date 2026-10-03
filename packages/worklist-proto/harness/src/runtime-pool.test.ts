@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
+
+import { LOADING } from '@podium/client-graph'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import * as engineLocals from '@podium/client-graph/shared/engine-locals'
 import { localsOfEngine } from '@podium/client-graph/shared/engine-locals'
 import * as rowSource from '@podium/client-graph/shared/row-source'
-import * as engineLocals from '@podium/client-graph/shared/engine-locals'
-import { LOADING } from '@podium/client-graph'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   startScenarioEngine,
@@ -14,20 +15,23 @@ import {
   writeTitleRename,
 } from '../../shared/src/scenarios'
 import { snapshotPool, tracked } from './adapters/mobx-pool'
-import { snapshotFromStore } from './oracle'
 import { installMobxWarnTrap } from './mobx-trap'
+import { snapshotFromStore } from './oracle'
 
 installMobxWarnTrap()
 afterEach(() => vi.restoreAllMocks())
 
 describe('the pool over the app-owned runtime', () => {
-  it.each([1, 4] as const)('matches the round-three legacy oracle at %ix, including runtime writes and locals', async (scale) => {
+  it.each([
+    1, 4,
+  ] as const)('matches the round-three legacy oracle at %ix, including runtime writes and locals', async (scale) => {
     const ctx = await startScenarioEngine(scale)
     const handle = createRuntimeWorklistPool(ctx.engine)
     try {
-      const parity = () => expect(snapshotPool(handle.pool)).toEqual(
-        snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)),
-      )
+      const parity = () =>
+        expect(snapshotPool(handle.pool)).toEqual(
+          snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)),
+        )
       parity()
       await writeTitleRename(ctx)
       parity()
@@ -44,7 +48,9 @@ describe('the pool over the app-owned runtime', () => {
     }
   }, 120_000)
 
-  it.each([1, 4] as const)('follows rescope growth and shrink through the existing feed at %ix', async (scale) => {
+  it.each([
+    1, 4,
+  ] as const)('follows rescope growth and shrink through the existing feed at %ix', async (scale) => {
     const ctx = await startScenarioEngine(scale)
     const handle = createRuntimeWorklistPool(ctx.engine)
     try {
@@ -78,15 +84,22 @@ describe('the pool over the app-owned runtime', () => {
       const joined = input.mock.results[0]!.value.source.row!('issue', id)
       expect(tracked(() => pool.row('issue', id))).toBe(joined)
       expect(tracked(() => pool.row('issue', id))).toBe(joined)
-      expect(snapshotPool(pool)).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)))
+      expect(snapshotPool(pool)).toEqual(
+        snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)),
+      )
       ctx.engine.start()
       ctx.replica.onKernelEvent({
-        type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: 1,
-        entityCount: ctx.cache.records.length, bufferedFramesApplied: 0,
+        type: 'bootstrap-installed',
+        cause: 'cold-start',
+        snapshotSeq: 1,
+        entityCount: ctx.cache.records.length,
+        bufferedFramesApplied: 0,
       } as never)
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       expect(handle.pool).toBe(pool)
-      expect(snapshotPool(pool)).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)))
+      expect(snapshotPool(pool)).toEqual(
+        snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)),
+      )
     } finally {
       handle.dispose()
       ctx.engine.destroy()
@@ -104,7 +117,14 @@ describe('the pool over the app-owned runtime', () => {
       expect(tracked(() => handle.pool.row('session', id))).toBe(LOADING)
       expect(handle.pool.hydrate()).toBeGreaterThan(0)
       expect(read).toHaveBeenCalledWith('sessions', id)
-      expect(tracked(() => handle.pool.row('session', id))).toBe(ctx.replica.row!('sessions', id))
+      // Since POD-5114 a session row reaches the pool as its joined view over the
+      // replica row (personal, repo and machine homes), never the raw record, so
+      // the computed cells are present even when their home is absent. The view
+      // carries every raw cell and keeps one identity across reads.
+      const row = tracked(() => handle.pool.row('session', id))
+      expect(row).toMatchObject(ctx.replica.row!('sessions', id)!)
+      expect(row).toHaveProperty('condition', undefined)
+      expect(tracked(() => handle.pool.row('session', id))).toBe(row)
     } finally {
       handle.dispose()
       ctx.engine.destroy()
@@ -117,7 +137,9 @@ describe('the pool over the app-owned runtime', () => {
     const locals = vi.spyOn(engineLocals, 'createEngineLocals')
     const handle = createRuntimeWorklistPool(ctx.engine)
     const rowHandle = rows.mock.results[0]!.value as rowSource.RowSourceHandle
-    const localsHandle = locals.mock.results[0]!.value as ReturnType<typeof engineLocals.createEngineLocals>
+    const localsHandle = locals.mock.results[0]!.value as ReturnType<
+      typeof engineLocals.createEngineLocals
+    >
     const offRows = vi.spyOn(rowHandle, 'dispose')
     const offLocals = vi.spyOn(localsHandle, 'dispose')
     const offPool = vi.spyOn(handle.pool, 'dispose')
@@ -129,7 +151,9 @@ describe('the pool over the app-owned runtime', () => {
       expect(offPool).toHaveBeenCalledTimes(1)
       expect(offRows).toHaveBeenCalledTimes(1)
       expect(offLocals).toHaveBeenCalledTimes(1)
-      expect(() => rowHandle.source.row!('issue', ctx.targets.visibleRootId)).toThrow('disposed source')
+      expect(() => rowHandle.source.row!('issue', ctx.targets.visibleRootId)).toThrow(
+        'disposed source',
+      )
       const apply = vi.spyOn(handle.pool, 'apply')
       await writeTitleRename(ctx)
       expect(apply).not.toHaveBeenCalled()

@@ -184,10 +184,15 @@ function homeRow(engine: Engine, userId = ME, me = ME): SessionUserStateWire | u
     truth === undefined
       ? undefined
       : (Object.fromEntries(
-          Object.entries(truth).filter(([key, value]) => !key.startsWith('$') && value !== undefined),
+          Object.entries(truth).filter(
+            ([key, value]) => !key.startsWith('$') && value !== undefined,
+          ),
         ) as SessionUserStateWire)
   if (userId !== me) return data
-  const folded = foldRowOverlays(data, engine.pendingOverlaysByRow('sessionUserStates').get(S) ?? [])
+  const folded = foldRowOverlays(
+    data,
+    engine.pendingOverlaysByRow('sessionUserStates').get(S) ?? [],
+  )
   return folded === undefined
     ? undefined
     : (Object.fromEntries(
@@ -457,8 +462,16 @@ describe('mark read paints at least the session activity (client clock behind th
   })
 })
 
-describe('a server that sends no per-user row (older than S1)', () => {
-  it("paints over the session row's own cells, and the legacy echo settles it", async () => {
+/**
+ * A server older than S1 kept the read cursor and snooze on the session row and
+ * sent no per-user row. It can no longer serve this client: the client offers
+ * wire [4, 4] (`MIN_CLIENT_WIRE_VERSION`), S1's per-user rows predate wire 4, and
+ * `versionSupport` refuses a pre-4 acceptor. POD-5114 then retired the session
+ * row's copies of those cells, so a stale cached copy must stay inert. These two
+ * cases used to pin the pre-S1 fallback; they now pin its retirement.
+ */
+describe('a session with no per-user row: the retired session-row cells are inert (POD-5114)', () => {
+  it('a mark read waits for the PER-USER echo; a session row carrying the old cell does not settle it', async () => {
     const { engine } = await booted()
     publish(engine, { session: sessionRow({ readAt: null, unread: true }) })
     await settle()
@@ -471,23 +484,31 @@ describe('a server that sends no per-user row (older than S1)', () => {
     expect(homeRow(engine)?.readAt).toEqual(expect.any(String))
     expect(engine.outbox.awaiting()).toHaveLength(1)
 
-    // That server only ever republishes the session row.
+    // A session row that still carries the retired cell is not covering truth.
     publish(engine, { session: sessionRow({ readAt: SERVER_NOW, unread: false }) })
     await settle()
+    expect(engine.outbox.awaiting()).toHaveLength(1)
+    expect(viewOf(engine)?.unread).toBe(false)
+
+    // The per-user row is.
+    publish(engine, { user: userRow({ readAt: SERVER_NOW }) })
+    await settle()
     expect(engine.outbox.awaiting()).toHaveLength(0)
-    expect(homeRow(engine)).toBeUndefined()
     expect(viewOf(engine)).toMatchObject({ readAt: SERVER_NOW, unread: false })
     engine.dispose()
   })
 
-  it("a snooze keeps the session row's other cell (its read cursor)", async () => {
+  it('a snooze paints only the snooze; a stale session-row read cursor is not read back', async () => {
     const api = makeApi()
     api.snoozes.set.mutate = vi.fn(() => new Promise(() => {}))
     const { engine } = await booted(api)
     publish(engine, { session: sessionRow({ readAt: SERVER_NOW, unread: false }) })
     await settle()
+    // No per-user row: no read cursor, whatever the retired cell says.
+    expect(viewOf(engine)?.readAt).toBeNull()
     void engine.getSnapshot().setSnooze(S, LATER)
-    expect(viewOf(engine)).toMatchObject({ snoozedUntil: LATER, readAt: SERVER_NOW, unread: false })
+    expect(viewOf(engine)).toMatchObject({ snoozedUntil: LATER, readAt: null })
+    expect(homeRow(engine)).toMatchObject({ snoozedUntil: LATER, readAt: null })
     engine.dispose()
   })
 })
@@ -581,7 +602,11 @@ describe('the spawn placeholder (S3c)', () => {
       readAt: expect.any(String),
     })
     const placeholder = engine.getSnapshot().sessions.find((s) => s.sessionId === made.sessionId)
-    expect(placeholder).toMatchObject({ status: 'starting', unread: false, readAt: expect.any(String) })
+    expect(placeholder).toMatchObject({
+      status: 'starting',
+      unread: false,
+      readAt: expect.any(String),
+    })
 
     // An edit during the "Starting…" window shows on the placeholder too.
     api.snoozes.set.mutate = vi.fn(() => new Promise(() => {}))
