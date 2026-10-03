@@ -112,7 +112,22 @@ export async function installCommitObserver(page: Page) {
   })
 }
 
-export async function startCpu(cdp: CDPSession) {
+/** Structural CDP type keeps declaration output independent of Bun store paths. */
+export type CpuProfile = {
+  nodes: {
+    id: number
+    callFrame: { functionName: string; scriptId: string; url: string; lineNumber: number; columnNumber: number }
+    hitCount?: number
+    children?: number[]
+    deoptReason?: string
+    positionTicks?: { line: number; ticks: number }[]
+  }[]
+  startTime: number
+  endTime: number
+  samples?: number[]
+  timeDeltas?: number[]
+}
+export async function startCpu(cdp: CDPSession): Promise<() => Promise<CpuProfile>> {
   await cdp.send('Profiler.enable')
   await cdp.send('Profiler.setSamplingInterval', { interval: 1000 })
   await cdp.send('Profiler.start')
