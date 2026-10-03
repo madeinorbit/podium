@@ -17,6 +17,12 @@ it('attaches a real pool after the pending board render without legacy derivatio
   const { initializePoolScreens } = await import('@/app/pool-screens')
   const { EMPTY_BOARD, useBoardBase, useBoardData } = await import('./board-pool-data')
   const { DEFAULT_DISPLAY } = await import('./issues-display')
+  // Compile the real lazy modules before React's act scope; attachment still
+  // crosses its asynchronous import and source-registration boundaries.
+  await Promise.all([
+    import('@podium/client-graph/runtime-pool'),
+    import('@podium/client-graph/issue-board-source'),
+  ])
   const replica = createKernelReplica({
     cache: { readCursor: () => null, readEntities: () => [], read: () => undefined, durability: () => 'durable' },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
