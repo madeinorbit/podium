@@ -1,14 +1,14 @@
 /** Foreground synthetic Chromium measurement. Timed runs require bench:flatblock.
- * Run --legacy with the baseline screen files, then restore and run the pool arm.
+ * Pool-only readers retain their fixed mode and action regression tests.
  * Owns one Vite PID and browser; never starts a Podium server or daemon. */
 
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium } from '@playwright/test'
 import type {} from './file-viewer.browser'
 
-const arm = process.argv.includes('--legacy') ? 'legacy' : 'pool',
+const arm = 'pool',
   countsOnly = process.argv.includes('--counts-only')
 const origin = 'http://127.0.0.1:45170',
   output = '.artifacts/file-viewers'
@@ -54,7 +54,7 @@ try {
       ? route.continue()
       : route.abort()
   })
-  await page.goto(`${origin}${path}?mobxPreferences=${arm === 'pool' ? 1 : 0}`)
+  await page.goto(`${origin}${path}`)
   await page.waitForFunction(
     () =>
       window.__fileViewers?.ready() &&
@@ -70,7 +70,7 @@ try {
       ),
   )
   const boot = await page.evaluate(() => window.__fileViewers.stats())
-  if (arm === 'pool' && (boot.selectors || boot.legacyReads || boot.legacyDerivations))
+  if ((boot.selectors || boot.legacyDerivations))
     throw new Error('Legacy file/Git reader executed during mount')
   const evidence = (stats: typeof boot) => {
     const { commitMs: _duration, ...counts } = stats
@@ -98,16 +98,14 @@ try {
           }
         : {}),
     }
-    if (arm === 'pool' && (stats.selectors || stats.legacyReads || stats.legacyDerivations))
+    if ((stats.selectors || stats.legacyDerivations))
       throw new Error('Legacy file/Git reader executed')
-    if (arm === 'legacy' && phase === 'activity' && stats.selectors === 0)
-      throw new Error('Baseline positive control did not execute')
     if (stats.failures.length || stats.calls.write)
       throw new Error('Viewer owner failure or unsolicited file write')
   }
   await page.waitForFunction(() => document.querySelector('[data-testid="diff-sheet"]'))
   const check = await page.evaluate(() => window.__fileViewers.check())
-  if (arm === 'pool' && (!check || check.differences || check.pending || check.positions !== 7))
+  if ((!check || check.differences || check.pending || check.positions !== 7))
     throw new Error(`File-mode comparison failed: ${JSON.stringify(check)}`)
   result.check = check
   await page.evaluate(() => window.__fileViewers.closeUtilities())
@@ -119,13 +117,6 @@ try {
   )
   const snapshot = await page.evaluate(() => window.__fileViewers.snapshot())
   result.snapshot = snapshot
-  if (arm === 'pool' && !countsOnly) {
-    const before = JSON.parse(await readFile(`${output}/legacy.json`, 'utf8')) as {
-      snapshot: unknown
-    }
-    if (JSON.stringify(before.snapshot) !== JSON.stringify(snapshot))
-      throw new Error('Actual viewer outputs differ from baseline')
-  }
   await page.screenshot({ path: `${output}/${arm}.png` })
   if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`)
   await writeFile(

@@ -14,18 +14,13 @@ import { createSuperagentFixture } from './fixture'
 import { SuperagentView } from './SuperagentView'
 import { ConciergeButton } from './ConciergeButton'
 
-const startup = vi.hoisted(() => ({ layer: 'legacy' as 'legacy' | 'pool' }))
-vi.mock('./data-layer', async importOriginal => ({
-  ...await importOriginal<typeof import('./data-layer')>(), superagentDataLayer: () => startup.layer,
-}))
 // The conversation is POD-5173's separately allocated surface. This proof
 // exercises the real parent, its props, actions and actual provider attachment.
 vi.mock('@/features/chat/ChatView', () => ({ ChatView: (props: { sessionId: string; initialTurnRunning: boolean }) =>
   <div data-testid="embedded-chat" data-session={props.sessionId} data-running={String(props.initialTurnRunning)}>Existing session conversation</div> }))
 afterEach(() => { cleanup(); storeStats.enable(false) })
 
-async function mount(layer: 'legacy' | 'pool') {
-  startup.layer = layer
+async function mount() {
   const data = createSuperagentFixture(), errors: string[] = [], before: (unknown | null)[] = []
   let runtime!: ClientRuntime, pool: ReturnType<typeof useWorklistPool> = null
   const header = document.createElement('div')
@@ -51,11 +46,8 @@ async function mount(layer: 'legacy' | 'pool') {
   return { view, header, data, runtime, errors, before, get pool() { return pool } }
 }
 const snapshot = (f: Awaited<ReturnType<typeof mount>>) => ({ html: f.view.container.innerHTML, controls: f.header.innerHTML })
-it('renders the same thread, return marker, concierge and dock controls with both readers', async () => {
-  const legacy = await mount('legacy'), expected = snapshot(legacy)
-  legacy.view.unmount()
-  const enabled = await mount('pool')
-  expect(snapshot(enabled)).toEqual(expected)
+it('preserves saved thread, return marker, concierge and dock controls', async () => {
+  const enabled = await mount()
   expect(snapshot(enabled)).toMatchSnapshot('last green superagent controls')
   expect(enabled.errors).toEqual([])
   expect(enabled.before[0]).toBeNull()
@@ -63,7 +55,7 @@ it('renders the same thread, return marker, concierge and dock controls with bot
   await waitFor(() => expect(checkSuperagent(enabled.pool!, enabled.runtime.getSnapshot())).toMatchObject({ differences: 0, pending: 0 }))
 })
 it('executes zero legacy Superagent derivations through attach, feed, local and thread updates', async () => {
-  const enabled = await mount('pool')
+  const enabled = await mount()
   const own = () => Object.entries(readRuntimeStoreStats(enabled.runtime)?.slices ?? {}).filter(([name]) => name === 'superagent' || name.startsWith('superagent.'))
   expect(own()).toEqual([])
   expect(readRuntimeStoreStats(enabled.runtime)?.selectorRuns ?? 0).toBe(0)
@@ -77,12 +69,9 @@ it('executes zero legacy Superagent derivations through attach, feed, local and 
   expect(own()).toEqual([])
   expect(readRuntimeStoreStats(enabled.runtime)?.selectorRuns ?? 0).toBe(0)
   enabled.view.unmount()
-  const legacy = await mount('legacy')
-  expect(readRuntimeStoreStats(legacy.runtime)?.slices.superagent).toBeGreaterThan(0)
-  expect(readRuntimeStoreStats(legacy.runtime)?.slices['superagent.events']).toBeGreaterThan(0)
 })
 it('keeps the existing mutation and navigation owner for clear, terminal and concierge actions', async () => {
-  const enabled = await mount('pool')
+  const enabled = await mount()
   await act(async () => fireEvent.click(enabled.header.querySelector('button[title^="Clear context"]')!))
   await act(async () => fireEvent.click(enabled.header.querySelector('button[title^="Open this conversation"]')!))
   await waitFor(() => expect(enabled.runtime.getSnapshot().paneA).toBe('synthetic-session-3'))

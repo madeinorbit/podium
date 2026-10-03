@@ -8,7 +8,6 @@ import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
-import { preferenceReadStats, preferencesDataLayer } from '@/lib/preferences-data-layer'
 import { DiffSheet } from '../git/DiffSheet'
 import { GitPanelView } from '../git/GitPanelView'
 import { parseStatus } from '../git/git-panel'
@@ -34,7 +33,6 @@ let ready = false,
 let browse = (_open: boolean) => {},
   review = (_open: boolean) => {}
 storeStats.enable()
-preferenceReadStats.enable()
 
 function Surface() {
   owner = useStoreHandle() as ClientRuntime
@@ -45,7 +43,7 @@ function Surface() {
   browse = setBrowsing
   review = setReviewing
   useEffect(() => {
-    ready = preferencesDataLayer() === 'legacy' || currentPool !== null
+    ready = currentPool !== null
     return () => {
       ready = false
     }
@@ -140,7 +138,7 @@ const driver = {
   ready: () => ready,
   reset() {
     storeStats.reset()
-    preferenceReadStats.reset()
+
     commits = 0
     commitMs = 0
   },
@@ -187,7 +185,6 @@ const driver = {
         (sum, row) => sum + Object.values(row.slices).reduce((a, n) => a + n, 0),
         0,
       ),
-      ...preferenceReadStats.read(owner),
       pool: pool?.preferenceCounts(),
       commits,
       commitMs,

@@ -1,14 +1,13 @@
-/** Real Chromium over production readers, default-off vs enabled, one arm at
- * a time. Timings require bench:flatblock; counts-only has no timing output. */
+/** Real Chromium over pool-only production readers. Timings require bench:flatblock; counts-only has no timing output. */
 import { spawn } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium } from '@playwright/test'
-import { compareSidebarSnapshots, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import type {} from './automations-readers.browser'
 
 async function main() {
-  const countsOnly = process.argv.includes('--counts-only'), red = process.argv.find(arg => arg.startsWith('--red-control='))?.split('=')[1]
+  const countsOnly = process.argv.includes('--counts-only')
   const output = '.artifacts/automations', origin = 'http://127.0.0.1:45167', clock = Date.now()
   await mkdir(output, { recursive: true })
   const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.sidebar-pool-perf.config.ts', '--port', '45167', '--strictPort'], { stdio: 'ignore' })
@@ -23,7 +22,7 @@ async function main() {
     }
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
     const snapshots: SidebarSnapshot[] = [], results: Record<string, unknown> = {}
-    for (const arm of ['before', 'after'] as const) {
+    for (const arm of ['pool'] as const) {
       const page = await browser.newPage({ viewport: { width: 1440, height: 960 } })
       let pageErrors = 0
       page.on('pageerror', error => { pageErrors++; console.error(`Synthetic fixture: ${error.message}`) })
@@ -33,8 +32,7 @@ async function main() {
           get: (target, key) => key === 'now' ? () => clock : Reflect.get(target, key),
         }) })
       }, { clock })
-      const enabled = arm === 'after' && red !== 'legacy'
-      await page.goto(`${origin}/test/automations-readers.browser.html?mobxSidebar=1&mobxAutomations=${Number(enabled)}&mobxSpecs=${Number(enabled)}`)
+      await page.goto(`${origin}/test/automations-readers.browser.html`)
       await page.waitForFunction(() => window.__automationReaders?.ready(), null, { timeout: 60000 })
       // Drive the affected run-link reader and actual launch dialog once.
       await page.getByRole('button', { name: 'Expand Synthetic automation 0 runs' }).click()
@@ -51,12 +49,11 @@ async function main() {
       const final = countsOnly ? {} : await metrics()
       const stats = await page.evaluate(() => window.__automationReaders.stats())
       if (stats.runtimes !== 1 || stats.publishes !== 200 || stats.failures.length || pageErrors) throw new Error('Runtime/browser ownership guard failed')
-      if (arm === 'after' && (stats.selectors || Object.values(stats.legacy).some(Boolean))) throw new Error('Enabled screen executed a legacy derivation')
-      if (arm === 'before' && !['list', 'targets', 'runSession', 'specs'].every(key => (stats.legacy[key] ?? 0) >= 200)) throw new Error('Legacy baseline did not exercise its readers')
+      if (stats.selectors) throw new Error('Enabled screen executed a legacy derivation')
       const { commitMs, ...counts } = stats
       results[arm] = { ...counts, pageErrors, ...(!countsOnly ? { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000,
         scriptMs: ((final.ScriptDuration ?? 0) - (initial.ScriptDuration ?? 0)) * 1000, commitMs } : {}) }
-      if (arm === 'after') {
+      if (arm === 'pool') {
         const check = await page.evaluate(() => window.__automationReaders.check())
         if (!check || check.differences || check.pending) throw new Error(`Graph comparison failed: ${JSON.stringify(check)}`)
         results.graph = check
@@ -70,10 +67,7 @@ async function main() {
       await page.evaluate(() => window.__automationReaders.close())
       await page.close()
     }
-    if (red === 'comparison') snapshots[1] = { ...snapshots[1]!, sections: snapshots[1]!.sections.map((section, index) => index ? section : { ...section, fields: { planted: true } }) }
-    const comparison = compareSidebarSnapshots(snapshots[0]!, snapshots[1]!)
-    if (comparison.differences || comparison.pending) throw new Error(`Browser output comparison failed: ${JSON.stringify(comparison)}`)
-    const report = { ...results, comparison }
+    const report = { ...results, output: snapshots[0] }
     await writeFile(`${output}/${countsOnly ? 'counts' : 'timing'}.json`, `${JSON.stringify(report, null, 2)}\n`)
     console.log(JSON.stringify(report))
   } finally {

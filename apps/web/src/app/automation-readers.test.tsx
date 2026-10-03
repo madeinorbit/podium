@@ -3,7 +3,6 @@ import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { machineViewsFromWire } from '@podium/client-core/viewmodels'
-import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
 import { checkAutomations } from '@podium/client-graph/diagnostics/automation-check'
 import { AutomationSource } from '@podium/client-graph/automation-source'
 import { AUTOMATION_ENTITIES } from '@podium/client-graph/automation-schema'
@@ -12,18 +11,15 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asMachineId, asUserId } from '@podium/model/browser'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { createAutomationsFixture } from '../../test/automations-fixture'
 import { automationTargetChoices } from '@/features/automations/automation-form'
-import { automationReadStats, initializeAutomationsDataLayer } from '@/lib/automations-data-layer'
 import { useAutomationList, useAutomationRunSession, useAutomationTargets, useSpecsRepositories } from './automation-readers'
 import { attachPoolScreens, screenOptions, type PoolScreen } from '@podium/client-graph/host'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 
-// Readers are imported before the hydrated device setting is latched.
-beforeEach(() => { initializeAutomationsDataLayer({ get: key => key === MOBX_SIDEBAR_KEY ? '1' : null }) })
-afterEach(() => { cleanup(); storeStats.enable(false); automationReadStats.enable(false) })
+afterEach(() => { cleanup(); storeStats.enable(false) })
 
 it('registry routes declared kinds, rejects overlap atomically and disposes once', async () => {
   const replica = createAutomationsFixture().newReplica(), registry = new PoolSources()
@@ -126,12 +122,11 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   expect(pool).toBeTruthy()
   expect(result.current.list.automations).toHaveLength(6)
   expect(result.current.session?.sessionId).toBe('synthetic-session-0')
-  storeStats.enable(); storeStats.reset(); automationReadStats.enable(); automationReadStats.reset()
+  storeStats.enable(); storeStats.reset()
   await act(async () => {
     for (let step = 1; step <= 20; step++) fixture.patch('session', 'synthetic-session-0', { lastActiveAt: new Date(Date.now() + step).toISOString() })
     await Promise.resolve()
   })
-  expect(automationReadStats.read(owner)).toEqual({})
   expect(storeStats.snapshot().runtimes[0]?.selectorRuns ?? 0).toBe(0)
   expect(fatal).not.toHaveBeenCalled()
   const state = owner.getSnapshot()

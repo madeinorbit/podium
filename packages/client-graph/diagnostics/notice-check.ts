@@ -1,7 +1,6 @@
-/** Opt-in differential, following sidebar-check. Values stay in memory;
- * reports contain only counts and positions. No diagnostic is on a normal
- * enabled reader path, and recovery compares only parked author input. */
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+/** Fixture and private-replay comparison. Values stay in memory;
+ * reports contain only counts and positions. Recovery compares parked author input. */
+import type { Store } from '@podium/client-core/engine'
 import { messageNotices, pendingInteractionCards } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '../src/pool'
 import { noticeContinuity, noticeInteractions, noticeMessages, noticeRecovery } from '../src/notice-views'
@@ -23,14 +22,4 @@ export function checkNotices(pool: MobxPool, state: Pick<Store, 'messageRecords'
   const result = compareSidebarSnapshots({ sections: expected, pending: 0 }, { sections: actual, pending })
   return { differences: result.differences, pending: result.pending, positions: result.rows,
     first: result.first ? { sectionIndex: result.first.sectionIndex, rowIndex: result.first.rowIndex, field: result.first.field } : null }
-}
-
-export function installNoticeCheck(pool: MobxPool, runtime: ClientRuntime): () => void {
-  if (typeof window === 'undefined') return () => {}
-  const check = () => {
-    const state = runtime.getSnapshot()
-    return checkNotices(pool, state, [...new Set(state.pendingInteractions.map(row => row.sessionId))])
-  }
-  Object.assign(window, { __noticeCheck: check })
-  return () => { if (Reflect.get(window, '__noticeCheck') === check) Reflect.deleteProperty(window, '__noticeCheck') }
 }

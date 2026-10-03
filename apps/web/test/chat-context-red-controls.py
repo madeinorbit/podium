@@ -21,11 +21,9 @@ SOURCE = GRAPH + 'chat-context-source.ts'
 EXIT_SOURCE = GRAPH + 'session-exit-source.ts'
 FILE = WEB + 'chat-context.pool.test.tsx'
 PARITY = 'preserves mention ties'
-INPUTS = 'has identical rendered inputs'
+INPUTS = 'preserves saved chat inputs'
 ATTACH = 'keeps hooks stable through null-pool attachment'
 controls = [
-    ('default-off', WEB + 'chat-context-data-layer.ts', 'return chat.layer()', "return 'pool'", 'defaults OFF', WEB + 'chat-context-data-layer.test.ts'),
-    ('startup-latch', WEB + 'chat-context-data-layer.ts', 'return chat.layer()', "return location.search.includes('mobxChatContext=0') ? 'legacy' : chat.layer()", 'defaults OFF', WEB + 'chat-context-data-layer.test.ts'),
     ('no-sync-cold-read', SOURCE, 'this.demanded.add(key)', "this.owner.replica.rows('issueProjections'); this.demanded.add(key)", 'declares and batches demand', FILE),
     ('draft', SOURCE, "text: state.drafts?.[key.slice(10)] ?? ''", "text: ''", PARITY, FILE),
     ('window', SOURCE, 'attachedSessionId: state.attachedSessionId ?? null', 'attachedSessionId: null', PARITY, FILE),
@@ -45,10 +43,6 @@ controls = [
     ('reference-repo', READER, "headerIds(pool, 'repository').flatMap", "headerIds(pool, 'repository').filter(() => false).flatMap", PARITY, FILE),
     ('thread-catalog', READER, 'for (const id of catalog.ids)', 'for (const id of catalog.ids.slice(1))', PARITY, FILE),
     ('issue-seq', READER, 'return { ...row, prefix:', 'return { ...row, seq: -1, prefix:', PARITY, FILE),
-    ('pane-switch-session', HOOKS, "? usePoolChatSession : usePaneSession", '? usePaneSession : usePaneSession', INPUTS, FILE),
-    ('pane-switch-machines', HOOKS, '? usePoolChatMachines : usePaneMachines', '? usePaneMachines : usePaneMachines', INPUTS, FILE),
-    ('conversation-ports', HOOKS, '? usePoolPorts : useLegacyPorts', '? useLegacyPorts : useLegacyPorts', INPUTS, FILE),
-    ('late-hook-selection', HOOKS, "const useRead = chatContextDataLayer() === 'pool' ? usePoolPorts : useLegacyPorts", "const attached = useWorklistPool(); const useRead = attached ? usePoolPorts : useLegacyPorts", ATTACH, FILE),
     ('controller-readiness', HOOKS, 'ready: initial.current?.id === id, draft:', 'ready: data.ready, draft:', ATTACH, FILE),
     ('comparison-red', WEB + 'chat-context-check.ts', 'const fields = { value: before }', 'const fields = { value: after }', 'detects a planted wrong value', FILE),
     ('pinned-brief-fixture', WEB + 'ChatView.tsx', 'brief={chat.scroll.pinnedBrief}', 'brief={null}', 'mounts the pinned-brief shelf', WEB + 'ChatView.test.tsx'),
@@ -57,7 +51,6 @@ controls = [
     ('session-exit-address', EXIT_SOURCE, "row.kind === 'sessions'", "row.kind === 'issueProjections'", 'shares addressed session exits', FILE),
     ('session-exit-rescope', EXIT_SOURCE, 'for (const id of demanded) dirty.add(id)', 'for (const id of demanded) dirty.delete(id)', 'shares addressed session exits', FILE),
     ('session-exit-disposal', EXIT_SOURCE, 'stop(); demanded.clear()', 'demanded.clear()', 'clears rescope inputs', FILE),
-    ('session-exit-hook', HOOKS, '? usePoolSessionExitKind : useLegacySessionExitKind', '? useLegacySessionExitKind : useLegacySessionExitKind', INPUTS, FILE),
     ('stable-selector-attribution', 'apps/web/test/chat-context.browser.tsx', "const omitArtifactStrip = new URLSearchParams(location.search).get('omitArtifactStrip') === '1'", 'const omitArtifactStrip = false', '@browser', 'apps/web/test/chat-context-proof.ts'),
 ]
 

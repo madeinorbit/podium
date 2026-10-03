@@ -13,10 +13,6 @@ import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { ChatComposer } from '../src/features/chat/ChatComposer'
 import { checkChatContext } from '../src/features/chat/chat-context-check'
-import {
-  chatContextDataLayer,
-  initializeChatContextDataLayer,
-} from '../src/features/chat/chat-context-data-layer'
 import { OfferArtifactStrip } from '../src/features/chat/OfferArtifactStrip'
 import {
   useChatArtifactIssue,
@@ -39,7 +35,6 @@ import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 import '../src/styles.css'
 
-initializeChatContextDataLayer({ get: () => null })
 const rows = Number(new URLSearchParams(location.search).get('rows') ?? 5600)
 const omitArtifactStrip = new URLSearchParams(location.search).get('omitArtifactStrip') === '1'
 const fixture = createHeaderFixture(rows)
@@ -168,8 +163,7 @@ function Surface() {
     owner = runtime
     graph = pool
     if (!pool) sawUnattached = true
-    ready =
-      !!session && send.ready && draft !== '' && (chatContextDataLayer() === 'legacy' || !!pool)
+    ready = !!session && send.ready && draft !== '' && !!pool
   }, [runtime, pool, session, send.ready, draft])
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-5 p-8">

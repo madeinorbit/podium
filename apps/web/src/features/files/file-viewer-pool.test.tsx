@@ -17,7 +17,6 @@ import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
-import { preferenceReadStats } from '@/lib/preferences-data-layer'
 import { DiffSheet } from '../git/DiffSheet'
 import { GitPanelView } from '../git/GitPanelView'
 import { parseStatus } from '../git/git-panel'
@@ -33,10 +32,6 @@ import {
 import { useFileDocument } from './useFileDocument'
 import { WorktreeFileTree } from './WorktreeFileTree'
 
-vi.mock('@/lib/preferences-data-layer', async (original) => ({
-  ...(await original<typeof import('@/lib/preferences-data-layer')>()),
-  preferencesDataLayer: () => 'pool',
-}))
 // Editor rendering is covered by its existing tests and the real-browser proof.
 vi.mock('./SourceEditor', () => ({
   SourceEditor: ({
@@ -63,7 +58,7 @@ vi.mock('@/lib/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
 afterEach(() => {
   cleanup()
   storeStats.enable(false)
-  preferenceReadStats.enable(false)
+
   vi.restoreAllMocks()
 })
 const counts = () =>
@@ -181,8 +176,8 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
   }
   storeStats.enable()
   storeStats.reset()
-  preferenceReadStats.enable()
-  preferenceReadStats.reset()
+
+
   const view = render(
     <StoreProvider
       principal={asClientPrincipal(asUserId('file-reader'))}
@@ -226,7 +221,6 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
     for (let step = 1; step <= 20; step++) fixture.activity(step)
   })
   expect(counts()).toBe(0)
-  expect(preferenceReadStats.read(owner).legacyReads).toBe(0)
   expect(fixture.calls.write).toEqual([])
   expect(failures).toEqual([])
 })

@@ -10,7 +10,6 @@ import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-p
 import { SettingsView } from '../src/features/settings/SettingsView'
 import { ColdStartComposer } from '../src/features/setup/ColdStartComposer'
 import { settingsDataLayer } from '../src/features/settings/data-layer'
-import { preferenceReadStats } from '../src/lib/preferences-data-layer'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
@@ -34,7 +33,7 @@ Object.assign(fixture.api, {
 let owner: ClientRuntime, pool: ReturnType<typeof useWorklistPool> = null
 let ready = false, commits = 0, commitMs = 0, generation = 0
 let changePrincipal = () => {}
-storeStats.enable(); preferenceReadStats.enable()
+storeStats.enable()
 
 function Surface() {
   owner = useStoreHandle() as ClientRuntime
@@ -73,7 +72,7 @@ root.render(<App />)
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 const driver = {
   ready: () => ready,
-  reset() { storeStats.reset(); preferenceReadStats.reset(); commits = 0; commitMs = 0 },
+  reset() { storeStats.reset(); commits = 0; commitMs = 0 },
   async activity(count: number) { for (let step = 1; step <= count; step++) fixture.activity(step); await nextFrame() },
   async preferences() {
     for (let step = 0; step < 20; step++) {
@@ -86,8 +85,7 @@ const driver = {
     const rows = storeStats.snapshot().runtimes
     return { selectors: rows.reduce((sum, row) => sum + row.selectorRuns, 0),
       legacyDerivations: rows.reduce((sum, row) => sum + Object.values(row.slices).reduce((a, n) => a + n, 0), 0),
-      slices: rows.flatMap((row) => Object.entries(row.slices)),
-      ...preferenceReadStats.read(owner), commits, commitMs, failures,
+      slices: rows.flatMap((row) => Object.entries(row.slices)), commits, commitMs, failures,
       preferenceLoads: pool?.preferenceCounts(), generation }
   },
   async check() {

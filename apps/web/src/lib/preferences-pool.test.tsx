@@ -13,14 +13,8 @@ import { StrictMode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createSidebarFixture } from '../../test/sidebar-fixture'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
-import { preferenceReadStats } from './preferences-data-layer'
 import { usePersistedUiState } from './use-persisted-ui-state'
 
-const choice = vi.hoisted(() => ({ mode: 'pool' }))
-vi.mock('./preferences-data-layer', async (original) => ({
-  ...await original<typeof import('./preferences-data-layer')>(),
-  initializePreferencesDataLayer: () => {}, preferencesDataLayer: () => choice.mode,
-}))
 const FOLD = 'podium:sidebar:collapsed', STICKY = 'podium.chat.stickyPrompts'
 const parse = (raw: string | null) => raw ?? 'absent'
 const serialize = (value: string) => value === 'absent' ? null : value
@@ -41,7 +35,7 @@ function port() {
     subscribe: (wake: () => void) => { listeners.add(wake); return () => { listeners.delete(wake) } },
   }
 }
-afterEach(() => { cleanup(); for (const pool of ownedPools.splice(0)) pool.dispose(); storeStats.enable(false); preferenceReadStats.enable(false); choice.mode = 'pool'; vi.restoreAllMocks() })
+afterEach(() => { cleanup(); for (const pool of ownedPools.splice(0)) pool.dispose(); storeStats.enable(false); vi.restoreAllMocks() })
 
 it('declares routed keys before batched loads and follows late, optimistic, rollback and rescope values', async () => {
   const local = port(), replicated = port()
@@ -112,7 +106,7 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
     createReplicaFn={() => fixture.newReplica()} onFatalError={(error) => failures.push(error)}
     attachRuntime={(runtime) => { owners.push(runtime); return attachWorklistPool(runtime, (error) => failures.push(error.message)) }}
   ><Probe /></StoreProvider></StrictMode>
-  storeStats.enable(); preferenceReadStats.enable(); preferenceReadStats.reset(); storeStats.reset()
+  storeStats.enable(); storeStats.reset()
   const view = render(tree('alice'))
   await vi.waitFor(async () => { await act(async () => {}); expect(pool).not.toBeNull() })
   await act(async () => {})
@@ -123,7 +117,6 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
   expect(view.container.textContent).toBe('false')
   expect(owner.ui.get(STICKY)).toBe('false')
   expect(checkPreferences(pool!, owner.ui)).toMatchObject({ differences: 0, pending: 0 })
-  expect(preferenceReadStats.read(owner).legacyReads).toBe(0)
   expect(storeStats.snapshot().runtimes.every((row) => row.selectorRuns === 0 && Object.values(row.slices).every((n) => n === 0))).toBe(true)
   view.rerender(tree('bob'))
   expect(view.container.textContent).toBe('absent')
@@ -133,7 +126,6 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
   expect(oldPool.preferenceKeys()).toEqual([])
   await act(async () => oldOwner.ui.set(STICKY, 'old-person'))
   expect(view.container.textContent).toBe('absent')
-  expect(preferenceReadStats.read(owner).legacyReads).toBe(0)
   view.rerender(tree(null))
   expect(view.container.textContent).toBe('')
   expect(pool!.preferenceKeys()).toEqual([])

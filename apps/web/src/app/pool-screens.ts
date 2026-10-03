@@ -13,18 +13,8 @@ import {
 import { superagentPoolScreen } from '@/features/superagent/pool-screen'
 import { sessionPanePoolScreen } from '@/features/terminal/session-pane-pool-screen'
 import { workflowPoolScreen } from '@/features/workflows/workflow-pool-screen'
-import {
-  automationsCheckRequested,
-  automationsDataLayer,
-  initializeAutomationsDataLayer,
-  specsDataLayer,
-} from '@/lib/automations-data-layer'
-import { commandLaunchScreen } from '@/lib/command-launch-data-layer'
-import {
-  initializePreferencesDataLayer,
-  preferencesCheckRequested,
-  preferencesDataLayer,
-} from '@/lib/preferences-data-layer'
+import { initializePreferencesDataLayer } from '@/lib/preferences-data-layer'
+import { commandLaunchScreen } from './command-launch-pool-screen'
 import { missionPanePoolScreen } from './mission-pane-pool-screen'
 import { panePoolScreen } from './pane-pool-screen'
 import { shellPoolScreen } from './shell-pool-screen'
@@ -35,7 +25,8 @@ export function initializePoolScreens(ui: UiState): void {
   for (const screen of poolBackedScreens) screen.initialize?.(ui)
 }
 
-/** Screen declarations are the only provider registration surface. Permanent workspace readers and remaining pilots use the existing runtime/pool. */
+/** Screen declarations are the only provider registration surface. Graph code
+ * stays behind startup choices; every entry uses the existing runtime/pool. */
 export const poolBackedScreens: readonly PoolScreen[] = [
   issueBoardPoolScreen,
   issuePagePoolScreen,
@@ -62,23 +53,17 @@ export const poolBackedScreens: readonly PoolScreen[] = [
     },
   },
   {
-    optional: true,
+    id: 'preferences',
     initialize: initializePreferencesDataLayer,
-    enabled: () => preferencesDataLayer() === 'pool',
+    enabled: () => true,
     options: () => ({ preferences: true }),
-    async attach(runtime, pool) {
-      if (!preferencesCheckRequested()) return
-      const { installPreferenceCheck } = await import(
-        '@podium/client-graph/diagnostics/preference-check'
-      )
-      return installPreferenceCheck(pool, runtime.ui)
-    },
   },
   { id: 'sidebar', options: () => ({ summaries: MISSION_SUMMARIES }) },
   { id: 'header', options: () => ({ header: true }) },
   {
-    initialize: initializeAutomationsDataLayer,
-    enabled: () => automationsDataLayer() === 'pool' || specsDataLayer() === 'pool',
+    id: 'automations',
+    initialize() {},
+    enabled: () => true,
     options: () => ({ settings: true }),
     async attach(runtime, pool) {
       const [{ AutomationSource }, { AUTOMATION_ENTITIES }] = await Promise.all([
@@ -86,29 +71,6 @@ export const poolBackedScreens: readonly PoolScreen[] = [
         import('@podium/client-graph/automation-schema'),
       ])
       pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(runtime.replica))
-      if (!automationsCheckRequested() || typeof window === 'undefined') return
-      const [{ checkAutomations }, { automationTargetChoices }, { machineViewsFromWire }] =
-        await Promise.all([
-          import('@podium/client-graph/diagnostics/automation-check'),
-          import('@/features/automations/automation-form'),
-          import('@podium/client-core/viewmodels'),
-        ])
-      const check = () => {
-        const state = runtime.getSnapshot()
-        return checkAutomations(pool, state, (path) =>
-          automationTargetChoices(
-            state.repos,
-            state.sessions,
-            machineViewsFromWire(state.machines),
-            path,
-          ),
-        )
-      }
-      Object.assign(window, { __automationCheck: check })
-      return () => {
-        if (Reflect.get(window, '__automationCheck') === check)
-          Reflect.deleteProperty(window, '__automationCheck')
-      }
     },
   },
 ]

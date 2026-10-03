@@ -22,11 +22,11 @@ try {
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
   const results: Record<string, unknown> = {}
-  for (const mode of ['before', 'after'] as const) {
+  for (const mode of ['pool'] as const) {
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 } })
     const errors: string[] = []
     page.on('pageerror', (error) => { errors.push(error.message); console.error(`Settings fixture error: ${error.message}`) })
-    await page.goto(`${origin}/test/settings.browser.html?mobxSettings=${mode === 'after' ? 1 : 0}`)
+    await page.goto(`${origin}/test/settings.browser.html`)
     await page.waitForFunction(() => window.__settings?.ready(), null, { timeout: 60000 })
     await page.getByRole('heading', { name: 'Accounts & Keys', exact: true }).waitFor()
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
@@ -42,8 +42,7 @@ try {
       results[`${mode}.${phase}`] = { ...stats,
         ...(!countsOnly ? { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000,
           scriptMs: ((final.ScriptDuration ?? 0) - (initial.ScriptDuration ?? 0)) * 1000, heapBytes: final.JSHeapUsedSize } : {}) }
-      if (mode === 'after' && (stats.selectors || stats.legacyDerivations || stats.legacyReads)) throw new Error(`Legacy settings reader executed: ${JSON.stringify(stats)}`)
-      if (mode === 'before' && phase === 'activity' && !stats.selectors) throw new Error('Legacy positive control did not execute')
+      if ((stats.selectors || stats.legacyDerivations)) throw new Error(`Legacy settings reader executed: ${JSON.stringify(stats)}`)
       if (stats.failures.length) throw new Error('Provider failed')
     }
     // The indirect Machines panel must be part of the zero-reader proof.
@@ -54,7 +53,7 @@ try {
     await page.evaluate(() => window.__settings.activity(5))
     const machineStats = await page.evaluate(() => window.__settings.stats())
     results[`${mode}.machines`] = machineStats
-    if (mode === 'after' && (machineStats.selectors || machineStats.legacyDerivations)) throw new Error('Legacy Machines panel selector executed')
+    if ((machineStats.selectors || machineStats.legacyDerivations)) throw new Error('Legacy Machines panel selector executed')
     await page.getByRole('button', { name: 'Notifications', exact: true }).click()
     const sound = page.locator('.settings-row').filter({ has: page.getByText('Notification sounds', { exact: true }) }).getByRole('switch')
     const previous = await sound.getAttribute('aria-checked')
@@ -65,7 +64,7 @@ try {
     if (await sound.getAttribute('aria-checked') === previous) throw new Error('Sound control did not repaint')
     if (!countsOnly) results[`${mode}.clickToPaintMs`] = Date.now() - clickStart
     const check = await page.evaluate(() => window.__settings.check())
-    if (mode === 'after' && (!check || check.differences || check.pending)) throw new Error(`Settings differential failed: ${JSON.stringify(check)}`)
+    if ((!check || check.differences || check.pending)) throw new Error(`Settings differential failed: ${JSON.stringify(check)}`)
     results[`${mode}.check`] = check
     await page.screenshot({ path: `${output}/${mode}.png` })
     const rebuildStart = Date.now()
@@ -74,7 +73,7 @@ try {
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     if (!countsOnly) results[`${mode}.principalRebuildMs`] = Date.now() - rebuildStart
     const rebuilt = await page.evaluate(() => window.__settings.check())
-    if (mode === 'after' && (!rebuilt || rebuilt.differences || rebuilt.pending)) throw new Error('Principal rebuild comparison failed')
+    if ((!rebuilt || rebuilt.differences || rebuilt.pending)) throw new Error('Principal rebuild comparison failed')
     results[`${mode}.rebuiltCheck`] = rebuilt
     if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`)
     await page.evaluate(() => window.__settings.close())

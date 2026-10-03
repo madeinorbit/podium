@@ -1,8 +1,7 @@
 import type { MobxPool } from '@podium/client-graph'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { preferencesDataLayer, recordLegacyPreferenceRead } from './preferences-data-layer'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useStoreHandle } from '@podium/client-core/react'
 
 /**
@@ -33,8 +32,7 @@ import { useStoreHandle } from '@podium/client-core/react'
  * want a stable object identity out.
  */
 export function usePersistedUiValue<T>(key: string, parse: (raw: string | null) => T): T {
-  // The choice is immutable for this app load, so the hook order is fixed.
-  const raw = preferencesDataLayer() === 'pool' ? usePoolPreference(key) : useLegacyPreference(key)
+  const raw = usePoolPreference(key)
   return useMemo(() => parse(raw), [raw, parse])
 }
 
@@ -46,16 +44,6 @@ function usePoolPreference(key: string): string | null {
     return typeof row === 'object' && row !== null ? row.value : null
   }, [key])
   return useWorklistPoolProjection(read, null)
-}
-
-function useLegacyPreference(key: string): string | null {
-  const owner = useStoreHandle()
-  const ui = owner.getSnapshot().uiState as RoutedUiState | undefined
-  return useSyncExternalStore(
-    ui ? (cb) => ui.subscribe(cb) : subscribeUnavailable,
-    ui ? () => { recordLegacyPreferenceRead(owner); return ui.get(key) } : readUnavailable,
-    readUnavailable,
-  )
 }
 
 /**
@@ -81,6 +69,3 @@ export function usePersistedUiState<T>(
   )
   return [value, set]
 }
-
-const subscribeUnavailable = (): (() => void) => () => {}
-const readUnavailable = (): null => null

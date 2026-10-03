@@ -14,7 +14,6 @@ import { AutomationsView } from '../src/features/automations/AutomationsView'
 import { NewAutomationDialog } from '../src/features/automations/NewAutomationDialog'
 import { automationTargetChoices } from '../src/features/automations/automation-form'
 import { SpecsView } from '../src/features/specs/SpecsView'
-import { automationReadStats } from '../src/lib/automations-data-layer'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { createAutomationsFixture } from './automations-fixture'
 import '../src/index.css'
@@ -23,7 +22,7 @@ const fixture = createAutomationsFixture(5600, 5014)
 let owner: ReturnType<typeof useStoreHandle<Trpc>> | undefined
 let pool: ReturnType<typeof useWorklistPool>, commits = 0, commitMs = 0
 const failures: string[] = []
-storeStats.enable(); automationReadStats.enable()
+storeStats.enable()
 function Surface() {
   owner = useStoreHandle<Trpc>(); pool = useWorklistPool()
   const [dialog, setDialog] = useState(false)
@@ -48,7 +47,7 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('automation-bro
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 const driver = {
   ready: () => Boolean(owner && fixture.calls.specGet && fixture.calls.subscriptions && !document.querySelector('[role="status"]') && document.querySelector('.ProseMirror')?.textContent?.includes('Synthetic specification body')),
-  reset() { storeStats.reset(); automationReadStats.reset(); commits = 0; commitMs = 0 },
+  reset() { storeStats.reset(); commits = 0; commitMs = 0 },
   async activity(count: number) {
     for (let step = 1; step <= count; step++) fixture.patch('session', `synthetic-session-${step % 12}`, { lastActiveAt: new Date(Date.now() + step).toISOString() })
     await frame()
@@ -66,7 +65,7 @@ const driver = {
       runs: owner?.getSnapshot().automationRuns.length ?? 0, pool: Boolean(pool),
       publishes: runtimes.reduce((sum, row) => sum + row.publishes, 0),
       selectors: runtimes.reduce((sum, row) => sum + row.selectorRuns, 0),
-      legacy: owner ? automationReadStats.read(owner) : {}, commits, commitMs, calls: fixture.calls, failures }
+      commits, commitMs, calls: fixture.calls, failures }
   },
   snapshot(): SidebarSnapshot {
     const nodes = [...document.querySelectorAll('[data-proof-surface]'), ...document.querySelectorAll('[role="dialog"]')]

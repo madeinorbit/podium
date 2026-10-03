@@ -21,11 +21,11 @@ try {
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
   const results: Record<string, unknown> = {}
-  for (const mode of ['before', 'after'] as const) {
+  for (const mode of ['pool'] as const) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 760 } })
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
-    await page.goto(`${origin}/test/client-access.browser.html?before=${mode === 'before' ? 1 : 0}&mobxPreferences=${mode === 'after' ? 1 : 0}`)
+    await page.goto(`${origin}/test/client-access.browser.html`)
     await page.waitForFunction(() => window.__clientAccess?.ready(), null, { timeout: 60000 })
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const cdp = await page.context().newCDPSession(page)
@@ -39,19 +39,18 @@ try {
       const final = countsOnly ? {} : await metrics(), stats = await page.evaluate(() => window.__clientAccess.stats())
       const counts = { selectors: stats.selectors, wakes: stats.wakes, legacyDerivations: stats.legacyDerivations }
       results[`${mode}.${phase}`] = {
-        ...counts, legacyReads: stats.legacyReads, pool: stats.pool, commits: stats.commits,
+        ...counts, pool: stats.pool, commits: stats.commits,
         ...(!countsOnly ? { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000,
           scriptMs: ((final.ScriptDuration ?? 0) - (initial.ScriptDuration ?? 0)) * 1000, commitMs: stats.commitMs } : {}),
       }
-      if (mode === 'after' && (counts.selectors !== 0 || stats.legacyReads !== 0 || stats.legacyDerivations !== 0)) throw new Error('Legacy preference/transport reader executed')
-      if (mode === 'before' && phase === 'activity' && counts.selectors === 0) throw new Error('Legacy positive control did not execute')
+      if ((counts.selectors !== 0 || stats.legacyDerivations !== 0)) throw new Error('Legacy preference/transport reader executed')
       if (stats.failures.length) throw new Error('Provider failure in synthetic proof')
     }
     // Drive the real button once and observe the rendered preference change.
     await page.getByRole('button', { name: 'Toggle sticky prompts' }).click()
     await page.waitForFunction(() => document.querySelector('dd')?.textContent === 'Off')
     const check = await page.evaluate(() => window.__clientAccess.check())
-    if (mode === 'after' && (!check || check.differences || check.pending || check.positions < 4)) throw new Error(`Preference comparison failed: ${JSON.stringify(check)}`)
+    if ((!check || check.differences || check.pending || check.positions < 4)) throw new Error(`Preference comparison failed: ${JSON.stringify(check)}`)
     results[`${mode}.check`] = check
     await page.screenshot({ path: `${output}/${mode}.png` })
     if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`)

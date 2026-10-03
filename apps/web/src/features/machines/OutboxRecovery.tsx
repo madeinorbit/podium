@@ -42,13 +42,11 @@ import {
   unsatisfiableConfirmationDetail,
 } from '@podium/client-core/outbox-recovery-copy'
 import { useStoreHandle } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/store'
 import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
 import { AlertTriangle, Copy, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
@@ -60,7 +58,6 @@ import {
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { noticesDataLayer, recordLegacyNoticeWork } from '@/features/chat/notice-data-layer'
 import { usePoolRecovery } from '@/features/chat/use-pool-notices'
 import { copyToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
@@ -269,22 +266,7 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
  * interruption when it is real.
  */
 export function OutboxRecoveryIndicator({ compact }: { compact?: boolean }): JSX.Element | null {
-  return noticesDataLayer() === 'pool' ? (
-    <PoolRecoveryIndicator compact={compact} />
-  ) : (
-    <LegacyRecoveryIndicator compact={compact} />
-  )
-}
-function PoolRecoveryIndicator({ compact }: { compact?: boolean }) {
   const deadLetters = usePoolRecovery()
-  return <RecoveryIndicatorBody deadLetters={deadLetters} compact={compact} />
-}
-function LegacyRecoveryIndicator({ compact }: { compact?: boolean }) {
-  const owner = useStoreHandle<Trpc>()
-  const { deadLetters } = useStoreSelector((s) => {
-    recordLegacyNoticeWork(owner, 'recoverySelectors')
-    return { deadLetters: s.outboxDeadLetters }
-  }, shallowEqual)
   return <RecoveryIndicatorBody deadLetters={deadLetters} compact={compact} />
 }
 function RecoveryIndicatorBody({

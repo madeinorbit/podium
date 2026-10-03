@@ -1,10 +1,8 @@
-import { FEED_EVENT_KINDS, type IssueEventWire } from '@podium/model'
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { FEED_EVENT_KINDS } from '@podium/model'
+import { useEffect, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
-import { useStoreSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { superagentCursor, superagentFeed } from '@podium/client-graph/superagent'
-import { legacySuperagentRead, superagentDataLayer } from './data-layer'
 
 /** Re-exported for the surfaces that name the vocabulary. It is `@podium/model`'s
  *  list now (POD-1772): the server publishes exactly these kinds onto the feed,
@@ -22,16 +20,6 @@ export interface FeedEvent {
   payload: unknown
 }
 
-/** The tail the divider arithmetic runs over. The server's window is larger; this
- *  is what a human would scroll. */
-const KEEP = 40
-
-function useLegacyFeed(readPosition: Store['readPosition']) {
-  const rows = useStoreSelector(s => legacySuperagentRead(s.replica ?? s, 'events', () => s.issueEvents))
-  const events = useMemo(() => projectFeed(rows), [rows])
-  const cursor = useSyncExternalStore(onChange => readPosition.subscribe(onChange), () => readPosition.get('issueEvents'))
-  return { events, cursor, loading: false }
-}
 function usePoolFeed(_readPosition: Store['readPosition']) {
   const feed = useWorklistPoolProjection(superagentFeed, { events: [], loading: true })
   const position = useWorklistPoolProjection(superagentCursor, { cursor: { lastEventId: 0, seenAt: null }, loading: true })
@@ -63,8 +51,8 @@ export function useIssueEvents(
   readPosition: Store['readPosition'],
   visible: boolean,
 ): { events: FeedEvent[]; unread: boolean; dividerId: number; dividerTs: string | null } {
-  const useRead = superagentDataLayer() === 'pool' ? usePoolFeed : useLegacyFeed
-  const { events, cursor, loading } = useRead(readPosition)
+
+  const { events, cursor, loading } = usePoolFeed(readPosition)
   const maxId = events.length > 0 ? (events[events.length - 1]?.id ?? 0) : 0
 
   // The cursor is external state: this device's advance is one writer, and the
@@ -93,26 +81,4 @@ export function useIssueEvents(
     dividerId: divider.lastEventId,
     dividerTs: divider.seenAt,
   }
-}
-
-/**
- * Replicated rows → the rendered tail: oldest first, capped.
- *
- * SORTED BY `eventId`, NOT BY THE ROW KEY. The replica keys these on the
- * composite change id (`"1772\nPOD-13"`), and a collection ordered by that
- * string puts event 100 before event 99 — a feed in an order the log never had.
- * The durable numeric id is the only ordering here.
- */
-function projectFeed(rows: readonly IssueEventWire[]): FeedEvent[] {
-  return [...rows]
-    .sort((a, b) => a.eventId - b.eventId)
-    .slice(-KEEP)
-    .map((row) => ({
-      id: row.eventId,
-      ts: row.ts,
-      kind: row.kind,
-      subject: row.subject,
-      repoPath: row.repoPath,
-      payload: row.payload,
-    }))
 }

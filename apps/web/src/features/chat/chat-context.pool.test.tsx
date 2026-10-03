@@ -20,7 +20,6 @@ import { createChatContextFixture } from './chat-context-test-fixture'
 import '@/test-support/model-catalog-mock'
 
 const f = vi.hoisted(() => ({
-  mode: 'legacy' as 'legacy' | 'pool',
   pool: null as MobxPool | null,
   fixture: undefined as Awaited<ReturnType<typeof createChatContextFixture>> | undefined,
   guard: false,
@@ -57,7 +56,6 @@ const snapshot = () => {
     : state
 }
 const handle = { getSnapshot: snapshot, subscribe: (_listener: () => void) => () => {} }
-vi.mock('./chat-context-data-layer', () => ({ chatContextDataLayer: () => f.mode }))
 vi.mock('@/app/store', () => ({
   useStoreSelector: (read: (state: Store) => unknown) => read(snapshot()),
   useReplicaIssues: () => {
@@ -126,8 +124,7 @@ import {
 import { useChatSend } from './use-chat-send'
 
 beforeEach(async () => {
-  f.mode = 'legacy'
-  f.guard = false
+  f.guard = true
   f.fixture = await createChatContextFixture()
   f.pool = f.fixture.pool
   f.seams = {
@@ -381,21 +378,11 @@ function Inputs() {
   )
 }
 
-it('has identical rendered inputs and zero legacy derivations with chat ON and panes OFF', async () => {
+it('preserves saved chat inputs with zero legacy derivations', async () => {
   await f.fixture!.load()
-  const legacy = render(<Inputs />),
-    expected = legacy.container.textContent
-  legacy.unmount()
-  expect(
-    Object.keys(readRuntimeStoreStats(f.fixture!.owner)?.slices ?? {}).some((key) =>
-      key.startsWith('chatContext.'),
-    ),
-  ).toBe(true)
   storeStats.reset()
-  f.mode = 'pool'
   f.guard = true
   const actual = render(<Inputs />)
-  await waitFor(() => expect(actual.container.textContent).toBe(expected))
   expect(actual.container.textContent).toMatchSnapshot('last green chat inputs')
   expect(
     Object.entries(readRuntimeStoreStats(f.fixture!.owner)?.slices ?? {}).filter(
@@ -405,7 +392,6 @@ it('has identical rendered inputs and zero legacy derivations with chat ON and p
 })
 
 it('keeps hooks stable through null-pool attachment and restores saved controller inputs', async () => {
-  f.mode = 'pool'
   f.guard = true
   const graph = f.pool
   f.pool = null
@@ -558,14 +544,9 @@ it('renders the real composer and artifact strip identically and keeps artifact 
       text: row.textContent,
     })),
   })
-  const legacy = render(<Surface />),
-    expected = visible(legacy.container)
-  legacy.unmount()
   storeStats.reset()
-  f.mode = 'pool'
   f.guard = true
   const actual = render(<Surface />)
-  expect(visible(actual.container)).toEqual(expected)
   expect(visible(actual.container)).toMatchSnapshot('last green composer and artifacts')
   fireEvent.click(actual.getByTestId('offer-artifact-thumb'))
   expect(f.seams.openArtifact).toHaveBeenCalledWith(

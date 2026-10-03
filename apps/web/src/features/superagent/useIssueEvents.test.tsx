@@ -13,9 +13,15 @@ import { useIssueEvents } from './useIssueEvents'
  */
 
 const rows: IssueEventWire[] = []
-vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (s: { issueEvents: IssueEventWire[] }) => unknown) =>
-    select({ issueEvents: rows }),
+let position = { lastEventId: 0, seenAt: null }
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPoolProjection: (read: (pool: unknown) => unknown) => read({
+    row: (entity: string, id: string) => {
+      if (entity === 'superagentReadPosition') return position
+      if (entity === 'superagentEventTail') return { ids: [...rows].sort((a, b) => a.eventId - b.eventId).slice(-40).map(row => row.id) }
+      if (entity === 'superagentEvent') return rows.find(row => row.id === id)
+    },
+  }),
 }))
 
 const row = (eventId: number, subject = 'POD-13'): IssueEventWire => ({
@@ -33,6 +39,7 @@ function readPositionPort(lastEventId = 0) {
   // ONE snapshot object: `useSyncExternalStore` requires a cached snapshot, and
   // a fresh literal per call is an infinite render loop rather than a stale read.
   const cursor = { lastEventId, seenAt: null }
+  position = cursor
   // `hydrate`/`replace` belong to the port's OWNER (the runtime drains the
   // legacy blob, the feed installs another device's truth). The hook only ever
   // reads and advances, so they are present to satisfy the contract and asserted

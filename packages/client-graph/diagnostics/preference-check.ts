@@ -25,12 +25,3 @@ export function checkPreferences(pool: MobxPool, ui: RoutedUiState, keys = pool.
   return { differences: result.differences, pending: result.pending, positions: result.rows,
     first: result.first ? { index: result.first.rowIndex, field: result.first.field } : null }
 }
-
-export function installPreferenceCheck(pool: MobxPool, ui: RoutedUiState): () => void {
-  if (typeof window === 'undefined') return () => {}
-  const check = () => checkPreferences(pool, ui)
-  Object.assign(window, { __preferenceCheck: check })
-  return () => {
-    if (Reflect.get(window, '__preferenceCheck') === check) Reflect.deleteProperty(window, '__preferenceCheck')
-  }
-}

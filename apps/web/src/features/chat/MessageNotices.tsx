@@ -8,12 +8,10 @@
  * the composer. Appears only when there is something to say.
  */
 import { useStoreHandle } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/store'
-import { type MessageNotice, messageNotices } from '@podium/client-core/viewmodels'
+import { type MessageNotice } from '@podium/client-core/viewmodels'
 import { MessageSquareWarning } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useMemo, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
@@ -25,7 +23,6 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { noticesDataLayer, recordLegacyNoticeWork } from './notice-data-layer'
 import { usePoolMessageNotices } from './use-pool-notices'
 
 function NoticeRow({
@@ -78,22 +75,7 @@ function NoticeRow({
 }
 
 export function MessageNoticeIndicator({ compact }: { compact?: boolean }): JSX.Element | null {
-  return noticesDataLayer() === 'pool' ? <PoolNoticeIndicator compact={compact} /> : <LegacyNoticeIndicator compact={compact} />
-}
-function PoolNoticeIndicator({ compact }: { compact?: boolean }) {
   const notices = usePoolMessageNotices()
-  return <NoticeIndicatorBody notices={notices} compact={compact} />
-}
-function LegacyNoticeIndicator({ compact }: { compact?: boolean }) {
-  const owner = useStoreHandle<Trpc>()
-  const { records, sessions } = useStoreSelector((s) => {
-    recordLegacyNoticeWork(owner, 'messageSelectors')
-    return { records: s.messageRecords, sessions: s.sessions }
-  }, shallowEqual)
-  const notices = useMemo(() => {
-    recordLegacyNoticeWork(owner, 'messageDerivations')
-    return messageNotices(records ?? [], sessions ?? [])
-  }, [records, sessions, owner])
   return <NoticeIndicatorBody notices={notices} compact={compact} />
 }
 function NoticeIndicatorBody({ notices, compact }: { notices: readonly MessageNotice[]; compact?: boolean }): JSX.Element | null {

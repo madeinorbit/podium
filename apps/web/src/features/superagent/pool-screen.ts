@@ -1,11 +1,10 @@
 import type { PoolScreen } from '@podium/client-graph/host'
 import { SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUPERAGENT_SUMMARIES, createSuperagentSource } from '@podium/client-graph/superagent'
-import { initializeSuperagentDataLayer, superagentDataLayer, superagentCheckRequested } from './data-layer'
 
 export const superagentPoolScreen: PoolScreen = {
   id: 'superagent',
-  initialize: initializeSuperagentDataLayer,
-  enabled: () => superagentDataLayer() === 'pool',
+  initialize() {},
+  enabled: () => true,
   options: () => ({ header: true, summaries: SUPERAGENT_SUMMARIES }),
   async attach(runtime, pool) {
     await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => createSuperagentSource(runtime))
@@ -13,8 +12,5 @@ export const superagentPoolScreen: PoolScreen = {
       import('@podium/client-graph/notice-source'), import('@podium/client-graph/notice-schema'),
     ])
     await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(runtime))
-    if (!superagentCheckRequested()) return
-    const { installSuperagentCheck } = await import('@podium/client-graph/diagnostics/superagent-check')
-    return installSuperagentCheck(pool, runtime)
   },
 }

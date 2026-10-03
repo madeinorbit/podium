@@ -2,12 +2,11 @@ import type { PoolScreen } from '@podium/client-graph/host'
 import { CHAT_CONTEXT_SUMMARIES } from '@podium/client-graph/chat-context-schema'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import { SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
-import { initializeChatContextDataLayer, chatContextDataLayer, chatContextCheckRequested } from './chat-context-data-layer'
 
 export const chatContextPoolScreen: PoolScreen = {
   id: 'chatContext',
-  initialize: initializeChatContextDataLayer,
-  enabled: () => chatContextDataLayer() === 'pool',
+  initialize() {},
+  enabled: () => true,
   options: () => ({ header: true, summaries: {
     issue: CHAT_CONTEXT_SUMMARIES.issue,
     session: [...CHAT_CONTEXT_SUMMARIES.session, ...NOTICE_SUMMARIES.session, ...SUPERAGENT_SUMMARIES.session],
@@ -22,8 +21,5 @@ export const chatContextPoolScreen: PoolScreen = {
     await pool.sources.ensure(superagent.SUPERAGENT_SOURCE_KEY, superagent.SUPERAGENT_ENTITIES, () => superagent.createSuperagentSource(runtime))
     await pool.sources.ensure(exits.SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () => exits.createSessionExitSource(runtime))
     pool.sources.register(CHAT_CONTEXT_ENTITIES, new ChatContextSource(runtime, pool))
-    if (!chatContextCheckRequested()) return
-    const { installChatContextCheck } = await import('./chat-context-check')
-    return installChatContextCheck(pool, runtime)
   },
 }

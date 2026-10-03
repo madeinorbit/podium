@@ -12,7 +12,6 @@ import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-p
 import { MessageNoticeIndicator } from '../src/features/chat/MessageNotices'
 import { PendingInteractionBar } from '../src/features/chat/PendingInteractionBar'
 import { OutboxRecoveryIndicator } from '../src/features/machines/OutboxRecovery'
-import { noticeReadStats, noticesDataLayer } from '../src/features/chat/notice-data-layer'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 
@@ -47,17 +46,17 @@ let queued: OutboxEntry[] = [], parked: OutboxEntry[] = data.deadLetters.map(row
   ...row.entry, state: 'dead-letter', deadLetter: { reason: row.reason, parkedFrom: row.parkedFrom, deadLetteredAt: row.deadLetteredAt, attempts: row.attempts },
 }))
 let owner: ClientRuntime, pool: ReturnType<typeof useWorklistPool> = null, ready = false, commits = 0, commitMs = 0
-storeStats.enable(); noticeReadStats.enable()
+storeStats.enable()
 function Surface() {
   owner = useStoreHandle() as ClientRuntime
   pool = useWorklistPool()
   useEffect(() => {
-    ready = noticesDataLayer() === 'legacy' || pool !== null
+    ready = pool !== null
     return () => { ready = false }
   }, [pool])
   return <main className="mx-auto max-w-2xl p-8">
     <h1 className="mb-3 text-xl font-semibold">Messages, questions and recovery</h1>
-    <p className="mb-6 text-sm text-muted-foreground">5,600 synthetic tasks · 5,014 sessions · {noticesDataLayer()} readers</p>
+    <p className="mb-6 text-sm text-muted-foreground">5,600 synthetic tasks · 5,014 sessions · pool readers</p>
     <Profiler id="notices" onRender={(_id, _phase, ms) => { commits++; commitMs += ms }}>
       <header className="mb-6 flex gap-5"><MessageNoticeIndicator /><OutboxRecoveryIndicator /></header>
       <PendingInteractionBar sessionId={'synthetic-session-0' as never} />
@@ -80,7 +79,7 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('notice-synthet
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
 const driver = {
   ready: () => ready && !!document.querySelector('[data-testid="message-notice-chip"]') && !!document.querySelector('[data-testid="pending-interaction"]'),
-  reset() { storeStats.reset(); noticeReadStats.reset(); commits = 0; commitMs = 0 },
+  reset() { storeStats.reset(); commits = 0; commitMs = 0 },
   async activity(count: number) { for (let step = 1; step <= count; step++) { fixture.activity(step); await frame() } },
   async updates(count: number) {
     for (let step = 0; step < count; step++) {
@@ -97,7 +96,7 @@ const driver = {
     }
     return { selectors: rows.reduce((sum, row) => sum + row.selectorRuns, 0),
       legacySlices: Object.values(legacySliceNames).reduce((sum, count) => sum + count, 0), legacySliceNames,
-      legacy: noticeReadStats.read(owner), commits, commitMs, failures: failures.length, actions,
+      commits, commitMs, failures: failures.length, actions,
       parked: owner.outbox.deadLetters().length, opened: owner.getSnapshot().paneA }
   },
   check() { return pool ? checkNotices(pool, owner.getSnapshot(), ['synthetic-session-0']) : null },

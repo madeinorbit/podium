@@ -1,10 +1,8 @@
 import { recordSliceDerivation } from '@podium/client-core/perf'
-import { shallowEqual } from '@podium/client-core/store'
-import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
 import { useCallback, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { useStoreSelector, type Store } from '@/app/store'
+import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { settingsDataLayer } from './data-layer'
@@ -24,12 +22,7 @@ function readCatalog(pool: MobxPool): Pick<Store, 'machines' | 'repos'> {
 }
 
 export function useSettingsCatalog(): Pick<Store, 'machines' | 'repos'> {
-  if (settingsDataLayer() === 'pool') return useWorklistPoolProjection(readCatalog, EMPTY_CATALOG)
-  const { owner } = useSettingsClient()
-  return useStoreSelector((state) => {
-    recordSliceDerivation(owner, 'settings.catalog')
-    return { machines: state.machines ?? [], repos: state.repos ?? [] }
-  }, shallowEqual)
+  return useWorklistPoolProjection(readCatalog, EMPTY_CATALOG)
 }
 
 const readTab = (pool: MobxPool) => {
@@ -37,30 +30,17 @@ const readTab = (pool: MobxPool) => {
   return loaded(row) ? row.settingsTab : 'sessions'
 }
 export function useSettingsTab(): SettingsRows['settingsWindow']['settingsTab'] {
-  if (settingsDataLayer() === 'pool') return useWorklistPoolProjection(readTab, 'sessions')
-  const { owner } = useSettingsClient()
-  return useStoreSelector((state) => { recordSliceDerivation(owner, 'settings.tab'); return state.settingsTab })
+  return useWorklistPoolProjection(readTab, 'sessions')
 }
 
 export function useSettingsSessionPresent(id: string | null): boolean {
-  if (settingsDataLayer() === 'pool') {
-    const read = useCallback((pool: MobxPool) => id !== null && pool.settingsViews.sessionPresent(id) === true, [id])
-    return useWorklistPoolProjection(read, false)
-  }
-  const { owner } = useSettingsClient()
-  return useStoreSelector((state) => {
-    recordSliceDerivation(owner, 'settings.sessionPresence')
-    return id !== null && state.sessions.some((session) => session.sessionId === id)
-  })
+  const read = useCallback((pool: MobxPool) => id !== null && pool.settingsViews.sessionPresent(id) === true, [id])
+  return useWorklistPoolProjection(read, false)
 }
 
 const readSetup = (pool: MobxPool) => pool.settingsViews.setup()
 export function useSettingsSetupSummary() {
-  if (settingsDataLayer() === 'pool') return useWorklistPoolProjection(readSetup, EMPTY_SETUP)
-  const { owner } = useSettingsClient()
-  const sessions = useStoreSelector((state) => { recordSliceDerivation(owner, 'settings.setup'); return state.sessions })
-  const select = useMemo(createRepositoryUsageSelector, [])
-  return { usage: select(sessions), defaultAgent: resolveDefaultAgent(undefined, sessions), pending: 0 }
+  return useWorklistPoolProjection(readSetup, EMPTY_SETUP)
 }
 
 function usePoolPreference<T>(key: string, parse: (raw: string | null) => T, serialize: (value: T) => string | null): [T, Dispatch<SetStateAction<T>>] {

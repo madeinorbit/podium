@@ -1,6 +1,6 @@
-/** Opt-in sidebar-check differential. Reference values stay in memory; only
+/** Fixture and private-replay comparison. Reference values stay in memory; only
  * counts, positions and field paths leave a replay or browser fixture. */
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { Store } from '@podium/client-core/engine'
 import type { MobxPool } from '../src/pool'
 import { superagentCursor, superagentFeed, superagentFocus, superagentQuestion, superagentState, superagentThread } from '../src/superagent'
 import { compareSidebarSnapshots, type CheckSection } from './sidebar-check'
@@ -39,11 +39,4 @@ export function checkSuperagent(pool: MobxPool, state: State) {
   const result = compareSidebarSnapshots({ sections: expected, pending: 0 }, { sections: actual, pending })
   return { differences: result.differences, pending: result.pending, positions: result.rows,
     first: result.first ? { sectionIndex: result.first.sectionIndex, rowIndex: result.first.rowIndex, field: result.first.field } : null }
-}
-
-export function installSuperagentCheck(pool: MobxPool, runtime: ClientRuntime): () => void {
-  if (typeof window === 'undefined') return () => {}
-  const check = () => checkSuperagent(pool, runtime.getSnapshot())
-  Object.assign(window, { __superagentCheck: check })
-  return () => { if (Reflect.get(window, '__superagentCheck') === check) Reflect.deleteProperty(window, '__superagentCheck') }
 }

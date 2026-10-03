@@ -21,10 +21,10 @@ try {
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
   const results: Record<string, unknown> = {}
-  for (const mode of ['before', 'after'] as const) {
+  for (const mode of ['pool'] as const) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } }), errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
-    await page.goto(`${origin}/test/notices.browser.html?mobxNotices=${mode === 'after' ? 1 : 0}`)
+    await page.goto(`${origin}/test/notices.browser.html`)
     await page.waitForFunction(() => window.__notices?.ready(), null, { timeout: 60000 })
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const cdp = await page.context().newCDPSession(page)
@@ -36,17 +36,15 @@ try {
       if (phase === 'activity') await page.evaluate(() => window.__notices.activity(200))
       else await page.evaluate(() => window.__notices.updates(30))
       const final = countsOnly ? {} : await metrics(), stats = await page.evaluate(() => window.__notices.stats())
-      const legacy = Object.values(stats.legacy).reduce((sum, count) => sum + (count ?? 0), 0)
-      results[`${mode}.${phase}`] = { selectors: stats.selectors, legacySlices: stats.legacySlices, legacy: stats.legacy, commits: stats.commits,
+      results[`${mode}.${phase}`] = { selectors: stats.selectors, legacySlices: stats.legacySlices, commits: stats.commits,
         ...(!countsOnly ? { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000, commitMs: stats.commitMs } : {}) }
-      if (mode === 'after' && (stats.selectors || stats.legacySlices || legacy)) throw new Error('Legacy notice selector or derivation executed')
-      if (mode === 'before' && stats.selectors === 0) throw new Error('Legacy positive control did not execute')
+      if ((stats.selectors || stats.legacySlices)) throw new Error('Legacy notice selector or derivation executed')
       if (stats.failures) throw new Error('Synthetic provider failed')
     }
     const before = await page.evaluate(() => window.__notices.check())
-    if (mode === 'after' && (!before || before.differences || before.pending || before.positions !== 20)) throw new Error(`Notice comparison failed: ${JSON.stringify(before)}`)
+    if ((!before || before.differences || before.pending || before.positions !== 20)) throw new Error(`Notice comparison failed: ${JSON.stringify(before)}`)
     results[`${mode}.check`] = before
-    // Measure actions independently of the opt-in legacy-reference comparison.
+    // Measure actions independently of the fixture reference comparison.
     await page.evaluate(() => window.__notices.reset())
     await page.getByTestId('message-notice-chip').click()
     await page.getByRole('button', { name: 'Dismiss', exact: true }).first().click()
@@ -63,14 +61,13 @@ try {
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     await page.screenshot({ path: `${output}/${mode}-surface.png`, fullPage: true })
     const actionStats = await page.evaluate(() => window.__notices.stats())
-    const actionLegacy = Object.values(actionStats.legacy).reduce((sum, count) => sum + (count ?? 0), 0)
     // The preserved navigation owner builds one session index on focus. The
     // coordinator allocated its retirement to POD-5089, outside these readers.
     const ownerIndex = actionStats.legacySliceNames.sessionById ?? 0
-    if (mode === 'after' && (actionStats.selectors || actionLegacy || ownerIndex > 1 || actionStats.legacySlices !== ownerIndex)) throw new Error(`Legacy notice work executed while acting: ${JSON.stringify({ selectors: actionStats.selectors, legacySliceNames: actionStats.legacySliceNames, legacy: actionStats.legacy })}`)
+    if ((actionStats.selectors || ownerIndex > 1 || actionStats.legacySlices !== ownerIndex)) throw new Error(`Legacy notice work executed while acting: ${JSON.stringify({ selectors: actionStats.selectors, legacySliceNames: actionStats.legacySliceNames })}`)
     const after = await page.evaluate(() => window.__notices.check())
-    if (mode === 'after' && (!after || after.differences || after.pending || after.positions !== 17)) throw new Error(`Post-action comparison failed: ${JSON.stringify(after)}`)
-    results[`${mode}.actions`] = { ...actionStats.actions, parked: actionStats.parked, selectors: actionStats.selectors, legacy: actionStats.legacy, legacySliceNames: actionStats.legacySliceNames, check: after }
+    if ((!after || after.differences || after.pending || after.positions !== 17)) throw new Error(`Post-action comparison failed: ${JSON.stringify(after)}`)
+    results[`${mode}.actions`] = { ...actionStats.actions, parked: actionStats.parked, selectors: actionStats.selectors, legacySliceNames: actionStats.legacySliceNames, check: after }
     if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`)
     await page.evaluate(() => window.__notices.close()); await page.close()
   }

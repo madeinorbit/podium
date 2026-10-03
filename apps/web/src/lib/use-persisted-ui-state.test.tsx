@@ -35,6 +35,16 @@ vi.mock('@podium/client-core/react', () => ({
   }),
 }))
 
+vi.mock('@/app/store-worklist-pool', async () => {
+  const { useSyncExternalStore } = await import('react')
+  return {
+    useWorklistPoolProjection: (read: (pool: unknown) => unknown) => useSyncExternalStore(
+      store.available.value ? store.uiState.subscribe : () => () => {},
+      () => read({ row: (_entity: string, key: string) => store.available.value ? { value: store.uiState.get(key) } : undefined }),
+    ),
+  }
+})
+
 const { usePersistedUiState, usePersistedUiValue } = await import('./use-persisted-ui-state')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true

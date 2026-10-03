@@ -1,0 +1,27 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`preserves saved chat inputs with zero legacy derivations > last green chat inputs 1`] = `"{"title":"Title","machines":1,"mentions":[{"kind":"issue","id":"issue:chat-issue-7","label":"SYN-8","detail":"Synthetic task","insert":"SYN-8"},{"kind":"issue","id":"issue:chat-issue-6","label":"SYN-7","detail":"Synthetic task","insert":"SYN-7"},{"kind":"issue","id":"issue:chat-issue-5","label":"SYN-6","detail":"Synthetic task","insert":"SYN-6"},{"kind":"issue","id":"issue:chat-issue-4","label":"SYN-5","detail":"Synthetic task","insert":"SYN-5"},{"kind":"issue","id":"issue:chat-issue-3","label":"SYN-4","detail":"Other composer task","insert":"SYN-4"}],"draft":"Saved draft","question":"notice-ask-6","attached":"cold-notice-session","seq":1,"threads":[{"id":"own-thread","kind":"global","title":"Synthetic thread","podiumSessionId":"synthetic-session-0"}],"sessions":["synthetic-session-0","cold-notice-session"],"refs":1,"repos":"/synthetic/project","artifact":"chat-issue","ready":true,"held":["held-failed","held-live"],"records":["notice-message-0","notice-message-3","notice-message-4"]}"`;
+
+exports[`renders the real composer and artifact strip identically and keeps artifact dispatch on its owner > last green composer and artifacts 1`] = `
+{
+  "buttons": [
+    {
+      "disabled": false,
+      "label": "Attach a file",
+      "text": "",
+    },
+    {
+      "disabled": false,
+      "label": "Send (Enter)",
+      "text": "",
+    },
+    {
+      "disabled": false,
+      "label": "Synthetic concept",
+      "text": "Synthetic concept",
+    },
+  ],
+  "draft": "Saved draft",
+  "text": "Transcript may be outdated. Waiting for current messages.Transcript may be outdatedwaiting for current messagesCtrl / to focusSaved draftSynthetic concept",
+}
+`;

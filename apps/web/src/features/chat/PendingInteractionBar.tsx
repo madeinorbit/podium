@@ -1,13 +1,11 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import { type PendingInteractionCard, pendingInteractionCards } from '@podium/client-core/viewmodels'
+import { type PendingInteractionCard } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { OctagonAlert } from 'lucide-react'
 import { type JSX, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { cn } from '@/lib/utils'
-import { noticesDataLayer, recordLegacyNoticeWork } from './notice-data-layer'
 import { usePoolInteractionCards } from './use-pool-notices'
 
 /**
@@ -42,21 +40,8 @@ import { usePoolInteractionCards } from './use-pool-notices'
 const NO_ASKS: PendingInteractionWire[] = []
 
 type BarProps = { sessionId: SessionId; compact?: boolean }
-export function PendingInteractionBar(props: BarProps): JSX.Element | null {
-  return noticesDataLayer() === 'pool' ? <PoolInteractionBar {...props} /> : <LegacyInteractionBar {...props} />
-}
-function PoolInteractionBar({ sessionId, compact }: BarProps) {
+export function PendingInteractionBar({ sessionId, compact }: BarProps): JSX.Element | null {
   const cards = usePoolInteractionCards(sessionId)
-  return <InteractionBarBody cards={cards} compact={compact} />
-}
-function LegacyInteractionBar({ sessionId, compact }: BarProps) {
-  const owner = useStoreHandle<Trpc>()
-  const rows = useStoreSelector(s => {
-    recordLegacyNoticeWork(owner, 'interactionSelectors')
-    return s.pendingInteractions ?? NO_ASKS
-  })
-  recordLegacyNoticeWork(owner, 'interactionDerivations')
-  const cards = pendingInteractionCards(rows, sessionId).filter(card => card.surface === 'aggregate')
   return <InteractionBarBody cards={cards} compact={compact} />
 }
 function InteractionBarBody({ cards, compact }: { cards: readonly PendingInteractionCard[]; compact?: boolean }): JSX.Element | null {

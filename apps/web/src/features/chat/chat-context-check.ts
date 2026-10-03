@@ -1,7 +1,7 @@
-/** Opt-in comparison following sidebar-check. The report exports only counts
+/** Fixture comparison for pool regression tests. The report exports only counts
  * and positions; both sets of words and authored sends remain in memory. */
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
-import { issueViewModelsFromReplica, type IssueViewModel } from '@podium/client-core/replica'
+import type { Store } from '@podium/client-core/engine'
+import { type IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { compareSidebarSnapshots, type CheckSection } from '@podium/client-graph/diagnostics/sidebar-check'
 import { chatMentionIssues, chatInteractions, chatRecords, chatArtifactIssue, chatReferenceSessions, chatReferenceMachines, chatRepositoryKey, chatIssue } from '@podium/client-graph/chat-context'
@@ -62,13 +62,4 @@ export function checkChatContext(pool: MobxPool, state: Store, issues: readonly 
   const result = compareSidebarSnapshots({ sections: expected, pending: 0 }, { sections: actual, pending })
   return { differences: result.differences, pending: result.pending, positions: expected.length,
     first: result.first ? { sectionIndex: result.first.sectionIndex, rowIndex: result.first.rowIndex, field: result.first.field } : null }
-}
-export function installChatContextCheck(pool: MobxPool, runtime: ClientRuntime): () => void {
-  if (typeof window === 'undefined') return () => {}
-  const check = () => {
-    const state = runtime.getSnapshot()
-    return checkChatContext(pool, state, [...issueViewModelsFromReplica(runtime.replica, state.issueProjections, state.issueUserStates).values()], state.sessions.slice(0, 12).map(row => row.sessionId))
-  }
-  Object.assign(window, { __chatContextCheck: check })
-  return () => { if (Reflect.get(window, '__chatContextCheck') === check) Reflect.deleteProperty(window, '__chatContextCheck') }
 }

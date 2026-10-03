@@ -12,7 +12,6 @@ import { checkSuperagent } from '@podium/client-graph/diagnostics/superagent-che
 import { createSuperagentFixture } from './fixture'
 import { SuperagentView } from './SuperagentView'
 import { ConciergeButton } from './ConciergeButton'
-import { superagentDataLayer } from './data-layer'
 import '@/index.css'
 
 initializePoolScreens({ get: () => null } as never)
@@ -23,9 +22,9 @@ function Surface() {
   runtime = useStoreHandle() as ClientRuntime; pool = useWorklistPool()
   if (firstPool === undefined) firstPool = pool
   const [header, setHeader] = useState<HTMLElement | null>(null)
-  ready = superagentDataLayer() === 'legacy' || pool !== null
+  ready = pool !== null
   return <main className="mx-auto max-w-2xl p-8">
-    <p className="mb-4 text-xs text-muted-foreground">5,600 synthetic tasks · 5,014 sessions · {superagentDataLayer()} readers</p>
+    <p className="mb-4 text-xs text-muted-foreground">5,600 synthetic tasks · 5,014 sessions · pool readers</p>
     <Profiler id="superagent" onRender={() => commits++}>
       <header className="mb-3 flex items-center gap-3"><ConciergeButton /><h1 className="flex-1 text-lg">Superagent</h1><div ref={setHeader} className="flex gap-2" /></header>
       <div className="flex h-96 rounded border bg-background"><DockHeaderSlotProvider value={header}><SuperagentView /></DockHeaderSlotProvider></div>
