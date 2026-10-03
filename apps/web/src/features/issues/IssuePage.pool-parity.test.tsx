@@ -189,6 +189,8 @@ describe('issue page rendered pool parity', () => {
   })
 
   it('preserves the fallback list close dialog, working members, child counts, question and delivery words', async () => {
+    pool.dispose()
+    seed({ parentId: null })
     async function closeFromList(mode: 'legacy' | 'pool') {
       layer = mode; forbidden = mode === 'pool'; legacyReads = 0
       const view = render(wrap(<IssuePanelView cwd="/unknown" />))
