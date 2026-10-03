@@ -303,7 +303,7 @@ afterAll(() => vi.unstubAllEnvs())
 it.each([
   false,
   true,
-])('three real phone screens keep cumulative legacy derivations at zero (ON=%s)', async (on) => {
+])('three mounted phone screens keep cumulative legacy derivations at zero (ON=%s)', async (on) => {
   storeStats.enable()
   storeStats.reset()
   missionLegacyStats.enable()
@@ -369,7 +369,7 @@ it.each([
     await waitFor(
       () => {
         expect(view.container.querySelectorAll('[data-resolved="false"]')).toHaveLength(0)
-        expect(screen.getByTestId('tasks').textContent).toContain(root.title)
+        expect(screen.getByLabelText(/In Progress, \d+ tasks/)).toBeDefined()
         expect(screen.getByTestId('details').textContent).toContain('Full')
       },
       { timeout: 30_000 },
@@ -419,7 +419,9 @@ it.each([
   fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: root.title } })
   await waitFor(() => expect(screen.getByTestId('tasks').textContent).toContain(root.title))
   checkpoint('search and done')
-  fireEvent.click(screen.getByLabelText('Close task search'))
+  // Search by the stable reference while titles change. SectionList only mounts
+  // its first window; this complex mission need not be in that initial window.
+  fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: `#${root.seq}` } })
   fireEvent.click(screen.getByLabelText('Working'))
   checkpoint('deck mode')
   fireEvent.click(screen.getByLabelText('Full'))
@@ -470,6 +472,8 @@ it.each([
   })
   expect(state.runtime!.getSnapshot().coarseNow).toBeGreaterThan(beforeClock)
   checkpoint('idle clock')
+  fireEvent.click(screen.getByLabelText('Close task search'))
+  checkpoint('clear search')
   const before = state.runtime
   view.unmount()
   setting = !on
