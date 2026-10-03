@@ -236,7 +236,10 @@ export class MobxPool {
   private readonly firstTaskPending = observable.box(0)
   private headerState: ReturnType<typeof createHeaderEntities> | undefined
   /** Off means no extra observable maps, relations or sidebar census objects. */
-  get header() { return this.headerState ??= createHeaderEntities() }
+  get header() {
+    this.headerState ??= createHeaderEntities()
+    return this.headerState
+  }
   readonly headerViews = createHeaderViews(this)
   readonly tables: PoolTables
   readonly queries: ReaderQueries
@@ -286,9 +289,10 @@ export class MobxPool {
   /** Built only for a screen that uses references. Its identity index covers
    * resident rows; cold identities are resolved through the same load window. */
   get references(): IssueReferences {
-    return this.referenceReader ??= new IssueReferences(this, ref => {
+    this.referenceReader ??= new IssueReferences(this, ref => {
       if (!this.disposed) this.residency?.requestReference(ref)
     })
+    return this.referenceReader
   }
 
   constructor(

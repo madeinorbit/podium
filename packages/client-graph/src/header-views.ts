@@ -23,7 +23,8 @@ export function createHeaderViews(pool: MobxPool) {
   const cache = new Map<string, IComputedValue<unknown>>()
   let sessions: HeaderSessions | undefined
   function sessionIndex() {
-    return sessions ??= new HeaderSessions(pool)
+    sessions ??= new HeaderSessions(pool)
+    return sessions
   }
   function memo<T>(key: string, read: () => T): T {
     if (!_isComputingDerivation()) return measureHeader(`pool.${key.split(':')[0]}`, read)
