@@ -592,9 +592,11 @@ if (checkBudget) {
   // 581,236, Brotli 499,482, source 7,424,127 after tonight's screen landings
   // (POD-5221 report). Raised again with headroom so lanes stop failing the build;
   // the operator's rule for this epic is to lift, not hunt, until POD-5240 runs.
-  atMost('eager raw bytes', report.eager.raw, 1_900_000)
-  atMost('eager gzip bytes', report.eager.gzip, 615_000)
-  atMost('eager Brotli bytes', report.eager.brotli, 530_000)
+  // 2026-10-03 later (POD-5390 report at b9da04b899): raw 1,998,646, gzip
+  // 637,231, Brotli 548,745, source 7,947,099 after the day's screen landings.
+  atMost('eager raw bytes', report.eager.raw, 2_150_000)
+  atMost('eager gzip bytes', report.eager.gzip, 690_000)
+  atMost('eager Brotli bytes', report.eager.brotli, 595_000)
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000
   // (2026-08-16; see the measured split above) → 7_700_000 (2026-08-17, on the
   // release line; the first 0.1.0 edge build measured 7,689,167 while every
@@ -734,8 +736,8 @@ if (checkBudget) {
   // deferral survives in DEFERRED_FIRST_PAINT_MODULES above, so both sides' named
   // guards hold. Raising the ceiling to carry growth that is no longer eager would
   // hand the paydown straight back.
-  // TEMPORARY 7_800_000 (2026-10-03, POD-4286; was 7_450_000 on 2026-10-02; see the raise note above; POD-5240 restores 7_000_000).
-  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_800_000)
+  // TEMPORARY 8_500_000 (2026-10-03, POD-4286; 7_800_000 earlier today, 7_450_000 on 2026-10-02; see the raise note above; POD-5240 restores 7_000_000).
+  atMost('eager parsed source bytes', report.eager.sourceBytes, 8_500_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)
   atMost('settings Brotli bytes', report.settings.brotli, 26_000)
