@@ -245,7 +245,7 @@ describe('readers behind declared cold questions', () => {
       const f = fixture(1, reader.bootOnly),
         pool = f.pool
       let scans = 0
-      const ids = pool.residency!.ids.bind(pool.residency)
+      const ids = pool.residency?.ids.bind(pool.residency)
       const census = vi.spyOn(pool.residency!, 'ids').mockImplementation((...args) => {
         scans++
         return ids(...args)
@@ -304,12 +304,12 @@ describe('readers behind declared cold questions', () => {
         // The counter rejects an actual planted old enumeration, not a mock
         // number. Keep the output identical so this proves the cost assertion.
         vi.spyOn(pool.queries, 'ids').mockImplementation((question) => {
-          pool.residency!.ids(questionEntity(question))
+          pool.residency?.ids(questionEntity(question))
           return original(question)
         })
         const originalCount = pool.queries.count.bind(pool.queries)
         vi.spyOn(pool.queries, 'count').mockImplementation((entity) => {
-          pool.residency!.ids(entity)
+          pool.residency?.ids(entity)
           return originalCount(entity)
         })
         runInAction(() => reader.read(pool))
@@ -388,7 +388,7 @@ describe('readers behind declared cold questions', () => {
       f.index.apply({ type: 'update', rows: [removed] })
       f.pool.apply({ type: 'update', rows: [removed] })
       expect(reads).toHaveBeenCalledTimes(2)
-      expect(reads.mock.results[1]!.value).not.toContain(removed.id)
+      expect(reads.mock.results[1]?.value).not.toContain(removed.id)
     } finally {
       stop()
       f.pool.dispose()
@@ -515,13 +515,30 @@ describe('readers behind declared cold questions', () => {
       expect(f.pool.queries.activity(question)).toBe(Date.parse('2026-10-02T12:00:00Z'))
       // Resident edits are ahead of the row source. Excluding the stale source
       // copy must reveal the cold runner-up, rather than returning zero.
-      f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'host', value: { ...host, lastActiveAt: old } } as RowRecord] })
+      f.pool.apply({
+        type: 'update',
+        rows: [{ kind: 'session', id: 'host', value: { ...host, lastActiveAt: old } } as RowRecord],
+      })
       const before = f.index.readerActivityVisits
       expect(f.pool.queries.activity(question)).toBe(Date.parse('2020-01-02T00:00:00Z'))
-      expect(f.index.readerActivityVisits - before).toBeLessThanOrEqual(f.pool.tables.session.size + 1)
-      f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'host', value: { ...host, lastActiveAt: '2027-01-01T00:00:00Z' } } as RowRecord] })
+      expect(f.index.readerActivityVisits - before).toBeLessThanOrEqual(
+        f.pool.tables.session.size + 1,
+      )
+      f.pool.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'session',
+            id: 'host',
+            value: { ...host, lastActiveAt: '2027-01-01T00:00:00Z' },
+          } as RowRecord,
+        ],
+      })
       expect(f.pool.queries.activity(question)).toBe(Date.parse('2027-01-01T00:00:00Z'))
       expect(census).not.toHaveBeenCalled()
-    } finally { census.mockRestore(); f.pool.dispose() }
+    } finally {
+      census.mockRestore()
+      f.pool.dispose()
+    }
   })
 })

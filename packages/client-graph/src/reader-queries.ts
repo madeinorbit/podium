@@ -4,8 +4,8 @@ import type { MobxPool } from './pool'
 import { type ColdIndex, type ColdQueries, createColdIndex } from './shared/cold-index'
 import { questionEntity, type ReaderQuestion } from './shared/reader-questions'
 import type { ModelSchema } from './shared/schema'
-import type { RowSourceEvent } from './shared/source'
 import type { SessionActivityQuestion } from './shared/session-activity'
+import type { RowSourceEvent } from './shared/source'
 import { LOADING } from './worklist/rollup'
 
 /** Query bridge, not a history index in the pool. Production questions go to
@@ -99,15 +99,29 @@ export class ReaderQueries {
     return this.watch('repos', (value) => value.issueRepoRevision).issueRepoIds()
   }
   activity(question: SessionActivityQuestion): number {
-    const index = this.watch(JSON.stringify(question), value => value.readerActivityRevision(question))
+    const index = this.watch(JSON.stringify(question), (value) =>
+      value.readerActivityRevision(question),
+    )
     const resident = residentIds(this.pool, 'session')
-    let latest = index.readerActivity({ ...question, excluded: [...resident, ...(question.excluded ?? [])] })
+    let latest = index.readerActivity({
+      ...question,
+      excluded: [...resident, ...(question.excluded ?? [])],
+    })
     const excluded = new Set(question.excluded)
     for (const id of resident) {
       if (excluded.has(id) || this.collapsed(id)) continue
-      const row = this.pool.row('session', id, 'summary') as { cwd: string; lastActiveAt?: string } | typeof LOADING | undefined
+      const row = this.pool.row('session', id, 'summary') as
+        | { cwd: string; lastActiveAt?: string }
+        | typeof LOADING
+        | undefined
       if (!row || row === LOADING) continue
-      if (!question.roots.some(root => row.cwd === root || question.match !== 'exact' && row.cwd?.startsWith(`${root}/`))) continue
+      if (
+        !question.roots.some(
+          (root) =>
+            row.cwd === root || (question.match !== 'exact' && row.cwd?.startsWith(`${root}/`)),
+        )
+      )
+        continue
       latest = Math.max(latest, Date.parse(row.lastActiveAt ?? '') || 0)
     }
     return latest
