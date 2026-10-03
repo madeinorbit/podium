@@ -32,6 +32,9 @@ it('matches legacy columns, values, nested positions, facets, progress and explo
       expect(inBoardCheck(() => checkExplorer(runtime as never, handle.pool, tab, ''))).toEqual({ differences: 0, first: null, pending: 0 })
     }
     for (const query of ['task', 'POD-12', '']) expect(inBoardCheck(() => checkExplorer(runtime as never, handle.pool, null, query))).toEqual({ differences: 0, first: null, pending: 0 })
+    expect(inBoardCheck(() => checkBoard(runtime as never, handle.pool, { display: { ...DEFAULT_DISPLAY, layout: 'list', ordering: 'updated', showAgentTasks: true },
+      filter: {}, expanded: replica.rows('issueProjections').map(row => row.id), isMobile: false, openIssueId: null, now: FIXED_NOW })))
+      .toEqual({ differences: 0, first: null, pending: 0 })
     expect(handle.pool.tables.issue.size).toBeLessThan(replica.rows('issueProjections').length)
   } finally { handle.dispose() }
 }, 120_000)

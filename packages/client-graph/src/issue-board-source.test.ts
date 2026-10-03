@@ -9,7 +9,7 @@ import { LOADING } from './worklist/rollup'
 const now = Date.parse('2026-10-03T12:00:00Z')
 const row = (id: string, overrides: object = {}) => ({ id, seq: 1, title: id, description: { value: 'Searchable body' },
   stage: 'in_progress', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
-  priority: 2, type: 'task', labels: [], audience: 'human', repoPath: '/fixture', deps: [], ...overrides })
+  priority: 2, type: 'task', labels: [], audience: 'human' as const, repoPath: '/fixture', deps: [], ...overrides })
 function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' })]) {
   const load = vi.fn((_entity: string, id: string) => rows.find(row => row.id === id))
   const pending = observable.map<string, Record<string, unknown>>(undefined, { deep: false })
@@ -68,7 +68,7 @@ it('keeps an empty review with a discovered continuation out of Needs you', () =
   try { expect(source.queryIds({ kind: 'explorer', tab: 'needs' })).toEqual({ ids: [] }) }
   finally { stop() }
 })
-it('updates overlays, parent scope, cold transitions, and replacement without a cold standing index', () => {
+it('updates overlays, parent scope, archive and replacement without a cold standing index', () => {
   const { source, pool, pending, stop } = setup([row('parent'), row('child', { audience: 'agent', parentId: 'parent' }), row('draft', { isDraftVessel: true })])
   let ids: string[] = []
   const off = autorun(() => { const value = source.queryIds({ kind: 'board' }); if (value && value !== LOADING) ids = value.ids })
@@ -79,7 +79,9 @@ it('updates overlays, parent scope, cold transitions, and replacement without a 
     runInAction(() => pending.delete('parent'))
     expect(ids).toEqual(['child', 'parent'])
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'parent', value: row('parent', { stage: 'done', archived: true }) }] })
-    expect(source.stats().residentRows).toBe(2)
+    // The pool retains an already resident ancestor; the board does not own
+    // cutoff policy. Its index must mirror exactly the resident population.
+    expect(source.stats().residentRows).toBe(pool.tables.issue.size)
     expect(source.issue('parent')).toMatchObject({ archived: true })
     pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'replacement', value: row('replacement') }] })
     expect(ids).toEqual(['replacement'])

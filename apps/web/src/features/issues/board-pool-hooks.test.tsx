@@ -14,7 +14,7 @@ vi.mock('@/app/store', () => ({ useReplicaIssues: () => { state.issueReads(); re
 }) }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => ({ getSnapshot: () => ({}) }) }))
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPoolProjection: (read: (pool: object) => unknown, empty: unknown) => state.attached ? read({ row: (entity: string) => entity === 'issueBoardWindow' ? { openIssueId: null } : entity === 'issueBoardModel' ? EMPTY_BOARD : undefined }) : empty }))
-afterEach(() => { cleanup(); state.pool = true; state.attached = false; state.issueReads.mockClear(); state.sessionReads.mockClear(); issueBoardStats.disable(); storeStats.disable() })
+afterEach(() => { cleanup(); state.pool = true; state.attached = false; state.issueReads.mockClear(); state.sessionReads.mockClear(); issueBoardStats.disable(); storeStats.enable(false); storeStats.reset() })
 function useBoundary() {
   const base = useBoardBase()
   const board = useBoardData({ display: DEFAULT_DISPLAY, filter: {}, expanded: [], isMobile: false, openIssueId: base.openIssueId, now: 0 }, base)
