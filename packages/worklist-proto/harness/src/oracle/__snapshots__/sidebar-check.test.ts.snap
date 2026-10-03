@@ -9,8 +9,8 @@ exports[`sidebar differential replay > corpus and every methodology change at 1x
 
 exports[`sidebar differential replay > corpus and every methodology change at 1x > burst50 1`] = `
 {
-  "bytes": 2803265,
-  "sha256": "ad7fd2354b595d147745d0b67231ba9e7d9132f35c46e05291758cb9dacf7687",
+  "bytes": 2803263,
+  "sha256": "89cf2370800ed1ba4ac743dad7a6de71e1fee0a18e29ccec840163592ae23bcf",
 }
 `;
 
@@ -66,7 +66,7 @@ exports[`sidebar differential replay > corpus and every methodology change at 1x
 exports[`sidebar differential replay > corpus and every methodology change at 1x > optimisticPress 1`] = `
 {
   "bytes": 2713530,
-  "sha256": "f255b5ad599884116af80cb089c5d0c4e2f6de78fd62a28549d1c98c605ff9e8",
+  "sha256": "9603009a789052befa2b7c21d65798308b077f9dafaa852d991c0edacf9f153c",
 }
 `;
 
@@ -87,14 +87,14 @@ exports[`sidebar differential replay > corpus and every methodology change at 1x
 exports[`sidebar differential replay > corpus and every methodology change at 1x > rescopeBack 1`] = `
 {
   "bytes": 2803265,
-  "sha256": "ad7fd2354b595d147745d0b67231ba9e7d9132f35c46e05291758cb9dacf7687",
+  "sha256": "db84de980df70e7d63d9d524a453a7714929cbda18aed93d402ecbe4cd199a06",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 1x > rescopeGrowth 1`] = `
 {
   "bytes": 2827645,
-  "sha256": "786c4207f4db61b318dc21010fcf25ec97ebfd46b34906607b191d591bae38e7",
+  "sha256": "6ea39912bc496619b78c5f4cf8ddbc70a9f5b00f317e3d03bacd6f6e43ee189c",
 }
 `;
 
@@ -142,8 +142,8 @@ exports[`sidebar differential replay > corpus and every methodology change at 4x
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > burst50 1`] = `
 {
-  "bytes": 10904990,
-  "sha256": "74cbffdf2f6b619777ceacbf39847f2f06e70e3f7857cd7ca2b2dfc9fcb932f1",
+  "bytes": 10904988,
+  "sha256": "62a7729d25d5b00a51da9aa0408e7a7f99b74781f678c3bd7ea4fccd8bbddfbd",
 }
 `;
 
@@ -199,7 +199,7 @@ exports[`sidebar differential replay > corpus and every methodology change at 4x
 exports[`sidebar differential replay > corpus and every methodology change at 4x > optimisticPress 1`] = `
 {
   "bytes": 10815443,
-  "sha256": "794c562654f575561e72428e1ccb61fb83ec9282372d7d8a533df7d91543035c",
+  "sha256": "f087fc31d49a6a9c72f5c7aaefb919905d45b2de46d673a3a7983cafc2935139",
 }
 `;
 
@@ -220,14 +220,14 @@ exports[`sidebar differential replay > corpus and every methodology change at 4x
 exports[`sidebar differential replay > corpus and every methodology change at 4x > rescopeBack 1`] = `
 {
   "bytes": 10904990,
-  "sha256": "74cbffdf2f6b619777ceacbf39847f2f06e70e3f7857cd7ca2b2dfc9fcb932f1",
+  "sha256": "513e7f01f5986d4463b6d3fd3fa1fe01962a5438744e1f160f39df09180de64a",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > rescopeGrowth 1`] = `
 {
   "bytes": 10929430,
-  "sha256": "c44e39fa3509214798db11cc9847a81ee77a097ad154f323d2cae7952ad59701",
+  "sha256": "ae039d06864c3dba5829b4e88a58f5d843000ed54da122ca7893185d568cc25b",
 }
 `;
 
@@ -563,84 +563,84 @@ exports[`sidebar differential replay > every random change, seed 1 > step 41 1`]
 exports[`sidebar differential replay > every random change, seed 1 > step 42 1`] = `
 {
   "bytes": 2736232,
-  "sha256": "5984b6d8957af6af7482a6e5bd1ed3d26b98223242deb3136b77a8a507fd6baa",
+  "sha256": "293e334166c691e471f2dcc292a57d27b84e5df5109b0426a53a5122afaa3d9a",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 43 1`] = `
 {
   "bytes": 2736231,
-  "sha256": "22b37e6298912ae436ca2dcbc958645437fb2587d2252a9a4af267f903078aed",
+  "sha256": "ddadfddd20adaa46b53fa1d6e8acd4d0dd0e7c744166e235b8f170080cc153ad",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 44 1`] = `
 {
   "bytes": 2738882,
-  "sha256": "8ac0a6def0a849b9bb28922370e8cfdd5ef8e0acf2ddd502626fb7c0d734e036",
+  "sha256": "785e1da1d3d4a0723ca12eae13474a25685bb2637134fcabda1f788299990930",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 45 1`] = `
 {
   "bytes": 2738885,
-  "sha256": "0cc3ecd53a689a4257d4e0559d487b04b75dde6b572fa8b775a06f60f8f869b0",
+  "sha256": "1355c08415049bed45e73fd0d4a38eea263985e3224f6e50baf7543aa80e7e7b",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 46 1`] = `
 {
   "bytes": 2738886,
-  "sha256": "b7bf6b149ec17507c7cc91a70d74fe7f0e75fd1ec3c414b0a2eea6695f204081",
+  "sha256": "cf535dd9356bbf45fdcba2d354b0a4c817c66a9f976787843866a602b31026a1",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 47 1`] = `
 {
   "bytes": 2738885,
-  "sha256": "0cc3ecd53a689a4257d4e0559d487b04b75dde6b572fa8b775a06f60f8f869b0",
+  "sha256": "1355c08415049bed45e73fd0d4a38eea263985e3224f6e50baf7543aa80e7e7b",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 48 1`] = `
 {
-  "bytes": 2738886,
-  "sha256": "4c745b04717e60496e3ad1ffa93aa7c10ccfaa50116255ae0bc9e6c88dafe83f",
+  "bytes": 2738884,
+  "sha256": "d4f281b0ec3e0909a994e0862d2ccc90acb45232cc73b68fdb69dbbd7c44b833",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 49 1`] = `
 {
-  "bytes": 2741349,
-  "sha256": "bab5f656d1c5ef5ad89c4b2b95164711335a510784179a069633adb813dd5a45",
+  "bytes": 2741347,
+  "sha256": "4f26fcf9e47f8a0f3acc428a95f41b05b118150bd8038b59eeb17d7095a6ea52",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 50 1`] = `
 {
-  "bytes": 2738886,
-  "sha256": "4c745b04717e60496e3ad1ffa93aa7c10ccfaa50116255ae0bc9e6c88dafe83f",
+  "bytes": 2738884,
+  "sha256": "d4f281b0ec3e0909a994e0862d2ccc90acb45232cc73b68fdb69dbbd7c44b833",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 51 1`] = `
 {
-  "bytes": 2738885,
-  "sha256": "8f8f32445f9e13a751c2a75bd14145930a3c105143dd436cee32a03b733edf5c",
+  "bytes": 2738883,
+  "sha256": "04a01ebab51c0c666dd90cc27d163cec90cfd3cffd1e0d42827e280f223c78f7",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 52 1`] = `
 {
-  "bytes": 2738886,
-  "sha256": "4c745b04717e60496e3ad1ffa93aa7c10ccfaa50116255ae0bc9e6c88dafe83f",
+  "bytes": 2738884,
+  "sha256": "d4f281b0ec3e0909a994e0862d2ccc90acb45232cc73b68fdb69dbbd7c44b833",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 53 1`] = `
 {
-  "bytes": 2743345,
-  "sha256": "2c55c113cc8e6fd92adaf0d8760dd63d5b2c2d349970a685eac95c03602aa6f4",
+  "bytes": 2743343,
+  "sha256": "a42f8e9358f6c99d346a49e1526e26a21d22c5fd37ecfb844d970b5eca3df2e2",
 }
 `;
 
@@ -1095,49 +1095,49 @@ exports[`sidebar differential replay > every random change, seed 1 > step 117 1`
 exports[`sidebar differential replay > every random change, seed 1 > step 118 1`] = `
 {
   "bytes": 2760525,
-  "sha256": "7edc90c09d3a5492656ba7d8fc76ac119a115bf56f145b3aabc69bbe7fc28763",
+  "sha256": "bb05635fb05d81fa4ac054e49e33e2a5d12960567fbc869c4c4e2630d5e81e31",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 119 1`] = `
 {
   "bytes": 2760524,
-  "sha256": "a70d5ffe6cb08d95e27cf2b97188eaa7ce8589b47b1f38f58fd232f5202ae994",
+  "sha256": "e8a6c7458f0c0a107173fa10bc0f4046598d72f37e84c44b7ee0ede16cee7cbc",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 120 1`] = `
 {
   "bytes": 2764265,
-  "sha256": "d8e28ab8398c1e34a3270decc1964d5facd3556b28a25767dc2e376f9a4a4152",
+  "sha256": "5fc933a5f3bab35bc92d04fdf82c6f279de3f689164e7c045613c8994a0c4c06",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 121 1`] = `
 {
   "bytes": 2764264,
-  "sha256": "86490a6256ed7abc4e5b504620a84ed74f4a0e27714025743bfb92cf65221c86",
+  "sha256": "131937990b2118d0a8c5e6d4b9631ce00dfa78e7938d8c627f69a6cc5156e8e7",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 122 1`] = `
 {
   "bytes": 2764265,
-  "sha256": "d8e28ab8398c1e34a3270decc1964d5facd3556b28a25767dc2e376f9a4a4152",
+  "sha256": "5fc933a5f3bab35bc92d04fdf82c6f279de3f689164e7c045613c8994a0c4c06",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 123 1`] = `
 {
   "bytes": 2766728,
-  "sha256": "c677e6b1e15e6cdf157ff1d9656a893c3363ecba3aaec0eb8a35ac9db434d4e5",
+  "sha256": "53139ebf93a06ebaaf750487cd4ba631a7380af244374dfeb3918e838de5bcb1",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 124 1`] = `
 {
   "bytes": 2766729,
-  "sha256": "fe297a0b32a3e230ed481b80d099ae015a7bdff082a5523fc9046c05e8325022",
+  "sha256": "d2d530251395badc303ef38002641699073150b77f7b1e3908c4f7aba039c072",
 }
 `;
 
@@ -1291,7 +1291,7 @@ exports[`sidebar differential replay > every random change, seed 1 > step 145 1`
 exports[`sidebar differential replay > every random change, seed 1 > step 146 1`] = `
 {
   "bytes": 2767697,
-  "sha256": "32f03ba893bead359366c4b6da2902c1f95e5034d2dc95f3a30e0ab51aaa8211",
+  "sha256": "9d96139edce8bd6274c693bd7b3944f7660dd8918606aec957926794efafcbd9",
 }
 `;
 
@@ -1417,14 +1417,14 @@ exports[`sidebar differential replay > every random change, seed 1 > step 163 1`
 exports[`sidebar differential replay > every random change, seed 1 > step 164 1`] = `
 {
   "bytes": 2763446,
-  "sha256": "5fd431c6d9a8b74ea1d560484319aaa08abd8e50d2be82eb91b8d33515e4dbf0",
+  "sha256": "43a140c37fff48b549427dfa99818a89646b2c4ee6d4d56ce1af944d6166f62d",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 165 1`] = `
 {
   "bytes": 2766680,
-  "sha256": "dbd7137cc47dd27257f075025aa68d89e4505b6e931dac6aec94ae88cc6fc6a0",
+  "sha256": "71583c6b77e28611ba9225338845f06a4de940475c44697eb36e7f3520bc03a3",
 }
 `;
 
@@ -1445,63 +1445,63 @@ exports[`sidebar differential replay > every random change, seed 1 > step 167 1`
 exports[`sidebar differential replay > every random change, seed 1 > step 168 1`] = `
 {
   "bytes": 2766687,
-  "sha256": "6ae4d9cedf2fa8ae39bdad7fb588a055ba508a188aff2c84acadf5e8c424d189",
+  "sha256": "3aaadbfa9180b9e0e5b6fcc94e6d85c0d8d78b1055550a3f485fb1f07bc13b1f",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 169 1`] = `
 {
   "bytes": 2766686,
-  "sha256": "d70f043b2f395d1c6a4092ef9cc4f95250f778f1117d8727aa28541b6b25fac8",
+  "sha256": "c3b95592dca97743aed0abe59c9de91f1a8f45dc369b8ae0aee23da3c40d58cc",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 170 1`] = `
 {
   "bytes": 2766687,
-  "sha256": "6ae4d9cedf2fa8ae39bdad7fb588a055ba508a188aff2c84acadf5e8c424d189",
+  "sha256": "3aaadbfa9180b9e0e5b6fcc94e6d85c0d8d78b1055550a3f485fb1f07bc13b1f",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 171 1`] = `
 {
   "bytes": 2766686,
-  "sha256": "d70f043b2f395d1c6a4092ef9cc4f95250f778f1117d8727aa28541b6b25fac8",
+  "sha256": "c3b95592dca97743aed0abe59c9de91f1a8f45dc369b8ae0aee23da3c40d58cc",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 172 1`] = `
 {
   "bytes": 2766687,
-  "sha256": "6ae4d9cedf2fa8ae39bdad7fb588a055ba508a188aff2c84acadf5e8c424d189",
+  "sha256": "3aaadbfa9180b9e0e5b6fcc94e6d85c0d8d78b1055550a3f485fb1f07bc13b1f",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 173 1`] = `
 {
   "bytes": 2766686,
-  "sha256": "d70f043b2f395d1c6a4092ef9cc4f95250f778f1117d8727aa28541b6b25fac8",
+  "sha256": "c3b95592dca97743aed0abe59c9de91f1a8f45dc369b8ae0aee23da3c40d58cc",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 174 1`] = `
 {
   "bytes": 2766687,
-  "sha256": "6ae4d9cedf2fa8ae39bdad7fb588a055ba508a188aff2c84acadf5e8c424d189",
+  "sha256": "3aaadbfa9180b9e0e5b6fcc94e6d85c0d8d78b1055550a3f485fb1f07bc13b1f",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 175 1`] = `
 {
   "bytes": 2766686,
-  "sha256": "d70f043b2f395d1c6a4092ef9cc4f95250f778f1117d8727aa28541b6b25fac8",
+  "sha256": "c3b95592dca97743aed0abe59c9de91f1a8f45dc369b8ae0aee23da3c40d58cc",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 1 > step 176 1`] = `
 {
   "bytes": 2766687,
-  "sha256": "6ae4d9cedf2fa8ae39bdad7fb588a055ba508a188aff2c84acadf5e8c424d189",
+  "sha256": "3aaadbfa9180b9e0e5b6fcc94e6d85c0d8d78b1055550a3f485fb1f07bc13b1f",
 }
 `;
 
@@ -2145,7 +2145,7 @@ exports[`sidebar differential replay > every random change, seed 2 > step 67 1`]
 exports[`sidebar differential replay > every random change, seed 2 > step 68 1`] = `
 {
   "bytes": 2747511,
-  "sha256": "b9035e5131a5acc156e0fb9a565ba2b622a57ddd4521d06321903e6de6231dd8",
+  "sha256": "343be79c0caeb118ab30f3439778340dd7049bde34f83363103ea5487faa2413",
 }
 `;
 
@@ -2803,35 +2803,35 @@ exports[`sidebar differential replay > every random change, seed 2 > step 161 1`
 exports[`sidebar differential replay > every random change, seed 2 > step 162 1`] = `
 {
   "bytes": 2590371,
-  "sha256": "99d8093c9c6789a11a7c0cfdb7ef37dc37221d6dff4e94398bce77d39ef3ba90",
+  "sha256": "46509b89f7b72488105e9ea5c7c73b3a5a9e34072f4304776dc2baf6a1e6767d",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 2 > step 163 1`] = `
 {
   "bytes": 2590370,
-  "sha256": "d3efe92036a674c290f96be8170781f4541991cf070bfd0fcf65cdf44ae9294c",
+  "sha256": "45469ee591ccb9b5ae4f0cc792e3d3c89338ef709352a73637d896f6f5512825",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 2 > step 164 1`] = `
 {
   "bytes": 2590371,
-  "sha256": "99d8093c9c6789a11a7c0cfdb7ef37dc37221d6dff4e94398bce77d39ef3ba90",
+  "sha256": "46509b89f7b72488105e9ea5c7c73b3a5a9e34072f4304776dc2baf6a1e6767d",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 2 > step 165 1`] = `
 {
-  "bytes": 2591633,
-  "sha256": "6c709aacd2fc8589046c0152b759376e2151f202c07d491fe52703d0b9a1fe10",
+  "bytes": 2590370,
+  "sha256": "223e3ed1669ffde5af9b409c9a70a8646a90d278ffabdaf817176286def86dd8",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 2 > step 166 1`] = `
 {
-  "bytes": 2591634,
-  "sha256": "b8dde31d110802bcb7b8930d90e31634f43c8177c0574fb08de0f80fe99ee667",
+  "bytes": 2590371,
+  "sha256": "e1a902643194b485e7187bafb98d2cdba35645695fbf442910df10dd81d2284b",
 }
 `;
 
@@ -3825,14 +3825,14 @@ exports[`sidebar differential replay > every random change, seed 3 > step 107 1`
 exports[`sidebar differential replay > every random change, seed 3 > step 108 1`] = `
 {
   "bytes": 2755302,
-  "sha256": "215d3efae2f7318acae3ef9d789a3d720cba3d7a001f8b178c3464cafeaddefe",
+  "sha256": "3e4648cb7d0486de2d51f96d30ff963b4019778acfc5677fa10592d61868e295",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 109 1`] = `
 {
-  "bytes": 2755301,
-  "sha256": "6a05e29ece45bc96c481bc4d50b60a3aa123353a1ce7c275e8c23ac6820430e2",
+  "bytes": 2755297,
+  "sha256": "9eaaa7369c28a8698f5e7eddd1deb732b4664c8de8d0273ff00b4d9b32f5119a",
 }
 `;
 
@@ -3888,7 +3888,7 @@ exports[`sidebar differential replay > every random change, seed 3 > step 116 1`
 exports[`sidebar differential replay > every random change, seed 3 > step 117 1`] = `
 {
   "bytes": 2756730,
-  "sha256": "bbf63e1a959baff71dcb43779abfe575879349347b3898899597e06cf8559e3f",
+  "sha256": "5d0c44d7da7d6885380ef58f293d1368100d12cd19cb54ff33769b34919f5805",
 }
 `;
 
@@ -4098,63 +4098,63 @@ exports[`sidebar differential replay > every random change, seed 3 > step 146 1`
 exports[`sidebar differential replay > every random change, seed 3 > step 147 1`] = `
 {
   "bytes": 2760349,
-  "sha256": "e0de16df2f336f283ef7d2b7280ade3ddd6c57fd25c2f473f1b81766977fdbec",
+  "sha256": "e485e33a68c7f67f98cd700d8b441bc23a8e7e4ced1768eceacf40ce091a62ef",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 148 1`] = `
 {
   "bytes": 2760350,
-  "sha256": "96dc6536064412afd771c14a1a169fd5f8513b0febea562f281b05be2363cdeb",
+  "sha256": "7894672d27e43bfaafd07e228695b9973ee98d2a3170741bbda34fc0a6a20836",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 149 1`] = `
 {
   "bytes": 2760349,
-  "sha256": "bfd14be90112625fe27b9e2b337332cc4417d55d532b280f5fa48f34c8bc795e",
+  "sha256": "97ff06cf04db749bff28928a0355ee0b40ab773853990ad2fb34a584b80133db",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 150 1`] = `
 {
   "bytes": 2762342,
-  "sha256": "6328a2011df9e8c43f756efb587f30b1a0cdfa41cb50f3da524025fb0282903b",
+  "sha256": "84edbfc6b9461cfe6cdad6a84f002088e974abcaf8e97545b1641202ca960b14",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 151 1`] = `
 {
   "bytes": 2762341,
-  "sha256": "2026fc130386ddad211f58ea7609a9736d92641f86c25878379339c44478ec00",
+  "sha256": "27386408d313f7ecf26e134502c5906627774d39b046564a17fd459c545c923a",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 152 1`] = `
 {
   "bytes": 2762350,
-  "sha256": "a88151d4fa587665632081f0cbb2673d0435ecac5bf636b43f8317c195447112",
+  "sha256": "3d165c7d97727dd0bdb179562e0d1140c32c41925d3c330d1be802f01ffa104d",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 153 1`] = `
 {
   "bytes": 2762360,
-  "sha256": "7c520c458a6d5acb2db51476ab0d8e21e2d102e93d0102a7b732e85a7c9ae250",
+  "sha256": "c50a68369647c974a3249d06995bd70802641a37331516efe5a2de6a98331a26",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 154 1`] = `
 {
   "bytes": 2774442,
-  "sha256": "113c8bbd4b9c65f36a4fd1c1bbce81bdd3b66e28895492ee1888e317d86c3b4a",
+  "sha256": "574be0abb94b6fc47f1f965a02a8d9754b598745811e98892431aa43dc439a01",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 155 1`] = `
 {
   "bytes": 2774462,
-  "sha256": "53039f771eba53df007c536197c0c91d7ff77abd13f915f81cc33220d488dc70",
+  "sha256": "febfd083bef62a74795dc1b87aebbc001dcda1e6ea39bbaf6db7504967ca62fc",
 }
 `;
 
@@ -4224,98 +4224,98 @@ exports[`sidebar differential replay > every random change, seed 3 > step 164 1`
 exports[`sidebar differential replay > every random change, seed 3 > step 165 1`] = `
 {
   "bytes": 2776882,
-  "sha256": "b16caa06f3385c9e13a9ff7e98ec4adfe9eab3fac8de52d6055b9f61cbd4684c",
+  "sha256": "2d6753db9f235cf8a1fbfbcf6a0aadea9dc11b42b99f9e8682784ebfa28dabba",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 166 1`] = `
 {
   "bytes": 2779347,
-  "sha256": "cca77c2b7de75d5e6f7d7be75c9a744e9f8f185ac1565233e56872591f138468",
+  "sha256": "4fddfe0ce6de2d64f03a3c97206c8369eb1d628cb0a9f8309b26cfae0aa84574",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 167 1`] = `
 {
   "bytes": 2776882,
-  "sha256": "b16caa06f3385c9e13a9ff7e98ec4adfe9eab3fac8de52d6055b9f61cbd4684c",
+  "sha256": "2d6753db9f235cf8a1fbfbcf6a0aadea9dc11b42b99f9e8682784ebfa28dabba",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 168 1`] = `
 {
   "bytes": 2776883,
-  "sha256": "46956b19adbaa8882dd9fcf51f2335fd09f1011c7e04a89db3482ddf86a86491",
+  "sha256": "83f4014792691e551eca1aa940bff1d5d269e00177960b9bbdb440d594e75f2f",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 169 1`] = `
 {
   "bytes": 2776882,
-  "sha256": "b16caa06f3385c9e13a9ff7e98ec4adfe9eab3fac8de52d6055b9f61cbd4684c",
+  "sha256": "2d6753db9f235cf8a1fbfbcf6a0aadea9dc11b42b99f9e8682784ebfa28dabba",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 170 1`] = `
 {
   "bytes": 2781343,
-  "sha256": "271d707758c1b31a9415981b0b149acd8e0ec7c2936e75bd23d354329a10bbae",
+  "sha256": "209866f4ba64d2fff6dcbe98a6c90d7abcec60ab1a05543869d9600242024e16",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 171 1`] = `
 {
   "bytes": 2781346,
-  "sha256": "eb6c6891e1288de4eb7ebee9ee250431489cdc2e784567055729c0465e89d4fb",
+  "sha256": "34596b2208bbc44d7693a564eafb675ccbd75a0bec4712111a116edb09876696",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 172 1`] = `
 {
   "bytes": 2783307,
-  "sha256": "630a863f527657fd7519c4c18ba666a3b11de1a0b2b3318d1e165a4311b74870",
+  "sha256": "5f347e76fde08cc1778752d4e90321b1713e3f9004800ead264e708ddb681416",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 173 1`] = `
 {
   "bytes": 2785770,
-  "sha256": "a2c06533113fa65ab1eb7fde0156ed2a070521386427de2c360d4ee219dc7171",
+  "sha256": "7fb29248a2d81ddbd0416d31b328bdfdea9e5d69aff0ac4c5f5027580a56a069",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 174 1`] = `
 {
   "bytes": 2785768,
-  "sha256": "9a29c97fe4c50c6753771f59f5420704e78e0bc32f9dc9049458fe4107fd8c37",
+  "sha256": "2657857818f73fae48145bf2b409503fbe6e2aefa4f3b87f07722e899b47c3d7",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 175 1`] = `
 {
   "bytes": 2785767,
-  "sha256": "a34bcdb41d19d082d0866ef3f71954161d46d3927b50a6f202e97c9da2a254da",
+  "sha256": "fb70637e1973276f249765e35a91881416c5e5d03cbcd53808cda232e73bd1f3",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 176 1`] = `
 {
   "bytes": 2785768,
-  "sha256": "9a29c97fe4c50c6753771f59f5420704e78e0bc32f9dc9049458fe4107fd8c37",
+  "sha256": "2657857818f73fae48145bf2b409503fbe6e2aefa4f3b87f07722e899b47c3d7",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 177 1`] = `
 {
   "bytes": 2786012,
-  "sha256": "97a695d67f1d959b8ecda1fdcb39a9497cef88ff96880ee0be7ccd21c58cef34",
+  "sha256": "bca1e27b7ae65c9aa3631de3dac192456b4f4da58e3e8b52437ce9e7997480f1",
 }
 `;
 
 exports[`sidebar differential replay > every random change, seed 3 > step 178 1`] = `
 {
   "bytes": 2784733,
-  "sha256": "89aee65ae4992b523974b9e023f6d66b110c8bda28e5958afe86ce74f5fc80ab",
+  "sha256": "2f30cf2c53adbadbfcf6ff4214d1e3818fed4c5f11e2cf6f97f610dbd3ba85a5",
 }
 `;
 
