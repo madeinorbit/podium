@@ -93,7 +93,15 @@ export function useSettingsDraft<T>(
   parse: (raw: string | null) => T,
   serialize: (value: T) => string | null,
 ): [T, Dispatch<SetStateAction<T>>] {
-  if (settingsDataLayer() === 'pool') return usePoolPreference(key, parse, serialize)
+  const useRead = settingsDataLayer() === 'pool' ? usePoolPreference : useLegacySettingsDraft
+  return useRead(key, parse, serialize)
+}
+
+function useLegacySettingsDraft<T>(
+  key: string,
+  parse: (raw: string | null) => T,
+  serialize: (value: T) => string | null,
+): [T, Dispatch<SetStateAction<T>>] {
   const { owner, uiState } = useSettingsClient()
   const [value, setValue] = useState(() => {
     recordSliceDerivation(owner, 'settings.preference')
@@ -120,9 +128,8 @@ export function useSettingsPersistedUiState<T>(
   parse: (raw: string | null) => T,
   serialize: (value: T) => string | null,
 ): [T, (value: T) => void] {
-  return settingsDataLayer() === 'pool'
-    ? usePoolPreference(key, parse, serialize)
-    : usePersistedUiState(key, parse, serialize)
+  const useRead = settingsDataLayer() === 'pool' ? usePoolPreference : usePersistedUiState
+  return useRead(key, parse, serialize)
 }
 
 export const parseSettingsText = (raw: string | null): string => raw ?? ''
@@ -134,18 +141,31 @@ export function useSettingsDraftSeed<T>(
   key: string | null,
   parse: (raw: string | null) => T,
 ): { value: T; loading: boolean } {
-  if (settingsDataLayer() === 'pool') {
-    const read = useCallback(
-      (pool: MobxPool) => {
-        if (key === null) return { raw: null, loading: false }
-        const row = pool.row('preference', key)
-        return loaded(row) ? { raw: row.value, loading: false } : { raw: null, loading: true }
-      },
-      [key],
-    )
-    const seed = useWorklistPoolProjection(read, { raw: null, loading: key !== null })
-    return { value: useMemo(() => parse(seed.raw), [seed.raw, parse]), loading: seed.loading }
-  }
+  const useRead =
+    settingsDataLayer() === 'pool' ? usePoolSettingsDraftSeed : useLegacySettingsDraftSeed
+  return useRead(key, parse)
+}
+
+function usePoolSettingsDraftSeed<T>(
+  key: string | null,
+  parse: (raw: string | null) => T,
+): { value: T; loading: boolean } {
+  const read = useCallback(
+    (pool: MobxPool) => {
+      if (key === null) return { raw: null, loading: false }
+      const row = pool.row('preference', key)
+      return loaded(row) ? { raw: row.value, loading: false } : { raw: null, loading: true }
+    },
+    [key],
+  )
+  const seed = useWorklistPoolProjection(read, { raw: null, loading: key !== null })
+  return { value: useMemo(() => parse(seed.raw), [seed.raw, parse]), loading: seed.loading }
+}
+
+function useLegacySettingsDraftSeed<T>(
+  key: string | null,
+  parse: (raw: string | null) => T,
+): { value: T; loading: boolean } {
   const { owner, uiState } = useSettingsClient()
   const [value] = useState(() => {
     recordSliceDerivation(owner, 'settings.preferenceSeed')
