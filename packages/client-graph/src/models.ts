@@ -69,7 +69,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * across), so no two groups wait on each other.
  */
 
-import { compareStructural } from 'mobx'
+import { compareStructural, untracked } from 'mobx'
 import { cachedGroup } from './cached'
 import { headerDockSession, headerHostSession, headerWorkingSession } from './header-session'
 import type { Residence } from './pool'
@@ -179,7 +179,7 @@ import {
 /** What a model reads from its pool. */
 export interface ModelHost {
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
-  row(entity: EntityName, id: string): LoadedRow<object>
+  row(entity: EntityName, id: string, absent?: 'mark' | 'summary'): LoadedRow<object>
   /** What the row view's parts read. */
   readonly inputs: ViewInputs
   /** What the visibility parts read. */
@@ -194,11 +194,6 @@ export interface ModelHost {
   model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined
   /** Where a row stands; a cold one answers `loading` and is queued (first access). */
   resident(entity: EntityName, id: string): Residence
-  /**
-   * TRACKED: the declared summary of a row the cold rule keeps hidden
-   * (POD-4753, `HIDDEN_ISSUE_FIELDS`); undefined for any other row.
-   */
-  hidden(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined
   /** Resident fallback seats; cold rows are requested from a declared lane summary. */
   rosterCandidates(path: string): Iterable<string>
   rosterColdPending(path: string): boolean
@@ -936,9 +931,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   /** The raw parent the nesting walk follows; a hidden issue's from its summary (POD-4753). */
   get parentRef(): string | null {
-    const hidden = this.host.hidden('issue', this.id)
-    if (hidden === undefined) return this.standing?.parentId ?? null
-    return (hidden.parentId as string | null | undefined) || null
+    if (untracked(() => this.host.row('issue', this.id, 'mark')) !== LOADING) return this.standing?.parentId ?? null
+    const summary = this.host.row('issue', this.id, 'summary') as HiddenIssue | typeof LOADING | undefined
+    return summary === LOADING ? null : summary?.parentId || null
   }
 
   get seatIds(): readonly string[] {
@@ -978,7 +973,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get hidden(): HiddenIssue | undefined {
-    return this.host.hidden('issue', this.id) as HiddenIssue | undefined
+    if (untracked(() => this.host.row('issue', this.id, 'mark')) !== LOADING) return undefined
+    const summary = this.host.row('issue', this.id, 'summary')
+    return summary === LOADING ? {} : summary as HiddenIssue | undefined
   }
 
   get keeps(): boolean {
