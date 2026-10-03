@@ -1,6 +1,6 @@
 # POD-5077 switch acceptance
 
-POD-5093, 2026-10-03. **Acceptance remains open: both timing baselines are RED.** At operator size, ON mission and session switching miss the 200 ms store/derive p50 target; all three actions miss the budget at 4×. All 120 ON gestures across both sizes have zero legacy entries. POD-5406 owns the command-launch projection cost. Frozen product `c38a12b360` contains POD-5395 and POD-5396; test-only `eb4a26a9d9` leaves it byte-identical. POD-5402 has an account candidate with zero survivors after real successor focus, but it has not landed. No default has been changed.
+POD-5093, 2026-10-03. **Acceptance remains open: both timing baselines are RED.** At operator size, ON mission and session switching miss the 200 ms store/derive p50 target; all three actions miss the budget at 4×. All 120 ON gestures across both sizes have zero legacy entries. POD-5406 owns the command-launch projection cost. Frozen product `c38a12b360` contains POD-5395 and POD-5396; test-only `eb4a26a9d9` leaves it byte-identical. POD-5402 landed at `70f3c661f4`; the aligned parent probe confirms zero account survivors after real successor focus, with nine retained beforehand in ON. No default has been changed.
 
 ## Evidence status
 
@@ -11,7 +11,7 @@ POD-5093, 2026-10-03. **Acceptance remains open: both timing baselines are RED.*
 | Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, candidate `91bb0f3488`, frozen-product preflight and 120 retained ON gestures | Zero entries |
 | Synthetic corpus parity | 1× browser diagnostics and focused corpus/rendering files green; 4× untimed browser checks interrupted | Zero differences / pending on completed checks; 4× browser result unavailable |
 | Private operator replay | Five read-only ludovico checks; aligned sidebar repeated at frozen `c38a12b360` | Zero unexpected differences / pending |
-| Account switch leaves no survivors | Alice → Bob → Alice, actual principals checked; candidate records pre-focus and post-focus counts separately | Frozen product fails; bounded candidate release pending POD-5402 |
+| Account switch leaves no survivors | Landed `70f3c661f4`, aligned parent Chromium probe; Alice → Bob → Alice, actual principals checked | Bounded release: OFF 0/0; ON 9 before real successor focus, 0 afterward |
 | Focused corpus and rendering gates | Saved results, three missing node files and the aligned navigation case: all fourteen files have passing evidence | Green |
 
 ## Operator-size timing before the fix
@@ -62,6 +62,8 @@ The all-ON candidate records zero entries for all three switch actions, with zer
 
 Browser diagnostics compare 1,008 sidebar rows / 35 sections, mission snapshots of 389 and 237 diagnostic rows / five sections, 4,867 issue-page positions and 4,308 session positions. Every result has differences=0 and pending=0. Raw elapsed labels advance between separate contexts; fixed-clock rendering gates supply deterministic output parity rather than treating elapsed time as a data mismatch.
 
+Those same diagnostic counts and zero ON entry maps are confirmed again on landed account source `70f3c661f4`, at parent checkpoint `7cd4fe0015` using minified build `0b25846f8d`. This foreground count-only verification exited 0 and took no timing lease; artifact 26 retains its complete result.
+
 ## Private replay
 
 Rows remain in ludovico memory. Only counts, positions, field names and opaque IDs leave that machine. These live checks run sequentially, so the operator corpus can grow between snapshots.
@@ -91,9 +93,11 @@ Window.__PODIUM_CLOSE_TAB__
   → destroyed initial ClientRuntime
 ```
 
-The same closure retains the old replica through outbox callbacks. POD-5402 owns the control arms and fix. The owner's later candidate `7b7e19e2d7` retains a provider principal boundary and native retiring blur, and drops synthetic focus events. In the warmed ON arm, React's selection cache retains nine objects until an actual successor field receives focus; after that public interaction, Bob and Alice each leave zero survivors, including both generations' nine handles. OFF reaches zero throughout. This is a bounded release result, not unconditional zero immediately after account switch. The original strong Window path remains a separate, permanent defect in the frozen product. State/blur-write preservation, actual stale-handler and stale-closure plants, and focused gates are green in the owner's lane; paired remount cost and landing remain pending.
+The same closure retains the old replica through outbox callbacks. POD-5402 landed the fix at `70f3c661f4`, with runtime code matching its committed proof `7b7e19e2d7`. It retains a provider principal boundary and native retiring blur, and drops synthetic focus events. State/blur-write preservation, actual stale-handler and stale-closure plants, 80 focused tests, types and lint are green in the owner's lane. Its leased paired remount-cost capture is complete. Artifact 25 preserves the owner's source/count proof bundle.
 
-The collector also releases its startup wait handle and clears Playwright 1.60's retained locator target set with an absent-locator count assertion before GC. Those harness references are separate from the original strong Workspace path. Its next verification records no-focus counts, the connected successor field that receives real focus, and post-focus counts in both arms. The saved heap/object IDs have been copied by POD-5402 and remain retained here.
+The parent probe at `7cd4fe0015` independently confirms OFF Bob/Alice 0 survivors before and after focus. In ON, React's selection cache retains the retired generation's nine objects before focus on each transition; afterward all nine are absent. The first generation remains absent when Alice returns, while the second generation is then collected. Each actual principal matches the requested account, and the successor field is a connected text INPUT. The result follows five GC/settled-render rounds on each side of that public focus interaction. This is a bounded release result, not unconditional zero immediately after account switch. The original strong Window path remains a separate, permanent defect in the frozen baseline.
+
+The collector also releases its startup wait handle and clears Playwright 1.60's retained locator target set with an absent-locator count assertion before GC. Those harness references are separate from the original strong Workspace path. Artifact 26 records no-focus counts, the connected successor field that receives real focus, and post-focus counts in both arms. The saved heap/object IDs have been copied by POD-5402 and remain retained here.
 
 ## Evidence and controls
 
