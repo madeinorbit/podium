@@ -20,20 +20,22 @@ const controls = [
   ['machines', views, 'return value ? [value] : []\n    }))\n  }\n  function worktrees', "return value ? [{ ...value, name: 'planted-machine' }] : []\n    }))\n  }\n  function worktrees"],
   ['sessions', views, "return values\n    })\n  }\n  function issues", "return values.map(value => ({ ...value, name: 'planted-session' }))\n    })\n  }\n  function issues"],
   ['issues', views, 'const prefix = repo?.prefix', "const prefix = 'PLANTED'"],
+  ['chrome-observer', views, 'return { view: state.view, reposLoaded:', 'return { paneA: state.paneA, view: state.view, reposLoaded:', 'isolates unchanged', 'called'],
+  ['rail-observer', views, "return memo('shipping', () => { const value = dock(); return value && value !== LOADING ? value.shipping : LOADING })", 'const value = dock(); return value && value !== LOADING ? value.shipping : LOADING', 'isolates unchanged', 'called'],
 ] as const
 const from = process.argv.find(arg => arg.startsWith('--from='))?.slice(7)
 const start = from ? controls.findIndex(([name]) => name === from) : 0
 if (start < 0) throw new Error('Unknown shell control')
 const selected = controls.slice(start)
 let rejected = 0
-for (const [name, path, before, after] of selected) {
+for (const [name, path, before, after, testName = 'matches window, approval', assertion = 'differences'] of selected) {
   const original = readFileSync(path, 'utf8')
   if (original.split(before).length !== 2) throw new Error(`Control ${name} no longer has one insertion point`)
   try {
     writeFileSync(path, original.replace(before, after))
-    const result = spawnSync(process.execPath, ['run', 'test:file', '--', 'packages/client-graph/src/shell.test.ts', '-t', 'matches window, approval'], { encoding: 'utf8', timeout: 300000 })
+    const result = spawnSync(process.execPath, ['run', 'test:file', '--', 'packages/client-graph/src/shell.test.ts', '-t', testName], { encoding: 'utf8', timeout: 300000 })
     const output = `${result.stdout}\n${result.stderr}`
-    if (result.status !== 1 || !output.includes('differences') || !output.includes('AssertionError')) throw new Error(`Control ${name} did not fail the parity assertion: ${output.slice(-1600)}`)
+    if (result.status !== 1 || !output.includes(assertion) || !output.includes('AssertionError')) throw new Error(`Control ${name} did not fail the assertion: ${output.slice(-1600)}`)
     rejected++
     console.log(JSON.stringify({ control: name, rejected: 1 }))
   } finally { writeFileSync(path, original) }

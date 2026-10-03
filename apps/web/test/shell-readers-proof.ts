@@ -19,14 +19,15 @@ try {
     await sleep(200)
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
-  const snapshots: SidebarSnapshot[][] = [], results: Record<string, unknown> = {}
+  const snapshots: SidebarSnapshot[][] = [], results: Record<string, unknown> = {}, clickCommits: Record<string, Record<string, number>> = {}
   for (const arm of ['before', 'after'] as const) {
     const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, reducedMotion: 'reduce' })
     let errors = 0
     page.on('pageerror', error => { errors++; console.error(`Synthetic shell fixture: ${error.message}`) })
-    await page.addInitScript(({ clock }) => {
+    await page.addInitScript(({ clock, plantChrome }) => {
+      Object.assign(globalThis, { __shellPlantChrome: plantChrome })
       Object.assign(window, { Date: new Proxy(Date, { construct: (target, args) => Reflect.construct(target, args.length ? args : [clock]), get: (target, key) => key === 'now' ? () => clock : Reflect.get(target, key) }) })
-    }, { clock })
+    }, { clock, plantChrome: arm === 'after' && red === 'commits' })
     await page.context().route('https://synthetic.example.invalid/**', route => route.fulfill({ body: 'Synthetic login destination' }))
     const switched = arm === 'after' && red !== 'legacy'
     const isolated = process.argv.includes('--isolated') ? '&mobxHeader=0&mobxSettings=0' : ''
@@ -42,6 +43,14 @@ try {
     if (stats.runtimeCount !== 1 || stats.publishes < 200 || stats.failures || errors) throw new Error(`Shell runtime mismatch: ${JSON.stringify({ ...stats, errors })}`)
     if (arm === 'after' && (stats.selectors || stats.legacyDerivations || stats.sessionIndexCalls || stats.dropped)) throw new Error(`Enabled shell executed legacy reads: ${JSON.stringify(stats)}`)
     if (arm === 'before' && !stats.selectors) throw new Error('Legacy baseline was not exercised')
+    const selection = await page.evaluate(() => window.__shellReaders.state().selected)
+    await page.evaluate(() => window.__shellReaders.resetCommits())
+    await page.getByTestId('ordinary-shell-click').click()
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    const clicked = await page.evaluate(() => window.__shellReaders.state())
+    if (clicked.pane !== 'synthetic-session-3' || clicked.selected !== selection) throw new Error('Ordinary session click did not change only the focused pane')
+    clickCommits[arm] = await page.evaluate(() => window.__shellReaders.commits())
+    if (arm === 'after' && Object.entries(clickCommits.after!).some(([id, count]) => count > clickCommits.before![id]!)) throw new Error(`Enabled shell added click commits: ${JSON.stringify(clickCommits)}`)
     const frames: SidebarSnapshot[] = []
     for (const id of ['synthetic-1', 'synthetic-3', 'synthetic-5', null]) {
       await page.evaluate(id => window.__shellReaders.select(id), id)
@@ -78,7 +87,7 @@ try {
     await page.waitForFunction(() => window.__shellReaders.artifacts() === 1)
     snapshots.push(frames)
     await page.screenshot({ path: `${output}/${arm}.png` })
-    results[arm] = { ...stats, errors, parity, comparedFrames: frames.length, popupCount: 1, forwardedCallbacks: effects.callbacks, closedTabs: Number(closed), activatedLinks: Number(link), artifactTabs: 1 }
+    results[arm] = { ...stats, errors, parity, clickCommits: clickCommits[arm], comparedFrames: frames.length, popupCount: 1, forwardedCallbacks: effects.callbacks, closedTabs: Number(closed), activatedLinks: Number(link), artifactTabs: 1 }
     await page.evaluate(() => window.__shellReaders.close())
     await page.close()
   }

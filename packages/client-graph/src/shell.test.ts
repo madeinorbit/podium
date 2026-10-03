@@ -115,15 +115,25 @@ describe('shell pool', () => {
       source.dispose()
     } finally { f.pool.dispose() }
   })
-  it('isolates unchanged approval observers and disposes every source subscription', () => {
+  it('isolates unchanged chrome, shipping and approval observers and disposes every source subscription', () => {
     const f = shellFixture()
+    settled(f)
     const read = vi.fn(() => shellViews(f.pool).approvals()), stop = autorun(read)
+    const chrome = vi.fn(() => shellViews(f.pool).chrome()), stopChrome = autorun(chrome)
+    const shipping = vi.fn(() => shellViews(f.pool).shipping()), stopShipping = autorun(shipping)
     try {
+      const previous = chrome.mock.results[0]!.value
+      const previousShipping = shipping.mock.results[0]!.value
+      expect(previous).not.toBe(LOADING)
+      f.change({ paneA: f.sessions[1]!.sessionId, coarseNow: f.state().coarseNow + 1000, selectedWorktree: '/synthetic/other' })
+      expect(chrome).toHaveBeenCalledTimes(1); expect(shellViews(f.pool).chrome()).toBe(previous)
+      expect(shipping).toHaveBeenCalledTimes(1); expect(shellViews(f.pool).shipping()).toBe(previousShipping)
       f.change({ paletteOpen: false }); expect(read).toHaveBeenCalledTimes(1)
+      expect(chrome).toHaveBeenCalledTimes(2)
       f.change({ approvals: f.approvals.slice(1) }); expect(read).toHaveBeenCalledTimes(2)
       f.pool.dispose(); expect(f.listeners.size).toBe(0); expect(f.addressed.size).toBe(0)
       expect(f.source.read('shellWindow', 'window')).toBe(LOADING)
-    } finally { stop(); f.pool.dispose() }
+    } finally { stop(); stopChrome(); stopShipping(); f.pool.dispose() }
   })
   it('rejects a planted fault in each ordered comparison section without leaking values', () => {
     const f = shellFixture()

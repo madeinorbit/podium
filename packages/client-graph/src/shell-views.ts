@@ -144,7 +144,9 @@ export function createShellViews(pool: MobxPool) {
         target = target.parentId ? issue(target.parentId) : undefined
         if (target === LOADING) return LOADING
       }
-      return { ...state, repoCount: repos.length, worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0), sessionCount: crew?.length ?? 0, colorIssue, colors, missionRoot }
+      return { view: state.view, reposLoaded: state.reposLoaded, superOpen: state.superOpen, paletteOpen: state.paletteOpen,
+        selectedIssueId: state.selectedIssueId, repoCount: repos.length, worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0),
+        sessionCount: crew?.length ?? 0, colorIssue, colors, missionRoot }
     })
   }
   function dock(): Loaded<ShellDockData> {
@@ -186,6 +188,9 @@ export function createShellViews(pool: MobxPool) {
           decisionCount: scoped.filter(order => order.humanState === 'needs_you').length } }
     })
   }
-  return { window, approvals, files, lanes, sessions, issues, issue, machines, repositories, chrome, dock, close }
+  function shipping() {
+    return memo('shipping', () => { const value = dock(); return value && value !== LOADING ? value.shipping : LOADING })
+  }
+  return { window, approvals, files, lanes, sessions, issues, issue, machines, repositories, chrome, dock, shipping, close }
 }
 export function shellViews(pool: MobxPool): ReturnType<typeof createShellViews> { return pool.sources.view('shell-views', () => createShellViews(pool)) }

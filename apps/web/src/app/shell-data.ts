@@ -64,6 +64,10 @@ function useLegacyDock(): ShellDockData {
 /** Large pool reads run inside their consumer's MobX observer. The startup
  * choice never depends on whether a pool happens to be attached yet. */
 export function useShellDock(): ShellDockData { const useRead = shellDataLayer() === 'pool' ? usePoolDock : useLegacyDock; return useRead() }
+export function useShellShipping() {
+  const pool = useWorklistPool(), value = pool ? shellViews(pool).shipping() : LOADING
+  return value && value !== LOADING ? value : EMPTY_DOCK.shipping
+}
 
 function usePoolWindow() { const pool = useWorklistPool(); const value = pool?.row('shellWindow', 'window'); return value === LOADING ? undefined : value }
 function useLegacyWindow() {

@@ -4,9 +4,9 @@ import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { beginSidebarCheck, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
-import { asIssueId, asUserId } from '@podium/model/browser'
+import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { observer } from '@podium/client-graph/react'
-import { useEffect } from 'react'
+import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
 import { ApprovalDialog } from '../src/app/ApprovalDialog'
@@ -64,21 +64,29 @@ let runtime: ClientRuntime | undefined, pool: ReturnType<typeof useWorklistPool>
 let ready = false, started = false
 let capture: ReturnType<typeof storeStats.begin> | undefined
 const failures: string[] = [], effects = { dismisses: 0, callbacks: 0 }
+const commits: Record<string, number> = { chrome: 0, dock: 0, rail: 0, machines: 0 }
+const recordCommit = (id: string) => { commits[id] = (commits[id] ?? 0) + 1 }
 storeStats.enable()
 document.documentElement.classList.add('dark')
 const emit = (kind: string, value: unknown) => (runtime!.hub as unknown as { emit(kind: string, value: unknown): void }).emit(kind, value)
 const apply = (value: object) => (runtime as unknown as { apply(value: object): void }).apply(value)
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
 
-const Chrome = observer(function Chrome() {
-  const chrome = useShellChrome(), dock = useShellDock(), close = useShellClose()
-  return <section data-proof="chrome" className="p-4 border-b space-y-2">
+const ChromeControls = observer(function ChromeControls() {
+  const chrome = useShellChrome()
+  return <>
     <h1>Shell controls parity</h1>
     <p data-mission>{chrome.missionRoot?.id ?? 'none'} · {chrome.missionRoot?.title ?? 'No mission'}</p>
     <p>{chrome.repoCount} repositories · {chrome.worktreeCount} worktrees · {chrome.sessionCount} sessions</p>
-    <p>Palette {String(chrome.paletteOpen)} · Superagent {String(chrome.superOpen)} · {close?.workspaceKey ?? 'loading'}</p>
+    <p>Palette {String(chrome.paletteOpen)} · Superagent {String(chrome.superOpen)}</p>
+  </>
+})
+const DockContext = observer(function DockContext() {
+  const dock = useShellDock(), close = useShellClose()
+  return <>
+    <p>{close?.workspaceKey ?? 'loading'}</p>
     <p>Dock {dock.active?.cwd ?? 'none'} · {dock.gitIssue?.id ?? 'none'} · {dock.mailIssueId ?? 'none'}</p>
-  </section>
+  </>
 })
 function Surfaces() {
   const owner = useStoreHandle() as ClientRuntime, graph = useWorklistPool()
@@ -93,12 +101,15 @@ function Surfaces() {
     ready = started && Boolean(graph) && (shellDataLayer() === 'legacy' || Boolean(graph?.row('shellWindow', 'window')))
   }, [owner, graph])
   return <div className="min-h-screen bg-background text-foreground">
-    <Chrome />
+    <section data-proof="chrome" className="p-4 border-b space-y-2">
+      <Profiler id="chrome" onRender={recordCommit}><ChromeControls /></Profiler><DockContext />
+      <button data-testid="ordinary-shell-click" onClick={() => owner.getSnapshot().setPane('A', asSessionId('synthetic-session-3'))}>Select existing session</button>
+    </section>
     <a href={`/issues/${artifactRef}/artifacts/synthetic-artifact/index.html`} data-testid="cold-artifact-link"
       onClick={event => { if (activatePodiumHref(event.currentTarget.href)) event.preventDefault() }}>Open cold artifact</a>
-    <div className="flex"><section data-proof="machines" className="w-1/2 p-4"><MachinesPanel /></section>
-      <section data-proof="dock" className="w-1/2 min-h-[400px]"><RightDock tab="shipping" onClose={() => {}} /></section>
-      <section data-proof="rail"><RightRail rightPanel="shipping" onPanelChange={() => {}} /></section></div>
+    <div className="flex"><section data-proof="machines" className="w-1/2 p-4"><Profiler id="machines" onRender={recordCommit}><MachinesPanel /></Profiler></section>
+      <section data-proof="dock" className="w-1/2 min-h-[400px]"><Profiler id="dock" onRender={recordCommit}><RightDock tab="shipping" onClose={() => {}} /></Profiler></section>
+      <section data-proof="rail"><Profiler id="rail" onRender={recordCommit}><RightRail rightPanel="shipping" onPanelChange={() => {}} /></Profiler></section></div>
     <ApprovalDialog /><AutoContinueDialog /><BrowserOpenOverlay /><PodiumLinkHost /><DesktopCloseTab /><CommandPaletteBoundary /><Toaster />
   </div>
 }
@@ -115,6 +126,8 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('operator'))}
 
 const driver = {
   ready: () => ready, close: () => root.unmount(), failures: () => failures.length,
+  resetCommits() { for (const id of Object.keys(commits)) commits[id] = 0 },
+  commits: () => ({ ...commits }),
   reset() { storeStats.reset(); sessionIndex.calls = 0; sessionIndex.first = undefined; capture = storeStats.begin('feed') },
   async activity(steps: number) {
     for (let step = 0; step < steps; step++) {
@@ -162,7 +175,7 @@ const driver = {
   effects: () => ({ ...effects }),
   activate: () => activatePodiumHref('/issues/SYN-1003'),
   closeTab() { return (globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }).__PODIUM_CLOSE_TAB__?.() ?? false },
-  state: () => ({ files: runtime!.getSnapshot().fileTabs.length, selected: runtime!.getSnapshot().selectedIssueId }),
+  state: () => ({ files: runtime!.getSnapshot().fileTabs.length, selected: runtime!.getSnapshot().selectedIssueId, pane: runtime!.getSnapshot().paneA }),
   artifacts: () => runtime!.getSnapshot().fileTabs.filter(file => file.scope.kind === 'artifact').length,
   artifactCold: () => pool?.residency?.isCold('issue', artifactIssueId) ?? null,
 }

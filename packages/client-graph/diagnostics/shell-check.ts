@@ -70,8 +70,8 @@ export function legacyShellSnapshot(state: Store, suppliedIssues?: readonly Issu
   ] }
 }
 export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
-  const views = shellViews(pool), state = views.window(), approvals = views.approvals(), files = views.files(), close = views.close(), chrome = views.chrome(), dock = views.dock(), sessions = views.sessions(), issues = views.issues(), lanes = views.lanes()
-  if (!state || state === LOADING || approvals === LOADING || files === LOADING || close === LOADING || chrome === LOADING || dock === LOADING || sessions === LOADING || issues === LOADING || lanes === LOADING) return { pending: 1, sections: [] }
+  const views = shellViews(pool), state = views.window(), approvals = views.approvals(), files = views.files(), close = views.close(), chrome = views.chrome(), dock = views.dock(), shipping = views.shipping(), sessions = views.sessions(), issues = views.issues(), lanes = views.lanes()
+  if (!state || state === LOADING || approvals === LOADING || files === LOADING || close === LOADING || chrome === LOADING || dock === LOADING || shipping === LOADING || sessions === LOADING || issues === LOADING || lanes === LOADING) return { pending: 1, sections: [] }
   return { pending: 0, sections: [
     { key: 'window', fields: fields(state, SHELL_SCHEMA.shellWindow.fields), rows: [] },
     { key: 'approvals', fields: {}, rows: (approvals ?? []).map(value => row(value.id, value)) },
@@ -80,7 +80,7 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     { key: 'chrome', fields: chrome ? { repoCount: chrome.repoCount, worktreeCount: chrome.worktreeCount, sessionCount: chrome.sessionCount,
       colors: chrome.colors.map(value => fields(value, ['id', 'color', 'parentId'])), missionRootId: chrome.missionRoot?.id ?? null } : {}, rows: [] },
     { key: 'dock', fields: dock ? { active: dock.active, scope: dock.scope, gitIssue: dock.gitIssue ? fields(dock.gitIssue, ['id', 'branch', 'gitState']) : null, mailIssueId: dock.mailIssueId ?? null } : {}, rows: [] },
-    { key: 'shipping', fields: dock ? { ...shippingFields(dock.shipOrders, dock.issues, dock.scope?.repoId ?? null, dock.shipLanes), ...dock.shipping } : {}, rows: [] },
+    { key: 'shipping', fields: dock ? { ...shippingFields(dock.shipOrders, dock.issues, dock.scope?.repoId ?? null, dock.shipLanes), ...shipping } : {}, rows: [] },
     { key: 'orders', fields: {}, rows: (dock?.shipOrders ?? []).map(value => row(value.id, value)) },
     { key: 'lanes', fields: {}, rows: (lanes ?? []).map(value => row(value.id, value)) },
     { key: 'machines', fields: {}, rows: views.machines().map(value => row(value.id, value)) },

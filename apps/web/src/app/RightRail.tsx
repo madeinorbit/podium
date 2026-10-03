@@ -16,7 +16,7 @@ import { useFeature } from '@/lib/use-feature'
 import { RIGHT_PANELS } from './RightDock'
 import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
-import { useShellDock } from './shell-data'
+import { useShellShipping } from './shell-data'
 import { shellDataLayer } from './shell-pool-screen'
 
 /**
@@ -115,8 +115,6 @@ export const RightRail = observer(function RightRail({
     </nav>
   )
 })
-
-function useShellShipping() { return useShellDock().shipping }
 
 function useLegacyShipping() {
   const {
