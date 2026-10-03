@@ -238,15 +238,15 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
 
   async function screenActions(pool: boolean): Promise<NonNullable<Sample['screens']>> {
     const missionUpdate = await measureUpdates(tapIssue.id, tapTitle, async (next) => {
-      await expect(page.getByText(next, { exact: true }).first()).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByText(next, { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 30_000 })
       tapLabel = next
     })
     const detailsOpen = await openScreen('Mission details', '/details', '[aria-label="Launch an agent on this mission"]')
     const detailsUpdate = await measureUpdates(detailIssue!.id, detailTitle, async (next) => {
-      await expect(page.getByText(next, { exact: true }).first()).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByText(next, { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 30_000 })
       detailLabel = next
     })
-    await expect(page.getByText(detailLabel, { exact: true }).first()).toBeVisible()
+    await expect(page.getByText(detailLabel, { exact: true }).filter({ visible: true }).first()).toBeVisible()
     // A new Work document preserves the first-visit Tasks cost, including the
     // legacy cache that the OFF work list warms and the ON work list bypasses.
     await launchWork(pool)
