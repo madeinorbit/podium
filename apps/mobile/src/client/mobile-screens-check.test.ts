@@ -37,7 +37,7 @@ beforeEach(() => {
   vi.setSystemTime(FIXED_NOW)
 })
 afterEach(() => vi.useRealTimers())
-const tasks: MobileScreenCheck['tasks'] = {
+const tasks: NonNullable<MobileScreenCheck['tasks']> = {
   showDone: false,
   expanded: [],
   filter: {},
@@ -62,7 +62,7 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
     ),
   ]
   const ids = all
-    ? roots
+    ? [null, ...roots]
     : [...new Set([store.selectedIssueId, ...roots.slice(0, 3), ...roots.slice(-3)])]
   const paths = reposToViews(store.repos).flatMap((repo) => repo.worktrees.map((tree) => tree.path))
   let positions = 0
@@ -70,7 +70,7 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
     for (const mode of ['full', 'working', 'needs-you'] as const) {
       const input: MobileScreenCheck = {
         legacy,
-        tasks,
+        tasks: selectedId === null ? tasks : null,
         selectedId: selectedId ?? null,
         mode,
         worktreePaths: paths,

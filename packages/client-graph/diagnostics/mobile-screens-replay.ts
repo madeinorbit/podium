@@ -166,15 +166,15 @@ async function main() {
       rowIndex: number | null
       field: string
     } | null = null
-    const tasks: MobileScreenCheck['tasks'] = {
+    const tasks: NonNullable<MobileScreenCheck['tasks']> = {
       showDone: false,
       expanded: [],
       filter: {},
       ordering: 'priority',
       showAgentTasks: false,
     }
-    const inputs: MobileScreenCheck[] = roots.flatMap((selectedId) =>
-      (['full', 'working', 'needs-you'] as const).map((mode) => ({ legacy, tasks, selectedId, mode })),
+    const inputs: MobileScreenCheck[] = [null, ...roots].flatMap((selectedId) =>
+      (['full', 'working', 'needs-you'] as const).map((mode) => ({ legacy, tasks: selectedId === null ? tasks : null, selectedId, mode })),
     )
     for (const option of [
       { ...tasks, showDone: true, expanded: roots.slice(0, 8), showAgentTasks: true },

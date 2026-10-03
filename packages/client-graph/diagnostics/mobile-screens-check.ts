@@ -27,6 +27,7 @@ import type {
   MobileTasksData,
   MobileTasksOptions,
 } from '../src/mobile-screens-schema'
+import { EMPTY_MOBILE_TASKS } from '../src/mobile-screens-schema'
 import type { MobxPool } from '../src/pool'
 import { LOADING } from '../src/worklist/rollup'
 import { sessionComparable } from './oracle'
@@ -39,7 +40,8 @@ import {
 export interface MobileScreenCheck {
   /** Supplied by the actual phone modules, never a copied legacy oracle. */
   legacy: MobileLegacyReads
-  tasks: MobileTasksOptions
+  /** Tasks do not depend on mission selection; null skips a repeated check. */
+  tasks: MobileTasksOptions | null
   selectedId: string | null
   mode: FlightDeckMode
   requestedSessionId?: string
@@ -69,6 +71,8 @@ const fields = (value: object, keys: readonly string[]) =>
   Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? null]))
 const BOARD_FIELDS = [
   'seq',
+  'displayRef',
+  'prefix',
   'title',
   'stage',
   'priority',
@@ -234,16 +238,23 @@ function snapshot(
 }
 /** The accepted deadline refresh from the existing mission check applies here
  * too: only the two cached flags refresh when a finite deferral expires. */
+const deadlines = new WeakMap<IssueViewModel[], { now: number; issues: IssueViewModel[] }>()
 function deadlineIssues(issues: IssueViewModel[], now: number) {
-  return issues.map((issue) => {
+  const previous = deadlines.get(issues)
+  if (previous?.now === now) return previous.issues
+  let changed = false
+  const values = issues.map((issue) => {
     const deadline = issue.deferUntil ? Date.parse(issue.deferUntil) : NaN
     if (!Number.isFinite(deadline)) return issue
     const deferred = deadline > now,
       ready = !issue.blocked && !deferred && issue.stage !== 'done'
-    return issue.deferred === deferred && issue.ready === ready
-      ? issue
-      : { ...issue, deferred, ready }
+    if (issue.deferred === deferred && issue.ready === ready) return issue
+    changed = true
+    return { ...issue, deferred, ready }
   })
+  const expected = changed ? values : issues
+  deadlines.set(issues, { now, issues: expected })
+  return expected
 }
 export function legacyMobileScreensSnapshot(
   issues: IssueViewModel[],
@@ -253,10 +264,10 @@ export function legacyMobileScreensSnapshot(
 ): SidebarSnapshot {
   const { taskBoardSections, taskBoardProgress, buildScreeningQueue } = input.legacy
   issues = deadlineIssues(issues, now)
-  const board = taskBoardSections(issues, {
+  const board = input.tasks ? taskBoardSections(issues, {
     ...input.tasks,
     expanded: new Set(input.tasks.expanded),
-  })
+  }) : []
   const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
   const root = input.selectedId ? missionRootFor(issues, asIssueId(input.selectedId)) : undefined
   const paths = input.worktreePaths ?? []
@@ -271,7 +282,7 @@ export function legacyMobileScreensSnapshot(
       board,
       workingByIssue,
       progressByIssue: taskBoardProgress(issues, board, workingByIssue),
-      proposals: buildScreeningQueue(issues).length,
+      proposals: input.tasks ? buildScreeningQueue(issues).length : 0,
     },
     {
       root,
@@ -314,7 +325,7 @@ export function poolMobileScreensSnapshot(
 ): SidebarSnapshot | typeof LOADING {
   const reader = pool.row('mobileScreenReader', 'reader')
   if (!reader || reader === LOADING) return LOADING
-  const tasks = reader.tasks(input.tasks),
+  const tasks = input.tasks ? reader.tasks(input.tasks) : EMPTY_MOBILE_TASKS,
     mission = reader.mission(input.selectedId),
     deck = reader.deck(input.selectedId, input.mode)
   if (tasks === LOADING || mission === LOADING || deck === LOADING) return LOADING

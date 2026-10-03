@@ -283,7 +283,7 @@ const off = new Map<string, (string | null)[]>()
 const profile: ServerProfileContextValue = {
   profile: { id: 'fixture', name: 'Phone fixture', httpOrigin: 'http://127.0.0.1:0',
     mode: 'open', transport: 'insecure-http', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
-  profiles: [], config: { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:0/client' },
+  profiles: [], config: { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:0/client', override: true },
   bearer: null, activation: 'verified', runtimeKey: 'phone-fixture', isEphemeralOverride: true,
   beginAddServer: () => {}, switchProfile: async () => {}, renameProfile: async () => {},
   removeProfile: async () => {}, updateCredential: async () => {}, recordUser: async () => {},
