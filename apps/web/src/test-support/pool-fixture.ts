@@ -45,15 +45,7 @@ function useFixturePool() {
     issues?: readonly unknown[]
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]
   }
-  fixtureState = {
-    view: 'workspace',
-    paneA: null,
-    fileTabs: [],
-    outboxSize: 0,
-    ...state,
-    machines: state.machines ?? [],
-    repos: state.repos ?? [],
-  } as Store
+  fixtureState = { ...state, view: state.view ?? 'workspace', paneA: state.paneA ?? null, fileTabs: state.fileTabs ?? [], outboxSize: state.outboxSize ?? 0, machines: state.machines ?? [], repos: state.repos ?? [] } as Store
   const fixtureIssues = state.issues?.length ? state.issues : seededIssues
   const nextSignature = JSON.stringify([
     fixtureIssues,
