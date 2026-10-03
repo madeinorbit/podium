@@ -13,6 +13,7 @@
  *
  * Opt-in only: PODIUM_PHONE_PROFILE=1, run while holding bench:flatblock. */
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { loadavg } from 'node:os'
 import { resolve } from 'node:path'
 import { type CDPSession, expect, type Page, test } from '@playwright/test'
 import { paintOf, traceStart as paintTraceStart } from '../../../apps/web/harness/browser-paint'
@@ -50,6 +51,7 @@ const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
 interface Sample {
   pool: boolean
   traced: boolean
+  load: number[]
   updates: { taskMs: number; wallMs: number; perUpdateTaskMs: number }
   tap: { inputToPaintMs: number; selectedDomMs: number }
   traces?: { updates: string; tap: string }
@@ -268,7 +270,7 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
     traced: Sample[] = []
   for (const pool of order) {
     await launchWork(pool)
-    timed.push({ pool, traced: false, updates: await updates(), tap: await tap(),
+    timed.push({ pool, traced: false, load: loadavg(), updates: await updates(), tap: await tap(),
       ...(screens ? { screens: await screenActions(pool) } : {}) })
   }
   for (const [index, pool] of order.entries()) {
@@ -277,6 +279,7 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
     traced.push({
       pool,
       traced: true,
+      load: loadavg(),
       updates: await updates(`updates-${name}`),
       tap: await tap(`tap-${name}`),
       traces: { updates: `updates-${name}`, tap: `tap-${name}` },
