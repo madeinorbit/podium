@@ -12,8 +12,8 @@ export interface PoolWorkMenuData {
 }
 
 /** Acquire only the pressed issue's neighbourhood through the pool reader.
- * Close warnings include its headless and archived senders. Delete's cascade
- * count separately uses raw, non-shell membership before resume collapse. */
+ * Close warnings include live headless and shell senders. Archived payloads
+ * stay cold; delete's maintained count includes their raw non-shell membership. */
 export function resolvePoolWorkMenu(
   pool: MobxPool,
   id: string,
@@ -22,7 +22,9 @@ export function resolvePoolWorkMenu(
   const value = pool.mobileWork.row({ kind: 'issue', id })
   if (!value || typeof value === 'symbol' || !value.sidebar) return null
   const sessions: SessionView[] = []
-  for (const key of pool.graph.many('issue', id, 'missionSessions')) {
+  for (const key of pool.queries.ids({ kind: 'commandIssueSessions', issueId: id,
+    archived: false, includeShells: true })) {
+    if (pool.queries.collapsed(key)) continue
     const session = pool.row('session', key, 'summary')
     if (typeof session === 'symbol') return null
     if (session) sessions.push(session as SessionView)
@@ -36,7 +38,6 @@ export function resolvePoolWorkMenu(
   }
   const issue = {
     ...value.sidebar.issue,
-    memberSessionIds: [...pool.graph.many('issue', id, 'pageSessions')],
     childIds: children,
     childCount: children.length,
     childDoneCount,
@@ -49,5 +50,6 @@ export function resolvePoolWorkMenu(
     if (typeof origin === 'symbol') return null
     if (origin) issues.push(origin)
   }
-  return { target: { issue, lane, canBringBack: value.sidebar.canBringBack }, issues, sessions }
+  return { target: { issue, lane, canBringBack: value.sidebar.canBringBack,
+    sessionCount: pool.graph.size('issue', id, 'pageSessions') }, issues, sessions }
 }

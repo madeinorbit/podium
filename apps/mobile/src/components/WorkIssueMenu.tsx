@@ -72,7 +72,8 @@ export function WorkIssueMenu({
     () => sessions.filter((session) => session.issueId === issue.id && !session.archived),
     [issue.id, sessions],
   )
-  const sessionCount = new Set(issue.memberSessionIds ?? agentSessions.map((s) => s.sessionId)).size
+  const sessionCount = target.sessionCount ??
+    new Set(issue.memberSessionIds ?? agentSessions.map((s) => s.sessionId)).size
   const actionIds = workMenuActionIds(issue, target.lane, {
     placement: placement?.originId != null,
   })

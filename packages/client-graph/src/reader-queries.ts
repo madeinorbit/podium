@@ -81,10 +81,11 @@ export class ReaderQueries {
   ids(question: ReaderQuestion): string[] {
     const index = this.watch(JSON.stringify(question), (value) => value.readerRevision(question)),
       entity = questionEntity(question)
-    // This bounded, ordered question is answered by the effective source feed,
-    // including its pending overlays. Adding every resident identity would
-    // break its repository, search, exclusion and window contracts.
-    if (question.kind === 'mobileIssueTargets') {
+    // These predicates are answered by the effective source feed, including
+    // its pending overlays. Adding every resident identity would break the
+    // target window or the requested issue/archive/shell roster.
+    if (question.kind === 'mobileIssueTargets' || (question.kind === 'commandIssueSessions' &&
+      (question.archived !== undefined || question.includeShells !== undefined))) {
       const ids = index.readerIds(question)
       this.counts.questions++
       this.counts.returnedIds += ids.length

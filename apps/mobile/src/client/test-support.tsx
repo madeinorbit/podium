@@ -76,7 +76,7 @@ export interface MobileStoreFixture {
    */
   liveShell?: boolean
   /** Extra/overriding tRPC procedures merged over the defaults. */
-  api?: Record<string, unknown>
+  api?: object
 }
 
 const CONFIG = { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:0/client' }
@@ -206,7 +206,9 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
         principal={principal}
         createReplicaFn={createReplicaFn}
         routerWindow={routerWindow}
-        attachRuntime={fixture.attachRuntime ?? attachMobilePool}
+        attachRuntime={fixture.attachRuntime ?? ((runtime) => attachMobilePool(runtime, (cause) => {
+          throw cause
+        }))}
       >
         {inner}
       </StoreProvider>

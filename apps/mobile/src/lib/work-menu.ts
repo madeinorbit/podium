@@ -9,6 +9,8 @@ export interface WorkIssueMenuTarget {
   issue: IssueNavigationModel
   lane: WorkMenuLane
   canBringBack?: boolean
+  /** Raw non-shell membership before resume collapse, including archived rows. */
+  sessionCount?: number
 }
 
 export type WorkMenuActionId =

@@ -1,5 +1,4 @@
 /** Fully resident synthetic address fixtures; route and chip outputs come from the production pool. */
-import type { SessionView } from '@podium/client-core/session-values'
 import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -15,7 +14,7 @@ interface AddressIssue {
 }
 export function poolRouteFixture(input: {
   issues: readonly AddressIssue[]
-  sessions: readonly Pick<SessionView, 'sessionId' | 'displayRef'>[]
+  sessions: readonly { sessionId: string; displayRef?: string }[]
 }) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   pool.apply({ type: 'replace', rows: [

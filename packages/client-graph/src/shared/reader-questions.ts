@@ -30,7 +30,7 @@ export type ReaderQuestion =
     }
   | { kind: 'headerRecentSession'; excluded?: readonly string[] }
   | { kind: 'sessionReference'; ref: string }
-  | { kind: 'commandIssueSessions'; issueId: string }
+  | { kind: 'commandIssueSessions'; issueId: string; archived?: boolean; includeShells?: boolean }
   | { kind: 'containingIssues'; cwd: string }
   | {
       kind: 'mobileIssueTargets'
@@ -61,6 +61,8 @@ export const questionEntity = (question: ReaderQuestion): 'issue' | 'session' =>
 
 type Row = Readonly<Record<string, unknown>>
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const commandIssueKey = (question: Extract<ReaderQuestion, { kind: 'commandIssueSessions' }>) =>
+  `session:commandIssue${question.archived === false ? 'Live' : ''}${question.includeShells ? 'WithShells' : ''}:${question.issueId}`
 const targetTitle = 'issue:targetTitle:'
 const targetGram = (field: 'title' | 'ref', text: string, path: string) =>
   `issue:targetGram:${field}:${JSON.stringify([path, text])}`
@@ -191,8 +193,14 @@ export function createReaderIndex() {
       if (['live', 'starting', 'reconnecting'].includes(row.status as string))
         out.add('session:host')
       if (typeof row.displayRef === 'string') out.add(`session:ref:${row.displayRef}`)
-      if (typeof row.issueId === 'string' && row.agentKind !== 'shell')
-        out.add(`session:commandIssue:${row.issueId}`)
+      if (typeof row.issueId === 'string') {
+        out.add(`session:commandIssueWithShells:${row.issueId}`)
+        if (row.agentKind !== 'shell') out.add(`session:commandIssue:${row.issueId}`)
+        if (!row.archived) {
+          out.add(`session:commandIssueLiveWithShells:${row.issueId}`)
+          if (row.agentKind !== 'shell') out.add(`session:commandIssueLive:${row.issueId}`)
+        }
+      }
     }
     return out
   }
@@ -332,7 +340,7 @@ export function createReaderIndex() {
           keys.push(`session:ref:${question.ref}`)
           break
         case 'commandIssueSessions':
-          keys.push(`session:commandIssue:${question.issueId}`)
+          keys.push(commandIssueKey(question))
           break
         case 'containingIssues':
           keys.push(`issue:root:${question.cwd}`)
@@ -500,7 +508,7 @@ export function createReaderIndex() {
         case 'sessionReference':
           return [...bucket(`session:ref:${question.ref}`)]
         case 'commandIssueSessions':
-          return [...bucket(`session:commandIssue:${question.issueId}`)]
+          return [...bucket(commandIssueKey(question))]
         case 'containingIssues': {
           const ids = new Set<string>()
           const add = (path: string) => {

@@ -329,6 +329,7 @@ export function MobileClientProvider({ children }: { children: ReactNode }) {
  * replica instead of a connection error.
  */
 function DemoProvider({ children }: { children: ReactNode }) {
+  const { error, report: reportError } = useShellErrorChannel()
   const config = useMemo(readServerConfig, [])
   const trpc = useMemo(demoTrpc, [])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
@@ -371,9 +372,9 @@ function DemoProvider({ children }: { children: ReactNode }) {
       principal={asClientPrincipal(DEMO_PRINCIPAL)}
       createReplicaFn={createReplicaFn}
       routerWindow={routerWindow}
-      attachRuntime={attachMobilePool}
+      attachRuntime={(runtime) => attachMobilePool(runtime, (cause) => reportError(cause.message))}
     >
-      <MobileShellSurface value={DEMO_SHELL}>
+      <MobileShellSurface value={{ ...DEMO_SHELL, error }}>
         <MobileSyncBoundary store={syncProgress}>{children}</MobileSyncBoundary>
       </MobileShellSurface>
     </StoreProvider>

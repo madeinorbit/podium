@@ -242,6 +242,55 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
 ]
 
 describe('readers behind declared cold questions', () => {
+  it.each([1, 4])('keeps the filtered command issue roster exact with %ix archived history', (scale) => {
+    const f = fixture(scale)
+    const base = f.rows.find((row) => row.kind === 'session')!
+    const session = (id: string, extra: object = {}): RowRecord => ({
+      kind: 'session', id,
+      value: { ...base.value, sessionId: id, issueId: 'proposal', ...extra } as RowRecord['value'],
+    })
+    const history = Array.from({ length: 32 * scale }, (_, at) =>
+      session(`archived-sender-${at}`, { archived: true }),
+    )
+    const rows = [...history,
+      session('menu-agent'),
+      session('menu-headless', { headless: true }),
+      session('menu-shell', { agentKind: 'shell' }),
+      session('menu-a-twin', { resume: { kind: 'codex-thread', value: 'menu-thread' } }),
+      session('menu-z-twin', { resume: { kind: 'codex-thread', value: 'menu-thread' },
+        lastActiveAt: '2020-01-02T00:00:00Z' }),
+    ]
+    const publish = (changed: RowRecord[]) => {
+      for (const row of changed) f.values.set(`${row.kind}:${row.id}`, row.value)
+      f.index.apply({ type: 'update', rows: changed })
+      f.pool.apply({ type: 'update', rows: changed })
+    }
+    const question = { kind: 'commandIssueSessions' as const, issueId: 'proposal',
+      archived: false, includeShells: true }
+    try {
+      publish(rows)
+      // An unrelated resident must not be unioned into the requested roster.
+      f.pool.row('session', 'host', 'summary')
+      f.pool.hydrate()
+      const roster = () => f.pool.queries.ids(question).sort()
+      expect(roster()).toEqual(['menu-a-twin', 'menu-agent', 'menu-headless', 'menu-shell', 'menu-z-twin'])
+      expect(f.pool.queries.collapsed('menu-a-twin')).toBe(true)
+      expect(f.pool.queries.collapsed('menu-z-twin')).toBe(false)
+      expect(f.index.readerIds({ ...question, includeShells: false }).sort()).toEqual(
+        ['menu-a-twin', 'menu-agent', 'menu-headless', 'menu-z-twin'],
+      )
+      expect(f.index.readerIds({ kind: 'commandIssueSessions', issueId: 'proposal' }).sort()).toEqual(
+        [...history.map((row) => row.id), 'menu-a-twin', 'menu-agent', 'menu-headless', 'menu-z-twin'].sort(),
+      )
+      expect(f.pool.graph.size('issue', 'proposal', 'pageSessions')).toBe(history.length + 4)
+      expect(f.load.mock.calls.some(([, id]) => String(id).startsWith('archived-sender-'))).toBe(false)
+      publish([session('menu-agent', { archived: true }), session('menu-headless', { issueId: 'elsewhere' })])
+      expect(roster()).toEqual(['menu-a-twin', 'menu-shell', 'menu-z-twin'])
+      expect(f.pool.graph.size('issue', 'proposal', 'pageSessions')).toBe(history.length + 3)
+    } finally {
+      f.pool.dispose()
+    }
+  })
   for (const reader of readers)
     it(`${reader.name}: preserves output, rejects a plant, and never enumerates the cold registry`, async () => {
       const f = fixture(1, reader.bootOnly),

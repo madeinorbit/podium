@@ -71,7 +71,7 @@ vi.mock('@podium/client-core/viewmodels', async (original) => {
   const guard = <T extends (...args: never[]) => unknown>(fn: T): T =>
     ((...args: never[]) => {
       throw new Error('mobile pool action called a legacy row derivation')
-    }) as T
+    }) as unknown as T
   return {
     ...real,
     rowMotionPhase: guard(real.rowMotionPhase),
@@ -711,10 +711,11 @@ describe('mobile pool work-list actions', () => {
       f.patch('session', 'synthetic-session-5', { issueId: TARGET, agentKind: 'shell' })
     })
     const menu = resolvePoolWorkMenu(pool(), TARGET)!
-    expect(menu.target.issue.memberSessionIds).toEqual([
+    expect([...pool().graph.many('issue', TARGET, 'pageSessions')]).toEqual([
       'synthetic-session-3',
       'synthetic-session-4',
     ])
+    expect(menu.target.sessionCount).toBe(2)
     await openMenu()
     await choose('Delete…')
     expect(requests).toEqual([])

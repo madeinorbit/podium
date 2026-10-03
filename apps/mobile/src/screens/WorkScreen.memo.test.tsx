@@ -34,7 +34,7 @@ function paint(id: string, seq: number, label: string, progress: MissionProgress
   return { id, kind: 'issue', label, ref: `POD-${seq}`, color: null, internal: false, pinned: false,
     branch: null, progress, originSeq: id === 'b' ? 1 : null, statusLine: 'In progress', stamp: null,
     snoozed: false, unsnoozed: false, tuckable: false,
-    display: { phase: 'idle', working: false, waitingCount: 0, decision: null, unread: false,
+    display: { phase: 'queued', working: false, waitingCount: 0, decision: null, unread: false,
       draftOnly: false, fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
       gitStamp: { kind: 'hidden', mismatch: false, merged: false, dirty: undefined, ahead: undefined } } }
 }

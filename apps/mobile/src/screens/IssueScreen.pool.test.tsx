@@ -323,7 +323,7 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
       seq: 100 + index,
       title: `Historical task ${index}`,
       needsHuman: false,
-      asked: null,
+      asked: undefined,
       stage: 'done' as const,
       closedAt: '2026-01-01T00:00:00Z',
       archived: true,
@@ -403,7 +403,7 @@ it('keeps parent target order literal and row reads bounded by its visible choic
       seq: 100 + index,
       title: `Historical task ${index}`,
       needsHuman: false,
-      asked: null,
+      asked: undefined,
       stage: 'done' as const,
       closedAt: '2026-01-01T00:00:00Z',
       archived: true,
@@ -418,9 +418,9 @@ it('keeps parent target order literal and row reads bounded by its visible choic
     await waitFor(() => expect(state.pool).not.toBeNull(), { timeout: 30_000 })
     fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
     await waitFor(() => expect(screen.getByText('The normalized description.')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: 'Details', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Set parent', exact: true })).toBeTruthy(),
+      expect(screen.getByRole('button', { name: 'Set parent' })).toBeTruthy(),
     )
     const row = state.pool!.row.bind(state.pool!)
     const spy = vi.spyOn(state.pool!, 'row').mockImplementation(((
@@ -433,7 +433,7 @@ it('keeps parent target order literal and row reads bounded by its visible choic
     census.enter('open parent targets')
     state.measuring = true
     try {
-      fireEvent.click(screen.getByRole('button', { name: 'Set parent', exact: true }))
+      fireEvent.click(screen.getByRole('button', { name: 'Set parent' }))
       await waitFor(() => expect(screen.getByLabelText('Search parent')).toBeTruthy())
       const choices = screen.getAllByRole('button', { name: /^POD-\d+ Historical task / })
       expect(choices).toHaveLength(14)

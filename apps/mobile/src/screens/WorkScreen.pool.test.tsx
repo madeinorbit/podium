@@ -54,7 +54,7 @@ vi.mock('@podium/client-core/viewmodels', async importOriginal => {
   const guard = <T extends (...args: never[]) => unknown>(fn: T): T => ((...args: never[]) => {
     state.rowDerivations++
     throw new Error('pool row called a legacy row derivation')
-  }) as T
+  }) as unknown as T
   return { ...real, rowMotionPhase: guard(real.rowMotionPhase), rowHasWorkingSession: guard(real.rowHasWorkingSession),
     rowWaitingCount: guard(real.rowWaitingCount), rowPendingDecision: guard(real.rowPendingDecision),
     rowUnreadEmphasized: guard(real.rowUnreadEmphasized), isDraftAgentVessel: guard(real.isDraftAgentVessel),
@@ -170,7 +170,7 @@ function clickCorpus(scale: 1 | 4) {
   const issue = {
     ...base.issueProjections[0]!, id, seq: 20_001, title: 'Fixed phone menu target',
     parentId: undefined, stage: 'in_progress' as const, archived: false, deletedAt: null,
-    isDraftVessel: false, needsHuman: false, asked: null, deferUntil: null,
+    isDraftVessel: false, needsHuman: false, asked: undefined, deferUntil: undefined,
     audience: 'human' as const, createdAt: new Date(base.fixedNow).toISOString(),
     sortKey: sortKeyBetween(null, firstKey),
   }
