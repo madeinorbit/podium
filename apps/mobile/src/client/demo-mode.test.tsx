@@ -12,9 +12,8 @@
  * demo mode paints comes out of the PUBLISHED SLICE, not out of a fixture
  * object — the same derivation the product and the desktop run.
  */
-import { useSlice } from '@podium/client-core/react'
-import { worklistSlice } from '@podium/client-core/viewmodels'
-import { cleanup, render, screen } from '@testing-library/react'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -37,6 +36,7 @@ vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 import { DEMO_ISSUES, DEMO_SESSIONS, demoEnabled } from './demoData'
 import { useConnected, useIssues, useSessions } from './hooks'
 import { MobileClientProvider } from './MobileClientProvider'
+import { useMobilePoolProjection } from './mobile-pool'
 
 /** The runtime opens a socket on start; nothing here is about the transport,
  *  and the real one takes the worker down with an unhandled error event. */
@@ -59,7 +59,7 @@ afterEach(() => {
 })
 
 function DemoProbe() {
-  const slice = useSlice(worklistSlice)
+  const rowCount = useMobilePoolProjection(readRowCount, 0)
   const sessions = useSessions()
   const issues = useIssues()
   const connected = useConnected()
@@ -68,11 +68,15 @@ function DemoProbe() {
       <span data-testid="sessions">{String(sessions.length)}</span>
       <span data-testid="issues">{String(issues.length)}</span>
       <span data-testid="slice-rows">
-        {String(slice.pinned.length + slice.groups.flatMap((g) => g.rows).length)}
+        {String(rowCount)}
       </span>
       <span data-testid="connected">{String(connected)}</span>
     </div>
   )
+}
+
+function readRowCount(pool: MobxPool) {
+  return pool.mobileWork.sections().sections.reduce((count, section) => count + section.data.length, 0)
 }
 
 async function mountDemo() {
@@ -85,6 +89,7 @@ async function mountDemo() {
     await Promise.resolve()
     await Promise.resolve()
   })
+  await waitFor(() => expect(screen.getByTestId('sessions').textContent).toBe(String(DEMO_SESSIONS.length)))
   return result
 }
 

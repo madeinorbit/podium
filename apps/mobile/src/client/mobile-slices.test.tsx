@@ -20,17 +20,19 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  *    not use), because the grant arm passes identically with no gate at all.
  */
 
-import { useSlice } from '@podium/client-core/react'
+import { useStoreHandle } from '@podium/client-core/react'
 import {
   machineViewsFromWire,
   resolveSpawnTargetMachine,
-  worklistSlice,
 } from '@podium/client-core/viewmodels'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { useConnected, useHostMetrics, useIssues, useMobileStore, useSessions } from './hooks'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { useConnected, useIssues, useSessions, useStoreActions } from './hooks'
+import { useMobilePoolProjection } from './mobile-pool'
+import { useLaunchInputs } from './use-launch-inputs'
 import { renderWithMobileStore } from './test-support'
 
 afterEach(cleanup)
@@ -91,27 +93,40 @@ function session(
 
 /** A probe that reads exactly what a ported screen reads. */
 function WorklistProbe() {
-  const slice = useSlice(worklistSlice)
-  const store = useMobileStore()
+  const rows = useMobilePoolProjection(readRows, '')
+  const now = useMobilePoolProjection(readNow, 0)
+  const store = useStoreHandle().getSnapshot()
+  const { repos } = useLaunchInputs()
   const sessions = useSessions()
   const issues = useIssues()
   const connected = useConnected()
-  const titles = [...slice.pinned, ...slice.groups.flatMap((g) => g.rows)]
-    .map((row) => (row.kind === 'issue' ? row.issue.title : row.worktree.path))
-    .join('|')
+  const paths = [...new Set(repos.flatMap(repo => [repo.path, ...repo.worktrees.map(tree => tree.path)]))]
   return (
     <div>
-      <span data-testid="rows">{titles}</span>
+      <span data-testid="rows">{rows}</span>
       <span data-testid="counts">{`${sessions.length}/${issues.length}`}</span>
-      <span data-testid="worktrees">{slice.allWorktreePaths.join('|')}</span>
-      <span data-testid="now">{String(slice.now)}</span>
+      <span data-testid="worktrees">{paths.join('|')}</span>
+      <span data-testid="now">{String(now)}</span>
       <span data-testid="store-now">{String(store.coarseNow)}</span>
       <span data-testid="connected">{String(connected)}</span>
     </div>
   )
 }
 
-describe('mobile reads the published worklist slice', () => {
+function readRows(pool: MobxPool) {
+  return pool.mobileWork.sections().sections.flatMap(section => section.data.flatMap(ref => {
+    const row = pool.mobileWork.row(ref)
+    return row && typeof row !== 'symbol' ? [row.label] : []
+  })).join('|')
+}
+function readNow(pool: MobxPool) {
+  const now = pool.clock.current
+  pool.clock.reached(now)
+  pool.clock.reached(now + 1)
+  return now
+}
+
+describe('mobile reads the resident pool worklist', () => {
   it('paints rows the slice derived from the replica, not from a mobile-local derivation', async () => {
     await renderWithMobileStore(<WorklistProbe />, {
       repos: [REPO],
@@ -197,12 +212,12 @@ describe('placement fails closed on the phone too (doc §3.1.4 M5)', () => {
 it('updates the narrow host metrics hook without waking whole-store readers', async () => {
   let broadRenders = 0
   function BroadReader() {
-    useMobileStore()
+    useStoreActions()
     broadRenders++
     return null
   }
   function HostReader() {
-    const metrics = useHostMetrics()
+    const metrics = useMobilePoolProjection(readMetrics, [])
     return <span data-testid="hosts">{metrics.map((host) => host.hostname).join(',')}</span>
   }
   const { emit } = await renderWithMobileStore(
@@ -213,8 +228,12 @@ it('updates the narrow host metrics hook without waking whole-store readers', as
   )
   const before = broadRenders
   for (const hostname of ['first', 'second']) {
-    await act(async () => emit('hostMetrics', [{ hostname }]))
+    await act(async () => emit('hostMetrics', [{ hostname, machineId: 'synthetic-host' }]))
     expect(screen.getByTestId('hosts').textContent).toBe(hostname)
   }
   expect(broadRenders).toBe(before)
 })
+
+function readMetrics(pool: MobxPool) {
+  return pool.headerViews.metrics()
+}

@@ -206,12 +206,18 @@ describe('mobile WorkScreen pool consumer', () => {
         expect(state.rowDerivations, name).toBe(0)
       }
       try {
+        const first = state.sections.flatMap(section => section.data).find(ref => ref.kind === 'issue')!
+        const title = state.runtime!.replica.rows('issueProjections').find(issue => issue.id === first.id)!.title
+        const row = view.container.querySelector(`[data-label$=" ${title}"]`)!
+        await click('open selected row menu', () => fireEvent.contextMenu(row))
+        expect(screen.getByTestId('menu').getAttribute('data-issue')).toBe(first.id)
         const band = state.sections[0]!
         await click('fold visible band', () => fireEvent.click(screen.getByLabelText(`${band.label} · ${band.total}`)))
         await click('open launch choices', () => fireEvent.click(screen.getByLabelText('New work')))
         await click('close launch choices', () => fireEvent.click(screen.getByLabelText('Close sheet')))
       } finally { spy.mockRestore(); view.unmount(); census.stop() }
     }
+    console.info('[mobile click work]', JSON.stringify(cells))
     for (const base of cells.filter(cell => cell.scale === 1)) {
       const larger = cells.find(cell => cell.scale === 4 && cell.click === base.click)!
       const ratio = larger.neighbours / base.neighbours
@@ -219,7 +225,6 @@ describe('mobile WorkScreen pool consumer', () => {
         expect(larger[metric], `${base.click}: 4x/1x ${metric} exceeds visible-neighbourhood ratio ${ratio}`).toBeLessThanOrEqual(base[metric] * ratio)
       }
     }
-    console.info('[mobile click work]', JSON.stringify(cells))
   }, 240_000)
 
   it('a hidden navigation target stays cold and a press reads the current session', async () => {

@@ -43,7 +43,7 @@ import {
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreSelector } from '@podium/client-core/react'
+import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
   createReplica,
@@ -372,6 +372,7 @@ function DemoProvider({ children }: { children: ReactNode }) {
       principal={asClientPrincipal(DEMO_PRINCIPAL)}
       createReplicaFn={createReplicaFn}
       routerWindow={routerWindow}
+      attachRuntime={attachMobilePool}
     >
       <MobileShellSurface value={DEMO_SHELL}>
         <MobileSyncBoundary store={syncProgress}>{children}</MobileSyncBoundary>
@@ -450,7 +451,7 @@ function MobileHubAttach({
   bearer: string | null
   onVersionNotice: (message: string) => void
 }): null {
-  const hub = useStoreSelector((s) => s.hub)
+  const hub = useStoreHandle<MobileTrpc>().getSnapshot().hub
   useEffect(() => {
     const version = mobileVersionObservers({
       credentials: mobileAccountCredentials,
