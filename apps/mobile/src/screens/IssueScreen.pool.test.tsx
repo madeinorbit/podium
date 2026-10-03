@@ -294,3 +294,54 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
   }
   expect(cells.map(cell => cell.selectors)).toEqual([0, 0])
 })
+
+it('keeps parent target order literal and row reads bounded by its visible choices', async () => {
+  const cells: { scale: number; rowReads: number; derivations: number; neighbours: number }[] = []
+  for (const scale of [1, 4]) {
+    state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
+    state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+    state.pool = null; state.errors = []; state.reads = 0; state.measuring = false
+    const history = Array.from({ length: 1_200 * scale }, (_, index) => ({
+      ...projection, id: asIssueId(`page-history-${index}`), seq: 100 + index,
+      title: `Historical task ${index}`, needsHuman: false, asked: null,
+      stage: 'done' as const, closedAt: '2026-01-01T00:00:00Z', archived: true,
+      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    }))
+    const mounted = await renderWithMobileStore(<OpenPage />, {
+      replica: pageReplica([projection, ...history]),
+      attachRuntime: runtime => state.host!.host.attach(runtime, error => state.errors.push(error.message)),
+    })
+    await waitFor(() => expect(state.pool).not.toBeNull(), { timeout: 30_000 })
+    fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
+    await waitFor(() => expect(screen.getByText('The normalized description.')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Details', exact: true }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Set parent', exact: true })).toBeTruthy())
+    const row = state.pool!.row.bind(state.pool!)
+    const spy = vi.spyOn(state.pool!, 'row').mockImplementation(((...args: Parameters<MobxPool['row']>) => {
+      if (state.measuring) state.reads++
+      return row(...args)
+    }) as MobxPool['row'])
+    const census = startCensus({ sample: () => ({ rowReads: state.reads }) })
+    census.enter('open parent targets'); state.measuring = true
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Set parent', exact: true }))
+      await waitFor(() => expect(screen.getByLabelText('Search parent')).toBeTruthy())
+      const choices = screen.getAllByRole('button', { name: /^POD-\d+ Historical task / })
+      expect(choices).toHaveLength(14)
+      expect(choices.map(choice => choice.getAttribute('aria-label'))).toEqual(
+        Array.from({ length: 14 }, (_, at) => {
+          const index = history.length - 1 - at
+          return `POD-${100 + index} Historical task ${index}`
+        }),
+      )
+      census.exit()
+      const phase = census.snapshot().phases['open parent targets']!
+      cells.push({ scale, rowReads: state.reads, derivations: phase.computedRuns + phase.reactionRuns, neighbours: choices.length })
+    } finally { state.measuring = false; census.stop(); spy.mockRestore(); mounted.unmount() }
+  }
+  console.info('[parent picker open work]', JSON.stringify(cells))
+  const [base, larger] = cells
+  for (const metric of ['rowReads', 'derivations'] as const)
+    expect(larger![metric], `parent picker: 4x/1x ${metric} exceeds visible-neighbourhood ratio`)
+      .toBeLessThanOrEqual(base![metric] * larger!.neighbours / base!.neighbours)
+}, 60_000)
