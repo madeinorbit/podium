@@ -1,8 +1,8 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import { MobxPool } from '@podium/client-graph'
 import { createMobileSettingsSource } from '@podium/client-graph/mobile-settings'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { MobxPool } from '@podium/client-graph'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const stops: (() => void)[] = []

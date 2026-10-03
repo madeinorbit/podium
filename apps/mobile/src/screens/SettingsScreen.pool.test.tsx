@@ -3,13 +3,13 @@ import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import type { MobilePool } from '../client/mobile-pool'
 import { asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { Alert, Platform } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
+import type { MobilePool } from '../client/mobile-pool'
 
 const seams = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
@@ -76,7 +76,9 @@ vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 
 vi.mock('../components/Screen', () => ({
   Screen: ({ children, onBack }: { children: ReactNode; onBack: () => void }) => (
     <div>
-      <button onClick={onBack}>Done</button>
+      <button type="button" onClick={onBack}>
+        Done
+      </button>
       {children}
     </div>
   ),

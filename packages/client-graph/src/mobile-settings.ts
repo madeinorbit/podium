@@ -1,5 +1,4 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
-import type { MobxPool } from './pool'
 import type { PoolSource } from './source-registry'
 import type { Loaded } from './worklist/rollup'
 
