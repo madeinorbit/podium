@@ -1,13 +1,16 @@
 # POD-4286 — Optimism and refused changes: one rule (design spec, POD-5426)
 
-**Status:** design for operator review. No product code changes with this document.
+**Status:** spec for the decided target. The operator decided on 2026-10-03 (pinned comment on POD-5426):
+follow the coordinator's recommendation, Linear's shape. This document writes that target down with
+its migration order, the standing rules, what is deleted, and the risks. It does not re-argue the
+direction. No product code changes with this document.
 **Date:** 2026-10-03. **Base:** `integrate/4286-pilot` at `70f3c661f4`. Every `file:line` is at that
 commit.
 **Inputs:** POD-5417 review findings 13 and 19 (`docs/reviews/pod-4286-mobx-architecture-review.md`),
 POD-5415 (a refused rename blocks later changes to the same issue) and its queue proof (POD-4978,
 `docs/measurements/POD-4978-mobile-actions.md` and the attached `mobile-queue-audit.json`), and the
-operator's direction of 2026-10-03: refused changes follow ONE sync-system rule, best practice as in
-Linear and Replicache.
+operator's direction: refused changes follow ONE sync-system rule, best practice as in Linear and
+Replicache.
 
 **Evidence labels.** **READ** = from code or docs in this tree. **RUN** = measured (only the POD-4978
 queue audit, which was run on `ccce76d346` by that issue, not by me). **EXT** = published behaviour of
@@ -18,39 +21,43 @@ was not traced end to end.
 
 ## 0. Summary
 
-**The rule.** The server decides. Every change the user makes is shown at once and recorded as a
-durable queued command. Each change waits only for an answer about the changes before it on the same
-thing. A **definitive answer** (accepted or refused) lets the next change go. Only an **unknown
-outcome** (in flight, network failure, server error) holds it. A refused change is removed from what
-the screen shows: the row goes back to the accepted state with every later pending change still
-applied on top. If the user typed words, those words are kept and can be recovered. Nothing waits
-behind a refusal, and the server refuses a later change that no longer makes sense by itself.
+**The decision.**
 
-This is exactly Replicache's push rule and Linear's rollback rule (section 2).
+1. **The pool owns optimism.** A change mutates the model and records a transaction.
+2. **The server is authoritative.** A refused change is rolled back and shown with its content kept and
+   recoverable. Nothing waits behind it. Later changes are re-applied on the accepted state, and the
+   server refuses dependants itself. This replaces `OUTBOX_PARKED_YIELDS_PARTITION`.
+3. **Overlays, locals and discovery reach the pool as keyed inputs.** The legacy publish is switched off
+   path by path.
 
-**What changes, in four pieces:**
+**The rule, in one sentence.** A change waits only while the answer about an earlier change to the
+same thing is **unknown**; a **definitive** answer (accepted or refused) lets the next one go. That is
+Replicache's push rule and Linear's rollback (section 2). Section 3 states it for the code as R1–R5.
 
-1. **Queue rule (fixes POD-5415 for old and new screens alike).** A parked (refused or expired) entry
-   stops holding its partition, for every command. `OUTBOX_PARKED_YIELDS_PARTITION` is deleted. A
-   retried or edited entry goes to the back of its partition. This needs an ADR 3 D12 amendment.
-2. **Server prerequisite.** Every refusal of a state precondition is a typed answer (409 or 412), never
-   a bare `Error`. Today "already deleted", "not deleted" and "shipping stage" throw a bare `Error`,
-   which the client treats as a temporary failure and retries for 14 days. That holds the partition
-   just as a parked rename does, under the old rule and the new one alike.
-3. **One pending set, projected by the pool.** The legacy ledger stays the only owner of the pending
-   set and its life cycle, but it is made keyed: it reports which rows' pending changes moved. The pool
-   applies one row's pending changes at write time and stores the result, so reads are plain. The
-   pool's own unused write stack (`write/*`, `write-contract.ts`, `receipts.ts`, 1,448 lines) is
-   deleted, not wired.
+**The target, in four pieces:**
+
+1. **Queue rule.** A parked (refused or expired) outbox entry stops holding its partition, for every
+   command. `OUTBOX_PARKED_YIELDS_PARTITION` is deleted. Retry and edit go to the back of the partition.
+   This needs an ADR 3 D12 amendment. It fixes POD-5415 for old and new screens alike, before any pool
+   work.
+2. **Server prerequisite.** Every precondition refusal is a typed answer (409/412), never a bare
+   `Error`. Today "already deleted", "not deleted" and "shipping stage" surface as 500. The client
+   retries a 500 for 14 days while holding the partition. Without this, "the server refuses dependants
+   itself" is not true.
+3. **The pool's transaction layer** (Linear's shape):
+   - **Change:** a change to a model (`issue.title = …`, `pool.mutate(…)`) writes the new visible row
+     and records a transaction in the same MobX action. The transaction is the durable outbox record,
+     and the pool's log is an in-memory index over the outbox.
+   - **Rollback:** one mechanism, rebase. A model's visible row is its server row with its remaining
+     transactions re-applied in queue order. Refusal, expiry and arriving truth all trigger it.
+   - **Reads:** plain. No read-time overlay, no Proxy, no per-read pending check.
+   - **Code:** the pool's `write/*` stack is the starting code. It is grown to every queued command kind,
+     spawn placeholders and per-user rows. The legacy ledger (`optimism.ts`, 1,273 lines) keeps painting
+     legacy screens only, from the same outbox records, until F4 deletes it.
 4. **Keyed inputs, then the legacy publish off.** The 13 pool adapters on `runtime.subscribe` move to
-   keyed inputs: pending rows, local keys, discovery rows, drafts per session, a cursor signal. The
-   legacy snapshot's whole-array fold becomes lazy, so it costs nothing while no legacy screen reads it.
-   It is deleted with the last legacy screen (F4).
-
-**Decisions asked of the operator** are in section 10. The main one: the coordinator recommended
-"the pool owns optimism". I recommend a narrower version: the pool owns the **projection** (how a
-pending change looks on a model), and the pending set keeps **one** implementation, the ledger's.
-Wiring the pool's `write/*` instead would create a second pending set with less coverage (section 5).
+   keyed inputs: local keys, discovery rows, window lists by id, drafts per session, cursor and count
+   signals. Pending rows need no input, because the pool owns them. The legacy snapshot's whole-array
+   fold becomes lazy, then is deleted with the last legacy screen.
 
 ---
 
@@ -174,10 +181,10 @@ each adapter re-reads its slice of `getSnapshot()`:
 
 | # | Adapter (`packages/client-graph/src/…`) | Reads | Keyed input that replaces it |
 |---|---|---|---|
-| 1 | `shared/row-source.ts:1252` | ledger (4 whole maps), discovery `repos` | pending-rows event; discovery rows |
+| 1 | `shared/row-source.ts:1252` | ledger (4 whole maps), discovery `repos` | pool transactions (no input); discovery rows |
 | 2 | `shared/engine-locals.ts:19` | `selectedIssueId`, `coarseNow` | local-key event |
 | 3 | `header-source.ts:77` | machines, repos (whole array on identity change), window, `outboxSize` | machine by id, discovery row, local keys, outbox count |
-| 4 | `session-pane-source.ts:32` | window keys, `pendingSpawnIds` | local keys; pending-rows event (spawn) |
+| 4 | `session-pane-source.ts:32` | window keys, `pendingSpawnIds` | local keys; pool spawn transactions |
 | 5 | `shell-source.ts:42` | 9 window keys (structural compare per publish), approvals, file tabs, workspaces | local keys; approval, tab and workspace by id |
 | 6 | `command-launch-source.ts:55` | repos (a change re-links ALL resident sessions), machines, window | discovery row; machine by id; local keys |
 | 7 | `mobile-inbox-source.ts:27` | nothing; a wake-up to re-read the cursor | cursor signal |
@@ -185,7 +192,7 @@ each adapter re-reads its slice of `getSnapshot()`:
 | 9 | `superagent.ts:74` | `superThreads` (full rebuild), window; counts all sessions while booting | thread by id; local keys; a booted latch |
 | 10 | `settings-source.ts:25` | machines, repos (full rebuild), `settingsTab` | machine by id; discovery row; local key |
 | 11 | `mobile-settings.ts:71` | lengths of the overlaid issue list and conversations, cursor | count and cursor signals |
-| 12 | `mobile-session-context.ts:125` | `pendingSpawnPrompts`, cursor | pending-rows event (spawn); cursor signal |
+| 12 | `mobile-session-context.ts:125` | `pendingSpawnPrompts`, cursor | pool spawn transactions; cursor signal |
 | 13 | `issue-board-source.ts:89` | `openIssueId` | local-key event |
 
 While any of them is subscribed, the runtime must keep publishing, and each publish rebuilds whole
@@ -265,236 +272,294 @@ user did last.
 
 ---
 
-## 4. Target design
+## 4. Target design: the pool owns optimism
 
-### 4.1 The queue (owner unchanged)
+### 4.1 Three layers
 
-The kernel `Outbox` stays the only durable queue and the only place commands enter. That is the
-"one mutation owner" rule. Changes:
+| Layer | Owner | Linear's equivalent |
+|---|---|---|
+| Durable queue | kernel `Outbox` (`packages/sync/src/outbox`), unchanged | the transaction queue persisted to IndexedDB |
+| Transactions and optimism | the pool: `PoolTransactions`, grown from `client-graph/src/write/*` | model mutation plus `Transaction` objects |
+| Server truth | the replica feed into the pool, `truth` mode per owned kind | sync deltas |
 
-- `outbox.ts` partition scan (`:599-656`): a parked entry no longer stops the scan, for every command.
-  `yieldsWhenParked`, the `parkedYieldsPartition` port field (`ports.ts:303`) and
-  `OUTBOX_PARKED_YIELDS_PARTITION` (`wiring.ts:661`, `kernel-outbox.ts:47, 570`) are deleted.
-- `retry` and `edit` move the record to the back of its partition (R3). Edit already creates a new
-  record. Retry needs a re-order, done in the same durable span as the transition.
-- Any transition that releases a partition (park, discard, cancel, automatic discard) triggers a drain.
-  This closes the INFERRED gap in 1.3.
-- The conformance row "a parked head blocks only its own partition, on every later pass" is replaced by
-  "a parked head blocks nothing; a backing-off head blocks its partition; a retried entry drains after
-  every entry queued before the retry".
+The outbox stays the only queue and the only durable record. The pool's transaction log holds no second
+copy of the queue. It is an index over outbox records keyed by target row, rebuilt from the outbox at
+boot (`write/edit.ts:371-454` already does this).
 
-### 4.2 The pending set (one implementation, made keyed)
+### 4.2 A change
 
-The ledger already has the complete pending life cycle:
+`issue.title = 'x'`, or the general `pool.mutate(command, input)`, runs **one MobX action**:
 
-- painted before commit, and unpainted if the commit fails;
-- spawn placeholders and their grace period;
-- queued, awaiting truth, and coverage by the echo;
-- the "moved past baseline" rule;
-- per-user absent rows;
-- principal scoping by construction (`optimism.ts:29, 450`).
+1. **Reduce.** The command's pure reducer turns the input into row changes. The reducers already exist:
+   `overlaysForOutboxEntry` (`client-core/src/engine/overlay.ts:356`) maps every queued command kind to
+   its patches and inserts, with `issueUpdateRoute` (`:330`) splitting issue and per-user fields. They
+   move to a pure shared module (step 3) and the pool calls them.
+2. **Mutate the model.** For each touched row: `visible = fold(truth, transactions)` with the new
+   transaction appended, and the visible row replaces the table row. Model getters read the table row,
+   so every reader of that one model, and nothing else, sees the change at once.
+3. **Record the transaction** `{mutationId, command, input, rows, state}` in the log and call the
+   outbox's single enqueue path. If the enqueue throws, the transaction leaves the log and the touched
+   models rebase (4.3). That is today's "unpaint on a failed commit" (`optimism.ts:1016`).
 
-The pool's `write/*` re-implements a subset of that (section 5). The target keeps the ledger as the
-**only** pending set and changes two things:
+Paint happens before the durable commit, as today. Model setters are the API for pool screens. They call
+`pool.mutate`, so there is one write path in the pool.
 
-1. **A per-row index**, maintained on every pending change (paint, enqueue, transition, retire, spawn
-   grace, awaiting-truth expiry), instead of `overlaysFor` rebuilding all overlays for an entity and
-   `pendingByRow` rebuilding a whole map per call. `overlaysForRow(entity, id)` is O(that row's
-   entries).
-2. **A keyed event**, `onPendingRows(changes: {entity, id}[])`, emitted once per action with the rows
-   whose pending list changed. Writes from another tab on the same store arrive through the outbox's
-   existing rebase notification and produce the same event.
+### 4.3 Rebase: the one rollback mechanism
 
-The whole-array fold (`recomputeFor`, `foldStable`, `recomputeSessions` painting) stays only as the
-legacy screens' projection. It becomes lazy (4.5) and is deleted at F4.
+For model X: `visible(X) = foldRowOverlays(truth(X), changes of X's live transactions, in queue order)`.
+`foldRowOverlays` is at `overlay.ts:942`; inserts apply before patches, as today.
 
-### 4.3 The projection (owned by the pool)
+It runs when:
 
-The pool owns how a pending change looks on a model:
+- truth for X arrives (a feed row, a rescope batch, an eviction);
+- a transaction on X is refused, expired, cancelled or retired;
+- X becomes resident (a cold model with pending transactions paints on load).
 
-- The row source keeps the server row (`truth`) and the visible row. On a truth change for row X, or a
-  pending-rows event naming X, it computes `visible = foldRowOverlays(truth, overlaysForRow(X))`, the
-  same per-row fold it uses today (`row-source.ts:428`). It stores that in the table in one action. With
-  no pending entries, `visible` is the truth object itself, so identity is kept end to end.
-- Reads are plain table reads. `pool.row` and `readCursor` lose the `writes?.pending` branch, and
-  optimism no longer needs the overlay Proxy (`shared/overlay-row.ts`; that file's other users belong to
-  POD-5416). A pending change costs one allocation when it changes, not one per read.
-- This is Linear's "mutate the model, record the transaction" in effect: the click paints the model in
-  the same action that records the durable command, and rollback is automatic. What differs from
-  Linear is how rollback works. Linear keeps old values and runs an inverse. Here the row is recomputed
-  from truth and the remaining pending list, which is Replicache's rebase. Recomputing needs no stored
-  "prior" values, so a refusal in the middle of a chain cannot restore a stale value.
-- Write entry point: screens keep calling the runtime's command actions (`use-pool-unified-work.ts`
-  and the store actions), the single entry point. Model setters (`issue.title = …`) are API style, not
-  semantics. Section 10, D3.
+Only changed rows are written, so an unchanged row keeps its identity. With no live transactions,
+`visible` is the truth object itself. The pool stores a separate truth slot only for rows that have
+live transactions.
 
-### 4.4 Refusal on screen
+This is the "re-applied on the accepted state" half of the decision. It needs no stored prior values.
+`prior`, `priorIdentity` and `restoreIdentity` in `write-contract.ts` (`:112, :119, :173`) are replaced
+by rebase, so a refusal in the middle of a chain can never restore a stale value.
 
-- A refused change disappears from the row in the same action that records the refusal (R2).
-- Authored text: the existing recovery chip lists it ("N changes didn't sync — Review or discard each
-  one"). Retry, edit and discard follow R3. The surface keeps its two security rules: it never reads the
-  target, and its affordances come from the reason code only.
-- No authored text: snaps back with the existing toast.
-- The "N queued" half of the POD-5415 banner can no longer occur from a refusal. It can still appear
-  while offline or backing off, which is correct.
+### 4.4 Settlement
 
-### 4.5 Keyed inputs and switching the legacy publish off
+A transaction moves through these states:
 
-Each adapter in 1.5 moves to keyed inputs from the one producer that already owns the value:
+- **painted:** in the log, not yet durable;
+- **queued / sending:** mirrors the outbox record;
+- **applied, awaiting truth:** the outbox answered `applied`;
+- **retired:** the echo covers it, or 60 s pass (`AWAITING_TRUTH_TTL_MS`, `overlay.ts:151`), or the row
+  moved past the transaction's baseline (`patchedCellsMovedPast`, `:251`).
 
-| Input | Producer | Shape | Adapters |
+Retiring releases the outbox's `awaiting` hold, as `outbox.retireAwaiting` does today. **The reference
+behaviour is the ledger's**, because it is what ships. `write-contract.ts`'s `PendingLog` (W1–W12) is the
+starting code. Where the two differ, the ledger's rule wins and the difference is listed in the step 4
+change:
+
+- echo coverage: by fingerprint against the baseline (ledger) versus by value (`write/*`);
+- the spawn grace period (`SPAWN_CONFIRM_GRACE_MS`, 2 s);
+- absent per-user rows (`optimism.ts:508-520`);
+- `chained` entries.
+
+### 4.5 Coverage
+
+The pool covers every one of the 27 queued command kinds (`OutboxKinds`, `engine/wiring.ts:54-151`)
+through the shared reducers, plus the spawn placeholder inserts:
+
+- `spawnDraftAgent` and `spawnIssueAgent` are online-only direct creates with client-minted ids
+  (`optimism.ts:1139, 1211`).
+- In the pool they are insert transactions. A failed create removes the provisional model after the
+  grace period, as today.
+- `pendingSpawnIds` and `pendingSpawnPrompts` become reads of the pool's insert transactions.
+
+A command with no reducer paints nothing and still shows as pending (ADR 3 D6: "absence is valid").
+
+### 4.6 Changes the pool did not author
+
+Legacy screens (during migration) and other tabs on the same store enqueue through the outbox. The pool
+**adopts** every outbox record it did not author:
+
+- It subscribes to outbox record events, runs the record through the same reducer, and adds a
+  transaction, so pool screens show it.
+- Another tab's write arrives through the outbox's existing rebase notification.
+
+This is how two kinds of screens stay correct while only one queue exists.
+
+### 4.7 Cold targets
+
+A transaction may target a model that is not resident. It is recorded under the target id and applied
+when the model loads (4.3). This removes `write/*`'s "a cold row cannot be edited" limit
+(`write/edit.ts:64-73`).
+
+A change computed from the current value (a toggle, a reorder) reads a resident model, so the action
+loads it first.
+
+### 4.8 Refusal on screen
+
+- **The model rolls back** in the same action that records the refusal (rebase).
+- **Authored text is kept and recoverable.** It is parked with the input verbatim, through the existing
+  recovery chip (`apps/web/src/features/machines/OutboxRecovery.tsx:242-307`) and its mobile twin, which
+  offer retry, edit and discard. The chip keeps its two security rules:
+  - it never reads the target;
+  - its affordances come from the reason code alone.
+- **A per-row marker** ("not saved") may show on a model that has a parked transaction. It reads only
+  the parked record, on a row the user can already see.
+- **No authored text:** the change snaps back with the existing toast (`shouldParkDeadLetter`,
+  `engine/wiring.ts:390`).
+- **`onRejected` listeners** (`write/edit.ts:297-318`) fire after the rebase.
+- **Nothing waits behind a refusal** (R1). Retry and edit go to the back (R3).
+
+### 4.9 The queue (kernel changes for R1 and R3)
+
+- **Partition scan** (`outbox.ts:599-656`): a parked entry no longer stops the scan, for every command.
+  Delete `yieldsWhenParked` (`:1197-1201`), the `parkedYieldsPartition` port field (`ports.ts:303`) and
+  `OUTBOX_PARKED_YIELDS_PARTITION` (`wiring.ts:658-664`, `kernel-outbox.ts:47, 570`).
+- **Retry and edit go to the back of the partition.** Edit already creates a new record. Retry re-orders
+  in the same durable span as its transition (today it transitions in place, `outbox.ts:999-1030`).
+- **Every transition that releases a partition starts a drain:** park, discard, cancel and automatic
+  discard. This closes the INFERRED gap in 1.3.
+- **Conformance table** (`docs/design/outbox-lifecycle-state-machine.md:78`): the row becomes "a parked
+  head blocks nothing; a backing-off head blocks its partition; a retried entry drains after every
+  entry queued before the retry".
+
+### 4.10 Keyed inputs and switching the legacy publish off
+
+**Pending rows need no input:** the pool owns them. Adapters 1 (ledger part), 4 and 12 read the pool's
+transactions. The remaining inputs come from the one producer that owns each value:
+
+| Input | Producer | Shape | Adapters (table 1.5) |
 |---|---|---|---|
-| Pending rows | ledger (4.2) | `onPendingRows([{entity,id}])` | 1, 4, 12 |
 | Local keys | the runtime's single locals writer | `onLocals(changedKeys)` plus `readLocal(key)` | 2, 3, 4, 5, 6, 8, 9, 10, 13 |
 | Discovery | the discovery producer | machine by id, repo by `[machineId, path]`, upsert and remove | 1, 3, 6, 10 |
-| Window lists | runtime | approval, file tab, workspace, super-thread by id | 5, 9 |
+| Window lists | runtime | approval, file tab, workspace and super-thread by id | 5, 9 |
 | Drafts | draft ledger | `onDraft(sessionId)` | 8 |
 | Cursor and counts | replica, outbox | cursor-moved signal; outbox size | 3, 7, 11, 12 |
 
-Each adapter then wakes only for its own keys. That fixes finding 13's two whole-history adapters too:
-chat context reads the pool's tables and residency, and `issueExit` copies `session-exit-source.ts`'s
-per-id demanded set.
+Each adapter then wakes only for its own keys. Finding 13's two whole-history adapters change too:
 
-**Switching off.** The legacy snapshot becomes lazy. `publishReplica` records which kinds changed and
-bumps a version. The folded `issueProjections`, the rebuilt `sessionViews` and the ledger fold are
-computed on `getSnapshot()` read, memoized by version, not eagerly per batch. With pool screens on and no
-legacy reader mounted, no whole-array work runs. Subscribers still get a notification, which costs one
-call per subscriber. When an adapter moves to keyed inputs it unsubscribes from `runtime.subscribe`. When
-the last legacy screen is deleted (F4), the fold, `readChanged` and the snapshot store go with it.
+- Chat context reads the pool's tables and residency.
+- `issueExit` copies `session-exit-source.ts`'s per-id demanded set.
 
----
+**Switching off, per kind and per path:**
 
-## 5. Evaluation of the coordinator's recommendation
-
-| Point | Verdict | Why |
-|---|---|---|
-| (1) The pool owns optimism (Linear's shape) | **Agree, narrowed** | Optimism has two parts. The **projection** (how a pending change looks on the model, applied at write time) moves to the pool. The **pending set** keeps one implementation, the ledger's, made keyed. Wiring `write/*` instead would give two pending sets over one queue. `write/*` covers 1 entity and 3 fields, against the ledger's 27 queued command kinds, spawn placeholders and per-user rows. It also captures "prior" values the ledger does not need, and it relies on the ledger's dead-letter parking for kept content anyway. Wired as is, it runs on the `overlaid` feed (`write-contract.ts:11-19` requires truth), so both would paint and a refusal would rewind twice (INFERRED). And the coverage rules would live in two places, free to drift. Once legacy screens are gone, the ledger can move next to the pool as a packaging step. Its rules stay the same. |
-| (2) Server authoritative; refused change rolled back with content kept; nothing waits; later changes re-applied on the accepted state; the server refuses dependants itself; replaces `OUTBOX_PARKED_YIELDS_PARTITION` | **Agree, with two additions** | R1–R5 are this rule. Rollback, kept content and re-application on the accepted state already work (1.1 steps 8-9). Only the partition hold changes. Additions: (a) "the server refuses dependants itself" is **not true today** for delete-of-deleted, restore-of-not-deleted and the shipping stage, which return 500 and wedge (1.3). R4 is a prerequisite. (b) Retry must move to the back (R3). Without that, R1 lets an older intent overwrite a newer one. |
-| (3) Overlays, locals and discovery reach the pool as keyed inputs; the legacy publish is switched off path by path | **Agree** | Section 4.5. Adding the lazy legacy snapshot means "off" needs no per-path switch matrix: whole-array work stops when nothing reads it. |
-
-**Rejected alternatives:**
-
-- **Keep holding, but explain the wait better** (POD-5415's question). The wait itself is the defect.
-  It contradicts ADR 3 D10, and neither reference system does it.
-- **Widen `OUTBOX_PARKED_YIELDS_PARTITION` to more commands.** That makes two rules out of one, and every
-  new command needs a decision. R1 has no list.
-- **Cascade-refuse later entries on the client.** The client would be guessing dependencies the server
-  already judges. Replicache and Linear never do this.
-- **Turn on `expectedRevision` for all issue writes.** That turns every concurrent edit by another
-  person into a parked conflict. Issue patches set absolute values, so re-applying them is correct (R5).
+- **Per kind.** The row source takes a set of pool-owned kinds. For an owned kind it runs in `truth`
+  mode: it never reads the ledger, and the pool's transactions paint. Other kinds stay `overlaid` until
+  their turn.
+- **Per adapter.** An adapter unsubscribes from `runtime.subscribe` once its last snapshot read is gone.
+- **Legacy screens.** The legacy snapshot becomes lazy. `publishReplica` records the changed kinds and
+  bumps a version. The ledger fold and `sessionViews` are computed on `getSnapshot()` read, memoized by
+  version. With pool screens on and no legacy screen mounted, no whole-array work runs.
+- **F4.** When the last legacy screen goes, the ledger, the fold, `readChanged`, the snapshot store and
+  `runtime.subscribe` go with it.
 
 ---
 
-## 6. How the standing rules hold (epic plan §4)
+## 5. How the standing rules hold (epic plan §4)
 
 | Rule | How it holds |
 |---|---|
-| **One mutation owner** | Commands enter only through the runtime's command actions into the kernel `Outbox`. The pending set is derived from that queue (the ledger), never a second queue. The pool computes a projection and never writes the replica or queues commands. Deleting `write/*` removes the only code that could have become a second owner. |
-| **No lost semantics: optimistic edits** | Same paint-before-commit, now per row. |
-| **… rejection and rollback** | Unchanged mechanism ("stop applying"). R1 only stops later entries from waiting. |
-| **… evict vs delete** | An evicted row leaves the table. Its pending entries stay in the outbox (ADR 3 D9.5) and are not painted while the row is absent. A delete stays a pending `remove` overlay until truth covers it. |
-| **… readmission** | A refused delete or tuck stops applying its `remove` overlay, so the row returns in the same action. |
-| **… atomic rescope** | A rescope arrives as one batch. The row source recomputes every row in it with its pending list in one action. |
-| **… offline hydration** | The pending set is rebuilt from the durable outbox at boot, as today (`overlaysFor` reads `outbox.pending()`). Painted-but-unqueued entries are not durable, as today. |
-| **… principal isolation** | Unchanged. One `Outbox` per principal, filtered by `onBehalfOf` (`outbox.ts:371, 502, 1148`). One ledger per runtime. The pool is keyed by runtime in `host/pool-host.ts:46` ("weak keys never retain a departed principal"). A principal switch destroys the runtime and its pool together. R1 and R3 act inside `mine()` only. |
-| **… draft-ledger policy** | Untouched. Drafts are not outbox commands. They keep rev arbitration and "a dirty local draft always wins locally". The only change is a per-session event for adapter 8. Chat sends were the one `PARKED_YIELDS` case. R1 now covers them, with the same 2-minute give-up window (`CHAT_SEND_MAX_AGE_MS`) and the same D11.4 id rule. |
-| **Ordinary deltas must not scan the world** | Pending lookups become O(row's entries). Adapters wake per key. The legacy fold runs only when read. |
+| **One mutation owner** | The outbox stays the only queue and the only durable record. The pool's log is an index over it, never a second queue. Pool screens write only through `pool.mutate`. Legacy screens write through the runtime's actions. Both call the outbox's single enqueue path. Nothing writes the replica. **Wording change needed:** the epic rule says "nothing new … queues commands", and under this decision the pool does call enqueue. Proposed wording: "one queue and one durable record: nothing new adds a queue or writes the replica". |
+| **One painter per screen** | A kind is either pool-owned (`truth` feed, pool transactions paint) or not yet (ledger paints through the `overlaid` feed), never both. During migration the ledger paints legacy screens from the same outbox records the pool adopts. That is two readers of one queue, not two queues. |
+| **No lost semantics: optimistic edits** | Paint before the durable commit, unpaint on a failed commit (4.2). |
+| **… rejection and rollback** | Rebase (4.3), in the same action as the refusal. Content is kept by the existing park policy (4.8). |
+| **… evict vs delete** | An eviction removes the row from the table. Its transactions stay in the log and the outbox (ADR 3 D9.5) and are not painted while the row is absent. They paint again if it is readmitted. A delete stays a pending `remove` until truth covers it. |
+| **… readmission** | A refused delete or tuck rebases and the row returns in the same action. |
+| **… atomic rescope** | A rescope arrives as one batch. Every row in it rebases in one action. |
+| **… offline hydration** | The log is rebuilt from the durable outbox at boot, and models paint as they become resident. Painted-but-not-durable transactions do not survive a reload, as today. |
+| **… principal isolation** | One `Outbox` per principal, filtered by `onBehalfOf` (`outbox.ts:371, 502, 1148`). The pool, and so its log, is keyed by runtime (`host/pool-host.ts:46`, "weak keys never retain a departed principal"). A principal switch destroys the runtime, its pool and its log together. Adoption (4.6) reads `mine()` only. |
+| **… draft-ledger policy** | Untouched. Drafts are not outbox commands: they keep rev arbitration and "a dirty local draft always wins locally". Adapter 8 gets a per-session event. Chat sends lose their special case: R1 covers them, with the same 2-minute give-up window and D11.4 id rule. |
+| **Ordinary deltas must not scan the world** | A change touches its own rows. Rebase is per model. Adapters wake per key. The legacy fold runs only when read. |
 
 ---
 
-## 7. Migration order
+## 6. Migration order
 
-Each step ships alone, with focused tests, a before/after count, and a revert path. Steps 1-2 do not
-depend on the pool and fix POD-5415 for every screen.
+Each step ships alone, with focused tests, a before/after count, and a revert path. Steps 0-2 do not
+depend on the pool and close POD-5415 for every screen.
 
-| Step | What | Paths touched | Gate |
-|---|---|---|---|
-| **0** | Server: typed refusals for every precondition in issue commands (`crud.ts:929, 1109, 1457, 1596, 1828, 1851`, plus an audit of `throw new Error` reachable from `routerFromCommands`). Decide whether an update to a soft-deleted issue is refused. | server issues module | A test per precondition asserting a typed code, and that the client classifies it as definitive. Legacy control: the bare-`Error` arm retries. |
-| **1** | Outbox: R1 for all commands, R3 retry to the back, drain on release. Delete `OUTBOX_PARKED_YIELDS_PARTITION` and `parkedYieldsPartition`. Amend ADR 3 D12 and the conformance table. | `packages/sync/src/outbox`, `kernel-outbox.ts`, `wiring.ts`, ADR 3 | POD-5415's sequence as a kernel test. Legacy arm (hold) must fail it. Retry-after-newer-landed ordering test. Existing chat-send yield tests still pass unchanged. |
-| **2** | Recovery copy: drop the "queued behind" wording if any. Confirm the chip renders retry position correctly. | `OutboxRecovery.tsx`, mobile twin | POD-4978's phone sequence re-run: "1 change needing review", 0 queued. |
-| **3** | Ledger: per-row index and `onPendingRows`. Row source reads `overlaysForRow` on the keyed event instead of `readPending()` whole maps. Still `overlaid` mode, still on the publish for discovery. | `optimism.ts`, `row-source.ts` | Per-change meter: a stage click costs O(1) pending lookups at 1x and 4x. Differential test: same emitted rows as `readPending()` over a scripted sequence that includes a refusal mid-chain. |
-| **4** | Pool projection materialised at write time; delete the `writes?.pending` branch and the optimism use of the overlay Proxy. Delete `write/*`, `write-contract.ts`, `receipts.ts`, `WriteSeam`, `pool.edit`, `IssueModel.update` and the generated setters (or keep thin setters, per D3). | `client-graph` pool, models, row source; worklist-proto harness | Proxy count 0 for pending rows; row identity stable across reads. The harness's write arm drives writes through runtime commands. |
-| **5** | Local keys: `onLocals` / `readLocal` from the runtime's locals writer. Move adapters 2, 13, then 5, 3, 6, 10, 9, 8 (window parts). Each unsubscribes once its last snapshot read is gone. | runtime locals; listed sources | Per adapter: no wake on an unrelated local or kernel batch. |
-| **6** | Discovery and window lists by id. Move adapters 1 (discovery lanes), 3, 6, 10, 5, 9. | discovery producer; listed sources | One repo change wakes only that repo's rows; command-launch no longer re-links all resident sessions. |
-| **7** | Drafts per session (8), cursor and count signals (7, 11, 12), spawn placeholders through pending rows (4, 12). Chat context reads pool tables and residency; `issueExit` uses a per-id demanded set. | draft ledger, replica, sources | Kernel batch that touches no demanded key: 0 adapter work. |
-| **8** | Lazy legacy snapshot: fold and `sessionViews` computed on read. | `runtime.ts` `publishReplica`, `replica-binding.ts` | With pool screens on and no legacy screen mounted: zero whole-array folds per batch (counter). Legacy screens unchanged (their tests). |
-| **9 (F4)** | Delete the ledger's whole-array fold, `readChanged`, the snapshot store and `runtime.subscribe`, once no legacy screen remains. | client-core engine | Part of F4. |
-
-Steps 5-7 are ordered by how many whole-array reads each removes: locals first (9 adapters), discovery
-next (4 adapters, including the all-sessions re-link), then the rest. Within a step, each adapter is one
-small change.
-
----
-
-## 8. What is deleted
-
-| What | Lines / place | Step |
+| Step | What | Gate |
 |---|---|---|
-| `OUTBOX_PARKED_YIELDS_PARTITION`, `parkedYieldsPartition`, `yieldsWhenParked` | `wiring.ts:658-664`, `ports.ts:303`, `outbox.ts:1197-1201` and its call sites | 1 |
-| ADR 3 D12's "blocks only its partition until recovery or cancel" | ADR 3, conformance table row | 1 |
-| Pool write stack | `write/edit.ts` 480, `write/overlay.ts` 88, `write/pending.ts` 13, `write/create.ts` 51, `shared/write-contract.ts` 566, `shared/receipts.ts` 250 = **1,448** | 4 |
-| Write seam in the reader | `WriteSeam` (`pool.ts:185-192`), `writes?.pending` in `pool.row` and `readCursor`, `pool.edit`, `observePending`, `createWritableWorklistPool`, `IssueModel.update` and setters | 4 |
-| Harness writable arm | `worklist-proto/arms/mobx/pool/write/*`, `harness/src/writable-arm.ts`, `harness/web/entries/mobx-write.ts` and `mobx-pending.ts` (re-pointed to runtime commands, or deleted if nothing measures through them) | 4 |
-| Optimism's use of the overlay Proxy | `pool.ts:672` | 4 |
-| `readPending()` whole-map pass, `pendingByRow` map rebuild | `row-source.ts:518-526`, `optimism.ts:544` | 3 |
-| 13 `runtime.subscribe` subscriptions | section 1.5 | 5-7 |
-| Eager legacy fold per batch | `runtime.ts:1539-1580` (made lazy) | 8 |
-| Ledger whole-array fold, snapshot store, `runtime.subscribe` | client-core engine | 9 (F4) |
+| **0** | **Server: typed refusals.** Every precondition reachable from `routerFromCommands` answers 409/412 (`crud.ts:929, 1109, 1457, 1596, 1828, 1851`, plus an audit of `throw new Error` in issue commands). Settle the policy for an update to a soft-deleted issue. | A test per precondition: a typed code, classified definitive by the client. Legacy arm: the bare `Error` retries. |
+| **1** | **Outbox: R1, R3, drain on release (4.9).** Delete the parked-yield list. ADR 3 D12 amendment and conformance row. | POD-5415's sequence as a kernel test; the hold arm must fail it. A retry after a newer change landed drains last. Chat-send tests unchanged. |
+| **2** | **Recovery surface.** Copy for "nothing queued behind"; POD-4978's phone sequence re-run. | "1 change needing review", 0 queued. |
+| **3** | **Pure reducers out of client-core.** Move `overlaysForOutboxEntry`, `issueUpdateRoute`, `insertOverlay`, `foldOverlays`, `foldRowOverlays`, `pruneAwaiting`, `patchedCellsMovedPast`, `rowFingerprint` and the TTL constant into a pure module both the ledger and the pool import. No behaviour change. | Existing ledger tests pass unchanged. Lint: the pool imports no `client-core` engine class. |
+| **4** | **`PoolTransactions`, off by default.** Grow `write/*` into it: all 27 kinds plus spawn inserts (4.5), adoption (4.6), boot rebuild, settlement rules ported from the ledger (4.4), rebase (4.3), write-time visible rows, cold targets (4.7). | Differential test against the ledger over scripted sequences: same visible rows for a mid-chain refusal, offline reload, spawn failure, another tab's write, eviction and readmission, and rescope. Per-change meter: one click costs O(rows touched) at 1x and 4x. |
+| **5** | **The pool owns issues.** `issueProjections` and `issueUserStates` become pool-owned kinds (`truth` feed). Pool screens write through model setters and `pool.mutate`. Delete the read-time overlay: `writes?.pending` in `pool.row` and `readCursor`, the `PendingOverlay` map (`write/overlay.ts`), and optimism's use of the overlay Proxy. | A refusal rewinds once (no ledger fold on owned kinds). Rename input → paint not slower than POD-4978's recorded numbers. Row identity stable across reads. |
+| **6** | **The pool owns sessions:** `sessions`, `sessionUserStates`, spawn placeholders. Adapters 4 and 12 read pool transactions. | Same gates as step 5 for sessions; spawn failure removes the placeholder after the grace period. |
+| **7** | **Local keys** (`onLocals`, `readLocal`): adapters 2 and 13 first, then 5, 3, 6, 10, 9, 8 (window parts). | Per adapter: no wake on an unrelated local or kernel batch. |
+| **8** | **Discovery and window lists by id:** adapters 1 (discovery lanes), 3, 6, 10, 5, 9. | One repo change wakes only that repo's rows. Command launch no longer re-links all resident sessions. |
+| **9** | **Drafts per session (8); cursor and count signals (7, 11, 12).** Chat context reads pool tables; `issueExit` uses a per-id demanded set. | A kernel batch touching no demanded key: zero adapter work. |
+| **10** | **Lazy legacy snapshot** (4.10). | Pool screens on and no legacy screen mounted: zero whole-array folds per batch. Legacy screens' tests unchanged. |
+| **11 (F4)** | **Delete the legacy optimism and publish** (section 7). | Part of F4. |
+
+Steps 7-9 are ordered by how many whole-array reads each removes: locals touch 9 adapters, discovery
+touches 4 (including the all-sessions re-link). Steps 5 and 6 can run in parallel with 7-9.
 
 ---
 
-## 9. Risks
+## 7. What is deleted
 
-1. **Order-sensitive intents re-applied on a different base.** A reorder computes fractional keys
-   against the displayed order, which includes pending moves (`planReorderKeys`). If an earlier
-   reorder is refused, a later one lands on the accepted order. The result is a valid order but may not
-   be the exact one the user saw. Replicache has the same property. The refused reorder already snaps
-   back today. Mitigation: none needed beyond a test that the result is a valid order.
-2. **An older retry overwrites a newer landed value.** Under R3, if rename A is retried after rename B
-   landed, A wins. That is the user's latest act. The recovery chip cannot show the current value,
-   because it never reads the target (a security rule). Accepted, and stated in the copy if the
-   operator wants it (D2).
-3. **Step 0 is a real prerequisite.** Shipping step 1 without it changes nothing for the 500 cases: they
-   still hold their partition as transient. With R1 the hold now looks inconsistent: refused entries
-   release, 500s hold. Step 0 first.
-4. **Update of a soft-deleted issue succeeds on the server.** This is not a refusal problem, but it is a
-   dependent-change hazard: delete accepted, then a queued update lands on the deleted row. Step 0 asks
-   for a decision.
-5. **Harness evidence built on the writable arm.** `work-per-change.test.tsx`, `tracking-counts` and the
-   `mobx-write`/`mobx-pending` entries drive edits through `write/*`. Step 4 must re-point them to
-   runtime commands in the same change, or the per-change meter loses its write coverage. Re-record the
-   tracking-counts baseline in that change.
-6. **Overlap with POD-5416** (overlay Proxy). Step 4 removes optimism's use of the Proxy. POD-5416 owns
-   the other uses. Land order: whichever is first; the second rebases. Mail POD-5416 when step 4 starts.
-7. **The compatibility queue** (`client-core/src/outbox.ts`, one global FIFO) is still selected when no
-   `createOutboxFn` is injected (`wiring.ts:835`). If any production path still uses it, it needs R1 too,
-   or it should be deleted. READ: web (`AppShell.tsx:341`) and mobile (`MobileClientProvider.tsx:799`) inject the kernel `Outbox`. The fallback is reached only where nothing is injected; delete it or give it R1 in step 1.
-8. **Lazy legacy snapshot and `useSyncExternalStore`.** `getSnapshot()` must return the same object
-   until the version changes, or React loops. Memoizing by version does that. Test it with a legacy
-   screen mounted.
-9. **ADR amendment.** R1 changes a written ADR decision and its conformance row. It needs operator
-   sign-off as an ADR 3 amendment, not only this spec.
+| What | Where | Step |
+|---|---|---|
+| Parked-yield special case | `OUTBOX_PARKED_YIELDS_PARTITION` (`wiring.ts:658-664`), `parkedYieldsPartition` (`ports.ts:303`), `yieldsWhenParked` (`outbox.ts:1197-1201`) and call sites | 1 |
+| ADR 3 D12's "blocks only its partition until recovery or cancel" | ADR 3 and the conformance row | 1 |
+| Stored prior values | `prior`, `priorIdentity`, `restoreIdentity` in `write-contract.ts`; replaced by rebase | 4 |
+| Read-time optimism in the pool | `writes?.pending` in `pool.row` and `readCursor` (`pool.ts:670-672, 704-710`); `write/overlay.ts` (88 lines); `observePending`; optimism's use of `overlayRow` (`pool.ts:672`) | 5 |
+| Ledger reads for owned kinds | `readPending()` (`row-source.ts:518-526`) and the `overlaid` mode, per kind, then entirely | 5, 6 |
+| 13 `runtime.subscribe` subscriptions | table 1.5 | 6-9 |
+| Eager legacy fold per batch | `runtime.ts:1539-1580` (made lazy) | 10 |
+| The legacy ledger | `optimism.ts` (1,273 lines): the class, `enqueueOverlayed`'s paint, `recomputeFor`, `foldStable`, `recomputeSessions`, `pendingByRow`, `pendingSpawnIds` and `pendingSpawnPrompts` in the snapshot | 11 (F4) |
+| Legacy publish | `replica-binding.ts` `readChanged`, the snapshot store, `runtime.subscribe` | 11 (F4) |
+
+**Kept and grown, not deleted:**
+
+- `write/edit.ts`, `write/create.ts` and `write-contract.ts`'s `PendingLog` become `PoolTransactions`.
+- `receipts.ts` is the transport over the outbox.
+- The pure reducers move out of `overlay.ts` (step 3).
+- `IssueModel.update` and the generated setters become the production write API.
 
 ---
 
-## 10. Decisions for the operator
+## 8. Risks
 
-- **D1. Adopt R1–R5 and amend ADR 3 D12** (a parked entry releases its partition, for every command;
-  retry goes to the back; typed server refusals are required). Recommended: **yes**. This closes
-  POD-5415 and makes `OUTBOX_PARKED_YIELDS_PARTITION` unnecessary.
-- **D2. One pending set (the ledger, made keyed), projection in the pool, delete `write/*`.**
-  Recommended: **yes**. This is the narrowed form of the coordinator's point (1). The alternative,
-  wiring `write/*` and retiring the ledger fold, first rebuilds, in a second place, the coverage for the 25 queued command kinds it does not handle
-  (27 in `OutboxKinds`, `wiring.ts:54-151`; `write/*` handles `issueUpdate` and `issueMarkRead`).
-- **D3. Model setters as the write entry point** (`issue.title = …` calling the runtime command).
-  Recommended: **not now**. They change no semantics. Screens already call the commands. Add them later
-  if screen code would read better.
+1. **Settlement rules diverge** between `PendingLog` and the ledger (echo coverage, spawn grace, absent
+   user rows, chaining). Mitigation: the ledger is the reference. Step 4's differential test runs until
+   the ledger is deleted.
+2. **Two painters on one kind** cause a double rewind or a flicker. Mitigation: the per-kind ownership
+   set (4.10), and a test that an owned kind never reads the ledger.
+3. **Paint latency.** `pool.mutate` must paint in the same action as the click. Gate it against
+   POD-4978's recorded rename input → paint.
+4. **Adoption needs a reducer per kind.** A kind without one paints nothing but stays pending (D6), not
+   a crash. Step 4 asserts all 27 kinds map.
+5. **Cold targets.** A transaction on a non-resident model paints on load. A toggle or reorder must load
+   the model first, or it would compute from a missing value.
+6. **Order-sensitive intents** (reorder keys computed against the optimistic order) re-apply on a
+   different accepted order after an earlier refusal. The result is valid but may differ from what the
+   user saw, the same as in Replicache. Test that the result is a valid order.
+7. **An older retry overwrites a newer landed value** under R3. That is the user's latest act. The
+   recovery chip cannot show the current value, because it never reads the target.
+8. **Step 0 is a prerequisite.** Without it the 500 cases still hold their partition, and R1 looks
+   inconsistent.
+9. **An update to a soft-deleted issue succeeds on the server** (`crud.ts:1099`). That is a dependent
+   change the server does not refuse today. Step 0 settles it.
+10. **Harness evidence on the writable arm.** `work-per-change.test.tsx`, `tracking-counts` and the
+    `mobx-write` and `mobx-pending` entries drive `write/*` today. Step 4 changes that code, so step 4
+    re-records the tracking-counts baseline and keeps the meter's write coverage.
+11. **Overlap with POD-5416** (overlay Proxy). Step 5 removes optimism's use of it, and POD-5416 owns
+    the other uses. Mail POD-5416 when step 5 starts.
+12. **The compatibility queue** (`client-core/src/outbox.ts`, one global FIFO) is the fallback when no
+    `createOutboxFn` is injected (`wiring.ts:835`). READ: web (`AppShell.tsx:341`) and mobile
+    (`MobileClientProvider.tsx:799`) inject the kernel `Outbox`. Delete the fallback, or give it R1, in
+    step 1.
+13. **Lazy snapshot and `useSyncExternalStore`.** `getSnapshot()` must return the same object until the
+    version changes, or React loops. Memoize by version, and test with a legacy screen mounted.
+14. **Sign-offs.** R1 amends ADR 3 D12. The epic's "one mutation owner" wording changes (section 5).
+    Both need the operator's sign-off as written text, beyond this decision.
 
 ---
 
-## 11. Evidence index
+## 9. Open items for the operator
 
-- Queue proof: POD-4978 artifact 3 (`mobile-queue-audit.json`), and `docs/measurements/POD-4978-mobile-actions.md` lines 126-147 at `c391e95d73`.
-- Review findings: `docs/reviews/pod-4286-mobx-architecture-review.md` §13, §19, "Against Linear's client model".
-- Outbox policy: `docs/adr/0003-command-security.md` D9-D13; `docs/design/outbox-dead-letter-recovery.md`; `docs/design/outbox-lifecycle-state-machine.md`.
-- External: Replicache server push reference (`doc.replicache.dev/reference/server-push`); Linear sync engine reverse-engineering (`github.com/wzhudev/reverse-linear-sync-engine`).
+The direction is decided. These four smaller items need a word:
+
+1. **ADR 3 D12 amendment text.** Step 1 drafts it; the operator signs it.
+2. **The epic rule's new wording** (section 5).
+3. **An update to a soft-deleted issue**: refuse it (typed 409) or keep accepting it. Recommended:
+   refuse.
+4. **The per-row "not saved" marker** (4.8): show it, or rely on the recovery chip alone.
+
+---
+
+## 10. Evidence index
+
+- **Queue proof:** POD-4978 artifact 3 (`mobile-queue-audit.json`), and
+  `docs/measurements/POD-4978-mobile-actions.md` lines 126-147 at `c391e95d73`.
+- **Review findings:** `docs/reviews/pod-4286-mobx-architecture-review.md` §13, §19, and "Against
+  Linear's client model".
+- **Outbox policy:** `docs/adr/0003-command-security.md` D9-D13;
+  `docs/design/outbox-dead-letter-recovery.md`; `docs/design/outbox-lifecycle-state-machine.md`.
+- **External:** Replicache server push reference (`doc.replicache.dev/reference/server-push`); Linear
+  sync engine reverse-engineering (`github.com/wzhudev/reverse-linear-sync-engine`).
+- **Decision:** operator, 2026-10-03, pinned comment on POD-5426.
