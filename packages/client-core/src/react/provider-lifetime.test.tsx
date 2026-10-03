@@ -89,22 +89,23 @@ it('retires account-owned callbacks and state on principal changes while preserv
   let previous = runtime()
   fixture.handle = previous
   const view = render(frame(alice))
+  const draftInput = () => view.getByLabelText('draft') as HTMLInputElement
   fireEvent.change(view.getByLabelText('draft'), { target: { value: 'Alice draft' } })
   view.rerender(frame({ ...alice }))
-  expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('Alice draft')
+  expect(draftInput().value).toBe('Alice draft')
   expect(mounts).toEqual(['alice'])
   expect(previous.destroy).not.toHaveBeenCalled()
   expect(view.container.querySelector('output')?.textContent).toBe('alice:current')
 
   for (const name of ['bob', 'alice']) {
-    view.getByLabelText<HTMLInputElement>('draft').focus()
+    draftInput().focus()
     expect(document.activeElement).toBe(view.getByLabelText('draft'))
     const next = runtime()
     fixture.handle = next
     view.rerender(frame(asClientPrincipal(asUserId(name))))
     await Promise.resolve()
     expect(previous.destroy).toHaveBeenCalledOnce()
-    expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('')
+    expect(draftInput().value).toBe('')
     expect(document.activeElement).not.toBe(view.getByLabelText('draft'))
     expect(view.container.querySelector('output')?.textContent).toBe(`${name}:current`)
     fireEvent.click(view.getByText('Close'))
@@ -118,7 +119,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
   // Reconnection or endpoint changes may rebuild a runtime for the SAME account.
   // They must preserve local UI state rather than remounting the whole app.
   fireEvent.change(view.getByLabelText('draft'), { target: { value: 'new draft' } })
-  const focused = view.getByLabelText<HTMLInputElement>('draft')
+  const focused = draftInput()
   focused.focus()
   for (const tree of [
     frame(alice, { ...config }),
@@ -129,7 +130,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
     fixture.handle = replacement
     view.rerender(tree)
     expect(previous.destroy).toHaveBeenCalledOnce()
-    expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('new draft')
+    expect(draftInput().value).toBe('new draft')
     expect(document.activeElement).toBe(focused)
     expect(blur).toHaveBeenCalledTimes(2)
     expect(mounts).toEqual(['alice', 'bob', 'alice'])
@@ -140,7 +141,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
   fixture.handle = runtime()
   view.rerender(frame(asClientPrincipal(alice.userId, 'replacement-boundary')))
   expect(previous.destroy).toHaveBeenCalledOnce()
-  expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('')
+  expect(draftInput().value).toBe('')
   view.rerender(frame(null))
   expect(view.container.textContent).toBe('')
   expect(unmounts).toEqual(['alice', 'bob', 'alice', 'alice'])
@@ -176,7 +177,7 @@ it('leaves removed-field selection bookkeeping to real browser focus events', as
   )
   fixture.handle = runtime()
   const view = render(frame('alice'))
-  view.getByLabelText<HTMLInputElement>('retired focus').focus()
+  view.getByLabelText('retired focus').focus()
   fireEvent.click(view.getByText('Remove field'))
   const focusOut = vi.fn()
   view.container.addEventListener('focusout', focusOut)
