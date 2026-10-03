@@ -105,6 +105,24 @@ it('cold model parent reads overlay pending edits without loading the row', () =
   } finally { pool.dispose() }
 })
 
+it('an observed model summary follows an unknown id becoming cold, removal and return', () => {
+  const { pool, cold, load } = setup()
+  const issue = pool.issueObject('future')
+  const seen: (string | null | undefined)[] = []
+  const stop = reaction(() => issue.hidden?.parentId, value => seen.push(value), { fireImmediately: true })
+  try {
+    expect(seen).toEqual([undefined])
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'future', value: { ...cold, id: 'future', parentId: 'cold-parent' } }] })
+    expect(seen).toEqual([undefined, 'cold-parent'])
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'future', value: undefined }] })
+    expect(seen.at(-1)).toBeUndefined()
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'future', value: { ...cold, id: 'future', parentId: 'returned-parent' } }] })
+    expect(seen.at(-1)).toBe('returned-parent')
+    expect(pool.hydrate()).toBe(0)
+    expect(load).not.toHaveBeenCalled()
+  } finally { stop(); pool.dispose() }
+})
+
 it('a missing cold summary returns LOADING and queues one batched row load', () => {
   const { pool, load } = setup()
   try {

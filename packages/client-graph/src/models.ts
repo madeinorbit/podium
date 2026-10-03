@@ -973,7 +973,12 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get hidden(): HiddenIssue | undefined {
-    if (untracked(() => this.host.row('issue', this.id, 'mark')) !== LOADING) return undefined
+    const resident = untracked(() => this.host.row('issue', this.id, 'mark'))
+    if (resident !== LOADING) {
+      // Unknown ids must still follow a later cold publication through the reader.
+      if (resident === undefined) void this.host.row('issue', this.id, 'summary')
+      return undefined
+    }
     const summary = this.host.row('issue', this.id, 'summary')
     return summary === LOADING ? {} : summary as HiddenIssue | undefined
   }
