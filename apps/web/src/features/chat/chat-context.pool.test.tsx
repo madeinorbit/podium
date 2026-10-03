@@ -114,6 +114,7 @@ it('updates addressed records, question membership and outbox without re-reading
   expect(chatInteractions(corpus.pool, corpus.sessions[0]!.sessionId).question?.id).toBe('notice-ask-5')
   corpus.updateMessages(corpus.data.messages.slice(1), ['notice-message-0'])
   expect(corpus.check().differences).toBe(0)
+  expect(corpus.pool.row('chatRecordOrder', 'order')).not.toMatchObject({ ids: expect.arrayContaining(['notice-message-0']) })
 })
 
 it('reports missing cold summaries pending and batches their hydration', async () => {
