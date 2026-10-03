@@ -26,6 +26,10 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       const root = missions(pool).rootFor(id)
       return root === LOADING ? NAVIGATION_LOADING : root === undefined ? undefined : asIssueId(root)
     },
+    missionMembers(rootId) {
+      const ids = missions(pool).members(rootId)
+      return ids === LOADING ? NAVIGATION_LOADING : ids
+    },
     session(id) {
       let row = pool.row('session', id)
       if (row === LOADING) return NAVIGATION_LOADING

@@ -567,6 +567,18 @@ const NO_SESSIONS: readonly SessionView[] = Object.freeze([])
 const sessionIndexes = new WeakMap<readonly SessionView[], MissionSessionIndex>()
 let sessionIndexBuilds = 0
 
+/** Opt-in entry counts include cache hits and engine reactions, so a switched
+ * path cannot hide a legacy call behind a warm memo or a pane-local counter. */
+const emptyLegacyMissionCounts = () => ({ missionIssueIds: 0, indexMissionSessions: 0 })
+let legacyMissionCounting = false
+let legacyMissionCounts = emptyLegacyMissionCounts()
+export const missionLegacyStats = {
+  enable() { legacyMissionCounting = true },
+  disable() { legacyMissionCounting = false },
+  reset() { legacyMissionCounts = emptyLegacyMissionCounts() },
+  read() { return { ...legacyMissionCounts } },
+}
+
 function missionSessionIndex(sessions: readonly SessionView[]): MissionSessionIndex {
   const cached = sessionIndexes.get(sessions)
   if (cached) return cached
@@ -577,6 +589,7 @@ function missionSessionIndex(sessions: readonly SessionView[]): MissionSessionIn
 
 /** Fresh, derivation-local membership; never retained across snapshots. */
 export function indexMissionSessions(sessions: readonly SessionView[]): MissionSessionIndex {
+  if (legacyMissionCounting) legacyMissionCounts.indexMissionSessions++
   sessionIndexBuilds += 1
   const byIssue = new Map<string, SessionView[]>()
   const openIssues = new Set<string>()
@@ -1100,6 +1113,7 @@ export function missionIssueIds(
   rootId: string,
   sessions: readonly SessionView[] = NO_SESSIONS,
 ): Set<string> {
+  if (legacyMissionCounting) legacyMissionCounts.missionIssueIds++
   return memoBySlices(missionMemberSets, issues, sessions, rootId, () =>
     computeMissionIssueIds(issues, rootId, sessions),
   )

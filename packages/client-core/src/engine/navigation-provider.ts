@@ -12,6 +12,7 @@ export type NavigationIssue = Pick<IssueProjection, 'id' | 'updatedAt' | 'archiv
 export interface NavigationProvider {
   issue(id: string): NavigationRead<NavigationIssue>
   missionRoot(id: string): NavigationRead<IssueId>
+  missionMembers(rootId: string): ReadonlySet<string> | typeof NAVIGATION_LOADING
   session(id: string): NavigationRead<SessionView>
   activityAt(id: string): NavigationRead<string>
   issueReadAt(id: string): string | null | undefined
@@ -23,6 +24,7 @@ export interface NavigationProvider {
 export const loadingNavigationProvider: NavigationProvider = {
   issue: () => NAVIGATION_LOADING,
   missionRoot: () => NAVIGATION_LOADING,
+  missionMembers: () => NAVIGATION_LOADING,
   session: () => NAVIGATION_LOADING,
   activityAt: () => NAVIGATION_LOADING,
   issueReadAt: () => undefined,

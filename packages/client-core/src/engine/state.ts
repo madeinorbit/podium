@@ -519,7 +519,7 @@ function resolvableFileTabIds(st: Pick<EngineState, 'sessions' | 'fileTabs'>): s
 export function knownTabIdsForWorkspace(
   st: Pick<
     EngineState,
-    'issueProjections' | 'issueDeps' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'
+    'navigation' | 'issueProjections' | 'issueDeps' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'
   >,
   key: WorkspaceKey,
 ): Set<string> {
@@ -582,7 +582,7 @@ function issuesById(issues: readonly IssueProjection[]): ReadonlyMap<string, Iss
  * which is how ~651 ms of main-thread time went missing per frame.
  */
 export function workspaceMembership(
-  st: Pick<EngineState, 'issueProjections' | 'issueDeps' | 'sessions'>,
+  st: Pick<EngineState, 'navigation' | 'issueProjections' | 'issueDeps' | 'sessions'>,
   key: WorkspaceKey,
 ): (session: SessionView) => boolean {
   if (key === 'none') return () => true
@@ -602,6 +602,29 @@ export function workspaceMembership(
   }
   if (key.startsWith('mission:')) {
     const rootId = key.slice(8)
+    if (st.navigation) {
+      const navigation = st.navigation
+      const ids = navigation.missionMembers(rootId)
+      // A cold membership answer cannot establish that a tab is foreign.
+      // Keep it while the pool loads; never consult legacy mission topology.
+      if (ids === NAVIGATION_LOADING) return () => true
+      let worktrees: string[] | undefined
+      let loading = false
+      return (session) => {
+        if (session.issueId !== undefined) return ids.has(session.issueId)
+        // Only unassigned sessions need member worktrees. These addressed
+        // reads use the navigation summaries, including cold issue rows.
+        if (!worktrees) {
+          worktrees = []
+          for (const id of ids) {
+            const issue = navigation.issue(id)
+            if (issue === NAVIGATION_LOADING) loading = true
+            else if (issue?.worktreePath) worktrees.push(issue.worktreePath)
+          }
+        }
+        return loading || worktrees.some((wt) => session.cwd === wt || session.cwd.startsWith(`${wt}/`))
+      }
+    }
     const ids = missionIssueIds(issueTopology(st), rootId, st.sessions)
     // The mission's worktrees, collected once. The old loop rebuilt this
     // filtered view of the slice inside every session's test; the SET it walks
@@ -622,7 +645,7 @@ export function workspaceMembership(
  *  {@link workspaceMembership} — a caller with one session to test should not
  *  have to know that the rule has a per-key half. */
 export function sessionBelongsToWorkspace(
-  st: Pick<EngineState, 'issueProjections' | 'issueDeps' | 'sessions'>,
+  st: Pick<EngineState, 'navigation' | 'issueProjections' | 'issueDeps' | 'sessions'>,
   key: WorkspaceKey,
   session: SessionView,
 ): boolean {

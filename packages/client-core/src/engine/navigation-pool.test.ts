@@ -19,6 +19,7 @@ const seat = { sessionId: asSessionId('seat'), issueId: child.id, cwd: '/repo', 
 const provider: NavigationProvider = {
   issue: id => id === root.id ? root : id === child.id ? child : undefined,
   missionRoot: () => root.id,
+  missionMembers: () => new Set([root.id, child.id]),
   session: id => id === seat.sessionId ? seat : undefined,
   activityAt: () => stamp,
   issueReadAt: () => null,

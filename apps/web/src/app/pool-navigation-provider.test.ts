@@ -1,6 +1,8 @@
-import { type EngineState, issueActivityAt, loadingNavigationProvider, NAVIGATION_LOADING, navigationStats, resolvedWorkspaceKey, workspaceKeyForState } from '@podium/client-core/engine'
+import { type EngineState, issueActivityAt, knownTabIdsForWorkspace, loadingNavigationProvider, NAVIGATION_LOADING, navigationStats, resolvedWorkspaceKey, workspaceKeyForState } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
+import { allTabIds, emptyWorkspace, indexMissionSessions, missionIssueIds, missionLegacyStats, openTab, type WorkspaceKey } from '@podium/client-core/viewmodels'
 import { planNavigation } from '../../../../packages/client-core/src/engine/navigation'
+import { Reactions } from '../../../../packages/client-core/src/engine/reactions'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
@@ -17,7 +19,7 @@ import { attachWorklistPool } from './store-worklist-pool'
 const choice = vi.hoisted(() => ({ mode: 'pool' }))
 vi.mock('@/lib/pane-data-layer', () => ({ initializePaneDataLayer() {}, paneDataLayer: () => choice.mode }))
 vi.mock('@/lib/sidebar-data-layer', () => ({ initializeSidebarDataLayer() {}, sidebarDataLayer: () => 'legacy', sidebarCheckRequested: () => false }))
-afterEach(() => { navigationStats.disable(); navigationStats.reset(); choice.mode = 'pool' })
+afterEach(() => { navigationStats.disable(); navigationStats.reset(); missionLegacyStats.disable(); missionLegacyStats.reset(); vi.restoreAllMocks(); choice.mode = 'pool' })
 const stamp = '2026-09-18T00:00:00.000Z'
 const tracked = <T>(read: () => T): T => computed(read).get()
 const issue = (id: string, patch: Partial<SliceIssue> = {}): SliceIssue => ({
@@ -29,6 +31,125 @@ const legacyActivity = (rows: SliceIssue[], sessions: SessionView[]) => issueAct
 )
 
 describe('web pool navigation', () => {
+  it('counts legacy membership entries even on memo hits and direct session indexing', () => {
+    const rows = [{ id: asIssueId('root'), stage: 'backlog' as const, archived: false }], sessions: SessionView[] = []
+    missionIssueIds(rows, 'root', sessions)
+    missionLegacyStats.enable(); missionLegacyStats.reset()
+    for (let i = 0; i < 3; i++) missionIssueIds(rows, 'root', sessions)
+    indexMissionSessions(sessions)
+    expect(missionLegacyStats.read()).toEqual({ missionIssueIds: 3, indexMissionSessions: 1 })
+  })
+
+  it('matches legacy mission tab pruning using pool membership and declared cold worktrees', () => {
+    const rows = [issue('root', { worktreePath: '/wt/root' }),
+      issue('child', { parentId: 'root', worktreePath: '/wt/child' }),
+      issue('started', { startedBySession: 'owner', worktreePath: '/wt/started', archived: true }),
+      issue('grafted', { parentId: 'started', worktreePath: '/wt/grafted' }),
+      issue('spin', { startedBySession: 'owner', stage: 'in_progress', worktreePath: '/wt/spin',
+        deps: [{ id: 'child', type: 'discovered-from' }] }),
+      issue('other', { worktreePath: '/wt/other' })]
+    const sessions = [
+      { sessionId: 'owner', issueId: 'child', cwd: '/wt/child', archived: true, headless: true },
+      { sessionId: 'started', issueId: 'started', cwd: '/wt/started' },
+      { sessionId: 'spin', issueId: 'spin', cwd: '/wt/spin' },
+      { sessionId: 'grafted', issueId: 'grafted', cwd: '/wt/grafted' },
+      { sessionId: 'loose-root', cwd: '/wt/root/src' },
+      { sessionId: 'loose-started', cwd: '/wt/started/src' },
+      { sessionId: 'loose-other', cwd: '/wt/other' },
+      { sessionId: 'near-miss', cwd: '/wt/rooted' },
+    ] as SessionView[]
+    const fileTabs = [{ id: 'file', scope: { kind: 'worktree', worktreePath: '/wt/root' }, path: 'README.md', worktreePath: '/wt/root' }]
+    const legacy = { issueProjections: rows, issueDeps: [{ id: 'departure', fromId: 'spin', toId: 'child', type: 'discovered-from' }],
+      sessions, pendingSpawnIds: new Set(['spawn']), fileTabs } as unknown as EngineState
+    const keys: WorkspaceKey[] = ['mission:root', 'mission:other', 'mission:absent']
+    const expected = keys.map(key => [...knownTabIdsForWorkspace(legacy, key)].sort())
+    const load = vi.fn((_kind: string, id: string) => rows.find(row => row.id === id))
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
+      { load, summaries: NAVIGATION_SUMMARIES, schedule: () => () => {} })
+    pool.apply({ type: 'replace', rows: [...rows.map(value => ({ kind: 'issue' as const, id: value.id, value })),
+      ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))] })
+    const navigation = createPoolNavigationProvider(pool)
+    // The pool is authoritative even when the legacy issue/dependency slices
+    // are stale or empty. Session and file liveness keep their original owner.
+    const state = { ...legacy, navigation, issueProjections: [], issueDeps: [] }
+    const layouts = Object.fromEntries(keys.map(key => [key, [...sessions.map(row => row.sessionId), 'file', 'spawn', 'ghost']
+      .reduce((ws, id) => openTab(ws, id, { permanent: true }), emptyWorkspace(key))]))
+    const prune = (st: EngineState) => {
+      const reactions = new Reactions({ state: () => st, publish: patch => Object.assign(st, patch),
+        hub: {} as never, notices: {} as never, isVisible: () => true, markSessionRead: vi.fn(), markIssueRead: vi.fn() })
+      try { reactions.pruneWorkspaces(); return st.workspaces } finally { reactions.dispose() }
+    }
+    const expectedLayouts = prune({ ...legacy, workspaces: layouts })
+    missionLegacyStats.enable(); missionLegacyStats.reset()
+    try {
+      for (const [i, key] of keys.entries()) expect([...knownTabIdsForWorkspace(state, key)].sort()).toEqual(expected[i])
+      const actualLayouts = prune({ ...state, workspaces: layouts })
+      expect(actualLayouts).toEqual(expectedLayouts)
+      expect(allTabIds(actualLayouts['mission:root']!)).toEqual(expect.arrayContaining(['owner', 'started', 'loose-root', 'loose-started', 'file', 'spawn', 'ghost']))
+      expect(allTabIds(actualLayouts['mission:root']!)).not.toContain('spin')
+      expect(allTabIds(actualLayouts['mission:root']!)).not.toContain('grafted')
+      expect(missionLegacyStats.read()).toEqual({ missionIssueIds: 0, indexMissionSessions: 0 })
+      expect(pool.hydrate()).toBe(0)
+      expect(load).not.toHaveBeenCalled()
+      // Topology and worktree changes come from the pool, without a legacy
+      // slice update or a second membership index owned by the engine.
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'child', value: issue('child', { parentId: 'other', worktreePath: '/wt/new' }) }] })
+      expect(knownTabIdsForWorkspace(state, 'mission:root').has('owner')).toBe(false)
+      expect(knownTabIdsForWorkspace(state, 'mission:other').has('owner')).toBe(true)
+      expect(knownTabIdsForWorkspace(state, 'mission:root').has('loose-started')).toBe(false)
+      expect(missionLegacyStats.read()).toEqual({ missionIssueIds: 0, indexMissionSessions: 0 })
+    } finally { pool.dispose() }
+  })
+
+  it('keeps mission tabs while the pool membership or member worktree is loading without legacy reads', () => {
+    const sessions = [{ sessionId: 'bound', issueId: 'child', cwd: '/repo' },
+      { sessionId: 'foreign', issueId: 'other', cwd: '/repo' }, { sessionId: 'loose', cwd: '/wt/child/src' }] as SessionView[]
+    const state = { navigation: loadingNavigationProvider, issueProjections: [], issueDeps: [], sessions,
+      pendingSpawnIds: new Set(), fileTabs: [] } as unknown as EngineState
+    missionLegacyStats.enable(); missionLegacyStats.reset()
+    expect([...knownTabIdsForWorkspace(state, 'mission:root')]).toEqual(['bound', 'foreign', 'loose'])
+    let ready = false
+    state.navigation = { ...loadingNavigationProvider, missionMembers: () => new Set(['child']),
+      issue: id => ready ? { ...issue(id), id: asIssueId(id), worktreePath: '/wt/elsewhere' } : NAVIGATION_LOADING }
+    expect([...knownTabIdsForWorkspace(state, 'mission:root')]).toEqual(['bound', 'loose'])
+    ready = true
+    expect([...knownTabIdsForWorkspace(state, 'mission:root')]).toEqual(['bound'])
+    expect(missionLegacyStats.read()).toEqual({ missionIssueIds: 0, indexMissionSessions: 0 })
+  })
+
+  it('switches sessions with identical layouts and no legacy mission entries while pruning runs', async () => {
+    const results: unknown[] = []
+    const prune = vi.spyOn(Reactions.prototype, 'pruneWorkspaces')
+    for (const enabled of [false, true]) {
+      const ctx = await startScenarioEngine(1, { ownRows: true })
+      const runtime = ctx.engine
+      const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
+      const handle = enabled ? createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES }) : undefined
+      try {
+        if (handle) { runtime.enablePoolRuntimeWork(); runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool)) }
+        const before = runtime.getSnapshot()
+        const seats = before.sessions.filter(row => !row.archived && row.issueId &&
+          before.issueProjections.some(issue => issue.id === row.issueId && !issue.archived && !issue.deletedAt))
+        const first = seats[0]!
+        const firstKey = workspaceKeyForState({ ...before, selectedIssueId: first.issueId! })
+        const next = seats.find(row => workspaceKeyForState({ ...before, selectedIssueId: row.issueId! }) !== firstKey)!
+        runtime.getSnapshot().navigateToSession(first.sessionId)
+        await vi.waitFor(() => expect(runtime.getSnapshot().paneA).toBe(first.sessionId))
+        prune.mockClear()
+        missionLegacyStats.enable(); missionLegacyStats.reset()
+        runtime.getSnapshot().navigateToSession(next.sessionId)
+        await vi.waitFor(() => expect(runtime.getSnapshot().paneA).toBe(next.sessionId))
+        expect(prune).toHaveBeenCalled()
+        if (enabled) expect(missionLegacyStats.read()).toEqual({ missionIssueIds: 0, indexMissionSessions: 0 })
+        else expect(missionLegacyStats.read().missionIssueIds).toBeGreaterThan(0)
+        const st = runtime.getSnapshot()
+        results.push({ selectedIssueId: st.selectedIssueId, key: st.workspaceKey(), paneA: st.paneA, paneB: st.paneB,
+          focusedPane: st.focusedPane, workspaces: st.workspaces, route: runtime.router.current() })
+      } finally { missionLegacyStats.disable(); runtime.setNavigationProvider(loadingNavigationProvider); handle?.dispose(); runtime.destroy() }
+    }
+    expect(results[1]).toEqual(results[0])
+  })
+
   it('agrees with legacy keys for hidden ancestors, drafts, absent parents and direct missing ids', () => {
     const rows = [issue('root'), issue('child', { parentId: 'root' }),
       issue('archived', { parentId: 'root', archived: true }), issue('below-archived', { parentId: 'archived' }),
