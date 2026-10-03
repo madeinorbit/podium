@@ -18,16 +18,16 @@ The initial private ludovico audit found 1,920 sessions with multiple eligible m
 
 ## Evidence
 
-Focused validation ran on flatblock in `~/podium-test-5092`, using its private `.toolchain` and checkout-local dependency links. No full suite or whole test lane ran.
+The refreshed validation ran at candidate `f404b8db67` on flatblock in `~/podium-test-5092`, using its private `.toolchain` and checkout-local dependency links. It includes the relation engine, shared host and shared pilot-switch repair. Following POD-4286's explicit request, the whole focused batch held `bench:flatblock`; the lease was released immediately after the probes restored their source bytes. No full suite or whole test lane ran.
 
-- Twelve scoped test files passed, totaling 128 tests. They cover 23 synthetic session states, rendered panel values and lifecycle controls, dock wake targets, panel arbitration, the actual chat-header hook and shared host behavior.
+- Thirteen scoped test files passed, totaling 129 tests in two collected groups (7 graph tests and 122 web tests). They cover 23 synthetic session states, rendered panel values and lifecycle controls, dock wake targets, panel arbitration, the actual chat-header hook, shared host behavior and the repaired screen registry.
 - The pool hook path passed a legacy-collection access fence and recorded zero `sessionPane.*` legacy derivations. The legacy positive control recorded a derivation. Transcript calls remained on their existing route.
-- Focused typecheck passed for `@podium/web`, `@podium/client-graph` and `@podium/client-core`. Focused lint passed for the changed graph source and diagnostics files.
+- Focused typecheck passed for `@podium/web`, `@podium/client-graph` and `@podium/client-core`: 16 required tasks succeeded, including ten cache hits. Focused lint passed for the seven changed graph source and diagnostics files.
 - Twelve planted faults each produced a real failing assertion. They cover value parity, mismatch detection, cold loading, addressed updates, both ownership rules, tint inheritance, control inputs, source disposal, dock wake identity, the legacy-read fence and startup switch latching. Original bytes were restored after each run.
 
 The final private replay at candidate `9df0b71249`, after the shared-host rebase and capability-field additions, covered 5,139 sessions, 5,988 issues and 5,145 comparison positions. It reported zero unintended differences and zero pending rows, with 1,571 accepted ownership differences as the live corpus changed. Two hydration rounds drained the initially cold rows. Only counts and comparison positions left ludovico; the operator server and daemon were neither restarted nor reconfigured. The replay and planted-fault summaries are also attached to the issue.
 
-Earlier bounded replays either failed to connect or did not complete. The result above is the completed run, using the source export condition. The separate registry test currently fails on the notices and automations startup latches; POD-5307 owns that repair, outside this screen's scope.
+Earlier bounded replays either failed to connect or did not complete. The result above is the completed run, using the source export condition. The earlier registry failure in the notices and automations startup latches was repaired by POD-5307 at `17fd640a3f`; the refreshed 13-file run confirms the registry is green with this screen registered.
 
 ## Remaining rollout evidence
 
