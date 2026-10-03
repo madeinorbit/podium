@@ -181,10 +181,11 @@ export function countedStructuralEqual(before: unknown, next: unknown): boolean 
       const cached = proxies.get(value)
       if (cached) return cached
       const array = Array.isArray(value)
-      const shadow = array ? new Array(value.length) : {}
+      const shadow = array ? [] : {}
+      const prototype = Reflect.getPrototypeOf(value)
       const native = value instanceof Map || value instanceof Set || value instanceof Date ||
         value instanceof Number || value instanceof String || value instanceof Boolean ||
-        isObservableMap(value) || isObservableSet(value) || isBoxedObservable(value)
+        (prototype !== null && (isObservableMap(prototype) || isObservableSet(prototype) || isBoxedObservable(prototype)))
       const proxy = new Proxy(shadow, {
         get(_target, key) {
           const item = Reflect.get(value, key, value)

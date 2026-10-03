@@ -185,8 +185,10 @@ describe('pool reader windows', () => {
     async function measured(scale: number) {
       const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
       const tick = observable.box(false)
-      const first = Object.freeze({ ids: Object.freeze(ids(scale)) })
-      const second = Object.freeze({ ids: Object.freeze(ids(scale)) })
+      // Repeated cached values prove that visited slots, not only identities,
+      // must count when the app compares equal vectors.
+      const first = Object.freeze({ ids: Object.freeze(Array.from({ length: scale }, () => 'same')) })
+      const second = Object.freeze({ ids: Object.freeze(Array.from({ length: scale }, () => 'same')) })
       const projection = createPoolProjection(pool, () => insideReader('cached', () =>
         tick.get() ? second : first), {
         name: 'consumer:cached',
@@ -228,6 +230,7 @@ describe('pool reader windows', () => {
       [cycleA, cycleB],
       [Object.freeze(['a', 'b']), Object.freeze(['a', 'c'])],
       [{ value: 1 }, { value: 2 }],
+      [Object.assign(Object.create(null), { value: 1 }), { value: 1 }],
       [null, undefined],
     ]
     for (const [a, b] of pairs) {
