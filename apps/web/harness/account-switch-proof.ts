@@ -127,8 +127,8 @@ try {
         await page.evaluate(() => window.__accountEdit())
         await settle(page)
         initialUi = await page.evaluate(() => window.__accountUiState())
-        if (!initialUi.paneA || !initialUi.paneB || !initialUi.draft || !initialUi.firstTaskDraft)
-          throw new Error('State preservation control was not armed')
+        if (!initialUi.layout || JSON.parse(initialUi.layout).root.kind !== 'split' || !initialUi.draft || !initialUi.firstTaskDraft)
+          throw new Error(`State preservation control was not armed: ${JSON.stringify(initialUi)}`)
       }
       if (planted) await page.evaluate(() => {
         // Keep the actual installed handler, rather than planting a name in the

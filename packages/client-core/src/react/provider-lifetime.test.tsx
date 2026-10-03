@@ -46,8 +46,8 @@ it('retires account-owned callbacks and state on principal changes while preserv
       <button type="button" onClick={closeAtMount}>Close</button>
     </>
   }
-  const frame = (principal: ClientPrincipal | null, server = config) => <StoreProvider
-    principal={principal} config={server} api={api} networkEnabled={false}
+  const frame = (principal: ClientPrincipal | null, server = config, enabled = false, client = api) => <StoreProvider
+    principal={principal} config={server} api={client} networkEnabled={enabled}
     onFatalError={() => {}} createReplicaFn={() => { throw new Error('fixture owns runtime') }}
   ><Reader /></StoreProvider>
   const alice = asClientPrincipal(asUserId('alice'))
@@ -78,17 +78,21 @@ it('retires account-owned callbacks and state on principal changes while preserv
   // Reconnection or endpoint changes may rebuild a runtime for the SAME account.
   // They must preserve local UI state rather than remounting the whole app.
   fireEvent.change(view.getByLabelText('draft'), { target: { value: 'new draft' } })
-  const replacement = runtime()
-  fixture.handle = replacement
-  view.rerender(frame(alice, { ...config }))
-  expect(previous.destroy).toHaveBeenCalledOnce()
-  expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('new draft')
-  expect(mounts).toEqual(['alice', 'bob', 'alice'])
+  for (const tree of [frame(alice, { ...config }), frame(alice, config, true),
+    frame(alice, config, true, {} as PodiumClientApi)]) {
+    const replacement = runtime()
+    fixture.handle = replacement
+    view.rerender(tree)
+    expect(previous.destroy).toHaveBeenCalledOnce()
+    expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('new draft')
+    expect(mounts).toEqual(['alice', 'bob', 'alice'])
+    previous = replacement
+  }
 
   // A server-issued rescope changes the account's storage identity.
   fixture.handle = runtime()
   view.rerender(frame(asClientPrincipal(alice.userId, 'replacement-boundary')))
-  expect(replacement.destroy).toHaveBeenCalledOnce()
+  expect(previous.destroy).toHaveBeenCalledOnce()
   expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('')
   view.rerender(frame(null))
   expect(view.container.textContent).toBe('')

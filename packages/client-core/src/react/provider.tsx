@@ -331,7 +331,10 @@ export function StoreProvider<TApi extends PodiumClientApi>({
           context value leaves mount-stable callbacks, refs and memoized readers
           holding the previous account's render scope. Ordinary rerenders keep
           this key, including reconnects and same-principal runtime rebuilds. */}
-      <Ctx.Provider key={principalKey(principal)} value={runtime as unknown as StoreHandle<PodiumClientApi>}>
+      <Ctx.Provider
+        key={principalKey(principal)}
+        value={runtime as unknown as StoreHandle<PodiumClientApi>}
+      >
         {children}
       </Ctx.Provider>
     </PrincipalCtx.Provider>
