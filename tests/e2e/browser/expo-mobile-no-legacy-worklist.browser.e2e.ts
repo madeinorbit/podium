@@ -5,7 +5,10 @@ import { paintOf, traceStart } from '../../../apps/web/harness/browser-paint'
 import { RELAY } from './_harness'
 
 // Synthetic rows on the isolated harness server, never the operator's data.
-test.skip(({ isMobile, browserName }) => !isMobile || browserName !== 'chromium', 'Pixel Chromium proof')
+test.skip(
+  ({ isMobile, browserName }) => !isMobile || browserName !== 'chromium',
+  'Pixel Chromium proof',
+)
 test.use({ serviceWorkers: 'block' })
 test.setTimeout(480_000)
 const HTTP = RELAY.replace(/^ws/, 'http')
@@ -13,10 +16,16 @@ const HTTP = RELAY.replace(/^ws/, 'http')
 // heap samples. Positive captures run under the shared benchmark lease.
 const parityOnly = process.env.POD4979_PARITY_ONLY === '1'
 
-async function rpc<T>(request: APIRequestContext, proc: string, input: unknown = {}, method: 'get' | 'post' = 'post'): Promise<T> {
-  const result = method === 'get'
-    ? await request.get(`${HTTP}/trpc/${proc}?input=${encodeURIComponent(JSON.stringify(input))}`)
-    : await request.post(`${HTTP}/trpc/${proc}`, { data: input })
+async function rpc<T>(
+  request: APIRequestContext,
+  proc: string,
+  input: unknown = {},
+  method: 'get' | 'post' = 'post',
+): Promise<T> {
+  const result =
+    method === 'get'
+      ? await request.get(`${HTTP}/trpc/${proc}?input=${encodeURIComponent(JSON.stringify(input))}`)
+      : await request.post(`${HTTP}/trpc/${proc}`, { data: input })
   if (!result.ok()) throw new Error(`${proc}: ${result.status()} ${await result.text()}`)
   return (await result.json()).result.data as T
 }
@@ -34,12 +43,15 @@ async function launchWork(page: Page, on: boolean, previousOn: boolean) {
   await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
 }
 
-test('production mobile never derives worklist with the pilot on, including mission details', async ({ page, request }, testInfo) => {
+test('production mobile never derives worklist with the pilot on, including mission details', async ({
+  page,
+  request,
+}, testInfo) => {
   // The stats module defines this door during module evaluation, before any
   // provider exists. Enable at that instant, including on every fresh document.
   await page.addInitScript(() => {
     const define = Object.defineProperty
-    Object.defineProperty = function(target, key, descriptor) {
+    Object.defineProperty = (target, key, descriptor) => {
       const result = define(target, key, descriptor)
       if (target === globalThis && key === '__podiumStoreStats') {
         descriptor.value.enable()
@@ -53,24 +65,36 @@ test('production mobile never derives worklist with the pilot on, including miss
     const stats = await page.evaluate(() => {
       const value = Reflect.get(globalThis, '__podiumStoreStats')
       if (!value) throw new Error('store stats missing before bootstrap')
-      return value.snapshot() as { enabled: boolean; dropped: number; runtimes: { publishes: number; slices: Record<string, number> }[] }
+      return value.snapshot() as {
+        enabled: boolean
+        dropped: number
+        runtimes: { publishes: number; slices: Record<string, number> }[]
+      }
     })
     expect(stats.enabled, phase).toBe(true)
     expect(stats.dropped, phase).toBe(0)
-    expect(stats.runtimes.reduce((sum, runtime) => sum + runtime.publishes, 0), phase).toBeGreaterThan(0)
-    const worklist = stats.runtimes.reduce((sum, runtime) => sum + (runtime.slices.worklist ?? 0), 0)
+    expect(
+      stats.runtimes.reduce((sum, runtime) => sum + runtime.publishes, 0),
+      phase,
+    ).toBeGreaterThan(0)
+    const worklist = stats.runtimes.reduce(
+      (sum, runtime) => sum + (runtime.slices.worklist ?? 0),
+      0,
+    )
     if (on) expect(worklist, phase).toBe(0)
     else expect(worklist, phase).toBeGreaterThan(0)
     counts.push({ on, phase, worklist })
   }
   const errors: string[] = []
   const resourceReports: { message: string; path: string }[] = []
-  page.on('pageerror', error => errors.push(error.message))
-  page.on('console', message => {
+  page.on('pageerror', (error) => errors.push(error.message))
+  page.on('console', (message) => {
     if (message.type() !== 'error') return
     // The anonymous harness refuses authenticated device requests. Keep that
     // network evidence separate; every app error and other resource error fails.
-    if (/^Failed to load resource: the server responded with a status of 401\b/.test(message.text())) {
+    if (
+      /^Failed to load resource: the server responded with a status of 401\b/.test(message.text())
+    ) {
       const url = message.location().url
       resourceReports.push({ message: message.text(), path: url ? new URL(url).pathname : '' })
     } else errors.push(message.text())
@@ -79,7 +103,14 @@ test('production mobile never derives worklist with the pilot on, including miss
   if (!repos[0]) throw new Error('isolated harness has no repo')
   const title = `Mobile worklist ${Date.now().toString(36)}`
   const issues: { id: string }[] = []
-  for (let n = 1; n <= 3; n++) issues.push(await rpc(request, 'issues.create', { repoPath: repos[0], title: `${title} ${n}`, startNow: true }))
+  for (let n = 1; n <= 3; n++)
+    issues.push(
+      await rpc(request, 'issues.create', {
+        repoPath: repos[0],
+        title: `${title} ${n}`,
+        startNow: true,
+      }),
+    )
   const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
   const row = () => page.getByRole('button', { name: new RegExp(`^${prefix} ${title} 1$`) })
   // Prime the normal mark-read write before comparing the same data in both arms.
@@ -89,7 +120,10 @@ test('production mobile never derives worklist with the pilot on, including miss
   await expect(page.getByLabel('Mission actions', { exact: true })).toBeVisible({ timeout: 30_000 })
 
   const cdp = await page.context().newCDPSession(page)
-  const heap = async () => { await cdp.send('HeapProfiler.collectGarbage'); return (await cdp.send('Runtime.getHeapUsage')).usedSize as number }
+  const heap = async () => {
+    await cdp.send('HeapProfiler.collectGarbage')
+    return (await cdp.send('Runtime.getHeapUsage')).usedSize as number
+  }
   const cells: unknown[] = []
   let expected: unknown
   let savedOn = false
@@ -101,14 +135,30 @@ test('production mobile never derives worklist with the pilot on, including miss
     // pool again. This is startup-to-row readiness, not a mounted user switch.
     const startupToRowMs = parityOnly ? undefined : await page.evaluate(() => performance.now())
     await page.waitForTimeout(250)
-    const look = await page.getByRole('button', { name: new RegExp(`^${prefix} ${title} [123]$`) }).evaluateAll(nodes => nodes.map(node => ({
-      label: node.getAttribute('aria-label'), text: node.textContent,
-      styles: [node, ...node.querySelectorAll('*')].map(element => {
-        const style = getComputedStyle(element)
-        return [style.color, style.backgroundColor, style.opacity, style.fontSize, style.fontWeight,
-          style.fontFamily, style.lineHeight, style.padding, style.border, style.display, style.flexDirection]
-      }),
-    })))
+    const look = await page
+      .getByRole('button', { name: new RegExp(`^${prefix} ${title} [123]$`) })
+      .evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          label: node.getAttribute('aria-label'),
+          text: node.textContent,
+          styles: [node, ...node.querySelectorAll('*')].map((element) => {
+            const style = getComputedStyle(element)
+            return [
+              style.color,
+              style.backgroundColor,
+              style.opacity,
+              style.fontSize,
+              style.fontWeight,
+              style.fontFamily,
+              style.lineHeight,
+              style.padding,
+              style.border,
+              style.display,
+              style.flexDirection,
+            ]
+          }),
+        })),
+      )
     expect(look).toHaveLength(3)
     if (expected === undefined) expected = look
     else expect(look).toEqual(expected)
@@ -117,26 +167,39 @@ test('production mobile never derives worklist with the pilot on, including miss
     await expect(page.getByLabel(/^Start in /)).toBeVisible()
     await checkpoint(on, 'new work sheet')
     await page.getByLabel('Close', { exact: true }).click()
-    await rpc(request, 'issues.update', { id: issues[0]!.id, patch: { description: `Incoming update ${on}` } })
+    await rpc(request, 'issues.update', {
+      id: issues[0]!.id,
+      patch: { description: `Incoming update ${on}` },
+    })
     await page.waitForTimeout(250)
     await checkpoint(on, 'incoming update')
     const before = parityOnly ? undefined : await heap()
     const label = await row().getAttribute('aria-label')
-    await page.evaluate(label => {
-      const target = [...document.querySelectorAll('[aria-label]')].find(el => el.getAttribute('aria-label') === label)
+    await page.evaluate((label) => {
+      const target = [...document.querySelectorAll('[aria-label]')].find(
+        (el) => el.getAttribute('aria-label') === label,
+      )
       if (!target) throw new Error('missing mobile row')
       performance.clearMarks()
       const capture = { input: false, ready: false }
       Object.assign(window, { __mobileWorkPaint: capture })
-      target.addEventListener('pointerdown', () => {
-        capture.input = true
-        performance.mark('mobile:input')
-      }, { once: true })
+      target.addEventListener(
+        'pointerdown',
+        () => {
+          capture.input = true
+          performance.mark('mobile:input')
+        },
+        { once: true },
+      )
       const observer = new MutationObserver(() => {
         if (!capture.input || !document.querySelector('[aria-label="Mission actions"]')) return
         observer.disconnect()
         performance.mark('mobile:dom')
-        requestAnimationFrame(() => requestAnimationFrame(() => { capture.ready = true }))
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            capture.ready = true
+          }),
+        )
       })
       observer.observe(document.body, { subtree: true, childList: true, attributes: true })
     }, label)
@@ -149,7 +212,13 @@ test('production mobile never derives worklist with the pilot on, including miss
       if (stop) {
         const events = await stop()
         const timing = paintOf(events, 'mobile:input', 'mobile:dom')
-        cells.push({ on, ...timing, startupToRowMs, heapBeforeBytes: before, heapAfterBytes: await heap() })
+        cells.push({
+          on,
+          ...timing,
+          startupToRowMs,
+          heapBeforeBytes: before,
+          heapAfterBytes: await heap(),
+        })
       }
     }
     await checkpoint(on, 'mission press and mark read')
@@ -168,9 +237,26 @@ test('production mobile never derives worklist with the pilot on, including miss
   const directory = resolve('.artifacts/POD-4979')
   mkdirSync(directory, { recursive: true })
   const path = resolve(directory, 'mobile-browser.json')
-  writeFileSync(path, JSON.stringify({ browser: await page.context().browser()?.version(), differences: 0, counts, resourceReports,
-    samples: cells, scope: 'Synthetic production Expo export; interleaved startup arms on one SHA; actual Chromium Paint after mission DOM.' }, null, 2) + '\n')
-  await testInfo.attach('Mobile zero legacy worklist proof', { path, contentType: 'application/json' })
+  writeFileSync(
+    path,
+    JSON.stringify(
+      {
+        browser: await page.context().browser()?.version(),
+        differences: 0,
+        counts,
+        resourceReports,
+        samples: cells,
+        scope:
+          'Synthetic production Expo export; interleaved startup arms on one SHA; actual Chromium Paint after mission DOM.',
+      },
+      null,
+      2,
+    ) + '\n',
+  )
+  await testInfo.attach('Mobile zero legacy worklist proof', {
+    path,
+    contentType: 'application/json',
+  })
   console.info('[mobile legacy derivations]', JSON.stringify(counts))
   console.info('[mobile browser]', JSON.stringify(cells))
 })
