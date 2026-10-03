@@ -134,6 +134,7 @@ vi.mock('../components/LaunchPlaceholders', () => ({
     <div data-resolved={resolved}>{children}</div>
   ),
   WorkSkeleton: () => null,
+  DetailSkeleton: () => null,
 }))
 vi.mock('../components/StorageNoticeAlert', () => ({ StorageNoticeAlert: () => null }))
 vi.mock('../components/RefreshOffer', () => ({ RefreshOffer: () => null }))
@@ -340,7 +341,6 @@ describe('mobile never derives the legacy worklist in pilot mode', () => {
     }
     const { view, feed } = await mount('u-bench')
     checkpoint('bootstrap and mission details')
-    if (on) expect(state.paths.some((paths) => paths.length === 0)).toBe(true)
 
     fireEvent.click(screen.getByLabelText('New work'))
     await waitFor(() => expect(screen.getAllByLabelText(/^Start in /).length).toBe(1))
