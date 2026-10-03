@@ -508,8 +508,16 @@ describe('readers behind declared cold questions', () => {
   it('combines indexed root maxima with current resident activity without a cold scan', () => {
     const f = fixture()
     const question = { kind: 'commandRootActivity', roots: ['/query'] } as const
+    const host = {
+      ...(f.values.get('session:host') as object),
+      issueId: undefined,
+      stoppedAt: undefined,
+    }
+    f.pool.apply({
+      type: 'update',
+      rows: [{ kind: 'session', id: 'host', value: host } as RowRecord],
+    })
     const census = vi.spyOn(f.pool.residency!, 'ids')
-    const host = f.values.get('session:host') as object
     try {
       expect(f.pool.tables.session.has('host')).toBe(true)
       expect(f.pool.queries.activity(question)).toBe(Date.parse('2026-10-02T12:00:00Z'))
