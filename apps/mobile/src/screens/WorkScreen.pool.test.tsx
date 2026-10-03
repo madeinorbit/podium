@@ -166,8 +166,8 @@ function output(container: HTMLElement) {
     labels: [...container.querySelectorAll('[data-label]')].map(el => el.getAttribute('data-label')),
     styles: [...container.querySelectorAll('[style]')].map(el => el.getAttribute('style')) }
 }
-/** Search can request row-paint inputs beyond the list's placement inputs.
- * Settle the real batched loader before comparing one title publication. */
+/** Native paint can request inputs beyond the list's placement inputs.
+ * Settle the real batched loader before comparing display or publication. */
 async function drainNativeLoads() {
   for (let turn = 0; turn < 100; turn++) {
     let loaded = 0
@@ -225,6 +225,7 @@ describe('mobile WorkScreen pool consumer', () => {
     expect(state.sliceReads).toBeGreaterThan(0)
     legacy.view.unmount()
     const pool = await mount(true, scale)
+    await drainNativeLoads()
     expect(output(pool.view.container)).toEqual(expected)
     expect(state.sliceReads).toBe(0)
     expect(state.rowDerivations).toBe(0)
