@@ -13,7 +13,10 @@ afterEach(() => {
 function fixture() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   cleanups.push(() => pool.dispose())
-  const read = vi.fn((current: MobxPool) => ({ selected: current.selection.has('target') }))
+  // Track size as well as membership so another key can change an observed
+  // input while preserving the projected result. The size atom also exposes
+  // the projection's real observer lifetime through getObserverTree.
+  const read = vi.fn((current: MobxPool) => ({ selected: current.selection.size > 0 && current.selection.has('target') }))
   const view = createPoolProjection(pool, read)
   const subscribe = (wake = vi.fn()) => {
     const stop = view.subscribe(wake)
