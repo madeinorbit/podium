@@ -42,11 +42,15 @@ try {
     await sleep(200)
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
+  console.log(JSON.stringify({ browser: browser.version(), bun: process.versions.bun }))
   const results: Record<string, unknown> = {}
   for (const [arm, mode] of ['off', 'on', 'off', 'on'].entries()) {
     const page = await browser.newPage({ viewport: { width: 430, height: 1050 } }),
       errors: string[] = []
-    page.on('pageerror', (error) => errors.push(error.message))
+    page.on('pageerror', (error) => {
+      errors.push(error.message)
+      console.error(error.message)
+    })
     await page.context().route('http://offline.invalid/**', (route) =>
       route.fulfill({
         contentType: 'text/html',
