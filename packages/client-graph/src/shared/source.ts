@@ -1,4 +1,5 @@
 /** Row and local channels consumed by the worklist pool. */
+import type { ColdQueries } from './cold-index'
 import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree, SliceLocals } from './slice-types'
 
 /**
@@ -19,6 +20,14 @@ export interface RowSource {
    * that can be cold. Optional: a source without it cannot back a lazy pool.
    */
   row?(kind: 'issue' | 'session', id: string): RowRecord['value']
+  /**
+   * POD-5405 — the residency rule's questions over EVERY row this feed carries
+   * (`cold-index.ts`): built on first call from one snapshot per kind, then
+   * kept current from this feed's own publications. Declared questions only;
+   * never a map. Optional: a source without it cannot back a resident-only
+   * attach.
+   */
+  cold?(): ColdQueries
   /** A keyed identity read from the local replica, including cold issues. */
   issueIdByRef?(ref: string): string | undefined
   issueIdsByRef?(ref: string): readonly string[]

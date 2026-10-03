@@ -3,7 +3,8 @@ import {
   type SessionValueInput,
   sessionView,
 } from '@podium/client-core/session-values'
-import { ISSUE_SESSION_FACTS_SUMMARY } from './schema'
+import { type ColdIndex, type ColdQueries, createColdIndex } from './cold-index'
+import { ISSUE_SESSION_FACTS_SUMMARY, SCHEMA } from './schema'
 /**
  * POD-4444, rewritten per-row by POD-4553 — the kernel's effective per-row
  * change stream, as the arms see it.
@@ -1154,6 +1155,15 @@ export function createRowSource(
 
   function emit(event: RowSourceEvent): void {
     stats.events += 1
+    if (coldIndex !== null) {
+      try {
+        coldIndex.apply(event)
+      } catch {
+        // Never let the index stop the feed. A dropped index reseeds from one
+        // snapshot per kind on its next question.
+        coldIndex = null
+      }
+    }
     for (const listener of [...listeners]) {
       try {
         listener(event)
@@ -1193,9 +1203,27 @@ export function createRowSource(
     return retain(`${kind}:${id}`, resolve(kind, id, readPending()))
   }
 
+  /** POD-5405 — the cold index, built on the first question and fed by `emit`. */
+  let coldIndex: ColdIndex | null = null
+  function cold(): ColdQueries {
+    if (disposed) {
+      throw new Error('createRowSource: cold() on a disposed source (the principal switched; rebind first)')
+    }
+    if (coldIndex === null) {
+      const index = createColdIndex(SCHEMA)
+      index.apply({
+        type: 'replace',
+        rows: [...snapshot('session'), ...snapshot('issue'), ...snapshot('worktree')],
+      })
+      coldIndex = index
+    }
+    return coldIndex
+  }
+
   const source: RowSource = {
     snapshot,
     row,
+    cold,
     ...(replica.issueIdByRef ? { issueIdByRef(ref: string): string | undefined {
       if (disposed) throw new Error('createRowSource: issueIdByRef() on a disposed source')
       return replica.issueIdByRef!(ref)
@@ -1260,6 +1288,7 @@ export function createRowSource(
         }
       }
       listeners.clear()
+      coldIndex = null
       pendingAddresses.clear()
       overlaid.clear()
       held = null
