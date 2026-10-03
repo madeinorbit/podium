@@ -1,6 +1,6 @@
 # POD-5077 switch acceptance
 
-POD-5093, 2026-10-03. **Acceptance remains open.** The pruning candidate has zero legacy entries and zero unexpected diagnostic differences, but the initial account remains reachable through the workspace Close Tab hook. The frozen integration product is `c38a12b360`, containing POD-5395 and POD-5396. Flatblock access stopped during the focused gate when ludovico Tailscale entered `NeedsLogin`; the gate result is not yet retrievable and no accepted timing capture has run. No default has been changed.
+POD-5093, 2026-10-03. **Acceptance remains open.** The pruning candidate has zero legacy entries and zero unexpected diagnostic differences, but the initial account remains reachable through the workspace Close Tab hook. The frozen integration product is `c38a12b360`, containing POD-5395 and POD-5396. Flatblock access stopped during the focused gate when ludovico Tailscale entered `NeedsLogin` (shared access blocker POD-5404); the gate result is not yet retrievable and no accepted timing capture has run. No default has been changed.
 
 ## Evidence status
 
