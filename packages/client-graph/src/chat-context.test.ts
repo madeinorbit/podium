@@ -46,10 +46,11 @@ it('constructs no mention candidates until demand, then preserves candidates and
   const { pool, load } = fixture()
   const row = vi.spyOn(pool, 'row'), summary = vi.spyOn(pool.residency!, 'summary')
   const reader = createChatContextReader(pool)
+  pool.sources.register(['chatContextReader'], { read: () => reader, dispose() {} })
+  expect(row).not.toHaveBeenCalled()
   expect(chatContextReadStats(pool)).toEqual({
     mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
   })
-  expect(row).not.toHaveBeenCalled()
   const mentions = reader.mentions()
   expect(mentions.pending).toBe(0)
   expect(mentions.issues.map(({ id, seq, title, archived, displayRef }) => ({ id, seq, title, archived, displayRef }))).toEqual([

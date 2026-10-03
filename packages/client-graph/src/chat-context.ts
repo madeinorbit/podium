@@ -10,20 +10,22 @@ import type { Loaded } from './worklist/rollup'
 // Loaded by the screen attachment only. Web hooks import the reader's type.
 export const loading = (row: unknown): row is symbol => typeof row === 'symbol'
 
-// Cumulative diagnostics only: no rows, observable state or subscriptions.
-const readCounts = new WeakMap<MobxPool, {
+// Cumulative diagnostics live on the pool's existing chat reader. They retain
+// no rows and create no observable state or subscriptions.
+type ChatReadCounts = {
   mentionBuilds: number
   mentionIssueReads: number
   referenceBuilds: number
   referenceSessionReads: number
-}>()
-export function chatContextReadStats(pool: MobxPool) {
-  let counts = readCounts.get(pool)
-  if (!counts) {
-    counts = { mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0 }
-    readCounts.set(pool, counts)
+}
+function readerCounts(pool: MobxPool): ChatReadCounts | undefined {
+  const reader = pool.row('chatContextReader', 'reader')
+  return reader && !loading(reader) ? reader.counts : undefined
+}
+export function chatContextReadStats(pool: MobxPool): Readonly<ChatReadCounts> {
+  return readerCounts(pool) ?? {
+    mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
   }
-  return counts
 }
 export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
   const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
@@ -32,16 +34,15 @@ export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
   const repo = repoId ? pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
   return { ...row, prefix: repo?.prefix, displayRef: repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}` }
 }
-export function chatMentionIssues(pool: MobxPool) {
-  const counts = chatContextReadStats(pool)
-  counts.mentionBuilds++
+export function chatMentionIssues(pool: MobxPool, counts = readerCounts(pool)) {
+  if (counts) counts.mentionBuilds++
   const order = pool.row('chatIssueOrder', 'order')
   const issues: IssueViewModel[] = []
   let pending = loading(order) ? 1 : 0
   if (!order || loading(order)) return { issues, pending }
   const known = pool.queries.ids({ kind: 'mentionIssues' }), present = new Set(known)
   for (const id of new Set([...order.ids.filter(id => present.has(id)), ...known])) {
-    counts.mentionIssueReads++
+    if (counts) counts.mentionIssueReads++
     const row = chatIssue(pool, id)
     if (loading(row)) pending++
     else if (row && !row.deletedAt) issues.push(row)
@@ -87,16 +88,15 @@ export function chatArtifactIssue(pool: MobxPool, session: Pick<SessionView, 'is
   const issue = owner ? pool.row('issue', owner) as Loaded<IssueViewModel> : undefined
   return issue && !loading(issue) && issue.deletedAt ? undefined : issue
 }
-export function chatReferenceSessions(pool: MobxPool) {
-  const counts = chatContextReadStats(pool)
-  counts.referenceBuilds++
+export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {
+  if (counts) counts.referenceBuilds++
   const order = pool.row('chatSessionOrder', 'order')
   const sessions: SessionView[] = []
   let pending = loading(order) ? 1 : 0
   if (!order || loading(order)) return { sessions, pending }
   const known = pool.queries.ids({ kind: 'referenceSessions' }), present = new Set(known)
   for (const id of new Set([...order.ids.filter(id => present.has(id)), ...known])) {
-    counts.referenceSessionReads++
+    if (counts) counts.referenceSessionReads++
     const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
     if (loading(row)) pending++
     else if (row) sessions.push(row)
@@ -117,13 +117,17 @@ export function chatRepositoryKey(pool: MobxPool): string {
 }
 
 export function createChatContextReader(pool: MobxPool) {
+  const counts: ChatReadCounts = {
+    mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
+  }
   return {
+    counts,
     issue: (id: string) => chatIssue(pool, id),
-    mentions: () => chatMentionIssues(pool),
+    mentions: () => chatMentionIssues(pool, counts),
     interactions: (id: string) => chatInteractions(pool, id),
     records: (id: string) => chatRecords(pool, id),
     artifactIssue: (session: Pick<SessionView, 'sessionId' | 'issueId'>) => chatArtifactIssue(pool, session),
-    sessions: () => chatReferenceSessions(pool),
+    sessions: () => chatReferenceSessions(pool, counts),
     machines: () => chatReferenceMachines(pool),
     repositoryKey: () => chatRepositoryKey(pool),
     threads() {
