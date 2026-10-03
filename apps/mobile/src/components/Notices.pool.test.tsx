@@ -90,6 +90,7 @@ async function mount(on: boolean) {
     deadLetter: { reason: row.reason, parkedFrom: row.parkedFrom, deadLetteredAt: row.deadLetteredAt, attempts: row.attempts },
   }))
   let runtime!: ClientRuntime, sessionId = asSessionId('synthetic-session-0'), connected = false
+  const seen: ReturnType<MobilePool['host']['usePool']>[] = []
   const configured = new WeakSet<ClientRuntime>()
   function Surface() {
     runtime = useStoreHandle() as ClientRuntime
@@ -103,6 +104,7 @@ async function mount(on: boolean) {
       configured.add(runtime)
     }
     state.host!.initialize(runtime.getSnapshot().uiState)
+    seen.push(state.host!.host.usePool())
     return <>
       <MessageNoticeBanner />
       <PendingInteractionBand sessionId={sessionId} />
@@ -132,7 +134,7 @@ async function mount(on: boolean) {
     expect(view.getByText('Synthetic plan')).toBeTruthy()
   }, { timeout: 5000 })
   return {
-    fixture, data, view, runtime, errors, dismiss, answer, evict,
+    fixture, data, view, runtime, errors, dismiss, answer, evict, seen,
     switchSession(next: string) {
       sessionId = asSessionId(next)
       view.rerender(cloneElement(tree, { children: <Surface /> }))
@@ -152,16 +154,21 @@ function expectPoolReadersOnly(runtime: ClientRuntime) {
 }
 
 it('renders identical banners with the startup switch off and on', async () => {
+  const reactErrors = vi.spyOn(console, 'error')
   const legacy = await mount(false), expected = legacy.view.container.innerHTML
+  expect(legacy.seen.every((pool) => pool === null)).toBe(true)
   expect(readRuntimeStoreStats(legacy.runtime)?.selectorRuns).toBeGreaterThan(0)
   expect(messageNotices).toHaveBeenCalled()
   expect(pendingInteractionCards).toHaveBeenCalled()
   legacy.view.unmount()
   vi.clearAllMocks()
   const enabled = await mount(true)
+  expect(enabled.seen[0]).toBeNull()
+  expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
   expect(enabled.view.container.innerHTML).toEqual(expected)
   expect(enabled.errors).toEqual([])
   expectPoolReadersOnly(enabled.runtime)
+  expect(reactErrors.mock.calls).toEqual([])
 })
 
 it('reacts to message, session-label and ask updates without legacy work', async () => {
