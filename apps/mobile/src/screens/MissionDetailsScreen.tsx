@@ -4,18 +4,45 @@ import {
   type IssueNavigationModel,
   missionRootFor,
   missionSessions as missionSessionsOf,
+  reposToViews,
+  reposVisibleOnMachines,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { useIssues, useStoreSelector, useSessions } from '../client/hooks'
+import { mobileDataLayer, useMobileLaunchData } from '../client/mobile-pool'
 import { MissionDeck } from '../components/MissionDeck'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Screen } from '../components/Screen'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
+
+function useLegacyWorktreePaths() {
+  return useSlice(worklistSlice).allWorktreePaths
+}
+
+function usePoolWorktreePaths() {
+  const data = useMobileLaunchData()
+  return useMemo(() => {
+    if (!data) return []
+    // These are machine-roster facts read by the pool's command source. Keep
+    // legacy grouping, machine visibility and pin order without deriving work.
+    const projects = reposToViews(reposVisibleOnMachines(data.repos, data.machines))
+    const ordered = [
+      ...data.pins.repos.flatMap(path => {
+        const repo = projects.find(candidate => candidate.path === path)
+        return repo ? [repo] : []
+      }),
+      ...projects.filter(repo => !data.pins.repos.includes(repo.path)),
+    ]
+    return ordered.flatMap(repo => repo.worktrees
+      .filter(tree => !data.pins.worktrees.includes(tree.path))
+      .map(tree => tree.path))
+  }, [data])
+}
 
 const ignoreContentHeight = (_height: number): void => undefined
 
@@ -34,7 +61,10 @@ export function MissionDetailsScreen() {
     shallowEqual,
   )
   const router = useRouter()
-  const { allWorktreePaths } = useSlice(worklistSlice)
+  // The app latches this choice before mounting signed-in screens. An attaching
+  // pool supplies loading paths; it must never fall back to the legacy slice.
+  const useWorktreePaths = mobileDataLayer() === 'pool' ? usePoolWorktreePaths : useLegacyWorktreePaths
+  const allWorktreePaths = useWorktreePaths()
   const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
   const [launchIssue, setLaunchIssue] = useState<(typeof issues)[number] | null>(null)
   const root = useMemo(() => missionRootFor(issues, missionId), [issues, missionId])
