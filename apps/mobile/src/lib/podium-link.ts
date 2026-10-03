@@ -150,7 +150,7 @@ export function findLinkedSession(
  * (apps/mobile/vitest.config.ts). The web draws the same seam in
  * apps/web/src/lib/podium-link.ts.
  */
-export type PodiumTargetActivator = (target: PodiumTarget) => boolean
+export type PodiumTargetActivator = (target: PodiumTarget) => boolean | Promise<boolean>
 
 let activator: PodiumTargetActivator | null = null
 
@@ -175,10 +175,19 @@ export function followPodiumLink(href: string): void {
     const active = activeOrigin ? canonicalPodiumOrigin(activeOrigin) : null
     const addressesActiveServer =
       link.origin === null || (active !== null && link.origin === active)
-    if (addressesActiveServer && activator?.(link.target)) return
     const fallbackOrigin = link.origin ?? activeOrigin
-    if (!fallbackOrigin) return
-    void Linking.openURL(formatPodiumLinkFallback(fallbackOrigin, href, link)).catch(() => {})
+    const fallback = () => {
+      if (fallbackOrigin) void Linking.openURL(formatPodiumLinkFallback(fallbackOrigin, href, link)).catch(() => {})
+    }
+    if (addressesActiveServer) {
+      const answer = activator?.(link.target)
+      if (answer === true) return
+      if (answer instanceof Promise) {
+        void answer.then(opened => { if (!opened) fallback() }, fallback)
+        return
+      }
+    }
+    fallback()
     return
   }
   const externalHref = formatExternalHttpLink(link.href, activeOrigin) ?? link.href

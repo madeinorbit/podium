@@ -4,6 +4,8 @@ import { type IssueReferenceModel, resolveIssueReference } from '@podium/client-
 import { useMemo } from 'react'
 import { StyleSheet, Text } from 'react-native'
 import { useIssues } from '../client/hooks'
+import { mobileDataLayer } from '../client/mobile-pool'
+import { usePoolRefChip } from '../client/use-inbox-data'
 import { alpha } from '../theme/mix'
 import { stageColor } from '../theme/stage'
 import { color, font, mono } from '../theme/theme'
@@ -72,25 +74,38 @@ function knownPrefixes(issues: readonly IssueViewModel[]): ReadonlySet<string> {
   return set
 }
 
-export function RefChip({
+export function RefChip(props: RefChipProps) {
+  return mobileDataLayer() === 'pool' ? <PoolRefChip {...props} /> : <LegacyRefChip {...props} />
+}
+
+interface RefChipProps {
+  token: string
+  refKind: 'issue' | 'session'
+  prefix: string
+  onPress?: ((ref: string) => void) | undefined
+}
+
+function PoolRefChip(props: RefChipProps) {
+  const { known, model } = usePoolRefChip(props.token, props.refKind, props.prefix)
+  return <RefChipView {...props} known={known} model={model} />
+}
+
+function LegacyRefChip({
   token,
   refKind,
   prefix,
   onPress,
-}: {
-  /** The matched token exactly as it was written, e.g. `POD-529`. */
-  token: string
-  refKind: 'issue' | 'session'
-  prefix: string
-  /** Tap-to-peek. Session refs never receive one — see below. */
-  onPress?: ((ref: string) => void) | undefined
-}) {
+}: RefChipProps) {
   const issues = useIssues()
   const known = knownPrefixes(issues).has(prefix)
   const model = useMemo(
     () => (known && refKind === 'issue' ? resolveOnce(issues, token) : null),
     [issues, known, refKind, token],
   )
+  return <RefChipView token={token} refKind={refKind} prefix={prefix} onPress={onPress} known={known} model={model} />
+}
+
+function RefChipView({ token, refKind, onPress, known, model }: RefChipProps & { known: boolean; model: IssueReferenceModel | null }) {
 
   // Not a ref, just text that happens to be shaped like one.
   if (!known) return <>{token}</>

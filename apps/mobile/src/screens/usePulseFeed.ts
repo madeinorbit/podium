@@ -19,8 +19,9 @@ import {
   DEMO_USAGE_BUCKETS,
   demoEnabled,
 } from '../client/demoData'
-import { useHostMetrics, useMachines, useTrpc } from '../client/hooks'
-import { useServerProfile } from '../client/ServerProfileGate'
+import { useTrpc } from '../client/hooks'
+import { usePulseLive } from '../client/use-inbox-data'
+import { useServerProfile } from '../client/server-profile-context'
 import { serverProfileRequestKey } from '../client/server-profiles'
 import {
   beginCapacityRefresh,
@@ -103,8 +104,7 @@ export function usePulseFeed(): PulseFeed {
   // Subscribe only to the three live values Pulse paints. A whole-store
   // subscription would re-render this tab for unrelated replica publishes.
   const trpc = useTrpc()
-  const hostMetrics = useHostMetrics()
-  const machines = useMachines()
+  const { hosts: hostMetrics, machines } = usePulseLive()
   const { profile } = useServerProfile()
   const profileKey = serverProfileRequestKey(profile)
   const cached = cacheByProfile.get(profileKey)

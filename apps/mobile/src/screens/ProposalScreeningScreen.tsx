@@ -4,7 +4,8 @@ import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useBooting, useIssues, useStoreActions, useTrpc } from '../client/hooks'
+import { useStoreActions, useTrpc } from '../client/hooks'
+import { reconcileScreeningIds, useScreeningQueue, useScreeningRows } from '../client/use-inbox-data'
 import { Icon } from '../components/Icon'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
@@ -13,8 +14,6 @@ import { ScreeningCard } from '../components/ScreeningCard'
 import { EmptyState } from '../components/ui'
 import {
   applyScreeningDecision,
-  buildScreeningQueue,
-  reconcileScreeningOrder,
   type ScreeningOutcome,
   screeningTally,
 } from '../lib/screening'
@@ -55,28 +54,31 @@ const sameDeck = (a: Deck, b: Deck) =>
  */
 export function ProposalScreeningScreen() {
   const router = useRouter()
-  const issues = useIssues()
+  const queue = useScreeningQueue()
   const trpc = useTrpc()
   const { closeIssue } = useStoreActions()
-  const booting = useBooting()
-  const issueById = useCallback((id: string) => issues.find((issue) => issue.id === id), [issues])
   const insets = useSafeAreaInsets()
   const [deck, setDeck] = useState<Deck>(() => ({
-    order: buildScreeningQueue(issues).map((issue) => issue.id),
+    order: queue.queue,
     index: 0,
   }))
   const [outcomes, setOutcomes] = useState<Record<string, ScreeningOutcome>>({})
   const [failures, setFailures] = useState<Failure[]>([])
   const [pending, setPending] = useState<string[]>([])
   const inFlight = useRef(new Set<string>())
+  const readIds = useMemo(() => [deck.order[deck.index] ?? '', deck.order[deck.index + 1] ?? '', ...failures.map(failure => failure.id)], [deck, failures])
+  const rows = useScreeningRows(readIds, queue.legacyIssues)
+  const booting = queue.booting || rows.loading
+  const issueById = useCallback((id: string) => rows.issues[id], [rows.issues])
 
   // Fold live board changes into the open deck (never around the current card).
   useEffect(() => {
+    if (queue.booting) return
     setDeck((prev) => {
-      const next = reconcileScreeningOrder(prev.order, prev.index, issues)
+      const next = reconcileScreeningIds(prev.order, prev.index, queue.queue)
       return sameDeck(prev, next) ? prev : next
     })
-  }, [issues])
+  }, [queue.booting, queue.queue])
 
   const run = useCallback(
     async (issue: IssueViewModel, outcome: ScreeningOutcome) => {

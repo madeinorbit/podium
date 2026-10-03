@@ -1,8 +1,11 @@
 import { useRouter } from 'expo-router'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import type { PodiumTarget } from '@podium/protocol'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native'
 import { useAuthStatus } from '../client/auth-context'
 import { useBooting, useHttpOrigin, useIssues, useSessions } from '../client/hooks'
+import { mobileDataLayer } from '../client/mobile-pool'
+import { usePoolLinkData } from '../client/use-inbox-data'
 import {
   consumePendingMobileHandoff,
   decideMobileHandoff,
@@ -32,12 +35,15 @@ import {
  * Re-registered on every render so the activator always closes over the current
  * rows — resolving `POD-1606` is a live-data question.
  */
+function useLegacyLinkData(target: PodiumTarget | null) {
+  const issues = useIssues(), sessions = useSessions(), booting = useBooting()
+  const resolveRoute = useMemo(() => (next: PodiumTarget) => mobilePodiumRoute(next, { issues, sessions }), [issues, sessions])
+  return { sessions, booting, route: target ? resolveRoute(target) : null, resolveRoute }
+}
+
 export function PodiumLinkHost() {
   const router = useRouter()
   const httpOrigin = useHttpOrigin()
-  const issues = useIssues()
-  const sessions = useSessions()
-  const booting = useBooting()
   const authStatus = useAuthStatus()
   const { profile, profiles, activation } = useServerProfile()
   const pending = useSyncExternalStore(
@@ -45,6 +51,11 @@ export function PodiumLinkHost() {
     pendingMobileHandoffSnapshot,
     pendingMobileHandoffSnapshot,
   )
+  const target = useMemo<PodiumTarget | null>(() => pending.request?.kind === 'destination'
+    ? { kind: 'session', session: pending.request.destination.sessionId }
+    : pending.request?.kind === 'navigation' ? pending.request.target : null, [pending.request])
+  const data = mobileDataLayer() === 'pool' ? usePoolLinkData(target) : useLegacyLinkData(target)
+  const { sessions, booting } = data
   const [handoffStatus, setHandoffStatus] = useState('')
 
   useEffect(() => {
@@ -54,14 +65,21 @@ export function PodiumLinkHost() {
   }, [handoffStatus])
 
   useEffect(() => {
+    let active = true
     setPodiumTargetActivator((target) => {
-      const route = mobilePodiumRoute(target, { issues, sessions })
-      if (!route) return false
-      router.push(route as never)
-      return true
+      const open = (route: string | null) => {
+        // A principal/profile rebuild owns a fresh activator. Its retired
+        // asynchronous read cannot navigate or fall back against that owner.
+        if (!active) return true
+        if (!route) return false
+        router.push(route as never)
+        return true
+      }
+      const route = data.resolveRoute(target)
+      return route instanceof Promise ? route.then(open) : open(route)
     })
-    return () => setPodiumTargetActivator(null)
-  })
+    return () => { active = false; setPodiumTargetActivator(null) }
+  }, [data.resolveRoute, router])
 
   useEffect(() => {
     setActivePodiumOrigin(httpOrigin)
@@ -115,7 +133,7 @@ export function PodiumLinkHost() {
       return
     }
 
-    const route = mobilePodiumRoute(decision.target, { issues, sessions })
+    const route = data.route
     if (!route) {
       consumePendingMobileHandoff(pending.id)
       setHandoffStatus(mobileHandoffFallbackStatus('target-unavailable'))
@@ -125,7 +143,7 @@ export function PodiumLinkHost() {
     consumePendingMobileHandoff(pending.id)
     setHandoffStatus(decision.target.kind === 'issue' ? 'Opening the task.' : 'Opening the session.')
     router.replace(route as never)
-  }, [activation, authStatus, booting, issues, pending, profile.id, profiles, router, sessions])
+  }, [activation, authStatus, booting, data.route, pending, profile.id, profiles, router, sessions])
 
   return handoffStatus ? (
     <Text role="status" accessibilityLiveRegion="polite" style={styles.srStatus}>

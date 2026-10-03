@@ -1,4 +1,3 @@
-import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { pendingAskFromState, sessionCardModel } from '@podium/client-core/viewmodels'
@@ -7,13 +6,10 @@ import { useRouter } from 'expo-router'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import {
-  useBooting,
-  useIssues,
-  useOutboxSize,
-  useSessions,
   useStoreActions,
   useTrpc,
 } from '../client/hooks'
+import { useInboxData } from '../client/use-inbox-data'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
 import { Inbox as InboxIcon, Settings } from '../components/icons'
@@ -120,16 +116,12 @@ function inboxSubtitle(needsYou: number, working: number, connected: boolean): s
 
 export function InboxScreen() {
   const router = useRouter()
-  const sessions = useSessions()
-  const issues = useIssues()
+  const { groups, issues, booting, outboxSize } = useInboxData()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
   const bottomInset = useContentBottomInset()
-  const booting = useBooting()
-  const outboxSize = useOutboxSize()
   const now = Date.now()
 
-  const groups = useMemo(() => groupSessions(withoutShells(sessions)), [sessions])
   const sections = useMemo(
     () =>
       [
@@ -144,7 +136,7 @@ export function InboxScreen() {
   // NOTHING — not as a deletion and not as a spinner (doc §3.1 ¶2). The card
   // keeps its session identity either way.
   const issueFor = (session: SessionView): IssueViewModel | undefined =>
-    session.issueId ? issues.find((issue) => issue.id === session.issueId) : undefined
+    session.issueId ? issues[session.issueId] : undefined
 
   return (
     <Screen
