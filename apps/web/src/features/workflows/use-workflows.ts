@@ -49,8 +49,9 @@ import type {
   WorkflowRunWire,
   WorkflowWire,
 } from '@podium/protocol'
+import { useStoreHandle } from '@podium/client-core/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import type { WorkflowCommand } from './workflow-commands'
 
 export interface WorkflowsSource {
@@ -80,7 +81,9 @@ export interface WorkflowsSource {
 type WorkflowProcs = Record<string, { mutate(input: unknown): Promise<unknown> }>
 
 export function useWorkflows(): WorkflowsSource {
-  const trpc = useStoreSelector((state) => state.trpc)
+  // A service handle, not replicated data. This hook remains the one RPC
+  // source in both startup arms and does not subscribe to store publications.
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
   const [workflows, setWorkflows] = useState<WorkflowWire[]>([])
   const [bindings, setBindings] = useState<WorkflowBindingWire[]>([])
   const [profiles, setProfiles] = useState<ExecutionProfileWire[]>([])

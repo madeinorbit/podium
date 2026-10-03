@@ -21,6 +21,11 @@ import { makeIssue } from '@/lib/test-issue'
 import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 
 let subjects: ReturnType<typeof makeIssue>[] = []
+const testHandle = vi.hoisted(() => ({ getSnapshot: (): unknown => ({}) }))
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...await original<typeof import('@podium/client-core/react')>(),
+  useStoreHandle: () => testHandle,
+}))
 const list = vi.fn()
 const get = vi.fn()
 const bindings = vi.fn<() => Promise<unknown[]>>(async () => [])
@@ -73,6 +78,7 @@ vi.mock('@/app/store', () => {
         },
       },
     })
+  testHandle.getSnapshot = fixtureState
   return {
     useStore: fixtureState,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(fixtureState() as never),

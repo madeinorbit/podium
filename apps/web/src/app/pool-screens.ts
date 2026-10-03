@@ -12,6 +12,7 @@ import type { PoolScreen } from '@podium/client-graph/host'
 import { panePoolScreen } from './pane-pool-screen'
 import { commandLaunchScreen } from '@/lib/command-launch-data-layer'
 import { missionPanePoolScreen } from './mission-pane-pool-screen'
+import { workflowPoolScreen } from '@/features/workflows/workflow-pool-screen'
 
 /** Latch with hydrated UI state before rendering any screen, including settings.
  * Provider attachments and principal rebuilds reuse the same app-load choices. */
@@ -27,6 +28,7 @@ export const poolBackedScreens: readonly PoolScreen[] = [
   commandLaunchScreen,
   noticePoolScreen,
   missionPanePoolScreen,
+  workflowPoolScreen,
   { optional: true, initialize: initializeSettingsDataLayer, enabled: () => settingsDataLayer() === 'pool',
     options: () => ({ settings: true }),
     async attach(runtime, pool) {

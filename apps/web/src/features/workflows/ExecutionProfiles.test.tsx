@@ -3,6 +3,11 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ExecutionProfiles } from './ExecutionProfiles'
 
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...await original<typeof import('@podium/client-core/react')>(),
+  useStoreHandle: () => ({}),
+}))
+
 vi.mock('@/app/store', () => ({
   useStoreSelector: (sel: (s: unknown) => unknown) =>
     sel({ machines: [], issues: [], sessions: [], trpc: {} } as never),

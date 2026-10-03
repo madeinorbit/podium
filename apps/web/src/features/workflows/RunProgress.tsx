@@ -1,4 +1,3 @@
-import { useReplicaIssues } from '@/app/store'
 /**
  * RUN PROGRESS (POD-647) — the runs list and one run's card, over the workflows
  * slice's `currentStepOf` / `runAdvances` / `runAttribution` /
@@ -30,13 +29,12 @@ import {
   currentStepOf,
   runAdvances,
   runAttribution,
-  runSubjectReference,
 } from '@podium/client-core/viewmodels'
-import { asSessionId } from '@podium/model'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { WorkflowRunWire } from '@podium/protocol'
 import { Check } from 'lucide-react'
 import type { JSX } from 'react'
-import { useSession, useStoreSelector } from '@/app/store'
+import { useWorkflowSubject } from './readers'
 import { cn } from '@/lib/utils'
 import type { WorkflowsSource } from './use-workflows'
 import { workflowCommands, type WorkflowRights } from './workflow-commands'
@@ -94,19 +92,9 @@ function RunCard({
   source: WorkflowsSource
   rights: WorkflowRights
 }): JSX.Element {
-  const issues = useReplicaIssues()
-  const subjectSession = useSession(
-    run.subjectKind === 'session' ? asSessionId(run.subjectId) : undefined,
-  )
+  const subject = useWorkflowSubject(run)
   const current = currentStepOf(run)
   const advances = runAdvances(run)
-  const subject = runSubjectReference(run, (id) =>
-    run.subjectKind === 'issue'
-      ? issues.find((issue) => issue.id === id)
-      : subjectSession?.sessionId === id
-        ? subjectSession
-        : undefined,
-  )
   const attribution = runAttribution(run)
 
   return (
@@ -114,7 +102,9 @@ function RunCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">
-            {subject.state === 'present' ? (
+            {subject === LOADING ? (
+              <span role="status">Loading {run.subjectKind} · {run.subjectId}…</span>
+            ) : subject.state === 'present' ? (
               <>
                 {run.subjectKind} · {run.subjectId}
               </>

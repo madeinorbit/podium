@@ -26,7 +26,6 @@
  * explanation IS the M5 defect restated.
  */
 import {
-  machineViewsFromWire,
   placementOptions,
   profilePlacement,
 } from '@podium/client-core/viewmodels'
@@ -34,7 +33,7 @@ import { AgentKind, asAccountId, asMachineId } from '@podium/model/browser'
 import { EXECUTION_PROFILE_DEFAULT_HARNESS } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useWorkflowMachines } from './readers'
 import type { WorkflowsSource } from './use-workflows'
 import { type WorkflowRights, workflowCommands } from './workflow-commands'
 import { CommandButton, Empty, Field } from './workflow-ui'
@@ -58,8 +57,7 @@ export function ExecutionProfiles({
   source: WorkflowsSource
   rights: WorkflowRights
 }): JSX.Element {
-  const machines = useStoreSelector((s) => s.machines)
-  const views = machineViewsFromWire(machines)
+  const { views, pending } = useWorkflowMachines()
   const options = placementOptions(views)
 
   const [name, setName] = useState('')
@@ -70,6 +68,12 @@ export function ExecutionProfiles({
   // Null is a real choice — "no machine chosen" — and it is submitted as null.
   const [machineId, setMachineId] = useState<string | null>(null)
   const canSave = Boolean(name && accountId && harness)
+
+  if (pending) return (
+    <section className="min-h-0 flex-1 overflow-y-auto p-5">
+      <p role="status" className="text-xs text-muted-foreground">Loading execution profiles…</p>
+    </section>
+  )
 
   return (
     <section className="min-h-0 flex-1 overflow-y-auto p-5">
