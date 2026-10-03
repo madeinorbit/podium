@@ -13,6 +13,7 @@ const cases = [
   { name: 'virtual-window', file: source, test, title: 'keeps rich card', from: 'options.windowed ? options.addressed ?? [] :', to: 'false ? options.addressed ?? [] :' },
   { name: 'virtual-child-summary', file: source, test, title: 'derives a virtual card', from: 'if (!row.archived && !row.deletedAt && scoped(row, options.agents ?? false, true))', to: 'if (false)' },
   { name: 'addressed-close-roster', file: 'apps/web/src/features/issues/use-issue-status-apply.tsx', test: 'apps/web/src/features/issues/board-pool-hooks.test.tsx', title: 'uses addressed pool', from: 'const addressed = sessionsForIssue?.(issue)', to: 'const addressed = []' },
+  { name: 'fleet-order', file: source, test, title: 'orders a virtual fleet', from: 'fleet: row.memberSessionIds.flatMap(id => { const seat = seatsById.get(id); return seat ? [seat] : [] })', to: 'fleet: roster ?? []' },
   { name: 'initial-projection', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'derives once', from: 'getSnapshot() { start(); return snapshot }', to: 'getSnapshot() { start(); const value = snapshot; clear(); return value }' },
   { name: 'abandoned-projection', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'releases an abandoned', from: 'queueMicrotask(() => { if (!listeners.size) clear() })', to: 'queueMicrotask(() => {})' },
   { name: 'projection-release', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'derives once', from: 'stop?.(); stop = undefined; snapshot = undefined', to: 'stop = undefined; snapshot = undefined' },
@@ -36,13 +37,23 @@ const cases = [
 ]
 const git = (...args: string[]) => execFileSync('git', ['-c', 'gc.auto=0', ...args], { stdio: 'pipe' })
 const reports: { name: string; status: number | null; assertion: boolean; restored: boolean }[] = []
+// Formatting may change whitespace/semicolons. Locate the same exact token
+// sequence while preserving the original bytes for restoration.
+function planted(original: string, from: string, to: string) {
+  const chars = [...original], offsets = chars.flatMap((char, index) => /[\s;]/.test(char) ? [] : [index])
+  const compact = offsets.map(index => chars[index]).join(''), target = from.replace(/[\s;]/g, '')
+  const at = compact.indexOf(target)
+  if (at < 0) throw new Error('Control target missing')
+  const start = offsets[at]!, end = offsets[at + target.length - 1]! + 1
+  return original.slice(0, start) + to + original.slice(end)
+}
 for (const control of cases) {
   const path = resolve(control.file), original = readFileSync(path, 'utf8'), aside = resolve(root, `${control.name}.aside`)
-  if (!original.includes(control.from)) throw new Error(`Control target missing: ${control.name}`)
+  const mutation = planted(original, control.from, control.to)
   git('commit', '--allow-empty', '-m', `wip(board): before ${control.name} plant`)
   copyFileSync(path, aside)
   try {
-    writeFileSync(path, original.replace(control.from, control.to))
+    writeFileSync(path, mutation)
     git('add', control.file); git('commit', '-m', `wip(board): planted ${control.name} run`)
     const run = spawnSync(process.execPath, ['run', 'test:file', '--', control.test, '-t', control.title], { encoding: 'utf8', timeout: 120_000, maxBuffer: 12_000_000 })
     const output = `${run.stdout ?? ''}\n${run.stderr ?? ''}`

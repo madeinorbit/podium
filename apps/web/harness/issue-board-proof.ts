@@ -95,6 +95,10 @@ try {
     await page.goto(`${origin}/harness/issue-board.browser.html?mobxSidebar=1&mobxBoard=${arm === 'pool' ? 1 : 0}&mobxBoardCheck=${countsOnly && arm === 'pool' ? 1 : 0}`)
     await page.waitForFunction(() => Reflect.get(window, '__boardHarness')?.ready(), undefined, { timeout: 120_000 })
     const initial = await page.evaluate(() => Reflect.get(window, '__boardHarness').state())
+    if (arm === 'pool') {
+      const baseline = runs[0] as { initial: { residentIssues: number; coldIssues: number } }
+      if (initial.residentIssues !== baseline.initial.residentIssues || initial.coldIssues !== baseline.initial.coldIssues) throw new Error('Board startup promoted cold issues')
+    }
     const startup = await page.evaluate(() => Reflect.get(window, '__boardHarness').stats().board)
     if (countsOnly) for (const key of Object.keys(startup)) if (key.endsWith('Ms')) delete startup[key]
     const open = await capture(page, '[data-board-open]', '[data-testid="issues-board"] [data-issue-id]', () => page.locator('[data-board-open]').click())
