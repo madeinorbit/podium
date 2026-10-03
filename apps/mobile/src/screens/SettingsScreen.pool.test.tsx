@@ -195,6 +195,7 @@ it('renders the same Settings through the real no-pool to attached-pool transiti
   legacy.view.unmount()
   const enabled = await mount(true)
   expect(comparableHtml(enabled.view.container)).toBe(expected)
+  expect(comparableHtml(enabled.view.container)).toMatchSnapshot('last green pilot-ON Settings')
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
   expect(enabled.errors).toEqual([])

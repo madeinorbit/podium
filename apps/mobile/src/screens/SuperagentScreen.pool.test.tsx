@@ -66,6 +66,7 @@ it('renders the same phone session and question through the real no-pool to atta
   legacy.view.unmount()
   const enabled = await mount(true)
   expect(enabled.view.container.innerHTML).toEqual(expected)
+  expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON superagent')
   expect(enabled.errors).toEqual([])
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some(pool => pool !== null)).toBe(true)

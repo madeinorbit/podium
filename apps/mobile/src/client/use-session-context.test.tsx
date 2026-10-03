@@ -505,6 +505,7 @@ it('renders the same six phone readers through real late attachment with no Reac
   legacy.view.unmount()
   const enabled = await mount(true)
   expect(rendered(enabled.view.container)).toEqual(expected)
+  expect(rendered(enabled.view.container)).toMatchSnapshot('last green pilot-ON session readers')
   expect(enabled.errors).toEqual([])
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)

@@ -298,6 +298,7 @@ it('preserves rendered phone inbox, proposal, pulse and reference values through
   const on = await mount(true)
   await painted(on)
   await waitFor(() => expect(on.view.container.innerHTML).toBe(expected))
+  expect(on.view.container.innerHTML).toMatchSnapshot('last green pilot-ON inbox, screening, pulse and references')
   expect(on.seen[0]).toBeNull()
   expect(on.seen.some((pool) => pool !== null)).toBe(true)
   expect(on.errors).toEqual([])

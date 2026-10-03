@@ -227,6 +227,7 @@ describe('mobile WorkScreen pool consumer', () => {
     const pool = await mount(true, scale)
     await drainNativeLoads()
     expect(output(pool.view.container)).toEqual(expected)
+    expect(output(pool.view.container)).toMatchSnapshot('last green pilot-ON rows and styles')
     expect(state.sliceReads).toBe(0)
     expect(state.rowDerivations).toBe(0)
     expect(state.sections.length).toBeGreaterThan(1)

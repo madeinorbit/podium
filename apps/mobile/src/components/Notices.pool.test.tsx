@@ -166,6 +166,7 @@ it('renders identical banners with the startup switch off and on', async () => {
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
   expect(enabled.view.container.innerHTML).toEqual(expected)
+  expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON banners')
   expect(enabled.errors).toEqual([])
   expectPoolReadersOnly(enabled.runtime)
   expect(reactErrors.mock.calls).toEqual([])
