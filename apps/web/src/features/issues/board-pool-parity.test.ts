@@ -1,7 +1,7 @@
 import { dedupeSessions, type Store } from '@podium/client-core/engine'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { sessionViews } from '@podium/client-core/session-values'
-import { inBoardCheck } from '@podium/client-graph/diagnostics/issue-board-check'
+import { boardSnapshot, explorerSnapshot, inBoardCheck } from '@podium/client-graph/diagnostics/issue-board-check'
 import {
   ISSUE_BOARD_ENTITIES,
   ISSUE_BOARD_SOURCE_KEY,
@@ -12,8 +12,27 @@ import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { expect, it } from 'vitest'
 import { buildCorpus, FIXED_NOW } from '../../../../../packages/worklist-proto/harness/src/fixture'
 import { seedAcceptanceCache } from '../../../test/sidebar-acceptance-seed'
-import { checkBoard, checkExplorer } from './board-pool-check'
+import { checkBoard as legacyBoardCheck, checkExplorer as legacyExplorerCheck } from './board-pool-check'
+import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
+import { LOADING } from '@podium/client-graph'
 import { DEFAULT_DISPLAY } from './issues-display'
+
+function checkBoard(...args: Parameters<typeof legacyBoardCheck>) {
+  const result = legacyBoardCheck(...args)
+  expect(result).toEqual({ differences: 0, first: null, pending: 0 })
+  const value = args[1].row('issueBoardModel', JSON.stringify(args[2]))
+  if (!value || value === LOADING) throw new Error('Board fixture is loading')
+  expectPoolOutput(boardSnapshot(value), JSON.stringify(args[2]))
+  return result
+}
+function checkExplorer(...args: Parameters<typeof legacyExplorerCheck>) {
+  const result = legacyExplorerCheck(...args)
+  expect(result).toEqual({ differences: 0, first: null, pending: 0 })
+  const value = args[1].row('issueExplorerModel', JSON.stringify({ tab: args[2], query: args[3] }))
+  if (!value || value === LOADING) throw new Error('Explorer fixture is loading')
+  expectPoolOutput(explorerSnapshot(value), JSON.stringify({ tab: args[2], query: args[3] }))
+  return result
+}
 
 it('matches legacy columns, values, nested positions, facets, progress and explorer tabs on the normalized synthetic corpus', async () => {
   const corpus = buildCorpus(1, 4443),

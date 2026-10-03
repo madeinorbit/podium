@@ -1,3 +1,4 @@
+import { expectPoolOutput } from '../../../../packages/worklist-proto/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import { dedupeSessions } from '@podium/client-core/engine'
 import { allIssueViewModels, createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
@@ -155,6 +156,7 @@ describe('rendered mission pane parity', () => {
     const baseline = missionIndexStats(), ownership = sessionOwnershipStats()
     const current = mount(view); await settled()
     expect(renderedOutput(current.container)).toEqual(expected)
+    expectPoolOutput(renderedOutput(current.container), "rendered output")
     expect(missionIndexStats()).toEqual(baseline)
     expect(sessionOwnershipStats()).toEqual(ownership)
     expect(missionLegacyCountsFor(owner)).toEqual({})
@@ -177,6 +179,7 @@ describe('rendered mission pane parity', () => {
     const current = mount('full'); await settled()
     fireEvent.click(screen.getByRole('button', { name: /archived session/i })); await settled()
     expect(renderedOutput(current.container)).toEqual(expected)
+    expectPoolOutput(renderedOutput(current.container), "rendered output")
     fireEvent.keyDown(current.container.querySelector(selector)!, { key: 'Enter' }); await settled()
     expect(state.openSessionTab.mock.calls.at(-1)).toEqual(expectedOpen)
   }, 120_000)
@@ -193,6 +196,7 @@ describe('rendered mission pane parity', () => {
     const current = mount('full'); await settled()
     fireEvent.contextMenu(current.container.querySelector(target)!, { clientX: 10, clientY: 20 }); await settled()
     expect(renderedOutput(screen.getByRole('menu'))).toEqual(expected)
+    expectPoolOutput(renderedOutput(screen.getByRole('menu')), 'menu output')
     expect(missionIndexStats()).toEqual(baseline); expect(sessionOwnershipStats()).toEqual(ownership)
     expect(missionLegacyCountsFor(owner)).toEqual({})
   }, 120_000)
@@ -206,6 +210,7 @@ describe('rendered mission pane parity', () => {
     const current = render(<FoldedFlightDeckBar onExpand={() => {}} />)
     await waitFor(() => expect(current.container.querySelector('[data-testid="flight-deck-gauge"]')).not.toBeNull())
     expect(renderedOutput(current.container)).toEqual(expected)
+    expectPoolOutput(renderedOutput(current.container), "rendered output")
     expect(missionIndexStats()).toEqual(baseline); expect(sessionOwnershipStats()).toEqual(ownership)
   }, 120_000)
 })

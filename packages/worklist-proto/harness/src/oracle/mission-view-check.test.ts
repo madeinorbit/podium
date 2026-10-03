@@ -1,3 +1,4 @@
+import { expectPoolOutput } from './pool-output'
 import { autorun, reaction, runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { allIssueViewModels } from '@podium/client-core/replica'
@@ -61,6 +62,7 @@ function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, a
     const check = () => checkMissionView(pool, issues, store.sessions, id, mode, worktreePaths)
     expect(id === null ? runInAction(check) : tracked(check), `${label} ${id} ${mode}`)
       .toMatchObject({ differences: 0, first: null, pending: 0 })
+    expectPoolOutput(id === null ? runInAction(() => poolMissionViewSnapshot(pool, id, mode)) : tracked(() => poolMissionViewSnapshot(pool, id, mode)), `${label} ${id} ${mode}`)
     }
     } finally { stop() }
   }

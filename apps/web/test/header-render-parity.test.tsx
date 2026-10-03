@@ -1,3 +1,4 @@
+import { expectPoolOutput } from '../../../packages/worklist-proto/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -123,7 +124,9 @@ describe('old and pool header rendering', () => {
       return { before, changed }
     }
     const legacy = await capture('legacy')
-    expect(await capture('pool')).toEqual(legacy)
+    const current = await capture('pool')
+    expect(current).toEqual(legacy)
+    expectPoolOutput(current, 'working roster and machines')
     expect(legacy.before.sentence).toBe('2 agents working')
     expect(legacy.changed.sentence).toBe('1 agent working')
   }, 30000)
@@ -136,6 +139,7 @@ describe('old and pool header rendering', () => {
     const pool = await mount('pool')
     expect(renderedHeader(pool.container.querySelector('.header-host-indicators')!)).toEqual(before)
     expect(pool.container.textContent).toBe(text)
+    expectPoolOutput(renderedHeader(pool.container.querySelector('.header-host-indicators')!), 'header indicators')
     expect([...pool.container.querySelectorAll('.header-machine-name')].map((node) => node.textContent))
       .toEqual(['Host 1', 'Host 2', 'Host 3'])
     expect([...pool.container.querySelectorAll('.header-quota-chip .header-quota-label')]

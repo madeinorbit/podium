@@ -1,3 +1,4 @@
+import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/model-catalog-mock'
@@ -185,6 +186,7 @@ describe('issue page rendered pool parity', () => {
     const next = await arm(surface, 'pool')
     expect(next.main).toEqual(old.main)
     expect(next.expanded).toEqual(old.expanded)
+    expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
     expect(next.counts.filter(([name]) => name.startsWith('issue-page.') || name === 'replica.issueViews')).toEqual([])
     if (surface !== 'list') { expect(comments).toHaveBeenCalled(); expect(events).toHaveBeenCalled() }
@@ -204,6 +206,7 @@ describe('issue page rendered pool parity', () => {
     const next = await arm('panel', 'pool')
     expect(next.main).toEqual(old.main)
     expect(next.expanded).toEqual(old.expanded)
+    expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
   })
 
@@ -231,6 +234,7 @@ describe('issue page rendered pool parity', () => {
     vi.clearAllMocks()
     const next = await closeFromList('pool')
     expect(next.tree).toEqual(old.tree)
+    expectPoolOutput(next.tree, 'close dialog')
     expect(next.reads).toBe(0)
   })
 

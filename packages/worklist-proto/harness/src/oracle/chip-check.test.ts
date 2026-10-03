@@ -1,3 +1,4 @@
+import { expectPoolOutput } from './pool-output'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { canonicalIssueRef } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
@@ -28,6 +29,7 @@ describe('chip differential replay', () => {
           const result = checkIssueChips(handle.pool.references, issues, tokens)
           if (!result.pending) {
             expect(result, phase).toMatchObject({ differences: 0, first: null, pending: 0 })
+            expectPoolOutput(tokens.map(token => handle.pool.references.read(token)), phase)
             return
           }
           handle.pool.hydrate()

@@ -1,3 +1,4 @@
+import { expectPoolOutput } from './pool-output'
 import { reaction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { allIssueViewModels } from '@podium/client-core/replica'
@@ -72,6 +73,7 @@ describe('issue page differential replay', () => {
       const store = ctx.engine.getSnapshot()
       const result = tracked(() => checkIssuePages(handle.pool, allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions))
       expect(result, scenario).toMatchObject({ differences: 0, first: null, pending: 0 })
+      expectPoolOutput(tracked(() => poolIssuePageSnapshot(handle.pool)), scenario)
       checks.push({ scenario, ...result })
     }
     try {
@@ -110,6 +112,7 @@ describe('issue page differential replay', () => {
         acceptedDeadlineDifferences += result.acceptedDeadlineDifferences
         expect(result,
           `seed ${seed} step ${index} ${change.kind}`).toMatchObject({ differences: 0, first: null, pending: 0 })
+        expectPoolOutput(tracked(() => poolIssuePageSnapshot(handle.pool)), `step ${index}`)
       }
       writeResult(`issue-page-check-seed-${seed}`, { issue: 'POD-5091', seed, steps: changes.length, differences: 0, acceptedDeadlineDifferences })
     } finally { stop(); handle.dispose(); locals.dispose(); run.dispose() }

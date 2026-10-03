@@ -1,3 +1,4 @@
+import { expectPoolOutput } from './pool-output'
 import { reaction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { checkSidebar, compareSidebarSnapshots, poolSidebarSnapshot, type SidebarDifference, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
@@ -183,6 +184,7 @@ describe('sidebar differential replay', () => {
       const state: SidebarState = { pinnedRepos: store.pins.repos, pinnedWorktrees: store.pins.worktrees, projectOrder: store.sidebarSettings.repoOrder }
       const result = tracked(() => checkSidebar(handle.pool, store, state))
       expect(result, scenario).toMatchObject({ differences: 0, first: null, pending: 0 })
+      expectPoolOutput(tracked(() => poolSidebarSnapshot(handle.pool, state)), scenario)
       checks.push({ scenario, rows: result.rows, differences: result.differences })
     }
     try {
@@ -235,6 +237,7 @@ describe('sidebar differential replay', () => {
           projectOrder: index % 2 ? [...keys].reverse() : [], collapsed: { 'podium:sidebar:pinned-fold': index % 2 === 1 } }
         const result = tracked(() => checkSidebar(handle.pool, store, state))
         expect(result, `seed ${seed} step ${index} ${changes[index]!.kind}`).toMatchObject({ differences: 0, first: null, pending: 0 })
+        expectPoolOutput(tracked(() => poolSidebarSnapshot(handle.pool, state)), `step ${index}`)
       }
       writeResult(`sidebar-check-seed-${seed}`, { issue: 'POD-4954', seed, steps: changes.length, differences: 0 })
     } finally { stop(); handle.dispose(); locals.dispose(); run.dispose() }

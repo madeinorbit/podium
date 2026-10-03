@@ -1,3 +1,4 @@
+import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import { useMemo, useSyncExternalStore } from 'react'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -119,6 +120,7 @@ it('renders the same real AgentPanel header, lifecycle text and controls for eve
     f.mode = 'pool'
     const actual = render(<AgentPanel sessionId={row.sessionId} />)
     expect(view(actual.container), row.sessionId).toEqual(expected)
+    expectPoolOutput(view(actual.container), row.sessionId)
     actual.unmount()
   }
 })
@@ -184,6 +186,7 @@ it('keeps native reference underlines equal and live without legacy issue reads 
     f.pool!.hydrate()
     expect({ ...view(actual.container), stages }).toEqual(expected)
   })
+  expectPoolOutput({ ...view(actual.container), stages }, 'reference underlines')
   expect(vi.mocked(useReplicaIssues)).not.toHaveBeenCalled()
   expect(readRuntimeStoreStats(f.owner)).toBeDefined()
   expect(readRuntimeStoreStats(f.owner)?.slices['sessionPane.referenceIssues'] ?? 0).toBe(0)
