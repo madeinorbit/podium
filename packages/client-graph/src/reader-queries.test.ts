@@ -452,4 +452,44 @@ describe('readers behind declared cold questions', () => {
       pool.dispose()
     }
   })
+
+  it('keeps the most recent cold candidate when a resident timestamp changes ahead of the feed', () => {
+    const rows: RowRecord[] = [
+      {
+        kind: 'session',
+        id: 'resident',
+        value: { sessionId: 'resident', status: 'live', lastActiveAt: '2026-10-03T12:00:00Z' },
+      },
+      {
+        kind: 'session',
+        id: 'history',
+        value: {
+          sessionId: 'history',
+          status: 'exited',
+          stoppedAt: old,
+          lastActiveAt: '2026-10-02T12:00:00Z',
+        },
+      },
+    ]
+    const index = createColdIndex(SCHEMA)
+    index.apply({ type: 'replace', rows })
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+      cold: () => index,
+      load: () => undefined,
+      schedule: () => () => {},
+    })
+    pool.apply({ type: 'replace', rows })
+    pool.apply({
+      type: 'update',
+      rows: [{ ...rows[0]!, value: { ...rows[0]!.value, lastActiveAt: old } }],
+    })
+    const census = vi.spyOn(pool.residency!, 'ids')
+    try {
+      expect(pool.queries.ids({ kind: 'headerRecentSession' })).toEqual(['history', 'resident'])
+      expect(census).not.toHaveBeenCalled()
+    } finally {
+      census.mockRestore()
+      pool.dispose()
+    }
+  })
 })

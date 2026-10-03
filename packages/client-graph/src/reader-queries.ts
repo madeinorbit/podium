@@ -69,7 +69,12 @@ export class ReaderQueries {
     // Resident identities remain the pool's authority, including pending
     // edits that have not reached the feed. A query is a candidate set; the
     // reader checks its current fields through pool.row.
-    let ids = [...new Set([...residentIds(this.pool, entity), ...index.readerIds(question)])]
+    const resident = residentIds(this.pool, entity)
+    const coldQuestion =
+      question.kind === 'headerRecentSession'
+        ? { ...question, excluded: [...resident, ...(question.excluded ?? [])] }
+        : question
+    let ids = [...new Set([...resident, ...index.readerIds(coldQuestion)])]
     if (question.kind === 'headerRecentSession' && question.excluded?.length) {
       const excluded = new Set(question.excluded)
       ids = ids.filter((id) => !excluded.has(id))
