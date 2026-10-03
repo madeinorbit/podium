@@ -7,7 +7,7 @@ import type { ModelHost } from '../models'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { issueExcluded } from '../shared/schema'
 import { overlayRow } from '../shared/overlay-row'
-import { compareStructural, computed, type IComputedValue } from 'mobx'
+import { compareStructural, computed, type IComputedValue, untracked } from 'mobx'
 import { debugName } from '../debug-name'
 import { LOADING, attentionGroup } from './rollup'
 import { retains, retentionOf, type HiddenIssue } from './visible'
@@ -73,7 +73,7 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
     // Only a positive cold-lane summary reaches the old relation. No cold
     // id enters the resident roster index; pending seats queue one batch.
     for (const id of host.relations.many('worktree', path, 'sessions')) {
-      if (host.row('session', id, 'mark') === LOADING) candidates.push(id)
+      if (untracked(() => host.row('session', id, 'mark')) === LOADING) candidates.push(id)
     }
   }
   for (const id of candidates) {
@@ -85,8 +85,9 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
       if (summary === LOADING) { pending += 1; continue }
       const retention = retentionOf(summary as SliceSession | undefined)
       if (retention === null || !retention.seat) continue
-      const owner = retention.issueId && host.row('issue', retention.issueId, 'mark') === LOADING
-        ? host.row('issue', retention.issueId, 'summary') as HiddenIssue | typeof LOADING | undefined : undefined
+      const ownerId = retention.issueId
+      const owner = ownerId && untracked(() => host.row('issue', ownerId, 'mark')) === LOADING
+        ? host.row('issue', ownerId, 'summary') as HiddenIssue | typeof LOADING | undefined : undefined
       if (owner && owner !== LOADING && (issueExcluded(owner) || (owner.flatUntil !== undefined && input.passed(owner.flatUntil)))) continue
       if (owner === undefined && !retains(retention, undefined, undefined, input)) continue
       if (host.resident('session', id) === 'loading') pending += 1

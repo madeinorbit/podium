@@ -76,7 +76,7 @@ export class HeaderSessions {
     this.coldDeadlines.get(id)?.()
     this.coldDeadlines.delete(id)
     const coldSummary = () => {
-      if (this.pool.row('session', id, 'mark') !== LOADING) return undefined
+      if (untracked(() => this.pool.row('session', id, 'mark')) !== LOADING) return undefined
       const value = this.pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
       return value === LOADING ? undefined : value
     }

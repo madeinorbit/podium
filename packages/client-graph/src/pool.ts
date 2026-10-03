@@ -175,16 +175,18 @@ export interface PoolLazyOptions {
  * The write layer, as the pool sees it: the seam the write layer implements
  * and passes at construction (`write/overlay.ts`), so no reader is ever
  * replaced.
- * - `pending` is what the one reader lays over a row. TRACKED: it reads the
- *   entry for `entity:id` (present or not), so a derivation that read the row
- *   re-runs when its pending display changes. It holds only the pending
- *   fields, never a row.
+ * - `pending` is what the one reader lays over a row. Its tracked entry for
+ *   `entity:id` (present or not) follows pending display changes. Cold
+ *   summary readers can share their residency key when `observePending`
+ *   supplies those notifications. It holds pending fields, never a row.
  * - `edit` is a model's setter (`issue.title = x`, `issue.update(patch)`):
  *   one transaction of the write layer's edit log.
  */
 export interface WriteSeam {
   /** The newest pending value per edited field of `entity:id`, or undefined when nothing is pending. */
   pending(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined
+  /** Optional key notifications, synchronous inside the write action, including removal. */
+  observePending?(changed: (entity: EntityName, id: string) => void): () => void
   /** One transaction: paint the patch at once, remember the prior values, send. */
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
 }
@@ -260,6 +262,7 @@ export class MobxPool {
   readonly residency: Residency | null
   /** The write layer (pending edits and model edits); null without one. */
   readonly writes: WriteSeam | null
+  private readonly stopPending: (() => void) | undefined
   /** The one object per row, by entity: built on first request, never twice. */
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
   private readonly target: IngestTarget
@@ -319,6 +322,8 @@ export class MobxPool {
             lanes: () => this.graph,
           })
     this.residency = residency
+    this.stopPending = residency === null ? undefined :
+      this.writes?.observePending?.((entity, id) => residency.notify(entity, id))
     /**
      * The explicit seats (`issue.sessions`), maintained SORTED from the
      * relation's own bucket deltas (one element per move: binary search +
@@ -520,6 +525,7 @@ export class MobxPool {
       | 'referenceReader'
       | 'issueIdByRef'
       | 'disposed'
+      | 'stopPending'
       | 'object'
       | 'release'
       | 'hidden'
@@ -530,6 +536,7 @@ export class MobxPool {
       referenceReader: false,
       issueIdByRef: false,
       disposed: false,
+      stopPending: false,
       sidebarRosters: false,
       tables: false,
       header: false,
@@ -607,8 +614,9 @@ export class MobxPool {
    * In memory: the server row with the write layer's pending edits overlaid
    * (`WriteSeam`), or the server object itself when nothing is pending (same
    * identity, so an idle write layer adds no commit). The overlaid object is
-   * transient, never stored; a reader subscribes to the table slot and the
-   * overlay entry, never to it.
+   * transient, never stored. Resident readers subscribe to the table slot
+   * and overlay entry; cold summary readers share the residency key when
+   * the write seam supplies pending-change notifications.
    *
    * Not in memory (cold, POD-4567): what `absent` names (`AbsentRead`). A
    * cold row's value is read by id through the feed; it is tracked by
@@ -642,9 +650,13 @@ export class MobxPool {
     if (isHeaderEntity(entity)) return this.header.get(entity, id)
     if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id)
     const core = entity as EntityName
-    let server = this.tables[core].get(id) as object | undefined
+    const residency = this.residency
+    // The residency key already reports cold-summary changes, hydration and
+    // removal. Do not also subscribe to an absent table slot for that row.
+    const coldSummary = (absent === 'summary' || absent === 'summary-fields') &&
+      residency?.isCold(core, id) === true && !untracked(() => this.tables[core].has(id))
+    let server = coldSummary ? undefined : this.tables[core].get(id) as object | undefined
     if (server === undefined) {
-      const residency = this.residency
       if (residency === null) return undefined
       if (absent === 'load') return residency.loading(core, id) ? LOADING : undefined
       if (!residency.known(core, id)) return undefined
@@ -655,7 +667,8 @@ export class MobxPool {
       } else server = core === 'session' ? residency.summary(core, id) ?? residency.read(core, id) : residency.read(core, id)
       if (server === undefined) return undefined
     }
-    const pending = this.writes?.pending(core, id)
+    const pending = coldSummary && this.stopPending
+      ? untracked(() => this.writes?.pending(core, id)) : this.writes?.pending(core, id)
     return pending === undefined ? server : overlayRow(server, pending)
   }
 
@@ -930,6 +943,7 @@ export class MobxPool {
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
     this.disposed = true
+    this.stopPending?.()
     this.preferenceSource?.dispose()
     this.sources.dispose()
     this.settingsViews.clear()

@@ -16,7 +16,7 @@
  * tracked too, so a node built before the first edit follows it.
  */
 
-import { type ObservableMap, observable } from 'mobx'
+import { type ObservableMap, observable, observe } from 'mobx'
 import { debugName } from '../debug-name'
 import type { EntityName } from '../shared/schema'
 import {
@@ -62,6 +62,11 @@ export class PendingOverlay implements WriteSeam {
   pending(entity: EntityName, id: string): IssueOverlay | undefined {
     if (entity !== 'issue') return undefined
     return this.entries.get(id)
+  }
+
+  /** Let cold summary readers reuse their residency key for pending changes. */
+  observePending(changed: (entity: EntityName, id: string) => void): () => void {
+    return observe(this.entries, change => changed('issue', change.name))
   }
 
   /** Mirror the log's display for issue `id` (inside the write layer's action). */
