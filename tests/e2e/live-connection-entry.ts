@@ -15,6 +15,7 @@ import { IndexedDbSyncStore, type IdbFactoryLike } from '@podium/sync/adapters/i
 import { openKernelAssembly } from '../../apps/web/src/lib/kernelReplica'
 import { openMobileReplica } from '../../apps/mobile/src/client/MobileClientProvider'
 import { mobileVersionObservers } from '../../apps/mobile/src/client/mobile-live-connection'
+import { createMobileSyncFetch } from '../../apps/mobile/src/client/mobile-sync-fetch'
 import { makePlatformSocketLogin } from '../../apps/mobile/src/client/native-websocket.web'
 import { platformFeedChannel } from '../../apps/mobile/src/client/platform-feed-channel.web'
 
@@ -79,7 +80,7 @@ const assembly =
             retainEntity: retainReplicaEntity,
             onDegraded: () => {},
           }),
-        httpSync: { origin: location.origin, streamingFetch: { fetch, credentials: 'include' } },
+        httpSync: { origin: location.origin, streamingFetch: createMobileSyncFetch(null) },
         broadcastChannelFactory: platformFeedChannel(),
       })
 const replica = assembly.createReplicaFn(
