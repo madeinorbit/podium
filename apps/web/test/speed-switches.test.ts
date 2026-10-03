@@ -1,16 +1,38 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest'
-import { assertSpeedSwitches, parseSpeedSwitches, speedSwitchReport, speedSwitchState, speedSwitchUrl } from '../harness/speed-switches'
+import {
+  assertSpeedSwitches,
+  parseSpeedSwitches,
+  speedSwitchReport,
+  speedSwitchState,
+  speedSwitchUrl,
+} from '../harness/speed-switches'
 
 afterEach(() => history.replaceState(null, '', '/'))
 describe('generic speed gate URL overrides', () => {
   it('parses repeatable overrides and rejects malformed or conflicting values', () => {
-    expect(parseSpeedSwitches(['--switch=mobxPane=0', '--lease-confirmed', '--switch=anotherSetting=1', '--switch=mobxPane=0']))
-      .toEqual([['mobxPane', '0'], ['anotherSetting', '1']])
-    for (const arg of ['--switch=mobxPane=2', '--switch==1', '--switch=mobxPane', '--switch= spaced=0']) {
+    expect(
+      parseSpeedSwitches([
+        '--switch=mobxPane=0',
+        '--lease-confirmed',
+        '--switch=anotherSetting=1',
+        '--switch=mobxPane=0',
+      ]),
+    ).toEqual([
+      ['mobxPane', '0'],
+      ['anotherSetting', '1'],
+    ])
+    for (const arg of [
+      '--switch=mobxPane=2',
+      '--switch==1',
+      '--switch=mobxPane',
+      '--switch= spaced=0',
+    ]) {
       expect(() => parseSpeedSwitches([arg])).toThrow(/Invalid/)
     }
-    expect(() => parseSpeedSwitches(['--switch=mobxPane=0', '--switch=mobxPane=1'])).toThrow(/Conflicting/)
+    expect(() => parseSpeedSwitches(['--switch=mobxPane=0', '--switch=mobxPane=1'])).toThrow(
+      /Conflicting/,
+    )
   })
 
   it('preserves the default URL and report bytes and records only requested overrides', () => {
@@ -39,5 +61,12 @@ describe('generic speed gate URL overrides', () => {
 })
 
 it('drops retired workspace overrides while retaining switches for the other lanes', () => {
-  expect(parseSpeedSwitches(['--switch=mobxSidebar=0', '--switch=mobxPane=1', '--switch=mobxHeader=0', '--switch=mobxCommands=1'])).toEqual([['mobxCommands', '1']])
+  expect(
+    parseSpeedSwitches([
+      '--switch=mobxSidebar=0',
+      '--switch=mobxPane=1',
+      '--switch=mobxHeader=0',
+      '--switch=mobxCommands=1',
+    ]),
+  ).toEqual([['mobxCommands', '1']])
 })

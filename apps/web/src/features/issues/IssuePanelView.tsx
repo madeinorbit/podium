@@ -1,14 +1,37 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import { artifactKind, artifactUrl, basename, buildActivityFeed, type IssueEvent, operationalState, type PresenceKind, type PresenceNote, sessionNeedsHuman } from '@podium/client-core/viewmodels'
+import {
+  artifactKind,
+  artifactUrl,
+  basename,
+  buildActivityFeed,
+  type IssueEvent,
+  operationalState,
+  type PresenceKind,
+  type PresenceNote,
+  sessionNeedsHuman,
+} from '@podium/client-core/viewmodels'
 import type { IssueComment, IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { ArrowDown, ArrowRight, ArrowUpRight, Ban, Check, CircleAlert, FileText, Folder, History, type LucideIcon, MessageSquare, Play, Truck } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUpRight,
+  Ban,
+  Check,
+  CircleAlert,
+  FileText,
+  Folder,
+  History,
+  type LucideIcon,
+  MessageSquare,
+  Play,
+  Truck,
+} from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
-import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -20,9 +43,20 @@ import { costSectionMeta, TaskCostSection } from '../cost/TaskCostSection'
 import { useTaskCost } from '../cost/useTaskCost'
 import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
 import { IssueExplorerList } from './explorer/IssueExplorerList'
-import { DOCK_BODY, DOCK_ROW, DOCK_STAMP, IssueCompactControls, IssueDecisionBand, IssueGitScope, IssueSessionRow, isOpenSession, issueSessions } from './IssueCompactControls'
+import {
+  DOCK_BODY,
+  DOCK_ROW,
+  DOCK_STAMP,
+  IssueCompactControls,
+  IssueDecisionBand,
+  IssueGitScope,
+  IssueSessionRow,
+  isOpenSession,
+  issueSessions,
+} from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
+import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
 import { useIssueStatusApply } from './use-issue-status-apply'
 
 // Where the task's identity lives, since POD-743: the HEAD of this panel. The
@@ -839,11 +873,7 @@ export function IssuePanelBody({
   // apply and its close guard are shared by all of them, once, here.
   const rowStatus = useIssueStatusApply(pooled.sessions)
   const { setFocusedIssueId } = useOperatorFocus()
-  const issue = useMemo(
-    () =>
-      pooled.issue,
-    [pooled, issues, sessions, cwd, sessionId, issueId],
-  )
+  const issue = useMemo(() => pooled.issue, [pooled, issues, sessions, cwd, sessionId, issueId])
   // WHAT THIS TASK COST. Read here rather than inside the section so the hook
   // sits above this component's own early return for an unresolvable id — and
   // so the section stays a pure render of a view, which is what lets the task
@@ -852,10 +882,7 @@ export function IssuePanelBody({
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   // The same derivation the Flight Deck makes from the same slice — every
   // worktree root the shell knows, for `issueDisplayTitle` below.
-  const allWorktreePaths = useMemo(
-    () => pooled.worktreePaths,
-    [pooled],
-  )
+  const allWorktreePaths = useMemo(() => pooled.worktreePaths, [pooled])
   // DIRECT children only — the artifact's Subtasks section is one tier deep
   // with a completed fold, not a flattened recursive subtree. The meter counts
   // exactly this list and nothing else (POD-516 r3 #4): it used to walk the
@@ -993,7 +1020,7 @@ export function IssuePanelBody({
           title={title}
           onRename={renameIssue}
           onOpenInWork={
-            onNavigate && workable && (typeof page.views.destination(issue.id) === 'object')
+            onNavigate && workable && typeof page.views.destination(issue.id) === 'object'
               ? () => showInDeck(issue)
               : undefined
           }

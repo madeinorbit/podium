@@ -1,6 +1,5 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 //
 // BRING BACK (POD-1188) — the inverse of the Tuck chip, reached by right-clicking
@@ -14,6 +13,7 @@ import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/
 //    have would move nothing — the item says so instead of lying.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { SidebarUnified } from './SidebarUnified'
 
 // A live ui-state collection, as in the lifecycle suite: the tail folds are shut
@@ -154,7 +154,9 @@ vi.mock('@/app/store', () => {
     useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useStoreSelector: (selector: (state: unknown) => unknown) => selector(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
+      def.derive(
+        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      ),
   }
 })
 

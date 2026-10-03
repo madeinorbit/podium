@@ -1,16 +1,22 @@
-import { type IssueReferenceModel as IssueReferenceView } from '@podium/client-core/viewmodels'
-import { useStoreHandle } from '@podium/client-core/react'
 import { recordChipWork } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
+import type { IssueReferenceModel as IssueReferenceView } from '@podium/client-core/viewmodels'
+import type { MobxPool } from '@podium/client-graph'
 import type { JSX } from 'react'
 import { memo, useCallback, useLayoutEffect } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import type { MobxPool } from '@podium/client-graph'
 import { StageGlyph, UnknownRefGlyph } from '@/features/issues/issue-glyphs'
 import { cn } from '@/lib/utils'
 
 function unavailable(ref: string, loading = false): IssueReferenceView {
-  return { ref, issueId: null, title: null, stage: null, availability: 'unavailable',
-    accessibleLabel: `Task ${ref} is ${loading ? 'loading' : 'unavailable'}` }
+  return {
+    ref,
+    issueId: null,
+    title: null,
+    stage: null,
+    availability: 'unavailable',
+    accessibleLabel: `Task ${ref} is ${loading ? 'loading' : 'unavailable'}`,
+  }
 }
 
 type ChipProps = Omit<Parameters<typeof IssueReference>[0], 'model'> & { token: string }
@@ -23,13 +29,27 @@ export const LiveIssueReference = memo(function LiveIssueReference(props: ChipPr
 
 function PoolIssueReference({ token, ...props }: ChipProps): JSX.Element {
   const owner = useStoreHandle()
-  const read = useCallback((pool: MobxPool) => {
-    recordChipWork(owner, 'reads')
-    return pool.references.read(token)
-  }, [owner, token])
+  const read = useCallback(
+    (pool: MobxPool) => {
+      recordChipWork(owner, 'reads')
+      return pool.references.read(token)
+    },
+    [owner, token],
+  )
   const model = useWorklistPoolProjection(read, undefined)
-  useLayoutEffect(() => { recordChipWork(owner, 'redraws') }, [owner, model])
-  return <IssueReference {...props} model={typeof model === 'symbol' || model === undefined ? unavailable(token, true) : model ?? unavailable(token)} />
+  useLayoutEffect(() => {
+    recordChipWork(owner, 'redraws')
+  }, [owner, model])
+  return (
+    <IssueReference
+      {...props}
+      model={
+        typeof model === 'symbol' || model === undefined
+          ? unavailable(token, true)
+          : (model ?? unavailable(token))
+      }
+    />
+  )
 }
 
 /**

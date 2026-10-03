@@ -1,6 +1,5 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 /**
  * EVICT: A ROW LEAVES WITHOUT A DELETION (POD-407, readiness §3.1 item 2 /
@@ -24,11 +23,12 @@ import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/
  */
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { SidebarUnified } from './SidebarUnified'
 
 const { setSelectedIssueId, issueGet } = vi.hoisted(() => ({
   setSelectedIssueId: vi.fn(),
-    navigateWorkspace: vi.fn(() => true),
+  navigateWorkspace: vi.fn(() => true),
   issueGet: vi.fn(async () => ({})),
 }))
 
@@ -119,7 +119,9 @@ vi.mock('@/app/store', () => {
     useReplicaIssues: () => currentIssues,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
+      def.derive(
+        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      ),
   }
 })
 

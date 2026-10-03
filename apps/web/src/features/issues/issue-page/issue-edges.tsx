@@ -57,9 +57,9 @@ import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/viewmod
 import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/viewmodels'
 import type { IssueId } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
-import { type IssueViewModel } from '@/app/store'
-import { useIssuePageData, useIssuePageIssues } from './issue-page-data'
+import type { IssueViewModel } from '@/app/store'
 import { issueRefLong } from '../issue-card'
+import { useIssuePageData, useIssuePageIssues } from './issue-page-data'
 
 /**
  * THE SHIPPED CHOICE: an invisible issue is shown as an OPAQUE reference.
@@ -101,7 +101,9 @@ export function IssueExitProvider({
 /** Resolve any issue-to-issue reference against the partial world this replica
  *  holds. One resolver per render, closed over the issue rows and the exit
  *  lookup, so a section resolving five edges does one index build. */
-export function useIssueEdgeResolver(): (id: string | undefined | null) => IssueEdge<IssueViewModel> {
+export function useIssueEdgeResolver(): (
+  id: string | undefined | null,
+) => IssueEdge<IssueViewModel> {
   const issues = useIssuePageIssues()
   const page = useIssuePageData()
   const override = useContext(IssueExitContext)
@@ -113,7 +115,8 @@ export function useIssueEdgeResolver(): (id: string | undefined | null) => Issue
     // The slice is typed over `IssueViewModel`; `IssueViewModel` is a superset of it
     // (plus projection-only and rollup fields), so the lookup widens rather than
     // rebuilding a second index in the wire's shape.
-    const lookup = (id: string): IssueViewModel | undefined => byId.get(id) as IssueViewModel | undefined
+    const lookup = (id: string): IssueViewModel | undefined =>
+      byId.get(id) as IssueViewModel | undefined
     return (id) => resolveIssueEdge(id, lookup, CROSS_BOUNDARY_POLICY, exitOf)
   }, [issues, exitOf])
 }

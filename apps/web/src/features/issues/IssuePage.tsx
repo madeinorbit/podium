@@ -8,7 +8,13 @@ import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './i
 import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
 import { IssueBanners } from './issue-page/IssueBanners'
-import { IssueBrief, IssueDescription, IssueTitle, LongFormFields, StatusStrip } from './issue-page/IssueBody'
+import {
+  IssueBrief,
+  IssueDescription,
+  IssueTitle,
+  LongFormFields,
+  StatusStrip,
+} from './issue-page/IssueBody'
 import { IssueDetailHeader } from './issue-page/IssueDetailHeader'
 import { IssueNow } from './issue-page/IssueNow'
 import { IssueProperties } from './issue-page/IssueProperties'
@@ -54,7 +60,14 @@ import { repoMatesOf, useIssuePageModel } from './issue-page-model'
 import { PoolIssuePage } from './pool-issue-page'
 
 export function IssuePage(props: Parameters<typeof IssuePageBody>[0]): JSX.Element {
-  return <PoolIssuePage issueId={props.issue.id} orderedIds={props.orderedIds} onBack={props.onBack} onNavigate={props.onNavigate} />
+  return (
+    <PoolIssuePage
+      issueId={props.issue.id}
+      orderedIds={props.orderedIds}
+      onBack={props.onBack}
+      onNavigate={props.onNavigate}
+    />
+  )
 }
 
 export function IssuePageBody({

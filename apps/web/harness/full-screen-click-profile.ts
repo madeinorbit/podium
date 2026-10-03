@@ -1,21 +1,21 @@
 /** Measurement-only sibling of speed-gate.ts. Reuses its production config,
  * canonical fixture, targets and trusted input → actual Paint boundary. */
 import { execFileSync, spawn } from 'node:child_process'
-import { readFile, mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { arch, cpus, hostname, loadavg, platform } from 'node:os'
 import { extname, resolve } from 'node:path'
-import { chromium, type Browser, type Page } from '@playwright/test'
+import { type Browser, chromium, type Page } from '@playwright/test'
 import type { UserConfig } from 'vite'
+import type {} from '../test/sidebar-acceptance.browser'
 import { paintOf } from './browser-paint'
 import {
   installCommitObserver,
-  traceStart,
   saveComponentLocations,
   saveRecording,
   startCpu,
+  traceStart,
 } from './full-screen-profile'
-import type {} from '../test/sidebar-acceptance.browser'
 
 const ACTIONS = [
   'sidebar-issue',
@@ -61,8 +61,10 @@ const args = process.argv.slice(2).filter((arg) => arg !== '--')
 const value = (name: string, fallback: string) =>
   args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
 const profileAction = value('profile', 'all')
-const profileActions = profileAction === 'all' ? ACTIONS.filter(action => action !== 'sidebar-issue')
-  : [profileAction === 'session-switch' ? 'session-pane' : profileAction]
+const profileActions =
+  profileAction === 'all'
+    ? ACTIONS.filter((action) => action !== 'sidebar-issue')
+    : [profileAction === 'session-switch' ? 'session-pane' : profileAction]
 const root = resolve('.artifacts/full-screen-click-profile')
 const buildDir = resolve(root, 'build')
 const profileDir = resolve(root, 'profiles', profileAction)
@@ -80,15 +82,23 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
 async function main() {
   if (args.includes('--help')) {
-    console.log('bun apps/web/harness/full-screen-click-profile.ts --profile=mission-switch|session-switch|issue-rename|background-update|all\n' +
-      'Three production CPU + trace samples per action, pool-only; no gate/baseline writes.\n' +
-      '--lease-confirmed: caller holds bench:flatblock.')
+    console.log(
+      'bun apps/web/harness/full-screen-click-profile.ts --profile=mission-switch|session-switch|issue-rename|background-update|all\n' +
+        'Three production CPU + trace samples per action, pool-only; no gate/baseline writes.\n' +
+        '--lease-confirmed: caller holds bench:flatblock.',
+    )
     return
   }
-  for (const arg of args) if (arg !== '--lease-confirmed' && !arg.startsWith('--profile='))
-    throw new Error(`Unknown argument ${arg}`)
+  for (const arg of args)
+    if (arg !== '--lease-confirmed' && !arg.startsWith('--profile='))
+      throw new Error(`Unknown argument ${arg}`)
   if (hostname() !== 'flatblock') throw new Error('Profile capture runs on flatblock')
-  if (!profileActions.length || profileActions.some(action => !ACTIONS.includes(action as Action) || action === 'sidebar-issue'))
+  if (
+    !profileActions.length ||
+    profileActions.some(
+      (action) => !ACTIONS.includes(action as Action) || action === 'sidebar-issue',
+    )
+  )
     throw new Error('Choose a full-screen profile action')
   const baseline = JSON.parse(await readFile(baselinePath, 'utf8')) as Baseline
   const captureSha = git('rev-parse', 'HEAD')
@@ -142,9 +152,7 @@ async function main() {
   }
   const budgetMs = 900_000
   const deadline = setTimeout(() => {
-    console.error(
-      `Full-screen profile exceeded ${budgetMs / 1000} seconds. Capture incomplete.`,
-    )
+    console.error(`Full-screen profile exceeded ${budgetMs / 1000} seconds. Capture incomplete.`)
     void cleanup().finally(() => process.exit(2))
   }, budgetMs)
   for (const signal of ['SIGINT', 'SIGTERM'] as const)
@@ -166,43 +174,41 @@ async function main() {
       new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
     )
     await installCommitObserver(page)
-    await page.addInitScript(
-      () => {
-        const began = performance.now()
-        Date.now = () => Date.parse('2026-09-20T12:00:00Z') + Math.floor(performance.now() - began)
-        window.__speedCapture = null
-        document.addEventListener(
-          'pointerdown',
-          (event) => {
-            const c = window.__speedCapture
-            if (!c || c.input !== null || !(event.target as Element)?.closest(c.trigger)) return
-            if (!event.isTrusted) throw new Error('speed:gate needs a trusted browser input')
-            c.input = event.timeStamp
-            performance.mark('speed:input', { startTime: event.timeStamp })
-          },
-          true,
-        )
-        new MutationObserver(() => {
+    await page.addInitScript(() => {
+      const began = performance.now()
+      Date.now = () => Date.parse('2026-09-20T12:00:00Z') + Math.floor(performance.now() - began)
+      window.__speedCapture = null
+      document.addEventListener(
+        'pointerdown',
+        (event) => {
           const c = window.__speedCapture
-          if (!c || c.input === null || c.dom !== null) return
-          const el = document.querySelector(c.expected.selector)
-          if (!el || (c.expected.text !== undefined && el.textContent?.trim() !== c.expected.text))
-            return
-          c.dom = performance.now()
-          performance.mark('speed:dom')
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => {
-              c.twoRaf = true
-            }),
-          )
-        }).observe(document, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-          characterData: true,
-        })
-      },
-    )
+          if (!c || c.input !== null || !(event.target as Element)?.closest(c.trigger)) return
+          if (!event.isTrusted) throw new Error('speed:gate needs a trusted browser input')
+          c.input = event.timeStamp
+          performance.mark('speed:input', { startTime: event.timeStamp })
+        },
+        true,
+      )
+      new MutationObserver(() => {
+        const c = window.__speedCapture
+        if (!c || c.input === null || c.dom !== null) return
+        const el = document.querySelector(c.expected.selector)
+        if (!el || (c.expected.text !== undefined && el.textContent?.trim() !== c.expected.text))
+          return
+        c.dom = performance.now()
+        performance.mark('speed:dom')
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            c.twoRaf = true
+          }),
+        )
+      }).observe(document, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true,
+      })
+    })
     await page.goto(
       `${origin}/harness/full-screen-click-profile.browser.html?mobxCommands=1&mobxChatContext=1&mobxNotices=1&mobxPreferences=1&mobxSettings=1&mobxWorkflows=1&mobxSuperagent=1&mobxAutomations=1&mobxSpecs=1&scale=4&surface=full&panelMode=chat`,
     )
@@ -233,7 +239,13 @@ async function main() {
       if (renderer?.bundleType !== 0 || renderer.version !== '19.2.7')
         throw new Error(`Expected ordinary production React 19.2.7: ${JSON.stringify(renderer)}`)
     }
-    return { page, cdp: await context.newCDPSession(page), context, errors, readerModes: state.readerModes }
+    return {
+      page,
+      cdp: await context.newCDPSession(page),
+      context,
+      errors,
+      readerModes: state.readerModes,
+    }
   }
   async function settle(page: Page) {
     await page.evaluate(() => window.__acceptance.settled())
@@ -322,9 +334,19 @@ async function main() {
       const actionName = action === 'session-pane' ? 'session-switch' : action
       const file = `${actionName}-pilot-on-${sampleIndex}`
       const record = {
-        file, sourceSha: captureSha, action: actionName, reader: 'pool',
-        iteration: sampleIndex, trigger, expected, paint: result, boundary, readerModes: fixture.readerModes,
-        react, stateBefore, stateAfter: await page.evaluate(() => window.__acceptance.state()),
+        file,
+        sourceSha: captureSha,
+        action: actionName,
+        reader: 'pool',
+        iteration: sampleIndex,
+        trigger,
+        expected,
+        paint: result,
+        boundary,
+        readerModes: fixture.readerModes,
+        react,
+        stateBefore,
+        stateAfter: await page.evaluate(() => window.__acceptance.state()),
         loadavg: loadavg(),
         // Browser performance.timeOrigin + boundary.input locates the input
         // in UTC. Bun's process.hrtime has a process-relative origin and must
@@ -333,7 +355,9 @@ async function main() {
       }
       await saveRecording(profileDir, file, profile, events, record)
       profileRecords.push(record)
-      console.log(`${file}: ${round(result.inputToPaintMs)} ms; ${react?.commits.length} observed commits (analysis clips at Paint)`)
+      console.log(
+        `${file}: ${round(result.inputToPaintMs)} ms; ${react?.commits.length} observed commits (analysis clips at Paint)`,
+      )
     }
     return result.inputToPaintMs
   }
@@ -355,7 +379,9 @@ async function main() {
               .map((node) => node.getAttribute('data-issue-row')!),
           ),
         ])
-      const shapes = (await full.page.evaluate((ids) => window.__acceptance.shape(ids), fixed.missions))
+      const shapes = (
+        await full.page.evaluate((ids) => window.__acceptance.shape(ids), fixed.missions)
+      )
         .filter((shape) => shape.root && shape.rows > 0)
         .sort((a, b) => b.rows - a.rows || a.id.localeCompare(b.id))
       const targets = structuredClone(fixed)
@@ -365,7 +391,10 @@ async function main() {
         targets.sidebar.some((id) => !ids.includes(id))
       )
         throw new Error('The fixed target roots are missing')
-      const measure = async function* (action: Action, run: (iteration: number) => Promise<number>) {
+      const measure = async function* (
+        action: Action,
+        run: (iteration: number) => Promise<number>,
+      ) {
         if (!profileActions.includes(action)) return
         const repetitions = REPETITIONS
         for (let i = -WARMUPS; i < repetitions; i++) {
@@ -410,7 +439,10 @@ async function main() {
       if (targets.sessions.length !== 2) throw new Error('Need two distinct open session panes')
       // Establish the opposite pane before the first sample so opening is never a no-op.
       await full.page.locator(deckSession(targets.sessions[1]!)).first().click()
-      await full.page.waitForFunction((id) => window.__acceptance.state().pane === id, targets.sessions[1]!)
+      await full.page.waitForFunction(
+        (id) => window.__acceptance.state().pane === id,
+        targets.sessions[1]!,
+      )
       await settle(full.page)
       yield* measure('session-pane', async (i) => {
         const id = targets.sessions[i % 2]!
@@ -427,13 +459,14 @@ async function main() {
           throw new Error('Session click routed to the wrong pane')
         return ms
       })
-      {
-        // The six-sample ordinary gate finishes on the second session. Restore
-        // that same dock/focus context after the odd three-sample profile block.
-        await full.page.locator(deckSession(targets.sessions[1]!)).first().click()
-        await full.page.waitForFunction((id) => window.__acceptance.state().pane === id, targets.sessions[1]!)
-        await settle(full.page)
-      }
+      // The six-sample ordinary gate finishes on the second session. Restore
+      // that same dock/focus context after the odd three-sample profile block.
+      await full.page.locator(deckSession(targets.sessions[1]!)).first().click()
+      await full.page.waitForFunction(
+        (id) => window.__acceptance.state().pane === id,
+        targets.sessions[1]!,
+      )
+      await settle(full.page)
       yield* measure('issue-rename', async (i) => {
         const title = `Speed gate rename ${i}`
         await full.page.getByTestId('dock-title').dblclick()
@@ -482,10 +515,11 @@ async function main() {
           },
         ]),
       ) as Numbers
-      {
-        await saveComponentLocations(full.page, full.cdp,
-          resolve(profileDir, `components-pilot-on.json`))
-      }
+      await saveComponentLocations(
+        full.page,
+        full.cdp,
+        resolve(profileDir, `components-pilot-on.json`),
+      )
       return {
         targets,
         actions,
@@ -493,7 +527,8 @@ async function main() {
         ...{
           shapes: shapes.filter((shape) => targets.missions.includes(shape.id)),
           fixture: await full.page.evaluate(() => ({
-            ...window.__acceptance.state(), corpus: window.__acceptance.corpus,
+            ...window.__acceptance.state(),
+            corpus: window.__acceptance.corpus,
           })),
         },
         load: { min: Math.min(...loads), max: Math.max(...loads) },
@@ -510,7 +545,7 @@ async function main() {
     )
     const { build } = await import('../node_modules/vite/dist/node/index.js')
     const configPath = resolve('apps/web/harness/sidebar-acceptance.vite.ts')
-    const { default: config } = await import(configPath) as { default: UserConfig }
+    const { default: config } = (await import(configPath)) as { default: UserConfig }
     await build({
       ...config,
       configFile: false,
@@ -518,8 +553,16 @@ async function main() {
       plugins: config.plugins?.filter(
         (plugin) => (plugin as { name?: string })?.name !== 'acceptance-state-boundaries',
       ),
-      build: { ...config.build, outDir: buildDir, sourcemap: 'hidden', minify: 'esbuild',
-        rollupOptions: { ...config.build?.rollupOptions, input: resolve('apps/web/harness/full-screen-click-profile.browser.html') } },
+      build: {
+        ...config.build,
+        outDir: buildDir,
+        sourcemap: 'hidden',
+        minify: 'esbuild',
+        rollupOptions: {
+          ...config.build?.rollupOptions,
+          input: resolve('apps/web/harness/full-screen-click-profile.browser.html'),
+        },
+      },
     })
     server = createServer(async (req, res) => {
       try {
@@ -549,17 +592,18 @@ async function main() {
     })
     await new Promise<void>((done) => server!.listen(0, '127.0.0.1', done))
     const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-    const launchBrowser = () => chromium.launch({
-      headless: true,
-      executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,
-      env: {
-        ...process.env,
-        LD_LIBRARY_PATH: [resolve('.toolchain/lib'), process.env.LD_LIBRARY_PATH]
-          .filter(Boolean)
-          .join(':'),
-      },
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
-    })
+    const launchBrowser = () =>
+      chromium.launch({
+        headless: true,
+        executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,
+        env: {
+          ...process.env,
+          LD_LIBRARY_PATH: [resolve('.toolchain/lib'), process.env.LD_LIBRARY_PATH]
+            .filter(Boolean)
+            .join(':'),
+        },
+        args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      })
     browser = await launchBrowser()
     const machine: Machine = {
       host: hostname(),
@@ -589,30 +633,53 @@ async function main() {
     const capture = suite(origin, baseline.targets)
     const runs: unknown[] = []
     const order: { action: Action; iteration: number }[] = []
-    {
-      if (dirtyProduct) throw new Error('Profile a committed product tree')
-      console.log(`4× full surface; pool-only; ${REPETITIONS} profiles per action`)
-      for (;;) {
-        const result = await capture.next()
-        if (result.done) { runs.push(result.value); break }
-        order.push(result.value)
+    if (dirtyProduct) throw new Error('Profile a committed product tree')
+    console.log(`4× full surface; pool-only; ${REPETITIONS} profiles per action`)
+    for (;;) {
+      const result = await capture.next()
+      if (result.done) {
+        runs.push(result.value)
+        break
       }
-      await writeFile(resolve(profileDir, 'manifest.json'), JSON.stringify({
-        version: 1, sourceSha: captureSha, dirtyProduct, machine, capturedAt: new Date().toISOString(),
-        profileAction, reader: 'pool',
-        scale: 4, surface: 'full', seed: 4443, repetitions: REPETITIONS, warmups: WARMUPS,
-        build: 'ordinary React 19.2.7; minified production; hidden source maps; no state-boundary wrappers',
-        samplingIntervalUs: 1000,
-        order,
-        metric: 'trusted pointerdown (background: feed delivery) to end of first Chromium Paint after expected DOM change',
-        window: 'Raw CPU and trace include setup/tails; analyze only speed:input through the qualifying Paint end.',
-        runs, records: profileRecords.map((record) => record.file),
-        runtimeSeconds: round((performance.now() - began) / 1000),
-      }, null, 2) + '\n')
-      console.log(`PROFILE CAPTURE COMPLETE — ${profileRecords.length} recordings; ${profileDir}. Shared speed gate and baseline untouched.`)
-      exitCode = 0
-      return
+      order.push(result.value)
     }
+    await writeFile(
+      resolve(profileDir, 'manifest.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          sourceSha: captureSha,
+          dirtyProduct,
+          machine,
+          capturedAt: new Date().toISOString(),
+          profileAction,
+          reader: 'pool',
+          scale: 4,
+          surface: 'full',
+          seed: 4443,
+          repetitions: REPETITIONS,
+          warmups: WARMUPS,
+          build:
+            'ordinary React 19.2.7; minified production; hidden source maps; no state-boundary wrappers',
+          samplingIntervalUs: 1000,
+          order,
+          metric:
+            'trusted pointerdown (background: feed delivery) to end of first Chromium Paint after expected DOM change',
+          window:
+            'Raw CPU and trace include setup/tails; analyze only speed:input through the qualifying Paint end.',
+          runs,
+          records: profileRecords.map((record) => record.file),
+          runtimeSeconds: round((performance.now() - began) / 1000),
+        },
+        null,
+        2,
+      ) + '\n',
+    )
+    console.log(
+      `PROFILE CAPTURE COMPLETE — ${profileRecords.length} recordings; ${profileDir}. Shared speed gate and baseline untouched.`,
+    )
+    exitCode = 0
+    return
   } catch (error) {
     console.error(error)
     exitCode = 2

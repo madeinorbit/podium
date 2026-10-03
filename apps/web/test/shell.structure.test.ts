@@ -56,8 +56,7 @@ describe('web shell structure', () => {
         'app/DesktopMenuHost.tsx',
       ].map(read),
       readClientCore('viewmodels/slices/worklist/published.ts'),
-    ]
-      .join('\n')
+    ].join('\n')
 
   it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
     const src = readWorklist()

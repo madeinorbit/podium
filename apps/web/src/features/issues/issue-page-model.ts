@@ -7,18 +7,31 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import { shallowEqual } from '@podium/client-core'
-import { type ActivityComment, type ActivityItem, buildActivityFeed, type IssueEvent } from '@podium/client-core/viewmodels'
+import {
+  type ActivityComment,
+  type ActivityItem,
+  buildActivityFeed,
+  type IssueEvent,
+} from '@podium/client-core/viewmodels'
 import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Store } from '@/app/store'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
-import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import { issueNeighbors } from './issue-page'
-import { type IssueMailMessage, loadIssueComments, loadIssueEventsPage, loadIssueMail, loadMergeStyle, type MergeStyle, type RunMutation } from './issue-page-commands'
+import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
+import {
+  type IssueMailMessage,
+  loadIssueComments,
+  loadIssueEventsPage,
+  loadIssueMail,
+  loadMergeStyle,
+  type MergeStyle,
+  type RunMutation,
+} from './issue-page-commands'
 
 /** Page size for the subject-narrowed event drain. One issue's whole history is
  *  normally far below this, so the drain is a single round trip; a full page is

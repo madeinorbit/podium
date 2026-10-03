@@ -39,24 +39,32 @@ afterEach(() => {
 
 function issue(patch: Partial<SliceIssue> = {}): SliceIssue {
   return {
-    id: 'first-task', seq: 1, title: 'First task', stage: 'in_progress',
+    id: 'first-task',
+    seq: 1,
+    title: 'First task',
+    stage: 'in_progress',
     createdAt: new Date(NOW - 86400000).toISOString(),
     updatedAt: new Date(NOW - 3600000).toISOString(),
-    repoPath: '/synthetic/project', audience: 'human',
+    repoPath: '/synthetic/project',
+    audience: 'human',
     ...patch,
   }
 }
 
 function makePool(rows: SliceIssue[], lazy = true) {
-  const source = new Map(rows.map(row => [row.id, row]))
+  const source = new Map(rows.map((row) => [row.id, row]))
   const load = vi.fn((_kind: string, id: string) => source.get(id))
   const schedule = vi.fn(() => () => {})
   const pool = new MobxPool(
-    { selectedIssueId: null, coarseNow: NOW }, undefined,
+    { selectedIssueId: null, coarseNow: NOW },
+    undefined,
     lazy ? { load, schedule } : undefined,
   )
   pools.push(pool)
-  pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue', id: value.id, value })) })
+  pool.apply({
+    type: 'replace',
+    rows: rows.map((value) => ({ kind: 'issue', id: value.id, value })),
+  })
   return { pool, load, source, schedule }
 }
 
@@ -106,7 +114,7 @@ describe('declared pool first-task value', () => {
   it('tracks cold summary changes, eviction, and replacement without retaining a task', () => {
     const archived = issue({ archived: true })
     const { pool, source, load } = makePool([archived])
-    const projection = createPoolProjection(pool, owner => owner.hasFirstTask)
+    const projection = createPoolProjection(pool, (owner) => owner.hasFirstTask)
     const wake = vi.fn()
     const stop = projection.subscribe(wake)
     try {
@@ -125,23 +133,41 @@ describe('declared pool first-task value', () => {
       pool.apply({ type: 'replace', rows: [] })
       expect(projection.getSnapshot()).toBe(false)
       expect(load).not.toHaveBeenCalled()
-    } finally { stop() }
+    } finally {
+      stop()
+    }
   })
 
   it('does not recompute task existence on selection or an unrelated heartbeat', () => {
     const { pool } = makePool([issue()])
     const read = vi.spyOn(pool, 'hasFirstTask', 'get')
-    const projection = createPoolProjection(pool, owner => owner.hasFirstTask)
+    const projection = createPoolProjection(pool, (owner) => owner.hasFirstTask)
     const stop = projection.subscribe(() => {})
     read.mockClear()
     try {
-      pool.applyLocals({ selectedIssueId: 'first-task', coarseNow: NOW }, new Set(['selectedIssueId']))
-      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'unrelated', value: {
-        sessionId: 'unrelated', cwd: '/unrelated', lastActiveAt: new Date(NOW).toISOString(),
-      } }] })
+      pool.applyLocals(
+        { selectedIssueId: 'first-task', coarseNow: NOW },
+        new Set(['selectedIssueId']),
+      )
+      pool.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'session',
+            id: 'unrelated',
+            value: {
+              sessionId: 'unrelated',
+              cwd: '/unrelated',
+              lastActiveAt: new Date(NOW).toISOString(),
+            },
+          },
+        ],
+      })
       expect(projection.getSnapshot()).toBe(true)
       expect(read).not.toHaveBeenCalled()
-    } finally { stop() }
+    } finally {
+      stop()
+    }
   })
 })
 
@@ -167,20 +193,34 @@ describe('first-task startup switch', () => {
       <StoreProvider
         principal={asClientPrincipal(asUserId('promo-test'))}
         config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
-        api={fixture.api} createReplicaFn={() => fixture.replica} networkEnabled={false}
-        onFatalError={message => { throw new Error(message) }}
-        attachRuntime={owner => attachWorklistPool(owner, error => { throw error })}
+        api={fixture.api}
+        createReplicaFn={() => fixture.replica}
+        networkEnabled={false}
+        onFatalError={(message) => {
+          throw new Error(message)
+        }}
+        attachRuntime={(owner) =>
+          attachWorklistPool(owner, (error) => {
+            throw error
+          })
+        }
       >
-        <Capture /><Presence name="card" /><Presence name="chip" />
+        <Capture />
+        <Presence name="card" />
+        <Presence name="chip" />
       </StoreProvider>,
     )
     await waitFor(() => expect(pool).not.toBeNull())
-    for (const name of ['card', 'chip']) expect(screen.getByTestId(name).textContent).toBe(String(expected))
+    for (const name of ['card', 'chip'])
+      expect(screen.getByTestId(name).textContent).toBe(String(expected))
     await act(async () => {
       runtime!.getSnapshot().setSelectedIssueId('synthetic-0' as never)
-      fixture.patch('session', 'synthetic-session-0', { lastActiveAt: new Date(NOW + 1000).toISOString() })
+      fixture.patch('session', 'synthetic-session-0', {
+        lastActiveAt: new Date(NOW + 1000).toISOString(),
+      })
     })
-    for (const name of ['card', 'chip']) expect(screen.getByTestId(name).textContent).toBe(String(expected))
+    for (const name of ['card', 'chip'])
+      expect(screen.getByTestId(name).textContent).toBe(String(expected))
     expect(mode.legacyReads).toBe(0)
   })
 })

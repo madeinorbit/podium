@@ -1,25 +1,44 @@
-import { MachineFailureReason, type FailureReason } from '@/features/updates/MachineFailureReason'
+import { type FailureReason, MachineFailureReason } from '@/features/updates/MachineFailureReason'
 // This app-level surface composes settings, setup, and machine capabilities.
 
 import { relativeTime } from '@podium/client-core/focus'
+import { observer } from '@podium/client-graph/react'
 import { asMachineId } from '@podium/model'
 import type { MachineWire, UpdateChannel } from '@podium/model/browser'
 import type { Operation } from '@podium/protocol'
 import { ChevronLeft } from 'lucide-react'
-import { observer } from '@podium/client-graph/react'
-import { useShellMachines } from './shell-data'
 import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
-import { useSettingsClient } from '@/features/settings/stable-access'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useMachinePairing } from '@/features/machines/machine-pairing'
-import { SERVER_MOVE_CONFIRMATION, serverMoveErrorCopy, settleServerMoveRecovery, startServerMove, useServerMoveOperations } from '@/features/machines/server-move'
+import {
+  SERVER_MOVE_CONFIRMATION,
+  serverMoveErrorCopy,
+  settleServerMoveRecovery,
+  startServerMove,
+  useServerMoveOperations,
+} from '@/features/machines/server-move'
 import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
+import { useSettingsClient } from '@/features/settings/stable-access'
 import { NetworkStep } from '@/features/setup/network-step'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { errorMessage } from '@/features/updates/operations-client'
@@ -29,6 +48,7 @@ import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useServerAppVersion } from '@/lib/version-skew'
+import { useShellMachines } from './shell-data'
 
 export function ServerMoveProgress({
   operation,
@@ -1110,42 +1130,42 @@ function MachineRow({
   const fleetState = machine.revokedAt
     ? { label: 'Revoked', tone: 'offline' as const }
     : !machine.online
-    ? {
-        label: `Offline · Last seen ${relativeTime(machine.lastSeenAt, now)}`,
-        tone: 'offline' as const,
-      }
-    : machine.daemonReadiness && machine.daemonReadiness.state !== 'ready'
       ? {
-          label: `Not ready · ${machine.daemonReadiness.reason}`,
-          tone: 'degraded' as const,
-          detail: `${machine.daemonReadiness.quarantinedBindings} quarantined`,
+          label: `Offline · Last seen ${relativeTime(machine.lastSeenAt, now)}`,
+          tone: 'offline' as const,
         }
-    : degradedServices.length > 0
-      ? {
-          label: `Online · Degraded: ${degradedServices.join(', ')}`,
-          tone: 'degraded' as const,
-          detail:
-            [
-              ...(degradedServices.includes('server') && services?.server.reason
-                ? [services.server.reason]
-                : []),
-              ...(degradedServices.includes('agents') && services?.agentExecution.reason
-                ? [services.agentExecution.reason]
-                : []),
-            ].join('; ') || 'Assigned service is not available',
-        }
-      : agentHostingOff
+      : machine.daemonReadiness && machine.daemonReadiness.state !== 'ready'
         ? {
-            label: 'Online · Agent hosting off',
-            tone: 'off' as const,
-            detail:
-              services?.agentExecutionLockout === true
-                ? 'Disabled by local policy'
-                : agentChangesOnRestart && assignment?.agentExecution === true
-                  ? 'Enabled on restart'
-                  : 'Disabled on this machine',
+            label: `Not ready · ${machine.daemonReadiness.reason}`,
+            tone: 'degraded' as const,
+            detail: `${machine.daemonReadiness.quarantinedBindings} quarantined`,
           }
-        : { label: 'Online', tone: 'online' as const }
+        : degradedServices.length > 0
+          ? {
+              label: `Online · Degraded: ${degradedServices.join(', ')}`,
+              tone: 'degraded' as const,
+              detail:
+                [
+                  ...(degradedServices.includes('server') && services?.server.reason
+                    ? [services.server.reason]
+                    : []),
+                  ...(degradedServices.includes('agents') && services?.agentExecution.reason
+                    ? [services.agentExecution.reason]
+                    : []),
+                ].join('; ') || 'Assigned service is not available',
+            }
+          : agentHostingOff
+            ? {
+                label: 'Online · Agent hosting off',
+                tone: 'off' as const,
+                detail:
+                  services?.agentExecutionLockout === true
+                    ? 'Disabled by local policy'
+                    : agentChangesOnRestart && assignment?.agentExecution === true
+                      ? 'Enabled on restart'
+                      : 'Disabled on this machine',
+              }
+            : { label: 'Online', tone: 'online' as const }
   const updateTargetVersion =
     machine.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
   /**
@@ -1261,7 +1281,13 @@ function MachineRow({
                 </button>
               )}
 
-              {machine.services?.topology?.legacyUnits.some((unit) => unit.endsWith('-daemon.service')) && <Badge variant="outline" className="h-4 flex-none px-1.5 text-[11px]">legacy daemon unit</Badge>}
+              {machine.services?.topology?.legacyUnits.some((unit) =>
+                unit.endsWith('-daemon.service'),
+              ) && (
+                <Badge variant="outline" className="h-4 flex-none px-1.5 text-[11px]">
+                  legacy daemon unit
+                </Badge>
+              )}
 
               {isThisMachine && (
                 <Badge variant="outline" className="h-4 flex-none px-1.5 text-[11px]">
@@ -1409,107 +1435,239 @@ function MachineRow({
           </div>
         </div>
 
-          {machine.supersededBy && <p className="settings-prose">Superseded by {machine.supersededBy}</p>}
-          {machine.supersedable === true && !machine.supersededBy && (
-            <Dialog open={supersedeOpen} onOpenChange={(open) => { if (!superseding) setSupersedeOpen(open) }}>
-              <DialogTrigger render={<Button type="button" variant="outline" size="sm" />}>Supersede</DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Supersede {machine.name}?</DialogTitle>
-                  <DialogDescription>
-                    Choose the replacement machine explicitly. This retires {machine.id}, disconnects it,
-                    and cancels its grants and queued work. The replacement keeps its existing access.
-                    Matching names do not prove these are the same device.
-                  </DialogDescription>
-                </DialogHeader>
-                <label className="settings-label" htmlFor={`replacement-${machine.id}`}>Replacement machine</label>
-                <select id={`replacement-${machine.id}`} value={replacementId} disabled={superseding}
-                  onChange={(event) => setReplacementId(event.target.value)} className="rounded border p-2">
-                  <option value="">Choose a machine</option>
-                  {replacementMachines.filter((candidate) => candidate.id !== machine.id &&
-                    !candidate.revokedAt && !candidate.supersededBy && candidate.supersedable === true).map((candidate) => (
+        {machine.supersededBy && (
+          <p className="settings-prose">Superseded by {machine.supersededBy}</p>
+        )}
+        {machine.supersedable === true && !machine.supersededBy && (
+          <Dialog
+            open={supersedeOpen}
+            onOpenChange={(open) => {
+              if (!superseding) setSupersedeOpen(open)
+            }}
+          >
+            <DialogTrigger render={<Button type="button" variant="outline" size="sm" />}>
+              Supersede
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Supersede {machine.name}?</DialogTitle>
+                <DialogDescription>
+                  Choose the replacement machine explicitly. This retires {machine.id}, disconnects
+                  it, and cancels its grants and queued work. The replacement keeps its existing
+                  access. Matching names do not prove these are the same device.
+                </DialogDescription>
+              </DialogHeader>
+              <label className="settings-label" htmlFor={`replacement-${machine.id}`}>
+                Replacement machine
+              </label>
+              <select
+                id={`replacement-${machine.id}`}
+                value={replacementId}
+                disabled={superseding}
+                onChange={(event) => setReplacementId(event.target.value)}
+                className="rounded border p-2"
+              >
+                <option value="">Choose a machine</option>
+                {replacementMachines
+                  .filter(
+                    (candidate) =>
+                      candidate.id !== machine.id &&
+                      !candidate.revokedAt &&
+                      !candidate.supersededBy &&
+                      candidate.supersedable === true,
+                  )
+                  .map((candidate) => (
                     <option key={candidate.id} value={candidate.id}>
                       {candidate.name} · {candidate.id} · {candidate.online ? 'online' : 'offline'}
                     </option>
                   ))}
-                </select>
-                {supersedeError && <p role="alert" className="text-destructive">{supersedeError}</p>}
-                <DialogFooter>
-                  <Button variant="outline" disabled={superseding} onClick={() => setSupersedeOpen(false)}>Cancel</Button>
-                  <Button variant="destructive" disabled={superseding || !replacementId} onClick={() => void supersede()}>
-                    {superseding ? 'Superseding…' : 'Supersede machine'}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          )}
+              </select>
+              {supersedeError && (
+                <p role="alert" className="text-destructive">
+                  {supersedeError}
+                </p>
+              )}
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  disabled={superseding}
+                  onClick={() => setSupersedeOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={superseding || !replacementId}
+                  onClick={() => void supersede()}
+                >
+                  {superseding ? 'Superseding…' : 'Supersede machine'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
         {!machine.revokedAt && (
-        <div className="flex flex-wrap items-center gap-1 sm:flex-none sm:justify-end">
-          {/* Discover this machine's repos (POD-787) */}
-          {onFindRepos && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="flex-none text-muted-foreground"
-              onClick={onFindRepos}
-            >
-              Find repos
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-1 sm:flex-none sm:justify-end">
+            {/* Discover this machine's repos (POD-787) */}
+            {onFindRepos && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="flex-none text-muted-foreground"
+                onClick={onFindRepos}
+              >
+                Find repos
+              </Button>
+            )}
 
-          {/* Enable hosting on this (offline, previously paired) device [spec:SP-3701] */}
-          {hosting && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="flex-none"
-              disabled={hosting.busy}
-              onClick={() => void hosting.enable()}
-            >
-              {hosting.busy ? 'Enabling…' : 'Enable'}
-            </Button>
-          )}
+            {/* Enable hosting on this (offline, previously paired) device [spec:SP-3701] */}
+            {hosting && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="flex-none"
+                disabled={hosting.busy}
+                onClick={() => void hosting.enable()}
+              >
+                {hosting.busy ? 'Enabling…' : 'Enable'}
+              </Button>
+            )}
 
-          {(onMoveServer || serverMoveUnsupported) && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="flex-none"
-              disabled={serverMoveUnsupported}
-              title={
-                serverMoveUnsupported
-                  ? 'Update this machine to the same Podium version as the server first.'
-                  : undefined
-              }
-              onClick={onMoveServer ?? undefined}
-            >
-              Make server
-            </Button>
-          )}
-
-          {machine.unowned === true && <span className="settings-prose">Unowned</span>}
-          {machine.unowned === true && machine.adoptable === true && (
-            <Button type="button" variant="outline" size="sm" disabled={adopting}
-              onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt'}</Button>
-          )}
-          {adoptError && <p className="settings-prose text-destructive!" role="alert">{adoptError}</p>}
-
-          {/* Transfer ownership — OWNER ONLY (POD-1495); see `mayTransfer` above. */}
-          {mayTransfer && (
-            <Dialog
-              open={transferOpen}
-              onOpenChange={(open) => {
-                setTransferOpen(open)
-                // Reopening starts clean: a half-typed recipient left over from an
-                // abandoned attempt is the wrong thing to have next to a Transfer button.
-                if (!open) {
-                  setRecipientId('')
-                  setConfirmName('')
-                  setTransferError(null)
+            {(onMoveServer || serverMoveUnsupported) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="flex-none"
+                disabled={serverMoveUnsupported}
+                title={
+                  serverMoveUnsupported
+                    ? 'Update this machine to the same Podium version as the server first.'
+                    : undefined
                 }
+                onClick={onMoveServer ?? undefined}
+              >
+                Make server
+              </Button>
+            )}
+
+            {machine.unowned === true && <span className="settings-prose">Unowned</span>}
+            {machine.unowned === true && machine.adoptable === true && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={adopting}
+                onClick={() => void adopt()}
+              >
+                {adopting ? 'Adopting…' : 'Adopt'}
+              </Button>
+            )}
+            {adoptError && (
+              <p className="settings-prose text-destructive!" role="alert">
+                {adoptError}
+              </p>
+            )}
+
+            {/* Transfer ownership — OWNER ONLY (POD-1495); see `mayTransfer` above. */}
+            {mayTransfer && (
+              <Dialog
+                open={transferOpen}
+                onOpenChange={(open) => {
+                  setTransferOpen(open)
+                  // Reopening starts clean: a half-typed recipient left over from an
+                  // abandoned attempt is the wrong thing to have next to a Transfer button.
+                  if (!open) {
+                    setRecipientId('')
+                    setConfirmName('')
+                    setTransferError(null)
+                  }
+                }}
+              >
+                <DialogTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="flex-none text-muted-foreground"
+                    />
+                  }
+                >
+                  Transfer
+                </DialogTrigger>
+                <DialogContent showCloseButton>
+                  <DialogHeader>
+                    <DialogTitle>Transfer ownership?</DialogTitle>
+                    <DialogDescription>
+                      <strong>{machine.name}</strong> ({machine.hostname}) becomes theirs. They get
+                      to see, use and manage it; you lose all three the moment you confirm. You will
+                      not be able to undo this or transfer it back — only the new owner can.
+                      <br />
+                      <br />
+                      Everyone you have shared this machine with loses their access too: every share
+                      on <strong>{machine.name}</strong> is dropped, and the new owner decides who
+                      gets it back.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex flex-col gap-3 text-[13.5px]">
+                    <label htmlFor="ownership-recipient" className="flex flex-col gap-1">
+                      <span className="text-muted-foreground">New owner's account name</span>
+                      <Input
+                        id="ownership-recipient"
+                        value={recipientId}
+                        autoFocus
+                        disabled={transferring}
+                        placeholder="the account they sign in with"
+                        onChange={(e) => setRecipientId(e.target.value)}
+                        aria-label="New owner's account name"
+                      />
+                    </label>
+                    <label htmlFor="ownership-name" className="flex flex-col gap-1">
+                      <span className="text-muted-foreground">
+                        Type <strong>{machine.name}</strong> to confirm
+                      </span>
+                      <Input
+                        id="ownership-name"
+                        value={confirmName}
+                        disabled={transferring}
+                        onChange={(e) => setConfirmName(e.target.value)}
+                        aria-label="Type the machine name to confirm"
+                      />
+                    </label>
+                    {transferError && (
+                      <p className="settings-prose text-destructive!" role="alert">
+                        {transferError}
+                      </p>
+                    )}
+                  </div>
+                  <DialogFooter showCloseButton>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={
+                        transferring ||
+                        recipientId.trim() === '' ||
+                        confirmName.trim() !== machine.name
+                      }
+                      onClick={() => void transfer()}
+                    >
+                      {transferring ? 'Transferring…' : 'Transfer ownership'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+
+            {/* Revoke */}
+            <Dialog
+              open={revokeOpen}
+              onOpenChange={(open) => {
+                setRevokeOpen(open)
+                if (open) setRevokeError(null)
               }}
             >
               <DialogTrigger
@@ -1518,122 +1676,43 @@ function MachineRow({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="flex-none text-muted-foreground"
+                    // Quiet until you reach for it. Revoke is on every row, and three
+                    // red words down the right edge were the loudest thing in a pane
+                    // whose actual signal is which machine needs an update.
+                    className="flex-none text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   />
                 }
               >
-                Transfer
+                Revoke
               </DialogTrigger>
               <DialogContent showCloseButton>
                 <DialogHeader>
-                  <DialogTitle>Transfer ownership?</DialogTitle>
+                  <DialogTitle>Revoke machine?</DialogTitle>
                   <DialogDescription>
-                    <strong>{machine.name}</strong> ({machine.hostname}) becomes theirs. They get to
-                    see, use and manage it; you lose all three the moment you confirm. You will not
-                    be able to undo this or transfer it back — only the new owner can.
-                    <br />
-                    <br />
-                    Everyone you have shared this machine with loses their access too: every share
-                    on <strong>{machine.name}</strong> is dropped, and the new owner decides who
-                    gets it back.
+                    "<strong>{machine.name}</strong>" ({machine.hostname}) will be disconnected and
+                    will need to re-pair to reconnect. Any sessions running on it will continue
+                    until they finish.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="flex flex-col gap-3 text-[13.5px]">
-                  <label htmlFor="ownership-recipient" className="flex flex-col gap-1">
-                    <span className="text-muted-foreground">New owner's account name</span>
-                    <Input
-                      id="ownership-recipient"
-                      value={recipientId}
-                      autoFocus
-                      disabled={transferring}
-                      placeholder="the account they sign in with"
-                      onChange={(e) => setRecipientId(e.target.value)}
-                      aria-label="New owner's account name"
-                    />
-                  </label>
-                  <label htmlFor="ownership-name" className="flex flex-col gap-1">
-                    <span className="text-muted-foreground">
-                      Type <strong>{machine.name}</strong> to confirm
-                    </span>
-                    <Input
-                      id="ownership-name"
-                      value={confirmName}
-                      disabled={transferring}
-                      onChange={(e) => setConfirmName(e.target.value)}
-                      aria-label="Type the machine name to confirm"
-                    />
-                  </label>
-                  {transferError && (
-                    <p className="settings-prose text-destructive!" role="alert">
-                      {transferError}
-                    </p>
-                  )}
-                </div>
+                {revokeError && (
+                  <p className="settings-prose text-destructive!" role="alert">
+                    {revokeError}
+                  </p>
+                )}
                 <DialogFooter showCloseButton>
                   <Button
                     type="button"
                     variant="destructive"
                     size="sm"
-                    disabled={
-                      transferring ||
-                      recipientId.trim() === '' ||
-                      confirmName.trim() !== machine.name
-                    }
-                    onClick={() => void transfer()}
+                    disabled={revoking}
+                    onClick={() => void revoke()}
                   >
-                    {transferring ? 'Transferring…' : 'Transfer ownership'}
+                    {revoking ? 'Revoking…' : 'Revoke'}
                   </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-          )}
-
-          {/* Revoke */}
-          <Dialog open={revokeOpen} onOpenChange={(open) => {
-            setRevokeOpen(open)
-            if (open) setRevokeError(null)
-          }}>
-            <DialogTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  // Quiet until you reach for it. Revoke is on every row, and three
-                  // red words down the right edge were the loudest thing in a pane
-                  // whose actual signal is which machine needs an update.
-                  className="flex-none text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                />
-              }
-            >
-              Revoke
-            </DialogTrigger>
-            <DialogContent showCloseButton>
-              <DialogHeader>
-                <DialogTitle>Revoke machine?</DialogTitle>
-                <DialogDescription>
-                  "<strong>{machine.name}</strong>" ({machine.hostname}) will be disconnected and
-                  will need to re-pair to reconnect. Any sessions running on it will continue until
-                  they finish.
-                </DialogDescription>
-              </DialogHeader>
-              {revokeError && (
-                <p className="settings-prose text-destructive!" role="alert">{revokeError}</p>
-              )}
-              <DialogFooter showCloseButton>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  disabled={revoking}
-                  onClick={() => void revoke()}
-                >
-                  {revoking ? 'Revoking…' : 'Revoke'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+          </div>
         )}
       </div>
 

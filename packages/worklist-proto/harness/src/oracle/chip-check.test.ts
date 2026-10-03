@@ -1,8 +1,7 @@
-import { expectPoolOutput } from './pool-output'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { canonicalIssueRef } from '@podium/client-core/viewmodels'
-import { createWorklistPool } from '@podium/client-graph/create'
 import { LOADING } from '@podium/client-graph'
+import { createWorklistPool } from '@podium/client-graph/create'
 import { describe, expect, it } from 'vitest'
 import {
   startScenarioEngine,
@@ -10,6 +9,7 @@ import {
   writeRescopeGrow,
 } from '../../../shared/src/scenarios'
 import { FENCE_SCENARIOS, openFenceFeeds } from '../fence-scenarios'
+import { expectPoolOutput } from './pool-output'
 
 describe('chip differential replay', () => {
   for (const scale of [1, 4] as const)
@@ -26,8 +26,8 @@ describe('chip differential replay', () => {
         const issues = fixtureIssues()
         const tokens = issues.map(canonicalIssueRef)
         for (let round = 0; round < 128; round++) {
-          const values = tokens.map(token => handle.pool.references.read(token))
-          if (!values.some(value => value === LOADING)) {
+          const values = tokens.map((token) => handle.pool.references.read(token))
+          if (!values.some((value) => value === LOADING)) {
             expect(values.length).toBe(tokens.length)
             expectPoolOutput(values, phase)
             return

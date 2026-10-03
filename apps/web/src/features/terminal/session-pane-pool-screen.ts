@@ -14,6 +14,5 @@ export const sessionPanePoolScreen: PoolScreen = {
       SESSION_PANE_ENTITIES,
       () => new SessionPaneSource(runtime),
     )
-
   },
 }

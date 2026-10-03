@@ -1,4 +1,8 @@
-import { cancelSidebarSwitchInput, captureSidebarSwitchInput, type SidebarPerf } from '@podium/client-core/perf'
+import {
+  cancelSidebarSwitchInput,
+  captureSidebarSwitchInput,
+  type SidebarPerf,
+} from '@podium/client-core/perf'
 import type { JSX } from 'react'
 import { useLayoutEffect } from 'react'
 

@@ -1,24 +1,62 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
+import type { MobxPool } from '@podium/client-graph'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
-import type { MobxPool } from '@podium/client-graph'
-import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { useChatReferenceSessions, useChatReferenceMachines, useChatRepositoryKey } from '@/features/chat/use-chat-context'
-import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
-import { ArchiveRestore, Check, ExternalLink, ListTree, LoaderCircle, MessagesSquare, Play, User, X } from 'lucide-react'
-import { type JSX, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  ArchiveRestore,
+  Check,
+  ExternalLink,
+  ListTree,
+  LoaderCircle,
+  MessagesSquare,
+  Play,
+  User,
+  X,
+} from 'lucide-react'
+import {
+  type JSX,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useStoreSelector } from '@/app/store'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
+import {
+  useChatReferenceMachines,
+  useChatReferenceSessions,
+  useChatRepositoryKey,
+} from '@/features/chat/use-chat-context'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
+import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
 import { isIssueStartable } from '@/features/issues/issue-startable'
-import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
 import type { LaunchMachine } from '@/features/issues/LaunchBox'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
-import { closeMiniview, getMiniviewState, openMiniview, REF_PREFIXES_CHANGED_EVENT, setRefActivator, subscribeMiniview } from '@/lib/ref-activation'
-import { collectRefPrefixes, type IssueSessionTarget, type RefIssueLike, type RefSessionLike, type ResolvedRef, resolveRef, sessionForIssue, sessionWorkingIssueRef } from '@/lib/ref-miniview'
+import {
+  closeMiniview,
+  getMiniviewState,
+  openMiniview,
+  REF_PREFIXES_CHANGED_EVENT,
+  setRefActivator,
+  subscribeMiniview,
+} from '@/lib/ref-activation'
+import {
+  collectRefPrefixes,
+  type IssueSessionTarget,
+  type RefIssueLike,
+  type RefSessionLike,
+  type ResolvedRef,
+  resolveRef,
+  sessionForIssue,
+  sessionWorkingIssueRef,
+} from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
 import { LiveIssueReference } from './IssueReference'
 
@@ -36,42 +74,61 @@ function PoolRefMiniviewHost(): JSX.Element {
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
   const pool = useWorklistPool()
   const sessions = useChatReferenceSessions()
-  const read = useCallback((pool: MobxPool) => {
-    if (!state) return { issues: [] as RefIssueLike[], loading: false }
-    const parsed = parseAnyRef(state.ref)
-    const id = parsed?.kind === 'issue' ? pool.references.id(state.ref) : sessions.find(s => s.displayRef === state.ref)?.issueId
-    if (typeof id === 'symbol') return { issues: [] as RefIssueLike[], loading: true }
-    const issues: RefIssueLike[] = []
-    const seen = new Set<string>()
-    let next = id
-    let loading = false
-    // The open issue and its ancestry only, for the existing session action.
-    // Each row is read through the pool. No issue list or peek is available.
-    while (next && !seen.has(next)) {
-      seen.add(next)
-      const row = pool.row('issue', next)
-      if (typeof row === 'symbol') { loading = true; break }
-      if (!row) break
-      const model = pool.references.readById(next)
-      const issue = row as RefIssueLike
-      const description = (row as { description?: string | { value?: string } }).description
-      let childCount = 0, childDoneCount = 0
-      // The card's enrichment reads only the declared raw child relation.
-      // Archived children count too, matching the existing card projection.
-      for (const childId of pool.relations.many('issue', next, 'treeChildren')) {
-        const child = pool.row('issue', childId)
-        if (typeof child === 'symbol') { loading = true; continue }
-        if (!child) continue
-        childCount++
-        if ((child as { stage: string }).stage === 'done') childDoneCount++
+  const read = useCallback(
+    (pool: MobxPool) => {
+      if (!state) return { issues: [] as RefIssueLike[], loading: false }
+      const parsed = parseAnyRef(state.ref)
+      const id =
+        parsed?.kind === 'issue'
+          ? pool.references.id(state.ref)
+          : sessions.find((s) => s.displayRef === state.ref)?.issueId
+      if (typeof id === 'symbol') return { issues: [] as RefIssueLike[], loading: true }
+      const issues: RefIssueLike[] = []
+      const seen = new Set<string>()
+      let next = id
+      let loading = false
+      // The open issue and its ancestry only, for the existing session action.
+      // Each row is read through the pool. No issue list or peek is available.
+      while (next && !seen.has(next)) {
+        seen.add(next)
+        const row = pool.row('issue', next)
+        if (typeof row === 'symbol') {
+          loading = true
+          break
+        }
+        if (!row) break
+        const model = pool.references.readById(next)
+        const issue = row as RefIssueLike
+        const description = (row as { description?: string | { value?: string } }).description
+        let childCount = 0,
+          childDoneCount = 0
+        // The card's enrichment reads only the declared raw child relation.
+        // Archived children count too, matching the existing card projection.
+        for (const childId of pool.relations.many('issue', next, 'treeChildren')) {
+          const child = pool.row('issue', childId)
+          if (typeof child === 'symbol') {
+            loading = true
+            continue
+          }
+          if (!child) continue
+          childCount++
+          if ((child as { stage: string }).stage === 'done') childDoneCount++
+        }
+        issues.push({
+          ...issue,
+          description: typeof description === 'string' ? description : (description?.value ?? ''),
+          childCount,
+          childDoneCount,
+          ...(model && typeof model !== 'symbol'
+            ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix }
+            : {}),
+        })
+        next = pool.relations.one('issue', next, 'treeParent')
       }
-      issues.push({ ...issue, description: typeof description === 'string' ? description : description?.value ?? '',
-        childCount, childDoneCount,
-        ...(model && typeof model !== 'symbol' ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix } : {}) })
-      next = pool.relations.one('issue', next, 'treeParent')
-    }
-    return { issues, loading }
-  }, [sessions, state])
+      return { issues, loading }
+    },
+    [sessions, state],
+  )
   const data = useWorklistPoolProjection(read, { issues: [] as RefIssueLike[], loading: !!state })
   const resolveIssue = (token: string): ResolvedRef | null => {
     const parsed = parseAnyRef(token)
@@ -79,35 +136,48 @@ function PoolRefMiniviewHost(): JSX.Element {
     const id = pool.references.id(token)
     if (!id || typeof id === 'symbol') return null
     const row = pool.row('issue', id)
-    return row && typeof row !== 'symbol' ? { kind: 'issue', ref: parsed, issue: row as RefIssueLike } : null
+    return row && typeof row !== 'symbol'
+      ? { kind: 'issue', ref: parsed, issue: row as RefIssueLike }
+      : null
   }
-  return <>
-    <IssueChipLiveness root={document.body} />
-    <RefMiniviewContents issues={data.issues} resolveIssue={(token) => {
-      const parsed = parseAnyRef(token)
-      const issue = data.issues[0]
-      return token === state?.ref && issue && parsed?.kind === 'issue' ? { kind: 'issue', ref: parsed, issue } : resolveIssue(token)
-    }} loading={data.loading} />
-  </>
+  return (
+    <>
+      <IssueChipLiveness root={document.body} />
+      <RefMiniviewContents
+        issues={data.issues}
+        resolveIssue={(token) => {
+          const parsed = parseAnyRef(token)
+          const issue = data.issues[0]
+          return token === state?.ref && issue && parsed?.kind === 'issue'
+            ? { kind: 'issue', ref: parsed, issue }
+            : resolveIssue(token)
+        }}
+        loading={data.loading}
+      />
+    </>
+  )
 }
 
-function RefMiniviewContents({ issues, resolveIssue, loading = false }: {
+function RefMiniviewContents({
+  issues,
+  resolveIssue,
+  loading = false,
+}: {
   issues: readonly RefIssueLike[]
   resolveIssue: (ref: string) => ResolvedRef | null
   loading?: boolean
 }): JSX.Element | null {
   const sessions = useChatReferenceSessions()
   const machines = useChatReferenceMachines()
-  const { trpc, setOpenIssueId, setView, navigateToSession } =
-    useStoreSelector(
-      (s) => ({
-        trpc: s.trpc,
-        setOpenIssueId: s.setOpenIssueId,
-        setView: s.setView,
-        navigateToSession: s.navigateToSession,
-      }),
-      shallowEqual,
-    )
+  const { trpc, setOpenIssueId, setView, navigateToSession } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      setOpenIssueId: s.setOpenIssueId,
+      setView: s.setView,
+      navigateToSession: s.navigateToSession,
+    }),
+    shallowEqual,
+  )
   const { retarget } = useIssueExplorer()
   const loadComments = useCallback((id: IssueId) => trpc.issues.comments.query({ id }), [trpc])
 
@@ -142,7 +212,8 @@ function RefMiniviewContents({ issues, resolveIssue, loading = false }: {
         openMiniview(ref, anchor)
         return
       }
-      const target = parseAnyRef(ref)?.kind === 'issue' ? resolveIssue(ref) : resolveRef(ref, [], sessions)
+      const target =
+        parseAnyRef(ref)?.kind === 'issue' ? resolveIssue(ref) : resolveRef(ref, [], sessions)
       if (!target) {
         openMiniview(ref, anchor) // nothing to navigate to — fall back to the card (shows "not found")
         return
@@ -156,7 +227,10 @@ function RefMiniviewContents({ issues, resolveIssue, loading = false }: {
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
   if (!state) return null
 
-  const target = parseAnyRef(state.ref)?.kind === 'issue' ? resolveIssue(state.ref) : resolveRef(state.ref, [], sessions)
+  const target =
+    parseAnyRef(state.ref)?.kind === 'issue'
+      ? resolveIssue(state.ref)
+      : resolveRef(state.ref, [], sessions)
 
   return createPortal(
     <RefCard
@@ -461,7 +535,9 @@ export function RefCard({
           </div>
           <div className="px-3 py-2.5 text-[13px]">
             {!target ? (
-              <p className="text-muted-foreground">{loading ? 'Loading reference…' : 'Reference not found.'}</p>
+              <p className="text-muted-foreground">
+                {loading ? 'Loading reference…' : 'Reference not found.'}
+              </p>
             ) : (
               <SessionSummary session={target.session} issues={issues} />
             )}
@@ -499,7 +575,7 @@ function PoolRefPrefixSync(): JSX.Element {
 }
 
 function RefPrefixSyncContents({ issuePrefixKey }: { issuePrefixKey: string }): null {
-  const trpc = useStoreSelector(s => s.trpc)
+  const trpc = useStoreSelector((s) => s.trpc)
   const repoKey = useChatRepositoryKey()
   const [repoPrefixes, setRepoPrefixes] = useState<string[]>([])
 

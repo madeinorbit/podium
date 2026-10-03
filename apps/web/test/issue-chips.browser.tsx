@@ -133,10 +133,7 @@ root.render(
 )
 
 const proof = {
-  ready: () =>
-    !!runtime &&
-    runtime.getSnapshot().repos.length > 0 &&
-    (pool !== null),
+  ready: () => !!runtime && runtime.getSnapshot().repos.length > 0 && pool !== null,
   status: () => ({
     runtime: !!runtime,
     pool: !!pool,

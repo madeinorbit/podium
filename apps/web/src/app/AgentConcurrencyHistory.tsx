@@ -1,8 +1,7 @@
-import type { SessionView } from '@podium/client-core/session-values'
-import { usePoolConcurrencyHistory } from './header-data'
 import { Popover } from '@base-ui/react/popover'
-
+import type { SessionView } from '@podium/client-core/session-values'
 import { type JSX, useMemo } from 'react'
+import { usePoolConcurrencyHistory } from './header-data'
 import { StatusMetric } from './StatusMetric'
 import { shareAgentConcurrency } from './status-share'
 
@@ -17,7 +16,10 @@ const DEFAULT_BUCKET_MS = 30 * 60 * 1_000
 export function AgentConcurrencyHistory({
   workingSessions,
 }: {
-  workingSessions: readonly Pick<SessionView, 'sessionId' | 'name' | 'title' | 'displayRef' | 'agentKind'>[]
+  workingSessions: readonly Pick<
+    SessionView,
+    'sessionId' | 'name' | 'title' | 'displayRef' | 'agentKind'
+  >[]
 }): JSX.Element {
   const working = workingSessions.length
   const history = usePoolConcurrencyHistory()

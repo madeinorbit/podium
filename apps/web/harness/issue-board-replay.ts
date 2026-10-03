@@ -21,8 +21,8 @@ import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { ScenarioCache } from '../../../packages/worklist-proto/shared/src/scenarios'
-import { checkBoard, checkExplorer } from './board-control'
 import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
+import { checkBoard, checkExplorer } from './board-control'
 
 let phase = 0
 async function main() {

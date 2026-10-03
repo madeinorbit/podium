@@ -1,6 +1,5 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 //
 // Tuck-away is SERVER state (POD-333). It used to live in this browser's local
@@ -15,6 +14,7 @@ import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/
 //     outbox entry both reaches the server and paints the optimistic fold.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { SidebarUnified } from './SidebarUnified'
 
 const setIssueTucked = vi.hoisted(() => vi.fn(async () => {}))
@@ -147,7 +147,9 @@ vi.mock('@/app/store', () => {
     // and a mock that pretended to memoize here would be a second, untested
     // implementation of the mechanism.
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
+      def.derive(
+        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      ),
   }
 })
 
@@ -230,7 +232,9 @@ describe('tuck-away persistence (POD-333)', () => {
     render(<SidebarUnified />)
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
 
-    const row = (await screen.findByText('Settled issue')).closest('[data-testid="folded-work-row"]')
+    const row = (await screen.findByText('Settled issue')).closest(
+      '[data-testid="folded-work-row"]',
+    )
     expect(row?.textContent).toContain('just now')
     expect(row?.textContent).not.toContain('1m ago')
   })

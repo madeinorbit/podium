@@ -4,8 +4,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chromium } from '@playwright/test'
-import type {} from '../test/sidebar-pool-perf.browser'
 import type {} from '../../../packages/worklist-proto/harness/browser/runtime-pool-fixture'
+import type {} from '../test/sidebar-pool-perf.browser'
 
 const idleSeconds = Number(
   process.argv.find((arg) => arg.startsWith('--idle-seconds='))?.split('=')[1] ?? 300,
@@ -65,10 +65,10 @@ try {
     errors.push(error.message)
     console.error(error.message)
   })
-  await page.goto(
-    `${origin}/test/sidebar-pool-perf.browser.html`,
-    { waitUntil: 'networkidle', timeout: 60_000 },
-  )
+  await page.goto(`${origin}/test/sidebar-pool-perf.browser.html`, {
+    waitUntil: 'networkidle',
+    timeout: 60_000,
+  })
   await page.waitForFunction(() => window.__poolPerfFixture?.ready(), null, { timeout: 30_000 })
   await page.waitForTimeout(2500)
   await page.waitForFunction(() => window.__poolPerfFixture?.ready(), null, { timeout: 30_000 })
@@ -177,7 +177,7 @@ try {
   await writeFile(resolve(out, 'pool-proof.json'), JSON.stringify(proof, null, 2))
   const picture = async (name: string) =>
     `data:image/png;base64,${(await readFile(resolve(out, name))).toString('base64')}`
-  const html = `<!doctype html><meta charset="utf-8"><title>Pool panel proof</title><style>body{font:16px system-ui;max-width:1000px;margin:40px auto;background:#16181d;color:#eee}img{width:100%;border:1px solid #454854;border-radius:10px}p{line-height:1.6}pre{padding:20px;background:#22252d;white-space:pre-wrap}</style><h1>Pool numbers connected</h1><p>Synthetic Chromium on flatblock: ${Math.round(idleElapsedMs / 1000)} seconds idle, ${samples.length} samples. Every sample: zero rows, zero derivations, zero measured ms, zero row reads. One resident row on the app-owned runtime.</p><img src="${await picture('pool-idle.png')}"><p>One incoming update redrew ${updated.report.lastUpdate!.work.rows} row; ${updated.report.lastUpdate!.work.mainThreadMs.toFixed(2)} ms measured work.</p><img src="${await picture('pool-update.png')}"><p>The planted one-row-per-second timer was visible: ${visibleIdle}. Closing the panel detached its diagnostics. The switch-off fixture loaded no graph or MobX code.</p><img src="${await picture('pool-planted-redraw.png')}"><p>${proof.scope}</p>`
+  const html = `<!doctype html><meta charset="utf-8"><title>Pool panel proof</title><style>body{font:16px system-ui;max-width:1000px;margin:40px auto;background:#16181d;color:#eee}img{width:100%;border:1px solid #454854;border-radius:10px}p{line-height:1.6}pre{padding:20px;background:#22252d;white-space:pre-wrap}</style><h1>Pool numbers connected</h1><p>Synthetic Chromium on flatblock: ${Math.round(idleElapsedMs / 1000)} seconds idle, ${samples.length} samples. Every sample: zero rows, zero derivations, zero measured ms, zero row reads. One resident row on the app-owned runtime.</p><img src="${await picture('pool-idle.png')}"><p>One incoming update redrew ${updated.report.lastUpdate!.work.rows} row; ${updated.report.lastUpdate!.work.mainThreadMs.toFixed(2)} ms measured work.</p><img src="${await picture('pool-update.png')}"><p>The planted one-row-per-second timer was visible: ${visibleIdle}. Closing the panel detached its diagnostics.</p><img src="${await picture('pool-planted-redraw.png')}"><p>${proof.scope}</p>`
   await writeFile(resolve(out, 'pool-proof.html'), html)
   console.log(
     `Pool panel GREEN: ${idleSeconds}s idle, one-row update, visible redraw plant, input/check publishing seams, clean close.`,

@@ -4,7 +4,12 @@ import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/
 import { bindSidebarPerf, createSidebarPerf, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
-import { createKernelReplica, createSideCache, replicaNamespaceKey } from '@podium/client-core/replica'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import {
+  createKernelReplica,
+  createSideCache,
+  replicaNamespaceKey,
+} from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
@@ -14,24 +19,30 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { allIssueViewModels } from '../../../packages/client-core/src/replica/issue-view-cache'
 import { buildFlightDeckRows } from '../../../packages/client-core/src/viewmodels/mission'
-import { buildCorpus, buildCorpusCell, FIXED_NOW } from '../../../packages/worklist-proto/harness/src/fixture'
+import {
+  buildCorpus,
+  buildCorpusCell,
+  FIXED_NOW,
+} from '../../../packages/worklist-proto/harness/src/fixture'
 import { pickTargets } from '../../../packages/worklist-proto/shared/src/scenarios'
+import { speedSwitchState } from '../harness/speed-switches'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { FlightDeck } from '../src/app/FlightDeck'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
+import { initializePoolScreens } from '../src/app/pool-screens'
 import { RightDock } from '../src/app/RightDock'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
-import { initializePoolScreens } from '../src/app/pool-screens'
-import { seedAcceptanceCache } from './sidebar-acceptance-seed'
-import { speedSwitchState } from '../harness/speed-switches'
 import { Workspace } from '../src/app/Workspace'
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
-import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { IssuePage } from '../src/features/issues/IssuePage'
-import type { IssueViewModel } from '@podium/client-core/replica'
-import { bindSidebarRowMeasurements, createPaintBoundary } from '../src/features/worklist/sidebar-measurements'
+import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
+import {
+  bindSidebarRowMeasurements,
+  createPaintBoundary,
+} from '../src/features/worklist/sidebar-measurements'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
+import { seedAcceptanceCache } from './sidebar-acceptance-seed'
 import '../src/index.css'
 import '../src/styles.css'
 
@@ -189,7 +200,7 @@ function MeasurementBinding() {
     const unbindRows = bindSidebarRowMeasurements({
       owner: runtime,
       perf: meter,
-          })
+    })
     return () => {
       unbindRows()
       unbind()
@@ -240,7 +251,11 @@ function Fixture() {
             {pageSurface && <IssuePageProbe ids={pageTargets} />}
             {full && (
               <>
-                <div data-fixture-mission={selected ?? ''} className="flex min-h-0 flex-none" style={{ width: 330 }}>
+                <div
+                  data-fixture-mission={selected ?? ''}
+                  className="flex min-h-0 flex-none"
+                  style={{ width: 330 }}
+                >
                   <FlightDeck key={selected ?? 'empty'} onCollapse={() => {}} />
                 </div>
                 <div data-fixture-workspace className="relative flex min-h-0 min-w-0 flex-1">
@@ -261,18 +276,42 @@ function Fixture() {
 /** Measurement-only trusted opening controls; both arms render the shipped
  * page and write through the existing synthetic runtime/outbox. */
 function IssuePageProbe({ ids }: { ids: string[] }) {
-  const { openIssueId, setOpenIssueId, markIssueRead } = useStoreSelector(s => ({
-    openIssueId: s.openIssueId, setOpenIssueId: s.setOpenIssueId, markIssueRead: s.markIssueRead,
+  const { openIssueId, setOpenIssueId, markIssueRead } = useStoreSelector((s) => ({
+    openIssueId: s.openIssueId,
+    setOpenIssueId: s.setOpenIssueId,
+    markIssueRead: s.markIssueRead,
   }))
-  return <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-    <div className="flex gap-2">
-      {ids.map(id => <button type="button" key={id} data-page-target={id}
-        onClick={() => { void markIssueRead(asIssueId(id)); setOpenIssueId(asIssueId(id)) }}>Open {id}</button>)}
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex gap-2">
+        {ids.map((id) => (
+          <button
+            type="button"
+            key={id}
+            data-page-target={id}
+            onClick={() => {
+              void markIssueRead(asIssueId(id))
+              setOpenIssueId(asIssueId(id))
+            }}
+          >
+            Open {id}
+          </button>
+        ))}
+      </div>
+      {openIssueId && (
+        <div className="flex min-h-0 flex-1" data-fixture-issue-page={openIssueId}>
+          {
+            <IssuePage
+              issue={{ id: openIssueId } as IssueViewModel}
+              orderedIds={ids.map(asIssueId)}
+              onBack={() => setOpenIssueId(null)}
+              onNavigate={setOpenIssueId}
+            />
+          }
+        </div>
+      )}
     </div>
-    {openIssueId && <div className="flex min-h-0 flex-1" data-fixture-issue-page={openIssueId}>
-      {<IssuePage issue={{ id: openIssueId } as IssueViewModel} orderedIds={ids.map(asIssueId)} onBack={() => setOpenIssueId(null)} onNavigate={setOpenIssueId} />}
-    </div>}
-  </div>
+  )
 }
 
 async function show(name = 'acceptance-alice', rebuild = false) {
@@ -380,7 +419,14 @@ const fixture = {
     )
     return ids.map((id) => ({
       id,
-      root: issues.some(issue => issue.id === id && !issue.parentId && !issue.archived && !issue.closedAt && issue.stage !== 'done'),
+      root: issues.some(
+        (issue) =>
+          issue.id === id &&
+          !issue.parentId &&
+          !issue.archived &&
+          !issue.closedAt &&
+          issue.stage !== 'done',
+      ),
       rows: buildFlightDeckRows(issues, snapshot.sessions, id, 'full', []).length,
     }))
   },

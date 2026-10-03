@@ -40,33 +40,67 @@ afterEach(() => {
 })
 
 const session = {
-  sessionId: asSessionId('utility-session'), issueId: asIssueId('utility-root'),
-  agentKind: 'codex', cwd: '/synthetic', status: 'live', archived: false,
-  createdAt: '2026-10-02T09:00:00Z', lastInputAt: '2026-10-02T10:00:00Z',
-  lastActiveAt: '2026-10-02T10:00:00Z', transcriptAvailable: true,
+  sessionId: asSessionId('utility-session'),
+  issueId: asIssueId('utility-root'),
+  agentKind: 'codex',
+  cwd: '/synthetic',
+  status: 'live',
+  archived: false,
+  createdAt: '2026-10-02T09:00:00Z',
+  lastInputAt: '2026-10-02T10:00:00Z',
+  lastActiveAt: '2026-10-02T10:00:00Z',
+  transcriptAvailable: true,
 } as SessionView
 const issue = {
-  id: asIssueId('utility-root'), seq: 1, title: 'Synthetic review', stage: 'review',
-  updatedAt: '2026-10-02T10:00:00Z', deps: [], parentId: null,
+  id: asIssueId('utility-root'),
+  seq: 1,
+  title: 'Synthetic review',
+  stage: 'review',
+  updatedAt: '2026-10-02T10:00:00Z',
+  deps: [],
+  parentId: null,
 } as unknown as IssueNavigationModel
 
 function setup() {
   const reads = {
     usage: vi.fn(async () => ({ hostname: 'synthetic', buckets: [] })),
-    quota: vi.fn(async () => []), tasks: vi.fn(async () => []),
-    cost: vi.fn(async () => ({ issueId: issue.id, state: 'pending',
-      own: { models: [], messages: 0, sessionCount: 0 }, rollup: { models: [], messages: 0, sessionCount: 0 },
-      descendantCount: 0, provisional: false, floor: 'none', harnesses: [], uncostedSessionCount: 0, sessions: [] } satisfies TaskCostWire)),
+    quota: vi.fn(async () => []),
+    tasks: vi.fn(async () => []),
+    cost: vi.fn(
+      async () =>
+        ({
+          issueId: issue.id,
+          state: 'pending',
+          own: { models: [], messages: 0, sessionCount: 0 },
+          rollup: { models: [], messages: 0, sessionCount: 0 },
+          descendantCount: 0,
+          provisional: false,
+          floor: 'none',
+          harnesses: [],
+          uncostedSessionCount: 0,
+          sessions: [],
+        }) satisfies TaskCostWire,
+    ),
     ledger: vi.fn(async () => []),
     events: vi.fn(async () => []),
-    history: vi.fn(async () => ({ sessions: { [session.sessionId]: [{ at: session.createdAt, phase: 'working' }] } })),
-    transcript: vi.fn(async () => ({ items: [{ id: 'prompt', role: 'user', text: 'Synthetic prompt' }], hasMore: false })),
+    history: vi.fn(async () => ({
+      sessions: { [session.sessionId]: [{ at: session.createdAt, phase: 'working' }] },
+    })),
+    transcript: vi.fn(async () => ({
+      items: [{ id: 'prompt', role: 'user', text: 'Synthetic prompt' }],
+      hasMore: false,
+    })),
   }
   const trpc = {
-    usage: { summary: { query: reads.usage } }, quota: { history: { query: reads.quota } },
+    usage: { summary: { query: reads.usage } },
+    quota: { history: { query: reads.quota } },
     cost: { task: { query: reads.cost }, tasks: { query: reads.tasks } },
-    messages: { ledger: { query: reads.ledger } }, issues: { events: { query: reads.events } },
-    sessions: { activityHistory: { query: reads.history }, transcriptRead: { query: reads.transcript } },
+    messages: { ledger: { query: reads.ledger } },
+    issues: { events: { query: reads.events } },
+    sessions: {
+      activityHistory: { query: reads.history },
+      transcriptRead: { query: reads.transcript },
+    },
   } as unknown as Trpc
   const replica = { transcriptWindow: () => undefined, putTranscriptWindow: vi.fn() }
   const owner = { start() {}, dispose() {}, destroy() {} }
@@ -75,15 +109,25 @@ function setup() {
   const subscribe = vi.fn(store.subscribe)
   fixture.handle = Object.assign(owner, store, { subscribe })
   function Wrapper({ children }: { children: ReactNode }) {
-    return <StoreProvider
-      principal={asClientPrincipal(asUserId('utility-test'))}
-      config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
-      api={trpc} networkEnabled={false} onFatalError={() => {}}
-      createReplicaFn={() => { throw new Error('fixture owns runtime') }}
-    >{children}</StoreProvider>
+    return (
+      <StoreProvider
+        principal={asClientPrincipal(asUserId('utility-test'))}
+        config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+        api={trpc}
+        networkEnabled={false}
+        onFatalError={() => {}}
+        createReplicaFn={() => {
+          throw new Error('fixture owns runtime')
+        }}
+      >
+        {children}
+      </StoreProvider>
+    )
   }
   async function prove() {
-    await act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve() })
+    await act(async () => {
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
     expect(subscribe).not.toHaveBeenCalled()
     storeStats.enable()
     storeStats.reset()
@@ -94,7 +138,11 @@ function setup() {
     })
     expect(storeStats.snapshot().runtimes).toHaveLength(1)
     expect(storeStats.snapshot().runtimes[0]).toMatchObject({
-      publishes: 20, subscriberWakes: 0, selectorRuns: 0, selectorCacheMisses: 0, slices: {},
+      publishes: 20,
+      subscriberWakes: 0,
+      selectorRuns: 0,
+      selectorCacheMisses: 0,
+      slices: {},
     })
     expect(subscribe).not.toHaveBeenCalled()
   }
@@ -113,15 +161,24 @@ it('UsageView acquires the existing runtime API without a snapshot subscription'
 
 it('MessageLedgerView acquires the existing runtime API without a snapshot subscription', async () => {
   const ctx = setup()
-  const view = render(<MessageLedgerView issueId={issue.id} sessionId={session.sessionId} />, { wrapper: ctx.Wrapper })
+  const view = render(<MessageLedgerView issueId={issue.id} sessionId={session.sessionId} />, {
+    wrapper: ctx.Wrapper,
+  })
   await ctx.prove()
-  expect(ctx.reads.ledger).toHaveBeenCalledExactlyOnceWith({ issueId: issue.id, sessionId: session.sessionId })
-  expect(view.getByTestId('message-ledger').textContent).toContain('No messages for this scope yet.')
+  expect(ctx.reads.ledger).toHaveBeenCalledExactlyOnceWith({
+    issueId: issue.id,
+    sessionId: session.sessionId,
+  })
+  expect(view.getByTestId('message-ledger').textContent).toContain(
+    'No messages for this scope yet.',
+  )
 })
 
 it('MissionCostChip acquires the existing runtime API without a snapshot subscription', async () => {
   const ctx = setup()
-  render(<MissionCostChip issueId={issue.id} onOpenInExplorer={() => {}} />, { wrapper: ctx.Wrapper })
+  render(<MissionCostChip issueId={issue.id} onOpenInExplorer={() => {}} />, {
+    wrapper: ctx.Wrapper,
+  })
   await ctx.prove()
   expect(ctx.reads.cost).toHaveBeenCalledExactlyOnceWith({ issueId: issue.id })
   expect(ctx.reads.tasks).not.toHaveBeenCalled()
@@ -129,11 +186,31 @@ it('MissionCostChip acquires the existing runtime API without a snapshot subscri
 
 it('FlightDeckHandoff acquires review events without a snapshot subscription', async () => {
   const ctx = setup()
-  const view = render(<FlightDeckHandoff rootIssue={issue} issues={[issue]} sessions={[]}
-    poolValues={{ crew: [], current: [{ kind: 'review', issueId: issue.id, text: 'Ready for review.' }], next: [] }} visitReadAt={null} proposed={null} onOpenTranscript={() => {}} onOpenSession={() => {}} onOpenIssue={() => {}}
-  />, { wrapper: ctx.Wrapper })
+  const view = render(
+    <FlightDeckHandoff
+      rootIssue={issue}
+      issues={[issue]}
+      sessions={[]}
+      poolValues={{
+        crew: [],
+        current: [{ kind: 'review', issueId: issue.id, text: 'Ready for review.' }],
+        next: [],
+      }}
+      visitReadAt={null}
+      proposed={null}
+      onOpenTranscript={() => {}}
+      onOpenSession={() => {}}
+      onOpenIssue={() => {}}
+    />,
+    { wrapper: ctx.Wrapper },
+  )
   await ctx.prove()
-  expect(ctx.reads.events).toHaveBeenCalledExactlyOnceWith({ since: 0, repoPath: null, subject: issue.id, limit: 200 })
+  expect(ctx.reads.events).toHaveBeenCalledExactlyOnceWith({
+    since: 0,
+    repoPath: null,
+    subject: issue.id,
+    limit: 200,
+  })
   expect(view.getByTestId('flight-deck-handoff').textContent).toContain('Ready for review.')
 })
 
@@ -142,14 +219,22 @@ it('FlightDeckWaterfall activity acquires the existing runtime API without a sna
   const { result } = renderHook(() => useWaterfallActivity([session]), { wrapper: ctx.Wrapper })
   await ctx.prove()
   expect(ctx.reads.history).toHaveBeenCalledExactlyOnceWith({ sessionIds: [session.sessionId] })
-  expect(result.current.get(session.sessionId)).toEqual([{ at: Date.parse(session.createdAt), phase: 'working' }])
+  expect(result.current.get(session.sessionId)).toEqual([
+    { at: Date.parse(session.createdAt), phase: 'working' },
+  ])
 })
 
 it('useHandoffTranscript acquires the existing runtime and replica without a snapshot subscription', async () => {
   const ctx = setup()
-  const { result } = renderHook(() => useHandoffTranscript(true, [session]), { wrapper: ctx.Wrapper })
+  const { result } = renderHook(() => useHandoffTranscript(true, [session]), {
+    wrapper: ctx.Wrapper,
+  })
   await ctx.prove()
-  expect(ctx.reads.transcript).toHaveBeenCalledExactlyOnceWith({ sessionId: session.sessionId, direction: 'before', limit: 200 })
+  expect(ctx.reads.transcript).toHaveBeenCalledExactlyOnceWith({
+    sessionId: session.sessionId,
+    direction: 'before',
+    limit: 200,
+  })
   expect(result.current.pair?.prompt.item.text).toBe('Synthetic prompt')
   expect(ctx.replica.putTranscriptWindow).toHaveBeenCalledTimes(1)
 })

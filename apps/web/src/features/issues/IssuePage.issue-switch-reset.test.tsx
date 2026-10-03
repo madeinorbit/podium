@@ -36,8 +36,8 @@ import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import '@/test-support/model-catalog-mock'
-import { IssuePage as PoolIssuePage } from './IssuePage'
 import { seedPoolFixture } from '@/test-support/pool-fixture'
+import { IssuePage as PoolIssuePage } from './IssuePage'
 
 function IssuePage(props: Parameters<typeof PoolIssuePage>[0]) {
   seedPoolFixture([props.issue])

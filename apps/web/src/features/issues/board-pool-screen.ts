@@ -1,5 +1,9 @@
 import type { PoolScreen } from '@podium/client-graph/host'
-import { ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_SUMMARIES } from '@podium/client-graph/issue-board-schema'
+import {
+  ISSUE_BOARD_ENTITIES,
+  ISSUE_BOARD_SOURCE_KEY,
+  ISSUE_BOARD_SUMMARIES,
+} from '@podium/client-graph/issue-board-schema'
 
 export const issueBoardPoolScreen: PoolScreen = {
   id: 'board',
@@ -9,6 +13,5 @@ export const issueBoardPoolScreen: PoolScreen = {
     await pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
       createIssueBoardSource(pool, runtime),
     )
-
   },
 }

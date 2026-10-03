@@ -7,11 +7,19 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
-import { attachWorklistPool, useWorklistPool, worklistPoolSurvivors } from '../src/app/store-worklist-pool'
+import {
+  attachWorklistPool,
+  useWorklistPool,
+  worklistPoolSurvivors,
+} from '../src/app/store-worklist-pool'
 import { SidebarPerfPanel } from '../src/features/worklist/SidebarPerfPanel'
 import { SidebarRail } from '../src/features/worklist/SidebarRail'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
-import { bindSidebarRowMeasurements, createPaintBoundary, observeSidebarInputs } from '../src/features/worklist/sidebar-measurements'
+import {
+  bindSidebarRowMeasurements,
+  createPaintBoundary,
+  observeSidebarInputs,
+} from '../src/features/worklist/sidebar-measurements'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { createSidebarFixture } from './sidebar-fixture'
 import '../src/index.css'
@@ -86,9 +94,7 @@ function Fixture() {
       >
         {rail ? <SidebarRail /> : <SidebarUnified />}
       </aside>
-      <div className="p-6 text-sm text-text-dim">
-        Synthetic StoreProvider fixture · {'pool'}
-      </div>
+      <div className="p-6 text-sm text-text-dim">Synthetic StoreProvider fixture · {'pool'}</div>
       {worklistProof ? (
         <>
           <CommandPaletteBoundary />
@@ -136,7 +142,7 @@ const fixture = {
     synthetic.patch('issueProjection', `synthetic-${count - 1}`, patch),
   select: (id: string) => runtime?.getSnapshot().setSelectedIssueId(asIssueId(id)),
   state: () => ({
-        selected: runtime?.getSnapshot().selectedIssueId,
+    selected: runtime?.getSnapshot().selectedIssueId,
     pane: runtime?.getSnapshot().paneA,
     projectOrder: runtime?.getSnapshot().sidebarSettings.repoOrder,
     coarseNow: runtime?.getSnapshot().coarseNow,

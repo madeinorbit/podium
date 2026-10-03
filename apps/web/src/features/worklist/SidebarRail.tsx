@@ -72,10 +72,10 @@
  * control is its header band. This component fills everything under it.
  */
 
-import { type MotionPhase } from '@podium/client-core/viewmodels'
+import type { MotionPhase } from '@podium/client-core/viewmodels'
 import { type JSX, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
-import { type IdSquareBadge } from '@/components/IdSquare'
+import type { IdSquareBadge } from '@/components/IdSquare'
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'
 import { cn } from '@/lib/utils'
 
@@ -173,8 +173,8 @@ export function RailHoverCard({
 
 export function SidebarRail(): JSX.Element {
   return (
-      <Suspense fallback={null}>
-        <PoolSidebarRail />
-      </Suspense>
-    )
+    <Suspense fallback={null}>
+      <PoolSidebarRail />
+    </Suspense>
+  )
 }

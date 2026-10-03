@@ -20,11 +20,18 @@ import { workspaceFetch } from '@/lib/workspace-request'
 
 import { focusedPaneSession } from '@podium/client-core/engine'
 import { MOBILE_PROMO_DISMISSED_KEY } from '@podium/client-core/ui-state'
-import { canonicalPodiumOrigin, formatPodiumLink, PODIUM_SCHEME, parsePodiumLink, parseServerVersion, podiumTargetPath } from '@podium/protocol'
+import type { MobxPool } from '@podium/client-graph'
+import {
+  canonicalPodiumOrigin,
+  formatPodiumLink,
+  PODIUM_SCHEME,
+  parsePodiumLink,
+  parseServerVersion,
+  podiumTargetPath,
+} from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { type Store, useStoreSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import type { MobxPool } from '@podium/client-graph'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
 const HANDOFF_ORIGIN_PARAM = 'origin'
@@ -147,7 +154,11 @@ export function useFocusedHandoffSessionId(): string | null {
     // Focused component tests intentionally expose only the fields their
     // subject reads. Treat those partial fixtures like a shell with no focused
     // session rather than making an unrelated handoff affordance throw.
-    if (!Array.isArray(store.issueProjections) || !store.workspaces || typeof store.workspaces !== 'object') {
+    if (
+      !Array.isArray(store.issueProjections) ||
+      !store.workspaces ||
+      typeof store.workspaces !== 'object'
+    ) {
       return null
     }
     return focusedPaneSession(store)

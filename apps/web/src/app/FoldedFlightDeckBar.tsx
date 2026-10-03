@@ -1,12 +1,15 @@
-
-import { usePoolMissionFolded } from './mission-pane-data'
-import { type MissionProgress, missionCrewLabel, selectedMissionRoot } from '@podium/client-core/viewmodels'
+import {
+  type MissionProgress,
+  missionCrewLabel,
+  type selectedMissionRoot,
+} from '@podium/client-core/viewmodels'
 import type { IssueColorSlot } from '@podium/model/browser'
 import { ChevronRight, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { IdSquare, idSquareLabel } from '@/components/IdSquare'
 import { WorkingMark } from '@/lib/motion'
 import { cn } from '@/lib/utils'
+import { usePoolMissionFolded } from './mission-pane-data'
 
 /**
  * THE CLOSED DECK REPORTS INSTEAD OF LABELLING (POD-738).

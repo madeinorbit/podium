@@ -24,7 +24,11 @@ import { createRoot } from 'react-dom/client'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarPerfSession } from '@/features/worklist/SidebarPerfPanel'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import { ResizableAside, SIDEBAR_RAIL_WIDTH, SIDEBAR_WIDTH_DEFAULT } from '@/features/worklist/sidebar-common'
+import {
+  ResizableAside,
+  SIDEBAR_RAIL_WIDTH,
+  SIDEBAR_WIDTH_DEFAULT,
+} from '@/features/worklist/sidebar-common'
 import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { sidebarHarnessOwner } from './sidebar-store'

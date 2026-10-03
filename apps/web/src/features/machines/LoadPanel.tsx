@@ -1,9 +1,21 @@
-
-import { useHeaderActions, usePoolPanelMetric, usePoolHostAggregate, usePoolSessionLabels } from '@/app/header-data'
-import { DEFAULT_LOAD_PER_CORE, formatMemBytes, hostDiskView, hostLoadView, hostMemoryView, panelLabel, reclaimSpaceLabel } from '@podium/client-core/viewmodels'
+import {
+  DEFAULT_LOAD_PER_CORE,
+  formatMemBytes,
+  hostDiskView,
+  hostLoadView,
+  hostMemoryView,
+  panelLabel,
+  reclaimSpaceLabel,
+} from '@podium/client-core/viewmodels'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import { RotateCw } from 'lucide-react'
-import { type JSX, type ReactNode } from 'react'
+import type { JSX, ReactNode } from 'react'
+import {
+  useHeaderActions,
+  usePoolHostAggregate,
+  usePoolPanelMetric,
+  usePoolSessionLabels,
+} from '@/app/header-data'
 import type { Trpc } from '@/app/trpc'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
@@ -506,4 +518,3 @@ function ProcessRow({
     </div>
   )
 }
-

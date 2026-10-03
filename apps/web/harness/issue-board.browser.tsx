@@ -4,7 +4,11 @@ import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/
 import { issueBoardStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { createKernelReplica, createSideCache, replicaNamespaceKey } from '@podium/client-core/replica'
+import {
+  createKernelReplica,
+  createSideCache,
+  replicaNamespaceKey,
+} from '@podium/client-core/replica'
 import { asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { useEffect, useState } from 'react'
@@ -137,9 +141,7 @@ function Fixture() {
 
 Object.assign(window, {
   __boardHarness: {
-    ready: () =>
-      ready &&
-      ((!!pool && typeof pool.row('issueBoardWindow', 'current') !== 'symbol')),
+    ready: () => ready && !!pool && typeof pool.row('issueBoardWindow', 'current') !== 'symbol',
     errors: () => [...errors],
     corpus: corpus.stats,
     now: FIXED_NOW,

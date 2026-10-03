@@ -1,8 +1,17 @@
-import { bindSidebarPerf, createSidebarPerf, type SidebarPerf, type SidebarPerfSnapshot } from '@podium/client-core/perf'
+import {
+  bindSidebarPerf,
+  createSidebarPerf,
+  type SidebarPerf,
+  type SidebarPerfSnapshot,
+} from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { JSX } from 'react'
 import { useLayoutEffect, useState } from 'react'
-import { bindSidebarRowMeasurements, createPaintBoundary, observeSidebarInputs } from './sidebar-measurements'
+import {
+  bindSidebarRowMeasurements,
+  createPaintBoundary,
+  observeSidebarInputs,
+} from './sidebar-measurements'
 
 const ms = (value: number | null): string =>
   value === null ? '—' : `${value === 0 ? '0' : value.toFixed(1)} ms`
@@ -27,8 +36,7 @@ export function SidebarPerfReadout({
     >
       <div className="mb-2 flex items-center justify-between">
         <strong>
-          Sidebar performance ·{' '}
-          {report.pool.connected ? 'Pool' : 'Pool not connected'}
+          Sidebar performance · {report.pool.connected ? 'Pool' : 'Pool not connected'}
         </strong>
         <button
           type="button"
@@ -81,7 +89,6 @@ export function SidebarPerfReadout({
           JS heap {heap === null ? 'unavailable' : `${(heap / 1048576).toFixed(1)} MB`} · Pool rows{' '}
           {report.pool.rows ?? 'not connected'}
         </div>
-
       </div>
     </aside>
   )
@@ -130,13 +137,7 @@ export function SidebarPerfSession({
       if (globalThis.__podiumSidebarPerf === api) delete globalThis.__podiumSidebarPerf
     }
   }, [owner, perf])
-  return (
-    <SidebarPerfReadout
-      report={report}
-      heap={heap}
-      onClose={onClose}
-    />
-  )
+  return <SidebarPerfReadout report={report} heap={heap} onClose={onClose} />
 }
 declare global {
   var __podiumSidebarPerf: { read(): ReturnType<SidebarPerf['read']> } | undefined

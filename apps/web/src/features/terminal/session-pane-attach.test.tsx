@@ -7,15 +7,15 @@ import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import {
-  sessionPaneFixture,
   SESSION_PANE_NOW,
+  sessionPaneFixture,
 } from '@podium/client-graph/diagnostics/session-pane-fixture'
 import { asUserId } from '@podium/model/browser'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { ScenarioCache } from '../../../../../packages/worklist-proto/shared/src/scenarios'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
+import { ScenarioCache } from '../../../../../packages/worklist-proto/shared/src/scenarios'
 import { useChatSurface } from '../chat/use-chat-surface'
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'

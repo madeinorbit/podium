@@ -1,19 +1,32 @@
-import { issuePagePoolScreen } from '@/features/issues/issue-page/pool-screen'
-import { issueBoardPoolScreen } from '@/features/issues/board-pool-screen'
-import { sessionPanePoolScreen } from '@/features/terminal/session-pane-pool-screen'
-import { chatContextPoolScreen } from '@/features/chat/chat-context-pool-screen'
-import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import type { UiState } from '@podium/client-core/ui-state'
-import { initializeSettingsDataLayer, settingsDataLayer, settingsCheckRequested } from '@/features/settings/data-layer'
-import { initializePreferencesDataLayer, preferencesDataLayer, preferencesCheckRequested } from '@/lib/preferences-data-layer'
-import { noticePoolScreen } from '@/features/chat/notice-pool-screen'
-import { superagentPoolScreen } from '@/features/superagent/pool-screen'
-import { initializeAutomationsDataLayer, automationsDataLayer, specsDataLayer, automationsCheckRequested } from '@/lib/automations-data-layer'
 import type { PoolScreen } from '@podium/client-graph/host'
-import { panePoolScreen } from './pane-pool-screen'
-import { commandLaunchScreen } from '@/lib/command-launch-data-layer'
-import { missionPanePoolScreen } from './mission-pane-pool-screen'
+import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
+import { chatContextPoolScreen } from '@/features/chat/chat-context-pool-screen'
+import { noticePoolScreen } from '@/features/chat/notice-pool-screen'
+import { issueBoardPoolScreen } from '@/features/issues/board-pool-screen'
+import { issuePagePoolScreen } from '@/features/issues/issue-page/pool-screen'
+import {
+  initializeSettingsDataLayer,
+  settingsCheckRequested,
+  settingsDataLayer,
+} from '@/features/settings/data-layer'
+import { superagentPoolScreen } from '@/features/superagent/pool-screen'
+import { sessionPanePoolScreen } from '@/features/terminal/session-pane-pool-screen'
 import { workflowPoolScreen } from '@/features/workflows/workflow-pool-screen'
+import {
+  automationsCheckRequested,
+  automationsDataLayer,
+  initializeAutomationsDataLayer,
+  specsDataLayer,
+} from '@/lib/automations-data-layer'
+import { commandLaunchScreen } from '@/lib/command-launch-data-layer'
+import {
+  initializePreferencesDataLayer,
+  preferencesCheckRequested,
+  preferencesDataLayer,
+} from '@/lib/preferences-data-layer'
+import { missionPanePoolScreen } from './mission-pane-pool-screen'
+import { panePoolScreen } from './pane-pool-screen'
 import { shellPoolScreen } from './shell-pool-screen'
 
 /** Latch with hydrated UI state before rendering any screen, including settings.
@@ -35,41 +48,67 @@ export const poolBackedScreens: readonly PoolScreen[] = [
   missionPanePoolScreen,
   workflowPoolScreen,
   shellPoolScreen,
-  { optional: true, initialize: initializeSettingsDataLayer, enabled: () => settingsDataLayer() === 'pool',
+  {
+    optional: true,
+    initialize: initializeSettingsDataLayer,
+    enabled: () => settingsDataLayer() === 'pool',
     options: () => ({ settings: true }),
     async attach(runtime, pool) {
       if (!settingsCheckRequested()) return
-      const { installSettingsCheck } = await import('@podium/client-graph/diagnostics/settings-check')
+      const { installSettingsCheck } = await import(
+        '@podium/client-graph/diagnostics/settings-check'
+      )
       return installSettingsCheck(pool, runtime)
     },
   },
-  { optional: true, initialize: initializePreferencesDataLayer, enabled: () => preferencesDataLayer() === 'pool',
+  {
+    optional: true,
+    initialize: initializePreferencesDataLayer,
+    enabled: () => preferencesDataLayer() === 'pool',
     options: () => ({ preferences: true }),
     async attach(runtime, pool) {
       if (!preferencesCheckRequested()) return
-      const { installPreferenceCheck } = await import('@podium/client-graph/diagnostics/preference-check')
+      const { installPreferenceCheck } = await import(
+        '@podium/client-graph/diagnostics/preference-check'
+      )
       return installPreferenceCheck(pool, runtime.ui)
     },
   },
   { id: 'sidebar', options: () => ({ summaries: MISSION_SUMMARIES }) },
   { id: 'header', options: () => ({ header: true }) },
-  { initialize: initializeAutomationsDataLayer, enabled: () => automationsDataLayer() === 'pool' || specsDataLayer() === 'pool',
+  {
+    initialize: initializeAutomationsDataLayer,
+    enabled: () => automationsDataLayer() === 'pool' || specsDataLayer() === 'pool',
     options: () => ({ settings: true }),
     async attach(runtime, pool) {
       const [{ AutomationSource }, { AUTOMATION_ENTITIES }] = await Promise.all([
-        import('@podium/client-graph/automation-source'), import('@podium/client-graph/automation-schema'),
+        import('@podium/client-graph/automation-source'),
+        import('@podium/client-graph/automation-schema'),
       ])
       pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(runtime.replica))
       if (!automationsCheckRequested() || typeof window === 'undefined') return
-      const [{ checkAutomations }, { automationTargetChoices }, { machineViewsFromWire }] = await Promise.all([
-        import('@podium/client-graph/diagnostics/automation-check'), import('@/features/automations/automation-form'), import('@podium/client-core/viewmodels'),
-      ])
+      const [{ checkAutomations }, { automationTargetChoices }, { machineViewsFromWire }] =
+        await Promise.all([
+          import('@podium/client-graph/diagnostics/automation-check'),
+          import('@/features/automations/automation-form'),
+          import('@podium/client-core/viewmodels'),
+        ])
       const check = () => {
         const state = runtime.getSnapshot()
-        return checkAutomations(pool, state, path => automationTargetChoices(state.repos, state.sessions, machineViewsFromWire(state.machines), path))
+        return checkAutomations(pool, state, (path) =>
+          automationTargetChoices(
+            state.repos,
+            state.sessions,
+            machineViewsFromWire(state.machines),
+            path,
+          ),
+        )
       }
       Object.assign(window, { __automationCheck: check })
-      return () => { if (Reflect.get(window, '__automationCheck') === check) Reflect.deleteProperty(window, '__automationCheck') }
+      return () => {
+        if (Reflect.get(window, '__automationCheck') === check)
+          Reflect.deleteProperty(window, '__automationCheck')
+      }
     },
   },
 ]

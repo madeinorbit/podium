@@ -1,4 +1,3 @@
-import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -17,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandPalette } from '@/app/CommandPalette'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { SidebarRail } from './SidebarRail'
 import { SidebarUnified } from './SidebarUnified'
@@ -200,9 +200,7 @@ describe('real sidebar pool cutover', () => {
     const guests = Object.fromEntries(
       [...mode.commits].filter(([id]) => id.startsWith('synthetic-guest-')),
     )
-    expect(guests).toEqual(
-      {},
-    )
+    expect(guests).toEqual({})
     await advanceClock(60_000)
     expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain(
       'Unsnoozed',
@@ -362,7 +360,13 @@ describe('real sidebar pool cutover', () => {
     vi.setSystemTime(NOW)
     await mount('pool')
     expect(mode.reads).toBe(0)
-    expectPoolOutput({ rows: rowPaint(), bands: screen.getAllByTestId('project-group-label').map(node => node.textContent) }, 'rows and bands')
+    expectPoolOutput(
+      {
+        rows: rowPaint(),
+        bands: screen.getAllByTestId('project-group-label').map((node) => node.textContent),
+      },
+      'rows and bands',
+    )
     fireEvent.click(screen.getByTestId('snoozed-fold-toggle'))
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     expect(screen.getAllByTestId('folded-work-row')).toHaveLength(2)

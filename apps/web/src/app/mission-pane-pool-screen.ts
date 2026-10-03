@@ -1,5 +1,5 @@
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import type { PoolScreen } from '@podium/client-graph/host'
+import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 
 /** Mission inputs are always declared on the principal-owned pool. */
 export const missionPanePoolScreen: PoolScreen = {

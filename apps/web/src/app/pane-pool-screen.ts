@@ -1,6 +1,6 @@
 import { type ClientRuntime, loadingNavigationProvider } from '@podium/client-core/engine'
-import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import type { PoolScreen } from '@podium/client-graph/host'
+import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 
 const generations = new WeakMap<ClientRuntime, object>()
 
@@ -28,7 +28,8 @@ export const panePoolScreen: PoolScreen = {
     if (!generation || generations.get(runtime) !== generation || runtime.isDestroyed) return
     runtime.setNavigationProvider(createPoolNavigationProvider(pool))
     return () => {
-      if (generations.get(runtime) === generation) runtime.setNavigationProvider(loadingNavigationProvider)
+      if (generations.get(runtime) === generation)
+        runtime.setNavigationProvider(loadingNavigationProvider)
     }
   },
 }

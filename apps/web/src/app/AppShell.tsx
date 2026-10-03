@@ -1,9 +1,16 @@
 import { cookieCredentials } from '@podium/client-core/accounts'
-import { browserServerRelocation, createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
+import {
+  browserServerRelocation,
+  createSocketLogin,
+  observeLiveConnection,
+} from '@podium/client-core/live-connection'
 import { useStoreHandle } from '@podium/client-core/react'
-import { FLIGHT_DECK_DISPLAY_KEY, FLIGHT_DECK_EXPANDED_WIDTH_KEY } from '@podium/client-core/ui-state'
-import { ChevronLeft } from 'lucide-react'
+import {
+  FLIGHT_DECK_DISPLAY_KEY,
+  FLIGHT_DECK_EXPANDED_WIDTH_KEY,
+} from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
+import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
@@ -13,7 +20,11 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { WaitingForServer } from '@/components/WaitingForServer'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
-import { hasActivationState, isActivationEligible, shouldStartRemoteClientAtHandoff } from '@/features/setup/activation-route'
+import {
+  hasActivationState,
+  isActivationEligible,
+  shouldStartRemoteClientAtHandoff,
+} from '@/features/setup/activation-route'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { SetupGate } from '@/features/setup/SetupGate'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
@@ -26,7 +37,17 @@ import { UpdatesProvider } from '@/features/updates/updates-context'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarPerfPanel } from '@/features/worklist/SidebarPerfPanel'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import { COLUMN_FOLD_EASE, COLUMN_FOLD_MS, ResizableAside, ResizableColumn, SIDEBAR_RAIL_WIDTH, SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_KEY, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from '@/features/worklist/sidebar-common'
+import {
+  COLUMN_FOLD_EASE,
+  COLUMN_FOLD_MS,
+  ResizableAside,
+  ResizableColumn,
+  SIDEBAR_RAIL_WIDTH,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_KEY,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+} from '@/features/worklist/sidebar-common'
 import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -41,26 +62,45 @@ import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
-import { initializePoolScreens } from './pool-screens'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
-import { FLIGHT_DECK_COMPACT_WIDTH, FLIGHT_DECK_EXPANDED_WIDTH, type FlightDeckDisplay, isComplexFlightDeckMission, readFlightDeckDisplay } from './flight-deck-display'
+import {
+  FLIGHT_DECK_COMPACT_WIDTH,
+  FLIGHT_DECK_EXPANDED_WIDTH,
+  type FlightDeckDisplay,
+  isComplexFlightDeckMission,
+  readFlightDeckDisplay,
+} from './flight-deck-display'
 import { LoadingScreen } from './LoadingScreen'
 import { OperatorFocusProvider } from './operator-focus'
+import { initializePoolScreens } from './pool-screens'
 import { ReplicaFailureScreen } from './ReplicaFailureScreen'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import { SyncLoader, WarmSyncStatus } from './SyncLoader'
-import { CLOSE_RIGHT_PANEL, isOverlayView, nextBaseView, OPEN_RIGHT_PANEL_EVENT, RIGHT_PANEL_KEY, type RightPanelTab, readBooleanState, readFlightDeckCollapsed, readRightPanel, rightPanelAllowed, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from './shell-state'
+import { useShellActions, useShellChrome } from './shell-data'
+import {
+  CLOSE_RIGHT_PANEL,
+  isOverlayView,
+  nextBaseView,
+  OPEN_RIGHT_PANEL_EVENT,
+  RIGHT_PANEL_KEY,
+  type RightPanelTab,
+  readBooleanState,
+  readFlightDeckCollapsed,
+  readRightPanel,
+  rightPanelAllowed,
+  SIDEBAR_COLLAPSED_KEY,
+  SUPERAGENT_MODE_KEY,
+} from './shell-state'
 import { describeWireSkew, reportSkew } from './skew-notice'
 import { type MainView, StoreProvider, useStoreSelector } from './store'
-import { useShellActions, useShellChrome } from './shell-data'
 import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
@@ -372,8 +412,21 @@ function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Eleme
 const writeRightPanel = (panel: RightPanelTab | null): string => panel ?? ''
 
 function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Element {
-  const { setSelectedIssueId, setSuperOpen, setPaletteOpen, setView, uiState, trpc } = useShellActions()
-  const { reposLoaded, superOpen, paletteOpen, view, repoCount, worktreeCount, sessionCount, colorIssue, colors, selectedIssueId, missionRoot: flightDeckMission } = useShellChrome()
+  const { setSelectedIssueId, setSuperOpen, setPaletteOpen, setView, uiState, trpc } =
+    useShellActions()
+  const {
+    reposLoaded,
+    superOpen,
+    paletteOpen,
+    view,
+    repoCount,
+    worktreeCount,
+    sessionCount,
+    colorIssue,
+    colors,
+    selectedIssueId,
+    missionRoot: flightDeckMission,
+  } = useShellChrome()
   const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
   // Settings and Usage are utilities layered OVER a mode, not modes themselves
   // (POD-365). The shell keeps rendering the mode underneath, and closing the

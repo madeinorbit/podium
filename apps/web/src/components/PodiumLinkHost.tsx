@@ -1,10 +1,20 @@
-import { observer } from '@podium/client-graph/react'
 import type { MainView } from '@podium/client-core/ui-state'
+import { observer } from '@podium/client-graph/react'
 import type { ArtifactId } from '@podium/model/browser'
-import { podiumTargetPath, type PodiumTarget } from '@podium/protocol'
+import { type PodiumTarget, podiumTargetPath } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { useShellActions, useShellLinks } from '@/app/shell-data'
-import { PODIUM_NATIVE_OPEN_EVENT, activatePodiumHref, canonicalizePodiumAnchors, classifyPodiumLink, hasServerSelector, hasUnsupportedTypedDetail, setKnownPodiumOrigins, setPodiumTargetActivator, systemBrowserPodiumHref } from '@/lib/podium-link'
+import {
+  activatePodiumHref,
+  canonicalizePodiumAnchors,
+  classifyPodiumLink,
+  hasServerSelector,
+  hasUnsupportedTypedDetail,
+  PODIUM_NATIVE_OPEN_EVENT,
+  setKnownPodiumOrigins,
+  setPodiumTargetActivator,
+  systemBrowserPodiumHref,
+} from '@/lib/podium-link'
 import { handlePodiumLinkAuxClick, handlePodiumLinkContextMenu } from '@/lib/podium-link-click'
 import { findLinkedIssue, resolvePodiumTarget } from '@/lib/podium-link-open'
 
@@ -62,8 +72,10 @@ function PodiumLinkHostView({
   const { issues, sessions, artifactIssue } = useShellLinks()
   // Manifests use the existing batched loader. A click accepted while its row
   // is cold is retried locally; native URLs retain their acknowledgement queue.
-  const [artifactDemands, setArtifactDemands] = useState<readonly { id: string; expiresAt: number }[]>([])
-  const demandedArtifacts = artifactDemands.map(demand => artifactIssue(demand.id))
+  const [artifactDemands, setArtifactDemands] = useState<
+    readonly { id: string; expiresAt: number }[]
+  >([])
+  const demandedArtifacts = artifactDemands.map((demand) => artifactIssue(demand.id))
   const nativeResolution = useRef(false)
   const browserArtifacts = useRef<{ target: PodiumTarget; expiresAt: number }[]>([])
   const pendingHrefs = useRef<PendingPodiumHref[]>(
@@ -102,12 +114,23 @@ function PodiumLinkHostView({
         const full = linked ? artifactIssue(linked.id) : undefined
         if (linked && !full) {
           if (artifactDemands.length >= PODIUM_LINK_QUEUE_CAPACITY * 2) return false
-          setArtifactDemands(demands => demands.some(demand => demand.id === linked.id) ? demands : [...demands, {
-            id: linked.id, expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS,
-          }])
+          setArtifactDemands((demands) =>
+            demands.some((demand) => demand.id === linked.id)
+              ? demands
+              : [
+                  ...demands,
+                  {
+                    id: linked.id,
+                    expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS,
+                  },
+                ],
+          )
           if (nativeResolution.current) return false
           if (browserArtifacts.current.length >= PODIUM_LINK_QUEUE_CAPACITY) return false
-          browserArtifacts.current.push({ target, expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS })
+          browserArtifacts.current.push({
+            target,
+            expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS,
+          })
           return true
         }
         if (full) targets = [full]
@@ -163,20 +186,33 @@ function PodiumLinkHostView({
     if (!waiting.length) return
     let deadline = Infinity
     for (const pending of [...waiting]) {
-      const issue = pending.target.kind === 'artifact' ? findLinkedIssue(pending.target.issue, issues) : undefined
+      const issue =
+        pending.target.kind === 'artifact'
+          ? findLinkedIssue(pending.target.issue, issues)
+          : undefined
       const full = issue ? artifactIssue(issue.id) : undefined
-      if (!full && pending.expiresAt > Date.now()) { deadline = Math.min(deadline, pending.expiresAt); continue }
+      if (!full && pending.expiresAt > Date.now()) {
+        deadline = Math.min(deadline, pending.expiresAt)
+        continue
+      }
       waiting.splice(waiting.indexOf(pending), 1)
       const href = podiumTargetPath(pending.target)
       // A missing manifest has the same browser fallback as a resident invalid
       // link, rather than disappearing after we accepted its initial click.
       nativeResolution.current = true
       let activated: boolean
-      try { activated = activatePodiumHref(href) } finally { nativeResolution.current = false }
+      try {
+        activated = activatePodiumHref(href)
+      } finally {
+        nativeResolution.current = false
+      }
       if (!activated) window.location.assign(systemBrowserPodiumHref(href) ?? href)
     }
     if (Number.isFinite(deadline)) {
-      const retry = window.setTimeout(() => setPendingRevision(value => value + 1), Math.max(0, deadline - Date.now()))
+      const retry = window.setTimeout(
+        () => setPendingRevision((value) => value + 1),
+        Math.max(0, deadline - Date.now()),
+      )
       return () => window.clearTimeout(retry)
     }
   }, [issues, demandedArtifacts, pendingRevision, artifactIssue])
@@ -200,11 +236,12 @@ function PodiumLinkHostView({
       if (pending === undefined) break
       nativeResolution.current = true
       let activated: boolean
-      try { activated = activatePodiumHref(pending.href) } finally { nativeResolution.current = false }
-      if (
-        activated ||
-        (pending.expiresAt !== null && pending.expiresAt <= now)
-      ) {
+      try {
+        activated = activatePodiumHref(pending.href)
+      } finally {
+        nativeResolution.current = false
+      }
+      if (activated || (pending.expiresAt !== null && pending.expiresAt <= now)) {
         pendingHrefs.current.shift()
         pending.acknowledge()
         continue
@@ -220,11 +257,20 @@ function PodiumLinkHostView({
 
   useEffect(() => {
     const now = Date.now()
-    const waiting = artifactDemands.filter((demand, index) => !demandedArtifacts[index] && demand.expiresAt > now)
-    if (waiting.length !== artifactDemands.length) { setArtifactDemands(waiting); return }
+    const waiting = artifactDemands.filter(
+      (demand, index) => !demandedArtifacts[index] && demand.expiresAt > now,
+    )
+    if (waiting.length !== artifactDemands.length) {
+      setArtifactDemands(waiting)
+      return
+    }
     if (!waiting.length) return
-    const deadline = Math.min(...waiting.map(demand => demand.expiresAt))
-    const retry = window.setTimeout(() => setArtifactDemands(demands => demands.filter(demand => demand.expiresAt > Date.now())), Math.max(0, deadline - now))
+    const deadline = Math.min(...waiting.map((demand) => demand.expiresAt))
+    const retry = window.setTimeout(
+      () =>
+        setArtifactDemands((demands) => demands.filter((demand) => demand.expiresAt > Date.now())),
+      Math.max(0, deadline - now),
+    )
     return () => window.clearTimeout(retry)
   }, [artifactDemands, demandedArtifacts])
 

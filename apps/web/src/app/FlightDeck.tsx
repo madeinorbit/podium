@@ -1,29 +1,108 @@
-import PoolFlightDeck from './FlightDeckPool'
-import type { SessionView } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
-import { FLIGHT_DECK_BRIEF_CUTOFF_KEY, FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
-import { type CollapsedSummary, type DeckIssueState, type DeckState, deckSessions, deckViewEmptyLine, type FlightDeckFoldMap, type FlightDeckFoldState, type FlightDeckMode, type FlightDeckRow, flightDeckRowDefaultFolded, flightDeckRowHasPayload, flightDeckRowIsFolded, type IssueContinuation, type IssueNavigationModel, type IssueNote, isCoordinatorSession, issueAbandoned, issueOwnContentUnread, type MissionDeparture, machineViewsFromWire, motionPhase, nativeSubagentRows, type PresenceNote, readFlightDeckFolds, reuseFlightDeckRows, type SessionRole, sessionAsksOnIssue, sessionNeedsHuman, sessionRole, sessionSettled, sessionUnreadEmphasized, continuationPresenceLine as sharedContinuationPresenceLine, spawnIssueAgent, subtreeUnread, treeGuides, writeFlightDeckFolds } from '@podium/client-core/viewmodels'
+import {
+  FLIGHT_DECK_BRIEF_CUTOFF_KEY,
+  FLIGHT_DECK_FOLDS_KEY,
+  FLIGHT_DECK_MODE_KEY,
+} from '@podium/client-core/ui-state'
+import {
+  type CollapsedSummary,
+  type DeckIssueState,
+  type DeckState,
+  deckSessions,
+  deckViewEmptyLine,
+  type FlightDeckFoldMap,
+  type FlightDeckFoldState,
+  type FlightDeckMode,
+  type FlightDeckRow,
+  flightDeckRowDefaultFolded,
+  flightDeckRowHasPayload,
+  flightDeckRowIsFolded,
+  type IssueContinuation,
+  type IssueNavigationModel,
+  type IssueNote,
+  isCoordinatorSession,
+  issueAbandoned,
+  issueOwnContentUnread,
+  type MissionDeparture,
+  type machineViewsFromWire,
+  motionPhase,
+  nativeSubagentRows,
+  type PresenceNote,
+  readFlightDeckFolds,
+  reuseFlightDeckRows,
+  type SessionRole,
+  sessionAsksOnIssue,
+  sessionNeedsHuman,
+  sessionRole,
+  sessionSettled,
+  sessionUnreadEmphasized,
+  continuationPresenceLine as sharedContinuationPresenceLine,
+  spawnIssueAgent,
+  subtreeUnread,
+  treeGuides,
+  writeFlightDeckFolds,
+} from '@podium/client-core/viewmodels'
+import type {
+  MissionHandoffValues,
+  MissionRowPresentation,
+  MissionViewValues,
+} from '@podium/client-graph/mission-view'
 import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { Archive, ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Ellipsis, Hourglass, Maximize2, Minimize2, Search, UserPlus, X } from 'lucide-react'
+import {
+  Archive,
+  ArrowDown,
+  ArrowRight,
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Ellipsis,
+  Hourglass,
+  Maximize2,
+  Minimize2,
+  Search,
+  UserPlus,
+  X,
+} from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
+import type {
+  CSSProperties,
+  JSX,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { UnreadDot } from '@/components/UnreadMark'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
-import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
+import type { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
 import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
 import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
-import { type AgentRowStatus, agentFleetStatus, CapabilityAgentItem, candidateFromAvailability } from '@/lib/agent-capability'
+import {
+  type AgentRowStatus,
+  agentFleetStatus,
+  CapabilityAgentItem,
+  candidateFromAvailability,
+} from '@/lib/agent-capability'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
@@ -35,17 +114,21 @@ import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { useClickIntent } from './click-intent'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
+import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useSessionHovered } from './session-hover'
-import { CLOSE_RIGHT_PANEL, OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY, readRightPanel } from './shell-state'
+import {
+  CLOSE_RIGHT_PANEL,
+  OPEN_RIGHT_PANEL_EVENT,
+  REVEAL_IN_DECK_EVENT,
+  RIGHT_PANEL_KEY,
+  readRightPanel,
+} from './shell-state'
 import { useSessionDraft, useStoreSelector } from './store'
-import type { MissionViewValues, MissionRowPresentation, MissionHandoffValues } from '@podium/client-graph/mission-view'
-
-
 
 /**
  * TWO QUESTIONS, NOT ONE SLIDER (POD-1452). `Active` sat between `Full spine`
@@ -95,7 +178,11 @@ function MissionAgentMenu(props: MissionAgentMenuProps): JSX.Element {
   return <MissionAgentMenuContent {...props} hosts={props.poolHosts} />
 }
 
-function MissionAgentMenuContent({ defaultAgent, onAdd, hosts }: MissionAgentMenuProps & { hosts: ReturnType<typeof machineViewsFromWire> }): JSX.Element {
+function MissionAgentMenuContent({
+  defaultAgent,
+  onAdd,
+  hosts,
+}: MissionAgentMenuProps & { hosts: ReturnType<typeof machineViewsFromWire> }): JSX.Element {
   const [busy, setBusy] = useState(false)
   const options = issueAgentOptions(defaultAgent)
   const statusFor = (kind: IssueAgentKind, label: string): AgentRowStatus =>
@@ -2282,10 +2369,7 @@ const clampBriefRatio = (value: number, min: number, max: number): number =>
  * (POD-5106), even though the brief needs just four numbers. Null when the deck
  * has no box yet.
  */
-function readBriefMetrics(
-  el: HTMLElement | null,
-  end: HTMLElement | null,
-): BriefMetrics | null {
+function readBriefMetrics(el: HTMLElement | null, end: HTMLElement | null): BriefMetrics | null {
   const deck = el?.closest<HTMLElement>('[data-testid="flight-deck-scroller"]')
   if (!el || !end || !deck) return null
   const deckRect = deck.getBoundingClientRect()
@@ -2867,8 +2951,15 @@ export function FlightDeck(props: FlightDeckProps): JSX.Element {
 }
 
 export function FlightDeckContent({
-  onCollapse, display = 'compact', onDisplayChange = () => {}, source, preferences,
-}: FlightDeckProps & { source: FlightDeckSource; preferences: FlightDeckPreferences }): JSX.Element {
+  onCollapse,
+  display = 'compact',
+  onDisplayChange = () => {},
+  source,
+  preferences,
+}: FlightDeckProps & {
+  source: FlightDeckSource
+  preferences: FlightDeckPreferences
+}): JSX.Element {
   const { issues, sessions, allWorktreePaths } = source
   const { view, mode, modes, setPreferredView } = preferences
   const poolValues = source.mission
@@ -3002,7 +3093,7 @@ export function FlightDeckContent({
   const rowDisplayTitles = useMemo(
     () =>
       new Map(
-        rows.map((row) => [row.issue.id, (poolValues.titles.get(row.issue.id) ?? row.issue.title)]),
+        rows.map((row) => [row.issue.id, poolValues.titles.get(row.issue.id) ?? row.issue.title]),
       ),
     [allWorktreePaths, rows, sessions, poolValues],
   )
@@ -3024,10 +3115,7 @@ export function FlightDeckContent({
   // Resolved against the UNFILTERED mission membership, exactly as RightDock
   // does: resolving against the mode-filtered rows let a switch to "Needs you"
   // silently move the highlight — and the Task dock with it — to the root.
-  const missionMembers = useMemo(
-    () => poolValues.members,
-    [issues, root, sessions, poolValues],
-  )
+  const missionMembers = useMemo(() => poolValues.members, [issues, root, sessions, poolValues])
   const focused = resolveFocus(focusedIssueId, missionMembers, root?.id)
   const progress = poolValues.progress
   // What this mission discovered and no longer owns. Derived beside the rows
@@ -3113,9 +3201,7 @@ export function FlightDeckContent({
   const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
   // The whole slice as the fourth argument — the root's OWN sessions cannot see
   // a spin-off its agent hopped to (see `staffedSpinOff`).
-  const rootSeat = rootRow
-    ? seatFor(poolValues.presence)
-    : null
+  const rootSeat = rootRow ? seatFor(poolValues.presence) : null
   /**
    * Why the spine is empty, when it is — and the root's OWN sessions answer it,
    * never the view-narrowed `rootSessions`. A "nobody is here" drawn because you
@@ -3415,11 +3501,9 @@ export function FlightDeckContent({
     setFocusedIssueId(issue.id)
     void markIssueRead(issue.id)
     if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
-    const live = source.attached(issue.id)
-      .filter(
-        (session) =>
-          !session.archived && session.status !== 'exited',
-      )
+    const live = source
+      .attached(issue.id)
+      .filter((session) => !session.archived && session.status !== 'exited')
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
     if (live) {
       openSessionTab(live.sessionId, { permanent: true })
@@ -3530,7 +3614,8 @@ export function FlightDeckContent({
   const addMissionAgent = async (agentKind?: IssueAgentKind): Promise<void> => {
     if (!rootIssue) return
     const input = agentKind ? { id: rootIssue.id, agentKind } : { id: rootIssue.id }
-    const existingSessionIds = source.attached(rootIssue.id)
+    const existingSessionIds = source
+      .attached(rootIssue.id)
       .filter((session) => !session.archived)
       .map((session) => session.sessionId)
     await spawnIssueAgent(trpc.issues, input)
@@ -3785,7 +3870,7 @@ export function FlightDeckContent({
                   )}
                   {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
                     <MissionAgentMenu
-                    poolHosts={source.agentHosts}
+                      poolHosts={source.agentHosts}
                       key={`agent-menu:${rootIssue.id}`}
                       defaultAgent={rootIssue.defaultAgent}
                       repoPath={rootIssue.repoPath}

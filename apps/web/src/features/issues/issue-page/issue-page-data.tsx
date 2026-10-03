@@ -1,15 +1,27 @@
-import type { SessionView } from '@podium/client-core/session-values'
-import { issuePages, type IssuePageData, type IssuePageViews } from '@podium/client-graph/issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
+import {
+  type IssuePageData,
+  type IssuePageViews,
+  issuePages,
+} from '@podium/client-graph/issue-page'
 import { createContext, useContext } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
 /** Nested controls reuse their page's addressed values. Other pool surfaces
  * read the declared catalog; attachment never falls back to a store slice. */
-export const IssuePageDataContext = createContext<{ data: IssuePageData; views: IssuePageViews } | null>(null)
-export const IssuePageWorldContext = createContext<{ issues: IssueViewModel[]; sessions: SessionView[] } | null>(null)
-export function useIssuePageData() { return useContext(IssuePageDataContext) }
+export const IssuePageDataContext = createContext<{
+  data: IssuePageData
+  views: IssuePageViews
+} | null>(null)
+export const IssuePageWorldContext = createContext<{
+  issues: IssueViewModel[]
+  sessions: SessionView[]
+} | null>(null)
+export function useIssuePageData() {
+  return useContext(IssuePageDataContext)
+}
 
 const EMPTY_ISSUES: IssueViewModel[] = []
 const EMPTY_SESSIONS: SessionView[] = []

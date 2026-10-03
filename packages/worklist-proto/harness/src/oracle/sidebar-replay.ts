@@ -15,13 +15,13 @@ import {
   memoryStorage,
   type Replica,
 } from '@podium/client-core/replica'
-import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
   checkSidebar,
   poolSidebarSnapshot,
   type SidebarDifference,
 } from '@podium/client-graph/diagnostics/sidebar-check'
+import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { runInAction } from 'mobx'
@@ -68,7 +68,9 @@ function replay(corpus: FixtureCorpus) {
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: MISSION_SUMMARIES })
-  store.sessions = dedupeSessions(rows.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
+  store.sessions = dedupeSessions(
+    rows.source.snapshot('session').map((row) => row.value as Store['sessions'][number]),
+  )
   try {
     let settled = false
     for (let round = 0; round < 64; round += 1) {

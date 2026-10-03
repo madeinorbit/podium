@@ -1,9 +1,9 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { SidebarUnified } from './SidebarUnified'
 
 function idleSess(id: string, issueId: string) {
@@ -123,7 +123,9 @@ vi.mock('@/app/store', () => {
     // and a mock that pretended to memoize here would be a second, untested
     // implementation of the mechanism.
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
+      def.derive(
+        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      ),
   }
 })
 

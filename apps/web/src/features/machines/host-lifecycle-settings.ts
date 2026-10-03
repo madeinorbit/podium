@@ -1,6 +1,5 @@
-
-import { usePoolLifecycleSettings } from '@/app/header-data'
 import type { PodiumSettings } from '@podium/runtime'
+import { usePoolLifecycleSettings } from '@/app/header-data'
 
 /** @deprecated Prefer {@link useHostLifecycleSettings}; kept for call sites that
  *  only need the hibernation half. */

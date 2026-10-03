@@ -7,8 +7,8 @@ import { MobileHandoffChip } from '@/features/mobile-handoff/MobileHandoffChip'
 import { UpdateIndicator } from '@/features/updates/UpdateIndicator'
 import { useUpdates } from '@/features/updates/updates-panel-context'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
-import { StatusPerformanceStats } from './StatusPerformanceStats'
 import { useHeaderActions, useHeaderStatus } from './header-data'
+import { StatusPerformanceStats } from './StatusPerformanceStats'
 
 /**
  * THE STATUS STRIP (POD-365) — 24px, the bottom edge of the frame.
@@ -54,16 +54,24 @@ export function StatusStrip(): JSX.Element {
       <AgentConcurrencyHistory workingSessions={workingSessions} />
       <span className="status-strip-seam" aria-hidden="true" />
       <StatusPerformanceStats trpc={trpc} />
-      {typeof issue === 'symbol' && <span className="status-strip-issue" role="status">Loading task…</span>}
+      {typeof issue === 'symbol' && (
+        <span className="status-strip-issue" role="status">
+          Loading task…
+        </span>
+      )}
       {issue && typeof issue !== 'symbol' && (
         <>
           <span className="status-strip-seam" aria-hidden="true" />
           <span className="status-strip-issue" title={issue.title}>
             <IssueReference
               model={issueReferenceModel({
-                id: issue.id as IssueId, seq: issue.seq, title: issue.title,
-                stage: issue.stage as IssueStage, displayRef: issue.displayRef,
-                archived: issue.archived, deletedAt: issue.deletedAt ?? undefined,
+                id: issue.id as IssueId,
+                seq: issue.seq,
+                title: issue.title,
+                stage: issue.stage as IssueStage,
+                displayRef: issue.displayRef,
+                archived: issue.archived,
+                deletedAt: issue.deletedAt ?? undefined,
               })}
               size={11}
               refClassName="status-strip-ref"

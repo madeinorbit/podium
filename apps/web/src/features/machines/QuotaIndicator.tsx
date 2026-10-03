@@ -1,11 +1,27 @@
-
-import { useHeaderActions, usePoolHeaderQuotas } from '@/app/header-data'
-import { type AccountQuotaGroup, agentLabel, agentShortLabel, formatReset, groupQuotaByAccount, modelLimitNote, paceHint, paceLabel, percentTone, type QuotaPace, type QuotaTone, splitQuotaWindows, statusNote, windowElapsedPercent, windowPace, windowScopeModel } from '@podium/client-core/viewmodels'
+import {
+  type AccountQuotaGroup,
+  agentLabel,
+  agentShortLabel,
+  formatReset,
+  groupQuotaByAccount,
+  modelLimitNote,
+  paceHint,
+  paceLabel,
+  percentTone,
+  type QuotaPace,
+  type QuotaTone,
+  splitQuotaWindows,
+  statusNote,
+  windowElapsedPercent,
+  windowPace,
+  windowScopeModel,
+} from '@podium/client-core/viewmodels'
 import type { AgentQuotaWire } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { Gauge } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
+import { useHeaderActions, usePoolHeaderQuotas } from '@/app/header-data'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { agentIconFor } from '@/lib/agent-tone'

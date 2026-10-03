@@ -1,5 +1,5 @@
-import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import type { PoolScreen } from '@podium/client-graph/host'
+import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 
 export const issuePagePoolScreen: PoolScreen = {
   id: 'issuePage',

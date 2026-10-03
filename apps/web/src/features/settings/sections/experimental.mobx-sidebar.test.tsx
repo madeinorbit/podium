@@ -71,7 +71,9 @@ describe('principal-local MobX pilot preference', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     expect(toggle.hasAttribute('disabled')).toBe(false)
     expect(screen.getByText('Saved immediately for your next app load.')).toBeTruthy()
-    expect(screen.getByText('Use the new data layer for every converted screen. Reload to apply.')).toBeTruthy()
+    expect(
+      screen.getByText('Use the new data layer for every converted screen. Reload to apply.'),
+    ).toBeTruthy()
 
     fireEvent.click(toggle)
     expect(state.ui.get(MOBX_SIDEBAR_KEY)).toBe('1')
@@ -98,14 +100,14 @@ describe('principal-local MobX pilot preference', () => {
         onReset={vi.fn()}
       />,
     )
-    expect(
-      screen.getByRole('switch', { name: 'MobX pilot' }).getAttribute('aria-checked'),
-    ).toBe('false')
+    expect(screen.getByRole('switch', { name: 'MobX pilot' }).getAttribute('aria-checked')).toBe(
+      'false',
+    )
     state.values.set(MOBX_SIDEBAR_KEY, '1')
     rerender(<ExperimentalSection settings={DEFAULT_SETTINGS} patch={vi.fn()} onReset={vi.fn()} />)
-    expect(
-      screen.getByRole('switch', { name: 'MobX pilot' }).getAttribute('aria-checked'),
-    ).toBe('true')
+    expect(screen.getByRole('switch', { name: 'MobX pilot' }).getAttribute('aria-checked')).toBe(
+      'true',
+    )
   })
 
   it('does not expose the control when the catalog entry is unlisted', () => {

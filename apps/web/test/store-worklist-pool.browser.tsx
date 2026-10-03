@@ -11,7 +11,11 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import type { RuntimePoolFixture } from '../../../packages/worklist-proto/harness/browser/runtime-pool-fixture'
 import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
-import { attachWorklistPool, useWorklistPool, worklistPoolSurvivors } from '../src/app/store-worklist-pool'
+import {
+  attachWorklistPool,
+  useWorklistPool,
+  worklistPoolSurvivors,
+} from '../src/app/store-worklist-pool'
 import { IssueChipLiveness } from '../src/features/chat/IssueChipLiveness'
 
 const corpus = buildCorpus(1)
@@ -24,10 +28,16 @@ const id = issue.id
 const coldId = 'iss_offline_reference'
 const coldRepo = 'repo_offline_reference'
 let serverCalls = 0
-const api = { issues: { resolveRefs: { query() {
-  serverCalls++
-  throw new Error('A chip called the server reference resolver')
-} } } } as unknown as PodiumClientApi
+const api = {
+  issues: {
+    resolveRefs: {
+      query() {
+        serverCalls++
+        throw new Error('A chip called the server reference resolver')
+      },
+    },
+  },
+} as unknown as PodiumClientApi
 let config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
 let current: MobxPool | null = null
 let currentReplica: ReturnType<typeof createKernelReplica> | undefined
@@ -42,11 +52,28 @@ function replica() {
   replicas += 1
   const records = [
     { entity: 'issueProjection', entityId: id, value: projection, provenance: { seq: 1 } },
-    { entity: 'repo', entityId: coldRepo,
-      value: { id: coldRepo, repoPath: '/offline-reference', prefix: 'POD' }, provenance: { seq: 1 } },
-    { entity: 'issueProjection', entityId: coldId,
-      value: { ...projection, id: coldId, repoId: coldRepo, seq: 1234, title: 'Cold offline issue',
-        archived: true, deletedAt: null, stage: 'done', closedAt: '2026-01-01T00:00:00.000Z' }, provenance: { seq: 1 } },
+    {
+      entity: 'repo',
+      entityId: coldRepo,
+      value: { id: coldRepo, repoPath: '/offline-reference', prefix: 'POD' },
+      provenance: { seq: 1 },
+    },
+    {
+      entity: 'issueProjection',
+      entityId: coldId,
+      value: {
+        ...projection,
+        id: coldId,
+        repoId: coldRepo,
+        seq: 1234,
+        title: 'Cold offline issue',
+        archived: true,
+        deletedAt: null,
+        stage: 'done',
+        closedAt: '2026-01-01T00:00:00.000Z',
+      },
+      provenance: { seq: 1 },
+    },
   ]
   const cache = {
     readCursor: () => null,
@@ -55,10 +82,10 @@ function replica() {
       records.find((row) => row.entity === entity && row.entityId === entityId),
     durability: () => 'durable' as const,
   }
-  return currentReplica = createKernelReplica({
+  return (currentReplica = createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
-  })
+  }))
 }
 
 function Probe(): null {
@@ -90,9 +117,16 @@ function ReferenceProbe() {
   if (pool === null) return null
   // A missing sentinel proves the asynchronous production watcher is attached
   // before the driver goes offline, without reading or warming the cold issue.
-  return <><div id="offline-reference-host" ref={setHost}>
-    <a className="ref-link--issue" data-ref="POD-0">Watcher ready</a>
-  </div><IssueChipLiveness root={host} /></>
+  return (
+    <>
+      <div id="offline-reference-host" ref={setHost}>
+        <a className="ref-link--issue" data-ref="POD-0">
+          Watcher ready
+        </a>
+      </div>
+      <IssueChipLiveness root={host} />
+    </>
+  )
 }
 
 function show(name: string | null, rebuild = false): void {
@@ -126,8 +160,7 @@ function show(name: string | null, rebuild = false): void {
 
 const fixture = {
   show,
-  ready: () =>
-    current !== null && observed === current,
+  ready: () => current !== null && observed === current,
   state: () => ({ replicas, attachments, pool: current !== null, failures }),
   survivors: () => [
     ...worklistPoolSurvivors(),

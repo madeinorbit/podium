@@ -1,6 +1,5 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 /**
  * PER-ENTRY PROGRESS IN THE WORKLIST (POD-516 round 3, left sidebar).
@@ -27,6 +26,7 @@ import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/
  */
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { SidebarUnified } from './SidebarUnified'
 
 const ui = vi.hoisted(() => ({
@@ -145,7 +145,9 @@ vi.mock('@/app/store', () => {
     useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
+      def.derive(
+        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      ),
   }
 })
 
@@ -165,7 +167,13 @@ const MISSION = [
   issue('root', 'Operator workspace', { childCount: 3 }),
   issue('a', 'Flight deck spine', { parentId: 'root', seq: 2, stage: 'done' }),
   issue('b', 'Task inspector', { parentId: 'root', seq: 3, stage: 'done' }),
-  issue('c', 'Native lifecycle', { parentId: 'root', seq: 4, deps: [{ id: 'solo', type: 'blocks' }], blocked: true, ready: false }),
+  issue('c', 'Native lifecycle', {
+    parentId: 'root',
+    seq: 4,
+    deps: [{ id: 'solo', type: 'blocks' }],
+    blocked: true,
+    ready: false,
+  }),
   issue('d', 'Row renderer', { parentId: 'root', seq: 5, stage: 'backlog' }),
   issue('solo', 'Sidebar unread dot', { seq: 6 }),
   issue('shut', 'Balanced desktop shell', {

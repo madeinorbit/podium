@@ -1,10 +1,9 @@
-
-import type { JSX } from 'react'
 import { observer } from '@podium/client-graph/react'
+import type { JSX } from 'react'
 import { useFeature } from '@/lib/use-feature'
 import { RIGHT_PANELS } from './RightDock'
-import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 import { useShellShipping } from './shell-data'
+import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 
 /**
  * The 44px right rail (handoff §2.5): one cell per dock panel — Tasks,

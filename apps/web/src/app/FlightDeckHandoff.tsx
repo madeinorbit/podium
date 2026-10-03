@@ -1,7 +1,13 @@
-import type { SessionView } from '@podium/client-core/session-values'
-import type { MissionHandoffValues } from '@podium/client-graph/mission-view'
 import { useStoreHandle } from '@podium/client-core/react'
-import { reviewReturnCount, summarizeHandoffSessions, type HandoffNowEntry, type HandoffTranscriptPair, type IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { SessionView } from '@podium/client-core/session-values'
+import {
+  type HandoffNowEntry,
+  type HandoffTranscriptPair,
+  type IssueNavigationModel,
+  reviewReturnCount,
+  summarizeHandoffSessions,
+} from '@podium/client-core/viewmodels'
+import type { MissionHandoffValues } from '@podium/client-graph/mission-view'
 import type { IssueId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
@@ -9,8 +15,8 @@ import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
-import { useHandoffTranscript } from './use-handoff-transcript'
 import type { Trpc } from './trpc'
+import { useHandoffTranscript } from './use-handoff-transcript'
 
 const INITIAL_ROWS = 8
 const reviewReturnCache = new Map<string, number>()
@@ -199,7 +205,9 @@ function HandoffEntry({
           <span>{reference}</span> {issue.title}
         </span>
         <span className="handoff-entry-body">{text}</span>
-        {session && <span className="handoff-entry-meta">{sessionRef(session)} · open session</span>}
+        {session && (
+          <span className="handoff-entry-meta">{sessionRef(session)} · open session</span>
+        )}
       </span>
       <span
         className={cn(
@@ -322,11 +330,7 @@ export function FlightDeckHandoff({
           ) : transcript.status === 'error' ? (
             <div className="handoff-error">
               <p>Couldn't load the latest transcript.</p>
-              <button
-                type="button"
-                data-pressable
-                onClick={transcript.retry}
-              >
+              <button type="button" data-pressable onClick={transcript.retry}>
                 Retry
               </button>
             </div>
@@ -370,9 +374,7 @@ export function FlightDeckHandoff({
       >
         <p className="handoff-status-summary">{summaryParts.slice(1).join(' · ')}</p>
         {current.length === 0 ? (
-          <p className="handoff-empty">
-            No work needs explanation right now.
-          </p>
+          <p className="handoff-empty">No work needs explanation right now.</p>
         ) : (
           <div className="handoff-events">
             {displayedCurrent.map((entry) => {

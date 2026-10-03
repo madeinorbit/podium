@@ -1,7 +1,7 @@
+import { recordChipWork } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
 import type { JSX } from 'react'
 import { useLayoutEffect } from 'react'
-import { useStoreHandle } from '@podium/client-core/react'
-import { recordChipWork } from '@podium/client-core/perf'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { bindIssueRefAnchors } from '@/lib/issue-chip-liveness'
 
@@ -34,13 +34,17 @@ function PoolIssueChipLiveness({ root }: { root: HTMLElement | null }): null {
           })
           paintValue(view.getSnapshot())
           function paintValue(model: ReturnType<typeof view.getSnapshot>): void {
-            if (paint(typeof model === 'symbol' ? 'loading' : model ?? null)) recordChipWork(owner, 'redraws')
+            if (paint(typeof model === 'symbol' ? 'loading' : (model ?? null)))
+              recordChipWork(owner, 'redraws')
           }
           return view.subscribe(() => paintValue(view.getSnapshot()))
         },
       })
     })
-    return () => { disposed = true; stop?.() }
+    return () => {
+      disposed = true
+      stop?.()
+    }
   }, [owner, pool, root])
   return null
 }

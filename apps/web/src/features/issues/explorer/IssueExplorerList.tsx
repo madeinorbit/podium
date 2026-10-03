@@ -1,4 +1,3 @@
-
 import { relativeTime } from '@podium/client-core/focus'
 import { operationalState } from '@podium/client-core/viewmodels'
 
@@ -9,6 +8,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { GhostBar, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
+import { useBoardCard, useBoardSessionReader } from '../board-pool-row'
 import { DOCK_ROW, DOCK_STAMP } from '../IssueCompactControls'
 import { IssueStatusPicker } from '../IssueStatusPicker'
 import { issueIdTitle } from '../issue-card'
@@ -17,7 +17,6 @@ import { useIssueStatusApply } from '../use-issue-status-apply'
 import { useIssueExplorer } from './explorer-context'
 import { EXPLORER_TABS } from './explorer-list'
 import { useExplorerData } from './explorer-pool-data'
-import { useBoardCard, useBoardSessionReader } from '../board-pool-row'
 
 /**
  * Level 0 — every task in the repo, searchable, bucketed by stage.
@@ -37,7 +36,10 @@ export function IssueExplorerList(): JSX.Element {
     listScrollTop,
     rememberListScrollTop,
   } = useIssueExplorer()
-  const { sessions, counts, tab, total, rows, byId, rowSessions } = useExplorerData(pickedTab, query)
+  const { sessions, counts, tab, total, rows, byId, rowSessions } = useExplorerData(
+    pickedTab,
+    query,
+  )
   // One apply and one close guard for every row's status glyph (POD-1271) —
   // held here rather than per row, which the virtualizer would unmount.
   const sessionReader = useBoardSessionReader()
@@ -335,7 +337,7 @@ function ExplorerRow({
         'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-2.5 py-1 text-left hover:bg-accent/40',
       )}
     >
-      <IssueStatusPicker issue={issue} size={13} onPick={value => onStatusPick(value, issue)} />
+      <IssueStatusPicker issue={issue} size={13} onPick={(value) => onStatusPick(value, issue)} />
       <span className="min-w-0 truncate">
         <span
           className="mr-1.5 font-mono shell-type-micro text-muted-foreground"

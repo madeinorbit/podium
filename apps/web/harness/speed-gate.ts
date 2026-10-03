@@ -1,12 +1,17 @@
 /** Fixed production-browser continuation of selection-runtime / POD-5077. */
 import { execFileSync, spawn } from 'node:child_process'
-import { readFile, mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { arch, cpus, hostname, loadavg, platform } from 'node:os'
 import { extname, resolve } from 'node:path'
-import { chromium, type Browser, type Page } from '@playwright/test'
+import { type Browser, chromium, type Page } from '@playwright/test'
 import { paintOf, traceStart } from './browser-paint'
-import { assertSpeedSwitches, parseSpeedSwitches, speedSwitchReport, speedSwitchUrl } from './speed-switches'
+import {
+  assertSpeedSwitches,
+  parseSpeedSwitches,
+  speedSwitchReport,
+  speedSwitchUrl,
+} from './speed-switches'
 
 const ACTIONS = [
   'sidebar-issue',
@@ -242,9 +247,7 @@ async function main() {
     await cleaning
   }
   const deadline = setTimeout(() => {
-    console.error(
-      `speed:gate exceeded 285 seconds. No baseline promoted.`,
-    )
+    console.error(`speed:gate exceeded 285 seconds. No baseline promoted.`)
     void cleanup().finally(() => process.exit(2))
   }, 285_000)
   for (const signal of ['SIGINT', 'SIGTERM'] as const)
@@ -315,10 +318,12 @@ async function main() {
       },
       { delayMs: delayMs },
     )
-    await page.goto(speedSwitchUrl(
-      `${origin}/test/sidebar-acceptance.browser.html?scale=4&surface=${surface}&panelMode=chat${measured ? '&measure=1' : ''}`,
-      switches,
-    ))
+    await page.goto(
+      speedSwitchUrl(
+        `${origin}/test/sidebar-acceptance.browser.html?scale=4&surface=${surface}&panelMode=chat${measured ? '&measure=1' : ''}`,
+        switches,
+      ),
+    )
     await page.waitForFunction(
       () => window.__acceptance?.ready() && document.querySelector('[data-issue-row]'),
     )
@@ -443,9 +448,7 @@ async function main() {
       const measure = async (action: Action, run: (iteration: number) => Promise<number>) => {
         for (let i = -WARMUPS; i < REPETITIONS; i++) {
           const ms = await run(i + WARMUPS)
-          await settle(
-            action === 'sidebar-issue' ? sidebar.page : full.page,
-          )
+          await settle(action === 'sidebar-issue' ? sidebar.page : full.page)
           if (i >= 0) {
             samples[action].push(ms)
             loads.push(loadavg()[0]!)
@@ -493,7 +496,10 @@ async function main() {
       if (targets.sessions.length !== 2) throw new Error('Need two distinct open session panes')
       // Establish the opposite pane before the first sample so opening is never a no-op.
       await full.page.locator(deckSession(targets.sessions[1]!)).first().click()
-      await full.page.waitForFunction((id) => window.__acceptance.state().pane === id, targets.sessions[1]!)
+      await full.page.waitForFunction(
+        (id) => window.__acceptance.state().pane === id,
+        targets.sessions[1]!,
+      )
       await settle(full.page)
       await measure('session-pane', async (i) => {
         const id = targets.sessions[i % 2]!
@@ -614,17 +620,18 @@ async function main() {
     })
     await new Promise<void>((done) => server!.listen(0, '127.0.0.1', done))
     const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-    const launchBrowser = () => chromium.launch({
-      headless: true,
-      executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,
-      env: {
-        ...process.env,
-        LD_LIBRARY_PATH: [resolve('.toolchain/lib'), process.env.LD_LIBRARY_PATH]
-          .filter(Boolean)
-          .join(':'),
-      },
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
-    })
+    const launchBrowser = () =>
+      chromium.launch({
+        headless: true,
+        executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,
+        env: {
+          ...process.env,
+          LD_LIBRARY_PATH: [resolve('.toolchain/lib'), process.env.LD_LIBRARY_PATH]
+            .filter(Boolean)
+            .join(':'),
+        },
+        args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      })
     browser = await launchBrowser()
     const machine: Machine = {
       host: hostname(),
@@ -652,8 +659,8 @@ async function main() {
       leased = !grant.alreadyHeld
     }
     const runs: Awaited<ReturnType<typeof suite>>[] = []
-console.log(`Production build and browser ready: ${round((performance.now() - began) / 1000)}s`)
-for (let i = 0; i < (calibrate ? NOISE_RUNS : 1); i++) {
+    console.log(`Production build and browser ready: ${round((performance.now() - began) / 1000)}s`)
+    for (let i = 0; i < (calibrate ? NOISE_RUNS : 1); i++) {
       if (i) {
         await browser.close()
         browser = await launchBrowser()
@@ -662,8 +669,8 @@ for (let i = 0; i < (calibrate ? NOISE_RUNS : 1); i++) {
       runs.push(await suite(origin, baseline?.targets ?? runs[0]?.targets))
       console.log(`Capture complete; elapsed ${round((performance.now() - began) / 1000)}s`)
     }
-const latest = runs[0]!
-const noise = calibrate
+    const latest = runs[0]!
+    const noise = calibrate
       ? (() => {
           const medianSpreadPercent = Object.fromEntries(
             ACTIONS.map((action) => {
@@ -681,12 +688,12 @@ const noise = calibrate
           }
         })()
       : baseline!.noise
-const regressions = calibrate
+    const regressions = calibrate
       ? []
       : ACTIONS.filter(
           (action) => latest.actions[action].medianMs > baseline!.actions[action].medianMs * 1.1,
         )
-const report = {
+    const report = {
       version: 1,
       sourceSha,
       captureSha,
@@ -709,8 +716,8 @@ const report = {
       runtimeSeconds: round((performance.now() - began) / 1000),
       ...speedSwitchReport(switches),
     }
-await writeFile(resolve(root, 'last-run.json'), JSON.stringify(report, null, 2) + '\n')
-if (calibrate)
+    await writeFile(resolve(root, 'last-run.json'), JSON.stringify(report, null, 2) + '\n')
+    if (calibrate)
       await writeFile(
         baselinePath,
         JSON.stringify(
@@ -730,20 +737,20 @@ if (calibrate)
           2,
         ) + '\n',
       )
-if (report.passed && !delayMs)
+    if (report.passed && !delayMs)
       await writeFile(resolve(root, 'passed.json'), JSON.stringify(report, null, 2) + '\n')
-console.log(
+    console.log(
       `Measured same-code median spread: ${noise.maxPercent}% (${noise.runs} independent captures); fixed failure margin: 10%.`,
     )
-for (const action of ACTIONS)
+    for (const action of ACTIONS)
       if (baseline)
         console.log(
           `${regressions.includes(action) ? 'RED' : 'green'} ${action}: ${latest.actions[action].medianMs} ms / landed ${baseline.actions[action].medianMs} ms (${round((latest.actions[action].medianMs / baseline.actions[action].medianMs - 1) * 100)}%)`,
         )
-console.log(
+    console.log(
       `${report.passed ? 'SPEED GATE GREEN' : 'SPEED GATE RED'} — ${report.runtimeSeconds}s including production build; ${resolve(root, 'last-run.json')}`,
     )
-exitCode = report.passed ? 0 : 1
+    exitCode = report.passed ? 0 : 1
   } catch (error) {
     console.error(error)
     exitCode = 2

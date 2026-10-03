@@ -1,4 +1,3 @@
-import { usePoolMachines } from '@/app/header-data'
 /**
  * The properties rail for the issue page. Rendered in the desktop `<aside>` and
  * mirrored inside the mobile `Details` disclosure.
@@ -58,12 +57,20 @@ import { usePoolMachines } from '@/app/header-data'
  * `../issue-page-model.ts`.
  */
 import { shallowEqual } from '@podium/client-core'
-import { type IssueId, IssueType, issueStatusControlLabel, issueStatusMenuEntries, issueStatusOf, issueStatusValueOf, parseIssueStatusValue } from '@podium/model/browser'
+import {
+  type IssueId,
+  IssueType,
+  issueStatusControlLabel,
+  issueStatusMenuEntries,
+  issueStatusOf,
+  issueStatusValueOf,
+  parseIssueStatusValue,
+} from '@podium/model/browser'
 import { Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
+import { usePoolMachines } from '@/app/header-data'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
-import { useIssuePageData, useIssuePageIssues } from './issue-page-data'
 import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
@@ -78,6 +85,7 @@ import { IssueParentRow } from './IssueParentRow'
 import { IssueRelations } from './IssueRelations'
 import { IssueSessionsBlock } from './IssueSessionsBlock'
 import { useIssueEdgeResolver } from './issue-edges'
+import { useIssuePageData, useIssuePageIssues } from './issue-page-data'
 import { PropertyRow, TriggerButton } from './property-chrome'
 
 /** The properties stack. `commands` is the page's named-command set (all

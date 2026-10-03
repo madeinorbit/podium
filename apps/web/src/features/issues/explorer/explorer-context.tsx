@@ -1,10 +1,19 @@
-
-import { createContext, type ReactElement, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { LOADING, type MobxPool } from '@podium/client-graph'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import {
+  createContext,
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { useStoreSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { LOADING, type MobxPool } from '@podium/client-graph'
-import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { poolMissionContains, poolMissionRoot } from '@/features/worklist/use-pool-unified-work'
 import { EXPLORER_TABS, type ExplorerTab } from './explorer-list'
 import { type ExplorerStack, popToDepth, pushLevel, resetTo } from './explorer-nav'
@@ -80,7 +89,11 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
 
 /** Only the selected/focused path is read. Step 01 can share this target seam
  * without subscribing a navigation provider to every legacy issue model. */
-export function poolExplorerTarget(pool: MobxPool, selectedId: string | null, focusedId: string | null): string | null | typeof LOADING {
+export function poolExplorerTarget(
+  pool: MobxPool,
+  selectedId: string | null,
+  focusedId: string | null,
+): string | null | typeof LOADING {
   const root = poolMissionRoot(pool, selectedId)
   if (root === LOADING) return LOADING
   if (!root || root.archived || root.deletedAt) return null
@@ -89,7 +102,10 @@ export function poolExplorerTarget(pool: MobxPool, selectedId: string | null, fo
     for (const id of pool.graph.many('issue', root.id, 'sessions')) {
       const session = pool.row('session', id, 'summary')
       if (session === LOADING) return LOADING
-      if (session && (session as { archived?: boolean }).archived !== true) { occupied = true; break }
+      if (session && (session as { archived?: boolean }).archived !== true) {
+        occupied = true
+        break
+      }
     }
     if (!occupied) return null
   }
@@ -106,18 +122,26 @@ function poolPresence(pool: MobxPool, id: string): boolean | typeof LOADING {
   return row === LOADING ? LOADING : Boolean(row && !(row as SliceIssue).deletedAt)
 }
 
-const EMPTY_POOL_TARGET: { target: string | null | typeof LOADING; grounded: boolean } = { target: LOADING, grounded: false }
+const EMPTY_POOL_TARGET: { target: string | null | typeof LOADING; grounded: boolean } = {
+  target: LOADING,
+  grounded: false,
+}
 
 function PoolIssueExplorerProvider({ children }: { children: ReactNode }): ReactElement {
-  const selectedId = useStoreSelector(s => s.selectedIssueId)
+  const selectedId = useStoreSelector((s) => s.selectedIssueId)
   const { focusedIssueId } = useOperatorFocus()
   const pool = useWorklistPool()
-  const readTarget = useCallback((pool: MobxPool): typeof EMPTY_POOL_TARGET => ({
-    target: poolExplorerTarget(pool, selectedId, focusedIssueId),
-    grounded: pool.tables.issue.size > 0,
-  }), [selectedId, focusedIssueId])
+  const readTarget = useCallback(
+    (pool: MobxPool): typeof EMPTY_POOL_TARGET => ({
+      target: poolExplorerTarget(pool, selectedId, focusedIssueId),
+      grounded: pool.tables.issue.size > 0,
+    }),
+    [selectedId, focusedIssueId],
+  )
   const { target, grounded } = useWorklistPoolProjection(readTarget, EMPTY_POOL_TARGET)
-  const [stack, setStack] = useState<ExplorerStack>(() => (target !== LOADING && target ? [target] : []))
+  const [stack, setStack] = useState<ExplorerStack>(() =>
+    target !== LOADING && target ? [target] : [],
+  )
   const [motion, setMotion] = useState<'push' | 'pop' | null>(null)
   const [seq, setSeq] = useState(0)
   const lastTarget = useRef(target)
@@ -142,18 +166,15 @@ function PoolIssueExplorerProvider({ children }: { children: ReactNode }): React
   const [tab, setTab] = useState<ExplorerTab | null>(null)
   const [query, setQuery] = useState('')
   const listScrollPositions = useRef(new Map<string, number>())
-  const listScrollTop = useCallback(
-    (scope: string): number => {
-      const positions = listScrollPositions.current
-      const top = positions.get(scope) ?? 0
-      if (positions.has(scope)) {
-        positions.delete(scope)
-        positions.set(scope, top)
-      }
-      return top
-    },
-    [],
-  )
+  const listScrollTop = useCallback((scope: string): number => {
+    const positions = listScrollPositions.current
+    const top = positions.get(scope) ?? 0
+    if (positions.has(scope)) {
+      positions.delete(scope)
+      positions.set(scope, top)
+    }
+    return top
+  }, [])
   const rememberListScrollTop = useCallback((scope: string, top: number): void => {
     const positions = listScrollPositions.current
     positions.delete(scope)
@@ -213,7 +234,10 @@ function PoolIssueExplorerProvider({ children }: { children: ReactNode }): React
   // Substituting the subject here instead would be wrong the other way round: a
   // ref card pointed at a deleted task (POD-1265) would silently land on whatever
   // the deck happens to be showing, which is not what anyone asked to see.
-  const readPresence = useCallback((pool: MobxPool) => current === null ? true : poolPresence(pool, current), [current])
+  const readPresence = useCallback(
+    (pool: MobxPool) => (current === null ? true : poolPresence(pool, current)),
+    [current],
+  )
   const present = useWorklistPoolProjection(readPresence, LOADING)
   const missing = grounded && present === false
 

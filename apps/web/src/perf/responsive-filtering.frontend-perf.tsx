@@ -1,4 +1,3 @@
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { asUserId } from '@podium/model/browser'
@@ -7,6 +6,7 @@ import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { attachWorklistPool } from '@/app/store-worklist-pool'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { createSidebarFixture } from '../../test/sidebar-fixture'
 
 const ISSUE_COUNT = 674

@@ -1,5 +1,16 @@
 import { createLogger } from '@podium/logger'
-import { BarChart3, CalendarClock, FileText, LayoutPanelLeft, Minus, Settings, Square, SquareKanban, Workflow, X } from 'lucide-react'
+import {
+  BarChart3,
+  CalendarClock,
+  FileText,
+  LayoutPanelLeft,
+  Minus,
+  Settings,
+  Square,
+  SquareKanban,
+  Workflow,
+  X,
+} from 'lucide-react'
 import type { ComponentType, JSX } from 'react'
 import { HeaderHostIndicators } from '@/features/machines/HostIndicators'
 import { PodiumLogo } from '@/lib/icons/PodiumLogo'
@@ -7,8 +18,8 @@ import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDeskt
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { HostedWorkspaceSwitcher } from './HostedWorkspaceSwitcher'
+import { useHeaderActions, useHeaderView } from './header-data'
 import type { MainView } from './store'
-import { useHeaderView, useHeaderActions } from './header-data'
 import { ToolbarSlotTarget, useToolbarSlotFilled } from './ToolbarSlot'
 
 const log = createLogger('web:desktop-window')

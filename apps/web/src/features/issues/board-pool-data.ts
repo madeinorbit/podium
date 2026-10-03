@@ -1,10 +1,9 @@
-
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { BoardOptions, PoolBoardData } from '@podium/client-graph/issue-board-schema'
 import { ISSUE_BOARD_STAGES } from '@podium/model/browser'
 import { useCallback } from 'react'
-import { type IssueViewModel } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useBoardPoolProjection } from './board-pool-projection'
 

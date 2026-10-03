@@ -8,14 +8,24 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
-import { allIssueViewModels, createKernelReplica, createSideCache, replicaNamespaceKey, retainReplicaEntity } from '@podium/client-core/replica'
+import {
+  allIssueViewModels,
+  createKernelReplica,
+  createSideCache,
+  replicaNamespaceKey,
+  retainReplicaEntity,
+} from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { buildCorpus, buildCorpusCell, FIXED_NOW } from '../../../packages/worklist-proto/harness/src/fixture'
+import {
+  buildCorpus,
+  buildCorpusCell,
+  FIXED_NOW,
+} from '../../../packages/worklist-proto/harness/src/fixture'
 import { seedCacheFromCorpus } from '../../../packages/worklist-proto/shared/src/scenarios'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { OperatorFocusProvider } from '../src/app/operator-focus'

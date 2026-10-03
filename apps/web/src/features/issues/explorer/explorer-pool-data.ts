@@ -1,11 +1,10 @@
-
 import type { MobxPool } from '@podium/client-graph'
 import type { PoolExplorerData } from '@podium/client-graph/issue-board-schema'
 import { useCallback } from 'react'
-import { type IssueViewModel } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useBoardPoolProjection } from '../board-pool-projection'
-import { type ExplorerTab } from './explorer-list'
+import type { ExplorerTab } from './explorer-list'
 
 const EMPTY: PoolExplorerData = {
   counts: {

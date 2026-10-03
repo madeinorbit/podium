@@ -1,4 +1,3 @@
-import { expectPoolOutput } from '../../../packages/worklist-proto/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -7,18 +6,21 @@ import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HeaderHostIndicators } from '../src/features/machines/HostIndicators'
-import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
-import { createHeaderFixture } from './header-fixture'
+import { expectPoolOutput } from '../../../packages/worklist-proto/harness/src/oracle/pool-output'
 import { AgentConcurrencyHistory } from '../src/app/AgentConcurrencyHistory'
 import { useHeaderActions, useHeaderStatus } from '../src/app/header-data'
+import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
+import { HeaderHostIndicators } from '../src/features/machines/HostIndicators'
+import { createHeaderFixture } from './header-fixture'
 
 // Exercise the real runtime, pool projections, hooks and components.
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
   window.matchMedia = vi.fn().mockReturnValue({
-    matches: false, addEventListener() {}, removeEventListener() {},
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
   })
 })
 afterEach(cleanup)
@@ -56,28 +58,42 @@ async function mount(roster = false) {
       runtime = owner
       ready = pool !== null
     }, [owner, pool])
-    return <><HeaderHostIndicators />{roster && <Working />}</>
+    return (
+      <>
+        <HeaderHostIndicators />
+        {roster && <Working />}
+      </>
+    )
   }
   const view = render(
-    <StoreProvider principal={asClientPrincipal(asUserId('header-pool-regression'))}
+    <StoreProvider
+      principal={asClientPrincipal(asUserId('header-pool-regression'))}
       config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
-      api={fixture.api} createReplicaFn={() => fixture.newReplica()} networkEnabled={false}
+      api={fixture.api}
+      createReplicaFn={() => fixture.newReplica()}
+      networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
         fixture.bindHub(owner.hub)
         fixture.publishMachines()
         fixture.publishMetrics(0)
         return attachWorklistPool(owner, (error) => failures.push(error.message))
-      }}>
+      }}
+    >
       <Header />
     </StoreProvider>,
   )
-  await waitFor(() => {
-    expect(ready).toBe(true)
-    expect(view.container.querySelectorAll('.header-machine-name')).toHaveLength(3)
-    expect(view.container.querySelector('.header-quota-label')?.textContent?.toUpperCase()).toBe('QUOTA')
-    expect(view.container.querySelectorAll('.header-mark')).toHaveLength(16)
-  }, { timeout: 15000 })
+  await waitFor(
+    () => {
+      expect(ready).toBe(true)
+      expect(view.container.querySelectorAll('.header-machine-name')).toHaveLength(3)
+      expect(view.container.querySelector('.header-quota-label')?.textContent?.toUpperCase()).toBe(
+        'QUOTA',
+      )
+      expect(view.container.querySelectorAll('.header-mark')).toHaveLength(16)
+    },
+    { timeout: 15000 },
+  )
   expect(failures).toEqual([])
   return { ...view, fixture, runtime: runtime! }
 }
@@ -87,10 +103,20 @@ describe('old and pool header rendering', () => {
     const capture = async () => {
       const header = await mount(true)
       await act(async () => {
-        header.fixture.patch('session', 'synthetic-session-0', { name: 'First agent', displayRef: 'S-101', status: 'live',
-          lastActiveAt: new Date().toISOString(), agentState: { phase: 'working', since: new Date().toISOString() } })
-        header.fixture.patch('session', 'synthetic-session-2', { name: 'Second agent', displayRef: 'S-102', status: 'live',
-          lastActiveAt: new Date().toISOString(), agentState: { phase: 'compacting', since: new Date().toISOString() } })
+        header.fixture.patch('session', 'synthetic-session-0', {
+          name: 'First agent',
+          displayRef: 'S-101',
+          status: 'live',
+          lastActiveAt: new Date().toISOString(),
+          agentState: { phase: 'working', since: new Date().toISOString() },
+        })
+        header.fixture.patch('session', 'synthetic-session-2', {
+          name: 'Second agent',
+          displayRef: 'S-102',
+          status: 'live',
+          lastActiveAt: new Date().toISOString(),
+          agentState: { phase: 'compacting', since: new Date().toISOString() },
+        })
       })
       const snapshot = async () => {
         const trigger = header.getByTestId('status-strip-working')
@@ -107,8 +133,13 @@ describe('old and pool header rendering', () => {
       }
       const before = await snapshot()
       await act(async () => {
-        header.fixture.patch('session', 'synthetic-session-0', { agentState: { phase: 'needs_user', since: new Date().toISOString() } })
-        header.fixture.patch('session', 'synthetic-session-2', { name: 'Renamed agent', displayRef: 'S-202' })
+        header.fixture.patch('session', 'synthetic-session-0', {
+          agentState: { phase: 'needs_user', since: new Date().toISOString() },
+        })
+        header.fixture.patch('session', 'synthetic-session-2', {
+          name: 'Renamed agent',
+          displayRef: 'S-202',
+        })
       })
       const changed = await snapshot()
       header.unmount()
@@ -122,14 +153,26 @@ describe('old and pool header rendering', () => {
 
   it('preserves visible names, QUOTA, labels and element order across both paths', async () => {
     const pool = await mount()
-    expectPoolOutput(renderedHeader(pool.container.querySelector('.header-host-indicators')!), 'header indicators')
-    expect([...pool.container.querySelectorAll('.header-machine-name')].map((node) => node.textContent))
-      .toEqual(['Host 1', 'Host 2', 'Host 3'])
-    expect([...pool.container.querySelectorAll('.header-quota-chip .header-quota-label')]
-      .map((node) => node.textContent?.toUpperCase())).toEqual(['QUOTA'])
+    expectPoolOutput(
+      renderedHeader(pool.container.querySelector('.header-host-indicators')!),
+      'header indicators',
+    )
+    expect(
+      [...pool.container.querySelectorAll('.header-machine-name')].map((node) => node.textContent),
+    ).toEqual(['Host 1', 'Host 2', 'Host 3'])
+    expect(
+      [...pool.container.querySelectorAll('.header-quota-chip .header-quota-label')].map((node) =>
+        node.textContent?.toUpperCase(),
+      ),
+    ).toEqual(['QUOTA'])
     for (const chip of pool.container.querySelectorAll('.header-machine-chip')) {
-      expect([...chip.querySelectorAll('.header-mark')].map((node) => node.textContent))
-        .toEqual(['MEM', 'LOAD', 'DISK', 'AGT', 'IDLE'])
+      expect([...chip.querySelectorAll('.header-mark')].map((node) => node.textContent)).toEqual([
+        'MEM',
+        'LOAD',
+        'DISK',
+        'AGT',
+        'IDLE',
+      ])
     }
   }, 30000)
 
@@ -152,7 +195,10 @@ describe('old and pool header rendering', () => {
     await act(async () => {
       const metrics = header.runtime.hostMetrics.getSnapshot()
       header.fixture.publishHostMetrics([
-        { ...metrics[0]!, disk: { path: '/synthetic', totalBytes: 100, usedBytes: 0, availableBytes: 90 } },
+        {
+          ...metrics[0]!,
+          disk: { path: '/synthetic', totalBytes: 100, usedBytes: 0, availableBytes: 90 },
+        },
         ...metrics.slice(1),
       ])
     })

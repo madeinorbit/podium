@@ -1,12 +1,25 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
-import { blockingCloseConcerns, type IssueCloseConcern, issueCloseConcerns } from '@podium/client-core/viewmodels'
+import {
+  blockingCloseConcerns,
+  type IssueCloseConcern,
+  issueCloseConcerns,
+} from '@podium/client-core/viewmodels'
 import { ISSUE_STATUS_LABELS, type IssueCloseReason } from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useIssuePageSessions } from './issue-page/issue-page-data'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { issueRefLabel } from '@/lib/issue-labels'
+import { useIssuePageSessions } from './issue-page/issue-page-data'
 
 /** Re-exported from the model (POD-1074), where the vocabulary now lives with
  *  its labels and its legacy `wontfix` → `cancelled` canonicalization. Kept as a
@@ -73,7 +86,9 @@ function useCloseSessions(supplied?: readonly SessionView[]) {
   // biome-ignore lint/correctness/useHookAtTopLevel: Supplied pool hosts unmount before changing their reader contract.
   return supplied ?? useIssuePageSessions()
 }
-export function useIssueCloseGuard(suppliedSessions?: readonly SessionView[]): (issue: IssueNavigationModel) => boolean {
+export function useIssueCloseGuard(
+  suppliedSessions?: readonly SessionView[],
+): (issue: IssueNavigationModel) => boolean {
   const sessions = useCloseSessions(suppliedSessions)
   return (issue) =>
     blockingCloseConcerns(issueCloseConcerns(issue, issueMemberSessions(issue, sessions))).length >
@@ -85,7 +100,11 @@ export function useIssueCloseGuard(suppliedSessions?: readonly SessionView[]): (
 export interface IssueBulkCloseSummary {
   /** `lead` is the first of `concerns` — the icon the row is drawn with, carried
    *  rather than re-indexed so the row cannot be rendered from an empty list. */
-  flagged: Array<{ issue: IssueNavigationModel; lead: IssueCloseConcern; concerns: IssueCloseConcern[] }>
+  flagged: Array<{
+    issue: IssueNavigationModel
+    lead: IssueCloseConcern
+    concerns: IssueCloseConcern[]
+  }>
   /** Issues in the batch with nothing unresolved — a count, not a list: they are
    *  the ordinary case and naming forty of them would bury the ones that matter. */
   clear: number

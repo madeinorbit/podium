@@ -23,8 +23,7 @@ afterEach(() => {
 describe('sidebar measurement boundary', () => {
   it('counts committed row bodies without counting memo skips or panel samples', async () => {
     vi.resetModules()
-    const { bindSidebarRowMeasurements, measureSidebarRow } =
-      await import('./sidebar-measurements')
+    const { bindSidebarRowMeasurements, measureSidebarRow } = await import('./sidebar-measurements')
     const perf = createSidebarPerf()
     const stop = bindSidebarRowMeasurements({ owner: {}, perf })
     const Row = memo(measureSidebarRow(({ text }: { text: string }) => <div>{text}</div>))

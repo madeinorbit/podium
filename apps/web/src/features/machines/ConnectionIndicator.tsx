@@ -1,9 +1,8 @@
-
-import { usePoolHeaderConnection } from '@/app/header-data'
 import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import { Wifi, WifiOff } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { usePoolHeaderConnection } from '@/app/header-data'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 

@@ -69,13 +69,13 @@ afterEach(() => {
 function useBoundary() {
   const base = useBoardBase()
   const board = useBoardData({
-      display: DEFAULT_DISPLAY,
-      filter: {},
-      expanded: [],
-      isMobile: false,
-      openIssueId: base.openIssueId,
-      now: 0,
-    })
+    display: DEFAULT_DISPLAY,
+    filter: {},
+    expanded: [],
+    isMobile: false,
+    openIssueId: base.openIssueId,
+    now: 0,
+  })
   const explorer = useExplorerData(null, '')
   useBoardCloseGuard(board.sessions)
   return { board, explorer }

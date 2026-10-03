@@ -1,6 +1,5 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 /**
  * THE WORKLIST IS FLAT (POD-516 §1.1).
@@ -24,6 +23,7 @@ import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { closedFoldKey } from './fold-keys'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -209,7 +209,9 @@ vi.mock('@/app/store', () => {
     useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
+      def.derive(
+        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      ),
   }
 })
 

@@ -5,13 +5,35 @@ import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
 import { attentionGroup } from '@podium/client-core/focus'
-import { formatClock, panelLabel, resumeCommand, sessionWaking } from '@podium/client-core/viewmodels'
+import {
+  formatClock,
+  panelLabel,
+  resumeCommand,
+  sessionWaking,
+} from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import { isSnoozed } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { keySequence, type SpecialKey } from '@podium/terminal-client/keys'
-import { ArrowSwipeKey, preloadTerminalRuntime, useTerminalSession, useVoiceInput } from '@podium/terminal-client-react'
-import { ArrowDownToLine, Ellipsis, Folder, Keyboard, MessageSquareText, Mic, Moon, Sparkles, Square, SquareTerminal, Terminal as TerminalIcon } from 'lucide-react'
+import {
+  ArrowSwipeKey,
+  preloadTerminalRuntime,
+  useTerminalSession,
+  useVoiceInput,
+} from '@podium/terminal-client-react'
+import {
+  ArrowDownToLine,
+  Ellipsis,
+  Folder,
+  Keyboard,
+  MessageSquareText,
+  Mic,
+  Moon,
+  Sparkles,
+  Square,
+  SquareTerminal,
+  Terminal as TerminalIcon,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -20,7 +42,14 @@ import { useSessionDraft, useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { ChatView } from '@/features/chat/ChatView'
 import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
@@ -29,8 +58,8 @@ import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
 import { agentBrandDot } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { issueAgentKind } from '@/lib/issue-agents'
-import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
+import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
@@ -43,13 +72,25 @@ import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
 import { hibernateAction } from './lifecycle-actions'
-import { ExitedBanner, ExitedPane, HibernatedBanner, HibernatedPane, MachineOfflineBanner } from './SessionLifecyclePanes'
+import { prettyCwd } from './pretty-cwd'
+import {
+  ExitedBanner,
+  ExitedPane,
+  HibernatedBanner,
+  HibernatedPane,
+  MachineOfflineBanner,
+} from './SessionLifecyclePanes'
 import { SessionWatchers } from './SessionWatchers'
 import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
-import { prettyCwd } from './pretty-cwd'
+import {
+  usePaneMachines,
+  usePaneOwnership,
+  usePaneReferenceStages,
+  usePaneSession,
+  usePaneSpawnConfirmed,
+} from './use-session-pane-inputs'
 import { useTerminalAppearance } from './use-terminal-appearance'
-import { usePaneSession, usePaneMachines, usePaneSpawnConfirmed, usePaneOwnership, usePaneReferenceStages } from './use-session-pane-inputs'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
 // session (screenText/sendInput/simulateKeyboard/…) for the Playwright harness under
@@ -266,8 +307,11 @@ export function AgentPanel({
   // without remounting the terminal or changing its transcript subscription.
   const referenceStagesRef = useRef(referenceStages)
   referenceStagesRef.current = referenceStages
-  const resolveReferenceStage = useCallback((ref: string) => referenceStagesRef.current.resolveStage(ref), [])
-  const { guardedEnd } = useSessionGuard(sessionId, undefined, (session ? [session] : []))
+  const resolveReferenceStage = useCallback(
+    (ref: string) => referenceStagesRef.current.resolveStage(ref),
+    [],
+  )
+  const { guardedEnd } = useSessionGuard(sessionId, undefined, session ? [session] : [])
   // An optimistically-spawned session doesn't exist server-side yet (#119): the
   // terminal's one-shot `hub.attach` would be dropped and never retried, leaving
   // the pane black. Hold the mount until the real session reconciles in — the
@@ -792,11 +836,12 @@ export function AgentPanel({
   // path retains its issue-array update trigger (POD-529).
   // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession
   useEffect(() => {
-    const paint = () => mountedRef.current?.view.setRefLinks({
-      isKnownPrefix: (p) => isKnownRefPrefix(p),
-      onActivate: (ref, event) => activateRef(ref, event),
-      resolveStage: resolveReferenceStage,
-    })
+    const paint = () =>
+      mountedRef.current?.view.setRefLinks({
+        isKnownPrefix: (p) => isKnownRefPrefix(p),
+        onActivate: (ref, event) => activateRef(ref, event),
+        resolveStage: resolveReferenceStage,
+      })
     paint()
     return referenceStages.subscribe(paint)
   }, [referenceStages, mountedRef, resolveReferenceStage])

@@ -1,9 +1,9 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { SidebarRail } from './SidebarRail'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -115,7 +115,10 @@ vi.mock('@/app/store', () => {
     setSelectedWorktree: vi.fn(),
     selectedIssueId: null,
     setSelectedIssueId,
-    navigateWorkspace: vi.fn((intent) => { setSelectedIssueId(intent.selectedIssueId); return true }),
+    navigateWorkspace: vi.fn((intent) => {
+      setSelectedIssueId(intent.selectedIssueId)
+      return true
+    }),
     setOpenIssueId: vi.fn(),
     paneA: null,
     setPane: vi.fn(),
@@ -134,7 +137,9 @@ vi.mock('@/app/store', () => {
     useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
+      def.derive(
+        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      ),
   }
 })
 

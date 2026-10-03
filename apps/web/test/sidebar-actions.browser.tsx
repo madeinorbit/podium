@@ -1,5 +1,9 @@
 /** Real pointer routing on private synthetic rows and the app's single outbox. */
-import { type ClientRuntime, createEngineOutbox, type OutboxOutcome } from '@podium/client-core/engine'
+import {
+  type ClientRuntime,
+  createEngineOutbox,
+  type OutboxOutcome,
+} from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
