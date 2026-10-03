@@ -4,6 +4,9 @@ import '@/test-support/model-catalog-mock'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
+import { useStoreHandle } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { dedupeSessions } from '@podium/client-core/engine'
 import { deriveIssueViews, deriveIssueRollups, type IssueViewInput, type IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -12,7 +15,7 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -23,6 +26,7 @@ import { IssuePanelView } from './IssuePanelView'
 let layer: 'legacy' | 'pool' = 'legacy'
 let forbidden = false, legacyReads = 0
 let pool: MobxPool
+let startupHost: PoolHost | undefined
 let legacyIssues: IssueViewModel[] = [], visibleSessions: SessionView[] = []
 const STAMP = '2026-09-01T12:00:00.000Z', NOW = Date.parse('2026-10-01T12:00:00Z')
 const exits: Record<string, 'evicted' | 'removed'> = { invisible: 'evicted', removed: 'removed' }
@@ -59,8 +63,15 @@ vi.mock('@/app/store', () => ({
 }))
 vi.mock('@/lib/pane-data-layer', () => ({ paneDataLayer: () => layer }))
 vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPool: () => pool,
-  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown) => createPoolProjection(pool, read).getSnapshot(),
+  useWorklistPool: () => startupHost ? startupHost.usePool() : pool,
+  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => startupHost
+    ? startupHost.usePoolProjection(read, empty) : createPoolProjection(pool, read).getSnapshot(),
+}))
+vi.mock('@podium/client-graph/runtime-pool', async importOriginal => ({
+  ...await importOriginal<typeof import('@podium/client-graph/runtime-pool')>(),
+  // Keep the actual host's asynchronous attach and React subscriptions; the
+  // row-source factory supplies this test's existing normalized pool.
+  createRuntimeWorklistPool: () => ({ pool, dispose: () => {} }),
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('../cost/useTaskCost', () => ({ useTaskCost: () => ({ view: null }) }))
@@ -156,7 +167,7 @@ async function arm(surface: 'page' | 'panel' | 'list', mode: 'legacy' | 'pool') 
 }
 
 beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW); storeStats.enable(); seed() })
-afterEach(() => { forbidden = false; cleanup(); pool.dispose(); storeStats.enable(false); storeStats.reset(); vi.restoreAllMocks(); vi.clearAllMocks() })
+afterEach(() => { forbidden = false; cleanup(); startupHost = undefined; pool.dispose(); storeStats.enable(false); storeStats.reset(); vi.restoreAllMocks(); vi.clearAllMocks() })
 describe('issue page rendered pool parity', () => {
   it.each(['page', 'panel', 'list'] as const)('preserves the %s text, labels, order, layout and loader results with zero legacy derivations', async surface => {
     const old = await arm(surface, 'legacy')
@@ -190,7 +201,7 @@ describe('issue page rendered pool parity', () => {
 
   it('preserves the fallback list close dialog, working members, child counts, question and delivery words', async () => {
     pool.dispose()
-    seed({ parentId: null })
+    seed({ parentId: undefined })
     async function closeFromList(mode: 'legacy' | 'pool') {
       layer = mode; forbidden = mode === 'pool'; legacyReads = 0
       const view = render(wrap(<IssuePanelView cwd="/unknown" />))
@@ -213,6 +224,29 @@ describe('issue page rendered pool parity', () => {
     const next = await closeFromList('pool')
     expect(next.tree).toEqual(old.tree)
     expect(next.reads).toBe(0)
+  })
+
+  it('keeps pool hooks stable through the real host attach from no pool to an attached pool', async () => {
+    layer = 'pool'; forbidden = true; legacyReads = 0
+    const errors = vi.fn(), back = vi.fn(), initial = vi.fn()
+    startupHost = createPoolHost({ screens: [{ initialize: () => {}, enabled: () => true }], dev: false })
+    const issue = legacyIssues.find(row => row.id === 'root')!
+    function AttachAfterRender() {
+      const owner = useStoreHandle()
+      const current = startupHost!.usePool()
+      useEffect(() => {
+        initial(current)
+        return startupHost!.attach(Object.assign(owner, { ui: { get: () => null } }) as unknown as ClientRuntime, errors)
+      }, [owner])
+      return <IssuePage issue={issue} orderedIds={[]} onBack={back} onNavigate={navigate} />
+    }
+    const view = render(wrap(<AttachAfterRender />))
+    expect(view.container.textContent).toBe('')
+    await screen.findByText('Exact page title')
+    expect(initial).toHaveBeenCalledExactlyOnceWith(null)
+    expect(errors).not.toHaveBeenCalled()
+    expect(back).not.toHaveBeenCalled()
+    expect(legacyReads).toBe(0)
   })
 
   it('leaves once per issue ID, matching the legacy latch when the same row returns', async () => {
