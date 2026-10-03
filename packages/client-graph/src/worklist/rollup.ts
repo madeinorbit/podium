@@ -913,15 +913,85 @@ export function unitOwnPartOf(
 /**
  * The formal closure's counts: each formal child's own contribution and its
  * own closure. A cold child's closure is not read (so not composed) until the
- * child lands: one level of cold rows per window.
+ * child lands: one level of cold rows per window. Within a parent cycle the
+ * legacy closure visits each member once and excludes the requested root.
  */
 export function unitsBelowPartOf(input: RollupInputs, id: string): Units {
+  const childIds = [...input.formalChildren(id)]
+  if (childIds.length > 0) {
+    const cycle = formalCycleOf(input, id)
+    if (cycle !== undefined) return cyclicUnitsBelowOf(input, id, childIds, cycle)
+  }
   const children: { own: UnitOwn; below: Units }[] = []
-  for (const childId of input.formalChildren(id)) {
+  for (const childId of childIds) {
     const child = input.rollupNode(childId)
     if (child === undefined) continue
     const own = child.unitOwn
     children.push({ own, below: own.cold ? NO_UNITS : child.unitsBelow })
+  }
+  return unitsOf({ children })
+}
+
+/** Relations alone detect whether this root belongs to a formal parent cycle. */
+function formalCycleOf(input: RollupInputs, id: string): Set<string> | undefined {
+  const cycle = new Set<string>([id])
+  let parentId = input.rollupNode(id)?.formalParent ?? null
+  while (parentId !== null && !cycle.has(parentId)) {
+    cycle.add(parentId)
+    parentId = input.rollupNode(parentId)?.formalParent ?? null
+  }
+  return parentId === id ? cycle : undefined
+}
+
+/**
+ * Cycle members cannot compose each other's cached units. Read their own
+ * facts instead, retaining cached composition for every branch off the cycle.
+ * Staffing reaches every cycle member (legacy `staffedSubtreeIds`), including
+ * when the only session belongs to the root excluded from the progress count.
+ */
+function cyclicUnitsBelowOf(
+  input: RollupInputs,
+  id: string,
+  childIds: readonly string[],
+  cycle: ReadonlySet<string>,
+): Units {
+  const children: { own: UnitOwn; below: Units }[] = []
+  const members: { id: string; node: RollupParts }[] = []
+  const seen = new Set<string>([id])
+  const pending = [...childIds]
+  let staffed = input.rollupNode(id)?.openOwn === true
+  while (pending.length > 0) {
+    const childId = pending.pop() as string
+    if (seen.has(childId)) continue
+    seen.add(childId)
+    const child = input.rollupNode(childId)
+    if (child === undefined) continue
+    if (!cycle.has(childId)) {
+      const own = child.unitOwn
+      const below = own.cold ? NO_UNITS : child.unitsBelow
+      children.push({ own, below })
+      staffed ||= own.staffed === true || below.staffed === true
+      continue
+    }
+    const issue = input.loadedIssue(childId)
+    if (issue === LOADING) {
+      children.push({ own: PENDING_UNIT, below: NO_UNITS })
+      continue
+    }
+    if (issue === undefined) continue
+    members.push({ id: childId, node: child })
+    staffed ||= child.openOwn
+    pending.push(...input.formalChildren(childId))
+  }
+  const staffing = { ...NO_UNITS, staffed }
+  for (const member of members) {
+    children.push({
+      own: unitOwnPartOf(input, member.id, {
+        openOwn: member.node.openOwn,
+        unitsBelow: staffing,
+      }),
+      below: NO_UNITS,
+    })
   }
   return unitsOf({ children })
 }

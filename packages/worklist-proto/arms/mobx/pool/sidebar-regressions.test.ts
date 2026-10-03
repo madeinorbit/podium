@@ -13,6 +13,7 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import { createWorklistPool } from '@podium/client-graph/create'
+import { cachedGroup } from '@podium/client-graph/cached'
 import {
   legacyDerivationFromStore,
   visibleIssueRows,
@@ -21,7 +22,9 @@ import { legacySidebarRow, legacySidebarSections } from '@podium/client-graph/di
 import { checkSidebar, poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { IssueModel } from '@podium/client-graph/models'
+import { LOADING, NO_UNITS, unitsOf, type UnitOwn, type Units } from '@podium/client-graph/worklist/rollup'
+import { directVisibility, type IssueVisibility, type VisibleInputs } from '@podium/client-graph/worklist/visible'
 import {
   asRepoId,
   asIssueId,
@@ -33,7 +36,7 @@ import {
   type SessionUserStateWire,
 } from '@podium/model'
 import { reaction, runInAction } from 'mobx'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { corpusFromLive, type LiveCollections } from '../../../harness/src/fixture/live-snapshot'
 import { fixtureProjection } from '../../../harness/src/fixture/normalized-issues'
 import { stripSessionLegacy } from '../../../harness/src/fixture/session-homes'
@@ -41,7 +44,7 @@ import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { sidebarReplayStore } from '../../../harness/src/oracle/sidebar-replay'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
 
-installMobxWarnTrap({ errors: true })
+const mobxTrap = installMobxWarnTrap({ errors: true })
 const NOW = Date.parse('2026-09-30T12:00:00.000Z')
 const STAMP = new Date(NOW - 60_000).toISOString()
 const ROOT = '/synthetic/repo'
@@ -394,6 +397,130 @@ describe('POD-5263 empty reciprocal parents in the sidebar check corpus', () => 
       ctx.updateIssue(a)
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 0 })
     } finally { ctx.dispose() }
+  })
+})
+
+describe('POD-5385 cyclic progress in the application sidebar replay', () => {
+  it.each([false, true])('matches legacy after planning and ancestry updates (reversed=%s)', reversed => {
+    const a = issue('cycle-a', { stage: 'backlog', parentId: asIssueId('cycle-b') })
+    const b = issue('cycle-b', { stage: 'backlog', parentId: asIssueId('cycle-a') })
+    const ctx = replay(collections(reversed ? [b, a] : [a, b]))
+    const check = () => expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+    const progress = (id: string, counts: Partial<NonNullable<Units['progress']>> & { total: number }) => {
+      const { actual, expected } = ctx.row(id)
+      expect(actual.progress).toEqual(expected.progress)
+      expect(actual.progress).toMatchObject(counts)
+      expect(actual.fromChildren).toBe(expected.fromChildren)
+    }
+    try {
+      expect(ctx.check()).toMatchObject({ differences: 0, pending: 0, rows: 0 })
+      const planning = { ...a, stage: 'planning' as const }
+      ctx.updateIssue(planning)
+      check()
+      progress(a.id, { total: 1, wait: 1, stall: 0 })
+      progress(b.id, { total: 1, stall: 1, wait: 0 })
+      // The plain rebuild must use the same bounded closure, without MobX caches.
+      runInAction(() => {
+        const memo = new Map<string, IssueVisibility>()
+        const input: VisibleInputs = { ...ctx.pool.visibleInputs,
+          issue: id => directVisibility(input, id, memo) }
+        for (const id of [a.id, b.id]) {
+          const rollup = required(directVisibility(input, id, memo).rollup)
+          expect(rollup.progressTotal).toBe(1)
+          expect(rollup.progressDone).toBe(0)
+        }
+      })
+      ctx.updateIssue({ ...b, stage: 'done', closedAt: STAMP })
+      check()
+      progress(a.id, { total: 1, done: 1 })
+      ctx.updateIssue({ ...b, stage: 'proposed' })
+      check()
+      progress(a.id, { total: 1, stall: 1 })
+      expect(ctx.row(a.id).actual.fromChildren).toBe(false)
+      ctx.updateIssue(b)
+      check()
+      ctx.updateIssue({ ...planning, parentId: undefined })
+      check()
+      progress(a.id, { total: 1, wait: 1 })
+      ctx.updateIssue(planning)
+      check()
+      progress(b.id, { total: 1, stall: 1 })
+      ctx.updateIssue(a)
+      expect(ctx.check()).toMatchObject({ differences: 0, pending: 0, rows: 0 })
+    } finally { ctx.dispose() }
+  })
+
+  it('excludes a self-parent from its members and measures it as a solo unit', () => {
+    const task = issue('cycle-self', { stage: 'planning', parentId: asIssueId('cycle-self') })
+    const ctx = replay(collections([task]))
+    try {
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+      const { actual, expected } = ctx.row(task.id)
+      expect(actual.progress).toEqual(expected.progress)
+      expect(actual.progress).toMatchObject({ total: 1, stall: 1 })
+      expect(actual.fromChildren).toBe(false)
+    } finally { ctx.dispose() }
+  })
+
+  it.each([false, true])('shares staffing around a longer cycle and composes cold branches (reversed=%s)', reversed => {
+    const finished = new Date(NOW - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const tasks = [
+      issue('cycle-a', { stage: 'planning', parentId: asIssueId('cycle-b') }),
+      issue('cycle-b', { stage: 'planning', parentId: asIssueId('cycle-c') }),
+      issue('cycle-c', { stage: 'planning', parentId: asIssueId('cycle-a') }),
+      issue('branch-d', { stage: 'done', parentId: asIssueId('cycle-b'), closedAt: finished, updatedAt: finished }),
+      issue('branch-e', { stage: 'done', parentId: asIssueId('branch-d'), closedAt: finished, updatedAt: finished }),
+      issue('offered', { stage: 'proposed', parentId: asIssueId('cycle-c') }),
+      issue('archived', { stage: 'done', archived: true, parentId: asIssueId('cycle-a') }),
+    ]
+    const seat = session('cycle-seat', 'cycle-c')
+    const ctx = replay(collections(reversed ? [...tasks].reverse() : tasks, [seat]))
+    const check = (state: 'run' | 'stall') => {
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+      for (const id of ['cycle-a', 'cycle-b', 'cycle-c']) {
+        const { actual, expected } = ctx.row(id)
+        expect(actual.progress).toEqual(expected.progress)
+        expect(actual.progress).toMatchObject({ total: 4, done: 2, [state]: 2 })
+        expect(actual.fromChildren).toBe(true)
+      }
+    }
+    try {
+      check('run')
+      ctx.updateSession({ ...seat, status: 'exited', agentState: { phase: 'ended' } })
+      check('stall')
+      ctx.updateSession(seat)
+      check('run')
+    } finally { ctx.dispose() }
+  })
+
+  it.each([false, true])('throws when the original unguarded progress recursion is planted (reversed=%s)', reversed => {
+    const a = issue('cycle-a', { stage: 'backlog', parentId: asIssueId('cycle-b') })
+    const b = issue('cycle-b', { stage: 'backlog', parentId: asIssueId('cycle-a') })
+    const ctx = replay(collections(reversed ? [b, a] : [a, b]))
+    // Restore the original cached group and child-unit recursion exactly.
+    const unguarded = cachedGroup('unitsBelow', (model: IssueModel) => {
+      const children: { own: UnitOwn; below: Units }[] = []
+      for (const childId of ctx.pool.rollupInputs.formalChildren(model.id)) {
+        const child = ctx.pool.rollupInputs.rollupNode(childId)
+        if (child === undefined) continue
+        const own = child.unitOwn
+        children.push({ own, below: own.cold ? NO_UNITS : child.unitsBelow })
+      }
+      return unitsOf({ children })
+    })
+    const plant = vi.spyOn(IssueModel.prototype, 'unitsBelow', 'get').mockImplementation(
+      function (this: IssueModel) { return unguarded(this) },
+    )
+    try {
+      expect(() => ctx.updateIssue({ ...a, stage: 'planning' })).toThrow(/Cycle detected/)
+      expect(mobxTrap.errors.length).toBeGreaterThan(0)
+      for (const error of mobxTrap.errors) expect(error).toContain('Cycle detected')
+      // Only the planted cycle errors are expected; other warnings/errors still fail.
+      mobxTrap.errors.length = 0
+    } finally {
+      plant.mockRestore()
+      ctx.dispose()
+    }
   })
 })
 
