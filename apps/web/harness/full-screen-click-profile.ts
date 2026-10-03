@@ -61,6 +61,7 @@ const args = process.argv.slice(2).filter((arg) => arg !== '--')
 const value = (name: string, fallback: string) =>
   args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
 const profileAction = value('profile', 'all')
+const interleave = args.includes('--interleave')
 const profileActions = profileAction === 'all' ? ACTIONS.filter(action => action !== 'sidebar-issue')
   : [profileAction === 'session-switch' ? 'session-pane' : profileAction]
 const root = resolve('.artifacts/full-screen-click-profile')
@@ -82,10 +83,11 @@ async function main() {
   if (args.includes('--help')) {
     console.log('bun apps/web/harness/full-screen-click-profile.ts --profile=mission-switch|session-switch|issue-rename|background-update|all\n' +
       'Three production CPU + trace samples per action, mobxPane OFF/ON; no gate/baseline writes.\n' +
+      '--interleave: alternate arms per sample, reversing the first arm each pair.\n' +
       '--lease-confirmed: caller holds bench:flatblock.')
     return
   }
-  for (const arg of args) if (arg !== '--lease-confirmed' && !arg.startsWith('--profile='))
+  for (const arg of args) if (arg !== '--lease-confirmed' && arg !== '--interleave' && !arg.startsWith('--profile='))
     throw new Error(`Unknown argument ${arg}`)
   if (hostname() !== 'flatblock') throw new Error('Profile capture runs on flatblock')
   if (!profileActions.length || profileActions.some(action => !ACTIONS.includes(action as Action) || action === 'sidebar-issue'))
@@ -335,7 +337,7 @@ async function main() {
     return result.inputToPaintMs
   }
 
-  async function suite(origin: string, fixed: Targets, pilot: number) {
+  async function* suite(origin: string, fixed: Targets, pilot: number) {
     const full = await openPage(origin, pilot)
     const samples = Object.fromEntries(ACTIONS.map((action) => [action, [] as number[]])) as Record<
       Action,
@@ -362,7 +364,7 @@ async function main() {
         targets.sidebar.some((id) => !ids.includes(id))
       )
         throw new Error('The fixed target roots are missing')
-      const measure = async (action: Action, run: (iteration: number) => Promise<number>) => {
+      const measure = async function* (action: Action, run: (iteration: number) => Promise<number>) {
         if (!profileActions.includes(action)) return
         const repetitions = REPETITIONS
         for (let i = -WARMUPS; i < repetitions; i++) {
@@ -373,12 +375,13 @@ async function main() {
             samples[action].push(ms)
             loads.push(loadavg()[0]!)
           }
+          yield { action, iteration: i, pilot }
         }
         console.log(
           `${action}: median ${round(median(samples[action]))} ms, worst ${round(Math.max(...samples[action]))} ms (n=${repetitions})`,
         )
       }
-      await measure('mission-switch', async (i) => {
+      yield* measure('mission-switch', async (i) => {
         const id = targets.missions[i % 2]!
         const ms = await capture(
           full,
@@ -408,7 +411,7 @@ async function main() {
       await full.page.locator(deckSession(targets.sessions[1]!)).first().click()
       await full.page.waitForFunction((id) => window.__acceptance.state().pane === id, targets.sessions[1]!)
       await settle(full.page)
-      await measure('session-pane', async (i) => {
+      yield* measure('session-pane', async (i) => {
         const id = targets.sessions[i % 2]!
         const ms = await capture(
           full,
@@ -430,7 +433,7 @@ async function main() {
         await full.page.waitForFunction((id) => window.__acceptance.state().pane === id, targets.sessions[1]!)
         await settle(full.page)
       }
-      await measure('issue-rename', async (i) => {
+      yield* measure('issue-rename', async (i) => {
         const title = `Speed gate rename ${i}`
         await full.page.getByTestId('dock-title').dblclick()
         await full.page.getByTestId('dock-inspect-head').locator('input').fill(title)
@@ -446,7 +449,7 @@ async function main() {
       // A feed-delivered title on another visible root is unrelated to the selected mission,
       // but has real visible damage. A hidden heartbeat would paint nothing and cannot supply this metric.
       await full.page.locator(row(targets.background)).first().scrollIntoViewIfNeeded()
-      await measure('background-update', async (i) => {
+      yield* measure('background-update', async (i) => {
         const title = `Speed gate background ${i}`
         return capture(
           full,
@@ -582,13 +585,32 @@ async function main() {
       if (!grant?.granted) throw new Error('bench:flatblock was not granted')
       leased = !grant.alreadyHeld
     }
-    const runs: Awaited<ReturnType<typeof suite>>[] = []
+    const suites = [0, 1].map(pilot => suite(origin, baseline.targets, pilot))
+    type SuiteResult = Awaited<ReturnType<typeof suites[number]['next']>>
+    const runs: Extract<SuiteResult, { done: true }>['value'][] = []
+    const order: { action: Action; iteration: number; pilot: number }[] = []
     console.log(`Production build and browser ready: ${round((performance.now() - began) / 1000)}s`)
     {
       if (dirtyProduct) throw new Error('Profile a committed product tree')
-      for (const pilot of [0, 1]) {
-        console.log(`4× full surface; mobxSidebar=1, mobxPane=${pilot}; ${REPETITIONS} profiles per action`)
-        runs.push(await suite(origin, baseline!.targets, pilot))
+      console.log(`4× full surface; mobxSidebar=1, mobxPane=0/1; ${REPETITIONS} profiles per action; interleave=${interleave}`)
+      const step = async (pilot: number) => {
+        const result = await suites[pilot]!.next()
+        if (result.done) runs[pilot] = result.value
+        else order.push(result.value)
+        return result
+      }
+      if (interleave) {
+        for (let pair = 0; ; pair++) {
+          const first = (pair % (WARMUPS + REPETITIONS)) % 2
+          const a = await step(first)
+          const b = await step(1 - first)
+          if (a.done !== b.done || (!a.done && !b.done &&
+            (a.value.action !== b.value.action || a.value.iteration !== b.value.iteration)))
+            throw new Error('Interleaved arms drifted out of action/sample order')
+          if (a.done) break
+        }
+      } else {
+        for (const pilot of [0, 1]) while (!(await step(pilot)).done) {}
       }
       await writeFile(resolve(profileDir, 'manifest.json'), JSON.stringify({
         version: 1, sourceSha: captureSha, dirtyProduct, machine, capturedAt: new Date().toISOString(),
@@ -596,6 +618,7 @@ async function main() {
         scale: 4, surface: 'full', seed: 4443, repetitions: REPETITIONS, warmups: WARMUPS,
         build: 'ordinary React 19.2.7; minified production; hidden source maps; no state-boundary wrappers',
         samplingIntervalUs: 1000,
+        interleave, order,
         metric: 'trusted pointerdown (background: feed delivery) to end of first Chromium Paint after expected DOM change',
         window: 'Raw CPU and trace include setup/tails; analyze only speed:input through the qualifying Paint end.',
         runs, records: profileRecords.map((record) => record.file),

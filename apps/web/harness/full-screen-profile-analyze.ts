@@ -274,6 +274,18 @@ for (const { file, profile } of raw) {
   const observerOverlap = (begin: number, finish: number) => observerIntervals.reduce(
     (sum, [lo, hi]) => sum + Math.max(0, Math.min(finish, hi) - Math.max(begin, lo)), 0,
   ) / 1000
+  const main = events.filter((e) => e.ph === 'X' && e.pid === mark.pid && e.tid === mark.tid && e.ts < end && e.ts + (e.dur ?? 0) > start)
+  const intervals = (selected: Event[]) => selected.map((e) => [Math.max(start, e.ts), Math.min(end, e.ts + (e.dur ?? 0))] as [number, number])
+  const taskEventName = main.some(e => e.name === 'ThreadControllerImpl::RunTask')
+    ? 'ThreadControllerImpl::RunTask' : 'RunTask'
+  const tasks = main.filter((e) => e.name === taskEventName)
+  if (!tasks.length) throw new Error(`${file}: trace has no top-level task boundaries`)
+  const longest = [...tasks].sort((a, b) =>
+    (Math.min(end, b.ts + b.dur!) - Math.max(start, b.ts)) -
+    (Math.min(end, a.ts + a.dur!) - Math.max(start, a.ts)))[0]!
+  const taskStart = Math.max(start, longest.ts), taskEnd = Math.min(end, longest.ts + longest.dur!)
+  const taskSelf: Record<string, number> = {}, taskInclusive: Record<string, number> = {}, taskBuckets: Record<string, number> = {}
+  let taskSampled = 0
   const nodes = new Map(profile.nodes.map((node) => [node.id, node]))
   const parents = new Map(profile.nodes.flatMap((node) => (node.children ?? []).map((child) => [child, node.id] as const)))
   const chains = new Map<number, { frame: Frame; source: Location | null }[]>()
@@ -308,6 +320,14 @@ for (const { file, profile } of raw) {
     const productMs = Math.max(0, ms - observerMs)
     if (observerMs) add(buckets, 'measurement commit observer', observerMs)
     if (productMs) add(buckets, kind, productMs)
+    const taskBegin = Math.max(begin, taskStart), taskFinish = Math.min(finish, taskEnd)
+    const taskMs = Math.max(0, taskFinish - taskBegin) / 1000
+    const taskObserverMs = !taskMs ? 0 : kind === 'measurement commit observer'
+      ? taskMs : observerOverlap(taskBegin, taskFinish)
+    const taskProductMs = Math.max(0, taskMs - taskObserverMs)
+    taskSampled += taskMs
+    if (taskObserverMs) add(taskBuckets, 'measurement commit observer', taskObserverMs)
+    if (taskProductMs) add(taskBuckets, kind, taskProductMs)
     const hasMobxDerivation = chain.some(({ source }) => source && /mobx\/.+\/(derivation|computedvalue)\.ts$/.test(source.file))
     if (kind.startsWith('React render') && hasMobxDerivation) reactMobxMs += productMs
     if (chain.some(({ source }) => source?.file.includes('mobx') && /runReaction_|runReactionsHelper/.test(source.name))) reactionInclusiveMs += productMs
@@ -320,10 +340,12 @@ for (const { file, profile } of raw) {
       if (index === 0) {
         add(rawSelf, label, ms)
         if (productMs) add(self, label, productMs)
+        if (taskProductMs) add(taskSelf, label, taskProductMs)
       }
       if (!seen.has(label)) {
         add(rawInclusive, label, ms)
         if (productMs) add(inclusive, label, productMs)
+        if (taskProductMs) add(taskInclusive, label, taskProductMs)
         seen.add(label)
       }
     })
@@ -346,16 +368,10 @@ for (const { file, profile } of raw) {
           url: source.file, lineNumber: source.line - 1, columnNumber: 0 } : node.callFrame }
     }),
   }))
-  const main = events.filter((e) => e.ph === 'X' && e.pid === mark.pid && e.tid === mark.tid && e.ts < end && e.ts + (e.dur ?? 0) > start)
-  const intervals = (selected: Event[]) => selected.map((e) => [Math.max(start, e.ts), Math.min(end, e.ts + (e.dur ?? 0))] as [number, number])
   const timeline: Record<string, number> = {}
   for (const name of ['UpdateLayoutTree', 'Layout', 'PrePaint', 'Paint', 'EventDispatch', 'FunctionCall', 'FireAnimationFrame'])
     timeline[name] = union(intervals(main.filter((e) => e.name === name)))
   timeline['layoutPaintUnion'] = union(intervals(main.filter((e) => ['UpdateLayoutTree', 'Layout', 'PrePaint', 'Paint'].includes(e.name))))
-  const taskEventName = main.some(e => e.name === 'ThreadControllerImpl::RunTask')
-    ? 'ThreadControllerImpl::RunTask' : 'RunTask'
-  const tasks = main.filter((e) => e.name === taskEventName)
-  if (!tasks.length) throw new Error(`${file}: trace has no top-level task boundaries`)
   const longTasks = tasks.filter((e) => Math.min(end, e.ts + (e.dur ?? 0)) - Math.max(start, e.ts) > 50_000)
     .map((e) => ({ windowMs: (Math.min(end, e.ts + e.dur!) - Math.max(start, e.ts)) / 1000,
       fullMs: e.dur! / 1000, offsetMs: (e.ts - start) / 1000 }))
@@ -378,6 +394,9 @@ for (const { file, profile } of raw) {
       observerBeforeLongestMs: observerOverlap(start, start + Math.max(0, longTasks[0]?.offsetMs ?? 0) * 1000) },
     commits: { count: commits.length, observerMs: commits.reduce((sum, c) => sum + c.end - c.at, 0),
       renderedInstances: Object.values(rendered).reduce((sum, count) => sum + count, 0), components: rendered },
+    longestTask: { inputUs: taskStart, endUs: taskEnd, wallMs: (taskEnd - taskStart) / 1000,
+      sampledMs: taskSampled, exclusiveSampledMs: taskBuckets,
+      self: ranked(taskSelf), inclusive: ranked(taskInclusive) },
     self: ranked(self), inclusive: ranked(inclusive), rawSelf: ranked(rawSelf), rawInclusive: ranked(rawInclusive),
   })
 }
