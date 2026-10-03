@@ -66,6 +66,8 @@ await build({
       }), __accountEdit: () => {
         flushSync(() => {
           owner!.getSnapshot().setSelectedIssueId(asIssueId(targets.visibleRootId));
+          const session = owner!.getSnapshot().sessions.find(row => row.sessionId === targets.phaseSessionId);
+          owner!.getSnapshot().setSelectedWorktree(session!.worktreePath);
           owner!.getSnapshot().openSessionTab(lifetimeSessionId(targets.phaseSessionId));
           const s = owner!.getSnapshot(), ws = s.workspaces[s.workspaceKey()];
           s.splitWorkspacePane(ws.focusedPaneId, 'row', { tabId: targets.heartbeatSessionId });
