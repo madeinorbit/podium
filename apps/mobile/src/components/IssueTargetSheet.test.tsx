@@ -1,11 +1,12 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId } from '@podium/model'
+import { createReaderIndex } from '@podium/client-graph/shared/reader-questions'
 import { cleanup, render } from '@testing-library/react'
 import type { ComponentType, ReactNode } from 'react'
 import type { FlatListProps as NativeFlatListProps } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-type FlatListProps = NativeFlatListProps<IssueViewModel>
+type FlatListProps = NativeFlatListProps<string>
 let captured: FlatListProps | undefined
 
 vi.mock('react-native-safe-area-context', () => ({
@@ -38,7 +39,7 @@ vi.mock('react-native', async (importOriginal) => {
   return { ...actual, FlatList: CapturingFlatList as ComponentType<FlatListProps> }
 })
 
-const { IssueTargetSheet, filterIssueTargets, issueTargetFooterPadding } = await import(
+const { IssueTargetSheet, issueTargetFooterPadding } = await import(
   './IssueTargetSheet'
 )
 
@@ -53,6 +54,7 @@ const candidate = (index: number): IssueViewModel =>
     seq: index,
     displayRef: `POD-${index}`,
     repoPath: '/repo',
+    repoId: 'repo',
     title: `Candidate ${index}`,
     description: '',
     stage: 'backlog',
@@ -76,7 +78,10 @@ describe('IssueTargetSheet scale boundary', () => {
       <IssueTargetSheet
         visible
         title="Parent"
-        issues={issues}
+        ids={issues.map(issue => issue.id)}
+        query=""
+        onQueryChange={() => {}}
+        onEndReached={() => {}}
         onPick={() => {}}
         onClose={() => {}}
       />,
@@ -87,17 +92,20 @@ describe('IssueTargetSheet scale boundary', () => {
     expect(captured?.maxToRenderPerBatch).toBeLessThan(600)
     expect(captured?.windowSize).toBeLessThan(600)
     expect(captured?.scrollEnabled).toBe(true)
-    expect(captured?.keyExtractor?.(issues[417]!, 417)).toBe('issue-417')
+    expect(captured?.keyExtractor?.(issues[417]!.id, 417)).toBe('issue-417')
     expect(captured?.getItemLayout).toBeUndefined()
   })
 
   it('filters the large candidate set by safe title and display ref text', () => {
     const issues = Array.from({ length: 600 }, (_, index) => candidate(index))
-    expect(filterIssueTargets(issues, 'Candidate 417').map((issue) => issue.id)).toEqual([
+    const index = createReaderIndex()
+    index.apply({ type: 'replace', rows: issues.map(issue => ({ kind: 'issue', id: issue.id, value: issue as never })) })
+    const matches = (query: string) => index.ids({ kind: 'mobileIssueTargets', repoPath: '/repo', excludeId: 'owner', query, limit: 600, prefixes: { repo: 'POD' } })
+    expect(matches('Candidate 417')).toEqual([
       'issue-417',
     ])
-    expect(filterIssueTargets(issues, '#599').map((issue) => issue.id)).toEqual(['issue-599'])
-    expect(filterIssueTargets(issues, 'pod 417').map((issue) => issue.id)).toEqual(['issue-417'])
+    expect(matches('#599')).toEqual(['issue-599'])
+    expect(matches('pod 417')).toEqual(['issue-417'])
   })
 
   it('clears the home indicator without double-paying it above the keyboard', () => {

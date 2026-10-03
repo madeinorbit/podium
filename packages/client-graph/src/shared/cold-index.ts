@@ -96,7 +96,7 @@ export interface ColdQueries {
   readonly issueRepoRevision: number
   readonly sessionRevision: number
   readerIds(question: ReaderQuestion): string[]
-  issueRepoIds(): string[]
+  issueRepoIds(repoPath?: string): string[]
   sessionCollapsed(id: string): boolean
   sessionOrderKey(id: string): string
   readerActivity(question: SessionActivityQuestion): number
@@ -524,7 +524,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       return collapseVersion
     },
     readerIds: (question) => readers.ids(question),
-    issueRepoIds: () => readers.repoIds(),
+    issueRepoIds: (path) => readers.repoIds(path),
     sessionCollapsed: (id) => relations.collapsed('session', id),
     sessionOrderKey: (id) => relations.orderKey('session', id),
     relations,

@@ -68,35 +68,35 @@ export function useIssueInputs(issue: IssueViewModel) {
   return useMobilePoolProjection(read, null)
 }
 
-function mateIds(pool: MobxPool, issue: IssueViewModel) {
-  return pool.queries
-    .ids({ kind: 'boardIssues', projectPaths: [issue.repoPath], archived: true, deleted: false })
-    .filter((id) => id !== issue.id)
-}
 /** The overflow needs only existence. Target payloads are read when a target
  * picker actually opens, using the already declared repository question. */
 export function useHasIssueMates(issue: IssueViewModel, enabled: boolean) {
   const read = useCallback(
-    (pool: MobxPool) => enabled && mateIds(pool, issue).length > 0,
+    (pool: MobxPool) => enabled && pool.queries.ids({
+      kind: 'mobileIssueTargets', repoPath: issue.repoPath, excludeId: issue.id, query: '', limit: 1,
+      prefixes: {},
+    }).length > 0,
     [issue, enabled],
   )
   return useMobilePoolProjection(read, false)
 }
-const NO_TARGETS: IssueViewModel[] = []
-export function useIssueTargets(issue: IssueViewModel, enabled: boolean) {
+const NO_TARGETS: string[] = []
+export function useIssueTargets(issue: IssueViewModel, enabled: boolean, query: string, limit: number) {
   const read = useCallback(
-    (pool: MobxPool): IssueViewModel[] | null => {
+    (pool: MobxPool): string[] | null => {
       if (!enabled) return NO_TARGETS
-      const targets: IssueViewModel[] = []
-      let pending = false
-      for (const id of mateIds(pool, issue)) {
-        const target = issuePages(pool).summary(id)
-        if (target === LOADING) pending = true
-        else if (target) targets.push(target)
+      const prefixes: Record<string, string | undefined> = {}
+      for (const id of pool.queries.repoIds(issue.repoPath)) {
+        const repo = pool.row('repo', id) as { prefix?: string } | typeof LOADING | undefined
+        if (repo === LOADING) return null
+        prefixes[id] = repo?.prefix
       }
-      return pending ? null : targets.sort((a, b) => b.seq - a.seq)
+      return pool.queries.ids({
+        kind: 'mobileIssueTargets', repoPath: issue.repoPath, excludeId: issue.id, query, limit,
+        prefixes,
+      })
     },
-    [issue, enabled],
+    [issue, enabled, query, limit],
   )
   return useMobilePoolProjection(read, null)
 }

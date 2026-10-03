@@ -451,6 +451,19 @@ it('keeps parent target order literal and row reads bounded by its visible choic
         derivations: phase.computedRuns + phase.reactionRuns,
         neighbours: choices.length,
       })
+      // The same archived targets remain searchable by title and display ref;
+      // the expected values are literal, independent of the source question.
+      state.measuring = false
+      fireEvent.change(screen.getByLabelText('Search parent'), { target: { value: '  Historical task 1199  ' } })
+      await waitFor(() => expect(screen.getAllByRole('button', { name: /^POD-\d+ Historical task / }).map(choice => choice.getAttribute('aria-label'))).toEqual([
+        'POD-1299 Historical task 1199',
+      ]))
+      for (const query of ['#1299', 'pod 1299']) {
+        fireEvent.change(screen.getByLabelText('Search parent'), { target: { value: query } })
+        await waitFor(() => expect(screen.getAllByRole('button', { name: /^POD-\d+ Historical task / }).map(choice => choice.getAttribute('aria-label'))).toEqual([
+          'POD-1299 Historical task 1199',
+        ]))
+      }
     } finally {
       state.measuring = false
       census.stop()

@@ -81,6 +81,15 @@ export class ReaderQueries {
   ids(question: ReaderQuestion): string[] {
     const index = this.watch(JSON.stringify(question), (value) => value.readerRevision(question)),
       entity = questionEntity(question)
+    // This bounded, ordered question is answered by the effective source feed,
+    // including its pending overlays. Adding every resident identity would
+    // break its repository, search, exclusion and window contracts.
+    if (question.kind === 'mobileIssueTargets') {
+      const ids = index.readerIds(question)
+      this.counts.questions++
+      this.counts.returnedIds += ids.length
+      return ids
+    }
     // Resident identities remain the pool's authority, including pending
     // edits that have not reached the feed. A query is a candidate set; the
     // reader checks its current fields through pool.row.
@@ -119,8 +128,11 @@ export class ReaderQueries {
       residentIds(this.pool, entity).filter((id) => !index.known(entity, id)).length
     )
   }
-  repoIds(): string[] {
-    return this.watch('repos', (value) => value.issueRepoRevision).issueRepoIds()
+  repoIds(repoPath?: string): string[] {
+    return this.watch(`repos:${repoPath ?? '*'}`, value => repoPath === undefined
+      ? value.issueRepoRevision
+      : value.readerRevision({ kind: 'mobileIssueTargets', repoPath, excludeId: '', query: '', limit: 0, prefixes: {} }))
+      .issueRepoIds(repoPath)
   }
   activity(question: SessionActivityQuestion): number {
     const index = this.watch(JSON.stringify(question), (value) =>

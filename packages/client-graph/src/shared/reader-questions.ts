@@ -33,6 +33,14 @@ export type ReaderQuestion =
   | { kind: 'commandIssueSessions'; issueId: string }
   | { kind: 'containingIssues'; cwd: string }
   | {
+      kind: 'mobileIssueTargets'
+      repoPath: string
+      excludeId: string
+      query: string
+      limit: number
+      prefixes: Readonly<Record<string, string | undefined>>
+    }
+  | {
       kind: 'boardIssues'
       priority?: number
       stage?: string
@@ -53,10 +61,19 @@ export const questionEntity = (question: ReaderQuestion): 'issue' | 'session' =>
 
 type Row = Readonly<Record<string, unknown>>
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const targetTitle = 'issue:targetTitle:'
+const targetGram = (field: 'title' | 'ref', text: string, path: string) =>
+  `issue:targetGram:${field}:${JSON.stringify([path, text])}`
+function grams(text: string, length: number): Set<string> {
+  const out = new Set<string>()
+  if (length === 0) return out
+  for (let at = 0; at <= text.length - length; at++) out.add(text.slice(at, at + length))
+  return out
+}
 
-/** Incremental identity/facet indexes. No payload or summary is retained. Text
- * matching and ancestor eligibility stay with the reader and its single row
- * read; scalar filters narrow that demand before any cold summary is read. */
+/** Incremental source identity/facet indexes. No row or summary is retained.
+ * The phone target question answers its declared order/text predicate here;
+ * other questions narrow the reader's scalar and ancestor checks. */
 export function createReaderIndex() {
   const buckets = new Map<string, Set<string>>()
   const repos = new Set<string>()
@@ -64,10 +81,43 @@ export function createReaderIndex() {
   const recent: { id: string; at: string }[] = []
   const positions = new Map<string, number>()
   const revisions = new Map<string, number>()
+  // Source identity/facet postings, never pool objects or cached row payloads.
+  // Sorted at publication time so an open reads only its requested window.
+  const targetOrder = new Map<string, number>()
+  const targetPostings = new Map<string, string[]>()
+  const targetRepos = new Map<string, Map<string, number>>()
+  const targetCounts = { visits: 0 }
   let replacement = 0
   let repoRevision = 0
   let version = 0
   const touch = (key: string) => revisions.set(key, ++version)
+  const compareTargets = (a: string, b: string) =>
+    (targetOrder.get(b) ?? 0) - (targetOrder.get(a) ?? 0) || byId(a, b)
+  const orderedTargetKey = (key: string) =>
+    key.startsWith('issue:path:') || key.startsWith('issue:targetGram:')
+  function removeTarget(key: string, id: string) {
+    const ids = targetPostings.get(key)
+    if (!ids) return
+    let lo = 0, hi = ids.length
+    while (lo < hi) {
+      const at = (lo + hi) >>> 1
+      if (compareTargets(ids[at]!, id) < 0) lo = at + 1
+      else hi = at
+    }
+    if (ids[lo] === id) ids.splice(lo, 1)
+    if (!ids.length) targetPostings.delete(key)
+  }
+  function addTarget(key: string, id: string) {
+    let ids = targetPostings.get(key)
+    if (!ids) targetPostings.set(key, (ids = []))
+    let lo = 0, hi = ids.length
+    while (lo < hi) {
+      const at = (lo + hi) >>> 1
+      if (compareTargets(ids[at]!, id) < 0) lo = at + 1
+      else hi = at
+    }
+    ids.splice(lo, 0, id)
+  }
   const better = (a: { id: string; at: string }, b: { id: string; at: string }) =>
     a.at > b.at || (a.at === b.at && byId(a.id, b.id) < 0)
   function swap(a: number, b: number) {
@@ -103,6 +153,12 @@ export function createReaderIndex() {
     if (kind === 'issue') {
       out.add(`issue:repo:${row.repoId ?? ''}`)
       out.add(`issue:path:${row.repoPath ?? ''}`)
+      const title = String(row.title ?? '').toLocaleLowerCase()
+      const ref = String(row.seq ?? '')
+      out.add(`${targetTitle}${title}`)
+      for (const [field, text] of [['title', title], ['ref', ref]] as const)
+        for (let length = 1; length <= Math.min(3, text.length); length++)
+          for (const gram of grams(text, length)) out.add(targetGram(field, gram, String(row.repoPath ?? '')))
       out.add(`issue:priority:${row.priority}`)
       out.add(
         `issue:status:${issueStatusOf({ stage: row.stage, closedReason: row.closedReason } as Parameters<typeof issueStatusOf>[0])}`,
@@ -132,6 +188,36 @@ export function createReaderIndex() {
     const address = `${kind}:${id}`,
       before = filed.get(address) ?? new Set<string>()
     const after = row ? keys(kind, row) : new Set<string>()
+    if (kind === 'issue') {
+      const beforeEligible = before.has('issue:undeleted'), afterEligible = after.has('issue:undeleted')
+      const facet = (keys: Set<string>, prefix: string) => [...keys].find(key => key.startsWith(prefix))?.slice(prefix.length)
+      const oldPath = beforeEligible ? facet(before, 'issue:path:') : undefined, nextPath = afterEligible ? facet(after, 'issue:path:') : undefined
+      const oldRepo = beforeEligible ? facet(before, 'issue:repo:') : undefined, nextRepo = afterEligible ? facet(after, 'issue:repo:') : undefined
+      if (oldPath !== nextPath || oldRepo !== nextRepo) {
+        if (oldPath !== undefined && oldRepo !== undefined) {
+          const repos = targetRepos.get(oldPath), count = (repos?.get(oldRepo) ?? 1) - 1
+          if (count) repos!.set(oldRepo, count)
+          else repos?.delete(oldRepo)
+          if (!repos?.size) targetRepos.delete(oldPath)
+        }
+        if (nextPath !== undefined && nextRepo !== undefined) {
+          let repos = targetRepos.get(nextPath)
+          if (!repos) targetRepos.set(nextPath, (repos = new Map()))
+          repos.set(nextRepo, (repos.get(nextRepo) ?? 0) + 1)
+        }
+      }
+      const seq = row ? Number(row.seq ?? 0) : undefined
+      const moved = targetOrder.get(id) !== seq
+      for (const key of before)
+        if (beforeEligible && orderedTargetKey(key) && (!afterEligible || moved || !after.has(key))) removeTarget(key, id)
+      if (seq === undefined) targetOrder.delete(id)
+      else targetOrder.set(id, seq)
+      for (const key of after)
+        if (afterEligible && orderedTargetKey(key) && (!beforeEligible || moved || !before.has(key))) addTarget(key, id)
+      if (moved || before.size !== after.size || [...before].some(key => !after.has(key)))
+        for (const key of new Set([...before, ...after]))
+          if (key.startsWith('issue:path:')) touch(`mobileTargets:${key}`)
+    }
     for (const key of before)
       if (!after.has(key)) {
         const ids = buckets.get(key)
@@ -188,6 +274,7 @@ export function createReaderIndex() {
     return [...(sets[0] ?? [])].filter((id) => sets.every((set) => set.has(id)))
   }
   return {
+    targetCounts,
     get version() {
       return version
     },
@@ -197,6 +284,9 @@ export function createReaderIndex() {
     revision(question: ReaderQuestion): number {
       const keys = [`${questionEntity(question)}:all`]
       switch (question.kind) {
+        case 'mobileIssueTargets':
+          keys.push(`mobileTargets:issue:path:${question.repoPath}`)
+          break
         case 'proposedIssues':
           keys.push('issue:proposed')
           break
@@ -252,17 +342,78 @@ export function createReaderIndex() {
         recent.length = 0
         positions.clear()
         revisions.clear()
+        targetOrder.clear()
+        targetPostings.clear()
+        targetRepos.clear()
         replacement = ++version
         repoRevision++
       }
       for (const record of event.rows)
         if (record.kind !== 'worktree') set(record.kind, record.id, record.value as Row | undefined)
     },
-    repoIds(): string[] {
-      return [...repos].sort(byId)
+    repoIds(path?: string): string[] {
+      return [...(path === undefined ? repos : targetRepos.get(path)?.keys() ?? [])].sort(byId)
     },
     ids(question: ReaderQuestion): string[] {
       switch (question.kind) {
+        case 'mobileIssueTargets': {
+          const path = `issue:path:${question.repoPath}`
+          const repo = bucket(path), undeleted = bucket('issue:undeleted')
+          const needle = question.query.trim().toLocaleLowerCase()
+          const refNeedle = needle.replace(/[^a-z0-9]/g, '')
+          const prefixes = new Set(['', ...Object.values(question.prefixes).map(prefix =>
+            (prefix ?? '').toLocaleLowerCase().replace(/[^a-z0-9]/g, ''))])
+          const sequences = new Set<string>()
+          if (/\d/.test(refNeedle)) for (const prefix of prefixes) {
+            if (prefix.includes(refNeedle)) sequences.add('')
+            for (let cut = 0; cut < refNeedle.length; cut++) {
+              const tail = refNeedle.slice(cut)
+              if (prefix.endsWith(refNeedle.slice(0, cut)) && /^\d+$/.test(tail)) sequences.add(tail)
+            }
+          }
+          const candidates = (field: 'title' | 'ref', text: string) => {
+            const lists = [targetPostings.get(path) ?? []]
+            const sets: ReadonlySet<string>[] = [repo, undeleted]
+            for (const gram of grams(text, Math.min(3, text.length))) {
+              const key = targetGram(field, gram, question.repoPath)
+              lists.push(targetPostings.get(key) ?? [])
+              sets.push(bucket(key))
+            }
+            lists.sort((a, b) => a.length - b.length)
+            return { ids: lists[0]!, sets, field, text }
+          }
+          const lanes = needle
+            ? [candidates('title', needle), ...[...sequences].map(text => candidates('ref', text))]
+            : [candidates('title', '')]
+          const positions = lanes.map(() => 0), out: string[] = []
+          const limit = Math.max(0, Math.trunc(question.limit))
+          while (out.length < limit) {
+            let lane = -1, id: string | undefined
+            for (let at = 0; at < lanes.length; at++) {
+              const next = lanes[at]!.ids[positions[at]!]
+              if (next !== undefined && (id === undefined || compareTargets(next, id) < 0)) {
+                lane = at
+                id = next
+              }
+            }
+            if (id === undefined) break
+            positions[lane]!++
+            targetCounts.visits++
+            const input = lanes[lane]!
+            if (id === question.excludeId || !input.sets.every(set => set.has(id))) continue
+            const facets = filed.get(`issue:${id}`) ?? new Set<string>()
+            if (input.field === 'title') {
+              if (input.text && ![...facets].some(key => key.startsWith(targetTitle) && key.slice(targetTitle.length).includes(input.text))) continue
+            } else {
+              const repoId = [...facets].find(key => key.startsWith('issue:repo:'))?.slice('issue:repo:'.length) ?? ''
+              const ref = `${question.prefixes[repoId] ?? ''}${targetOrder.get(id)}`
+                .toLocaleLowerCase().replace(/[^a-z0-9]/g, '')
+              if (!ref.includes(refNeedle)) continue
+            }
+            if (out[out.length - 1] !== id) out.push(id)
+          }
+          return out
+        }
         case 'residentIssues':
           return []
         case 'proposedIssues':

@@ -13,7 +13,7 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import {
   useCoarseNow,
@@ -175,6 +175,7 @@ type OpenSheet =
  *  fact be stated two ways. */
 const EMPTY_ISSUES: IssueViewModel[] = []
 const EMPTY_SESSIONS: SessionView[] = []
+const EMPTY_TARGET_IDS: string[] = []
 
 const RELATION_TYPES = ['blocks', 'related', 'discovered-from'] as const
 
@@ -202,8 +203,17 @@ function IssueContent({
   const [error, setError] = useState<string | null>(null)
   const [sheet, setSheet] = useState<OpenSheet>(null)
   const targetPickerOpen = sheet?.kind === 'parent' || sheet?.kind === 'relation-target' || sheet?.kind === 'supersede'
-  const targets = useIssueTargets(issue, targetPickerOpen)
-  const mates = targets ?? EMPTY_ISSUES
+  const [targetQuery, setTargetQuery] = useState('')
+  const [targetLimit, setTargetLimit] = useState(14)
+  const targets = useIssueTargets(issue, targetPickerOpen, targetQuery, targetLimit + 1)
+  const mates = targets?.slice(0, targetLimit) ?? EMPTY_TARGET_IDS
+  useEffect(() => {
+    if (!targetPickerOpen) { setTargetQuery(''); setTargetLimit(14) }
+  }, [targetPickerOpen])
+  const searchTargets = (query: string) => { setTargetQuery(query); setTargetLimit(14) }
+  const moreTargets = () => {
+    if (targets && targets.length > targetLimit) setTargetLimit((limit) => limit + 14)
+  }
   const hasMates = useHasIssueMates(issue, sheet?.kind === 'menu')
   const [detailsOpen, detailsCollapsed] = useDetailsFold()
   const keyboardLift = useKeyboardLift()
@@ -469,8 +479,11 @@ function IssueContent({
       <IssueTargetSheet
         visible={sheet?.kind === 'parent' && targets !== null}
         title="Parent"
-        subtitle={mates.length === 0 ? 'No other task in this repo to nest under.' : undefined}
-        issues={mates}
+        subtitle={targets?.length === 0 && !targetQuery ? 'No other task in this repo to nest under.' : undefined}
+        ids={mates}
+        query={targetQuery}
+        onQueryChange={searchTargets}
+        onEndReached={moreTargets}
         onPick={(target) => commands.setParent(target.id)}
         onClose={closeIf('parent')}
       />
@@ -488,7 +501,10 @@ function IssueContent({
       <IssueTargetSheet
         visible={sheet?.kind === 'relation-target' && targets !== null}
         title={sheet?.kind === 'relation-target' ? sheet.type : ''}
-        issues={mates}
+        ids={mates}
+        query={targetQuery}
+        onQueryChange={searchTargets}
+        onEndReached={moreTargets}
         onPick={(target) => {
           if (sheet?.kind === 'relation-target') commands.addRelation(sheet.type, target.id)
         }}
@@ -499,7 +515,10 @@ function IssueContent({
         visible={sheet?.kind === 'supersede' && targets !== null}
         title="Supersede with"
         subtitle="This task is closed as replaced by the one you pick."
-        issues={mates}
+        ids={mates}
+        query={targetQuery}
+        onQueryChange={searchTargets}
+        onEndReached={moreTargets}
         onPick={(target) => commands.supersedeWith(target.id)}
         onClose={closeIf('supersede')}
       />

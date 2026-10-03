@@ -1,38 +1,44 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { asIssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback } from 'react'
 import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { BottomSheet } from './BottomSheet'
 import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
+
+type IssueTarget = Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef'>
 
 /** Search-first issue chooser for relationship and hierarchy edits. */
 export function IssueTargetSheet({
   visible,
   title,
   subtitle,
-  issues,
+  ids,
+  query,
+  onQueryChange,
+  onEndReached,
   onPick,
   onClose,
 }: {
   visible: boolean
   title: string
   subtitle?: string
-  issues: readonly IssueViewModel[]
-  onPick: (issue: IssueViewModel) => void
+  ids: readonly string[]
+  query: string
+  onQueryChange: (query: string) => void
+  onEndReached: () => void
+  onPick: (issue: IssueTarget) => void
   onClose: () => void
 }) {
-  const [query, setQuery] = useState('')
   const insets = useSafeAreaInsets()
   const keyboardHeight = useKeyboardHeight()
-  useEffect(() => {
-    if (!visible) setQuery('')
-  }, [visible])
-
-  const matches = useMemo(() => filterIssueTargets(issues, query), [issues, query])
   const footerPadding = issueTargetFooterPadding(insets.bottom, keyboardHeight)
 
   return (
@@ -49,7 +55,7 @@ export function IssueTargetSheet({
             autoFocus
             accessibilityLabel={`Search ${title.toLocaleLowerCase()}`}
             value={query}
-            onChangeText={setQuery}
+            onChangeText={onQueryChange}
             placeholder="Search by title or ID…"
             placeholderTextColor={color.textMicro}
             returnKeyType="search"
@@ -73,31 +79,19 @@ export function IssueTargetSheet({
       virtualizedContent={(scrollEnabled) => (
         <FlatList
           style={styles.listFrame}
-          data={matches}
-          keyExtractor={(issue) => issue.id}
+          data={ids}
+          keyExtractor={(id) => id}
           initialNumToRender={14}
           maxToRenderPerBatch={12}
           windowSize={7}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.2}
           scrollEnabled={scrollEnabled}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           contentContainerStyle={styles.list}
-          renderItem={({ item: issue }) => (
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={`${issueDisplayRef(issue)} ${issue.title}`}
-              onPress={() => {
-                onClose()
-                onPick(issue)
-              }}
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-            >
-              <StageGlyph stage={issue.stage} size={14} ground={color.surface} />
-              <Text style={styles.ref}>{issueDisplayRef(issue)}</Text>
-              <Text style={styles.title} numberOfLines={2}>
-                {issue.title}
-              </Text>
-            </PressableScale>
+          renderItem={({ item: id }) => (
+            <IssueTargetRow id={id} onPick={onPick} onClose={onClose} />
           )}
           ListEmptyComponent={<Text style={styles.empty}>No matching tasks.</Text>}
         />
@@ -106,22 +100,37 @@ export function IssueTargetSheet({
   )
 }
 
-/** Pure, deterministic membership used by the virtualized picker and its scale guard. */
-export function filterIssueTargets(
-  issues: readonly IssueViewModel[],
-  query: string,
-): readonly IssueViewModel[] {
-  const needle = query.trim().toLocaleLowerCase()
-  if (!needle) return issues
-  const refNeedle = needle.replace(/[^a-z0-9]/g, '')
-  return issues.filter(
-    (issue) =>
-      issue.title.toLocaleLowerCase().includes(needle) ||
-      (/\d/.test(refNeedle) &&
-        issueDisplayRef(issue)
-          .toLocaleLowerCase()
-          .replace(/[^a-z0-9]/g, '')
-          .includes(refNeedle)),
+/** FlatList mounts only its visible window. Missing facts stay loading while
+ * the one reader batches their demand; the catalog never caches payloads. */
+function IssueTargetRow({ id, onPick, onClose }: {
+  id: string
+  onPick: (issue: IssueTarget) => void
+  onClose: () => void
+}) {
+  const read = useCallback((pool: MobxPool): IssueTarget | typeof LOADING | undefined => {
+    const row = pool.row('issue', id, 'summary-fields') as
+      | Pick<IssueViewModel, 'seq' | 'title' | 'stage' | 'repoId'> | typeof LOADING | undefined
+    if (!row || row === LOADING) return row
+    const repo = row.repoId ? pool.row('repo', row.repoId) as
+      | { prefix?: string } | typeof LOADING | undefined : undefined
+    if (repo === LOADING) return LOADING
+    return { id: asIssueId(id), seq: row.seq, title: row.title, stage: row.stage,
+      displayRef: repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}` }
+  }, [id])
+  const issue = useMobilePoolProjection(read, LOADING)
+  if (issue === undefined) return null
+  if (issue === LOADING) return <View style={styles.row}><Text style={styles.title}>Loading…</Text></View>
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`${issueDisplayRef(issue)} ${issue.title}`}
+      onPress={() => { onClose(); onPick(issue) }}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+    >
+      <StageGlyph stage={issue.stage} size={14} ground={color.surface} />
+      <Text style={styles.ref}>{issueDisplayRef(issue)}</Text>
+      <Text style={styles.title} numberOfLines={2}>{issue.title}</Text>
+    </PressableScale>
   )
 }
 
