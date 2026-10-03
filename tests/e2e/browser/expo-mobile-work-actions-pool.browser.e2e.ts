@@ -38,7 +38,7 @@ async function rpc<T>(
 }
 async function longPress(page: Page, cdp: CDPSession, label: string) {
   const row = page.getByRole('button', { name: label, exact: true })
-  await row.scrollIntoViewIfNeeded()
+  await row.click({ trial: true })
   const box = await row.boundingBox()
   if (!box) throw new Error('Missing native row')
   await cdp.send('Input.dispatchTouchEvent', {
@@ -112,13 +112,13 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
       observe(page)
       const initial = () =>
         page.getByRole('button', { name: new RegExp(`^(?:[A-Z]+-\\d+|#\\d+) ${title}$`) })
+      await launchWork(page, on, false)
+      await expect(initial()).toBeVisible({ timeout: 60_000 })
       const cdp = await context.newCDPSession(page)
       const heap = async () => {
         await cdp.send('HeapProfiler.collectGarbage')
         return (await cdp.send('Runtime.getHeapUsage')).usedSize as number
       }
-      await launchWork(page, on, false)
-      await expect(initial()).toBeVisible({ timeout: 60_000 })
       const startupToRowMs = parityOnly ? undefined : await page.evaluate(() => performance.now())
       const before = parityOnly ? undefined : await heap()
       const label = (await initial().getAttribute('aria-label'))!
