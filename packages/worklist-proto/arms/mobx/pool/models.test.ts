@@ -31,7 +31,9 @@ installMobxWarnTrap()
 describe('schema fields on models', () => {
   it('reads every declared field of every entity off a model, from the fed row', () => {
     const corpus = buildCorpus(1)
-    const projections = new Map(corpus.issueProjections.map((issue) => [issue.id, issue]))
+    const projections = new Map<string, (typeof corpus.issueProjections)[number]>(
+      corpus.issueProjections.map((issue) => [issue.id, issue]),
+    )
     const replay = createReplaySource({
       // SliceIssue is the worklist payload. The schema test also feeds the
       // normalized projection's required fields (priority, type, labels).
@@ -51,7 +53,7 @@ describe('schema fields on models', () => {
     })
     const locals = fixedLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
     const legacy = runLegacyDerivation(corpus, locals.source.get())
-    const titles = new Map(legacy.models.map((issue) => [
+    const titles = new Map<string, string>(legacy.models.map((issue) => [
       issue.id, issueDisplayTitle(issue, legacy.sessions, legacy.allWorktreePaths),
     ]))
     expect(titles.get('i1405'), 'the draft-title contract regression').toBe('New Codex session')
