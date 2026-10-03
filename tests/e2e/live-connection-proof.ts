@@ -186,6 +186,7 @@ export async function liveConnectionProof() {
           })
         },
       })
+      const step = (name: string) => console.info(`connection proof ${app}: ${name}`)
       try {
         await context.addCookies([
           {
@@ -220,6 +221,7 @@ export async function liveConnectionProof() {
           undefined,
           { timeout: 20_000 },
         )
+        step('both tabs connected')
         const row = IssueProjection.parse({
           ...makeIssue({ id: 'fixture-issue', title: 'Relayed from the first tab' }),
           repoId: 'fixture-repo',
@@ -260,6 +262,7 @@ export async function liveConnectionProof() {
             { timeout: 15_000 },
           )
         const before = await Promise.all([snapshot(first), snapshot(second)])
+        step('row relayed to both tabs')
         const port = authority.port
         await authority.stop(true)
         for (const page of [first, second])
@@ -291,6 +294,7 @@ export async function liveConnectionProof() {
             `unexpected reconnect count: ${JSON.stringify({ dials: [...dials], reconnects })}`,
           )
         if (errors.length) throw new Error(errors.join('\n'))
+        step('both tabs reconnected exactly once')
         const proofDir = process.env.PODIUM_CONNECTION_PROOF_DIR
         if (proofDir) {
           await mkdir(proofDir, { recursive: true })
@@ -306,8 +310,14 @@ export async function liveConnectionProof() {
               claimToken: fixtureClaim,
             }),
           )
-        await first.waitForURL(`http://127.0.0.1:${promoted.port}/auth/server-transfer-claim#**`, {
-          timeout: 10_000,
+        step('relocation sent')
+        await first.waitForURL(
+          (url) =>
+            url.origin === `http://127.0.0.1:${promoted.port}` &&
+            url.pathname === '/auth/server-transfer-claim',
+          { timeout: 10_000 },
+        ).catch((error) => {
+          throw new Error(`${app} relocation at ${first.url()}: ${error.message}; ${errors.join('; ')}`)
         })
         const destination = new URL(first.url())
         results.push({
@@ -321,6 +331,7 @@ export async function liveConnectionProof() {
             movedRequests.every((url) => !url.includes(fixtureClaim)),
         })
         await second.evaluate(() => (window as FixtureWindow).connectionProof.stop())
+        step('relocation observed and replica disposed')
       } finally {
         await context.close()
         await authority.stop(true)
