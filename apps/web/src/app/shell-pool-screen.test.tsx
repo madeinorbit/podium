@@ -88,6 +88,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
   expect(states).toContain(true)
   expect(failures).toEqual([])
   expect(document.querySelector('[data-testid="loaded"]')?.textContent).toContain('40')
+  await waitFor(() => expect(document.querySelector('[data-testid="loaded"]')?.textContent?.split(':')[0]).toBe('1'))
   storeStats.reset()
   const capture = storeStats.begin('feed')
   await act(async () => {
