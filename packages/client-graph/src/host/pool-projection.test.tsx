@@ -7,7 +7,7 @@ import { createKernelReplica, createSideCache, memoryStorage } from '@podium/cli
 import { asUserId } from '@podium/model/browser'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MobxPool } from '../pool'
 import { createPoolHost } from './pool-host'
 import { poolSwitches } from './switches'
@@ -33,9 +33,10 @@ async function mount(inline: boolean) {
     reads++
     return { now: current.clock.current }
   }
+  let reader = read
   function Probe() {
     pool = host.usePool()
-    snapshot = host.usePoolProjection(inline ? (current) => read(current) : read, null)
+    snapshot = host.usePoolProjection(inline ? (current) => read(current) : reader, null)
     return null
   }
   const replica = createKernelReplica({
@@ -63,7 +64,10 @@ async function mount(inline: boolean) {
     ))
   }
   render()
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+  await vi.waitFor(async () => {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    expect(pool).not.toBeNull()
+  })
   expect(pilot.layer()).toBe('pool')
   expect(pool).not.toBeNull()
   expect(snapshot).not.toBeNull()
@@ -71,6 +75,7 @@ async function mount(inline: boolean) {
     reads: () => reads,
     snapshot: () => snapshot!,
     render,
+    replaceReader: () => { reader = (current) => read(current); render() },
     tick: () => act(() => {
       const publisher = runtime as unknown as { apply(patch: { coarseNow: number }): void }
       publisher.apply({ coarseNow: snapshot!.now + 60_000 })
@@ -95,5 +100,14 @@ describe('real host projection read counts with the pilot on', () => {
     expect(firstMount).toBe(2)
     expect(perChange).toBe(inline ? 3 : 1)
     expect(parentRerender).toBe(inline ? 2 : 0)
+  })
+
+  it('measures a changed reader such as a screen navigation callback', async () => {
+    const fixture = await mount(false)
+    const before = fixture.reads()
+    fixture.replaceReader()
+    const readerChange = fixture.reads() - before
+    console.info('[pool projection reader change]', { readerChange })
+    expect(readerChange).toBe(2)
   })
 })
