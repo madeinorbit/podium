@@ -149,11 +149,13 @@ Final navigation shadowing is green in 5,865 files; the span-effect gate is
 green with 162 span bodies, 7 accepted effects, zero unclassified effects and
 8 declared opaque bodies.
 
-POD-5370's seeded phone startup fix has landed at `8db927c57f`; this consumer
-is rebased onto it. Internal POD-5374 tracks the final three-row production
-off/on style comparison and interleaved Chrome Paint/heap capture. The status
-negative control already fails on the intended comparison; no positive
-production timing result is claimed yet.
+POD-5370's seeded phone startup fix landed at `8db927c57f` before this
+consumer's production acceptance. The restored minified Expo export passes
+**all three Pixel Chromium checks**: default-off and restart-latched switch
+behavior, plus the seeded real WorkScreen row/style comparison and mission
+press. The three synthetic rows have **zero differences** in text,
+accessibility labels and computed styles across off/on/off/on. Application
+errors are zero.
 
 The production fixture waits for the previous saved preference before changing
 arms: the pilot-on preference's lazy pool attachment can initially display
@@ -162,3 +164,32 @@ race and did not count. The corrected final console control fails exclusively
 on the planted app error. Expected anonymous-harness 401 resource reports
 are recorded separately; page errors, application console errors and other
 resource errors remain failures.
+
+The capture ran on flatblock under `bench:flatblock`, acquired after the
+build completed and the 1-minute load dropped below eight. Chromium was
+**148.0.7778.96**. All four arms used the same production build,
+`8c178e62f9856f877155e0abe750c250840166c8`, an empty WIP checkpoint with
+the same tree as local candidate `4e6f12ebe1`. The JSON and foreground browser
+log are attached to this issue. The five separately recorded 401 reports
+all came from the anonymous harness's `/auth/client-sessions` request.
+
+| Browser observation, two samples per arm | Off | On |
+| --- | ---: | ---: |
+| Input → actual Paint, ms | 86.136 / 96.511 | 109.767 / 137.181 |
+| Median input → actual Paint, ms | 91.324 | 123.474 |
+| Median fresh-start → visible row, ms | 273.945 | 458.168 |
+| Median forced-GC heap before press, bytes | 18,625,980 | 19,135,740 |
+| Median forced-GC heap after mission, bytes | 21,109,724 | 22,128,520 |
+
+The pool arm is **35.2% slower** in these two press-to-Paint samples; the
+capture shows a row-commit reduction, not a browser timing win. Two samples
+per arm on three synthetic issues are observations rather than a calibrated
+mobile performance gate. Fresh-start readiness measures new principal/provider
+construction on each document load, not an in-place principal switch.
+These are RN-web production results, not device CPU measurements.
+
+**POD-5389 (Mobile pilot timing overhead)** is filed in Proposed with a
+`discovered-from` dependency. It owns calibration with a representative
+corpus and investigation of any repeatable navigation/publication overhead.
+This issue's native parity, stable-section and commits-per-change acceptance
+criteria are met; the timing follow-up remains open.
