@@ -20,8 +20,8 @@ import {
 } from '../../../shared/src/scenarios'
 import { tracked } from '../adapters/mobx-pool'
 import { FENCE_SCENARIOS, openFenceFeeds } from '../fence-scenarios'
-import { installMobxWarnTrap } from '../mobx-trap'
 import { FIXED_NOW } from '../fixture/corpus'
+import { installMobxWarnTrap } from '../mobx-trap'
 import { writeResult } from '../results'
 import { expectPoolOutput } from './pool-output'
 

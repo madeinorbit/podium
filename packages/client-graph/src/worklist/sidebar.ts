@@ -2,16 +2,17 @@
  * The small state argument is caller-owned per-user layout/selection data.
  * It is never read from worklistSlice, a selector, or browser storage here.
  */
-import type { MobxPool } from '../pool'
-import type { ModelHost } from '../models'
-import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
-import { issueExcluded } from '../shared/schema'
-import { overlayRow } from '../shared/overlay-row'
+
 import { compareStructural, computed, type IComputedValue, untracked } from 'mobx'
 import { debugName } from '../debug-name'
-import { LOADING, attentionGroup } from './rollup'
-import { retains, retentionOf, type HiddenIssue } from './visible'
-import { sortedSidebarSessions, type SidebarRowValues } from './sidebar-row'
+import type { ModelHost } from '../models'
+import type { MobxPool } from '../pool'
+import { overlayRow } from '../shared/overlay-row'
+import { issueExcluded } from '../shared/schema'
+import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
+import { attentionGroup, LOADING } from './rollup'
+import { type SidebarRowValues, sortedSidebarSessions } from './sidebar-row'
+import { type HiddenIssue, retains, retentionOf } from './visible'
 
 export interface SidebarState {
   readonly projectOrder?: readonly string[]
@@ -82,13 +83,23 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
       // Reason about a historical seat from declared summaries. Only a seat
       // the summaries cannot rule out requests a batch; no cold id is indexed.
       const summary = host.row('session', id, 'summary')
-      if (summary === LOADING) { pending += 1; continue }
+      if (summary === LOADING) {
+        pending += 1
+        continue
+      }
       const retention = retentionOf(summary as SliceSession | undefined)
       if (retention === null || !retention.seat) continue
       const ownerId = retention.issueId
-      const owner = ownerId && untracked(() => host.row('issue', ownerId, 'mark')) === LOADING
-        ? host.row('issue', ownerId, 'summary') as HiddenIssue | typeof LOADING | undefined : undefined
-      if (owner && owner !== LOADING && (issueExcluded(owner) || (owner.flatUntil !== undefined && input.passed(owner.flatUntil)))) continue
+      const owner =
+        ownerId && untracked(() => host.row('issue', ownerId, 'mark')) === LOADING
+          ? (host.row('issue', ownerId, 'summary') as HiddenIssue | typeof LOADING | undefined)
+          : undefined
+      if (
+        owner &&
+        owner !== LOADING &&
+        (issueExcluded(owner) || (owner.flatUntil !== undefined && input.passed(owner.flatUntil)))
+      )
+        continue
       if (owner === undefined && !retains(retention, undefined, undefined, input)) continue
       if (host.resident('session', id) === 'loading') pending += 1
       if (owner && retention.issueId) void host.resident('issue', retention.issueId)
@@ -98,8 +109,8 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
     if (retention === null || !retention.seat || retention.shell) continue
     const owner = session.issueLink === null ? undefined : input.issue(session.issueLink)
     if (owner?.standing?.excluded) continue
-    const finish = retention.finish.kind === 'idleDone' && owner?.standing?.finished
-      ? owner.ownFacts : undefined
+    const finish =
+      retention.finish.kind === 'idleDone' && owner?.standing?.finished ? owner.ownFacts : undefined
     if (retains(retention, finish, owner?.standing, input)) ids.push(id)
   }
   return { ids, pending }
@@ -122,7 +133,10 @@ export class SidebarIndex {
     const id = this.pool.selection.keys().next().value ?? null
     if (id === null) return false
     const resident = this.pool.resident('issue', id)
-    if (resident !== 'absent') { this.seenSelected = id; return false }
+    if (resident !== 'absent') {
+      this.seenSelected = id
+      return false
+    }
     if (this.seenSelected !== id) return false
     return true
   }
@@ -131,7 +145,11 @@ export class SidebarIndex {
     const model = this.pool.issue(id)
     if (model?.selected !== true) return false
     const row = model.sidebar
-    return row !== undefined && row !== LOADING && (!row.draftAgentOnly || state.paneA === row.firstSessionId)
+    return (
+      row !== undefined &&
+      row !== LOADING &&
+      (!row.draftAgentOnly || state.paneA === row.firstSessionId)
+    )
   }
 
   worktree(path: string, state: SidebarState = {}): SidebarWorktree | undefined {
@@ -141,34 +159,66 @@ export class SidebarIndex {
     const issues = new Map<string, SliceIssue & { readonly displayRef: string }>()
     const roster = this.pool.model('worktree', path)?.roster
     if (roster === undefined || (!roster.ids.length && roster.pending === 0)) return undefined
-    let activityAt = 0, pending = roster.pending
+    let activityAt = 0,
+      pending = roster.pending
     for (const id of roster.ids) {
       const sessionModel = this.pool.model('session', id)
       const row = this.pool.row('session', id)
-      if (row === LOADING) { pending += 1; continue }
+      if (row === LOADING) {
+        pending += 1
+        continue
+      }
       if (row === undefined || sessionModel === undefined) continue
       const session = row as SliceSession
-      const owner = sessionModel.issueLink === null ? undefined : this.pool.knownIssue(sessionModel.issueLink)
+      const owner =
+        sessionModel.issueLink === null ? undefined : this.pool.knownIssue(sessionModel.issueLink)
       if (session.issueId && owner) {
         const raw = this.pool.row('issue', session.issueId)
         if (raw === LOADING) pending += 1
-        else if (raw !== undefined) issues.set(session.issueId, overlayRow(raw as SliceIssue, { displayRef: this.pool.issue(session.issueId)!.displayRef }))
+        else if (raw !== undefined)
+          issues.set(
+            session.issueId,
+            overlayRow(raw as SliceIssue, {
+              displayRef: this.pool.issue(session.issueId)!.displayRef,
+            }),
+          )
       }
       activityAt = Math.max(activityAt, Date.parse(session.lastActiveAt) || 0)
       if (session.status !== 'exited') sessions.push(session)
     }
     const sorted = sortedSidebarSessions(sessions, this.pool.inputs.reached)
-    const candidates = sorted.filter(s => attentionGroup(s) !== 'working' && this.pool.inputs.passed((Date.parse(s.lastActiveAt) || 0) + 16 * 60 * 60 * 1000))
-    const staleIds = new Set(sorted.length > 5 && candidates.length > 3 ? [...candidates].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt)).slice(3).map(s => s.sessionId) : [])
-    return { worktree: lane as SliceWorktree, sessions: sorted,
-      visible: sorted.filter(s => !staleIds.has(s.sessionId)), stale: sorted.filter(s => staleIds.has(s.sessionId)),
-      issues: [...issues.values()], activityAt, pending, active: this.pool.selection.size === 0 && state.selectedWorktree === path }
+    const candidates = sorted.filter(
+      (s) =>
+        attentionGroup(s) !== 'working' &&
+        this.pool.inputs.passed((Date.parse(s.lastActiveAt) || 0) + 16 * 60 * 60 * 1000),
+    )
+    const staleIds = new Set(
+      sorted.length > 5 && candidates.length > 3
+        ? [...candidates]
+            .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
+            .slice(3)
+            .map((s) => s.sessionId)
+        : [],
+    )
+    return {
+      worktree: lane as SliceWorktree,
+      sessions: sorted,
+      visible: sorted.filter((s) => !staleIds.has(s.sessionId)),
+      stale: sorted.filter((s) => staleIds.has(s.sessionId)),
+      issues: [...issues.values()],
+      activityAt,
+      pending,
+      active: this.pool.selection.size === 0 && state.selectedWorktree === path,
+    }
   }
 
   sections(state: SidebarState = EMPTY_STATE): SidebarSections {
     let view = this.sectionViews.get(state)
     if (!view) {
-      view = computed(() => this.sectionValues(state), { name: debugName(() => 'pool.sidebar.sections'), equals: compareStructural })
+      view = computed(() => this.sectionValues(state), {
+        name: debugName(() => 'pool.sidebar.sections'),
+        equals: compareStructural,
+      })
       this.sectionViews.set(state, view)
     }
     return view.get()
@@ -178,27 +228,58 @@ export class SidebarIndex {
     const pinnedIds = this.pool.groups.pinnedRootIds
     const bands = new Map<string, SidebarBand>()
     const index = this.pool.sidebarRosters
-    const repos = [...index.projects].map(path => this.pool.row('worktree', path))
+    const repos = [...index.projects]
+      .map((path) => this.pool.row('worktree', path))
       .filter((row): row is SliceWorktree => row !== undefined && row !== LOADING)
-      .filter(lane => state.pinnedRepos?.includes(lane.path) || index.unpinnedProjectLanes(lane.projectIndex, state.pinnedWorktrees ?? []) > 0).sort((a, b) => {
-      const ap = state.pinnedRepos?.indexOf(a.path) ?? -1, bp = state.pinnedRepos?.indexOf(b.path) ?? -1
-      if (ap >= 0 || bp >= 0) return ap >= 0 && bp >= 0 ? ap - bp : ap >= 0 ? -1 : 1
-      return (a.projectIndex ?? 0) - (b.projectIndex ?? 0)
-    })
-    const add = (key: string, label: string, path: string, aliases: readonly string[] = [key]): SidebarBand => {
+      .filter(
+        (lane) =>
+          state.pinnedRepos?.includes(lane.path) ||
+          index.unpinnedProjectLanes(lane.projectIndex, state.pinnedWorktrees ?? []) > 0,
+      )
+      .sort((a, b) => {
+        const ap = state.pinnedRepos?.indexOf(a.path) ?? -1,
+          bp = state.pinnedRepos?.indexOf(b.path) ?? -1
+        if (ap >= 0 || bp >= 0) return ap >= 0 && bp >= 0 ? ap - bp : ap >= 0 ? -1 : 1
+        return (a.projectIndex ?? 0) - (b.projectIndex ?? 0)
+      })
+    const add = (
+      key: string,
+      label: string,
+      path: string,
+      aliases: readonly string[] = [key],
+    ): SidebarBand => {
       const previous = bands.get(key)
       if (previous) return previous
       const foldKey = `podium:sidebar:project-fold:${key}`
       const snoozedFoldKey = `podium:sidebar:snoozed-fold:${key}`
       const closedFoldKey = `podium:sidebar:closed-fold:${key}`
-      const band: SidebarBand = { key, label, aliases, repoPath: path, rowIds: [], worktreeIds: [], snoozedIds: [], closedIds: [],
-        foldKey, snoozedFoldKey, closedFoldKey, collapsed: state.collapsed?.[foldKey] === true,
+      const band: SidebarBand = {
+        key,
+        label,
+        aliases,
+        repoPath: path,
+        rowIds: [],
+        worktreeIds: [],
+        snoozedIds: [],
+        closedIds: [],
+        foldKey,
+        snoozedFoldKey,
+        closedFoldKey,
+        collapsed: state.collapsed?.[foldKey] === true,
         snoozedCollapsed: state.collapsed?.[snoozedFoldKey] !== false,
-        closedCollapsed: state.collapsed?.[closedFoldKey] !== false, startFirstTask: true }
+        closedCollapsed: state.collapsed?.[closedFoldKey] !== false,
+        startFirstTask: true,
+      }
       bands.set(key, band)
       return band
     }
-    for (const repo of repos) add(repo.repoId ?? repo.repoPath, repo.repoName, repo.repoPath, repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path])
+    for (const repo of repos)
+      add(
+        repo.repoId ?? repo.repoPath,
+        repo.repoName,
+        repo.repoPath,
+        repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path],
+      )
     for (const key of this.pool.groups.keys) {
       const group = this.pool.groups.group(key)
       const { rowIds, snoozedIds, closedIds } = group.sidebarRows
@@ -207,7 +288,8 @@ export class SidebarIndex {
       // A registered root was seeded above. Otherwise legacy uses the first
       // open issue's path, then the key; folded rows never supply this path.
       const firstOpen = rowIds[0]
-      const path = firstOpen === undefined ? key : this.pool.groups.placementOf(firstOpen)?.repoPath ?? key
+      const path =
+        firstOpen === undefined ? key : (this.pool.groups.placementOf(firstOpen)?.repoPath ?? key)
       const band = add(key, label, path)
       bands.set(key, { ...band, label, rowIds, snoozedIds, closedIds, startFirstTask: false })
     }
@@ -217,21 +299,40 @@ export class SidebarIndex {
       const band = add(key, roster.label, roster.repoPath)
       // The unified head names the section before folds: worktrees (band 1)
       // precede snoozed roots (band 2), even when a root is in the closed fold.
-      const label = (band.snoozedIds.length > 0 || band.closedIds.length > 0)
-        && this.pool.groups.group(key).sidebarMetadata.headBand === 2 ? roster.label : band.label
+      const label =
+        (band.snoozedIds.length > 0 || band.closedIds.length > 0) &&
+        this.pool.groups.group(key).sidebarMetadata.headBand === 2
+          ? roster.label
+          : band.label
       bands.set(key, { ...band, label, worktreeIds: roster.ids, startFirstTask: false })
     }
     const base = [...bands.values()]
-    const registered = new Set(repos.map(repo => repo.repoId ?? repo.repoPath))
-    base.sort((a, b) => registered.has(a.key) && registered.has(b.key) ? 0 : registered.has(a.key) ? -1 : registered.has(b.key) ? 1 : a.key.localeCompare(b.key))
+    const registered = new Set(repos.map((repo) => repo.repoId ?? repo.repoPath))
+    base.sort((a, b) =>
+      registered.has(a.key) && registered.has(b.key)
+        ? 0
+        : registered.has(a.key)
+          ? -1
+          : registered.has(b.key)
+            ? 1
+            : a.key.localeCompare(b.key),
+    )
     const remaining = new Set(base)
     const ordered: SidebarBand[] = []
     for (const saved of state.projectOrder ?? []) {
-      const band = base.find(item => remaining.has(item) && item.aliases.includes(saved))
-      if (band) { ordered.push(band); remaining.delete(band) }
+      const band = base.find((item) => remaining.has(item) && item.aliases.includes(saved))
+      if (band) {
+        ordered.push(band)
+        remaining.delete(band)
+      }
     }
     for (const band of base) if (remaining.has(band)) ordered.push(band)
-    return { pinnedIds, bands: ordered, pinnedFoldKey: 'podium:sidebar:pinned-fold', pinnedCollapsed: state.collapsed?.['podium:sidebar:pinned-fold'] === true }
+    return {
+      pinnedIds,
+      bands: ordered,
+      pinnedFoldKey: 'podium:sidebar:pinned-fold',
+      pinnedCollapsed: state.collapsed?.['podium:sidebar:pinned-fold'] === true,
+    }
   }
 }
 
