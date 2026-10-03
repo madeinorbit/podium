@@ -174,6 +174,7 @@ it('keeps hooks stable through null-pool attachment and restores saved controlle
   f.mode = 'pool'; f.guard = true
   const graph = f.pool; f.pool = null
   const restored: ReturnType<typeof useChatSend>[] = []
+  const blocks: [] = []
   function Send() {
     const id = f.fixture!.sessions[0]!.sessionId
     const value = useChatSend({ sessionId: id, store: handle, trpc: { messages: { records: { query: async () => ({ records: [] }) } } } as never,
@@ -181,7 +182,7 @@ it('keeps hooks stable through null-pool attachment and restores saved controlle
       discardChat: vi.fn(async () => {}), dismissOffer: vi.fn(async () => {}), setPanelMode: vi.fn(),
       setSessionDraft: (id, text) => f.fixture!.state().setSessionDraft(id, text), getUserFocus: () => ({} as never),
       attachedSessionId: null, clearAttachedSession: vi.fn(), getIssueSeq: () => null, headless: false, superThread: undefined,
-      compact: false, composer: { sendable: true, canResume: false }, ownThreadIds: undefined, blocks: [], session: undefined,
+      compact: false, composer: { sendable: true, canResume: false }, ownThreadIds: undefined, blocks, session: undefined,
       headlessTurn: { sendTurn: vi.fn(), interrupt: vi.fn() } as never, canInterrupt: false, latestOperatorPrompt: null,
       pinToBottom: vi.fn(), initialPendingText: undefined })
     restored.push(value)
