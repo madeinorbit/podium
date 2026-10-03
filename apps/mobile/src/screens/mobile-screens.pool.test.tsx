@@ -430,10 +430,12 @@ it.each([
     fireEvent.click(screen.getByLabelText('Working'))
   })
   checkpoint('deck mode')
-  await act(async () => fireEvent.click(screen.getByLabelText('Full')))
-  await act(async () =>
-    fireEvent.click(screen.getByLabelText(/Fold every branch|Expand every branch/)),
-  )
+  await act(async () => {
+    fireEvent.click(screen.getByLabelText('Full'))
+  })
+  await act(async () => {
+    fireEvent.click(screen.getByLabelText(/Fold every branch|Expand every branch/))
+  })
   checkpoint('deck fold')
   const sessions = corpus.sessions.map((session, index) =>
     index === 0
@@ -480,7 +482,9 @@ it.each([
   })
   expect(state.runtime!.getSnapshot().coarseNow).toBeGreaterThan(beforeClock)
   checkpoint('idle clock')
-  await act(async () => fireEvent.click(screen.getByLabelText('Close task search')))
+  await act(async () => {
+    fireEvent.click(screen.getByLabelText('Close task search'))
+  })
   checkpoint('clear search')
   const before = state.runtime
   view.unmount()
