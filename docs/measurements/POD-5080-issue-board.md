@@ -109,8 +109,8 @@ child counts and progress, fleet order, projection lifetime, declared summaries,
 both internal and external old-summary compatibility, summary identity,
 overlays, loading, index scaling/release, parent scope, attention, mismatch
 detection, legacy-read counters, the real startup attachment, supplied close
-sessions and the default-off switch. Each case copies the file aside, commits the plant, runs its exact
-check, copies the original back and verifies byte equality.
+sessions and the default-off switch. Each case copies the file aside, commits
+the plant, runs its exact check, copies the original back and verifies byte equality.
 
 The ludovico-only read-only replay compares 6,045 operator issues and 5,160
 sessions in 16 cases, with zero differences or pending results. Its private pool
