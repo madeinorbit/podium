@@ -39,9 +39,7 @@ vi.mock('react-native', async (importOriginal) => {
   return { ...actual, FlatList: CapturingFlatList as ComponentType<FlatListProps> }
 })
 
-const { IssueTargetSheet, issueTargetFooterPadding } = await import(
-  './IssueTargetSheet'
-)
+const { IssueTargetSheet, issueTargetFooterPadding } = await import('./IssueTargetSheet')
 
 afterEach(() => {
   captured = undefined
@@ -78,7 +76,7 @@ describe('IssueTargetSheet scale boundary', () => {
       <IssueTargetSheet
         visible
         title="Parent"
-        ids={issues.map(issue => issue.id)}
+        ids={issues.map((issue) => issue.id)}
         query=""
         onQueryChange={() => {}}
         onEndReached={() => {}}
@@ -99,11 +97,20 @@ describe('IssueTargetSheet scale boundary', () => {
   it('filters the large candidate set by safe title and display ref text', () => {
     const issues = Array.from({ length: 600 }, (_, index) => candidate(index))
     const index = createReaderIndex()
-    index.apply({ type: 'replace', rows: issues.map(issue => ({ kind: 'issue', id: issue.id, value: issue as never })) })
-    const matches = (query: string) => index.ids({ kind: 'mobileIssueTargets', repoPath: '/repo', excludeId: 'owner', query, limit: 600, prefixes: { repo: 'POD' } })
-    expect(matches('Candidate 417')).toEqual([
-      'issue-417',
-    ])
+    index.apply({
+      type: 'replace',
+      rows: issues.map((issue) => ({ kind: 'issue', id: issue.id, value: issue as never })),
+    })
+    const matches = (query: string) =>
+      index.ids({
+        kind: 'mobileIssueTargets',
+        repoPath: '/repo',
+        excludeId: 'owner',
+        query,
+        limit: 600,
+        prefixes: { repo: 'POD' },
+      })
+    expect(matches('Candidate 417')).toEqual(['issue-417'])
     expect(matches('#599')).toEqual(['issue-599'])
     expect(matches('pod 417')).toEqual(['issue-417'])
   })

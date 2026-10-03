@@ -102,34 +102,59 @@ export function IssueTargetSheet({
 
 /** FlatList mounts only its visible window. Missing facts stay loading while
  * the one reader batches their demand; the catalog never caches payloads. */
-function IssueTargetRow({ id, onPick, onClose }: {
+function IssueTargetRow({
+  id,
+  onPick,
+  onClose,
+}: {
   id: string
   onPick: (issue: IssueTarget) => void
   onClose: () => void
 }) {
-  const read = useCallback((pool: MobxPool): IssueTarget | typeof LOADING | undefined => {
-    const row = pool.row('issue', id, 'summary-fields') as
-      | Pick<IssueViewModel, 'seq' | 'title' | 'stage' | 'repoId'> | typeof LOADING | undefined
-    if (!row || row === LOADING) return row
-    const repo = row.repoId ? pool.row('repo', row.repoId) as
-      | { prefix?: string } | typeof LOADING | undefined : undefined
-    if (repo === LOADING) return LOADING
-    return { id: asIssueId(id), seq: row.seq, title: row.title, stage: row.stage,
-      displayRef: repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}` }
-  }, [id])
+  const read = useCallback(
+    (pool: MobxPool): IssueTarget | typeof LOADING | undefined => {
+      const row = pool.row('issue', id, 'summary-fields') as
+        | Pick<IssueViewModel, 'seq' | 'title' | 'stage' | 'repoId'>
+        | typeof LOADING
+        | undefined
+      if (!row || row === LOADING) return row
+      const repo = row.repoId
+        ? (pool.row('repo', row.repoId) as { prefix?: string } | typeof LOADING | undefined)
+        : undefined
+      if (repo === LOADING) return LOADING
+      return {
+        id: asIssueId(id),
+        seq: row.seq,
+        title: row.title,
+        stage: row.stage,
+        displayRef: repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`,
+      }
+    },
+    [id],
+  )
   const issue = useMobilePoolProjection(read, LOADING)
   if (issue === undefined) return null
-  if (issue === LOADING) return <View style={styles.row}><Text style={styles.title}>Loading…</Text></View>
+  if (issue === LOADING)
+    return (
+      <View style={styles.row}>
+        <Text style={styles.title}>Loading…</Text>
+      </View>
+    )
   return (
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`${issueDisplayRef(issue)} ${issue.title}`}
-      onPress={() => { onClose(); onPick(issue) }}
+      onPress={() => {
+        onClose()
+        onPick(issue)
+      }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       <StageGlyph stage={issue.stage} size={14} ground={color.surface} />
       <Text style={styles.ref}>{issueDisplayRef(issue)}</Text>
-      <Text style={styles.title} numberOfLines={2}>{issue.title}</Text>
+      <Text style={styles.title} numberOfLines={2}>
+        {issue.title}
+      </Text>
     </PressableScale>
   )
 }

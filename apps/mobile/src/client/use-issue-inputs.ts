@@ -72,16 +72,27 @@ export function useIssueInputs(issue: IssueViewModel) {
  * picker actually opens, using the already declared repository question. */
 export function useHasIssueMates(issue: IssueViewModel, enabled: boolean) {
   const read = useCallback(
-    (pool: MobxPool) => enabled && pool.queries.ids({
-      kind: 'mobileIssueTargets', repoPath: issue.repoPath, excludeId: issue.id, query: '', limit: 1,
-      prefixes: {},
-    }).length > 0,
+    (pool: MobxPool) =>
+      enabled &&
+      pool.queries.ids({
+        kind: 'mobileIssueTargets',
+        repoPath: issue.repoPath,
+        excludeId: issue.id,
+        query: '',
+        limit: 1,
+        prefixes: {},
+      }).length > 0,
     [issue, enabled],
   )
   return useMobilePoolProjection(read, false)
 }
 const NO_TARGETS: string[] = []
-export function useIssueTargets(issue: IssueViewModel, enabled: boolean, query: string, limit: number) {
+export function useIssueTargets(
+  issue: IssueViewModel,
+  enabled: boolean,
+  query: string,
+  limit: number,
+) {
   const read = useCallback(
     (pool: MobxPool): string[] | null => {
       if (!enabled) return NO_TARGETS
@@ -92,7 +103,11 @@ export function useIssueTargets(issue: IssueViewModel, enabled: boolean, query: 
         prefixes[id] = repo?.prefix
       }
       return pool.queries.ids({
-        kind: 'mobileIssueTargets', repoPath: issue.repoPath, excludeId: issue.id, query, limit,
+        kind: 'mobileIssueTargets',
+        repoPath: issue.repoPath,
+        excludeId: issue.id,
+        query,
+        limit,
         prefixes,
       })
     },

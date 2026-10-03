@@ -129,10 +129,18 @@ export class ReaderQueries {
     )
   }
   repoIds(repoPath?: string): string[] {
-    return this.watch(`repos:${repoPath ?? '*'}`, value => repoPath === undefined
-      ? value.issueRepoRevision
-      : value.readerRevision({ kind: 'mobileIssueTargets', repoPath, excludeId: '', query: '', limit: 0, prefixes: {} }))
-      .issueRepoIds(repoPath)
+    return this.watch(`repos:${repoPath ?? '*'}`, (value) =>
+      repoPath === undefined
+        ? value.issueRepoRevision
+        : value.readerRevision({
+            kind: 'mobileIssueTargets',
+            repoPath,
+            excludeId: '',
+            query: '',
+            limit: 0,
+            prefixes: {},
+          }),
+    ).issueRepoIds(repoPath)
   }
   activity(question: SessionActivityQuestion): number {
     const index = this.watch(JSON.stringify(question), (value) =>

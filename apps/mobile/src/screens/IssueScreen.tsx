@@ -15,14 +15,12 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
-import {
-  useCoarseNow,
-  useConnected,
-  useStoreActions,
-  useTrpc,
-} from '../client/hooks'
+import { useCoarseNow, useConnected, useStoreActions, useTrpc } from '../client/hooks'
 import { useHasIssueMates, useIssueInputs, useIssueTargets } from '../client/use-issue-inputs'
-import { useSessionContextIssue as useIssue, useSessionContextBooting as useBooting } from '../client/use-session-context'
+import {
+  useSessionContextIssue as useIssue,
+  useSessionContextBooting as useBooting,
+} from '../client/use-session-context'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
@@ -202,15 +200,22 @@ function IssueContent({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sheet, setSheet] = useState<OpenSheet>(null)
-  const targetPickerOpen = sheet?.kind === 'parent' || sheet?.kind === 'relation-target' || sheet?.kind === 'supersede'
+  const targetPickerOpen =
+    sheet?.kind === 'parent' || sheet?.kind === 'relation-target' || sheet?.kind === 'supersede'
   const [targetQuery, setTargetQuery] = useState('')
   const [targetLimit, setTargetLimit] = useState(14)
   const targets = useIssueTargets(issue, targetPickerOpen, targetQuery, targetLimit + 1)
   const mates = targets?.slice(0, targetLimit) ?? EMPTY_TARGET_IDS
   useEffect(() => {
-    if (!targetPickerOpen) { setTargetQuery(''); setTargetLimit(14) }
+    if (!targetPickerOpen) {
+      setTargetQuery('')
+      setTargetLimit(14)
+    }
   }, [targetPickerOpen])
-  const searchTargets = (query: string) => { setTargetQuery(query); setTargetLimit(14) }
+  const searchTargets = (query: string) => {
+    setTargetQuery(query)
+    setTargetLimit(14)
+  }
   const moreTargets = () => {
     if (targets && targets.length > targetLimit) setTargetLimit((limit) => limit + 14)
   }
@@ -479,7 +484,11 @@ function IssueContent({
       <IssueTargetSheet
         visible={sheet?.kind === 'parent' && targets !== null}
         title="Parent"
-        subtitle={targets?.length === 0 && !targetQuery ? 'No other task in this repo to nest under.' : undefined}
+        subtitle={
+          targets?.length === 0 && !targetQuery
+            ? 'No other task in this repo to nest under.'
+            : undefined
+        }
         ids={mates}
         query={targetQuery}
         onQueryChange={searchTargets}
