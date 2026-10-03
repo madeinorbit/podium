@@ -11,8 +11,8 @@ export function createMobileTestReplica(): Replica {
   let seq = 0
   const key = (entity: string, id: string) => `${entity}:${id}`
   const replica = createKernelReplica({ cache: {
-    readCursor: () => ({ seq }), readEntities: () => [...records.values()],
-    read: (entity, id) => records.get(key(entity, id)), durability: () => 'memory',
+    readCursor: () => seq ? { seq } : null, readEntities: () => [...records.values()],
+    read: (entity, id) => records.get(key(entity, id)), durability: () => 'degraded-memory',
   }, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   function applyChanges<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][], removed: string[]) {
     const entity = entityForKind(kind)
