@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { autorun, runInAction } from 'mobx'
-import { asIssueId, asSessionId, asUserId, sessionUserStateRowId } from '@podium/model/browser'
+import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
+import { sessionUserStateRowId } from '@podium/model'
 import { storeStats } from '@podium/client-core/perf'
 import { repoUsageAt } from '@podium/client-core/viewmodels'
 import { createRuntimeWorklistPool } from './runtime-pool'
