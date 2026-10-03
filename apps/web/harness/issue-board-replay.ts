@@ -7,13 +7,13 @@ import { sessionViews } from '@podium/client-core/session-values'
 import { dedupeSessions, type Store } from '@podium/client-core/engine'
 import { NdjsonLineReader, readSyncStream } from '@podium/client-core/sync-stream'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { runInAction } from 'mobx'
-import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
-import { createRuntimeWorklistPool } from '../src/runtime-pool'
-import { createIssueBoardSource } from '../src/issue-board-source'
-import { ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_SUMMARIES } from '../src/issue-board-schema'
-import { checkBoard, checkExplorer } from '../../../apps/web/src/features/issues/board-pool-check'
-import { DEFAULT_DISPLAY } from '../../../apps/web/src/features/issues/issues-display'
+import { ScenarioCache } from '../../../packages/worklist-proto/shared/src/scenarios'
+import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
+import { ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_SUMMARIES } from '@podium/client-graph/issue-board-schema'
+import { checkBoard, checkExplorer } from '../src/features/issues/board-pool-check'
+import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
+import { inBoardCheck } from '@podium/client-graph/diagnostics/issue-board-check'
 
 let phase = 0
 async function main() {
@@ -50,10 +50,10 @@ async function main() {
     const before = handle.pool.tables.issue.size
     const reports = []
     for (const filter of [{}, { stage: 'planning' as const }, { status: 'ready' as const }, { archived: true }, { deleted: true }]) {
-      for (const layout of ['board', 'list'] as const) reports.push(runInAction(() => checkBoard(runtime as never, handle.pool, {
+      for (const layout of ['board', 'list'] as const) reports.push(inBoardCheck(() => checkBoard(runtime as never, handle.pool, {
         display: { ...DEFAULT_DISPLAY, layout }, filter, expanded: [], isMobile: false, openIssueId: null, now })))
     }
-    for (const tab of [null, 'needs', 'in_progress', 'planning', 'done', 'cancelled'] as const) reports.push(runInAction(() => checkExplorer(runtime as never, handle.pool, tab, '')))
+    for (const tab of [null, 'needs', 'in_progress', 'planning', 'done', 'cancelled'] as const) reports.push(inBoardCheck(() => checkExplorer(runtime as never, handle.pool, tab, '')))
     console.log(JSON.stringify({ phase, issues: issues.length, sessions: sessions.length, comparisons: reports.length,
       differences: reports.reduce((n, report) => n + report.differences, 0), pending: reports.reduce((n, report) => n + report.pending, 0),
       first: reports.find(report => report.first)?.first ?? null, residentBefore: before, residentAfter: handle.pool.tables.issue.size,

@@ -10,7 +10,9 @@ export const issueBoardPoolScreen: PoolScreen = {
     const { createIssueBoardSource } = await import('@podium/client-graph/issue-board-source')
     await pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () => createIssueBoardSource(pool, runtime))
     if (!issueBoardSwitch.checkRequested() || typeof window === 'undefined') return
-    const { installBoardCheck } = await import('./board-pool-check')
-    return installBoardCheck(runtime, pool)
+    try {
+      const { installBoardCheck } = await import('./board-pool-check')
+      return installBoardCheck(runtime, pool)
+    } catch { /* Optional comparison cannot retire the required read source. */ }
   },
 }

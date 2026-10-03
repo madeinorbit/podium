@@ -10,7 +10,7 @@ export const issueBoardStats = {
   read() { return { ...counts } },
 }
 export function countIssueBoard(name: string, count = 1): void {
-  if (enabled) counts[name] = (counts[name] ?? 0) + count
+  if (enabled && (Object.hasOwn(counts, name) || Object.keys(counts).length < 32)) counts[name] = (counts[name] ?? 0) + count
 }
 export function legacyIssueBoard<T>(owner: object, name: 'board' | 'explorer', read: () => T): T {
   recordSliceDerivation(owner, `issueBoard.${name}`)
