@@ -18,7 +18,9 @@ const uiState = {
   }),
   subscribe: (wake: () => void) => {
     uiListeners.add(wake)
-    return () => { uiListeners.delete(wake) }
+    return () => {
+      uiListeners.delete(wake)
+    }
   },
 }
 const githubList = vi.fn()
@@ -65,7 +67,7 @@ function publishUnchangedSelection(): void {
 }
 
 vi.mock('@podium/client-core/react', async (original) => ({
-  ...await original<typeof import('@podium/client-core/react')>(),
+  ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => ({ getSnapshot: () => storeSnapshot }),
 }))
 

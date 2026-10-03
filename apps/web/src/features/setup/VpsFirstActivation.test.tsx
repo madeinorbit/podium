@@ -25,7 +25,9 @@ const uiState = {
   set: uiSet,
   subscribe: (wake: () => void) => {
     uiListeners.add(wake)
-    return () => { uiListeners.delete(wake) }
+    return () => {
+      uiListeners.delete(wake)
+    }
   },
 }
 

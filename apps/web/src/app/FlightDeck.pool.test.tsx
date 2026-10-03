@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import { dedupeSessions } from '@podium/client-core/engine'
-import type { RoutedUiState } from '@podium/client-core/ui-state'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -8,6 +7,7 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
+import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/viewmodels'
 import { missionView } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
