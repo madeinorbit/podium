@@ -40,7 +40,8 @@ vi.mock('@podium/client-core/react', async original => ({ ...await original<type
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => state.pool,
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => {
-    const projection = useMemo(() => state.pool ? createPoolProjection(state.pool as MobxPool, read) : null, [read, state.pool])
+    const currentPool = state.pool as MobxPool | null
+    const projection = useMemo(() => currentPool ? createPoolProjection(currentPool, read) : null, [read, currentPool])
     return useSyncExternalStore(projection?.subscribe ?? (() => () => {}), projection?.getSnapshot ?? (() => empty))
   },
 }))
@@ -104,13 +105,16 @@ async function settled() {
 describe('rendered mission pane parity', () => {
   it('derives a mission once and retains its rows when only the selected session changes', async () => {
     const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12 &&
-      sessions.some(session => session.issueId === issue.id && !session.archived && !session.headless && session.agentKind !== 'shell'))!
+      sessions.some(session => session.issueId === issue.id && !session.archived && !session.headless && session.agentKind !== 'shell'))
+    if (!root) throw new Error('Missing mission fixture')
     state.layer = 'pool'; state.selectedIssueId = root.id
     const reader = missionView(pool)
     const current = mount('full'); await settled()
     expect(reader.stats.values).toBe(1)
     const before = renderedOutput(current.container)
-    state.paneA = sessions.find(session => session.issueId === root.id)!.sessionId
+    const selected = sessions.find(session => session.issueId === root.id)
+    if (!selected) throw new Error('Missing mission session fixture')
+    state.paneA = selected.sessionId
     current.rerender(deck()); await settled()
     expect(reader.stats.values).toBe(1)
     expect(current.container.querySelectorAll('[data-flight-issue]').length).toBeGreaterThan(1)
