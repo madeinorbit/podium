@@ -125,13 +125,23 @@ export async function logpoints(cdp: CDPSession, dist: string, checkout: string,
       throw new Error(`No ${name} production mapping in ${dist}`)
   await cdp.send('Debugger.enable')
   const resolved: unknown[] = []
+  const pauses: unknown[] = []
   cdp.on('Debugger.breakpointResolved', (event) => resolved.push(event))
+  cdp.on('Debugger.paused', (event) => {
+    pauses.push({ reason: event.reason, data: event.data, location: event.callFrames[0]?.location })
+    void cdp.send('Debugger.resume').catch(() => {})
+  })
   for (const point of points) {
     const path = `${mobile ? '/mobile' : ''}/${relative(dist, point.file).replaceAll('\\', '/')}`
+    const line = readFileSync(point.file, 'utf8').split('\n')[point.line]!
+    const prefix = line.slice(Math.max(0, point.column - 400), point.column)
+    const signature = point.name === 'kernel' ? /onKernelEvent\(([$\w]+)\)\{$/ : /apply\(([$\w]+)\)\{$/
+    const parameter = point.name === 'poolEnd' ? undefined : prefix.match(signature)?.[1]
+    if (point.name !== 'poolEnd' && !parameter) throw new Error(`No production parameter at ${point.name}: ${prefix.slice(-100)}`)
     const call =
       point.name === 'kernel'
-        ? 'kernel(arguments[0])'
-        : `${point.name}(this${point.name === 'poolBegin' ? ', arguments[0]' : ''})`
+        ? `kernel(${parameter})`
+        : `${point.name}(this${point.name === 'poolBegin' ? `, ${parameter}` : ''})`
     await cdp.send('Debugger.setBreakpointByUrl', {
       urlRegex: `${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
       lineNumber: point.line,
@@ -139,7 +149,7 @@ export async function logpoints(cdp: CDPSession, dist: string, checkout: string,
       condition: `(globalThis.__cacheProof?.${call}, false)`,
     })
   }
-  return { points, resolved }
+  return { points, resolved, pauses }
 }
 
 export interface Delivery {
@@ -250,7 +260,7 @@ export async function installProbe(page: Page, mobile: boolean, title: string) {
       const ready = () =>
         mobile
           ? !!document.querySelector('[aria-label="Session actions"]') &&
-            !!document.querySelector('[role="textbox"]') &&
+            !!document.querySelector('textarea, input[type="text"], [role="textbox"]') &&
             document.body?.textContent?.includes(title)
           : !!document.querySelector('aside') &&
             !document.querySelector('.app-loading') &&
