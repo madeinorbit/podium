@@ -71,12 +71,19 @@ export function createCommandLaunchViews(pool: MobxPool) {
   let sessionOrder: readonly string[] | undefined
   let sessionSlots: Loaded<SessionView>[] = []
   const sessionPositions = new Map<string, number>()
+  const sessionValuePositions = new Map<string, number>()
   const sessionVersion = observable.box(0)
   let sessionSnapshot: SessionRows = { sessions: [], pending: 0, sessionIds: new Set() }
   const readSession = (id: string) =>
     pool.row('session', id, 'summary-fields') as Loaded<SessionView>
   function sessionSnapshotFromSlots(): SessionRows {
-    const sessions = sessionSlots.flatMap((value) => (value && value !== LOADING ? [value] : []))
+    const sessions: SessionView[] = []
+    sessionValuePositions.clear()
+    for (const value of sessionSlots) {
+      if (!value || value === LOADING) continue
+      sessionValuePositions.set(value.sessionId, sessions.length)
+      sessions.push(value)
+    }
     return {
       sessions,
       pending: sessionSlots.filter((value) => value === LOADING).length,
@@ -111,19 +118,28 @@ export function createCommandLaunchViews(pool: MobxPool) {
       runInAction(() => sessionVersion.set(sessionVersion.get() + 1))
       return
     }
-    let changed = false
+    let changed = false,
+      membershipChanged = false
+    let sessions: SessionView[] | undefined
     for (const row of event.rows) {
       if (row.kind !== 'session') continue
       const position = sessionPositions.get(row.id)
       if (position === undefined) continue
       counts.addressedSessionReads++
       const value = untracked(() => readSession(row.id))
-      if (compareStructural(sessionSlots[position], value)) continue
+      const previous = sessionSlots[position]
+      if (compareStructural(previous, value)) continue
       sessionSlots[position] = value
       changed = true
+      if (previous && previous !== LOADING && value && value !== LOADING) {
+        sessions ??= sessionSnapshot.sessions.slice()
+        sessions[sessionValuePositions.get(row.id)!] = value
+      } else membershipChanged = true
     }
     if (changed) {
-      sessionSnapshot = sessionSnapshotFromSlots()
+      sessionSnapshot = membershipChanged
+        ? sessionSnapshotFromSlots()
+        : { ...sessionSnapshot, sessions: sessions! }
       runInAction(() => sessionVersion.set(sessionVersion.get() + 1))
     }
   })
