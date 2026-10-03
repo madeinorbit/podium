@@ -45,6 +45,7 @@ vi.mock('./operator-focus', () => ({
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useHarnessDescriptors: () => ({ served: [] }),
+  useStoreHandle: () => ({ getSnapshot: () => state }),
 }))
 
 vi.mock('@/lib/use-feature', () => ({
