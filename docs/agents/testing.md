@@ -66,6 +66,7 @@ is not a reason to add a lane.
 
 ## MobX click speed gate
 
+- Every capture first runs the focused structural lane (`bun run speed:structural`): named pool readers and app consumers, six clicks and three single-row deltas at 1×/4×, row calls and derivation bodies compared individually against the visible-neighbourhood ratio. Known failures name their fixing issues in `work-pool-screens.json`; correctness, new reader failures and the legacy negative control remain enforced. `bun run speed:gate -- --structural-only` runs this portion without a production build, timing capture or benchmark lease. Promotion reuses the saved capture.
 - Run `bun run speed:gate` on flatblock once at the end of each MobX step before landing; skip small fixes and test-only changes. It owns `bench:flatblock`.
 - One minified production build, real Chromium, the fixed 4× corpus: sidebar issue, mission switch, session pane, rename, unrelated visible background feed update; six samples each (ten exceeded the initial calibration budget), median and worst input → actual Paint.
 - Only an action median more than 10% above `docs/measurements/click-speed-baseline.json` makes the gate red; background timing starts at feed delivery. Measured noise and total runtime are in the JSON report.

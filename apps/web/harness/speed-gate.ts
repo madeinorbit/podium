@@ -68,6 +68,7 @@ const value = (name: string, fallback: string) =>
 const calibrate = args.includes('--calibrate')
 const promote = args.includes('--promote')
 const pairedPane = args.includes('--paired-pane')
+const structuralOnly = args.includes('--structural-only')
 const delayMs = Number(value('plant-delay-ms', '0'))
 const root = resolve('.artifacts/speed-gate')
 const buildDir = resolve(root, 'build')
@@ -89,6 +90,7 @@ async function main() {
   if (args.includes('--help')) {
     console.log(
       'bun run speed:gate — flatblock, five actions × six samples; median > landed +10% exits 1.\n' +
+        '--structural-only: focused 1×/4× reader/click/delta counts, parity and negative controls; no timing or lease.\n' +
         '--calibrate --baseline-ref=<landed SHA/ref>: initial baseline only, two runs to measure noise.\n' +
         '--plant-delay-ms=50: plant a synchronous delay in the sidebar click path (expected red).\n' +
         '--promote: commit-ready baseline from the saved green run after its source lands; no rerun.\n' +
@@ -100,7 +102,7 @@ async function main() {
   }
   for (const arg of args)
     if (
-      !['--calibrate', '--promote', '--lease-confirmed', '--paired-pane'].includes(arg) &&
+      !['--calibrate', '--promote', '--lease-confirmed', '--paired-pane', '--structural-only'].includes(arg) &&
       !arg.startsWith('--plant-delay-ms=') &&
       !arg.startsWith('--switch=') &&
       !arg.startsWith('--baseline-ref=')
@@ -118,6 +120,22 @@ async function main() {
     throw new Error('Invalid planted delay/mode')
   if (calibrate && promote) throw new Error('Choose calibration or promotion')
   if (pairedPane && (calibrate || promote)) throw new Error('Pane pairing cannot calibrate or promote the landed baseline')
+  if (structuralOnly && (calibrate || promote || pairedPane || delayMs)) throw new Error('Structural-only cannot measure or promote timing')
+
+  // Structural work is a separate, untimed process: no instrumentation in the
+  // production browser and no benchmark lease held across a focused test lane.
+  if (!promote) {
+    const status = await new Promise<number | null>((done, reject) => {
+      const child = spawn(process.execPath, ['run', 'speed:structural'], { stdio: 'inherit' })
+      child.once('error', reject)
+      child.once('exit', done)
+    })
+    if (status !== 0) throw new Error(`Structural per-click guard failed (exit ${status})`)
+    if (structuralOnly) {
+      console.log('STRUCTURAL WORK GATE GREEN — known failures retain their owning issues; no timings collected.')
+      return
+    }
+  }
 
   let baseline: Baseline | null = null
   try {

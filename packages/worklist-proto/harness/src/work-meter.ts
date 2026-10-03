@@ -72,6 +72,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { computed, Reaction } from 'mobx'
 import { CellGraph } from '../../arms/hand/pool/cells'
+import type { MobxPool } from '@podium/client-graph/pool'
 
 type Side = 'arm' | 'outside'
 
@@ -92,6 +93,10 @@ const UNTRACKED: SideStore = {
 }
 const side: SideStore =
   typeof AsyncLocalStorage === 'function' ? new AsyncLocalStorage<Side>() : UNTRACKED
+const readerSide: Pick<AsyncLocalStorage<string>, 'run' | 'getStore'> =
+  typeof AsyncLocalStorage === 'function' ? new AsyncLocalStorage<string>() : {
+    run: (_name, fn, ...args) => fn(...args), getStore: () => undefined,
+  }
 
 /** Run `fn` as not-the-arm (the engine, the feed, the DOM): nothing it iterates counts. */
 export function outsideArm<T>(fn: () => T): T {
@@ -107,6 +112,11 @@ export function insideArm<T>(fn: () => T): T {
 export interface WorkCounts {
   /** Derivation bodies run: MobX computeds recomputed plus reaction bodies tracked, plus hand cell bodies run. */
   derivations: number
+  /** Bodies run per named derivation/consumer; a cheap reader cannot hide a growing one. */
+  derivationsBy: Record<string, number>
+  /** Pool row calls, including resident and summary reads (only when `pool` is supplied). */
+  rows?: number
+  rowsBy?: Record<string, number>
   /** Distinct collection elements the arm iterated (see the module note). */
   elements: number
   /**
@@ -126,6 +136,9 @@ export const ARM_CODE = '(arm code)'
 
 interface Tally {
   derivations: number
+  derivationsBy: Map<string, number>
+  rows: number
+  rowsBy: Map<string, number>
   visits: number
   seen: Set<unknown>
   seenBy: Map<string, Set<unknown>>
@@ -134,6 +147,36 @@ interface Tally {
 }
 
 let tally: Tally | null = null
+
+/** App/event readers run outside MobX too. Attribute and count their actual bodies. */
+export function insideReader<T>(name: string, read: () => T): T {
+  const by = `consumer:${name}`
+  if (tally !== null) countDerivation(by)
+  running.push(by)
+  try {
+    return readerSide.run(by, () => insideArm(read))
+  } finally {
+    running.pop()
+  }
+}
+
+function countDerivation(by: string): void {
+  if (tally === null) return
+  tally.derivations++
+  tally.derivationsBy.set(by, (tally.derivationsBy.get(by) ?? 0) + 1)
+}
+
+function derivationOwner(name: unknown): string {
+  const kind = kindOf(name)
+  if (kind.startsWith('consumer:')) return kind
+  for (let index = running.length - 1; index >= 0; index--) {
+    const parent = running[index]!
+    if (parent.startsWith('consumer:')) return `${parent.split('/')[0]}/${kind}`
+  }
+  const reader = readerSide.getStore()
+  if (reader !== undefined) return `${reader}/${kind}`
+  return kind
+}
 
 /**
  * The call site of a counted call: the first stack frames outside this
@@ -178,7 +221,7 @@ function kindOf(name: unknown): string {
 }
 
 function owner(): string {
-  return running.length === 0 ? ARM_CODE : running[running.length - 1]!
+  return running.length === 0 ? readerSide.getStore() ?? ARM_CODE : running[running.length - 1]!
 }
 
 const containerIds = new WeakMap<object, number>()
@@ -383,8 +426,9 @@ function countedEntries(original: Method): Method {
 function countedDerivation(original: Method): Method {
   return function (this: unknown, ...args: unknown[]) {
     if (tally === null) return original.apply(this, args)
-    tally.derivations += 1
-    running.push(kindOf((this as { name_?: unknown }).name_))
+    const by = derivationOwner((this as { name_?: unknown }).name_)
+    countDerivation(by)
+    running.push(by)
     try {
       return insideArm(() => original.apply(this, args))
     } finally {
@@ -405,8 +449,9 @@ function countedDerivation(original: Method): Method {
 function countedHandDerivation(original: Method): Method {
   return function (this: unknown, ...args: unknown[]) {
     if (tally === null) return original.apply(this, args)
-    tally.derivations += 1
-    running.push(kindOf((args[0] as { name?: unknown } | undefined)?.name))
+    const by = derivationOwner((args[0] as { name?: unknown } | undefined)?.name)
+    countDerivation(by)
+    running.push(by)
     try {
       return insideArm(() => original.apply(this, args))
     } finally {
@@ -429,7 +474,7 @@ function reactSchedulesObserver(original: Method): Method {
     }
     // A `reaction`'s effect runs here, after its tracked body: its walks are
     // that reaction's.
-    running.push(kindOf(name))
+    running.push(derivationOwner(name))
     try {
       return original.apply(this, args)
     } finally {
@@ -537,26 +582,48 @@ function install(patches: Patches): void {
  */
 export async function measureWork<T>(
   fn: () => Promise<T>,
-  options: { trace?: boolean } = {},
+  options: { trace?: boolean; pool?: MobxPool } = {},
 ): Promise<{ value: T; work: WorkCounts; sites: Map<string, number> | null }> {
   if (tally !== null) throw new Error('[work] measureWork is already running')
   const patches = new Patches()
   const current: Tally = {
     derivations: 0,
+    derivationsBy: new Map(),
+    rows: 0,
+    rowsBy: new Map(),
     visits: 0,
     seen: new Set(),
     seenBy: new Map(),
     sites: options.trace === true ? new Map() : null,
   }
-  install(patches)
-  tally = current
+  const pool = options.pool
+  const descriptor = pool && Object.getOwnPropertyDescriptor(pool, 'row')
+  const originalRow = pool?.row
   let value: T
   try {
+    install(patches)
+    if (pool && originalRow) Object.defineProperty(pool, 'row', {
+      configurable: true,
+      writable: true,
+      value: function (this: MobxPool, ...args: Parameters<MobxPool['row']>) {
+        if (tally !== null) {
+          const by = owner()
+          tally.rows++
+          tally.rowsBy.set(by, (tally.rowsBy.get(by) ?? 0) + 1)
+        }
+        return originalRow.apply(this, args)
+      },
+    })
+    tally = current
     value = await outsideArm(fn)
   } finally {
     tally = null
     running.length = 0
     patches.restore()
+    if (pool) {
+      if (descriptor) Object.defineProperty(pool, 'row', descriptor)
+      else Reflect.deleteProperty(pool, 'row')
+    }
   }
   const elementsBy: Record<string, number> = {}
   for (const [by, seen] of current.seenBy) elementsBy[by] = seen.size
@@ -564,6 +631,8 @@ export async function measureWork<T>(
     value,
     work: {
       derivations: current.derivations,
+      derivationsBy: Object.fromEntries(current.derivationsBy),
+      ...(pool ? { rows: current.rows, rowsBy: Object.fromEntries(current.rowsBy) } : {}),
       elements: current.seen.size,
       elementsBy,
       visits: current.visits,

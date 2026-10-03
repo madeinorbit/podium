@@ -1,7 +1,8 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import { lastUsedMaps, reposToViews, spawnTargetForRepo, type RepoNavView } from '@podium/client-core/viewmodels'
-import { commandLaunchViews, type CommandLaunchData } from '@podium/client-graph/command-launch-views'
+import type { CommandLaunchData } from '@podium/client-graph/command-launch-views'
+import { readLaunch, readPalette, readGuardSessions } from './command-launch-readers'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
 import { useMemo } from 'react'
@@ -23,8 +24,6 @@ export function useCommandLaunchActions(): CommandLaunchActions {
   const owner = useStoreHandle<Trpc>()
   return useMemo(() => statics(owner.getSnapshot()), [owner])
 }
-const readLaunch = (pool: MobxPool) => commandLaunchViews(pool).launch()
-const readPalette = (pool: MobxPool) => commandLaunchViews(pool).palette()
 function usePoolLaunch() { return useWorklistPoolProjection(readLaunch, LOADING) }
 function usePoolPalette() { return useWorklistPoolProjection(readPalette, LOADING) }
 function useLegacyLaunch() {
@@ -62,8 +61,7 @@ export function useCommandPaletteOpen() {
   return useRead()
 }
 const EMPTY_SESSIONS: CommandLaunchData['sessions'] = []
-const readSessions = (pool: MobxPool) => { const sessions = commandLaunchViews(pool).sessions(); return sessions && sessions !== LOADING ? sessions : EMPTY_SESSIONS }
-function usePoolGuardSessions() { return useWorklistPoolProjection(readSessions, EMPTY_SESSIONS) }
+function usePoolGuardSessions() { return useWorklistPoolProjection(readGuardSessions, EMPTY_SESSIONS) }
 function useLegacyGuardSessions() { return undefined }
 export function useCommandGuardSessions() {
   const useRead = commandLaunchDataLayer() === 'pool' ? usePoolGuardSessions : useLegacyGuardSessions

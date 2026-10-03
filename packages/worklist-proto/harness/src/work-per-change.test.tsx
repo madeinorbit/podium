@@ -92,8 +92,84 @@ import {
 } from './writable-arm'
 
 import { stubWindowLayout, type WindowLayout } from './window-layout'
+import { poolScreenCellsAt } from './pool-screen-work'
+import { assertScreenWork, SCREEN_ACTIONS, screenWorkVerdicts, type ScreenWorkCell, type ScreenWorkVerdict } from './screen-work-ratios'
 
 const TRACE = process.env.POD_WORK_TRACE === '1'
+
+/** Current defects only. Every failed count retains its reader/action and owning issue.
+ * Correctness never receives an allowance. A passing count is reported green as fixes land. */
+function screenFailureOwner(verdict: ScreenWorkVerdict): string | undefined {
+  const name = verdict.reader
+  if (name.startsWith('consumer:launcher.')) return 'POD-5406'
+  if (name.startsWith('consumer:mission.') || name.startsWith('consumer:navigation.') || name.startsWith('consumer:header.folded')) return 'POD-5421'
+  if (name.startsWith('consumer:mobile-work.long-press') || name.startsWith('consumer:shell.links')) return 'POD-5422'
+  if (/^consumer:(shell\.|header\.(shipping|fleet)|settings|automations|chat\.|issue-page\.|board\.|mobile-inbox|mobile-session)/.test(name)) return 'POD-5406'
+  if (/^consumer:(sidebar\.|mobile-work\.)/.test(name) || /^(IssueModel@|SessionModel@|GroupNode@|Sidebar|MobileSections|\(arm code\))/.test(name)) return 'POD-5423'
+  return undefined
+}
+
+describe('pool screens work ratios', () => {
+  it('counts every scripted click/delta for every pool screen and app reader at 1x/4x', async () => {
+    const at1x = await poolScreenCellsAt(1)
+    const at4x = await poolScreenCellsAt(4)
+    expect(at4x.readers).toEqual(at1x.readers)
+    expect(at4x.corpus.issues).toBeGreaterThan(at1x.corpus.issues * 3)
+    expect(at4x.corpus.sessions).toBeGreaterThan(at1x.corpus.sessions * 3)
+    const verdicts = screenWorkVerdicts(at1x.cells, at4x.cells)
+    const failures = verdicts.filter(verdict => !verdict.passed)
+    const expectedFailures = failures.flatMap(verdict => {
+      const issue = screenFailureOwner(verdict)
+      return issue ? [{ ...verdict, issue }] : []
+    })
+    const unexpected = failures.filter(verdict => screenFailureOwner(verdict) === undefined)
+    writeCells('work-pool-screens.json', { at1x, at4x, verdicts, expectedFailures, unexpected })
+    console.info(`[screen work] ${at1x.readers.length} readers × ${SCREEN_ACTIONS.length} clicks/deltas × 2 scales; ${verdicts.length} counters; ${expectedFailures.length} expected failures; ${unexpected.length} unexpected`)
+    for (const issue of new Set(expectedFailures.map(verdict => verdict.issue))) {
+      const owned = expectedFailures.filter(verdict => verdict.issue === issue)
+      const worst = [...owned].sort((a, b) => (b.at4x - b.at1x) - (a.at4x - a.at1x))[0]!
+      console.info(`[screen work] expected failure ${issue}: ${owned.length} counts; ${worst.action} ${worst.reader} ${worst.kind} ${worst.at1x} → ${worst.at4x}; neighbourhood ${worst.neighbourhood1x} → ${worst.neighbourhood4x}`)
+    }
+    // A new reader or unnamed mechanism does not silently inherit another screen's exception.
+    assertScreenWork(unexpected)
+    expect(at1x.cells.some(cell => cell.work.rows! > 0 && cell.work.derivations > 0)).toBe(true)
+  }, 1_200_000)
+
+  it('keeps the real legacy control arm as the failing whole-data read control', async () => {
+    const heartbeat = FENCE_SCENARIOS.filter(entry => entry.methodology === '#1')
+    const build = (ctx: ScenarioEngine) => ({ arm: legacyControlArmFor(ctx.engine) })
+    const first = (await cellsAt(1, 'overlaid', build, heartbeat))[0]!
+    const second = (await cellsAt(4, 'overlaid', build, heartbeat))[0]!
+    expect(second.work.rows).toBeGreaterThan(first.work.rows)
+    expect(second.work.elements).toBeGreaterThan(first.work.elements)
+    // Its visible target is the same one-row heartbeat. Any total-data ratio is forbidden.
+    const verdict: ScreenWorkVerdict = { action: 'heartbeat', kind: 'rows', reader: 'legacy control',
+      at1x: first.work.rows, at4x: second.work.rows, neighbourhood1x: 1, neighbourhood4x: 1,
+      passed: second.work.rows <= first.work.rows }
+    expect(() => assertScreenWork([verdict])).toThrow(/grew with total data/)
+  }, 600_000)
+
+  it('rejects a planted scan in any reader, even beside a much larger constant reader', () => {
+    const cells = (): ScreenWorkCell[] => SCREEN_ACTIONS.map(action => ({
+      action, neighbourhood: ['issue:visible'], work: { derivations: 1, derivationsBy: { cheap: 1 },
+        rows: 1000, rowsBy: { expensiveButConstant: 1000 }, elements: 0, elementsBy: {}, visits: 0 },
+    }))
+    expect(() => assertScreenWork(screenWorkVerdicts(cells(), cells()))).not.toThrow()
+    for (const action of SCREEN_ACTIONS) for (const kind of ['rows', 'derivations'] as const) {
+      const first = cells(), second = cells()
+      const a = first.find(cell => cell.action === action)!.work
+      const b = second.find(cell => cell.action === action)!.work
+      const left = kind === 'rows' ? a.rowsBy! : a.derivationsBy
+      const right = kind === 'rows' ? b.rowsBy! : b.derivationsBy
+      left.planted = 1; right.planted = 4
+      expect(() => assertScreenWork(screenWorkVerdicts(first, second)), `${action} ${kind}`).toThrow(/planted/)
+    }
+    const zero = cells(), positive = cells()
+    positive[0]!.work.rowsBy!.newReader = 1
+    expect(() => assertScreenWork(screenWorkVerdicts(zero, positive))).toThrow(/newReader/)
+    expect(() => screenWorkVerdicts(zero.slice(1), positive)).toThrow(/every click/)
+  })
+})
 
 // happy-dom rewrites `import.meta.url`; resolve from the lane's cwd instead.
 const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
