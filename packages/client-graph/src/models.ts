@@ -230,10 +230,23 @@ export class EntityModel {
 }
 
 /**
+ * The members every model instance carries itself (EntityModel's constructor
+ * parameter properties). The prototype never carries an accessor of one of
+ * these names: Babel's TypeScript transform (Metro: the phone build, web and
+ * native) compiles a parameter property to an assignment, which a prototype
+ * accessor intercepts (a getter-only one throws), where Vite and Bun define an
+ * own property over it (POD-5370).
+ */
+const INSTANCE_MEMBERS: ReadonlySet<string> = new Set(
+  Object.keys(new EntityModel('issue', '', undefined as unknown as ModelHost)),
+)
+
+/**
  * Install one getter per declared field of `entity` on `prototype`, and a
  * setter per editable one. A field the class already answers is an error,
  * unless the class names it in `answers` (the issue's row fields): then the
- * class's getter stays and only the setter is added.
+ * class's getter stays and only the setter is added. A key field named like an
+ * instance member (`id`) is the instance's own; any other such field collides.
  */
 function installFields(
   prototype: EntityModel,
@@ -245,6 +258,10 @@ function installFields(
   const editable: Readonly<Record<string, unknown>> =
     (FIELD_COVERAGE as Readonly<Record<string, Readonly<Record<string, unknown>>>>)[entity] ?? {}
   for (const field of Object.keys(spec.fields)) {
+    if (INSTANCE_MEMBERS.has(field)) {
+      if (field === spec.key && !Object.hasOwn(editable, field)) continue
+      throw new Error(`[pool] ${entity}.${field} collides with a model member; rename one`)
+    }
     const answered = answers.has(field)
       ? Object.getOwnPropertyDescriptor(prototype, field)?.get
       : undefined
