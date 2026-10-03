@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useUiState } from '../client/hooks'
+import { mobileDataLayer } from '../client/mobile-pool'
+import {
+  readLegacyPreference,
+  useOptimisticPreferences,
+  usePoolPreferences,
+} from './mobile-preferences'
 
 /**
  * Collapsed state over a DYNAMIC key list, persisted per key through the
@@ -28,6 +34,43 @@ export function useCollapsedSet(
   keys: readonly string[],
   storageKeyFor: (key: string) => string,
 ): { collapsed: ReadonlySet<string>; toggle: (key: string) => void } {
+  // Select once-latched implementations, then invoke the hook unconditionally.
+  const useFolds = mobileDataLayer() === 'pool' ? usePoolCollapsedSet : useLegacyCollapsedSet
+  return useFolds(keys, storageKeyFor)
+}
+
+function usePoolCollapsedSet(
+  keys: readonly string[],
+  storageKeyFor: (key: string) => string,
+): { collapsed: ReadonlySet<string>; toggle: (key: string) => void } {
+  const uiState = useUiState()
+  const storageKeys = useMemo(() => keys.map(storageKeyFor), [keys, storageKeyFor])
+  const values = usePoolPreferences(storageKeys)
+  const { overlay, pending } = useOptimisticPreferences(uiState)
+  const collapsed = useMemo(() => {
+    const next = new Set<string>()
+    keys.forEach((key, index) => {
+      const storageKey = storageKeys[index]
+      if (storageKey !== undefined && (pending.get(storageKey) ?? values[index]) === 'true')
+        next.add(key)
+    })
+    return next
+  }, [keys, pending, storageKeys, values])
+  const toggle = useCallback(
+    (key: string) => {
+      const storageKey = storageKeyFor(key)
+      const value = overlay.get(storageKey) ?? values[keys.indexOf(key)]
+      overlay.set(storageKey, String(value !== 'true'), true)
+    },
+    [keys, overlay, storageKeyFor, values],
+  )
+  return { collapsed, toggle }
+}
+
+function useLegacyCollapsedSet(
+  keys: readonly string[],
+  storageKeyFor: (key: string) => string,
+): { collapsed: ReadonlySet<string>; toggle: (key: string) => void } {
   const uiState = useUiState()
   /** Optimistic flips whose persist has not run yet: key → desired collapsed. */
   const pending = useRef(new Map<string, boolean>())
@@ -35,7 +78,8 @@ export function useCollapsedSet(
   const read = useCallback((): ReadonlySet<string> => {
     const next = new Set<string>()
     for (const key of keys) {
-      const wanted = pending.current.get(key) ?? uiState.get(storageKeyFor(key)) === 'true'
+      const wanted =
+        pending.current.get(key) ?? readLegacyPreference(uiState, storageKeyFor(key)) === 'true'
       if (wanted) next.add(key)
     }
     return next
@@ -57,7 +101,9 @@ export function useCollapsedSet(
   const toggle = useCallback(
     (key: string) => {
       const storageKey = storageKeyFor(key)
-      const next = !(pending.current.get(key) ?? uiState.get(storageKey) === 'true')
+      const next = !(
+        pending.current.get(key) ?? readLegacyPreference(uiState, storageKey) === 'true'
+      )
       pending.current.set(key, next)
       setCollapsed((prev) => {
         const flipped = new Set(prev)

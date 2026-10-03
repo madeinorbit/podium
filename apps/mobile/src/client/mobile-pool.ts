@@ -48,6 +48,7 @@ export function createMobilePool(
         initialize: (ui) => void pilot.initialize(ui),
         enabled: () => pilot.layer() === 'pool',
         options: () => ({
+          preferences: true,
           header: true,
           settings: true,
           summaries: { session: [...SUPERAGENT_SUMMARIES.session, ...NOTICE_SUMMARIES.session] },

@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
+import type { MobxPool } from '@podium/client-graph'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -108,7 +109,7 @@ const status = (member: string): AuthStatus =>
   }) as AuthStatus
 
 /** One app load: a fresh module graph (a fresh latch) over the device's storage. */
-async function launch() {
+async function launch(preferences = false) {
   vi.resetModules()
   // Everything that holds a React context or the latch comes from the new graph.
   const [
@@ -116,17 +117,47 @@ async function launch() {
     { useMobilePool, mobileDataLayer },
     { AuthStatusContext },
     { useStoreHandle },
+    { usePersistedUiState },
+    { useCollapsed },
+    { useCollapsedSet },
+    { mobilePreferenceReadStats },
   ] = await Promise.all([
     import('./MobileClientProvider'),
     import('./mobile-pool'),
     import('./auth-context'),
     import('@podium/client-core/react'),
+    import('../hooks/usePersistedUiState'),
+    import('../hooks/useCollapsed'),
+    import('../hooks/useCollapsedSet'),
+    import('../hooks/mobile-preferences'),
   ])
-  const seen: { runtime?: ClientRuntime; pool?: unknown } = {}
+  if (preferences) mobilePreferenceReadStats.enable()
+  const seen: { runtime?: ClientRuntime; pool?: MobxPool | null; attached: boolean[] } = {
+    attached: [],
+  }
+  const parse = (raw: string | null) => raw ?? 'default'
+  const keys = ['repo']
+  const storageKeyFor = (key: string) => `podium:sidebar:${key}`
+  function Preferences() {
+    const [value] = usePersistedUiState('podium.chat.stickyPrompts', parse, String)
+    const [collapsed] = useCollapsed('podium:sidebar:task-details-fold', true)
+    const folds = useCollapsedSet(keys, storageKeyFor)
+    return (
+      <output data-testid="preferences">
+        {value}:{String(collapsed)}:{String(folds.collapsed.has('repo'))}
+      </output>
+    )
+  }
   function Probe() {
     seen.runtime = useStoreHandle() as unknown as ClientRuntime
     seen.pool = useMobilePool()
-    return <div data-testid="app">{seen.pool ? 'pool' : 'no pool'}</div>
+    seen.attached.push(seen.pool !== null)
+    return (
+      <>
+        <div data-testid="app">{seen.pool ? 'pool' : 'no pool'}</div>
+        {preferences ? <Preferences /> : null}
+      </>
+    )
   }
   const tree = (who: AuthStatus): ReactNode => (
     <AuthStatusContext.Provider value={who}>
@@ -140,6 +171,7 @@ async function launch() {
   return {
     seen,
     layer: mobileDataLayer,
+    readStats: mobilePreferenceReadStats,
     switchUser: async (member: string) => {
       const before = seen.runtime
       view.rerender(tree(status(member)))
@@ -168,6 +200,11 @@ async function graphSettled() {
 function toggleSetting(runtime: ClientRuntime | undefined, on: boolean): void {
   if (!runtime) throw new Error('the app has no signed-in store')
   act(() => runtime.ui.set(MOBX_SIDEBAR_KEY, on ? '1' : '0'))
+}
+
+function currentRuntime(runtime: ClientRuntime | undefined): ClientRuntime {
+  if (!runtime) throw new Error('The app has no signed-in runtime')
+  return runtime
 }
 
 let dir = ''
@@ -250,5 +287,61 @@ describe('mobile pool switch', () => {
     // Sign-out unmounts the signed-in store and takes the pool with it.
     await app.quit()
     expect(state.pools.map((pool) => pool.disposed)).toEqual([true, true])
+  })
+
+  it('loads saved phone preferences offline through the real lazy attachment and isolates the next principal', async () => {
+    const errors = vi.spyOn(console, 'error')
+    const first = await launch(true)
+    const firstRuntime = currentRuntime(first.seen.runtime)
+    act(() => {
+      firstRuntime.ui.set('podium.chat.stickyPrompts', 'saved')
+      firstRuntime.ui.set('podium:sidebar:task-details-fold', 'false')
+      firstRuntime.ui.set('podium:sidebar:repo', 'true')
+    })
+    expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true')
+    // UI optimism precedes async durable enqueue. Model a saved offline launch,
+    // rather than killing the app while its final command is still temporary.
+    // Sticky prompts are device-local; the two folds use the durable outbox.
+    await waitFor(() => expect(firstRuntime.getSnapshot().outboxSize).toBe(2))
+    await firstRuntime.replica.flush()
+    toggleSetting(first.seen.runtime, true)
+    await first.quit()
+
+    const app = await launch(true)
+    app.readStats.enable()
+    await waitFor(() => expect(app.seen.pool).toBeTruthy(), { timeout: 10_000 })
+    await waitFor(
+      () => expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'),
+      { timeout: 10_000 },
+    )
+    expect(app.seen.attached[0]).toBe(false)
+    expect(app.seen.attached).toContain(true)
+    expect(state.pools).toEqual([{ runtime: app.seen.runtime, disposed: false }])
+    const alice = { runtime: currentRuntime(app.seen.runtime), pool: app.seen.pool }
+    if (!alice.pool) throw new Error('The mobile pool did not attach')
+    expect(alice.pool.preferenceKeys()).toHaveLength(3)
+    expect(app.readStats.read(alice.runtime.ui).legacyReads).toBe(0)
+    const { checkPreferences } = await import('@podium/client-graph/diagnostics/preference-check')
+    expect(checkPreferences(alice.pool, alice.runtime.ui)).toMatchObject({
+      differences: 0,
+      pending: 0,
+      positions: 3,
+    })
+    await app.switchUser('bob')
+    await waitFor(() => expect(app.seen.pool).toBeTruthy(), { timeout: 10_000 })
+    await waitFor(() =>
+      expect(screen.getByTestId('preferences').textContent).toBe('default:true:false'),
+    )
+    expect(alice.pool.preferenceKeys()).toEqual([])
+    act(() => alice.runtime.ui.set('podium.chat.stickyPrompts', 'old-person'))
+    await settle()
+    expect(screen.getByTestId('preferences').textContent).toBe('default:true:false')
+    expect(app.readStats.read(currentRuntime(app.seen.runtime).ui).legacyReads).toBe(0)
+    const bobPool = app.seen.pool
+    if (!bobPool) throw new Error('The next principal has no pool')
+    await app.quit()
+    expect(bobPool.preferenceKeys()).toEqual([])
+    expect(errors.mock.calls).toEqual([])
+    errors.mockRestore()
   })
 })

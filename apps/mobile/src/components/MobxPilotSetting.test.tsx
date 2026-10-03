@@ -7,7 +7,10 @@ import { MobxPilotSetting } from './MobxPilotSetting'
 // The latched choice of this app load; the latch itself is tested on the real
 // provider path in client/mobile-pool.test.tsx.
 const launch = vi.hoisted(() => ({ layer: 'legacy' as 'legacy' | 'pool' }))
-vi.mock('../client/mobile-pool', () => ({ mobileDataLayer: () => launch.layer }))
+vi.mock('../client/mobile-pool', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../client/mobile-pool')>()),
+  mobileDataLayer: () => launch.layer,
+}))
 
 afterEach(() => {
   cleanup()
