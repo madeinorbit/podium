@@ -200,7 +200,7 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
     try {
       await rowNamed(page, tapLabel).click()
       await expect(page).toHaveURL(/\/mobile\/mission\//)
-      await page.waitForFunction(() => Reflect.get(window, '__phoneTap')?.ready)
+      await page.waitForFunction(() => Reflect.get(window, '__phoneTap')?.ready, undefined, { timeout: 30_000 })
     } finally {
       events = (await stop()) as typeof events
     }
@@ -211,6 +211,7 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
   // POD-5081 extends the SAME production capture, after the original cold
   // mission tap so visiting Tasks cannot warm its legacy all-issue cache.
   async function openScreen(label: string, path: string, selector: string) {
+    console.info('[phone screen]', label, page.url())
     const action = page.getByRole('button', { name: label, exact: true })
     await action.evaluate((element, { path, selector }) => {
       performance.clearMarks('phone:input')
@@ -221,24 +222,37 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
         capture.input = true
         performance.mark('phone:input')
       }, { once: true })
-      const observer = new MutationObserver(() => {
-        if (!capture.input || !location.pathname.endsWith(path) || !document.querySelector(selector)) return
+      const check = () => {
+        if (capture.ready || !capture.input) return
+        if (!location.pathname.endsWith(path) || !document.querySelector(selector)) {
+          requestAnimationFrame(check)
+          return
+        }
         observer.disconnect()
         performance.mark('phone:dom')
         requestAnimationFrame(() => requestAnimationFrame(() => { capture.ready = true }))
-      })
+      }
+      const observer = new MutationObserver(check)
       observer.observe(document.body, { subtree: true, childList: true, attributes: true })
     }, { path, selector })
     const stop = await paintTraceStart(cdp)
     let events: Parameters<typeof paintOf>[0] = []
     try {
-      await action.click()
-      await page.waitForFunction(() => Reflect.get(window, '__phoneScreenAction')?.ready)
+      await action.click({ timeout: 15_000 })
+      await page.waitForFunction(() => Reflect.get(window, '__phoneScreenAction')?.ready, undefined, { timeout: 30_000 })
+    } catch (error) {
+      console.info('[phone screen pending]', label, await page.evaluate((selector) => ({
+        path: location.pathname,
+        matches: document.querySelectorAll(selector).length,
+        capture: Reflect.get(window, '__phoneScreenAction'),
+      }), selector))
+      throw error
     } finally { events = await stop() }
     return paintOf(events, 'phone:input', 'phone:dom')
   }
 
   async function screenActions(pool: boolean): Promise<NonNullable<Sample['screens']>> {
+    console.info('[phone screen]', pool ? 'ON' : 'OFF', 'mission updates')
     const missionUpdate = await measureUpdates(tapIssue.id, tapTitle, async (next) => {
       await expect(page.getByText(next, { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 30_000 })
       tapLabel = next
@@ -269,11 +283,13 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
   const timed: Sample[] = [],
     traced: Sample[] = []
   for (const pool of order) {
+    console.info('[phone arm]', pool ? 'ON' : 'OFF', 'timed', timed.length, loadavg())
     await launchWork(pool)
     timed.push({ pool, traced: false, load: loadavg(), updates: await updates(), tap: await tap(),
       ...(screens ? { screens: await screenActions(pool) } : {}) })
   }
   for (const [index, pool] of order.entries()) {
+    console.info('[phone arm]', pool ? 'ON' : 'OFF', 'traced', index, loadavg())
     const name = `${pool ? 'on' : 'off'}-${index}.trace.json.gz`
     await launchWork(pool)
     traced.push({
