@@ -18,6 +18,7 @@ import { RightDock } from '../src/app/RightDock'
 import { RightRail } from '../src/app/RightRail'
 import { DesktopCloseTab } from '../src/app/use-desktop-close-tab'
 import { initializePoolScreens } from '../src/app/pool-screens'
+import { isComplexFlightDeckMission } from '../src/app/flight-deck-display'
 import { useShellChrome, useShellClose, useShellDock } from '../src/app/shell-data'
 import { shellDataLayer } from '../src/app/shell-pool-screen'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
@@ -77,6 +78,7 @@ const ChromeControls = observer(function ChromeControls() {
   return <>
     <h1>Shell controls parity</h1>
     <p data-mission>{chrome.missionRoot?.id ?? 'none'} · {chrome.missionRoot?.title ?? 'No mission'}</p>
+    <p>{isComplexFlightDeckMission(chrome.missionRoot) ? 'Expanded' : 'Compact'} mission chrome</p>
     <p>{chrome.repoCount} repositories · {chrome.worktreeCount} worktrees · {chrome.sessionCount} sessions</p>
     <p>Palette {String(chrome.paletteOpen)} · Superagent {String(chrome.superOpen)}</p>
   </>

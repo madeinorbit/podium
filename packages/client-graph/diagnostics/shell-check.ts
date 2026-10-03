@@ -3,7 +3,7 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { beginSidebarCheck } from '@podium/client-core/perf'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
-import { cwdInWorktree, issueForCwd, reposToViews, resolveActiveWorktree, shippingPanelModel, allTabIds, focusedPane, emptyWorkspace, selectedMissionRoot } from '@podium/client-core/viewmodels'
+import { cwdInWorktree, issueForCwd, reposToViews, resolveActiveWorktree, shippingPanelModel, allTabIds, focusedPane, emptyWorkspace, selectedMissionRoot, type IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { runInAction } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import { shellViews } from '../src/shell-views'
@@ -13,6 +13,7 @@ import { compareSidebarSnapshots, type SidebarSnapshot, type CheckRow } from './
 
 const fields = (value: object, keys: readonly string[]) => Object.fromEntries(keys.map(key => [key, Reflect.get(value, key) ?? null]))
 const row = (id: string, value: object): CheckRow => ({ id, fields: { value } })
+const missionExpanded = (value: Pick<IssueNavigationModel, 'type' | 'childCount'> | undefined) => Boolean(value && (value.type === 'epic' || value.childCount >= 6))
 function colorChain(issues: readonly IssueViewModel[], selectedId: string | null) {
   let current = issues.find(issue => issue.id === selectedId && !issue.archived && !issue.deletedAt)
   const values: object[] = [], seen = new Set<string>()
@@ -52,13 +53,14 @@ export function legacyShellSnapshot(state: Store, suppliedIssues?: readonly Issu
   const containing = active ? issueForCwd([...issues], active.cwd) : null
   const gitIssue = (active?.issueId ? issues.find(issue => issue.id === active.issueId) : undefined) ?? containing
   const key = state.workspaceKey()
+  const missionRoot = selectedMissionRoot(issues, sessions, state.selectedIssueId)
   return { pending: 0, sections: [
     { key: 'window', fields: fields(state, SHELL_SCHEMA.shellWindow.fields), rows: [] },
     { key: 'approvals', fields: {}, rows: state.approvals.map(value => row(value.id, value)) },
     { key: 'files', fields: {}, rows: state.fileTabs.map(value => row(value.id, value)) },
     { key: 'close', fields: closeFields(state.workspaces[key], key, state.fileTabs), rows: [] },
     { key: 'chrome', fields: { repoCount: repos.length, worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0), sessionCount: sessions.length,
-      colors: colorChain(issues, state.selectedIssueId), missionRootId: selectedMissionRoot(issues, sessions, state.selectedIssueId)?.id ?? null }, rows: [] },
+      colors: colorChain(issues, state.selectedIssueId), missionRootId: missionRoot?.id ?? null, missionExpanded: missionExpanded(missionRoot) }, rows: [] },
     { key: 'dock', fields: { active, scope, gitIssue: gitIssue ? fields(gitIssue, ['id', 'branch', 'gitState']) : null,
       mailIssueId: sessions.find(session => session.sessionId === active?.sessionId)?.issueId ?? containing?.id ?? null }, rows: [] },
     { key: 'shipping', fields: shippingFields(state.shipOrders, issues, scope?.repoId ?? null, state.shipLanes), rows: [] },
@@ -78,7 +80,7 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     { key: 'files', fields: {}, rows: (files ?? []).map(value => row(value.id, value)) },
     { key: 'close', fields: close ? closeFields(close.layout, close.workspaceKey, close.fileTabs) : {}, rows: [] },
     { key: 'chrome', fields: chrome ? { repoCount: chrome.repoCount, worktreeCount: chrome.worktreeCount, sessionCount: chrome.sessionCount,
-      colors: chrome.colors.map(value => fields(value, ['id', 'color', 'parentId'])), missionRootId: chrome.missionRoot?.id ?? null } : {}, rows: [] },
+      colors: chrome.colors.map(value => fields(value, ['id', 'color', 'parentId'])), missionRootId: chrome.missionRoot?.id ?? null, missionExpanded: missionExpanded(chrome.missionRoot) } : {}, rows: [] },
     { key: 'dock', fields: dock ? { active: dock.active, scope: dock.scope, gitIssue: dock.gitIssue ? fields(dock.gitIssue, ['id', 'branch', 'gitState']) : null, mailIssueId: dock.mailIssueId ?? null } : {}, rows: [] },
     { key: 'shipping', fields: dock ? { ...shippingFields(dock.shipOrders, dock.issues, dock.scope?.repoId ?? null, dock.shipLanes), ...shipping } : {}, rows: [] },
     { key: 'orders', fields: {}, rows: (dock?.shipOrders ?? []).map(value => row(value.id, value)) },
