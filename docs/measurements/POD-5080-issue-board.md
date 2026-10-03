@@ -94,6 +94,17 @@ The focused typecheck for client-core, client-graph and web is green (15 tasks,
 Biome passes the 24 new files, with warnings limited to test/harness assertions
 and fixture typing conventions.
 
+All 32 planted controls fail their expected assertions and restore the original
+bytes. Four run the real Chromium count-only comparison with actual incorrect
+rendered titles, legacy derivation calls, cold-row promotion and incorrect
+diagnostic values. The remaining focused controls cover virtual/addressed rows,
+child counts and progress, fleet order, projection lifetime, declared summaries,
+both internal and external old-summary compatibility, summary identity,
+overlays, loading, index scaling/release, parent scope, attention, mismatch
+detection, legacy-read counters, supplied close sessions and the default-off
+switch. Each case copies the file aside, commits the plant, runs its exact
+check, copies the original back and verifies byte equality.
+
 The ludovico-only read-only replay compares 6,045 operator issues and 5,160
 sessions in 16 cases, with zero differences or pending results. Its private pool
 has 2,834 resident issues before and after, with 3,211 cold issues. Only counts

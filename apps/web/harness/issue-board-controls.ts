@@ -275,7 +275,7 @@ const reports: Report[] = from
       (report) => cases.findIndex((control) => control.name === report.name) < start,
     )
   : []
-if (from && (reports.length !== start || reports.some((report) => !report.assertion || !report.restored)))
+if (from && (reports.length !== start || reports.some((report) => report.status !== 1 || !report.assertion || !report.restored)))
   throw new Error('Incomplete earlier controls')
 // Formatting may change whitespace/semicolons. Locate the same exact token
 // sequence while preserving the original bytes for restoration.
@@ -297,6 +297,7 @@ function planted(original: string, from: string, to: string) {
   return original.slice(0, start) + to + original.slice(end)
 }
 const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice(7)
+if (only && !cases.some((control) => control.name === only)) throw new Error('Unknown control')
 for (const control of cases.filter((control, index) => index >= start && (!only || control.name === only))) {
   while (loadavg()[0]! > 8) await new Promise((done) => setTimeout(done, 5000))
   const path = resolve(control.file),
@@ -342,4 +343,5 @@ for (const control of cases.filter((control, index) => index >= start && (!only 
   }
   console.log(JSON.stringify(reports.at(-1)))
 }
-if (reports.some((report) => !report.restored)) throw new Error('Restoration failed')
+if (reports.some((report) => report.status !== 1 || !report.assertion || !report.restored) || (!only && reports.length !== cases.length))
+  throw new Error('Incomplete fault proofs')
