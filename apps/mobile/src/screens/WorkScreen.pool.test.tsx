@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react
 import { Profiler, type ReactNode } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { asIssueId, asSessionId, isSortKey, sortKeyBetween, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, isSortKey, issueDepId, sortKeyBetween, type SessionId } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 import type { MobilePool } from '../client/mobile-pool'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -189,7 +189,7 @@ function clickCorpus(scale: 1 | 4) {
       ...base.issueUserStates![0]!, entityId: id, pinned: true,
     }],
     issueDeps: [...corpus.issueDeps, {
-      ...base.issueDeps[0]!, id: 'phone-click-dependency', fromId: id, toId: origin, type: 'discovered-from' as const,
+      ...base.issueDeps[0]!, id: issueDepId(id, origin, 'discovered-from'), fromId: id, toId: origin, type: 'discovered-from' as const,
     }],
     sessions: [...corpus.sessions, ...base.sessions.slice(0, 2).map((session, index) => ({
       ...session, sessionId: asSessionId(`phone-click-session-${index}`), issueId: id, refIssueId: id,
