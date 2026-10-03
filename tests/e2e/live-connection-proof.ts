@@ -221,7 +221,11 @@ export async function liveConnectionProof() {
         )
         const row = IssueProjection.parse({
           ...makeIssue({ id: 'fixture-issue', title: 'Relayed from the first tab' }),
-          creator: actorUser(asUserId('alice')),
+          repoId: 'fixture-repo',
+          createdBy: { actor: actorUser(asUserId('alice')), onBehalfOf: asUserId('alice') },
+          owner: 'alice',
+          visibility: 'personal',
+          description: { value: '' },
         })
         sequence = 1
         sockets
