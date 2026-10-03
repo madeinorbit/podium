@@ -131,7 +131,10 @@ The final active-search checks are **2 passed, 6 unchanged tests deselected**;
 the changed search/fold/menu case passed separately before the readiness-only
 fixture correction. The final mobile-only uncached typecheck is green, and
 shadowing reports no shadowed declarations in 5,859 files. The changed-input
-span-effect run is finishing. Production seeded-issue export acceptance is blocked by POD-5370
+span-effect gate is green: 162 span bodies, 7 accepted effects, zero
+unclassified effects and 8 declared opaque bodies.
+
+Production seeded-issue export acceptance is blocked by POD-5370
 and tracked by internal POD-5374. The three-row
 off/on style comparison and interleaved Chrome Paint/heap capture are prepared
 for the landed root fix; no production timing result is claimed yet.
