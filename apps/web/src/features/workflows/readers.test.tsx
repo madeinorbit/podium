@@ -89,7 +89,7 @@ it('matches scoped placement and cold issue/session targets through the one read
   expect(placementOptions(result.current.machines.views)).toMatchObject({ offerable: [{ id: 'synthetic-available' }] })
   expect(fixture.profiles.map(profile => pool.row('settingsMachine', profile.machineId ?? ''))).toHaveLength(8)
   expect(result.current.machines.views.map(view => view.availability)).toEqual(['available', 'unauthorized', 'unreachable', 'incapable', 'disabled', 'degraded'])
-  expect(row.mock.calls.some(call => call[2] === 'peek')).toBe(false)
+  expect(row.mock.calls.some(call => String(call[2]) === 'peek')).toBe(false)
   expect(fatal).not.toHaveBeenCalled()
 })
 

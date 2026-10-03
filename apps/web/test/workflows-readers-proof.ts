@@ -43,7 +43,7 @@ async function main() {
       const stats = await page.evaluate(() => window.__workflowReaders.stats())
       if (stats.runtimes !== 1 || stats.publishes !== 200 || stats.failures.length || pageErrors) throw new Error('Runtime/browser ownership guard failed')
       if (arm === 'after' && (stats.selectors || Object.values(stats.legacy).some(Boolean))) throw new Error('Enabled screen executed a legacy derivation')
-      if (arm === 'before' && (stats.selectors < 200 || stats.legacy['workflows.machines'] < 200 || !stats.legacy['workflows.subject'])) throw new Error('Legacy baseline did not exercise its readers')
+      if (arm === 'before' && (stats.selectors < 200 || (stats.legacy['workflows.machines'] ?? 0) < 200 || !stats.legacy['workflows.subject'])) throw new Error('Legacy baseline did not exercise its readers')
       results[arm] = { ...stats, pageErrors }
       if (arm === 'after') {
         const check = await page.evaluate(() => window.__workflowReaders.check())

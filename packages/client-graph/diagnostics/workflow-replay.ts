@@ -9,6 +9,7 @@ import { asAccountId, asMachineId, asSessionId, type MachineWire } from '@podium
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
 import { WORKFLOW_SUMMARIES } from '../src/workflow-schema'
+import type { SliceIssue } from '../src/shared/slice-types'
 import { checkWorkflows } from './workflow-check'
 
 interface ReadonlyDatabase {
@@ -73,7 +74,7 @@ async function main() {
   try {
     if (process.argv.includes('--red-control')) {
       // An in-memory absent reference masquerades as a visible pool issue.
-      const value = { ...issues[0], id: 'planted-workflow-subject' }
+      const value = { ...issues[0] as unknown as SliceIssue, id: 'planted-workflow-subject' }
       handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: value.id, value }] })
       runs.push({ ...runs[0]!, id: 'planted-workflow-run', subjectKind: 'issue', subjectId: value.id })
     }

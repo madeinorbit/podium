@@ -1,6 +1,7 @@
 import type { Store } from '@podium/client-core/engine'
 import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/viewmodels'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
+import { computed } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import { workflowMachines, workflowSubject } from '../src/workflow-views'
 import { LOADING } from '../src/worklist/rollup'
@@ -17,8 +18,8 @@ export type WorkflowCheckStore = Pick<Store, 'machines' | 'issueProjections' | '
 export function legacyWorkflowSnapshot(state: WorkflowCheckStore, inputs: WorkflowCheckInputs): SidebarSnapshot {
   const views = machineViewsFromWire(state.machines)
   return { pending: 0, sections: [
-    { key: 'placement', fields: placementOptions(views), rows: [] },
-    { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, fields: profilePlacement(profile, views) })) },
+    { key: 'placement', fields: { ...placementOptions(views) }, rows: [] },
+    { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, fields: { ...profilePlacement(profile, views) } })) },
     { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {
       const subject = runSubjectReference<object>(run, id => run.subjectKind === 'issue'
         ? state.issueProjections.find(issue => issue.id === id)
@@ -33,8 +34,8 @@ export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs
   let pending = machinesPending
   const options = placementOptions(views)
   const sections: SidebarSnapshot['sections'] = [
-    { key: 'placement', fields: options, pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
-    { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, pending: machinesPending > 0, fields: profilePlacement(profile, views) })) },
+    { key: 'placement', fields: { ...options }, pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
+    { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, pending: machinesPending > 0, fields: { ...profilePlacement(profile, views) } })) },
     { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {
       const subject = workflowSubject(pool, run)
       if (subject === LOADING) pending++
@@ -46,7 +47,10 @@ export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs
 }
 
 export function checkWorkflows(pool: MobxPool, state: WorkflowCheckStore, inputs: WorkflowCheckInputs) {
-  const result = compareSidebarSnapshots(legacyWorkflowSnapshot(state, inputs), poolWorkflowSnapshot(pool, inputs))
+  // One transient computation shares the observed session-summary derivation
+  // across all run cards in this snapshot; it suspends as soon as get returns.
+  const actual = computed(() => poolWorkflowSnapshot(pool, inputs)).get()
+  const result = compareSidebarSnapshots(legacyWorkflowSnapshot(state, inputs), actual)
   // The machine option payload may contain hostnames: report positions only.
   return { differences: result.differences, pending: result.pending, sections: result.sections, positions: result.rows,
     first: result.first ? { section: result.first.sectionIndex, row: result.first.rowIndex, field: result.first.field } : null }
