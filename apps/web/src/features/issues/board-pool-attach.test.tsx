@@ -24,7 +24,12 @@ it('attaches a real pool after the pending board render without legacy derivatio
     import('@podium/client-graph/issue-board-source'),
   ])
   const replica = createKernelReplica({
-    cache: { readCursor: () => null, readEntities: () => [], read: () => undefined, durability: () => 'durable' },
+    cache: {
+      readCursor: () => null,
+      readEntities: () => [],
+      read: () => undefined,
+      durability: () => 'durable',
+    },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
   const api = {
@@ -43,31 +48,57 @@ it('attaches a real pool after the pending board render without legacy derivatio
   function Probe() {
     const pool = useWorklistPool()
     const base = useBoardBase()
-    const data = useBoardData({ display: DEFAULT_DISPLAY, filter: {}, expanded: [], isMobile: false, openIssueId: base.openIssueId, now: 0 }, base)
+    const data = useBoardData(
+      {
+        display: DEFAULT_DISPLAY,
+        filter: {},
+        expanded: [],
+        isMobile: false,
+        openIssueId: base.openIssueId,
+        now: 0,
+      },
+      base,
+    )
     sawPending ||= pool === null
     return <span>{pool && data !== EMPTY_BOARD ? 'ready' : 'pending'}</span>
   }
-  issueBoardStats.enable(); issueBoardStats.reset()
+  issueBoardStats.enable()
+  issueBoardStats.reset()
   try {
     await act(async () => {
-      root.render(<StoreProvider
-        principal={asClientPrincipal(asUserId('board-attach'))}
-        config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
-        api={api} createReplicaFn={() => replica} networkEnabled={false}
-        attachRuntime={(runtime) => attachWorklistPool(runtime, (cause) => errors.push(cause))}
-        onFatalError={(message) => { throw new Error(message) }}
-      ><ShellStartup /></StoreProvider>)
+      root.render(
+        <StoreProvider
+          principal={asClientPrincipal(asUserId('board-attach'))}
+          config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+          api={api}
+          createReplicaFn={() => replica}
+          networkEnabled={false}
+          attachRuntime={(runtime) => attachWorklistPool(runtime, (cause) => errors.push(cause))}
+          onFatalError={(message) => {
+            throw new Error(message)
+          }}
+        >
+          <ShellStartup />
+        </StoreProvider>,
+      )
     })
-    await vi.waitFor(async () => {
-      await act(async () => { await new Promise((done) => setTimeout(done, 0)) })
-      expect(errors).toEqual([])
-      expect(container.textContent).toBe('ready')
-    }, { timeout: 10_000 })
+    await vi.waitFor(
+      async () => {
+        await act(async () => {
+          await new Promise((done) => setTimeout(done, 0))
+        })
+        expect(errors).toEqual([])
+        expect(container.textContent).toBe('ready')
+      },
+      { timeout: 10_000 },
+    )
     expect(sawPending).toBe(true)
     expect(issueBoardStats.read()['legacy.board'] ?? 0).toBe(0)
     expect(errors).toEqual([])
   } finally {
     act(() => root.unmount())
-    error.mockRestore(); issueBoardStats.disable(); history.replaceState(null, '', '/')
+    error.mockRestore()
+    issueBoardStats.disable()
+    history.replaceState(null, '', '/')
   }
 })
