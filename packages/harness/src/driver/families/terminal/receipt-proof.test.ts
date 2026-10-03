@@ -171,6 +171,58 @@ describe('terminal receipt operator regressions', () => {
     w.runtime.dispose()
   })
 
+  it('four framed mails ahead do not pass an unwrapped send (POD-5436)', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const frame = (id: string, body: string) =>
+      `[podium message ${id} · from agent · to you]\n${body}\n[end podium message ${id}]`
+    const ids = [
+      'msg_11111111-2222-3333-4444-555555555555',
+      'msg_22222222-3333-4444-5555-666666666666',
+      'msg_33333333-4444-5555-6666-777777777777',
+      'msg_44444444-5555-6666-7777-888888888888',
+    ]
+    const framed = ids.map((id, i) => frame(id, `framed body ${i + 1}`))
+    const words = 'the update is failing when applying to ludovico. figure out why'
+    // Four of our own mails queued ahead of a person's message: all five
+    // prompts are recorded after the unwrapped watch started, framed first,
+    // ours last verbatim. The framed entries are provably other Podium sends,
+    // so they must not count toward the unwrapped watch's later-prompt budget.
+    const sents = []
+    for (let i = 0; i < framed.length; i++) {
+      sents.push(w.handle.send({ id: ids[i]!, text: framed[i]! }, { origin: 'mail', delivery: 'when-ready' }))
+      await vi.advanceTimersByTimeAsync(300)
+    }
+    const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes.filter((bytes) => bytes === '\r')).toHaveLength(5)
+    for (const text of framed) w.post(text)
+    w.post(words)
+    await vi.advanceTimersByTimeAsync(10_000)
+    for (const sent of sents) expect(await sent).toMatchObject({ outcome: 'accepted' })
+    expect(await ours).toMatchObject({ outcome: 'accepted' })
+    w.runtime.dispose()
+  })
+
+  it('four foreign entries still pass an unwrapped send (POD-5436 control)', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const words = 'the update is failing when applying to ludovico. figure out why'
+    const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes).toContain('\r')
+    // Unexplained prompts are evidence the history moved past the send: after
+    // four of them the watch passes, so a later verbatim entry cannot confirm.
+    w.post('foreign one')
+    w.post('foreign two')
+    w.post('foreign three')
+    w.post('foreign four')
+    w.post(words)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await ours).toMatchObject({ outcome: 'unverified' })
+    w.runtime.dispose()
+  })
+
   it('framed queue records do not spend an unwrapped send\u2019s queue order (this issue)', async () => {
     vi.useFakeTimers(); vi.setSystemTime(START)
     const w = world()
