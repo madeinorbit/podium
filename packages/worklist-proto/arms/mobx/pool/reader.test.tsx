@@ -134,10 +134,10 @@ function forceCold(pool: MobxPool, replay: ReplaySource, id: string): () => void
     entity === 'issue' && (row as { id?: unknown }).id === id ? true : coldRule(entity, row)
   const row = pool.row.bind(pool)
   // Visibility uses the one reader's non-loading marker to distinguish cold
-  // rows. Only this held-out fixture bypasses that marker; drawing still
+  // rows. This fixture bypasses the marker only while cold; drawing still
   // requests the real row through the ordinary loading mode below.
   pool.row = ((entity: string, rowId: string, absent?: string) =>
-    entity === 'issue' && rowId === id && absent === 'mark' ? undefined :
+    entity === 'issue' && rowId === id && absent === 'mark' && !pool.tables.issue.has(rowId) ? undefined :
       (row as Function)(entity, rowId, absent)) as typeof pool.row
   pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value }] })
   runInAction(() => pool.worklist.track(id))
