@@ -681,14 +681,17 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get nesting(): Nesting {
+    // An absent row has no placement or candidate to cache. Keep the
+    // presence dependency so a later rescue starts the ordinary walk.
+    if (!this.present) {
+      return nestingOf(this.host.visibleInputs, this.id, undefined, false, null)
+    }
     // A present root with no provenance has no candidate or cycle to resolve.
     // Keep tracking presence and standing so a later parent/starter builds
     // the ordinary cached walk, without two memo entries for every root.
-    if (this.present) {
-      const standing = this.standing
-      if (standing?.parentId === null && standing.startedBy === null) {
-        return nestingOf(this.host.visibleInputs, this.id, standing, true, null)
-      }
+    const standing = this.standing
+    if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) {
+      return nestingOf(this.host.visibleInputs, this.id, standing, true, null)
     }
     return IssueModel.groups.nesting(this)
   }
@@ -866,6 +869,13 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get nestCandidate(): string | null {
+    // Cycle walks can ask a root or an absent row for its candidate without
+    // going through `nesting`. Their constant null needs no memo either.
+    if (!this.present) return null
+    const standing = this.standing
+    if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) {
+      return null
+    }
     return IssueModel.groups.nestCandidate(this)
   }
 
