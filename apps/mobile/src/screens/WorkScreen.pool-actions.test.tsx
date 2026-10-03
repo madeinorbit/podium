@@ -349,7 +349,6 @@ function value(id = TARGET) {
 function button(id = TARGET) {
   return screen.getByRole('button', {
     name: `${value(id).sidebar!.issue.displayRef} ${value(id).label}`,
-    exact: true,
   })
 }
 async function parity() {
@@ -408,10 +407,10 @@ async function settle(write: Request, accepted = false) {
 }
 async function openMenu(id = TARGET) {
   fireEvent.contextMenu(button(id))
-  await screen.findByRole('button', { name: 'Rename', exact: true })
+  await screen.findByRole('button', { name: 'Rename' })
 }
 async function choose(name: string) {
-  fireEvent.click(await screen.findByRole('button', { name, exact: true }))
+  fireEvent.click(await screen.findByRole('button', { name }))
 }
 async function patch(fixture: Fixture, id: string, fields: Record<string, unknown>) {
   await act(async () => {
@@ -494,7 +493,7 @@ describe('mobile pool work-list actions', () => {
     await choose('Tuck Synthetic task 3 into Closed')
     const first = await request('issues.setTucked')
     expect(first.input).toMatchObject({ id: TARGET, tucked: true, mutationId: expect.any(String) })
-    expect(screen.queryByRole('button', { name: label, exact: true })).toBeNull()
+    expect(screen.queryByRole('button', { name: label })).toBeNull()
     expect(
       pool()
         .mobileWork.sections()
@@ -508,7 +507,7 @@ describe('mobile pool work-list actions', () => {
     await settle(second, true)
     expect(value().sidebar!.issue.tuckedAt).toBe(iso(0))
     await patch(fixture, TARGET, { tuckedAt: iso(0) })
-    expect(screen.queryByRole('button', { name: label, exact: true })).toBeNull()
+    expect(screen.queryByRole('button', { name: label })).toBeNull()
   })
 
   it('brings a recent closed row back and returns it to Closed on refusal', async () => {
@@ -549,7 +548,6 @@ describe('mobile pool work-list actions', () => {
     fireEvent.contextMenu(button())
     const bringBack = await screen.findByRole('button', {
       name: 'Bring back from Closed',
-      exact: true,
     })
     expect((bringBack as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(bringBack)
@@ -813,13 +811,15 @@ describe('mobile pool work-list actions', () => {
     expect(pool().tables.issue.has('synthetic-5')).toBe(false)
     fireEvent.click(screen.getByTestId('menu-probe'))
     fireEvent.click(screen.getByTestId('menu-probe'))
-    expect(screen.queryByRole('button', { name: 'Rename', exact: true })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Rename' })).toBeNull()
     expect(requests).toEqual([])
     await act(async () => {
       pool().hydrate()
     })
     expect(
-      loads!.mock.calls.filter(([kind, id]) => kind === 'issueProjections' && id === 'synthetic-5'),
+      (loads!.mock.calls as Parameters<Fixture['replica']['row']>[]).filter(
+        ([kind, id]) => kind === 'issueProjections' && id === 'synthetic-5',
+      ),
     ).toHaveLength(1)
     expect(resolvePoolWorkMenu(pool(), 'absent')).toBeNull()
     expect(requests).toEqual([])
