@@ -34,6 +34,7 @@ async function launchWork(page: Page, on: boolean) {
 test('production mobile work has equal off/on rows and styles, and a real press paints the mission', async ({ page, request }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
   const repos = await rpc<string[]>(request, 'repos.list', {}, 'get')
   if (!repos[0]) throw new Error('isolated harness has no repo')
   const title = `Native pool ${Date.now().toString(36)}`
