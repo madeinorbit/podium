@@ -19,7 +19,7 @@
  */
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
-import { createReplica, type IssueViewModel, memoryStorage } from '@podium/client-core/replica'
+import { createReplica, type IssueViewModel, memoryStorage, type Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import {
   asUserId,
@@ -45,6 +45,8 @@ import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 import type { MobileTrpc } from './trpc'
 
 export interface MobileStoreFixture {
+  /** A pre-seeded production kernel facade for addressed feed consumers. */
+  replica?: Replica
   /** Exercise an app's real pool attachment on the provider-owned runtime. */
   attachRuntime?: (runtime: ClientRuntime<MobileTrpc>) => () => void
   sessions?: SessionMeta[]
@@ -160,7 +162,8 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   // item: a store that persists nothing adopts nothing, so there is no previous
   // principal's slice for it to inherit. A root that PERSISTED would owe the
   // attribution gate here, and this one must never quietly become that.
-  const replica = createReplica({ storage: memoryStorage() })
+  const replica = fixture.replica ?? createReplica({ storage: memoryStorage() })
+  if (!fixture.replica) {
   replica.applySnapshot('sessions', fixture.sessions ?? [])
   if (fixture.sessionUserStates)
     replica.applySnapshot('sessionUserStates', fixture.sessionUserStates)
@@ -172,6 +175,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   if (fixture.repoProjections) replica.applySnapshot('repos', fixture.repoProjections)
   if (fixture.issueDeps) replica.applySnapshot('issueDeps', fixture.issueDeps)
   replica.applySnapshot('messageRecords', fixture.messageRecords ?? [])
+  }
   const api = stubApi(fixture)
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null
 

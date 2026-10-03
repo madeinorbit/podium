@@ -9,6 +9,8 @@ import type { MobilePool } from '../client/mobile-pool'
 import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import { useStoreHandle } from '@podium/client-core/react'
+import { createKernelReplica, createSideCache, entityForKind, rowKey, memoryStorage, type ReplicaKind, type ReplicaRows } from '@podium/client-core/replica'
+import type { EntityRecord } from '@podium/sync/replica'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import { renderWithMobileStore } from '../client/test-support'
 
@@ -91,23 +93,62 @@ vi.mock('../hooks/useRefreshableTab', async () => {
 const { createMobilePool } = await import('../client/mobile-pool')
 const { WorkScreen } = await import('./WorkScreen')
 
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+/** The kernel's cache/event seam, over synthetic records. Both arms use this
+ * same real facade; there is no compatibility replica or mirrored runtime. */
+function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
+  const records = new Map<string, EntityRecord>()
+  let seq = 1
+  const key = (entity: string, id: string) => `${entity}:${id}`
+  const install = <K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]) => {
+    const entity = entityForKind(kind)
+    for (const value of rows) {
+      const entityId = rowKey(kind, value)
+      records.set(key(entity, entityId), { entity, entityId, value, provenance: { seq } })
+    }
+  }
+  install('issueProjections', corpus.issueProjections); install('issueUserStates', corpus.issueUserStates)
+  install('issueGitStates', corpus.issueGitStates); install('repos', corpus.repoProjections)
+  install('issueDeps', corpus.issueDeps); install('sessions', corpus.sessions)
+  const replica = createKernelReplica({ cache: {
+    readCursor: () => ({ seq }), readEntities: () => [...records.values()],
+    read: (entity, id) => records.get(key(entity, id)), durability: () => 'durable',
+  }, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
+  return { replica, publish<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]) {
+    const entity = entityForKind(kind), keep = new Set(rows.map(row => rowKey(kind, row)))
+    replica.batch(() => {
+      for (const [address, record] of records) if (record.entity === entity && !keep.has(record.entityId)) {
+        records.delete(address)
+        replica.onKernelEvent({ type: 'removed', entity, entityId: record.entityId })
+      }
+      for (const value of rows) {
+        const entityId = rowKey(kind, value), address = key(entity, entityId)
+        if (records.get(address)?.value === value) continue
+        const record = { entity, entityId, value, provenance: { seq: ++seq } }
+        records.set(address, record)
+        replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+      }
+    })
+  } }
+}
+
 function Capture() { state.runtime = useStoreHandle<MobileTrpc>() as unknown as ClientRuntime<MobileTrpc>; return <WorkScreen /> }
 async function mount(on: boolean, scale: 1 | 4) {
   state.on = on; state.sliceReads = 0; state.rowDerivations = 0; state.counts.clear(); state.errors.length = 0
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
   state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
   const corpus = buildCorpus(scale)
+  const feed = kernelFixture(corpus)
   vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
   const view = await renderWithMobileStore(<Capture />, {
-    issueProjections: corpus.issueProjections, issueUserStates: corpus.issueUserStates,
-    issueGitStates: corpus.issueGitStates, repoProjections: corpus.repoProjections, issueDeps: corpus.issueDeps,
-    sessions: corpus.sessions, repos: corpus.repos, machines: corpus.machines,
+    replica: feed.replica, principal: 'u-bench', repos: corpus.repos, machines: corpus.machines,
     attachRuntime: runtime => state.host!.host.attach(runtime, cause => { state.errors.push(cause.message) }),
   })
   await waitFor(() => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull())
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
   expect(state.errors).toEqual([])
-  return { view, corpus }
+  return { view, corpus, feed }
 }
 function output(container: HTMLElement) {
   return { text: container.textContent,
@@ -135,7 +176,7 @@ describe('mobile WorkScreen pool consumer', () => {
     const cells: unknown[] = []
     let legacyCounts: number[] = []
     for (const on of [false, true]) {
-      const { view, corpus } = await mount(on, scale)
+      const { view, corpus, feed } = await mount(on, scale)
       const initial = output(view.container)
       const label = view.container.querySelector('[data-label^="POD-"]')!.getAttribute('data-label')!
       const seq = Number(label.match(/POD-(\d+)/)![1])
@@ -145,7 +186,7 @@ describe('mobile WorkScreen pool consumer', () => {
         const before = state.sections
         state.counts.clear()
         await act(async () => {
-          view.replica.applySnapshot('issueProjections', corpus.issueProjections.map(row => row.id === target.id ? { ...row, ...patch } : row))
+          feed.publish('issueProjections', corpus.issueProjections.map(row => row.id === target.id ? { ...row, ...patch } : row))
         })
         const commits = [...state.counts.values()].reduce((sum, n) => sum + n, 0)
         if (on) {
@@ -156,9 +197,9 @@ describe('mobile WorkScreen pool consumer', () => {
         cells.push({ on, kind, commits })
         return commits
       }
-      const counts = [await measure('unshown description', { description: 'bookkeeping only' }),
+      const counts = [await measure('unshown description', { description: { value: 'bookkeeping only' } }),
         await measure('shown title', { title: 'Native row renamed' })]
-      if (on) expect(counts[0]).toBe(0)
+      if (on) expect(counts[0], 'unshown description').toBe(0)
       expect(counts[1]).toBeGreaterThan(0)
       expect(view.container.textContent).toContain('Native row renamed')
       if (!on) legacyCounts = counts
