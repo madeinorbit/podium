@@ -60,7 +60,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
   function facts(id: string): Loaded<IssueViewModel> {
     // Existing resident index observations own these small facts. Reuse them
     // during React's pre-subscription read; cold facts are never cached here.
-    return pool.resident('issue', id) === 'resident' ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
+    return pool.tables.issue.has(id) ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
   }
   function readFacts(id: string): Loaded<IssueViewModel> {
     const row = pool.row('issue', id, 'summary')
