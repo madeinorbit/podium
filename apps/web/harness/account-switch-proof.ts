@@ -8,8 +8,8 @@ import { hostname } from 'node:os'
 import { extname, resolve } from 'node:path'
 import { chromium, expect, type Page } from '@playwright/test'
 import { build } from 'vite'
-import config from './sidebar-acceptance.vite'
 import type {} from '../test/sidebar-acceptance.browser'
+import config from './sidebar-acceptance.vite'
 
 const args = process.argv.slice(2)
 const planted = args.includes('--plant-stale-handler')

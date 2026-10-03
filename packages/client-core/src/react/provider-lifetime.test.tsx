@@ -39,8 +39,11 @@ it('retires account-owned callbacks and state on principal changes while preserv
     const [draft, setDraft] = useState('')
     // These callbacks deliberately have mount lifetime, like UI gesture hooks.
     // They must see the current account even when their scalar inputs stay equal.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: Deliberately retain mount ownership to catch a missing principal boundary.
     const initialOwner = useCallback(() => owner, [])
+    // biome-ignore lint/correctness/useExhaustiveDependencies: Refreshing this callback would hide the lifetime regression under test.
     const closeAtMount = useCallback(() => close('file-1'), [])
+    // biome-ignore lint/correctness/useExhaustiveDependencies: Observe actual mounts rather than replaying an effect when the account value changes.
     useEffect(() => {
       mounts.push(principal.userId)
       return () => {

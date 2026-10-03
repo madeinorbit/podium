@@ -306,6 +306,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   // disposes and re-arms the SAME runtime (both are idempotent). dispose() is
   // deliberately the REVERSIBLE half — the irreversible destroy() above is the
   // principal boundary and must not be driven by React's effect scheduling.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The owner changes only with its runtime; detach is its mutable cleanup handle.
   useEffect(() => {
     if (runtime === null || owner === null) return
     runtime.start()
