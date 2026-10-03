@@ -13,8 +13,8 @@ import type { MobileTrpc } from './trpc'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))
-vi.mock('./mobile-pool', async original => ({
-  ...await original<typeof import('./mobile-pool')>(),
+vi.mock('./mobile-pool', async (original) => ({
+  ...(await original<typeof import('./mobile-pool')>()),
   useMobilePoolProjection: <T,>(read: (pool: MobxPool) => T) => {
     const projection = useMemo(() => createPoolProjection(state.pool!, read), [read])
     return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
@@ -41,12 +41,17 @@ it('paints forward ticks and rewinds of the shared pool clock with zero legacy s
   storeStats.reset()
   await renderWithMobileStore(<Clock />, { attachRuntime: () => () => {} })
   expect(screen.getByTestId('phone-clock').textContent).toBe(String(now))
-  console.info('[phone clock reader]', JSON.stringify({
-    selectorRuns: readRuntimeStoreStats(runtime)?.selectorRuns,
-    rowBuilds: readRuntimeStoreStats(runtime)?.rowBuilds,
-  }))
+  console.info(
+    '[phone clock reader]',
+    JSON.stringify({
+      selectorRuns: readRuntimeStoreStats(runtime)?.selectorRuns,
+      rowBuilds: readRuntimeStoreStats(runtime)?.rowBuilds,
+    }),
+  )
   for (const next of [now + 60_000, now + 120_000, now - 60_000]) {
-    act(() => state.pool!.applyLocals({ selectedIssueId: null, coarseNow: next }, new Set(['coarseNow'])))
+    act(() =>
+      state.pool!.applyLocals({ selectedIssueId: null, coarseNow: next }, new Set(['coarseNow'])),
+    )
     expect(screen.getByTestId('phone-clock').textContent).toBe(String(next))
   }
   expect(readRuntimeStoreStats(runtime)?.selectorRuns).toBe(0)

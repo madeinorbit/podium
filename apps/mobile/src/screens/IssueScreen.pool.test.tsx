@@ -1,4 +1,12 @@
-import { createKernelReplica, createSideCache, entityForKind, rowKey, memoryStorage, type ReplicaKind, type ReplicaRows } from '@podium/client-core/replica'
+import {
+  createKernelReplica,
+  createSideCache,
+  entityForKind,
+  rowKey,
+  memoryStorage,
+  type ReplicaKind,
+  type ReplicaRows,
+} from '@podium/client-core/replica'
 import type { EntityRecord } from '@podium/sync/replica'
 import {
   asIssueId,
@@ -22,27 +30,47 @@ import { startCensus } from '../../../../packages/worklist-proto/harness/src/mob
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-const state = vi.hoisted(() => ({ host: null as MobilePool | null, pool: null as MobxPool | null,
-  runtime: null as ClientRuntime<MobileTrpc> | null, reads: 0, measuring: false, errors: [] as string[] }))
-vi.mock('../client/mobile-pool', async original => ({
-  ...await original<typeof import('../client/mobile-pool')>(),
-  useMobilePool: () => { state.pool = state.host!.host.usePool(); return state.pool },
-  useMobilePoolProjection: (read: never, empty: never) => state.host!.host.usePoolProjection(read, empty),
+const state = vi.hoisted(() => ({
+  host: null as MobilePool | null,
+  pool: null as MobxPool | null,
+  runtime: null as ClientRuntime<MobileTrpc> | null,
+  reads: 0,
+  measuring: false,
+  errors: [] as string[],
 }))
-vi.mock('@podium/client-core/react', async original => {
+vi.mock('../client/mobile-pool', async (original) => ({
+  ...(await original<typeof import('../client/mobile-pool')>()),
+  useMobilePool: () => {
+    state.pool = state.host!.host.usePool()
+    return state.pool
+  },
+  useMobilePoolProjection: (read: never, empty: never) =>
+    state.host!.host.usePoolProjection(read, empty),
+}))
+vi.mock('@podium/client-core/react', async (original) => {
   const real = await original<typeof import('@podium/client-core/react')>()
-  return { ...real, useAllIssueViewModels: (...args: Parameters<typeof real.useAllIssueViewModels>) =>
-    real.useAllIssueViewModels(...args).map(row => new Proxy(row, {
-      get(target, key, receiver) {
-        if (state.measuring) state.reads++
-        return Reflect.get(target, key, receiver)
-      },
-    })),
+  return {
+    ...real,
+    useAllIssueViewModels: (...args: Parameters<typeof real.useAllIssueViewModels>) =>
+      real.useAllIssueViewModels(...args).map(
+        (row) =>
+          new Proxy(row, {
+            get(target, key, receiver) {
+              if (state.measuring) state.reads++
+              return Reflect.get(target, key, receiver)
+            },
+          }),
+      ),
   }
 })
 // Preserve the relative-time output captured by the accepted control.
 beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-03T19:30:00Z')))
-afterEach(() => { cleanup(); storeStats.enable(false); storeStats.reset(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  storeStats.enable(false)
+  storeStats.reset()
+  vi.restoreAllMocks()
+})
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -133,10 +161,27 @@ vi.mock('expo-linear-gradient', () => ({
 }))
 // Only native drag geometry is mocked; the actual picker content stays mounted.
 vi.mock('../components/BottomSheet', () => ({
-  BottomSheet: ({ visible, children, head, footer, virtualizedContent }: {
-    visible: boolean; children?: ReactNode; head?: ReactNode; footer?: ReactNode;
-    virtualizedContent?: (scrollEnabled: boolean) => ReactNode;
-  }) => visible ? <div data-testid="page-sheet">{head}{children}{virtualizedContent?.(true)}{footer}</div> : null,
+  BottomSheet: ({
+    visible,
+    children,
+    head,
+    footer,
+    virtualizedContent,
+  }: {
+    visible: boolean
+    children?: ReactNode
+    head?: ReactNode
+    footer?: ReactNode
+    virtualizedContent?: (scrollEnabled: boolean) => ReactNode
+  }) =>
+    visible ? (
+      <div data-testid="page-sheet">
+        {head}
+        {children}
+        {virtualizedContent?.(true)}
+        {footer}
+      </div>
+    ) : null,
 }))
 vi.mock('../components/LaunchPlaceholders', () => ({
   BootstrapCrossfade: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -165,7 +210,6 @@ vi.mock('../hooks/useRefreshableTab', () => ({
   }),
 }))
 vi.mock('../hooks/useMinimizeTabBarOnScroll', () => ({ useMinimizeTabBarOnScroll: () => () => {} }))
-
 
 const { renderWithMobileStore } = await import('../client/test-support')
 const { createMobilePool, useMobilePool } = await import('../client/mobile-pool')
@@ -223,12 +267,19 @@ function pageReplica(issues: IssueProjection[]) {
       records.set(`${entity}:${entityId}`, { entity, entityId, value, provenance: { seq: 1 } })
     }
   }
-  install('issueProjections', issues); install('issueUserStates', [markers])
-  install('issueGitStates', [git]); install('repos', [repo])
-  return createKernelReplica({ cache: {
-    readCursor: () => ({ seq: 1 }), readEntities: () => [...records.values()],
-    read: (entity, id) => records.get(`${entity}:${id}`), durability: () => 'durable',
-  }, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
+  install('issueProjections', issues)
+  install('issueUserStates', [markers])
+  install('issueGitStates', [git])
+  install('repos', [repo])
+  return createKernelReplica({
+    cache: {
+      readCursor: () => ({ seq: 1 }),
+      readEntities: () => [...records.values()],
+      read: (entity, id) => records.get(`${entity}:${id}`),
+      durability: () => 'durable',
+    },
+    side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+  })
 }
 function OpenPage() {
   state.runtime = useStoreHandle<MobileTrpc>() as ClientRuntime<MobileTrpc>
@@ -237,38 +288,67 @@ function OpenPage() {
   return open ? <IssueScreen /> : <button onClick={() => setOpen(true)}>Open task</button>
 }
 function fingerprint(container: HTMLElement) {
-  return createHash('sha256').update(JSON.stringify({
-    text: container.textContent,
-    labels: [...container.querySelectorAll('[aria-label]')].map(node => node.getAttribute('aria-label')),
-    styles: [...container.querySelectorAll('[style]')].map(node => node.getAttribute('style')),
-  })).digest('hex')
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        text: container.textContent,
+        labels: [...container.querySelectorAll('[aria-label]')].map((node) =>
+          node.getAttribute('aria-label'),
+        ),
+        styles: [...container.querySelectorAll('[style]')].map((node) =>
+          node.getAttribute('style'),
+        ),
+      }),
+    )
+    .digest('hex')
 }
 it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x', async () => {
-  const cells: { scale: number; rowReads: number; derivations: number; neighbours: number; selectors: number }[] = []
+  const cells: {
+    scale: number
+    rowReads: number
+    derivations: number
+    neighbours: number
+    selectors: number
+  }[] = []
   for (const scale of [1, 4]) {
     state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
     state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
-    state.pool = null; state.errors = []; state.reads = 0; state.measuring = false
+    state.pool = null
+    state.errors = []
+    state.reads = 0
+    state.measuring = false
     const history = Array.from({ length: 1_200 * scale }, (_, index) => ({
-      ...projection, id: asIssueId(`page-history-${index}`), seq: 100 + index,
-      title: `Historical task ${index}`, needsHuman: false, asked: null,
-      stage: 'done' as const, closedAt: '2026-01-01T00:00:00Z', archived: true,
-      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+      ...projection,
+      id: asIssueId(`page-history-${index}`),
+      seq: 100 + index,
+      title: `Historical task ${index}`,
+      needsHuman: false,
+      asked: null,
+      stage: 'done' as const,
+      closedAt: '2026-01-01T00:00:00Z',
+      archived: true,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
     }))
     const mounted = await renderWithMobileStore(<OpenPage />, {
       replica: pageReplica([projection, ...history]),
-      attachRuntime: runtime => state.host!.host.attach(runtime, error => state.errors.push(error.message)),
+      attachRuntime: (runtime) =>
+        state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
     })
     await waitFor(() => expect(state.pool).not.toBeNull(), { timeout: 30_000 })
     expect(state.errors).toEqual([])
     const row = state.pool!.row.bind(state.pool!)
-    const spy = vi.spyOn(state.pool!, 'row').mockImplementation(((...args: Parameters<MobxPool['row']>) => {
+    const spy = vi.spyOn(state.pool!, 'row').mockImplementation(((
+      ...args: Parameters<MobxPool['row']>
+    ) => {
       if (state.measuring) state.reads++
       return row(...args)
     }) as MobxPool['row'])
     const census = startCensus({ sample: () => ({ rowReads: state.reads }) })
-    storeStats.enable(); storeStats.reset()
-    census.enter('open task'); state.measuring = true
+    storeStats.enable()
+    storeStats.reset()
+    census.enter('open task')
+    state.measuring = true
     try {
       fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
       await waitFor(() => expect(screen.getByText('The normalized description.')).toBeTruthy())
@@ -281,20 +361,31 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
       census.exit()
       const phase = census.snapshot().phases['open task']!
       const stats = readRuntimeStoreStats(state.runtime!)!
-      cells.push({ scale, rowReads: state.reads, derivations: phase.computedRuns + phase.reactionRuns,
-        neighbours: 1, selectors: stats?.selectorRuns ?? 0 })
+      cells.push({
+        scale,
+        rowReads: state.reads,
+        derivations: phase.computedRuns + phase.reactionRuns,
+        neighbours: 1,
+        selectors: stats?.selectorRuns ?? 0,
+      })
     } finally {
-      state.measuring = false; census.stop(); spy.mockRestore(); mounted.unmount()
-      storeStats.enable(false); storeStats.reset()
+      state.measuring = false
+      census.stop()
+      spy.mockRestore()
+      mounted.unmount()
+      storeStats.enable(false)
+      storeStats.reset()
     }
   }
   console.info('[task open work]', JSON.stringify(cells))
   const [base, larger] = cells
   for (const metric of ['rowReads', 'derivations'] as const) {
-    expect(larger![metric], `task open: 4x/1x ${metric} exceeds visible-neighbourhood ratio`)
-      .toBeLessThanOrEqual(base![metric] * larger!.neighbours / base!.neighbours)
+    expect(
+      larger![metric],
+      `task open: 4x/1x ${metric} exceeds visible-neighbourhood ratio`,
+    ).toBeLessThanOrEqual((base![metric] * larger!.neighbours) / base!.neighbours)
   }
-  expect(cells.map(cell => cell.selectors)).toEqual([0, 0])
+  expect(cells.map((cell) => cell.selectors)).toEqual([0, 0])
 })
 
 it('keeps parent target order literal and row reads bounded by its visible choices', async () => {
@@ -302,35 +393,51 @@ it('keeps parent target order literal and row reads bounded by its visible choic
   for (const scale of [1, 4]) {
     state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
     state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
-    state.pool = null; state.errors = []; state.reads = 0; state.measuring = false
+    state.pool = null
+    state.errors = []
+    state.reads = 0
+    state.measuring = false
     const history = Array.from({ length: 1_200 * scale }, (_, index) => ({
-      ...projection, id: asIssueId(`page-history-${index}`), seq: 100 + index,
-      title: `Historical task ${index}`, needsHuman: false, asked: null,
-      stage: 'done' as const, closedAt: '2026-01-01T00:00:00Z', archived: true,
-      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+      ...projection,
+      id: asIssueId(`page-history-${index}`),
+      seq: 100 + index,
+      title: `Historical task ${index}`,
+      needsHuman: false,
+      asked: null,
+      stage: 'done' as const,
+      closedAt: '2026-01-01T00:00:00Z',
+      archived: true,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
     }))
     const mounted = await renderWithMobileStore(<OpenPage />, {
       replica: pageReplica([projection, ...history]),
-      attachRuntime: runtime => state.host!.host.attach(runtime, error => state.errors.push(error.message)),
+      attachRuntime: (runtime) =>
+        state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
     })
     await waitFor(() => expect(state.pool).not.toBeNull(), { timeout: 30_000 })
     fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
     await waitFor(() => expect(screen.getByText('The normalized description.')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Details', exact: true }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Set parent', exact: true })).toBeTruthy())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Set parent', exact: true })).toBeTruthy(),
+    )
     const row = state.pool!.row.bind(state.pool!)
-    const spy = vi.spyOn(state.pool!, 'row').mockImplementation(((...args: Parameters<MobxPool['row']>) => {
+    const spy = vi.spyOn(state.pool!, 'row').mockImplementation(((
+      ...args: Parameters<MobxPool['row']>
+    ) => {
       if (state.measuring) state.reads++
       return row(...args)
     }) as MobxPool['row'])
     const census = startCensus({ sample: () => ({ rowReads: state.reads }) })
-    census.enter('open parent targets'); state.measuring = true
+    census.enter('open parent targets')
+    state.measuring = true
     try {
       fireEvent.click(screen.getByRole('button', { name: 'Set parent', exact: true }))
       await waitFor(() => expect(screen.getByLabelText('Search parent')).toBeTruthy())
       const choices = screen.getAllByRole('button', { name: /^POD-\d+ Historical task / })
       expect(choices).toHaveLength(14)
-      expect(choices.map(choice => choice.getAttribute('aria-label'))).toEqual(
+      expect(choices.map((choice) => choice.getAttribute('aria-label'))).toEqual(
         Array.from({ length: 14 }, (_, at) => {
           const index = history.length - 1 - at
           return `POD-${100 + index} Historical task ${index}`
@@ -338,12 +445,24 @@ it('keeps parent target order literal and row reads bounded by its visible choic
       )
       census.exit()
       const phase = census.snapshot().phases['open parent targets']!
-      cells.push({ scale, rowReads: state.reads, derivations: phase.computedRuns + phase.reactionRuns, neighbours: choices.length })
-    } finally { state.measuring = false; census.stop(); spy.mockRestore(); mounted.unmount() }
+      cells.push({
+        scale,
+        rowReads: state.reads,
+        derivations: phase.computedRuns + phase.reactionRuns,
+        neighbours: choices.length,
+      })
+    } finally {
+      state.measuring = false
+      census.stop()
+      spy.mockRestore()
+      mounted.unmount()
+    }
   }
   console.info('[parent picker open work]', JSON.stringify(cells))
   const [base, larger] = cells
   for (const metric of ['rowReads', 'derivations'] as const)
-    expect(larger![metric], `parent picker: 4x/1x ${metric} exceeds visible-neighbourhood ratio`)
-      .toBeLessThanOrEqual(base![metric] * larger!.neighbours / base!.neighbours)
+    expect(
+      larger![metric],
+      `parent picker: 4x/1x ${metric} exceeds visible-neighbourhood ratio`,
+    ).toBeLessThanOrEqual((base![metric] * larger!.neighbours) / base!.neighbours)
 }, 60_000)
