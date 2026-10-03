@@ -92,15 +92,14 @@ describe('declared issue page', () => {
     try {
       expect(snapshots[0]).toHaveLength(1024)
       expect(snapshots[0]?.find(row => row.id === 'cold-0')?.dependents).toEqual([{ id: 'cold-1', type: 'relates' }])
+      // Count the screen read before apply() calculates its own cold bounds.
+      expect(summaryReads.mock.calls.filter(([kind, , decorate]) => kind === 'issue' && decorate !== false)).toHaveLength(0)
       ctx.patch('issue', 'cold-1', task('cold-1', { seq: 2, archived: true, labels: ['changed'],
         deps: [{ id: 'cold-2', type: 'custom' }] }))
       expect(snapshots).toHaveLength(2)
       expect(snapshots[1]?.find(row => row.id === 'cold-1')?.labels).toEqual(['changed'])
       expect(snapshots[1]?.find(row => row.id === 'cold-0')?.dependents).toEqual([])
       expect(snapshots[1]?.find(row => row.id === 'cold-2')?.dependents).toEqual([{ id: 'cold-1', type: 'custom' }])
-      // These field-only reads must not calculate coldFlatUntil for the menu,
-      // or hydrate a thousand unrelated payloads.
-      expect(summaryReads.mock.calls.filter(([kind, , decorate]) => kind === 'issue' && decorate !== false)).toHaveLength(0)
       expect(ctx.load).not.toHaveBeenCalled()
       expect(tracked(() => ctx.pool.row('issue', 'cold-0', 'mark'))).toBe(LOADING)
     } finally { stop() }
