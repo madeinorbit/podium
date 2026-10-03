@@ -14,6 +14,8 @@ FlightDeck's archived reveal uses the selected mission's attachment buckets. It 
 
 The store-owner census records legacy reader calls and detects legacy mission-index/session-ownership work nested inside a pool projection. All pool render modes and both menus leave the census empty. The reader audit also checks unchanged global mission/ownership counters, bounded addressed session reads and no `peek` access; an unrelated issue title does not invalidate the selected mission.
 
+The mission wrapper reads inside its MobX observer, retaining the mission's computed rows across session selection. The layout projection remains limited to the small action menus. The rendered check uses the real projection subscription and proves that initial mount derives the mission once and selecting a session does not derive it again. Restoring the previous pane subscription makes this check fail with two derivations.
+
 ## Parity evidence
 
 | Focused check | Result |
@@ -23,12 +25,13 @@ The store-owner census records legacy reader calls and detects legacy mission-in
 | Generated seeds 1, 2 and 3, 200 publications each, including overlays, scope, clock and reload | Zero differences |
 | Mission reader: cold summaries, batched ancestry, bounded attachment reads, repeated dependency links, raw/resume membership, deadline clock | 7 green |
 | Rendered full, working, needs-you, waterfall and handoff views; archived reveal and Enter; issue/session menus; folded bar | 9 green |
+| Observed mission retention on mount and session selection | Green; previous subscription planted red |
 | Supplied close/session guards after the shared host and session-pane rebase | 2 green |
 | Store-owner census control and addressed-reader/zero-ownership audit | 2 green |
 | Existing FlightDeck, Workspace and folded-bar focused tests | 190 green |
 | Declared schema and shared edge collections with the mission reader | 73 green |
 | Existing MobX/hand relation semantics and the reader audit, focused selection | 27 green |
-| Scoped web/client-graph/worklist-proto typecheck | 17 successful tasks; final fixture follow-up also green |
+| Scoped web/client-graph/worklist-proto typecheck | 16 successful tasks on the current pilot; 14 cached |
 | Focused MobX and memory-cutoff fence lint | Green |
 | Focused Biome comparison with integration baseline | 7 inherited errors on both sides; zero new errors |
 
@@ -57,9 +60,13 @@ The initial invocation stopped during module resolution before opening the datab
 
 ## Paired browser timing
 
-Timing remains a required follow-up after the switch-off code landing, per POD-4286's 2026-10-02 instruction; it is pending the shared `bench:flatblock` lease. The owned consumer `apps/web/harness/mission-speed-gate.ts` builds the ordinary minified production fixture once and captures four fresh Chromium runs in off/on/on/off order, two per arm on the same SHA, fixed 4× corpus, seed and targets. The metric is trusted pointerdown to the first actual Chromium Paint after the expected DOM change. It rejects a slower paired mission median, any positive pool-path legacy census, or a greater-than-10% regression against the landed five-action click baseline. It also reports recorded mission reader work and its share of switch latency.
+Timing remains a required follow-up after the switch-off code landing, per POD-4286's 2026-10-02 instruction. The owned consumer `apps/web/harness/mission-speed-gate.ts` builds the ordinary minified production fixture once and captures four fresh Chromium runs in off/on/on/off order, two per arm on the same SHA, fixed 4× corpus, seed and targets. The sidebar stays on the pool in both arms; only `mobxPane` changes. The metric is trusted pointerdown to the first actual Chromium Paint after the expected DOM change. It rejects a slower paired mission median, any positive pool-path legacy census, or a greater-than-10% regression against the landed five-action click baseline. It also reports recorded mission reader work and its share of switch latency.
 
 The timing regression control delays only pool mission clicks, records the delay, and must turn the paired gate red before the undelayed comparison is accepted. The prepared control uses 7,500 ms. The complete four-capture consumer has a 35-minute foreground allowance; repetitions, targets, metric and failure thresholds remain fixed. The reported calibration noise belongs to the landed baseline.
+
+The complete planted control at `39dae804665a15aa0f1c824c09c1b0944fa4f683` is red as required: the paired mission median rises from 1,235.890 to 9,277.009 ms with the 7,500 ms delay. All four captures completed, with six retained samples per action per capture and zero pool-path legacy reads. The exact harness copy was restored.
+
+The first valid undelayed pair at `3b77d7467478bf9c893e6edc7934d7abda41b035` is rejected: mission latency is 1,615.642 ms off versus 1,687.193 ms on, **4.429% slower**. All five fixed-baseline checks pass and legacy reads are zero, but the strict paired mission check fails. Recorded mission-reader work falls from 574.85 to 128.90 ms, or 35.580% to 7.640% of switch time. No sample is discarded and this result is not acceptance evidence. POD-5327's separate profile identifies a second mission-row pass and expensive projection subscription work. The observer correction above addresses this cause; a new complete pair is pending the timing lease.
 
 The first timing control was invalid: its legacy arm completed, but the pool arm stopped before fixture readiness with React error 311. An isolated production startup probe traced this to the fixture freezing screen choices only in `attachRuntime`, after Workspace had first chosen its hooks. The ordinary app already initializes screens before descendants in AppShell. The fixture now does the same in its root, before rendering children. With the correction, the full 4× pool fixture becomes ready and a trusted click on the fixed mission target opens the FlightDeck scroller, with zero page errors and no pending settling work. The CommandPalette fix independently landed by POD-5308 did not remove the original error; this was a separate fixture startup contract violation. No timing number from the aborted control is accepted as a paired result.
 
