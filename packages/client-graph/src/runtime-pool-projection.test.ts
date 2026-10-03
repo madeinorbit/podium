@@ -115,8 +115,9 @@ it('gives abandoned renders to the observer finalizer and re-arms a finalized vi
   expect(f.view.getSnapshot()).not.toBe(first)
   expect(f.view.getSnapshot()).toEqual({ selected: true })
   expect(f.read).toHaveBeenCalledTimes(2)
-  f.change(null)
   expect(wake).toHaveBeenCalledTimes(1)
+  f.change(null)
+  expect(wake).toHaveBeenCalledTimes(2)
   expect(f.read).toHaveBeenCalledTimes(3)
 })
 
