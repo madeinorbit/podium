@@ -598,7 +598,11 @@ function explorerPool(issues: SliceIssue[], sessions: SliceSession[] = []): Mobx
 
 function fixturePool(): MobxPool {
   const signature = JSON.stringify([state.issues, state.sessions])
-  const repos = normalizedFixtureStore(state).replica.rows('repos').map((value) => ({ kind: 'repo' as const, id: value.id, value }))
+  const repos = normalizedFixtureStore(state).replica.rows('repos').map((repo) => ({
+    kind: 'worktree' as const,
+    id: repo.repoPath || `fixture:${repo.id}`,
+    value: { path: repo.repoPath || `fixture:${repo.id}`, repoId: repo.id, repoPath: repo.repoPath ?? '', repoName: 'fixture', prefix: repo.prefix, projectRoot: true },
+  }))
   if (!poolMode.pool) {
     poolMode.pool = explorerPool(normalizedFixtureIssues(state), state.sessions)
     poolMode.pool.apply({ type: 'update', rows: repos })

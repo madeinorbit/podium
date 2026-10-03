@@ -91,15 +91,30 @@ function useFixturePool() {
         projectRoot: tree.path === repo.path,
       })),
     )
+    // Repos arrive as companion facts on the existing worktree feed.
+    const repoRows = normalized.replica.rows('repos')
+    const repoWorktrees = repoRows.map((repo) => ({
+      kind: 'worktree' as const,
+      id: repo.repoPath || `fixture:${repo.id}`,
+      value: {
+        ...worktrees.find((tree) => tree.path === repo.repoPath),
+        path: repo.repoPath || `fixture:${repo.id}`,
+        repoId: repo.id,
+        repoPath: repo.repoPath ?? '',
+        repoName: repo.repoPath?.split('/').at(-1) ?? 'fixture',
+        prefix: repo.prefix,
+        projectRoot: true,
+      },
+    }))
     const rows: RowSourceEvent['rows'] = [
-        ...normalized.replica.rows('repos').map((value) => ({ kind: 'repo' as const, id: value.id, value })),
+        ...repoWorktrees,
         ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
         ...(state.sessions ?? []).map((value) => ({
           kind: 'session' as const,
           id: value.sessionId,
           value,
         })),
-        ...worktrees.map((value) => ({ kind: 'worktree' as const, id: value.path, value })),
+        ...worktrees.filter((tree) => !repoWorktrees.some((row) => row.id === tree.path)).map((value) => ({ kind: 'worktree' as const, id: value.path, value })),
       ]
     const nextRows = new Map(rows.map((row) => [JSON.stringify([row.kind, row.id]), row]))
     pool.apply({ type: 'update', rows: [
