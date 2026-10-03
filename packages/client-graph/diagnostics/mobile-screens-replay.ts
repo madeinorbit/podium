@@ -218,7 +218,7 @@ async function main() {
             rowIndex: result.first.rowIndex,
             field: result.first.field,
           }
-        if (result.first?.field === 'author') {
+        if (result.first?.field === 'author' && result.first.rowIndex !== null) {
           const reader = handle.pool.row('mobileScreenReader', 'reader')
           if (reader && typeof reader !== 'symbol') {
             const mission = reader.mission(input.selectedId)
