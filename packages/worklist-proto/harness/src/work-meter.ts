@@ -95,7 +95,8 @@ const side: SideStore =
   typeof AsyncLocalStorage === 'function' ? new AsyncLocalStorage<Side>() : UNTRACKED
 const readerSide: Pick<AsyncLocalStorage<string>, 'run' | 'getStore'> =
   typeof AsyncLocalStorage === 'function' ? new AsyncLocalStorage<string>() : {
-    run: (_name, fn, ...args) => fn(...args), getStore: () => undefined,
+    run<R>(_name: string, fn: (...args: unknown[]) => R, ...args: unknown[]): R { return fn(...args) },
+    getStore: () => undefined,
   }
 
 /** Run `fn` as not-the-arm (the engine, the feed, the DOM): nothing it iterates counts. */

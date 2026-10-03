@@ -46,7 +46,6 @@ import { SCREEN_ACTIONS, type ScreenAction, type ScreenWorkCell } from './screen
 
 const ROOT = 'guard-root', CHILD = 'guard-child', NEXT = 'guard-next'
 const SESSION = 'guard-seat', OTHER_SESSION = 'guard-other-seat'
-const REF = 'POD-999999-Z'
 const layout = { pinnedRepos: [], pinnedWorktrees: [], projectOrder: [] }
 
 export interface ScreenReader {
@@ -64,7 +63,7 @@ export interface ScreenWorkRun {
 
 /** The drawn neighbourhood is fixed; unrelated rows and closed mission history grow ×4.
  * Use real normalized kernel rows and the real row-source pipeline, never a second pool index. */
-function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): void {
+function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
   const row = ctx.engine.getSnapshot().issueProjections.find(issue => !issue.archived && !issue.deletedAt)!
   for (const [id, parentId] of [[ROOT, null], [CHILD, ROOT], [NEXT, ROOT]] as const) {
     upsertIssue(ctx, id, { ...row, id, seq: id === ROOT ? 999999 : id === CHILD ? 999998 : 999997,
@@ -82,9 +81,12 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): void {
   for (let index = 0; index < 32 * scale; index++) {
     const id = `guard-history-${index}`
     upsert(ctx, 'session', id, { ...seat, id, sessionId: id, resume: undefined, issueId: ROOT, archived: true, status: 'exited',
-      headless: false, lastActiveAt: old, finishedAt: old, createdAt: old })
+      headless: false, lastActiveAt: old, finishedAt: old, createdAt: old,
+      refRepoId: row.repoId, refSeq: index === 32 * scale - 1 ? 999999 : 1000000 + index, refLetter: 'Z' })
   }
   ctx.engine.getSnapshot().setSelectedIssueId(asIssueId(ROOT))
+  const repo = ctx.cache.read('repo', row.repoId!)!.value as { prefix: string }
+  return `${repo.prefix}-999999-Z`
 }
 
 async function drain(pool: ReturnType<typeof createRuntimeWorklistPool>['pool']): Promise<void> {
@@ -108,7 +110,7 @@ function assertObservedParity(readers: readonly ScreenReader[], values: Readonly
 
 export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWorkRun> {
   const ctx = await startScenarioEngine(scale, { ownRows: true })
-  seedNeighbourhood(ctx, scale)
+  const ref = seedNeighbourhood(ctx, scale)
   const handle = createRuntimeWorklistPool(ctx.engine, { header: true, settings: true, preferences: true,
     summaries: mergePoolSummaries(COMMAND_SUMMARIES, SHELL_SUMMARIES, ISSUE_PAGE_SUMMARIES,
       ISSUE_BOARD_SUMMARIES, CHAT_CONTEXT_SUMMARIES, NOTICE_SUMMARIES, SESSION_PANE_SUMMARIES,
@@ -143,6 +145,7 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
     const mobileInbox = createMobileInboxViews(pool), mobileSession = createMobileSessionReader(pool)
     stops.push(() => mobileInbox.dispose())
     const navigation = createPoolNavigationProvider(pool)
+    ctx.engine.setNavigationProvider(navigation)
     const locals = () => {
       const state = ctx.engine.getSnapshot()
       return { selectedIssueId: state.selectedIssueId, paneA: state.paneA, paneB: state.paneB, split: state.split }
@@ -177,7 +180,7 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
     add('mission.workspace', ['Workspace', 'FoldedFlightDeckBar'], () => readWorkspaceMission(missionView(pool), selected(), selected()))
     add('mission.menu', ['PoolIssueContextMenu', 'PoolSessionContextMenu'], () => readMissionActionInputs(missionView(pool), [selected()]))
     add('navigation.activity', ['ClientRuntime navigation watch'], () => navigation.activityAt(ROOT))
-    add('navigation.ref', ['navigateToSession', 'PodiumLinkHost'], () => navigation.session(REF))
+    add('navigation.ref', ['navigateToSession', 'PodiumLinkHost'], () => navigation.session(ref))
     add('navigation.mission', ['ClientRuntime navigation watch'], () => ({ root: navigation.missionRoot(selected()), members: navigation.missionMembers(ROOT), readAt: navigation.issueReadAt(selected()) }))
     add('issue-page.detail', ['IssuePage'], () => page.data(selected()))
     add('issue-page.panel', ['IssuePanel', 'IssueScreen'], () => page.panel({ issueId: selected(), cwd: '/synthetic' }))
@@ -201,7 +204,7 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
     add('superagent', ['SuperagentView', 'SuperagentScreen'], () => ({ state: superagentState(pool), feed: superagentFeed(pool), focus: superagentFocus(pool),
       cursor: superagentCursor(pool), question: superagentQuestion(pool, asSessionId(SESSION)) }))
     add('mobile-inbox', ['InboxScreen', 'SessionsScreen', 'ScreeningScreen', 'PodiumLinkHost'], () => ({ inbox: mobileInbox.inbox(), screening: mobileInbox.screening(),
-      rows: mobileInbox.screeningRows([ROOT]), ref: mobileInbox.session(REF), route: mobileInbox.route({ kind: 'issue', issue: '#999999', search: '', hash: '' }) }))
+      rows: mobileInbox.screeningRows([ROOT]), ref: mobileInbox.session(ref), route: mobileInbox.route({ kind: 'issue', issue: '#999999', search: '', hash: '' }) }))
     add('mobile-session', ['SessionScreen', 'TerminalScreen', 'SessionConversation'], () => ({ session: mobileSession.session(SESSION), issue: mobileSession.issue(selected()),
       sessions: mobileSession.sessions(), issues: mobileSession.issues(), machines: mobileSession.machines(), pending: mobileSession.spawnPending(SESSION),
       prompt: mobileSession.spawnPrompt(SESSION), exit: mobileSession.exit(SESSION), conversation: mobileSession.conversation(SESSION), booting: mobileSession.booting() }))
@@ -224,7 +227,7 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
       'pane-switch': () => ctx.engine.getSnapshot().setPane('A', asSessionId(SESSION)),
       'open-menu': () => { ctx.engine.getSnapshot().setPaletteOpen(true); insideReader('launcher.open-menu', () => readPalette(pool)) },
       'long-press': () => { insideReader('mobile-work.long-press', () => readPoolWorkMenu(pool, ROOT)) },
-      'navigate-by-ref': () => { insideReader('navigation.navigate-by-ref', () => navigation.session(REF)) },
+      'navigate-by-ref': () => { insideReader('navigation.navigate-by-ref', () => ctx.engine.getSnapshot().navigateToSession(asSessionId(ref))) },
       heartbeat: () => seatPatch({ lastActiveAt: ctx.stamp() }),
       'machine-flip': () => {
         const id = ctx.engine.getSnapshot().machines[0]!.id

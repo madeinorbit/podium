@@ -12,7 +12,7 @@ export interface ScreenWorkCell {
 }
 export interface ScreenWorkVerdict {
   action: ScreenAction
-  kind: 'rows' | 'derivations'
+  kind: 'rows' | 'derivations' | 'elements'
   reader: string
   at1x: number
   at4x: number
@@ -31,9 +31,9 @@ export function screenWorkVerdicts(at1x: readonly ScreenWorkCell[], at4x: readon
     if (left.length !== 1 || right.length !== 1) throw new Error(`Missing or duplicate screen action: ${action}`)
     const a = left[0]!, b = right[0]!
     if (a.neighbourhood.length === 0 || b.neighbourhood.length === 0) throw new Error(`Empty neighbourhood: ${action}`)
-    for (const kind of ['rows', 'derivations'] as const) {
-      const first = kind === 'rows' ? a.work.rowsBy : a.work.derivationsBy
-      const second = kind === 'rows' ? b.work.rowsBy : b.work.derivationsBy
+    for (const kind of ['rows', 'derivations', 'elements'] as const) {
+      const first = kind === 'rows' ? a.work.rowsBy : kind === 'derivations' ? a.work.derivationsBy : a.work.elementsBy
+      const second = kind === 'rows' ? b.work.rowsBy : kind === 'derivations' ? b.work.derivationsBy : b.work.elementsBy
       if (!first || !second) throw new Error(`Unmetered ${kind}: ${action}`)
       for (const reader of new Set([...Object.keys(first), ...Object.keys(second)])) {
         const one = first[reader] ?? 0, four = second[reader] ?? 0
