@@ -1,18 +1,37 @@
 # POD-5077 switch acceptance
 
-POD-5093, 2026-10-03. **Acceptance remains open.** The frozen product has zero legacy entries and zero unexpected diagnostic differences; account lifetime remains under verification in POD-5402. The frozen integration product is `c38a12b360`, containing POD-5395 and POD-5396. The test-only POD-5401 fixture fix at `eb4a26a9d9` leaves that product byte-identical. Flatblock access returned at 13:45 UTC; the saved gate result has been recovered, and timing capture is queued for its lease. No accepted timing values exist and no default has been changed.
+POD-5093, 2026-10-03. **Acceptance remains open: the 4× timing baseline is RED.** All sixty ON gestures have zero legacy entries, but command-launch projection rebuilding pushes store and derivation time past the budget. POD-5406 owns that cost. The operator-size 1× capture is queued separately. Frozen product `c38a12b360` contains POD-5395 and POD-5396; test-only `eb4a26a9d9` leaves it byte-identical. POD-5402 has a browser-proven account candidate that has not landed. No default has been changed.
 
 ## Evidence status
 
 | Requirement | Evidence | Result |
 | --- | --- | --- |
-| Store and derive p50 <200 ms, p95 <500 ms | Frozen product `c38a12b360`; paired capture prepared, waiting for `bench:flatblock` | Pending |
-| IndexedDB, layout and total reported separately | Exclusive source-mapped CPU partition and Chromium timeline collector prepared | Pending |
-| Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, candidate `91bb0f3488` and frozen-product preflight, mission / small / session switches | Zero entries |
-| Synthetic corpus parity | Sidebar, mission, issue-page and session diagnostics on the same browser candidate | Zero differences / pending |
+| Store and derive p50 <200 ms, p95 <500 ms | Frozen product, 120 retained 4× profiles; 1× queued | Fails at 4×: POD-5406 |
+| IndexedDB, layout and total reported separately | Exclusive CPU partition, request wait union and Chromium layout/paint union below | Recorded at 4× |
+| Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, candidate `91bb0f3488`, frozen-product preflight and sixty 4× ON gestures | Zero entries |
+| Synthetic corpus parity | 1× browser diagnostics and focused corpus/rendering files green; 4× untimed browser checks interrupted | Zero differences / pending on completed checks; 4× browser result unavailable |
 | Private operator replay | Five read-only ludovico checks; aligned sidebar repeated at frozen `c38a12b360` | Zero unexpected differences / pending |
 | Account switch leaves no survivors | Alice → Bob → Alice, actual principals checked, five forced GC and settled-render rounds per transition | Fails: POD-5402 |
 | Focused corpus and rendering gates | Saved results, three missing node files and the aligned navigation case: all fourteen files have passing evidence | Green |
+
+## 4× timing before the fix
+
+Flatblock, Chromium 153.0.8010.12, headless 1800×1000, reduced motion, production build and seed 4443. This corpus has 19,468 issues and 17,208 runtime sessions. Mission targets are `i13916` and `i19016`; small targets `i10006` and `i10061`; session targets `s8608` and `s11337`. Two unretained warmups precede twenty retained samples per arm and action. OFF/ON order alternates within each sample pair. Collector source is `4f25749049`, compiled build source `28df06bb49`, with product identical to frozen `c38a12b360`; the build asset hash manifest is retained.
+
+All numbers are milliseconds, shown as nearest-rank p50 / p95. The store column is an exclusive sampled elapsed-time estimate, including library descendants of data source frames. Native layout/paint intersections, GC, idle and IndexedDB adapter JS are excluded from it. The input window ends at the first qualifying Chromium Paint after the expected DOM change; it does not measure physical display presentation. IndexedDB request wait overlaps CPU/layout and must not be added to these columns. Columns have independent percentiles and do not sum.
+
+| Action / arm | Store and derive | IndexedDB JS | IndexedDB wait | Layout / paint | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mission / OFF | 1,317.3 / 1,496.7 | 0.0 / 1.1 | 136.6 / 197.6 | 178.3 / 268.3 | 2,484.4 / 2,780.0 |
+| Mission / ON | 1,724.3 / 2,102.9 | 0.0 / 0.1 | 253.0 / 330.7 | 178.6 / 213.7 | 2,621.9 / 3,542.5 |
+| Small mission / OFF | 1,101.8 / 1,208.3 | 0.0 / 1.2 | 39.1 / 45.6 | 21.9 / 27.8 | 1,551.3 / 1,709.9 |
+| Small mission / ON | 1,486.4 / 1,692.4 | 0.0 / 0.2 | 52.5 / 77.2 | 22.9 / 28.5 | 1,803.7 / 2,191.7 |
+| Session / OFF | 2,312.6 / 2,534.8 | 0.0 / 0.0 | 12.5 / 16.2 | 34.8 / 146.0 | 3,232.3 / 4,009.7 |
+| Session / ON | 3,296.6 / 3,603.6 | 0.0 / 0.1 | 19.3 / 28.1 | 48.0 / 100.4 | 4,417.9 / 4,900.4 |
+
+The dominant ON sampled leaf work is `command-launch-views.ts` projection and its repeated repo/worktree path matching over cold session summaries. Those three projection frames account for about 1,473 ms mean self time per mission switch and 2,920 ms per session switch. This is new command-view work; the legacy mission, selection and ownership entries remain zero. POD-4286 assigned the nested scan and click-triggered recomputation to POD-5406 before any product edit in this lane.
+
+The lease was granted at 14:44:41.853 UTC for fifteen minutes. Retained inputs span 14:46:47.4425 through the last timed Paint at 14:59:06.204697, before expiry at 14:59:41.853 and the next grant at 14:59:52.629. The 900-second foreground timeout stopped the subsequent untimed diagnostics before the final manifest. All 120 per-sample profiles, traces and records survived; the recovered manifest explicitly marks verification incomplete and raw rendered comparisons unavailable. Empty correctness/lifetime arrays are unavailable evidence, not passing results. The collector now saves timing metadata before checks and can run the timing phase independently. The new attribution guard's planted control is waiting for flatblock load below eight while another capture holds the lease.
 
 ## Correctness and legacy work
 
@@ -55,7 +74,9 @@ Window.__PODIUM_CLOSE_TAB__
   → destroyed initial ClientRuntime
 ```
 
-The same closure retains the old replica through outbox callbacks. `Workspace.tsx` already registers the handler every render. POD-5402 owns the account control arms and the fix. Its drag-only candidate `93f6b51297` was insufficient; a subsequent provider principal subtree key removes the strong Workspace path. The owner also found a retained Playwright startup handle to a sidebar DOM row. The collector now waits for a boolean and disposes that handle. Corrected control and candidate survivor results are still pending, so the account condition remains failed. The saved remote `retired.heapsnapshot` and `retired-object.json` have been copied by POD-5402 and remain retained here.
+The same closure retains the old replica through outbox callbacks. POD-5402 owns the control arms and fix. Candidate `92efa97a21` adds a provider principal boundary and selection-focus cleanup after commit; its owner reports zero survivors after Bob and Alice in both OFF and ON, including both generations' nine handles. Native blur write preservation, pre-fix/stale-handler controls, focused gates and paired cost still precede landing, so the frozen-product account condition remains failed here.
+
+The collector also releases its startup wait handle and clears Playwright 1.60's retained locator target set with an absent-locator count assertion before GC. Those harness references are separate from the original strong Workspace path. The saved heap/object IDs have been copied by POD-5402 and remain retained here.
 
 ## Evidence and controls
 
