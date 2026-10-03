@@ -42,7 +42,10 @@ export default async () => {
     },
     optimizeDeps: {
       entries: ['test/inbox.browser.html'],
-      exclude: ['expo-blur', 'expo-haptics', 'expo-symbols', 'react-native-safe-area-context', 'react-native-svg'],
+      // The alias selects SVG's web entry; optimize its published CJS parser
+      // dependencies so Chromium receives real ESM named exports.
+      include: ['react-native-svg'],
+      exclude: ['expo-blur', 'expo-haptics', 'expo-symbols', 'react-native-safe-area-context'],
     },
     server: { host: '127.0.0.1', hmr: false, port: 45172, strictPort: true },
   }

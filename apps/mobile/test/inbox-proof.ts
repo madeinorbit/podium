@@ -47,9 +47,12 @@ try {
   for (const [arm, mode] of ['off', 'on', 'off', 'on'].entries()) {
     const page = await browser.newPage({ viewport: { width: 430, height: 1050 } }),
       errors: string[] = []
+    let failReady: (error: Error) => void = () => {}
+    const startupFailure = new Promise<never>((_resolve, reject) => { failReady = reject })
     page.on('pageerror', (error) => {
       errors.push(error.message)
       console.error(error.message)
+      failReady(error)
     })
     await page.context().route('http://offline.invalid/**', (route) =>
       route.fulfill({
@@ -58,7 +61,11 @@ try {
       }),
     )
     await page.goto(`${origin}/test/inbox.browser.html?pool=${mode === 'on' ? 1 : 0}`)
-    await page.waitForFunction(() => window.__inbox?.ready(), null, { timeout: 90000 })
+    await Promise.race([
+      page.waitForFunction(() => window.__inbox?.ready(), null, { timeout: 90000 }),
+      startupFailure,
+    ])
+    failReady = () => {}
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>
