@@ -34,7 +34,11 @@ const seams = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
   terminalInputs: [] as { enabled: boolean; initialGeometry?: { cols: number; rows: number } }[],
   nativeInputs: [] as TerminalDomProps[],
-  transcriptInputs: [] as { pendingTurns?: readonly PendingTurn[]; answerInteractionId?: string; onRefPress?: (ref: string) => void }[],
+  transcriptInputs: [] as {
+    pendingTurns?: readonly PendingTurn[]
+    answerInteractionId?: string
+    onRefPress?: (ref: string) => void
+  }[],
   sheet: undefined as TaskSheetProps | undefined,
   route: 'synthetic-session-0',
   replace: vi.fn(),
@@ -359,7 +363,9 @@ async function mount(
   function Conversation() {
     const session = hooks.useSessionContextSession(SID)
     const issue = hooks.useSessionContextIssue(session?.issueId)
-    return session ? <SessionConversation session={session} issue={issue} onOpenTerminalRef={onOpenTerminalRef} /> : null
+    return session ? (
+      <SessionConversation session={session} issue={issue} onOpenTerminalRef={onOpenTerminalRef} />
+    ) : null
   }
   function Surface() {
     runtime = useStoreHandle() as ClientRuntime
@@ -445,28 +451,33 @@ it('opens a conversation with zero mention reads, then matches the legacy refere
   await waitFor(() => expect(seams.sheet?.issue?.id).toBe('synthetic-1'))
   const expected = {
     issue: { id: seams.sheet!.issue!.id, title: seams.sheet!.issue!.title },
-    issues: seams.sheet!.issues.map(row => row.id),
-    sessions: seams.sheet!.sessions.map(row => row.sessionId),
+    issues: seams.sheet!.issues.map((row) => row.id),
+    sessions: seams.sheet!.sessions.map((row) => row.sessionId),
   }
   legacy.view.unmount()
   const enabled = await mount(true, 'conversation')
   const counts = chatContextReadStats(enabled.pool())
   expect(counts).toEqual({
-    mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
+    mentionBuilds: 0,
+    mentionIssueReads: 0,
+    referenceBuilds: 0,
+    referenceSessionReads: 0,
   })
   await act(async () => seams.transcriptInputs.at(-1)!.onRefPress!('SYN-1001'))
   await waitFor(() => expect(seams.sheet?.issue?.id).toBe('synthetic-1'))
   expect({
     issue: { id: seams.sheet!.issue!.id, title: seams.sheet!.issue!.title },
-    issues: seams.sheet!.issues.map(row => row.id),
-    sessions: seams.sheet!.sessions.map(row => row.sessionId),
+    issues: seams.sheet!.issues.map((row) => row.id),
+    sessions: seams.sheet!.sessions.map((row) => row.sessionId),
   }).toEqual(expected)
   expect(counts.mentionBuilds).toBeGreaterThan(0)
   expect(counts.mentionIssueReads).toBeGreaterThan(0)
   expect(counts.referenceSessionReads).toBeGreaterThan(0)
   await act(async () => seams.sheet!.onClose())
   const closedCounts = { ...counts }
-  await act(async () => enabled.data.patch('issueProjection', 'synthetic-0', { title: 'Conversation update' }))
+  await act(async () =>
+    enabled.data.patch('issueProjection', 'synthetic-0', { title: 'Conversation update' }),
+  )
   expect(counts).toEqual(closedCounts)
   expect(enabled.errors).toEqual([])
 }, 30_000)
@@ -480,7 +491,10 @@ it('resolves a cold terminal reference without building either conversation cata
   expect(onOpen.mock.calls[0]![0]).toMatchObject({ id: 'synthetic-1' })
   expect(seams.sheet?.issue).toBeNull()
   expect(counts).toEqual({
-    mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
+    mentionBuilds: 0,
+    mentionIssueReads: 0,
+    referenceBuilds: 0,
+    referenceSessionReads: 0,
   })
   expect(enabled.errors).toEqual([])
 }, 30_000)

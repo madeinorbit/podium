@@ -109,7 +109,7 @@ function useLegacySessions() {
 const sessionsRead = (reader: Reader) => reader.sessions().sessions
 function usePoolSessions(active = true) {
   const read = useCallback(
-    (reader: Reader) => active ? sessionsRead(reader) : EMPTY_SESSIONS,
+    (reader: Reader) => (active ? sessionsRead(reader) : EMPTY_SESSIONS),
     [active],
   )
   return useRead(read, EMPTY_SESSIONS)
@@ -125,7 +125,7 @@ function useLegacyIssues() {
 const issuesRead = (reader: Reader) => reader.issues().issues
 function usePoolIssues(active = true) {
   const read = useCallback(
-    (reader: Reader) => active ? issuesRead(reader) : EMPTY_ISSUES,
+    (reader: Reader) => (active ? issuesRead(reader) : EMPTY_ISSUES),
     [active],
   )
   return useRead(read, EMPTY_ISSUES)
