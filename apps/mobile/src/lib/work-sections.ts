@@ -282,12 +282,20 @@ export function searchMobileSections(pool: MobxPool, sections: readonly MobileWo
 }
 
 /** Matching can scan resident refs; unchanged matches allocate no row array.
- * A changed match copies its lane only, keeping other native sections intact. */
+ * A changed match copies its lane only, keeping other native sections intact.
+ * The kept bands belong to one search over one pool: ending the search or a
+ * new pool (another principal) drops them, so a screen holds one instance. */
 export class MobileSearchSections {
   private readonly bands = new Map<string, MobileWorkSection>()
   private previous: readonly MobileWorkSection[] = []
+  private pool: MobxPool | null = null
   update(pool: MobxPool, sections: readonly MobileWorkSection[], query: string): readonly MobileWorkSection[] {
     const needle = query.trim().toLowerCase()
+    if (!needle || pool !== this.pool) {
+      this.bands.clear()
+      this.previous = []
+      this.pool = pool
+    }
     if (!needle) return sections
     const now = mobilePaintNow(pool)
     const matches = (id: string, kind: 'issue' | 'worktree', folded = false): boolean => {

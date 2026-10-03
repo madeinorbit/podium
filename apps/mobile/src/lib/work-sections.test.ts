@@ -6,11 +6,14 @@ import type {
   UnifiedWorkGroup,
   UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildWorkSections,
   foldWorkSections,
+  MobileSearchSections,
   workGroupFoldKey,
   workRowListKey,
 } from './work-sections'
@@ -215,5 +218,56 @@ describe('foldWorkSections', () => {
 describe('workGroupFoldKey', () => {
   it('stays inside the replicated podium:sidebar: namespace — an invented one throws in ui-state', () => {
     expect(workGroupFoldKey('needs-you')).toBe('podium:sidebar:work-group-fold:needs-you')
+  })
+})
+
+describe('MobileSearchSections', () => {
+  const worktree = (id: string, label: string) => ({
+    id,
+    kind: 'worktree',
+    label,
+    branch: null,
+    sessions: [],
+    activityAt: 0,
+    timing: { phase: 'idle', sinceMs: 0 },
+    fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
+  })
+  const rows = new Map([
+    ['a', worktree('a', 'alpha')],
+    ['b', worktree('b', 'beta')],
+  ])
+  const pool = () =>
+    ({
+      clock: { current: 0, reached: () => {} },
+      mobileWork: { row: ({ id }: { id: string }) => rows.get(id) },
+    }) as unknown as MobxPool
+  const band: MobileWorkSection = {
+    key: 'project:/r',
+    label: 'r',
+    kind: 'project',
+    total: 2,
+    data: [
+      { id: 'a', kind: 'worktree', listKey: 'a' },
+      { id: 'b', kind: 'worktree', listKey: 'b' },
+    ] as unknown as MobileWorkSection['data'],
+    snoozedIds: [],
+    closedIds: [],
+    foldKey: 'fold:/r',
+    collapsed: false,
+  }
+
+  it('keeps an unchanged match, and drops its bands when the search ends or the pool changes', () => {
+    const cache = new MobileSearchSections()
+    const graph = pool()
+    const first = cache.update(graph, [band], 'alpha')
+    expect(first.map((section) => section.data.map((ref) => ref.id))).toEqual([['a']])
+    expect(cache.update(graph, [band], 'alpha')[0]).toBe(first[0])
+
+    expect(cache.update(graph, [band], '')).toEqual([band])
+    const restarted = cache.update(graph, [band], 'alpha')[0]
+    expect(restarted).not.toBe(first[0])
+    expect(restarted?.data.map((ref) => ref.id)).toEqual(['a'])
+
+    expect(cache.update(pool(), [band], 'alpha')[0]).not.toBe(restarted)
   })
 })

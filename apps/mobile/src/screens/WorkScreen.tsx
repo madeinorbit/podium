@@ -612,7 +612,7 @@ export function PoolWorkScreen() {
   const searching = query.trim().length > 0
   const sectionKeys = useMemo(() => split.sections.map(section => section.key), [split.sections])
   const { collapsed: collapsedKeys, toggle: toggleCollapsed } = useCollapsedSet(sectionKeys, workGroupFoldKey)
-  const searchSections = useMemo(() => new MobileSearchSections(), [pool, searching])
+  const [searchSections] = useState(() => new MobileSearchSections())
   const readSearch = useCallback((graph: MobxPool) => searchMobileSections(graph,
     graph.mobileWork.sections(layout).sections, query, searchSections), [layout, query, searchSections])
   const visibleSections = useMobilePoolProjection(readSearch, EMPTY_MOBILE_SECTIONS)
