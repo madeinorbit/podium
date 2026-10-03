@@ -141,7 +141,11 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
     owner = useStoreHandle() as ClientRuntime
     pool = useWorklistPool()
     const [value, set] = usePersistedUiState(STICKY, parse, serialize)
-    return <button type="button" onClick={() => set('false')}>{value}</button>
+    return (
+      <button type="button" onClick={() => set('false')}>
+        {value}
+      </button>
+    )
   }
   const tree = (principal: string | null) => (
     <StrictMode>

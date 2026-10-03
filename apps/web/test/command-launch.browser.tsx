@@ -113,8 +113,12 @@ function Surface() {
     <main style={{ margin: '80px auto', maxWidth: 720 }}>
       <h1>Command and launch choices</h1>
       <p>5,600 synthetic tasks · 5,014 sessions</p>
-      <button type="button" onClick={() => owner.getSnapshot().setPaletteOpen(true)}>Open commands</button>
-      <button type="button" onClick={() => setNewIssue(true)}>New task composer</button>
+      <button type="button" onClick={() => owner.getSnapshot().setPaletteOpen(true)}>
+        Open commands
+      </button>
+      <button type="button" onClick={() => setNewIssue(true)}>
+        New task composer
+      </button>
       <Profiler
         id="menus"
         onRender={(_id, _phase, duration) => {
