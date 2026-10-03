@@ -60,7 +60,10 @@ async function observe(page: Page) {
   page.on('console', (message) => {
     // The isolated harness refuses some unauthenticated resources during
     // startup. Count those separately; retain every application/fatal error.
-    if (message.type() === 'error' && !/^Failed to load resource:.*status of 401/.test(message.text()))
+    if (
+      message.type() === 'error' &&
+      !/^Failed to load resource:.*status of 401/.test(message.text())
+    )
       errors.push(message.text())
   })
   await page.addInitScript(() => {
