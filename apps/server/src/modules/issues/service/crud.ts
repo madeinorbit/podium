@@ -32,6 +32,7 @@ import type { SessionFacts } from '../../sessions/facts'
 import { readIssue } from '../../world-index/issue-reader'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
+import { IssueRefusal } from './refusal'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
 import { sameWorktreePath } from './worktree-safety'
@@ -207,7 +208,7 @@ export class IssueCrudModule {
       row,
       async () => {
         if (!(expectedStages as readonly string[]).includes(row.stage)) {
-          throw new Error(
+          throw new IssueRefusal(
             `issue ${row.id} shipping stage fence failed: expected ${expectedStages.join(' or ')}`,
           )
         }
@@ -272,7 +273,7 @@ export class IssueCrudModule {
         ? mutation.expectedStage
         : [mutation.expectedStage]
       if (!(expectedStages as readonly string[]).includes(row.stage)) {
-        throw new Error(
+        throw new IssueRefusal(
           `issue ${row.id} shipping stage fence failed: expected ${expectedStages.join(' or ')}`,
         )
       }
@@ -367,7 +368,7 @@ export class IssueCrudModule {
     const panel = this.store.parsePanel(row)
     const at = <T>(list: T[], index: number): T => {
       const item = list[index - 1]
-      if (!item) throw new Error(`no item ${index} (list has ${list.length})`)
+      if (!item) throw new IssueRefusal(`no item ${index} (list has ${list.length})`)
       return item
     }
     switch (op.op) {
@@ -451,7 +452,7 @@ export class IssueCrudModule {
       : undefined
 
     if (input.sourceRoot && !terminalEvidence) {
-      throw new Error(
+      throw new IssueRefusal(
         `sourceRoot is only valid with --terminal-evidence. ${terminalEvidenceHelp(row.seq)}`,
       )
     }
@@ -462,19 +463,19 @@ export class IssueCrudModule {
         )
       }
       if (!session || session.issueId !== row.id) {
-        throw new Error(
+        throw new IssueRefusal(
           `terminal evidence may only be captured by a session belonging to issue ${row.seq}. ` +
             terminalEvidenceHelp(row.seq),
         )
       }
       if (!input.sourceRoot || !isAbsolute(input.sourceRoot)) {
-        throw new Error(
+        throw new IssueRefusal(
           `terminal evidence needs the checkout where the command is running; ` +
             `rerun from that checkout with --terminal-evidence. ${terminalEvidenceHelp(row.seq)}`,
         )
       }
       if (row.machineId && session.machineId && row.machineId !== session.machineId) {
-        throw new Error(
+        throw new IssueRefusal(
           `terminal evidence must come from the same machine as the issue session. ` +
             terminalEvidenceHelp(row.seq),
         )
@@ -486,14 +487,14 @@ export class IssueCrudModule {
     // narrow exception: it is bound to the calling session and its current root.
     const root = terminalEvidence ? input.sourceRoot : row.worktreePath
     if (!root) {
-      throw new Error(
+      throw new IssueRefusal(
         `issue ${row.seq} has no owning worktree; start or restore it before adding review artifacts. ` +
           terminalEvidenceHelp(row.seq),
       )
     }
     const normalizeSource = (sourcePath: string): string => {
       if (terminalEvidence && isAbsolute(sourcePath)) {
-        throw new Error(
+        throw new IssueRefusal(
           `terminal evidence path '${sourcePath}' must be relative to the checkout where ` +
             `the command runs. ${terminalEvidenceHelp(row.seq)}`,
         )
@@ -501,7 +502,7 @@ export class IssueCrudModule {
       const target = resolve(root, sourcePath)
       const rel = relative(resolve(root), target)
       if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
-        throw new Error(
+        throw new IssueRefusal(
           terminalEvidence
             ? `terminal evidence path '${sourcePath}' is outside the command checkout ${root}. ${terminalEvidenceHelp(row.seq)}`
             : `artifact path '${sourcePath}' is outside the owning issue worktree ${root}. ${terminalEvidenceHelp(row.seq)}`,
@@ -512,7 +513,7 @@ export class IssueCrudModule {
     const sourcePath = normalizeSource(input.path)
     const extraPaths = input.extraPaths?.map(normalizeSource)
     if (terminalEvidence && ![sourcePath, ...(extraPaths ?? [])].every(isTerminalEvidenceImage)) {
-      throw new Error(
+      throw new IssueRefusal(
         `terminal evidence accepts raster image files only; raw terminal text and scrollback ` +
           `are refused. ${terminalEvidenceHelp(row.seq)}`,
       )
@@ -543,7 +544,7 @@ export class IssueCrudModule {
     })
     if (terminalEvidence && !snap.files.every((file) => isTerminalEvidenceImage(file.path))) {
       await store.remove(row.id, snap.artifactId).catch(() => {})
-      throw new Error(
+      throw new IssueRefusal(
         `terminal evidence accepts raster image files only; raw terminal text and scrollback ` +
           `are refused. ${terminalEvidenceHelp(row.seq)}`,
       )
@@ -574,7 +575,7 @@ export class IssueCrudModule {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const store = this.store.deps.artifacts
     if (!store) throw new Error('permanent issue artifact storage is unavailable')
-    if (!/^[A-Za-z0-9._-]+$/.test(input.id)) throw new Error('invalid draft artifact id')
+    if (!/^[A-Za-z0-9._-]+$/.test(input.id)) throw new IssueRefusal('invalid draft artifact id')
     const snap = await store.upload({
       issueId: row.id,
       filename: input.filename,
@@ -631,7 +632,7 @@ export class IssueCrudModule {
   ): Promise<IssueArtifactContent> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const artifacts = this.store.parsePanel(row).artifacts
-    if (artifacts.length === 0) throw new Error('this issue has no artifacts')
+    if (artifacts.length === 0) throw new IssueRefusal('this issue has no artifacts')
     const at =
       input.index != null
         ? input.index - 1
@@ -639,11 +640,11 @@ export class IssueCrudModule {
           ? artifacts.findIndex((a) => a.path === input.path)
           : -1
     if (input.index == null && input.path == null) {
-      throw new Error('name the artifact to read: an index or a path')
+      throw new IssueRefusal('name the artifact to read: an index or a path')
     }
     const entryRow = at >= 0 ? artifacts[at] : undefined
     if (!entryRow) {
-      throw new Error(
+      throw new IssueRefusal(
         input.path != null
           ? `no artifact with path ${input.path} (issue has ${artifacts.length})`
           : `no artifact ${input.index} (issue has ${artifacts.length})`,
@@ -653,7 +654,7 @@ export class IssueCrudModule {
     // A pre-snapshot entry (or a deployment with no store wired) has a path and
     // nothing behind it — say so rather than 404ing as if the file were missing.
     if (!store || !entryRow.artifactId) {
-      throw new Error(
+      throw new IssueRefusal(
         `artifact ${at + 1} (${entryRow.path}) has no stored snapshot — re-add it ` +
           'with `podium issue artifact <id> --add <path>` to capture its content',
       )
@@ -662,12 +663,12 @@ export class IssueCrudModule {
     const found = await store.read(row.id, entryRow.artifactId, file)
     if (!found) {
       const known = (entryRow.files ?? []).map((f) => f.path).join(', ')
-      throw new Error(
+      throw new IssueRefusal(
         `artifact ${at + 1} has no stored file ${file}${known ? ` (bundle holds: ${known})` : ''}`,
       )
     }
     if (found.bytes.length > ARTIFACT_READ_CAP_BYTES) {
-      throw new Error(
+      throw new IssueRefusal(
         `${file} is ${found.bytes.length} bytes — over the ${
           ARTIFACT_READ_CAP_BYTES / (1024 * 1024)
         }MB command-read cap; fetch it from the server at ${artifactUrl(row.id, entryRow.artifactId, file)}`,
@@ -926,7 +927,7 @@ export class IssueCrudModule {
 
   async create(input: CreateIssueInput): Promise<IssueProjection> {
     if ((input as { stage?: string }).stage === 'shipping') {
-      throw new Error('shipping stage is system-owned and requires a ship order')
+      throw new IssueRefusal('shipping stage is system-owned and requires a ship order')
     }
     // Same gate as `update` below, at the other door an issue can be homed
     // through (`podium issue create --machine`, the new-issue dialog):
@@ -938,7 +939,7 @@ export class IssueCrudModule {
     // IssuesRepository upserts by id for ordinary updates, so allowing create to
     // reach that seam would turn an additive command into an overwrite.
     if (input.id && (await readIssue(this.store.deps.store.issues, input.id)) !== null) {
-      throw new Error(`refusing to reuse an existing issue id: ${input.id}`)
+      throw new IssueRefusal(`refusing to reuse an existing issue id: ${input.id}`)
     }
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
@@ -1098,6 +1099,7 @@ export class IssueCrudModule {
   ): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
+    if (row.deletedAt) throw new IssueRefusal(`issue ${id} is deleted and cannot be updated`)
     // `shipping` is lifecycle custody, not an ordinary board value. The
     // purpose-built Shipping service owns both directions; every existing
     // update/claim/start path converges here and is therefore unable to enter or
@@ -1106,7 +1108,9 @@ export class IssueCrudModule {
       (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) ||
       patch.stage === 'shipping'
     ) {
-      throw new Error('shipping stage is system-owned and cannot be changed by an issue update')
+      throw new IssueRefusal(
+        'shipping stage is system-owned and cannot be changed by an issue update',
+      )
     }
     if (opts?.repoPath !== undefined) row.repoPath = opts.repoPath
     if (opts?.clearSuggestion) {
@@ -1127,7 +1131,7 @@ export class IssueCrudModule {
     if (patch.color != null) {
       const nextParentId = 'parentId' in patch ? patch.parentId : row.parentId
       if (nextParentId != null) {
-        throw new Error(
+        throw new IssueRefusal(
           `colour belongs to top-level tasks: ${row.id} is a sub-task and takes its parent's colour`,
         )
       }
@@ -1168,7 +1172,7 @@ export class IssueCrudModule {
         await this.store.d.store.repos.listRepos(rowPatch.machineId ?? row.machineId ?? undefined)
       ).some((repo) => sameWorktreePath(repo.path, rowPatch.worktreePath as string))
     ) {
-      throw new Error(
+      throw new IssueRefusal(
         `refusing worktree path ${rowPatch.worktreePath}: a repository root cannot be recorded as an issue worktree`,
       )
     }
@@ -1352,7 +1356,7 @@ export class IssueCrudModule {
     if (artifacts.length === 0) return
     const ordinary = artifacts.filter((artifact) => artifact.sourceKind !== 'terminal-evidence')
     if (!row.worktreePath && ordinary.length > 0) {
-      throw new Error(
+      throw new IssueRefusal(
         `review blocked: issue ${row.seq} has artifacts but no owning worktree; restore the issue worktree and re-add the evidence`,
       )
     }
@@ -1362,7 +1366,7 @@ export class IssueCrudModule {
       if (artifact.sourceKind === 'terminal-evidence') continue
       const rel = relative(root, resolve(root, artifact.path))
       if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
-        throw new Error(
+        throw new IssueRefusal(
           `review blocked: artifact '${artifact.path}' is outside the owning issue worktree ${row.worktreePath}; re-add it from that worktree`,
         )
       }
@@ -1435,7 +1439,7 @@ export class IssueCrudModule {
   async setIssueTucked(id: string, tucked: boolean): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
-    if (tucked && !this.store.isClosed(row)) throw new Error(`issue ${id} is not finished`)
+    if (tucked && !this.store.isClosed(row)) throw new IssueRefusal(`issue ${id} is not finished`)
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
     // client pressing the same control) must not move the dismissal moment.
     // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
@@ -1454,7 +1458,7 @@ export class IssueCrudModule {
   async prepareSoftDelete(id: string): Promise<IssueLifecyclePlan> {
     id = await this.store.resolveRef(id)
     const current = await this.store.rowOrThrow(id)
-    if (current.deletedAt) throw new Error(`issue ${id} is already deleted`)
+    if (current.deletedAt) throw new IssueRefusal(`issue ${id} is already deleted`)
     const deletedAt = this.store.now()
     const row: IssueRow = { ...current, deletedAt, updatedAt: deletedAt }
     // Projected INSIDE write(), after upsertIssue has stamped row.revision —
@@ -1593,7 +1597,7 @@ export class IssueCrudModule {
   async prepareRestore(id: string): Promise<IssueLifecyclePlan> {
     id = await this.store.resolveRef(id)
     const current = await this.store.rowOrThrow(id)
-    if (!current.deletedAt) throw new Error(`issue ${id} is not deleted`)
+    if (!current.deletedAt) throw new IssueRefusal(`issue ${id} is not deleted`)
     const restoredAt = this.store.now()
     const row: IssueRow = { ...current, deletedAt: null, updatedAt: restoredAt }
     // Projected INSIDE write() — see prepareSoftDelete / IssueLifecyclePlan.wire.
@@ -1652,7 +1656,7 @@ export class IssueCrudModule {
     attribution: { actor: string; onBehalfOf: UserId },
   ): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
-    if (!row.ownerUserId) throw new Error('issue has no accountable owner')
+    if (!row.ownerUserId) throw new IssueRefusal('issue has no accountable owner')
     const owner = row.ownerUserId
     const actorKind = attribution.actor.startsWith('session:')
       ? 'agent'
@@ -1825,7 +1829,7 @@ export class IssueCrudModule {
   async applySuggestion(id: string): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
-      throw new Error('shipping stage is system-owned and cannot apply an issue suggestion')
+      throw new IssueRefusal('shipping stage is system-owned and cannot apply an issue suggestion')
     }
     const stage = row.suggestedStage
     // Route the stage move through update() so the #24 closed-state normalization
@@ -1848,7 +1852,9 @@ export class IssueCrudModule {
   async dismissSuggestion(id: string): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
-      throw new Error('shipping stage is system-owned and cannot dismiss an issue suggestion')
+      throw new IssueRefusal(
+        'shipping stage is system-owned and cannot dismiss an issue suggestion',
+      )
     }
     row.suggestedStage = null
     row.suggestedReason = null

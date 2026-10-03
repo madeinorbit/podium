@@ -2,6 +2,7 @@ import type { IssueId, IssueProjection } from '@podium/model'
 import type { IssueRow } from '../../../store'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
+import { IssueRefusal } from './refusal'
 
 /** Hierarchy and dependency capability over the shared issue store. */
 export class IssueHierarchyModule {
@@ -42,16 +43,17 @@ export class IssueHierarchyModule {
   }
 
   async addDep(fromRef: string, toRef: string, type = 'blocks'): Promise<IssueProjection> {
-    if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
+    if (type === 'parent-child')
+      throw new IssueRefusal('parent-child is managed by reparent, not addDep')
     const fromId = await this.store.resolveRef(fromRef)
     const toId = await this.store.resolveRef(toRef)
     const row = await this.store.draftOrThrow(fromId)
     await this.store.rowOrThrow(toId)
-    if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
+    if (fromId === toId) throw new IssueRefusal('an issue cannot depend on itself (self-dep)')
     if (type === 'blocks') {
       const returnPath = await this.dependencyPath(toId, fromId)
       if (returnPath) {
-        throw new Error(
+        throw new IssueRefusal(
           `dependency ${fromId} -> ${toId} would create a dependency cycle: ${[fromId, ...returnPath].join(' -> ')}`,
         )
       }
@@ -67,7 +69,7 @@ export class IssueHierarchyModule {
 
   async removeDep(fromRef: string, toRef: string, type?: string): Promise<IssueProjection> {
     if (type === 'parent-child')
-      throw new Error('parent-child is managed by reparent, not removeDep')
+      throw new IssueRefusal('parent-child is managed by reparent, not removeDep')
     const fromId = await this.store.resolveRef(fromRef)
     const toId = await this.store.resolveRef(toRef)
     const row = await this.store.draftOrThrow(fromId)
@@ -89,7 +91,7 @@ export class IssueHierarchyModule {
       await this.store.rowOrThrow(newParentId)
       const returnPath = this.containmentPath(newParentId, row.id)
       if (returnPath) {
-        throw new Error(
+        throw new IssueRefusal(
           `reparent ${row.id} -> ${newParentId} would create a containment cycle: ${[row.id, ...returnPath].join(' -> ')}`,
         )
       }

@@ -25,6 +25,7 @@ import {
   type OutboxStorePort,
   type OutboxSubmitOutcome,
   type RetrySatisfaction,
+  revisionOf,
 } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
@@ -81,7 +82,10 @@ const kindByCommand = new Map<string, keyof OutboxKinds>(
 
 /** The chat sends, whose mutationId IS the message id the server stores and
  *  the daemon types under (POD-4763) — so it takes a message id's shape. */
-const MESSAGE_COMMANDS = new Set<string>([OUTBOX_COMMANDS.sendText.name, OUTBOX_COMMANDS.resumeAndSend.name])
+const MESSAGE_COMMANDS = new Set<string>([
+  OUTBOX_COMMANDS.sendText.name,
+  OUTBOX_COMMANDS.resumeAndSend.name,
+])
 
 /** A fresh id for one command's entry: a message id for a chat send, a UUID
  *  for everything else. */
@@ -141,7 +145,13 @@ function submit(
   envelope: OutboxEnvelope,
   hooks: OutboxExecutorHooks,
 ): Promise<unknown> {
-  const input = { ...(envelope.input as object), mutationId: envelope.mutationId }
+  // Recovery supplies its opt-in revision on the envelope. It must override
+  // any older input copy, while ordinary absolute intents stay token-free.
+  const input = {
+    ...(envelope.input as object),
+    ...revisionOf(envelope),
+    mutationId: envelope.mutationId,
+  }
   const kind = kindByCommand.get(envelope.command)
   const execute = kind === undefined ? undefined : outboxExecutors(api, hooks)[kind]
   if (execute === undefined) {

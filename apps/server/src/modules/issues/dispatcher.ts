@@ -48,16 +48,18 @@ export class IssueCommandDispatcher {
     input: z.infer<D['input']>,
   ): Promise<Awaited<ReturnType<D['handler']>>> {
     const execute = async (): Promise<Awaited<ReturnType<D['handler']>>> =>
-      await def.handler(
+      (await def.handler(
         new IssueCommandCtx(this.deps, caller, name, def.target),
         input,
-      ) as Awaited<ReturnType<D['handler']>>
+      )) as Awaited<ReturnType<D['handler']>>
     if (def.conflict !== 'exp-rev') return await execute()
 
     const envelope = (input ?? {}) as { expectedRevision?: number }
     const ref = def.target?.((input ?? {}) as Record<string, unknown>)
     if (ref == null) return await execute()
-    const issue = await this.deps.issues.reports.get(ref)
+    // Arbitration needs identity and revision, not a report that enumerates
+    // every issue to derive children and joins the target's session history.
+    const issue = await this.deps.issues.reports.getMeta(ref)
     if (!issue) return await execute()
 
     return await this.deps.arbitration.run(
@@ -67,7 +69,7 @@ export class IssueCommandDispatcher {
         ...(envelope.expectedRevision === undefined
           ? {}
           : { expectedRevision: envelope.expectedRevision }),
-        currentRevision: async () => (await this.deps.issues.reports.get(issue.id))?.revision,
+        currentRevision: async () => (await this.deps.issues.reports.getMeta(issue.id))?.revision,
       },
       execute,
     )
@@ -96,9 +98,7 @@ export class IssueCommandDispatcher {
           ...caller,
           principal: await resolvePrincipalAsync(caller.capability, {
             parentSessionOf: async (sessionId) =>
-              spawnedByParentSessionId(
-                (await this.deps.sessionById(sessionId))?.spawnedBy,
-              ),
+              spawnedByParentSessionId((await this.deps.sessionById(sessionId))?.spawnedBy),
           }),
         }
     const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[

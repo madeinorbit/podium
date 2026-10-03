@@ -43,6 +43,7 @@ import {
   repoProjectionRows,
 } from '../projection'
 import { IssueNotFound } from './not-found'
+import { IssueRefusal } from './refusal'
 import type { IssueDeps } from './types'
 
 const log = createLogger('server:issues')
@@ -817,7 +818,7 @@ export class IssueStore {
       if (matches.length === 1) return matches[0]!.id
       if (matches.length > 1) {
         const where = matches.map((r) => `${r.repoPath}#${r.seq} (${r.id})`).join(', ')
-        throw new Error(`ambiguous issue ref ${ref} (matches ${where})`)
+        throw new IssueRefusal(`ambiguous issue ref ${ref} (matches ${where})`)
       }
       return asIssueId(ref)
     }
@@ -833,7 +834,7 @@ export class IssueStore {
     if (matches.length === 1) return matches[0]!.id
     if (matches.length > 1) {
       const where = matches.map((r) => `${r.repoPath}#${r.seq}`).join(', ')
-      throw new Error(
+      throw new IssueRefusal(
         `ambiguous issue ref #${seq} (matches ${where}); qualify it as <repoPath>#${seq}`,
       )
     }

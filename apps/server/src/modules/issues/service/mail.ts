@@ -5,6 +5,7 @@ import type { IssueMessageRow } from '../../../store'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
 import type { IssueReportsModule } from './reads'
+import { IssueRefusal } from './refusal'
 
 /**
  * Comments and tracker-mail capability: an issue's comments, and the read side
@@ -217,7 +218,7 @@ export class IssueCommentsMailModule {
       },
     })
     const message = await this.store.deps.store.issues.getIssueMessage(messageId)
-    if (!message) throw new Error(`unknown mail message ${messageId}`)
+    if (!message) throw new IssueRefusal(`unknown mail message ${messageId}`)
     return { claimed, message }
   }
 

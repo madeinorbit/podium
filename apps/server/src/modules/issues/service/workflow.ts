@@ -34,6 +34,7 @@ import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import { IssueEpicIntegrationModule } from './integration'
 import type { IssueCommentsMailModule } from './mail'
+import { IssueRefusal } from './refusal'
 import type { CreateIssueInput } from './types'
 import { IssueWorktreeGcModule } from './worktree-gc'
 import { parseGitWorktreeList, sameWorktreePath } from './worktree-safety'
@@ -186,7 +187,7 @@ export class IssueGitWorkflowModule {
     const row = this.store.rows.get(await this.store.resolveRef(id))
     if (!row) return null
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
-      throw new Error('shipping stage is system-owned and cannot rehome issue work')
+      throw new IssueRefusal('shipping stage is system-owned and cannot rehome issue work')
     }
     if (!(await this.isSameRepoIdentity(row, to.repoPath))) return null
     // The repo move rides update()'s own draft [POD-3259]. It used to be
@@ -281,7 +282,7 @@ export class IssueGitWorkflowModule {
     // re-draft after it (POD-3373).
     let row = await this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
-      throw new Error('shipping stage is system-owned and cannot start issue work')
+      throw new IssueRefusal('shipping stage is system-owned and cannot start issue work')
     }
     if (row.worktreePath) {
       // Starting a started issue is a deliberate no-op. But a caller who passed an
@@ -289,7 +290,7 @@ export class IssueGitWorkflowModule {
       // accepting it in silence is the same failure one level up: the operator sees
       // `started #n` and believes the choice landed. Refuse, and name what does work.
       if (opts?.model || opts?.effort) {
-        throw new Error(
+        throw new IssueRefusal(
           `#${row.seq} is already started — --model/--effort apply only to the session start spawns. ` +
             `Use \`podium issue update --id ${row.seq} --model/--effort\` to change the issue's profile, ` +
             `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
@@ -395,7 +396,7 @@ export class IssueGitWorkflowModule {
       // rule rehome applies: a target whose repoId differs would renumber this issue into
       // another repo. Checked here rather than after the add, so a refusal costs nothing.
       if (startRepoPath !== row.repoPath && !(await this.isSameRepoIdentity(row, startRepoPath))) {
-        throw new Error(
+        throw new IssueRefusal(
           `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
         )
       }
@@ -606,7 +607,7 @@ export class IssueGitWorkflowModule {
      * awaits run, for a later reader to mistake for the write's subject.
      */
     const planned = await this.store.rowOrThrow(id)
-    if (!planned.worktreePath || !planned.branch) throw new Error('issue not started')
+    if (!planned.worktreePath || !planned.branch) throw new IssueRefusal('issue not started')
     const worktreePath = planned.worktreePath
     const branch = planned.branch
     const { parentBranch, repoPath } = planned
@@ -1105,7 +1106,7 @@ export class IssueGitWorkflowModule {
      */
     const at = await this.store.rowOrThrow(id)
     if (isIssueStage(at.stage) && isSystemOwnedIssueStage(at.stage)) {
-      throw new Error('shipping stage is system-owned and cannot create an issue worktree')
+      throw new IssueRefusal('shipping stage is system-owned and cannot create an issue worktree')
     }
     // Preserve an explicit request/pin as-is. An unpinned operation is resolved at
     // its actual cwd immediately before the operation, then that exact id is reused
@@ -1514,10 +1515,10 @@ export class IssueGitWorkflowModule {
   ): Promise<IssueProjection | Promise<IssueProjection>> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
-      throw new Error('shipping stage is system-owned and cannot add a session')
+      throw new IssueRefusal('shipping stage is system-owned and cannot add a session')
     }
     if (!row.worktreePath) {
-      if (!row.branch) throw new Error('issue not started')
+      if (!row.branch) throw new IssueRefusal('issue not started')
       return this.ensureWorktree(id).then(async (ensured) => {
         if (!ensured.ok || !ensured.worktreePath) {
           throw new Error(ensured.output || 'failed to recreate worktree from branch')
@@ -1536,9 +1537,9 @@ export class IssueGitWorkflowModule {
   ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
-      throw new Error('shipping stage is system-owned and cannot add a session')
+      throw new IssueRefusal('shipping stage is system-owned and cannot add a session')
     }
-    if (!row.worktreePath) throw new Error('issue not started')
+    if (!row.worktreePath) throw new IssueRefusal('issue not started')
     const kind = agentKind ?? row.defaultAgent
     const selection = await this.selectionFor(kind, {
       agent: row.defaultAgent,

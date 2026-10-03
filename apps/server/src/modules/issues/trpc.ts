@@ -1,9 +1,10 @@
-import { familyState } from '../derived-family'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
-import { type Context, issueCaller, mods, t } from '../../trpc'
+import { type Context, issueCaller, t } from '../../trpc'
+import { familyState } from '../derived-family'
 import { type AnyIssueCommandDef, guardIssueCommand } from './registry'
 import { isIssueNotFound } from './service/not-found'
+import { isIssueRefusal } from './service/refusal'
 
 /**
  * Derive the `issues:` tRPC sub-router from the command registry (#248
@@ -52,7 +53,8 @@ function guardFor(name: string, def: AnyIssueCommandDef) {
 }
 
 /**
- * THE ONE PLACE a vanished issue becomes a 404 (POD-1926).
+ * THE ONE PLACE a vanished issue becomes a 404 (POD-1926) and a definitive
+ * precondition refusal becomes a 409 (POD-5429).
  *
  * The service throws a transport-free {@link IssueNotFound}; tRPC has no mapping
  * for an unrecognised `Error` and would answer INTERNAL_SERVER_ERROR / 500. That
@@ -68,12 +70,15 @@ function guardFor(name: string, def: AnyIssueCommandDef) {
  * per-handler fix would have to be remembered ~60 times.
  *
  * The relay gate and the MCP surface deliberately do NOT go through here — they
- * read `err.message`, which `IssueNotFound` leaves exactly as the bare `Error`
- * left it.
+ * read `err.message`, which both domain error types leave exactly as the bare
+ * `Error` left it. Unknown errors remain genuine faults / transient 500s.
  */
 function rethrowAsTrpc(err: unknown): never {
   if (isIssueNotFound(err)) {
     throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err })
+  }
+  if (isIssueRefusal(err)) {
+    throw new TRPCError({ code: 'CONFLICT', message: err.message, cause: err })
   }
   throw err
 }

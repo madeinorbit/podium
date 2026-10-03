@@ -16,6 +16,7 @@ import type { SessionFacts } from '../../sessions/facts'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
+import { IssueRefusal } from './refusal'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
 
 const log = createLogger('server:issues')
@@ -123,7 +124,7 @@ export class IssueAttentionModule {
       throw new Error('attachSession unavailable: session registry hooks not injected')
     }
     if (opts.newSubissue && opts.newSpinoff) {
-      throw new Error('attach takes --subissue or --spinoff, not both')
+      throw new IssueRefusal('attach takes --subissue or --spinoff, not both')
     }
     const prevId = getSessionIssueId(opts.sessionId)
     let target: IssueRow | undefined
@@ -133,7 +134,7 @@ export class IssueAttentionModule {
       // A native subagent inherits its parent's relay, so an unconfirmed attach
       // could silently re-home the parent session [spec:SP-bab8].
       if (prev && !prev.draft && !opts.confirmRehome) {
-        throw new Error(
+        throw new IssueRefusal(
           `attach blocked: this session already belongs to ${await this.reports().niceRef(prev)} (a real issue), ` +
             'so this could re-home that session unexpectedly. A native subagent must not ' +
             'self-attach; its parent must attach it. For a deliberate top-level move, re-run ' +
@@ -155,10 +156,11 @@ export class IssueAttentionModule {
         if (others.length > 0) await this.assertReplacementCoordination(prev, opts.sessionId)
       }
       const title = newIssue.title.trim()
-      if (!title) throw new Error(`${opts.newSubissue ? 'subissue' : 'spinoff'} title is empty`)
+      if (!title)
+        throw new IssueRefusal(`${opts.newSubissue ? 'subissue' : 'spinoff'} title is empty`)
       const anchorId = prevId ?? (opts.targetId ? await this.store.resolveRef(opts.targetId) : null)
       if (!anchorId) {
-        throw new Error(
+        throw new IssueRefusal(
           `no ${opts.newSubissue ? 'parent' : 'origin'} for the new issue: session is unattached and no --id given`,
         )
       }
@@ -197,7 +199,8 @@ export class IssueAttentionModule {
         target = await this.store.rowOrThrow(wire.id)
       }
     } else {
-      if (!opts.targetId) throw new Error('attach needs --id <issue> or --subissue "<title>"')
+      if (!opts.targetId)
+        throw new IssueRefusal('attach needs --id <issue> or --subissue "<title>"')
       target = await this.store.rowOrThrow(await this.store.resolveRef(opts.targetId))
       // Re-homing off a REAL issue is blocked [spec:SP-8744]: it strands the old
       // issue session-less so it drops out of the sidebar. Only the draft→issue
@@ -205,7 +208,7 @@ export class IssueAttentionModule {
       // the sanctioned move is `--subissue`, which keeps the subtree intact.
       const prev = prevId && prevId !== target.id ? this.store.rows.get(prevId) : undefined
       if (prev && !prev.draft) {
-        throw new Error(
+        throw new IssueRefusal(
           `attach blocked: this session already belongs to ${await this.reports().niceRef(prev)} (a real issue). ` +
             'Reassigning a session to a different issue is disabled; for new work use ' +
             '`podium issue attach --subissue "<title>" --confirm-rehome` or file the issue ' +
@@ -278,7 +281,7 @@ export class IssueAttentionModule {
     const worktree = row.worktreePath
       ? `its integration worktree (${row.worktreePath})`
       : 'a dedicated issue worktree'
-    throw new Error(
+    throw new IssueRefusal(
       `attach blocked: ${ref} is unfinished and would lose its active coordination. ` +
         `Start or add a replacement session in ${worktree}, set it explicitly with ` +
         `\`podium issue coordinator ${row.seq} --set <sessionId>\`, then re-run the attach.`,

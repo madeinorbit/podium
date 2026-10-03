@@ -16,6 +16,7 @@ import { checkIssueAccess } from '../../issue-authz'
 import { ShippingOrderAccessError } from '../shipping/service'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 import type { IssueCommandResult } from './service/reads'
+import { IssueRefusal } from './service/refusal'
 
 /**
  * THE ISSUE COMMAND TABLE: every issue command's handler, joined to its L1
@@ -514,7 +515,7 @@ const defs = {
       // add pulls a snapshot from the owning daemon before the panel commit;
       // remove also deletes the snapshot dir.
       if (input.op === 'artifact-add') {
-        if (!input.path) throw new Error('artifact-add requires a path')
+        if (!input.path) throw new IssueRefusal('artifact-add requires a path')
         return await ctx.crud.panelArtifactAdd(
           input.id,
           {
@@ -530,7 +531,7 @@ const defs = {
         )
       }
       if (input.op === 'artifact-remove') {
-        if (input.index == null) throw new Error('artifact-remove requires an index')
+        if (input.index == null) throw new IssueRefusal('artifact-remove requires an index')
         return await ctx.crud.panelArtifactRemove(input.id, input.index)
       }
       return await ctx.crud.panelApply(input.id, {
