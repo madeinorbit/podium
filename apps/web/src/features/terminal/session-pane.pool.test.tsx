@@ -154,12 +154,12 @@ it('has zero legacy pane derivations while mounted and after an unrelated sessio
 
 it('keeps native reference underlines equal and live without legacy issue reads on the pool path', async () => {
   const issues = [
-    { seq: 1, stage: 'in_progress' },
-    { seq: 2, stage: 'review', archived: true },
-    { seq: 3, stage: 'done', deletedAt: '2026-10-01' },
+    { seq: 1, stage: 'in_progress' as const },
+    { seq: 2, stage: 'review' as const, archived: true },
+    { seq: 3, stage: 'done' as const, deletedAt: '2026-10-01' },
   ].map(patch => ({ id: asIssueId(`underline-${patch.seq}`), prefix: 'POD', displayRef: `POD-${patch.seq}`,
     title: `Reference ${patch.seq}`, createdAt: '2026-10-01', updatedAt: '2026-10-01', archived: false,
-    repoPath: '/synthetic', worktreePath: null, deps: [], ...patch }) as IssueReferenceSource)
+    repoPath: '/synthetic', worktreePath: null, deps: [], ...patch }))
   f.issues = issues
   f.pool!.apply({ type: 'update', rows: issues.map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
   const tokens = ['POD-1', ' POD-01 ', 'POD-2', 'POD-3', 'POD-99', 'POD-1-a', '#1', 'bad']
