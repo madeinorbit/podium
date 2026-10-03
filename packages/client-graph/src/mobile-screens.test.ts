@@ -44,14 +44,15 @@ async function setup(rows: ReturnType<typeof issue>[]) {
     type: 'replace',
     rows: rows.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
   })
+  const scans = vi.spyOn(pool.residency!, 'ids')
   await attachMobileScreens(pool)
-  disposals.push(() => pool.dispose())
+  disposals.push(() => { scans.mockRestore(); pool.dispose() })
   const reader = pool.row('mobileScreenReader', 'reader')
   if (!reader || reader === LOADING) throw new Error('screen reader missing')
-  return { pool, reader, load }
+  return { pool, reader, load, scans }
 }
 it('reads cold Tasks through declared summaries without promoting or loading them', async () => {
-  const { pool, reader, load } = await setup([
+  const { pool, reader, load, scans } = await setup([
     issue('root'),
     issue('cold', { archived: true, stage: 'done' }),
   ])
@@ -68,6 +69,7 @@ it('reads cold Tasks through declared summaries without promoting or loading the
   expect(pool.hydrate()).toBe(0)
   expect(load).not.toHaveBeenCalled()
   expect(row.mock.calls.some(([, , purpose]) => String(purpose) === 'peek')).toBe(false)
+  expect(scans).not.toHaveBeenCalled()
 })
 it('retains matching ancestors, promotes proposal blocks, and keeps collapsed child counts honest', async () => {
   const { reader } = await setup([
