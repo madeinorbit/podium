@@ -35,7 +35,7 @@ import {
 import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId} from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSessionExitKind, useStoreSelector } from '@/app/store'
+import { useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem } from './chat'
@@ -46,7 +46,7 @@ import { type TurnPreview, useTurnPreview } from './use-turn-preview'
 import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
 import { useTranscriptReveal } from './use-transcript-reveal'
 import { RENDER_WINDOW, type TranscriptFreshness, useTranscriptWindow } from './useTranscriptWindow'
-import { useChatContextWindow, useChatInteractions, useChatIssueSeq, useChatThreads, useChatSession, useChatMachines } from './use-chat-context'
+import { useChatContextWindow, useChatInteractions, useChatIssueSeq, useChatThreads, useChatSession, useChatSessionExitKind, useChatMachines } from './use-chat-context'
 
 /**
  * THE CHAT SOURCE (POD-405) — the one place the chat surface's data is
@@ -256,7 +256,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   )
   const session = useChatSession(sessionId)
   const machines = useChatMachines()
-  const sessionExitKind = useSessionExitKind(sessionId)
+  const sessionExitKind = useChatSessionExitKind(sessionId)
   const storeHandle = useStoreHandle()
   const getIssueSeq = useChatIssueSeq()
   const { attachedSessionId, transcriptReveal } = useChatContextWindow()

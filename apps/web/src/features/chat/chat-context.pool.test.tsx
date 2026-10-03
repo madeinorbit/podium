@@ -8,6 +8,8 @@ import type { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { chatArtifactIssue, chatInteractions, chatMentionIssues, chatReferenceSessions } from '@podium/client-graph/chat-context'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
+import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { createChatContextFixture } from './chat-context-test-fixture'
 import '@/test-support/model-catalog-mock'
 
@@ -33,6 +35,10 @@ vi.mock('@/app/store', () => ({
     return f.fixture!.issues.filter(row => !row.deletedAt)
   },
   useSessionDraft: (id: string) => snapshot().drafts[id] ?? '',
+  useSessionExitKind: (id: string) => {
+    if (f.guard) throw new Error('Legacy session exit metadata read')
+    return f.fixture!.owner.replica.exitKind?.('session', id)
+  },
 }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => handle }))
 vi.mock('@/app/store-worklist-pool', () => ({
@@ -46,7 +52,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
 vi.mock('@/lib/at-mention/useFileMentions', () => ({ useFileMentions: () => [] }))
 vi.mock('@/lib/ModelEffortPicker', () => ({ AllConnectorsModelPicker: () => null, EffortPicker: () => null }))
 import { useChatArtifactIssue, useChatContextWindow, useChatConversationPorts, useChatDraft, useChatInteractions, useChatIssueSeq,
-  useChatMachines, useChatMentions, useChatReferenceMachines, useChatReferenceSessions, useChatRepositoryKey, useChatSession, useChatThreads } from './use-chat-context'
+  useChatMachines, useChatMentions, useChatReferenceMachines, useChatReferenceSessions, useChatRepositoryKey, useChatSession, useChatSessionExitKind, useChatThreads } from './use-chat-context'
 import { ChatComposer } from './ChatComposer'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 import { useChatSend } from './use-chat-send'
@@ -72,6 +78,28 @@ it('declares and batches demand, with zero synchronous replica reads for absent 
   expect(corpus.counts.collections).toBe(0)
   expect(await corpus.load()).toMatchObject({ differences: 0, pending: 0 })
   expect(corpus.source.counts).toMatchObject({ outboxReads: 1, orderLists: 3 })
+})
+
+it('shares addressed session exits, batches absent evidence and updates removal, eviction and rescope', async () => {
+  const corpus = f.fixture!, id = 'unavailable-session'
+  const shared = await corpus.pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () => { throw new Error('Second session exit owner') })
+  expect(shared).toBe(corpus.exitSource)
+  expect(corpus.pool.row('sessionExit', id)).toBe(LOADING)
+  expect(corpus.pool.row('sessionExit', id)).toBe(LOADING)
+  expect(corpus.counts.exits).toBe(0)
+  await Promise.resolve()
+  expect(corpus.counts.exits).toBe(1)
+  expect(corpus.pool.row('sessionExit', id)).toEqual({ kind: undefined })
+  corpus.updateExit(id, 'removed'); await Promise.resolve()
+  expect(corpus.pool.row('sessionExit', id)).toEqual({ kind: 'removed' })
+  corpus.updateExit(id, 'evicted'); await Promise.resolve()
+  expect(corpus.pool.row('sessionExit', id)).toEqual({ kind: 'evicted' })
+  corpus.updateExit(id, undefined, true); await Promise.resolve()
+  expect(corpus.pool.row('sessionExit', id)).toEqual({ kind: undefined })
+  const before = corpus.counts.exits
+  corpus.exitSource.dispose(); corpus.updateExit(id, 'removed'); await Promise.resolve()
+  expect(corpus.counts.exits).toBe(before)
+  expect(corpus.pool.row('sessionExit', id)).toBe(LOADING)
 })
 
 it('preserves mention ties, pending question order, saved drafts, held sends and reference contexts', async () => {
@@ -149,6 +177,7 @@ it('detects a planted wrong value for every new comparison section', async () =>
     { ...state, drafts: {} }, { ...state, attachedSessionId: null }, { ...state, pendingInteractions: [] },
     { ...state, messageRecords: [] }, { ...state, chatSendsFor: () => [] }, { ...state, superThreads: [] },
     { ...state, repos: [] }, { ...state, machines: [] },
+    { ...state, replica: { ...state.replica, exitKind: () => 'removed' } },
     { ...state, sessions: state.sessions.map(row => ({ ...row, displayRef: 'SYN-DRAFT-99', archived: true })) },
   ]) expect(corpus.check(wrong as Store).differences).toBeGreaterThan(0)
   for (const wrongIssues of [
@@ -160,10 +189,11 @@ it('detects a planted wrong value for every new comparison section', async () =>
 function Inputs() {
   const id = f.fixture!.sessions[0]!.sessionId
   const session = useChatSession(id), machines = useChatMachines(), mentions = useChatMentions('task')
+  const exit = useChatSessionExitKind(id)
   const draft = useChatDraft(id), asks = useChatInteractions(id), window = useChatContextWindow(), seq = useChatIssueSeq()
   const threads = useChatThreads(), sessions = useChatReferenceSessions(), refs = useChatReferenceMachines(), repos = useChatRepositoryKey()
   const artifact = useChatArtifactIssue(f.fixture!.sessions[0]!), ports = useChatConversationPorts(id, handle)
-  return <div>{JSON.stringify({ title: session?.title, machines: machines.length, mentions, draft, question: asks.question?.id,
+  return <div>{JSON.stringify({ title: session?.title, exit, machines: machines.length, mentions, draft, question: asks.question?.id,
     attached: window.attachedSessionId, seq: seq('chat-issue'), threads, sessions: sessions.map(row => row.sessionId),
     refs: refs.length, repos, artifact: artifact?.id, ready: ports.ready, held: ports.outbox.held().map(row => row.mutationId), records: ports.records.getSnapshot().map(row => row.id) })}</div>
 }

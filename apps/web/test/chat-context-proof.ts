@@ -75,6 +75,10 @@ try {
   const attributionPage = await browser.newPage({ viewport: { width: 1400, height: 900 }, reducedMotion: 'reduce' })
   await attributionPage.goto(`${origin}/test/chat-context.browser.html?rows=${rows}&mobxChatContext=1&mobxSessionPane=0&omitArtifactStrip=1`)
   await attributionPage.waitForFunction(() => window.__chatContextFixture?.ready(), null, { timeout: 60000 })
+  await attributionPage.waitForFunction(() => {
+    const result = window.__chatContextFixture.check()
+    return result?.differences === 0 && result.pending === 0
+  }, null, { timeout: 60000 })
   await attributionPage.evaluate(() => window.__chatContextFixture.reset())
   for (let step = 1; step <= updates; step++) {
     await attributionPage.evaluate(value => window.__chatContextFixture.update(value), step)

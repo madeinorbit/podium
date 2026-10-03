@@ -16,7 +16,7 @@ import { useChatSend } from '../src/features/chat/use-chat-send'
 import { chatContextDataLayer, initializeChatContextDataLayer } from '../src/features/chat/chat-context-data-layer'
 import { initializeSessionPaneDataLayer } from '../src/features/terminal/session-pane-data-layer'
 import { useChatArtifactIssue, useChatContextWindow, useChatConversationPorts, useChatDraft, useChatInteractions, useChatIssueSeq,
-  useChatMachines, useChatMentions, useChatReferenceMachines, useChatReferenceSessions, useChatRepositoryKey, useChatSession, useChatThreads } from '../src/features/chat/use-chat-context'
+  useChatMachines, useChatMentions, useChatReferenceMachines, useChatReferenceSessions, useChatRepositoryKey, useChatSession, useChatSessionExitKind, useChatThreads } from '../src/features/chat/use-chat-context'
 import { checkChatContext } from '../src/features/chat/chat-context-check'
 import { createHeaderFixture } from './header-fixture'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
@@ -52,6 +52,7 @@ document.documentElement.dataset.theme = 'podium'
 function Surface() {
   const runtime = useStoreHandle() as ClientRuntime, pool = useWorklistPool()
   const session = useChatSession(id), machines = useChatMachines(), mentions = useChatMentions('task')
+  const exit = useChatSessionExitKind(id)
   const draft = useChatDraft(id), asks = useChatInteractions(id), window = useChatContextWindow(), seq = useChatIssueSeq()
   const threads = useChatThreads(), sessions = useChatReferenceSessions(), refs = useChatReferenceMachines(), repos = useChatRepositoryKey()
   const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never }), ports = useChatConversationPorts(id, runtime)
@@ -72,7 +73,7 @@ function Surface() {
   return <main className="mx-auto flex max-w-3xl flex-col gap-5 p-8">
     <h1 className="text-xl">Conversation context</h1>
     <p>One runtime and mutation owner. Saved draft, questions, mentions and review artifacts.</p>
-    <output data-testid="context">{JSON.stringify({ title: session?.title, machines: machines.length, mentions,
+    <output data-testid="context">{JSON.stringify({ title: session?.title, exit, machines: machines.length, mentions,
       question: asks.question?.id, blocked: asks.blocked, attached: window.attachedSessionId, seq: seq('synthetic-0'), threads: threads.length,
       sessions: sessions.map(row => row.sessionId), refs: refs.length, repos, artifact: artifact?.id,
       ready: ports.ready, controllerReady: send.ready, controllerDraft: send.draft,

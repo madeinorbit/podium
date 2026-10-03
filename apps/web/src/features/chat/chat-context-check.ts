@@ -25,6 +25,8 @@ export function checkChatContext(pool: MobxPool, state: Store, issues: readonly 
   for (const id of ids) {
     const asks = chatInteractions(pool, id), records = chatRecords(pool, id)
     const draft = pool.row('chatDraft', id), held = pool.row('chatHeld', id)
+    const exit = pool.row('sessionExit', id)
+    compare(`sessionExit:${id}`, state.replica.exitKind?.('session', id), exit && !loading(exit) ? exit.kind : undefined, loading(exit))
     const session = state.sessions.find(row => row.sessionId === id)
     compare(`draft:${id}`, state.drafts?.[id] ?? '', draft && !loading(draft) ? draft.text : '', loading(draft))
     const mine = (state.pendingInteractions ?? []).filter(row => row.sessionId === id && row.status === 'asked')

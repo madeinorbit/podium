@@ -14,6 +14,8 @@ import { CHAT_CONTEXT_ENTITIES, CHAT_CONTEXT_SUMMARIES } from '@podium/client-gr
 import { NoticeSource } from '@podium/client-graph/notice-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { createSuperagentSource, SUPERAGENT_ENTITIES, SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
+import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
+import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { ScenarioCache } from '../../../packages/worklist-proto/shared/src/scenarios'
 import { checkChatContext } from '../src/features/chat/chat-context-check'
 
@@ -44,7 +46,7 @@ async function main() {
   const issues = allIssueViewModels(replica), messages = replica.rows('messageRecords'), interactions = replica.rows('pendingInteractions')
   const repos = replica.rows('repos').flatMap(row => row.repoPath ? [{ path: row.repoPath }] : [])
   const outbox = { pending: () => [], deadLetters: () => [], subscribe: () => () => {} }
-  const state = { sessions, machines: replica.rows('machines'), repos, issueProjections: replica.rows('issueProjections'),
+  const state = { replica, sessions, machines: replica.rows('machines'), repos, issueProjections: replica.rows('issueProjections'),
     issueUserStates: replica.rows('issueUserStates'), messageRecords: messages, pendingInteractions: interactions,
     coarseNow: Date.now(), selectedIssueId: null, panelMode: {}, dockShells: {}, pendingSpawnIds: new Set(),
     drafts: {}, attachedSessionId: null, transcriptReveal: null, superThreads: [], superThreadId: null,
@@ -59,6 +61,7 @@ async function main() {
   const pool = handle.pool
   pool.sources.register(NOTICE_ENTITIES, new NoticeSource(runtime as never))
   pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(runtime as never))
+  await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () => createSessionExitSource(runtime))
   const source = new ChatContextSource(runtime as never, pool)
   pool.sources.register(CHAT_CONTEXT_ENTITIES, source)
   pool.header.apply([...state.machines.map(row => ({ kind: 'machine' as const, id: row.id, value: row })),

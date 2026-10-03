@@ -18,6 +18,7 @@ GRAPH = 'packages/client-graph/src/'
 HOOKS = WEB + 'use-chat-context.ts'
 READER = GRAPH + 'chat-context.ts'
 SOURCE = GRAPH + 'chat-context-source.ts'
+EXIT_SOURCE = GRAPH + 'session-exit-source.ts'
 FILE = WEB + 'chat-context.pool.test.tsx'
 PARITY = 'preserves mention ties'
 INPUTS = 'has identical rendered inputs'
@@ -51,6 +52,12 @@ controls = [
     ('controller-readiness', HOOKS, 'ready: initial.current?.id === id, draft:', 'ready: data.ready, draft:', ATTACH, FILE),
     ('comparison-red', WEB + 'chat-context-check.ts', 'const fields = { value: before }', 'const fields = { value: after }', 'detects a planted wrong value', FILE),
     ('pinned-brief-fixture', WEB + 'ChatView.tsx', 'brief={chat.scroll.pinnedBrief}', 'brief={null}', 'mounts the pinned-brief shelf', WEB + 'ChatView.test.tsx'),
+    ('session-exit-batch', EXIT_SOURCE, 'demanded.add(id)', "owner.replica.exitKind?.('session', id); demanded.add(id)", 'shares addressed session exits', FILE),
+    ('session-exit-kind', EXIT_SOURCE, "owner.replica.exitKind?.('session', id)", "owner.replica.exitKind?.('sessions', id)", 'shares addressed session exits', FILE),
+    ('session-exit-address', EXIT_SOURCE, "row.kind === 'sessions'", "row.kind === 'issueProjections'", 'shares addressed session exits', FILE),
+    ('session-exit-rescope', EXIT_SOURCE, 'for (const id of demanded) dirty.add(id)', 'for (const id of demanded) dirty.delete(id)', 'shares addressed session exits', FILE),
+    ('session-exit-disposal', EXIT_SOURCE, 'stop(); demanded.clear()', 'demanded.clear()', 'clears rescope inputs', FILE),
+    ('session-exit-hook', HOOKS, '? usePoolSessionExitKind : useLegacySessionExitKind', '? useLegacySessionExitKind : useLegacySessionExitKind', INPUTS, FILE),
 ]
 
 def run(args, **kwargs):
@@ -64,7 +71,12 @@ output = ROOT / '.artifacts/chat-context/controls'
 output.mkdir(parents=True, exist_ok=True)
 results = []
 start = next((arg.split('=', 1)[1] for arg in sys.argv[1:] if arg.startswith('--from=')), None)
+only = next((arg.split('=', 1)[1].split(',') for arg in sys.argv[1:] if arg.startswith('--only=')), None)
 selected = controls
+if only:
+    if any(name not in [control[0] for control in controls] for name in only):
+        raise SystemExit('Unknown selected control')
+    selected = [control for control in controls if control[0] in only]
 if start:
     at = next(index for index, control in enumerate(controls) if control[0] == start)
     previous = json.loads((output.parent / 'controls.json').read_text())
@@ -100,6 +112,7 @@ try:
             raise RuntimeError('Control did not fail its named assertion: ' + name)
 finally:
     run(['git', 'switch', '-q', '--detach', baseline])
-    (output.parent / 'controls.json').write_text(json.dumps({'candidate': baseline, 'controls': results}, indent=2))
-if len(results) != len(controls):
+    report = 'controls-extra.json' if only else 'controls.json'
+    (output.parent / report).write_text(json.dumps({'candidate': baseline, 'controls': results}, indent=2))
+if len(results) != (len(selected) if only else len(controls)):
     sys.exit(1)

@@ -1,5 +1,6 @@
 import type { MobxPool } from '@podium/client-graph'
 import type { ChatContextRows } from '@podium/client-graph/chat-context-schema'
+import type { SessionExitRows } from '@podium/client-graph/session-exit-schema'
 import type { ConversationRecords, ConversationOutbox } from '@podium/client-core/conversation'
 import { storeConversationRecords, storeConversationOutbox } from '@podium/client-core/conversation'
 import { recordSliceDerivation } from '@podium/client-core/perf'
@@ -10,7 +11,7 @@ import type { MessageRecordWire } from '@podium/model'
 import type { OutboxChatSend } from '@podium/client-core/engine'
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { shallowEqual } from '@podium/client-core/store'
-import { useReplicaIssues, useSessionDraft, useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useSessionDraft, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { chatContextDataLayer } from './chat-context-data-layer'
@@ -29,6 +30,23 @@ function usePoolChatSession(id: SessionId | undefined) {
 }
 export function useChatSession(id: SessionId | undefined) {
   const useRead = chatContextDataLayer() === 'pool' ? usePoolChatSession : usePaneSession
+  return useRead(id)
+}
+function useLegacySessionExitKind(id: SessionId | undefined) {
+  const kind = useSessionExitKind(id)
+  legacyChatRead(useStoreHandle(), 'sessionExit', () => 0)
+  return kind
+}
+function usePoolSessionExitKind(id: SessionId | undefined) {
+  const read = useCallback((pool: MobxPool): SessionExitRows['sessionExit']['kind'] => {
+    if (id === undefined) return undefined
+    const row = pool.row('sessionExit', id)
+    return row && !pending(row) ? row.kind : undefined
+  }, [id])
+  return useWorklistPoolProjection(read, undefined)
+}
+export function useChatSessionExitKind(id: SessionId | undefined) {
+  const useRead = chatContextDataLayer() === 'pool' ? usePoolSessionExitKind : useLegacySessionExitKind
   return useRead(id)
 }
 const chatMachinesRead = (pool: MobxPool) => pool.sessionPanes.machines()

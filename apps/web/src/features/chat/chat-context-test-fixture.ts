@@ -9,6 +9,8 @@ import { ChatContextSource } from '@podium/client-graph/chat-context-source'
 import { NoticeSource } from '@podium/client-graph/notice-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { createSuperagentSource, SUPERAGENT_ENTITIES } from '@podium/client-graph/superagent'
+import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
+import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import { checkChatContext } from './chat-context-check'
 
@@ -40,7 +42,8 @@ export async function createChatContextFixture(resumeTwins = false) {
   let queued = [{ mutationId: asMutationId('held-live'), kind: 'sendText', input: { sessionId: sessions[0]!.sessionId, text: 'Held synthetic send' }, queuedAt: 2 }]
   let parked = [{ entry: { mutationId: asMutationId('held-failed'), kind: 'resumeAndSend', input: { sessionId: sessions[0]!.sessionId, text: 'Saved synthetic send' }, queuedAt: 1 }, reason: { code: 'max-age' }, parkedFrom: 'expired', deadLetteredAt: 3, attempts: 2 }]
   const listeners = new Set<() => void>(), outboxListeners = new Set<() => void>(), addressed = new Set<(batch: ReplicaAddressedBatch) => void>()
-  const counts = { collections: 0, addresses: 0 }
+  const counts = { collections: 0, addresses: 0, exits: 0 }
+  const exits = new Map<string, 'removed' | 'evicted'>()
   const raw = (kind: string): readonly object[] => kind === 'sessions' ? rawSessions : kind === 'issueProjections' ? issues
     : kind === 'messageRecords' ? messages : kind === 'pendingInteractions' ? interactions : []
   let state: Store
@@ -49,6 +52,7 @@ export async function createChatContextFixture(resumeTwins = false) {
     subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
     readPosition: { get: () => ({ lastEventId: 0, seenAt: null }), subscribe: () => () => {} },
     replica: { rows: (kind: string) => { counts.collections++; return raw(kind) }, getCursor: () => 1,
+      exitKind: (entity: string, id: string) => { counts.exits++; return entity === 'session' ? exits.get(id) : undefined },
       row: (kind: string, id: string) => { counts.addresses++; return raw(kind).find(row => Reflect.get(row, kind === 'sessions' ? 'sessionId' : 'id') === id) },
       subscribeAddressedBatch: (fn: (batch: ReplicaAddressedBatch) => void) => { addressed.add(fn); return () => { addressed.delete(fn) } } },
     outbox: { pending: () => queued, deadLetters: () => parked, subscribe: (fn: () => void) => { outboxListeners.add(fn); return () => { outboxListeners.delete(fn) } } },
@@ -75,6 +79,7 @@ export async function createChatContextFixture(resumeTwins = false) {
   pool.header.order('machine', ['chat-machine']); pool.header.order('repository', ['/synthetic/project'])
   pool.sources.register(NOTICE_ENTITIES, new NoticeSource(owner))
   pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(owner))
+  const exitSource = await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () => createSessionExitSource(owner))
   const source = new ChatContextSource(owner, pool)
   pool.sources.register(CHAT_CONTEXT_ENTITIES, source)
   const check = (override = state, models = issues.filter(row => !row.deletedAt)) => checkChatContext(pool, override, models, sessions.map(row => row.sessionId))
@@ -82,7 +87,11 @@ export async function createChatContextFixture(resumeTwins = false) {
     for (let round = 0; round < 6; round++) { check(); await Promise.resolve(); pool.hydrate() }
     return check()
   }
-  return { pool, owner, source, counts, issues, sessions, data, check, load, state: () => state, addressed, listeners, outboxListeners,
+  return { pool, owner, source, exitSource, counts, issues, sessions, data, check, load, state: () => state, addressed, listeners, outboxListeners,
+    updateExit(id: string, kind: 'removed' | 'evicted' | undefined, replace = false) {
+      if (kind) exits.set(id, kind); else exits.delete(id)
+      for (const fn of addressed) fn(replace ? { type: 'replace', reason: 'rescope' } : { type: 'update', rows: [{ kind: 'sessions', id }] })
+    },
     updateDraft(text: string) { state.setSessionDraft(sessions[0]!.sessionId, text) },
     updateMessages(next: typeof messages, ids: string[]) {
       messages = next; state = { ...state, messageRecords: next }
