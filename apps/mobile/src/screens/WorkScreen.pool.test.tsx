@@ -214,6 +214,31 @@ describe('mobile WorkScreen pool consumer', () => {
     console.info('[mobile commits]', JSON.stringify(cells))
   }, 120_000)
 
+  for (const scale of [1, 4] as const) it(`active search preserves untouched native bands at ${scale}x`, async () => {
+    const { view, corpus, feed } = await mount(true, scale)
+    fireEvent.click(screen.getByLabelText('Search work'))
+    fireEvent.change(screen.getByLabelText('Search work', { selector: 'input' }), { target: { value: 'e' } })
+    await waitFor(() => expect(state.sections.length).toBeGreaterThan(1))
+    const section = state.sections.find(section => section.kind === 'project' && section.data.some(ref => ref.kind === 'issue'))!
+    expect(section).toBeDefined()
+    const ref = section.data.find(ref => ref.kind === 'issue')!
+    const target = corpus.issueProjections.find(row => row.id === ref.id)!
+    const before = state.sections
+    await act(async () => {
+      feed.publish('issueProjections', corpus.issueProjections.map(row => row.id === target.id
+        ? { ...row, description: { value: 'search bookkeeping' } } : row))
+    })
+    expect(state.sections).toBe(before)
+    await act(async () => {
+      feed.publish('issueProjections', corpus.issueProjections.map(row => row.id === target.id ? { ...row, title: 'ZZZ' } : row))
+    })
+    await waitFor(() => expect(state.sections.some(section => section.data.some(ref => ref.id === target.id))).toBe(false))
+    for (const old of before) if (old.key !== section.key) {
+      expect(state.sections.find(section => section.key === old.key), `untouched search band ${old.key}`).toBe(old)
+    }
+    expect(view.container.textContent).not.toContain('ZZZ')
+  }, 120_000)
+
   it('search overrides folds, uses native match counts, and the pool menu resolves on long press', async () => {
     const { view, corpus } = await mount(true, 1)
     // The initial native window contains Pinned; later project headers are

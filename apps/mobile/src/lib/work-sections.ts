@@ -278,23 +278,59 @@ export function mobilePaintNow(pool: MobxPool): number {
 
 /** Search is opt-in work. Without a query the pool's stable native arrays go
  * straight to SectionList, and row payload changes never rebuild them. */
-export function searchMobileSections(pool: MobxPool, sections: readonly MobileWorkSection[], query: string): readonly MobileWorkSection[] {
-  const needle = query.trim().toLowerCase()
-  if (!needle) return sections
-  const matches = (id: string, kind: 'issue' | 'worktree', folded = false): boolean => {
-    const value = pool.mobileWork.row({ id, kind })
-    if (!value || typeof value === 'symbol') return false
-    const paint = mobileRowPaint(value, mobilePaintNow(pool))
-    const text = paint.kind === 'issue' ? `${paint.ref} ${paint.label}`
-      : `${paint.label.slice(0, paint.branch ? -(paint.branch.length + 3) : undefined)} ${paint.branch ?? ''}`
-    return `${text}${folded ? '' : ` ${paint.statusLine}`}`.toLowerCase().includes(needle)
+export function searchMobileSections(pool: MobxPool, sections: readonly MobileWorkSection[], query: string,
+  cache = new MobileSearchSections()): readonly MobileWorkSection[] {
+  return cache.update(pool, sections, query)
+}
+
+/** Matching can scan resident refs; unchanged matches allocate no row array.
+ * A changed match copies its lane only, keeping other native sections intact. */
+export class MobileSearchSections {
+  private readonly bands = new Map<string, MobileWorkSection>()
+  private previous: readonly MobileWorkSection[] = []
+  update(pool: MobxPool, sections: readonly MobileWorkSection[], query: string): readonly MobileWorkSection[] {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return sections
+    const now = mobilePaintNow(pool)
+    const matches = (id: string, kind: 'issue' | 'worktree', folded = false): boolean => {
+      const value = pool.mobileWork.row({ id, kind })
+      if (!value || typeof value === 'symbol') return false
+      const paint = mobileRowPaint(value, now)
+      const text = paint.kind === 'issue' ? `${paint.ref} ${paint.label}`
+        : `${paint.label.slice(0, paint.branch ? -(paint.branch.length + 3) : undefined)} ${paint.branch ?? ''}`
+      return `${text}${folded ? '' : ` ${paint.statusLine}`}`.toLowerCase().includes(needle)
+    }
+    const active = new Set<string>(), next: MobileWorkSection[] = []
+    for (const source of sections) {
+      active.add(source.key)
+      const old = this.bands.get(source.key)
+      const data = filteredNative(source.data, ref => matches(ref.id, ref.kind), old?.data, sameMobileRef)
+      const snoozedIds = filteredNative(source.snoozedIds, id => matches(id, 'issue', true), old?.snoozedIds)
+      const closedIds = filteredNative(source.closedIds, id => matches(id, 'issue', true), old?.closedIds)
+      const section = old && old.data === data && old.snoozedIds === snoozedIds && old.closedIds === closedIds
+        && old.label === source.label && old.kind === source.kind && old.foldKey === source.foldKey
+        && old.collapsed === source.collapsed ? old : { ...source, data, snoozedIds, closedIds, total: data.length }
+      this.bands.set(source.key, section)
+      if (data.length + snoozedIds.length + closedIds.length > 0) next.push(section)
+    }
+    for (const key of this.bands.keys()) if (!active.has(key)) this.bands.delete(key)
+    if (next.length !== this.previous.length || next.some((section, index) => section !== this.previous[index])) this.previous = next
+    return this.previous
   }
-  return sections.map(section => {
-    const data = section.data.filter(ref => matches(ref.id, ref.kind))
-    return { ...section, data, total: data.length,
-      snoozedIds: section.snoozedIds.filter(id => matches(id, 'issue', true)),
-      closedIds: section.closedIds.filter(id => matches(id, 'issue', true)) }
-  }).filter(section => section.data.length + section.snoozedIds.length + section.closedIds.length > 0)
+}
+
+const sameMobileRef = (a: MobileWorkSection['data'][number], b: MobileWorkSection['data'][number]) =>
+  a.id === b.id && a.kind === b.kind && a.listKey === b.listKey
+
+function filteredNative<T>(source: readonly T[], matches: (value: T) => boolean, previous?: readonly T[],
+  equal: (a: T, b: T) => boolean = (a, b) => a === b): readonly T[] {
+  let next: T[] | undefined, count = 0
+  for (const value of source) if (matches(value)) {
+    if (!next && (!previous || count >= previous.length || !equal(previous[count]!, value))) next = previous?.slice(0, count) ?? []
+    next?.push(value)
+    count++
+  }
+  return next ?? (previous?.length === count ? previous : previous?.slice(0, count) ?? [])
 }
 
 /** Native sections carry plain immutable arrays. Folding changes one section
