@@ -12,6 +12,7 @@ const test = 'packages/client-graph/src/issue-board-source.test.ts'
 const cases = [
   { name: 'unmount-release', file: source, test, title: 'releases demanded', from: 'onBecomeUnobserved(value, () => cache.delete(key))', to: 'onBecomeUnobserved(value, () => {})' },
   { name: 'summary-only', file: source, test, title: 'uses declared cold', from: "const row = pool.row('issue', id, 'summary')", to: "const row = pool.row('issue', id)" },
+  { name: 'agent-default', file: 'packages/client-graph/src/issue-board-schema.ts', test, title: 'uses declared cold', from: ", 'defaultAgent'", to: '' },
   { name: 'loading-boundary', file: source, test, title: 'answers a missing summary', from: 'if (!value || value === LOADING) return value', to: 'if (!value || value === LOADING) return undefined' },
   { name: 'resident-scaling', file: source, test, title: 'stage changes examine', from: 'const result = intersection(filters)', to: "const result = new Set(bucket('all')); countIssueBoard('residentCandidates', result.size)" },
   { name: 'pending-overlay', file: source, test, title: 'updates overlays', from: "const row = pool.row('issue', id, 'summary')", to: "const row = pool.tables.issue.get(id) ?? pool.row('issue', id, 'summary')" },

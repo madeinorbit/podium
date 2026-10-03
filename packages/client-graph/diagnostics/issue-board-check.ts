@@ -9,7 +9,7 @@ export const BOARD_CHECK_FIELDS = ['id', 'seq', 'title', 'displayRef', 'prefix',
   'priority', 'type', 'assignee', 'labels', 'repoPath', 'createdAt', 'updatedAt', 'archived', 'deletedAt',
   'parentId', 'worktreePath', 'branch', 'estimateMin', 'dueAt', 'deferUntil', 'blocked', 'deferred', 'ready',
   'needsHuman', 'color', 'gitState', 'deps', 'dependents', 'childIds', 'childCount', 'childDoneCount',
-  'memberSessionIds', 'readAt', 'tuckedAt', 'pinned', 'unread', 'sessionSummary'] as const
+  'memberSessionIds', 'readAt', 'tuckedAt', 'pinned', 'defaultAgent', 'unread', 'sessionSummary'] as const
 const fields = (row: IssueViewModel) => Object.fromEntries(BOARD_CHECK_FIELDS.map(key => [key, row[key]]))
 export function boardSnapshot(data: PoolBoardData) {
   const view = data.view

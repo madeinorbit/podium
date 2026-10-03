@@ -117,6 +117,7 @@ try {
     if (!(filteredRows > 0 && filteredRows < fullRows)) throw new Error('Filter must select a nonempty proper subset')
     outputs[arm] ??= [full, filtered]
     if (run === 0) await page.screenshot({ path: resolve(root, `${label}-board.png`) })
+    if (arm === 'pool' && run === 1) await page.screenshot({ path: resolve(root, `${label}-pool-board.png`) })
     const final = await page.evaluate(() => ({ state: Reflect.get(window, '__boardHarness').state(), errors: Reflect.get(window, '__boardHarness').errors() }))
     if (arm === 'pool') {
       for (const result of [open, filter]) {

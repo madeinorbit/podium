@@ -33,10 +33,10 @@ it('releases demanded ID results on filter change and unmount', () => {
   } finally { unmount(); stop() }
 })
 it('uses declared cold summaries without promoting cards or hydrating the world', () => {
-  const { source, pool, load, stop } = setup()
+  const { source, pool, load, stop } = setup([row('hot'), row('cold', { archived: true, stage: 'done', defaultAgent: 'codex' })])
   try {
     expect(source.queryIds({ kind: 'board', filter: { archived: true } })).toEqual({ ids: ['cold', 'hot'] })
-    expect(source.issue('cold')).toMatchObject({ id: 'cold', description: 'Searchable body', stage: 'done' })
+    expect(source.issue('cold')).toMatchObject({ id: 'cold', description: 'Searchable body', stage: 'done', defaultAgent: 'codex' })
     expect(pool.tables.issue.has('cold')).toBe(false)
     expect(source.stats().residentRows).toBe(1)
     expect(pool.hydrate()).toBe(0)

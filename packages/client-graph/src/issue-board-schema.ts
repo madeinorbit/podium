@@ -70,7 +70,7 @@ export const ISSUE_BOARD_SOURCE_SCHEMA = {
  * Cold cards/filtering need these projection fields, never a document panel. */
 export const ISSUE_BOARD_SUMMARIES = {
   issue: [...ISSUE_PAGE_SUMMARIES.issue, 'priority', 'createdAt', 'type', 'description',
-    'estimateMin', 'dueAt', 'intentOrigin', 'closedAt', 'branch', 'pinned', 'tuckedAt'],
+    'estimateMin', 'dueAt', 'intentOrigin', 'closedAt', 'branch', 'pinned', 'tuckedAt', 'defaultAgent'],
   session: [...ISSUE_PAGE_SUMMARIES.session, 'refIssueId', 'createdAt', 'agentColor', 'displayRef',
     'stopReason', 'readAt', 'unread', 'snoozedUntil', 'createdBy', 'machineId', 'resumable'],
 } as const
