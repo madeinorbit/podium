@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
+import { readSyncStream } from '@podium/client-core/sync-stream'
 import { SYNC_BATCH_MAX_ROWS } from '@podium/protocol'
 import { RELAY } from './_harness'
 
@@ -261,16 +262,18 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
         },
       })
     }
-    // A snapshot can contain many rows at one authority sequence. Retain each
-    // canonical row's sequence rather than coupling chunk width to the small
-    // harness cursor (which created thousands of artificial progress events).
-    const width = SYNC_BATCH_MAX_ROWS,
+    // Synthetic receipts need strictly increasing sequences within each frame,
+    // all below the real snapshot cursor. Preserve the original seed receipts
+    // and authority identity; use the production row limit for added frames.
+    const width = Math.min(meta.seq, SYNC_BATCH_MAX_ROWS),
       extra: Frame[] = []
     for (let start = 0; start < additions.length; start += width)
       extra.push({
         ...chunks[0]!,
         last: false,
-        changes: additions.slice(start, start + width),
+        changes: additions
+          .slice(start, start + width)
+          .map((row, index) => ({ ...row, seq: index + 1 })),
       })
     const all = [...chunks.map((chunk) => ({ ...chunk, last: false })), ...extra]
     all.at(-1)!.last = true
@@ -282,6 +285,13 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
     ]
       .map((frame) => JSON.stringify(frame))
       .join('\n')}\n`
+    async function* lines() {
+      yield* body.trim().split('\n')
+    }
+    // Use the real decoder to refuse malformed fixture receipts immediately.
+    for await (const _record of readSyncStream(lines())) {
+      // Validate to EOF before the browser sees the response.
+    }
     const headers: Record<string, string> = {
       ...reply.headers(),
       'content-type': 'application/x-ndjson',
@@ -292,7 +302,7 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
     installations++
     writeFileSync(
       resolve(artifacts, 'synthetic-bootstrap.json'),
-      `${JSON.stringify({ snapshotSeq: meta.seq, originalChunks: chunks.length, expandedChunks: all.length, rows, width })}\n`,
+      `${JSON.stringify({ snapshotSeq: meta.seq, originalChunks: chunks.length, expandedChunks: all.length, rows, width, validated: true })}\n`,
     )
     await route.fulfill({
       status: reply.status(),
