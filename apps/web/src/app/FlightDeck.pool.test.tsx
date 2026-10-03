@@ -7,7 +7,8 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { missionView } from '@podium/client-graph/mission-view'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useMemo, useSyncExternalStore } from 'react'
+import { observable, runInAction } from 'mobx'
+import { Profiler, useMemo, useSyncExternalStore, type ProfilerOnRenderCallback } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
@@ -77,12 +78,12 @@ beforeEach(() => {
   ] })
   state.pool = pool
 })
-afterEach(() => { cleanup(); pool.dispose(); state.pool = null; vi.useRealTimers(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); pool.dispose(); state.pool = null; vi.useRealTimers(); vi.restoreAllMocks(); vi.clearAllMocks() })
 
-function mount(view: FlightDeckView) {
+function mount(view: FlightDeckView, onRender?: ProfilerOnRenderCallback) {
   vi.setSystemTime(corpus.fixedNow)
   state.uiState.get = key => key === 'podium.flightDeck.mode' ? view : null
-  return render(deck())
+  return render(onRender ? <Profiler id="mission" onRender={onRender}>{deck()}</Profiler> : deck())
 }
 function deck() {
   return <ConfirmProvider><OperatorFocusProvider missionId={state.selectedIssueId}>
@@ -106,6 +107,19 @@ async function settled() {
 }
 
 describe('rendered mission pane parity', () => {
+  it('does not commit another roster render when the host catalog publishes equal values', async () => {
+    const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12)
+    if (!root) throw new Error('Missing mission fixture')
+    state.layer = 'pool'; state.selectedIssueId = root.id
+    const catalogVersion = observable.box(0)
+    vi.spyOn(pool.headerViews, 'machines').mockImplementation(() => { catalogVersion.get(); return [] })
+    const committed = vi.fn()
+    mount('full', committed); await settled()
+    const before = committed.mock.calls.length
+    await act(async () => { runInAction(() => catalogVersion.set(1)) })
+    expect(committed).toHaveBeenCalledTimes(before)
+  }, 120_000)
+
   it('derives a mission once and retains its rows when only the selected session changes', async () => {
     const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12 &&
       sessions.some(session => session.issueId === issue.id && !session.archived && !session.headless && session.agentKind !== 'shell'))

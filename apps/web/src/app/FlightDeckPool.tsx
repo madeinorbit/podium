@@ -4,7 +4,7 @@ import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionHandoff, readMissionView, readMissionActionInputs, type MissionHandoffValues, type MissionViewValues } from '@podium/client-graph/mission-view'
-import { observer } from '@podium/client-graph/react'
+import { compareStructural, computed, observer } from '@podium/client-graph/react'
 import { useCallback, useMemo, type ComponentProps, type JSX } from 'react'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
@@ -50,10 +50,9 @@ export default observer(function PoolFlightDeck(props: FlightDeckProps & { prefe
       : machines.filter(view => repo?.machines.some(machine => machine.machineId === view.machine.id))
     return { mission, handoff, hosts }
   }), [owner, selectedIssueId, paneA, paneB, split, mode, view])
-  // Keep the mission's computed rows observed across pane selection changes.
-  // A layout projection first reads untracked, then repeats the full derivation
-  // when subscribing; rows belong in the observer that renders them.
-  const values = pool ? read(pool) : LOADING
+  // Observe the projection from its first read, retaining rows across pane
+  // selection. Equal catalog publications must not redraw the whole roster.
+  const values = useMemo(() => computed(() => pool ? read(pool) : LOADING, { equals: compareStructural }), [pool, read]).get()
   const source = useMemo<FlightDeckSource | null>(() => {
     if (!pool || values === LOADING) return null
     const reader = missionView(pool)
