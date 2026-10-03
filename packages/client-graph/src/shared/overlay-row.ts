@@ -2,7 +2,9 @@ type Omissions = Pick<ReadonlySet<PropertyKey>, 'has'>
 
 // All three inputs are borrowed identities. Weak keys let a replaced or
 // evicted row (and its obsolete overlays) go without a pool-wide copy index.
-const overlays = new WeakMap<object, WeakMap<object, WeakMap<Omissions, object>>>()
+type RowOverlays = WeakMap<object, WeakMap<object, object>>
+const overlays: RowOverlays = new WeakMap()
+const omittedOverlays = new WeakMap<Omissions, RowOverlays>()
 
 /** One frozen shallow view per row, override and omission identity.
  * Call only for an addressed resident row or its declared cold summary. */
@@ -11,11 +13,17 @@ export function overlayRow<T extends object, O extends object>(
   overrides: Readonly<O>,
   omitted: Omissions = NO_OMISSIONS,
 ): T & O {
-  let byOverride = overlays.get(row)
-  if (!byOverride) overlays.set(row, byOverride = new WeakMap())
-  let byOmission = byOverride.get(overrides)
-  if (!byOmission) byOverride.set(overrides, byOmission = new WeakMap())
-  const previous = byOmission.get(omitted)
+  // Most joins omit nothing. A separate cache per omission policy avoids
+  // allocating another WeakMap for every short-lived override record.
+  let rows = overlays
+  if (omitted !== NO_OMISSIONS) {
+    const previous = omittedOverlays.get(omitted)
+    if (previous) rows = previous
+    else omittedOverlays.set(omitted, rows = new WeakMap())
+  }
+  let byOverride = rows.get(row)
+  if (!byOverride) rows.set(row, byOverride = new WeakMap())
+  const previous = byOverride.get(overrides)
   if (previous) return previous as T & O
 
   const value = Object.create(Object.getPrototypeOf(row)) as T & O
@@ -30,7 +38,7 @@ export function overlayRow<T extends object, O extends object>(
     })
   }
   Object.freeze(value)
-  byOmission.set(omitted, value)
+  byOverride.set(overrides, value)
   return value
 }
 
