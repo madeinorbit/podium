@@ -241,16 +241,27 @@ describe('declared issue page', () => {
     }
   })
 
+  it('batches a cold issue payload and its raw member fields in one window', () => {
+    const ctx = open([task('arch', { archived: true })],
+      [seat('old', 'arch', { archived: true, status: 'exited' })], true)
+    expect(tracked(() => ctx.views.issue('arch'))).toBe(LOADING)
+    expect(ctx.load).not.toHaveBeenCalled()
+    expect(ctx.pool.hydrate()).toBe(2)
+    expect(tracked(() => ctx.views.issue('arch'))).toMatchObject({ id: 'arch', sessionSummary: { total: 1 } })
+  })
+
   it('uses cold summaries for menus and batches page payload loads without peek', () => {
     const ctx = open([task('arch', { archived: true, deps: [{ id: 'cold', type: 'custom' }] }),
-      task('cold', { archived: true, parentId: 'arch' })], [seat('old', 'arch', { archived: true, status: 'exited' })], true)
+      task('cold', { archived: true, parentId: 'arch' }), task('cold-2', { archived: true, parentId: 'arch' })],
+      [seat('old', 'arch', { archived: true, status: 'exited' }),
+        seat('old-child', 'cold-2', { archived: true, status: 'exited' })], true)
     const read = vi.spyOn(ctx.pool, 'row'), before = ctx.load.mock.calls.length
     expect(tracked(() => ctx.views.menuIssues())).not.toBe(LOADING)
     expect(ctx.load.mock.calls.length).toBe(before)
     expect(tracked(() => ctx.views.data('arch'))).toBe(LOADING)
     expect(tracked(() => ctx.views.panel({ issueId: 'arch', cwd: '/synthetic' }))).toBe(LOADING)
     expect(ctx.load.mock.calls.length).toBe(before)
-    expect(ctx.pool.hydrate()).toBe(3)
+    expect(ctx.pool.hydrate()).toBe(5)
     const page = tracked(() => ctx.views.data('arch'))
     expect(page && page !== LOADING ? page.issue.id : null).toBe('arch')
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
