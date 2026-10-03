@@ -98,8 +98,25 @@ persists its settings replica before the Work launch, and owns one app runtime
 and queue. The read state is seeded through the isolated server before the
 arms. A prior navigation's read or deliberately parked rename cannot become
 the next arm's starting queue. This is synthetic interaction evidence, not a
-large-corpus performance acceptance claim. The restored four-arm capture is
-queued behind the shared timing lease.
+large-corpus performance acceptance claim. The restored four-arm capture
+passed on candidate `221523aced` in Chromium `148.0.7778.96`, with zero page or
+unexpected console errors. Four anonymous `/auth/client-sessions` 401s and the
+four deliberate rename 400s are recorded separately. The timing lease was
+held for the capture and released immediately after the run; starting host
+load was 3.35.
+
+| Arm | Rename input → Paint, ms | Hard launch → row ready, ms | Collected heap before, MB | Collected heap pending, MB |
+| --- | ---: | ---: | ---: | ---: |
+| OFF | 20.2 | 312.2 | 17.01 | 18.39 |
+| ON | 25.4 | 385.1 | 18.54 | 19.62 |
+| OFF | 15.6 | 244.9 | 17.46 | 18.45 |
+| ON | 21.1 | 415.3 | 18.30 | 19.71 |
+
+Heap MB is decimal (1,000,000 bytes). Hard-launch row readiness is a browser
+proxy for the new principal-scoped provider becoming usable, including driver
+attachment; rename timing uses the actual Chromium Paint after the title's DOM
+mutation. These four samples over one seeded issue establish the interaction
+and measurement boundary. They do not establish a pool performance improvement.
 
 The corrected production phone fault control is valid: changing the menu's
 submitted title to `Planted wrong mobile title` fails the requested optimistic
