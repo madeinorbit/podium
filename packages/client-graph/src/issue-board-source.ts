@@ -65,7 +65,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     return pool.tables.issue.has(id) ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
   }
   function readFacts(id: string): Loaded<IssueViewModel> {
-    const row = pool.row('issue', id, 'summary')
+    const row = pool.row('issue', id, 'summary-fields')
     if (!row || row === LOADING) return row
     const raw = row as Record<string, unknown>
     // Cold input already IS the declared summary. Picking every field again
@@ -235,7 +235,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
         const f = query.filter
         const scalarBoard = query.kind === 'board' && !f?.text?.trim() && f?.status !== 'ready' && f?.status !== 'deferred'
         const scalarExplorer = query.kind === 'explorer' && !query.query?.trim() && query.tab !== 'needs'
-        const row = scalarBoard || scalarExplorer ? pool.row('issue', id, 'summary') as Loaded<IssueViewModel> : facts(id)
+        const row = scalarBoard || scalarExplorer ? pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel> : facts(id)
         if (row === LOADING) pending = true
         else if (row && matches(row, query, id)) ids.push(id)
       }
@@ -249,7 +249,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     return memo(`catalog:${agents}`, () => {
       const scope: string[] = [], paths = new Set<string>(), assignees = new Set<string>(), labels = new Set<string>()
       const visit = (id: string) => {
-        const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
+        const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
         if (row === LOADING) return false
         if (!row) return true
         if (row.repoPath) paths.add(row.repoPath)
@@ -278,13 +278,13 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
       let childDoneCount = 0
       for (const childId of childIds) {
-        const row = pool.row('issue', childId, 'summary') as Loaded<{ stage?: string }>
+        const row = pool.row('issue', childId, 'summary-fields') as Loaded<{ stage?: string }>
         if (row === LOADING) return LOADING
         if (row?.stage === 'done') childDoneCount++
       }
       const dependents: IssueViewModel['dependents'] = []
       for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
-        const row = pool.row('issue', sourceId, 'summary') as Loaded<{ deps?: { id: string; type: string }[] }>
+        const row = pool.row('issue', sourceId, 'summary-fields') as Loaded<{ deps?: { id: string; type: string }[] }>
         if (row === LOADING) return LOADING
         for (const dep of row?.deps ?? []) if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
       }
@@ -333,7 +333,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
   function placement(id: string): Loaded<IssueViewModel> {
     if (pool.tables.issue.has(id)) return facts(id)
     return memo(`placement:${id}`, () => {
-      const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
+      const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
       if (!row || row === LOADING) return row
       return { id: asIssueId(id), seq: row.seq, stage: row.stage, priority: row.priority,
         parentId: pool.graph.one('issue', id, 'treeParent') ?? row.parentId,
@@ -436,7 +436,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     return memo('explorerCounts', () => {
       const counts = Object.fromEntries(BOARD_EXPLORER_TABS.map(tab => [tab, 0])) as Record<BoardExplorerTab, number>
       for (const id of [...bucket('scope'), ...(pool.residency?.ids('issue', true) ?? [])]) {
-        const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
+        const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
         if (row === LOADING) return LOADING
         if (!row || row.archived || row.deletedAt || !scoped(row, false, false, id)) continue
         const tab = tabOf(row)

@@ -431,12 +431,13 @@ export class Residency {
     return this.isCold(entity, id)
   }
 
-  /** TRACKED: the declared summary of a cold row (`ResidencyOptions.summaries`), else undefined. */
-  summary(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
+  /** TRACKED: the declared cold fields; worklist readers also request flatUntil. */
+  summary(entity: EntityName, id: string, decorate = true): Readonly<Record<string, unknown>> | undefined {
     if (!this.capable(entity)) return undefined
     this.observe(entity, id)
     const key = `${entity}:${id}`
     const summary = this.summaries.get(key)
+    if (!decorate) return summary
     const bound = this.finish.get(key)
     return summary === undefined || bound === undefined ? summary :
       { ...summary, flatUntil: coldFlatUntil(this.schema, entity, id, summary, bound, this.context()) }

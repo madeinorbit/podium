@@ -199,9 +199,11 @@ export interface WriteSeam {
  *   nothing queued (the visibility parts decide a cold row without loading it).
  * - `summary`: the resident row or the declared cold fields, with pending
  *   edits overlaid; a missing cold summary queues the normal batched load.
+ * - `summary-fields`: the same declared fields and pending edits, without
+ *   the worklist-only flatUntil decoration or copying the cold summary.
  * Unknown rows answer undefined in every mode.
  */
-export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary'
+export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 
 /** Where a row stands, for a reader that asked for it by id (tracked). */
 export type Residence = 'resident' | 'loading' | 'absent'
@@ -629,7 +631,7 @@ export class MobxPool {
   row(entity: 'preference', id: string): Loaded<PreferenceRow>
   row(entity: HeaderEntity, id: string): object | undefined
   row(entity: EntityName, id: string, absent: 'peek'): object | undefined
-  row(entity: EntityName, id: string, absent?: 'load' | 'mark' | 'summary'): Loaded<object>
+  row(entity: EntityName, id: string, absent?: 'load' | 'mark' | 'summary' | 'summary-fields'): Loaded<object>
   row(entity: EntityName | HeaderEntity | SourceEntity | 'setupSession' | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
     if (entity === 'setupSession') {
       const row = this.row('session', id, 'summary')
@@ -646,8 +648,8 @@ export class MobxPool {
       if (absent === 'load') return residency.loading(core, id) ? LOADING : undefined
       if (!residency.known(core, id)) return undefined
       if (absent === 'mark') return LOADING
-      if (absent === 'summary') {
-        server = residency.summary(core, id)
+      if (absent === 'summary' || absent === 'summary-fields') {
+        server = residency.summary(core, id, absent === 'summary')
         if (server === undefined) return residency.loading(core, id) ? LOADING : undefined
       } else server = core === 'session' ? residency.summary(core, id) ?? residency.read(core, id) : residency.read(core, id)
       if (server === undefined) return undefined

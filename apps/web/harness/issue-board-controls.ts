@@ -10,6 +10,10 @@ mkdirSync(root, { recursive: true })
 const source = 'packages/client-graph/src/issue-board-source.ts'
 const test = 'packages/client-graph/src/issue-board-source.test.ts'
 const cases = [
+  { name: 'summary-fields-legacy', file: 'packages/client-graph/src/residency.ts', test: 'packages/client-graph/src/issue-board-summary-fields.test.ts', title: 'keeps existing worklist', from: 'decorate = true', to: 'decorate = false' },
+  { name: 'summary-fields-identity', file: 'packages/client-graph/src/pool.ts', test: 'packages/client-graph/src/issue-board-summary-fields.test.ts', title: 'keeps existing worklist', from: "server = residency.summary(core, id, absent === 'summary')", to: 'server = residency.summary(core, id, true)' },
+  { name: 'summary-fields-overlay', file: 'packages/client-graph/src/pool.ts', test: 'packages/client-graph/src/issue-board-summary-fields.test.ts', title: 'overlays pending summary', from: 'const pending = this.writes?.pending(core, id)', to: "const pending = absent === 'summary-fields' ? undefined : this.writes?.pending(core, id)" },
+  { name: 'summary-fields-loading', file: 'packages/client-graph/src/pool.ts', test: 'packages/client-graph/src/issue-board-summary-fields.test.ts', title: 'loads a missing declared', from: 'if (server === undefined) return residency.loading(core, id) ? LOADING : undefined', to: 'if (server === undefined) return undefined' },
   { name: 'virtual-window', file: source, test, title: 'keeps rich card', from: 'options.windowed ? options.addressed ?? [] :', to: 'false ? options.addressed ?? [] :' },
   { name: 'virtual-child-summary', file: source, test, title: 'derives a virtual card', from: 'if (!row.archived && !row.deletedAt && scoped(row, options.agents ?? false, true))', to: 'if (false)' },
   { name: 'addressed-close-roster', file: 'apps/web/src/features/issues/use-issue-status-apply.tsx', test: 'apps/web/src/features/issues/board-pool-hooks.test.tsx', title: 'uses addressed pool', from: 'const addressed = sessionsForIssue?.(issue)', to: 'const addressed = []' },
@@ -19,12 +23,12 @@ const cases = [
   { name: 'projection-release', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'derives once', from: 'stop?.(); stop = undefined; snapshot = undefined', to: 'stop = undefined; snapshot = undefined' },
   { name: 'epic-progress', file: source, test: 'apps/web/src/features/issues/board-pool-parity.test.ts', title: 'matches legacy', from: "if (pool.graph.many('issue', id, 'treeChildren')[Symbol.iterator]().next().done) return null", to: 'if (true) return null' },
   { name: 'unmount-release', file: source, test, title: 'releases demanded', from: 'onBecomeUnobserved(value, () => cache.delete(key))', to: 'onBecomeUnobserved(value, () => {})' },
-  { name: 'summary-only', file: source, test, title: 'uses declared cold', from: "const row = pool.row('issue', id, 'summary')", to: "const row = pool.row('issue', id)" },
+  { name: 'summary-only', file: source, test, title: 'uses declared cold', from: "const row = pool.row('issue', id, 'summary-fields')", to: "const row = pool.row('issue', id)" },
   { name: 'passive-membership', file: source, test, title: 'uses declared cold', from: 'pool.tables.issue.has(id) ? memo', to: "pool.resident('issue', id) === 'resident' ? memo" },
   { name: 'agent-default', file: 'packages/client-graph/src/issue-board-schema.ts', test, title: 'uses declared cold', from: ", 'defaultAgent'", to: '' },
   { name: 'loading-boundary', file: source, test, title: 'answers a missing summary', from: 'if (!value || value === LOADING) return value', to: 'if (!value || value === LOADING) return undefined' },
   { name: 'resident-scaling', file: source, test, title: 'stage changes examine', from: 'const result = intersection(filters)', to: "const result = new Set(bucket('all')); countIssueBoard('residentCandidates', result.size)" },
-  { name: 'pending-overlay', file: source, test, title: 'updates overlays', from: "const row = pool.row('issue', id, 'summary')", to: "const row = pool.tables.issue.get(id) ?? pool.row('issue', id, 'summary')" },
+  { name: 'pending-overlay', file: source, test, title: 'updates overlays', from: "const row = pool.row('issue', id, 'summary-fields')", to: "const row = pool.tables.issue.get(id) ?? pool.row('issue', id, 'summary-fields')" },
   { name: 'resident-release', file: source, test, title: 'updates overlays', from: "if (change.type === 'delete')", to: 'if (false)' },
   { name: 'vacated-review', file: source, test, title: 'keeps an empty review', from: 'issueIsActionable(attention,', to: 'issueIsActionable(row,' },
   { name: 'opaque-parent', file: source, test, title: 'preserves an opaque parent', from: "pool.graph.one('issue', id, 'treeParent') ?? raw.parentId", to: "pool.graph.one('issue', id, 'treeParent') ?? undefined" },
