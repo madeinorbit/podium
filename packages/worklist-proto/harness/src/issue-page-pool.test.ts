@@ -21,7 +21,7 @@ installMobxWarnTrap({ errors: true })
 const NOW = Date.parse('2026-10-01T12:00:00Z'), STAMP = '2026-09-01T12:00:00Z'
 const pools: MobxPool[] = []
 afterEach(() => { for (const pool of pools.splice(0)) pool.dispose(); vi.restoreAllMocks() })
-type PageInput = SliceIssue & { description?: string | { value: string }; notes?: string | { value: string } }
+type PageInput = SliceIssue & { description?: string | { value: string }; notes?: string | { value: string }; labels?: string[] }
 const task = (id: string, patch: Partial<PageInput> = {}): PageInput => ({
   id, seq: 1, title: 'Synthetic task', stage: 'backlog', blocked: false, repoId: 'R', repoPath: '/synthetic',
   description: '', createdAt: STAMP, updatedAt: STAMP, ...patch,
