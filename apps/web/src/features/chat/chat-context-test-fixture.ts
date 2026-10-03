@@ -1,7 +1,7 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { outboxChatSends } from '@podium/client-core/engine'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { asIssueId, asMutationId, asSessionId } from '@podium/model/browser'
+import { asIssueId, asMachineId, asMutationId, asSessionId, type SessionId } from '@podium/model/browser'
 import { dedupeSessionsByResume } from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
 import { CHAT_CONTEXT_ENTITIES, CHAT_CONTEXT_SUMMARIES } from '@podium/client-graph/chat-context-schema'
@@ -17,7 +17,7 @@ import { checkChatContext } from './chat-context-check'
 export async function createChatContextFixture(resumeTwins = false) {
   const data = noticeFixture()
   const rawSessions = data.sessions.map((row, index) => ({ ...row, privateBody: 'Undeclared cold payload', issueId: asIssueId(index ? 'cold-issue' : 'chat-issue'),
-    displayRef: index ? 'SYN-2-A' : 'SYN-1-A', machineId: 'chat-machine', status: index ? 'exited' : 'live',
+    displayRef: index ? 'SYN-2-A' : 'SYN-1-A', machineId: asMachineId('chat-machine'), status: index ? 'exited' as const : 'live' as const,
     archived: index > 0, lastActiveAt: index ? '2020-01-01T00:00:00Z' : '2026-10-01T12:00:00Z' })) as Store['sessions']
   if (resumeTwins) {
     const cold = rawSessions[1]!
@@ -57,7 +57,7 @@ export async function createChatContextFixture(resumeTwins = false) {
     drafts: { [sessions[0]!.sessionId]: 'Saved draft' }, attachedSessionId: sessions[1]!.sessionId, transcriptReveal: null,
     superThreads: [{ id: 'own-thread', kind: 'global', title: 'Synthetic thread', podiumSessionId: sessions[0]!.sessionId }],
     superThreadId: 'own-thread', paneA: null, selectedWorktree: null, machines: [{ id: 'chat-machine', name: 'Synthetic host', online: true }],
-    repos: [{ path: '/synthetic/project' }], chatSendsFor: id => outboxChatSends(owner.outbox, id), replica: owner.replica,
+    repos: [{ path: '/synthetic/project' }], chatSendsFor: (id: SessionId) => outboxChatSends(owner.outbox, id), replica: owner.replica,
     setSessionDraft: (id: string, text: string) => {
       state = { ...state, drafts: { ...state.drafts, [id]: text } }
       for (const fn of listeners) fn()
@@ -66,7 +66,6 @@ export async function createChatContextFixture(resumeTwins = false) {
   const pool = new MobxPool({ coarseNow: Date.parse('2026-10-01T13:00:00Z'), selectedIssueId: null }, undefined,
     { summaries: CHAT_CONTEXT_SUMMARIES, load: (entity, id) => (entity === 'issue' ? issues : rawSessions).find(row => ('id' in row ? row.id : row.sessionId) === id) as never, schedule: () => () => {} })
   pool.apply({ type: 'replace', rows: [
-    { kind: 'repo', id: 'chat-repo', value: { id: 'chat-repo', path: '/synthetic/project', prefix: 'SYN' } as never },
     ...issues.map(row => ({ kind: 'issue' as const, id: row.id, value: row as never })),
     ...rawSessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
   ] })

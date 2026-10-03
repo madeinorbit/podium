@@ -30,10 +30,10 @@ const notice = noticeFixture(), id = asSessionId('synthetic-session-0')
 for (const row of notice.messages) fixture.records.set(`messageRecord:${row.id}`, { entity: 'messageRecord', entityId: row.id, value: row, provenance: { seq: 1 } })
 for (const row of [...notice.interactions].reverse()) fixture.records.set(`pendingInteraction:${row.id}`, { entity: 'pendingInteraction', entityId: row.id, value: row, provenance: { seq: 1 } })
 const record = fixture.records.get('issueProjection:synthetic-0')!
-record.value = { ...(record.value as object), panel: { artifacts: [{ path: 'concept.html', title: 'Synthetic concept', artifactId: 'opaque-artifact', entry: 'concept.html', addedAt: '2026-10-01T12:00:00Z' }] } }
+fixture.records.set('issueProjection:synthetic-0', { ...record, value: { ...(record.value as object), panel: { artifacts: [{ path: 'concept.html', title: 'Synthetic concept', artifactId: 'opaque-artifact', entry: 'concept.html', addedAt: '2026-10-01T12:00:00Z' }] } } })
 for (let index = rows - Math.min(rows, 100); index < rows; index++) {
   const cold = fixture.records.get(`session:synthetic-session-${index}`)!
-  cold.value = { ...(cold.value as object), status: 'exited', stoppedAt: '2020-01-01T00:00:00Z', archived: true, lastActiveAt: '2020-01-01T00:00:00Z' }
+  fixture.records.set(`session:synthetic-session-${index}`, { ...cold, value: { ...(cold.value as object), status: 'exited', stoppedAt: '2020-01-01T00:00:00Z', archived: true, lastActiveAt: '2020-01-01T00:00:00Z' } })
 }
 Object.assign(fixture.api, { messages: { records: { query: async () => ({ records: [] }) } } })
 let owner: ClientRuntime | undefined
@@ -55,7 +55,7 @@ function Surface() {
   const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never }), ports = useChatConversationPorts(id, runtime)
   // Keep the controller implementation and all mutations on the real owner.
   const actions = runtime.getSnapshot()
-  const send = useChatSend({ sessionId: id, store: runtime, trpc: actions.trpc, hub: actions.hub, sendChat: actions.sendChat,
+  const send = useChatSend({ sessionId: id, store: runtime, trpc: actions.trpc as never, hub: actions.hub, sendChat: actions.sendChat,
     discardChat: actions.discardChat, dismissOffer: actions.dismissOffer, setPanelMode: actions.setPanelMode, setSessionDraft: actions.setSessionDraft,
     getUserFocus: actions.getUserFocus, attachedSessionId: window.attachedSessionId, clearAttachedSession: actions.clearAttachedSession,
     getIssueSeq: seq, headless: false, superThread: undefined, compact: false, composer: { sendable: true, canResume: false },

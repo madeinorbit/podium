@@ -42,7 +42,7 @@ async function main() {
     userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true, userStates: users,
     repos: replica.rows('repos'), machines: replica.rows('machines') }))
   const issues = allIssueViewModels(replica), messages = replica.rows('messageRecords'), interactions = replica.rows('pendingInteractions')
-  const repos = replica.rows('repos').map(row => ({ path: row.repoPath }))
+  const repos = replica.rows('repos').flatMap(row => row.repoPath ? [{ path: row.repoPath }] : [])
   const outbox = { pending: () => [], deadLetters: () => [], subscribe: () => () => {} }
   const state = { sessions, machines: replica.rows('machines'), repos, issueProjections: replica.rows('issueProjections'),
     issueUserStates: replica.rows('issueUserStates'), messageRecords: messages, pendingInteractions: interactions,
