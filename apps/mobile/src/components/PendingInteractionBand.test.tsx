@@ -27,6 +27,7 @@ vi.mock('@podium/client-core/react', () => ({
 }))
 
 vi.mock('../client/hooks', () => ({ useTrpc: () => ({ interactions: { answer: { mutate: answer } } }) }))
+vi.mock('../client/mobile-pool', () => ({ mobileDataLayer: () => 'legacy' }))
 
 const { PendingInteractionBand } = await import('./PendingInteractionBand')
 

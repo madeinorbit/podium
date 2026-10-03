@@ -1,11 +1,13 @@
 import { useStoreSelector } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
-import { messageNotices } from '@podium/client-core/viewmodels'
+import { type MessageNotice, messageNotices } from '@podium/client-core/viewmodels'
 import { useRouter } from 'expo-router'
 import { useContext, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
 import { useTrpc } from '../client/hooks'
+import { mobileDataLayer } from '../client/mobile-pool'
+import { usePoolMessageNotices } from '../client/use-pool-notices'
 import { color, elevation, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { AlertTriangle, X } from './icons'
@@ -21,13 +23,26 @@ import { PressableScale } from './PressableScale'
  * on every device. Read from the synced records, like the chat.
  */
 export function MessageNoticeBanner() {
+  return mobileDataLayer() === 'pool' ? <PoolMessageNoticeBanner /> : <LegacyMessageNoticeBanner />
+}
+
+function PoolMessageNoticeBanner() {
+  const notices = usePoolMessageNotices()
+  return <MessageNoticeBannerBody notices={notices} />
+}
+
+function LegacyMessageNoticeBanner() {
   const { records, sessions } = useStoreSelector(
     (s) => ({ records: s.messageRecords, sessions: s.sessions }),
     shallowEqual,
   )
+  const notices = useMemo(() => messageNotices(records ?? [], sessions ?? []), [records, sessions])
+  return <MessageNoticeBannerBody notices={notices} />
+}
+
+function MessageNoticeBannerBody({ notices }: { notices: readonly MessageNotice[] }) {
   const trpc = useTrpc()
   const router = useRouter()
-  const notices = useMemo(() => messageNotices(records ?? [], sessions ?? []), [records, sessions])
   const [error, setError] = useState<string | null>(null)
   const insets = useContext(SafeAreaInsetsContext)
   const newest = notices[0]

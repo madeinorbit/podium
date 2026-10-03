@@ -231,6 +231,9 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
         "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
+        "$TURBO_ROOT$/apps/web/src/features/superagent/fixture.ts",
+        "$TURBO_ROOT$/apps/web/test/header-fixture.ts",
+        "$TURBO_ROOT$/apps/web/test/sidebar-fixture.ts",
         "$TURBO_ROOT$/apps/web/src/features/setup/**",
         "$TURBO_ROOT$/apps/web/src/features/superagent/fixture.ts",
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**"
@@ -548,6 +551,9 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
         "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
+        "$TURBO_ROOT$/apps/web/src/features/superagent/fixture.ts",
+        "$TURBO_ROOT$/apps/web/test/header-fixture.ts",
+        "$TURBO_ROOT$/apps/web/test/sidebar-fixture.ts",
         "$TURBO_ROOT$/vitest.config.ts",
         "$TURBO_ROOT$/vitest.unit.config.ts",
         "$TURBO_ROOT$/vitest.smoke-requirements.ts",
@@ -556,6 +562,7 @@
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
         "$TURBO_ROOT$/packages/*/src/**",
+        "$TURBO_ROOT$/packages/client-graph/diagnostics/notice-fixture.ts",
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**"
       ],
       "outputs": []

@@ -2,7 +2,9 @@ import { shallowEqual } from '@podium/client-core/store'
 import { useRouter } from 'expo-router'
 import { StyleSheet, Text, View } from 'react-native'
 import { useConnected, useStoreSelector } from '../client/hooks'
+import { mobileDataLayer } from '../client/mobile-pool'
 import { useServerProfile } from '../client/ServerProfileGate'
+import { usePoolContinuity } from '../client/use-pool-notices'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { AlertTriangle } from './icons'
@@ -14,22 +16,35 @@ function plural(count: number, singular: string, multiple: string): string {
 
 /** Persistent, first-snapshot status for facts that survive a relaunch. */
 export function WorkspaceContinuityNotice() {
-  const router = useRouter()
-  const connected = useConnected()
+  return mobileDataLayer() === 'pool' ? <PoolContinuityNotice /> : <LegacyContinuityNotice />
+}
+
+function PoolContinuityNotice() {
+  const { outboxSize, deadLetters } = usePoolContinuity()
+  return <ContinuityNoticeBody outboxSize={outboxSize} deadLetters={deadLetters} />
+}
+
+function LegacyContinuityNotice() {
   const { outboxDeadLetters, outboxSize } = useStoreSelector(
     (s) => ({ outboxDeadLetters: s.outboxDeadLetters, outboxSize: s.outboxSize }),
     shallowEqual,
   )
+  return <ContinuityNoticeBody outboxSize={outboxSize} deadLetters={outboxDeadLetters.length} />
+}
+
+function ContinuityNoticeBody({ outboxSize, deadLetters }: { outboxSize: number; deadLetters: number }) {
+  const router = useRouter()
+  const connected = useConnected()
   const { profile } = useServerProfile()
-  if (connected && outboxSize === 0 && outboxDeadLetters.length === 0) return null
+  if (connected && outboxSize === 0 && deadLetters === 0) return null
 
   const lines = [
     !connected ? `Offline. Showing saved data for ${profile.name}.` : null,
     outboxSize > 0
       ? `${plural(outboxSize, 'change is', 'changes are')} queued and will send when connected.`
       : null,
-    outboxDeadLetters.length > 0
-      ? `${plural(outboxDeadLetters.length, 'change needs', 'changes need')} review in Settings.`
+    deadLetters > 0
+      ? `${plural(deadLetters, 'change needs', 'changes need')} review in Settings.`
       : null,
   ].filter((line): line is string => line !== null)
 

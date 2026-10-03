@@ -17,6 +17,8 @@ import { recoveryPlanFor } from '@podium/sync/outbox'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreSelector } from '../client/hooks'
+import { mobileDataLayer } from '../client/mobile-pool'
+import { usePoolRecovery } from '../client/use-pool-notices'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { AlertTriangle, Pencil, RefreshCw, Trash2 } from './icons'
@@ -180,10 +182,27 @@ function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
 }
 
 export function OutboxRecoveryPanel() {
+  return mobileDataLayer() === 'pool' ? <PoolOutboxRecoveryPanel /> : <LegacyOutboxRecoveryPanel />
+}
+
+function PoolOutboxRecoveryPanel() {
+  const deadLetters = usePoolRecovery()
+  return <OutboxRecoveryPanelBody outboxDeadLetters={deadLetters} />
+}
+
+function LegacyOutboxRecoveryPanel() {
   const { outboxDeadLetters } = useStoreSelector(
     (s) => ({ outboxDeadLetters: s.outboxDeadLetters }),
     shallowEqual,
   )
+  return <OutboxRecoveryPanelBody outboxDeadLetters={outboxDeadLetters} />
+}
+
+function OutboxRecoveryPanelBody({
+  outboxDeadLetters,
+}: {
+  outboxDeadLetters: readonly OutboxDeadLetterEntry[]
+}) {
   if (outboxDeadLetters.length === 0) return null
   const copy = recoveryDialogCopy(outboxDeadLetters.length)
   return (

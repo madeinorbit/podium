@@ -9,11 +9,11 @@
  * replica's side cache (never synced from another device, and no URL override).
  * It latches before the first signed-in screen of the app load; a principal
  * rebuild or a later edit keeps that answer, and an app restart applies a new one.
- * Mobile screens convert later, so there is one app-wide entry and no per-screen
- * switch yet.
+ * Converted mobile screens share one app-wide entry and no per-screen switch.
  */
 import { debugFlagEnabled, MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
 import { SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUPERAGENT_SUMMARIES, createSuperagentSource } from '@podium/client-graph/superagent'
+import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import {
   createPoolHost,
   type PoolDataLayer,
@@ -47,7 +47,10 @@ export function createMobilePool(
         id: 'mobile-pilot',
         initialize: (ui) => void pilot.initialize(ui),
         enabled: () => pilot.layer() === 'pool',
-        options: () => ({ header: true, summaries: SUPERAGENT_SUMMARIES }),
+        options: () => ({
+          header: true,
+          summaries: { session: [...SUPERAGENT_SUMMARIES.session, ...NOTICE_SUMMARIES.session] },
+        }),
         async attach(runtime, pool) {
           await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => createSuperagentSource(runtime))
           const [{ NoticeSource, NOTICE_SOURCE_KEY }, { NOTICE_ENTITIES }] = await Promise.all([

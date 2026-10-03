@@ -19,6 +19,7 @@ vi.mock('../client/hooks', () => ({
 }))
 
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => ({ getSnapshot: () => mobile.state }) }))
+vi.mock('../client/mobile-pool', () => ({ mobileDataLayer: () => 'legacy' }))
 
 import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'
 
