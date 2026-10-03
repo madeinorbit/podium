@@ -39,8 +39,18 @@ After rebasing onto frozen session read views and the relation updates, candidat
 
 A planted change made `usePaneSession` choose the legacy hook while the pool was absent and the pool hook after attachment. Both attachment cases failed; React's hook-order warning named AgentPanel and the changed hook slot. The driver verified restoration of the original source bytes. Its count-only summary is attached to the issue.
 
+## Native transcript reference underlines
+
+AgentPanel's native reference underlines now reuse the pool's device-side reference lookup when `mobxSessionPane=1`. The terminal asks for individual reference stages; only those demanded stages are observed. A stage change schedules the existing underline repaint without rebuilding the panel, while title-only changes do not repaint. Cold identities and rows load through the existing pool window. Watchers stop when the pane or pool departs. The off path retains its issue-array trigger and previous stage resolver. Transcript content and transport are unchanged.
+
+The rendered comparison covers ordinary and archived issues, deleted and unavailable references, whitespace and leading-zero spellings, malformed and session tokens, cold local loading, stage updates and cleanup. It asserts that AgentPanel never calls `useReplicaIssues` on the pool path. The store-owned `sessionPane.referenceIssues` counter is zero on that path and positive on the legacy control.
+
+Candidate `ee07a4c29b` passed four focused files on flatblock: 15 web tests and 13 terminal underline tests, totaling 28. Both real attachment modes remain green. The web typecheck passed all 15 required tasks. Forcing the reference hook back onto its legacy branch made four assertions fail, including actual runtime reference-read counts of four in normal mode and eight in StrictMode. Original source bytes were restored and verified.
+
+After adding explicit types to test-only mock buttons, the reader, hook and comparison test passed focused lint at `b1065cf396`, with 20 non-null assertion warnings. Full-file AgentPanel lint still reports the pre-existing `pickModeWithTrace` dependency omission in its desktop shortcut effect. The same error was reproduced on integration baseline `0c19f9ca85`; this migration adds no lint error there. That separate work is recorded as Proposed POD-5346, and the legacy shortcut block is unchanged.
+
 ## Remaining rollout evidence
 
-POD-4286 cleared this code to land with the switch off after the planted checks completed. Same-SHA browser timing for session switching remains pending on POD-5091's generic `speed:gate --switch` option. The capture will vary only `mobxSessionPane`, hold `bench:flatblock` for its timing run and retain the other screen switches. No before/after timing claim is made here.
+POD-4286 cleared this code to land with the switch off after the planted checks completed. POD-5091's generic `speed:gate --switch` option is now landed at `439580c135`. Same-SHA browser timing for session switching remains to be captured. The four interleaved captures will vary only `mobxSessionPane` (off, on, off, on), hold `bench:flatblock` for the timing run and keep pane navigation and the other screen switches fixed. No before/after timing claim is made here.
 
 After the operator enables the screen by default, its legacy path is due for deletion within about a week, under the app-wide migration plan.
