@@ -12,6 +12,23 @@ const source = 'packages/client-graph/src/issue-board-source.ts'
 const test = 'packages/client-graph/src/issue-board-source.test.ts'
 const cases = [
   {
+    name: 'browser-rendered', file: source, browserError: 'Rendered board/explorer parity differs',
+    from: 'issue: row, sessions: roster ?? [],', to: "issue: { ...row, title: 'Planted incorrect title' }, sessions: roster ?? [],",
+  },
+  {
+    name: 'browser-legacy', file: 'apps/web/src/features/issues/board-pool-data.ts', browserError: 'Enabled board entered legacy derivation',
+    from: 'function usePoolData(options: BoardOptions): PoolBoardData {',
+    to: 'function usePoolData(options: BoardOptions): PoolBoardData { useLegacyData(options, useLegacyBase())',
+  },
+  {
+    name: 'browser-residency', file: source, browserError: 'promoted cold issues',
+    from: 'pool.tables.issue.has(id) ? memo', to: "pool.resident('issue', id) === 'resident' ? memo",
+  },
+  {
+    name: 'browser-diagnostic', file: source, browserError: 'Board diagnostic differs',
+    from: 'return { ...fields, id: asIssueId(id), description:', to: 'return { ...fields, priority: 99, id: asIssueId(id), description:',
+  },
+  {
     name: 'summary-fields-legacy',
     file: 'packages/client-graph/src/residency.ts',
     test: 'packages/client-graph/src/issue-board-summary-fields.test.ts',
@@ -242,11 +259,16 @@ const reports: { name: string; status: number | null; assertion: boolean; restor
 // Formatting may change whitespace/semicolons. Locate the same exact token
 // sequence while preserving the original bytes for restoration.
 function planted(original: string, from: string, to: string) {
+  const arrowParens = new Set<number>()
+  for (const match of original.matchAll(/\(([A-Za-z_$][\w$]*)\)\s*=>/g)) {
+    arrowParens.add(match.index)
+    arrowParens.add(match.index + match[1]!.length + 1)
+  }
   const offsets: number[] = []
   for (let index = 0; index < original.length; index++)
-    if (!/[\s;]/.test(original[index]!)) offsets.push(index)
+    if (!/[\s;]/.test(original[index]!) && !arrowParens.has(index)) offsets.push(index)
   const compact = offsets.map((index) => original[index]).join(''),
-    target = from.replace(/[\s;]/g, '')
+    target = from.replace(/\(([A-Za-z_$][\w$]*)\)\s*=>/g, '$1=>').replace(/[\s;]/g, '')
   const at = compact.indexOf(target)
   if (at < 0) throw new Error('Control target missing')
   const start = offsets[at]!,
@@ -268,11 +290,15 @@ for (const control of cases.filter((control) => !only || control.name === only))
     git('commit', '-m', `wip(board): planted ${control.name} run`)
     const run = spawnSync(
       process.execPath,
-      ['run', 'test:file', '--', control.test, '-t', control.title],
+      'browserError' in control
+        ? ['--conditions=@podium/source', 'apps/web/harness/issue-board-proof.ts', `--label=red-${control.name}`, '--counts-only']
+        : ['run', 'test:file', '--', control.test, '-t', control.title],
       { encoding: 'utf8', timeout: 120_000, maxBuffer: 12_000_000 },
     )
     const output = `${run.stdout ?? ''}\n${run.stderr ?? ''}`
-    const assertion = /AssertionError/.test(output) && /[1-9]\d* failed/.test(output)
+    const assertion = 'browserError' in control
+      ? output.includes(control.browserError) && /\bError:/.test(output)
+      : /AssertionError/.test(output) && /[1-9]\d* failed/.test(output)
     reports.push({ name: control.name, status: run.status, assertion, restored: false })
     if (run.status !== 1 || !assertion) {
       writeFileSync(resolve(root, `${control.name}.log`), output)
