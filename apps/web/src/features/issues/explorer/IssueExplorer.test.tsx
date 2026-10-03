@@ -30,6 +30,8 @@ const STRANGER = makeIssue({ id: 's', seq: 9, title: 'Someone else’s task', st
 const ARCHIVED = makeIssue({
   id: 'archived',
   seq: 766,
+  repoId: 'archived-repo',
+  repoPath: '/archive',
   displayRef: 'POD-766',
   title: 'Minimap stale-tick crash',
   stage: 'done',

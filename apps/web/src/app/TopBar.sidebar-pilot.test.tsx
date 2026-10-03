@@ -10,6 +10,11 @@ vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/features/machines/HostIndicators', () => ({ HeaderHostIndicators: () => null }))
 vi.mock('./HostedWorkspaceSwitcher', () => ({ HostedWorkspaceSwitcher: () => null }))
 
+afterEach(() => {
+  cleanup()
+  vi.unstubAllEnvs()
+})
+
 describe('workspace header', () => {
   it.each([true, false])('omits the retired pilot badge (development=%s)', (development) => {
     vi.stubEnv('DEV', development)

@@ -51,7 +51,12 @@ export function resolvePoolFixtureReference(ref: string, id: string | null) {
 }
 
 function useFixturePool() {
-  const state = useStoreSelector((state) => state) as Store & {
+  return syncPoolFixture(useStoreSelector((state) => state))
+}
+
+/** Fake actions publish through the same boundary as a render's snapshot. */
+export function syncPoolFixture(input: Store) {
+  const state = input as Store & {
     issues?: readonly unknown[]
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]
   }
