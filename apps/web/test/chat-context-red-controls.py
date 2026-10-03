@@ -39,6 +39,7 @@ controls = [
     ('rescope', SOURCE, 'this.dirtyOrders.add(entity)', 'this.dirtyOrders.delete(entity)', 'clears rescope inputs', FILE),
     ('disposal', SOURCE, 'for (const stop of this.stops) stop()', 'for (const stop of this.stops.slice(1)) stop()', 'clears rescope inputs', FILE),
     ('artifact-owner', READER, "pool.row('issue', session.issueId)", "pool.row('issue', 'cold-issue')", 'renders the real composer', FILE),
+    ('deleted-artifact', READER, 'direct && !(direct as IssueViewModel).deletedAt', 'direct', 'drops deleted issue artifacts', FILE),
     ('reference-machine', READER, "headerIds(pool, 'machine').flatMap", "headerIds(pool, 'machine').filter(() => false).flatMap", PARITY, FILE),
     ('reference-repo', READER, "headerIds(pool, 'repository').flatMap", "headerIds(pool, 'repository').filter(() => false).flatMap", PARITY, FILE),
     ('thread-catalog', READER, 'for (const id of catalog.ids)', 'for (const id of catalog.ids.slice(1))', PARITY, FILE),

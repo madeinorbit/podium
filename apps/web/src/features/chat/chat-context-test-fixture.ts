@@ -66,6 +66,7 @@ export async function createChatContextFixture(resumeTwins = false) {
   const pool = new MobxPool({ coarseNow: Date.parse('2026-10-01T13:00:00Z'), selectedIssueId: null }, undefined,
     { summaries: CHAT_CONTEXT_SUMMARIES, load: (entity, id) => (entity === 'issue' ? issues : rawSessions).find(row => ('id' in row ? row.id : row.sessionId) === id) as never, schedule: () => () => {} })
   pool.apply({ type: 'replace', rows: [
+    { kind: 'worktree', id: 'chat-repo', value: { id: 'chat-repo', repoPath: '/synthetic/project', prefix: 'SYN' } as never },
     ...issues.map(row => ({ kind: 'issue' as const, id: row.id, value: row as never })),
     ...rawSessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
   ] })
@@ -92,6 +93,10 @@ export async function createChatContextFixture(resumeTwins = false) {
       for (const fn of addressed) fn({ type: 'update', rows: ids.map(id => ({ kind: 'pendingInteractions', id })) })
     },
     discardHeld() { queued = []; parked = []; for (const fn of outboxListeners) fn() },
+    deleteIssue() {
+      issues[0] = { ...issues[0]!, deletedAt: '2026-10-01T13:00:00Z' }
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: issues[0] as never }] })
+    },
     replaceEmpty() { messages = []; interactions = []; state = { ...state, messageRecords: [], pendingInteractions: [] }; for (const fn of addressed) fn({ type: 'replace', reason: 'rescope' }) },
   }
 }

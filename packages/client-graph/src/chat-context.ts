@@ -61,11 +61,12 @@ export function chatArtifactIssue(pool: MobxPool, session: Pick<SessionView, 'is
   if (session.issueId) {
     const direct = pool.row('issue', session.issueId)
     if (loading(direct)) return direct
-    if (direct) return direct as IssueViewModel
+    if (direct && !(direct as IssueViewModel).deletedAt) return direct as IssueViewModel
   }
   // Normalized membership is the declared raw non-shell attachment relation.
   const owner = pool.relations.one('session', session.sessionId, 'pageIssue')
-  return owner ? pool.row('issue', owner) as Loaded<IssueViewModel> : undefined
+  const issue = owner ? pool.row('issue', owner) as Loaded<IssueViewModel> : undefined
+  return issue && !loading(issue) && issue.deletedAt ? undefined : issue
 }
 export function chatReferenceSessions(pool: MobxPool) {
   const order = pool.row('chatSessionOrder', 'order')

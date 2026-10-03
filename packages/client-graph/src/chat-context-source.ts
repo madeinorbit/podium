@@ -22,6 +22,7 @@ export class ChatContextSource {
   readonly counts = { batches: 0, outboxReads: 0, orderLists: 0, addressedOrders: 0 }
 
   constructor(private readonly owner: Pick<ClientRuntime, 'getSnapshot' | 'subscribe' | 'outbox' | 'replica'>, pool: MobxPool) {
+    if (!owner.replica.row || !owner.replica.subscribeAddressedBatch) throw new Error('Chat context requires the existing addressed replica')
     this.reader = createChatContextReader(pool)
     this.stops = [owner.subscribe(() => { if (this.demanded.size) this.schedule() }),
       owner.outbox.subscribe(() => { this.outboxDirty = true; if (this.demanded.size) this.schedule() }),

@@ -6,7 +6,7 @@ import type { Store } from '@podium/client-core/engine'
 import { bindStoreStatsOwner, readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import type { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { chatInteractions, chatMentionIssues, chatReferenceSessions } from '@podium/client-graph/chat-context'
+import { chatArtifactIssue, chatInteractions, chatMentionIssues, chatReferenceSessions } from '@podium/client-graph/chat-context'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { createChatContextFixture } from './chat-context-test-fixture'
 import '@/test-support/model-catalog-mock'
@@ -92,6 +92,13 @@ it('collapses parked resume twins while keeping active identities and headless r
     expect(chatReferenceSessions(corpus.pool).sessions.map(row => row.sessionId)).toEqual(corpus.sessions.map(row => row.sessionId))
     expect(corpus.sessions.map(row => row.sessionId)).toEqual(['synthetic-session-0', 'parked-twin', 'active-twin', 'headless-twin'])
   } finally { corpus.pool.dispose() }
+})
+
+it('drops deleted issue artifacts while preserving addressed issue-sequence lookup', async () => {
+  const corpus = f.fixture!
+  await corpus.load(); corpus.deleteIssue()
+  expect(chatArtifactIssue(corpus.pool, corpus.sessions[0]!)).toBeUndefined()
+  expect(corpus.check()).toMatchObject({ differences: 0, pending: 0 })
 })
 
 it('updates addressed records, question membership and outbox without re-reading collections', async () => {
