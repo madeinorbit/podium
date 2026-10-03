@@ -607,7 +607,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get mobileWaitingCount(): number {
-    return mobileWaitingCount(this.aggregate, this.finished)
+    return mobileWaitingCount(this.aggregate, this.finished === true)
   }
 
   private sidebarValues(): SidebarRowValues | typeof LOADING | undefined {
