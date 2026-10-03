@@ -5,7 +5,6 @@ import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import type { PodiumTarget } from '@podium/protocol'
 import { parseSessionRef } from '@podium/protocol'
 import { compareStructural, computed, reaction } from 'mobx'
-import { knownIssueIds, knownSessionIds } from './enumerate'
 import { issuePages } from './issue-page'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -19,7 +18,7 @@ export function createMobileInboxViews(pool: MobxPool) {
     return (
       !state ||
       state === LOADING ||
-      (!state.hasCursor && knownSessionIds(pool).length === 0 && knownIssueIds(pool).length === 0)
+      (!state.hasCursor && pool.queries.count('session') === 0 && pool.queries.count('issue') === 0)
     )
   }
   const inbox = computed(
@@ -27,8 +26,8 @@ export function createMobileInboxViews(pool: MobxPool) {
       const sessions: SessionView[] = [],
         issues: Record<string, IssueViewModel> = {}
       let loading = booting()
-      for (const id of knownSessionIds(pool)) {
-        if (pool.graph.isCollapsed('session', id)) continue
+      for (const id of pool.queries.ids({ kind: 'inboxSessions' })) {
+        if (pool.queries.collapsed(id)) continue
         const summary = pool.row('session', id, 'summary') as Loaded<SessionView>
         if (summary === LOADING) {
           loading = true
@@ -76,7 +75,7 @@ export function createMobileInboxViews(pool: MobxPool) {
       >
       const summaries = new Map<string, Summary>()
       let loading = booting()
-      for (const id of knownIssueIds(pool)) {
+      for (const id of pool.queries.ids({ kind: 'proposedIssues' })) {
         const row = pool.row('issue', id, 'summary') as Loaded<Summary>
         if (row === LOADING) loading = true
         else if (row) summaries.set(id, row)
@@ -86,7 +85,12 @@ export function createMobileInboxViews(pool: MobxPool) {
         let id = issue.parentId
         while (id && !seen.has(id)) {
           seen.add(id)
-          const parent = summaries.get(id)
+          let parent = summaries.get(id)
+          if (!parent) {
+            const row = pool.row('issue', id, 'summary') as Loaded<Summary>
+            if (row === LOADING) { loading = true; return false }
+            if (row) { summaries.set(id, row); parent = row }
+          }
           if (!parent) return false
           if (parent.stage === 'proposed') return true
           id = parent.parentId
@@ -146,16 +150,15 @@ export function createMobileInboxViews(pool: MobxPool) {
   function session(identifier: string): Loaded<SessionView> {
     const trimmed = identifier.trim()
     const direct = pool.row('session', trimmed, 'summary') as Loaded<SessionView>
-    if (direct && direct !== LOADING && !pool.graph.isCollapsed('session', trimmed)) return direct
+    if (direct && direct !== LOADING && !pool.queries.collapsed(trimmed)) return direct
     if (!parseSessionRef(trimmed)) return direct === LOADING ? LOADING : undefined
     let pending = false
-    // The permanent ref is a declared small summary; no cold session index.
-    // Match the runtime's order and resume collapse when duplicate refs exist.
-    const ids = knownSessionIds(pool).sort((a, b) =>
-      pool.graph.orderKey('session', a).localeCompare(pool.graph.orderKey('session', b)),
+    // Reference membership is indexed by the feed; rows still use one reader.
+    const ids = pool.queries.ids({ kind: 'sessionReference', ref: trimmed }).sort((a, b) =>
+      pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)),
     )
     for (const id of ids) {
-      if (pool.graph.isCollapsed('session', id)) continue
+      if (pool.queries.collapsed(id)) continue
       const row = pool.row('session', id, 'summary') as Loaded<SessionView>
       if (row === LOADING) pending = true
       else if (row?.displayRef === trimmed) return row

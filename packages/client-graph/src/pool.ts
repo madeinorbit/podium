@@ -90,6 +90,8 @@ import {
 } from './shared/write-contract'
 import { DeadlineClock } from './clock'
 import { reseed } from './enumerate'
+import { ReaderQueries } from './reader-queries'
+import type { ColdQueries } from './shared/cold-index'
 import {
   type EntityModel,
   type IssueModel,
@@ -161,6 +163,7 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   readonly load: LoadRow
+  readonly cold?: () => ColdQueries
   readonly issueIdByRef?: (ref: string) => string | undefined
   /** Add the header's declared cold summaries only for its startup switch. */
   readonly header?: boolean
@@ -236,6 +239,7 @@ export class MobxPool {
   get header() { return this.headerState ??= createHeaderEntities() }
   readonly headerViews = createHeaderViews(this)
   readonly tables: PoolTables
+  readonly queries: ReaderQueries
   readonly relations: RelationReader
   /** The relation engine itself. */
   readonly graph: PoolRelations
@@ -301,6 +305,7 @@ export class MobxPool {
     }) : undefined
     this.writes = writes ?? null
     this.tables = createObservableTables()
+    this.queries = new ReaderQueries(this, schema ?? SCHEMA, lazy?.cold)
     const tables = this.tables
     const residency =
       lazy === undefined
@@ -542,6 +547,7 @@ export class MobxPool {
       stopPending: false,
       sidebarRosters: false,
       tables: false,
+      queries: false,
       header: false,
       headerState: false,
       preferenceSource: false,
@@ -923,6 +929,7 @@ export class MobxPool {
         }
       }
       this.sidebarRosters.flush()
+      this.queries.publish(event)
     })
     for (const [entity, id] of out.removed) this.release(entity, id)
   }
@@ -966,6 +973,7 @@ export class MobxPool {
 
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
+    this.queries.dispose()
     this.disposed = true
     this.stopPending?.()
     this.preferenceSource?.dispose()

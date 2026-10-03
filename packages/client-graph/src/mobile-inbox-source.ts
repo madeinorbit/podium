@@ -1,6 +1,5 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
-import { knownIssueIds } from './enumerate'
 import type { MobileInboxRows } from './mobile-inbox-schema'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -30,12 +29,11 @@ export class MobileInboxSource {
     this.prefixes = computed(
       (): Loaded<MobileInboxRows['mobileReferencePrefixes']> => {
         this.counts.prefixReads++
-        const used = new Set<string>()
-        // Visible tasks contribute only their declared repoId summary. This
-        // shared result is cached once per pool, not once per chip/token; it
-        // builds no issue index and retains no cold payloads.
+        const used = new Set(pool.queries.repoIds())
+        // The feed answers distinct repo identities without visiting history.
+        // Resident pending edits can contribute a repo before publication.
         let loading = false
-        for (const id of knownIssueIds(pool)) {
+        for (const id of pool.queries.ids({ kind: 'residentIssues' })) {
           const row = pool.row('issue', id, 'summary') as Loaded<{ repoId?: string }>
           if (row === LOADING) loading = true
           else if (row?.repoId) used.add(row.repoId)

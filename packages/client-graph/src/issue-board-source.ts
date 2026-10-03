@@ -68,8 +68,8 @@ const tabOf = (row: IssueViewModel): BoardExplorerTab | null => {
 
 /** Read-side service over the existing pool, with no row feed or write owner.
  * The standing index contains RESIDENT IDs only. Cold demand results contain
- * IDs only and disappear on filter change/unmount. Their declared-summary
- * traversal is counted/timed separately until POD-5244 supplies server queries. */
+ * IDs only and disappear on filter change/unmount. Cold candidates come from
+ * the feed's declared question; only matching scalar candidates are visited. */
 export function createIssueBoardSource(
   pool: MobxPool,
   owner?: {
@@ -344,7 +344,9 @@ export function createIssueBoardSource(
         else if (row && matches(row, query)) ids.push(id)
       }
       const start = performance.now()
-      const cold = pool.residency?.ids('issue', true) ?? []
+      const cold = pool.queries.ids({ kind: 'boardIssues', ...query.filter,
+        ...(query.kind === 'explorer' ? { explorerTab: query.tab ?? '', searching: !!query.query?.trim() } : {}),
+      }).filter(id => !pool.tables.issue.has(id))
       for (const id of cold) {
         // Stage, priority, path and ordinary status filters read only their
         // declared scalar inputs. Build text/ready/deferred values on demand.
@@ -390,7 +392,7 @@ export function createIssueBoardSource(
       let pending = false
       for (const id of bucket('all')) if (!visit(id)) pending = true
       const start = performance.now(),
-        cold = pool.residency?.ids('issue', true) ?? []
+        cold = pool.queries.ids({ kind: 'boardCatalog' }).filter(id => !pool.tables.issue.has(id))
       for (const id of cold) if (!visit(id)) pending = true
       countIssueBoard('catalogColdVisits', cold.length)
       countIssueBoard('catalogColdMs', performance.now() - start)
@@ -705,7 +707,7 @@ export function createIssueBoardSource(
         BoardExplorerTab,
         number
       >
-      for (const id of [...bucket('scope'), ...(pool.residency?.ids('issue', true) ?? [])]) {
+      for (const id of new Set([...bucket('scope'), ...pool.queries.ids({ kind: 'boardCounts' })])) {
         const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
         if (row === LOADING) return LOADING
         if (!row || row.archived || row.deletedAt || !scoped(row, false, false, id)) continue

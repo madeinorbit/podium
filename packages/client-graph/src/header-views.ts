@@ -5,7 +5,7 @@ import { isMachineOfflineForLiveTerminal, normalizeOriginUrl } from '@podium/mod
 import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
 import { debugName } from './debug-name'
 import type { MobxPool } from './pool'
-import { coldSessionIds, headerIds, knownIssueIds, knownSessionIds, residentSessionIds } from './enumerate'
+import { headerIds } from './enumerate'
 import type { HeaderEntity, HeaderRows } from './header-schema'
 import { LOADING } from './worklist/rollup'
 import type { SliceIssue, SliceSession } from './shared/slice-types'
@@ -69,10 +69,11 @@ export function createHeaderViews(pool: MobxPool) {
     return memo(`aggregate:${machineId ?? ''}`, () => sessionIndex().aggregate(machineId))
   }
   function occupancyKey(): string {
-    return memo('occupancy', () => [...residentSessionIds(pool).flatMap((id) => {
-      const member = pool.model('session', id)?.headerHost
-      return member ? [member.cwd] : []
-    }), ...coldSessionIds(pool).flatMap((id) => {
+    return memo('occupancy', () => pool.queries.ids({ kind: 'headerOccupancy' }).flatMap((id) => {
+      if (pool.tables.session.has(id)) {
+        const member = pool.model('session', id)?.headerHost
+        return member ? [member.cwd] : []
+      }
       const summary = pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
       const member = summary && summary !== LOADING && ['live', 'starting', 'reconnecting'].includes(summary.status)
         ? memo(`coldHost:${id}`, () => {
@@ -80,7 +81,7 @@ export function createHeaderViews(pool: MobxPool) {
           return headerHostSession(value === LOADING ? undefined : value)
         }) : null
       return member ? [member.cwd] : []
-    })].sort().join('\n'))
+    }).sort().join('\n'))
   }
   function folded() {
     return memo('folded', () => {
@@ -181,7 +182,7 @@ export function createHeaderViews(pool: MobxPool) {
       }
       if (!active) {
         let latest: ReturnType<typeof sessionSummary>
-        for (const id of knownSessionIds(pool)) {
+        for (const id of pool.queries.ids({ kind: 'headerRecentSession' })) {
           const member = sessionSummary(id)
           if (member && !member.archived && (!latest || (member.lastActiveAt ?? '') > (latest.lastActiveAt ?? ''))) latest = member
         }
@@ -197,7 +198,7 @@ export function createHeaderViews(pool: MobxPool) {
         if (!scanned && active.issueId) repoId = issueSummary(active.issueId)?.repoId ?? null
         if (!scanned && !active.issueId) {
           let best: Partial<SliceIssue> | undefined
-          for (const id of knownIssueIds(pool)) {
+          for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: active.cwd })) {
             const candidate = issueSummary(id)
             if (!candidate?.worktreePath || candidate.archived || candidate.deletedAt || !contains(active.cwd, candidate.worktreePath)) continue
             if (!best || candidate.worktreePath.length > (best.worktreePath?.length ?? 0) || (candidate.worktreePath === best.worktreePath && (candidate.seq ?? 0) < (best.seq ?? 0))) best = candidate
@@ -231,7 +232,7 @@ export function createHeaderViews(pool: MobxPool) {
       const occupied = occupancyKey().split('\n').filter(Boolean)
       const result: Record<string, number> = {}
       if (!metrics.length) return result
-      for (const id of knownIssueIds(pool)) {
+      for (const id of pool.queries.ids({ kind: 'reclaimIssues' })) {
         const candidate = issueSummary(id)
         if (!candidate?.worktreePath || candidate.deletedAt || !(candidate.stage === 'done' || candidate.closedReason)) continue
         const closed = Date.parse(candidate.closedAt ?? '')

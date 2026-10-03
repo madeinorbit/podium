@@ -36,8 +36,15 @@ export function seedIssueReferences(tables: Pick<PoolTables, 'issue'>, track: (i
 
 /** Header attachment seeds once; all subsequent session upkeep is by id. */
 export function seedHeaderSessions(pool: MobxPool, resident: (id: string) => void, cold: (id: string) => void): void {
-  for (const id of pool.tables.session.keys()) resident(id)
-  for (const id of pool.residency?.ids('session') ?? []) cold(id)
+  for (const id of pool.queries.ids({ kind: 'headerSessions' })) {
+    if (pool.tables.session.has(id)) resident(id)
+    else cold(id)
+  }
+}
+
+/** Resident half of a declared history question. No cold registry walk. */
+export function residentIds(pool: MobxPool, entity: 'issue' | 'session'): string[] {
+  return [...pool.tables[entity].keys()]
 }
 
 /**

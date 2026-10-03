@@ -3,7 +3,6 @@ import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
 import { debugName } from './debug-name'
 import type { MobxPool } from './pool'
-import { knownSessionIds } from './enumerate'
 import type { SetupSession } from './settings-schema'
 import { LOADING } from './worklist/rollup'
 
@@ -25,7 +24,7 @@ export function createSettingsViews(pool: MobxPool) {
     return memo('sessions', () => {
       const rows: SetupSession[] = []
       let pending = 0
-      for (const id of knownSessionIds(pool)) {
+      for (const id of pool.queries.ids({ kind: 'setupSessions' })) {
         const row = memo(`session:${id}`, () => pool.row('setupSession', id))
         if (row === LOADING) pending++
         else if (row) rows.push(row)

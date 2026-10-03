@@ -18,7 +18,7 @@ export function paneMachines(pool: MobxPool): MachineWire[] {
   })
 }
 export function paneHasSessions(pool: MobxPool): boolean {
-  return pool.tables.session.size > 0 || (pool.residency?.ids('session', true).length ?? 0) > 0
+  return pool.queries.count('session') > 0
 }
 export function paneSpawnConfirmed(pool: MobxPool, id: string): boolean {
   const window = paneWindow(pool)

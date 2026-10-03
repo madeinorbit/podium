@@ -3,7 +3,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, isEmptyDraftVessel, issueDisplayTitle, presenceNote, type ReferentExit } from '@podium/client-core/viewmodels'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { compareStructural, computed, onBecomeUnobserved, _isComputingDerivation, type IComputedValue } from 'mobx'
-import { knownIssueIds, knownSessionIds, residentWorktreeIds } from './enumerate'
+import { residentWorktreeIds } from './enumerate'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
@@ -71,7 +71,7 @@ export function createIssuePageViews(pool: MobxPool) {
     return pending ? LOADING : result
   }
   function bySessionOrder(a: string, b: string): number {
-    return byId(pool.graph.orderKey('session', a), pool.graph.orderKey('session', b)) || byId(a, b)
+    return byId(pool.queries.orderKey(a), pool.queries.orderKey(b)) || byId(a, b)
   }
   function deferred(until: string | null | undefined): boolean {
     const deadline = until == null ? NaN : Date.parse(until)
@@ -125,7 +125,7 @@ export function createIssuePageViews(pool: MobxPool) {
       const prefixes = new Map<string, string | undefined>()
       const result: IssueViewModel[] = []
       let pending = false
-      for (const id of knownIssueIds(pool).sort(byId)) {
+      for (const id of pool.queries.ids({ kind: 'pageIssues' }).sort(byId)) {
         // The world is already one tracked computed. Creating two more for
         // every menu row makes first-open pay for tens of thousands of nodes.
         // Only individually addressed summaries need their own computation.
@@ -288,7 +288,7 @@ export function createIssuePageViews(pool: MobxPool) {
       // declared summaries, never cold payloads or a second ownership index.
       let best: IssueViewModel | undefined
       let pending = false
-      for (const id of knownIssueIds(pool)) {
+      for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: args.cwd })) {
         const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
         if (row === LOADING) { pending = true; continue }
         if (!row || row.archived || row.deletedAt || !row.worktreePath) continue
@@ -317,8 +317,8 @@ export function createIssuePageViews(pool: MobxPool) {
       if (!world || world === LOADING) return world
       const seats: SessionView[] = []
       let pending = false
-      for (const id of knownSessionIds(pool).sort(bySessionOrder)) {
-        if (pool.graph.isCollapsed('session', id)) continue
+      for (const id of pool.queries.ids({ kind: 'explorerSessions' }).sort(bySessionOrder)) {
+        if (pool.queries.collapsed(id)) continue
         const seat = pool.row('session', id, 'summary') as Loaded<SessionView>
         if (seat === LOADING) pending = true
         else if (seat) seats.push(seat)

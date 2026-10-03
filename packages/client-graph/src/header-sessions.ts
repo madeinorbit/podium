@@ -49,6 +49,9 @@ export class HeaderSessions {
       if (entity === 'session') this.cold(id)
     })
     if (stopCold) this.stops.push(stopCold)
+    this.stops.push(pool.queries.onChange(event => {
+      for (const record of event.rows) if (record.kind === 'session' && !pool.tables.session.has(record.id)) this.cold(record.id)
+    }))
     // Attachment is the only census, and must not become a read dependency.
     untracked(() => seedHeaderSessions(pool, id => this.track(id), id => this.cold(id)))
   }

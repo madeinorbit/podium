@@ -4,7 +4,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { ActiveWorktree, WorktreeView } from '@podium/client-core/viewmodels'
 import { normalizeOriginUrl, type RepoId } from '@podium/model/browser'
 import { computed, compareStructural } from 'mobx'
-import { headerIds, knownIssueIds, knownSessionIds } from './enumerate'
+import { headerIds } from './enumerate'
 import type { HeaderRows } from './header-schema'
 import type { MobxPool } from './pool'
 import { missionView } from './mission-view'
@@ -53,8 +53,8 @@ export function createShellViews(pool: MobxPool) {
   function sessions(): Loaded<SessionView[]> {
     return memo('sessions', () => {
       const values: SessionView[] = []
-      const ids = knownSessionIds(pool).filter(id => !pool.graph.isCollapsed('session', id)).sort((a, b) => {
-        const left = pool.graph.orderKey('session', a), right = pool.graph.orderKey('session', b)
+      const ids = pool.queries.ids({ kind: 'shellSessions' }).filter(id => !pool.queries.collapsed(id)).sort((a, b) => {
+        const left = pool.queries.orderKey(a), right = pool.queries.orderKey(b)
         return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
       })
       for (const id of ids) {
@@ -68,7 +68,7 @@ export function createShellViews(pool: MobxPool) {
   function issues(): Loaded<IssueViewModel[]> {
     return memo('issues', () => {
       const values: IssueViewModel[] = []
-      for (const id of knownIssueIds(pool).sort()) { const row = issue(id); if (row === LOADING) return LOADING; if (row) values.push(row as IssueViewModel) }
+      for (const id of pool.queries.ids({ kind: 'shellIssues' }).sort()) { const row = issue(id); if (row === LOADING) return LOADING; if (row) values.push(row as IssueViewModel) }
       return values
     })
   }

@@ -20,7 +20,7 @@ export function createWorklistPool(
     )
   }
   const pool = new MobxPool(locals.get(), undefined, {
-    ...loader, load: row, issueIdByRef: source.issueIdByRef?.bind(source),
+    ...loader, load: row, issueIdByRef: source.issueIdByRef?.bind(source), cold: source.cold?.bind(source),
   }, writes)
   pool.apply({
     type: 'replace',

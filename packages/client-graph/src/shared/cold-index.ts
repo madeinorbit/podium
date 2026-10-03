@@ -64,6 +64,7 @@ import {
   viaTargetOf,
 } from './schema'
 import type { RowRecord, RowSourceEvent } from './source'
+import { createReaderIndex, type ReaderQuestion } from './reader-questions'
 
 type Row = Readonly<Record<string, unknown>>
 
@@ -83,6 +84,12 @@ export interface ColdQueries {
    * deadline at or after `now`, not the cold rest.
    */
   residentCandidates(entity: EntityName, now: number): string[]
+  /** Membership/order changes relevant to history readers (not heartbeats). */
+  readonly readerVersion: number
+  readerIds(question: ReaderQuestion): string[]
+  issueRepoIds(): string[]
+  sessionCollapsed(id: string): boolean
+  sessionOrderKey(id: string): string
 }
 
 export interface ColdIndex extends ColdQueries {
@@ -118,6 +125,7 @@ interface CollapseState {
   readonly groups: Map<string, Map<string, Row>>
   readonly groupOf: Map<string, string>
   readonly collapsed: Set<string>
+  readonly orderKeys: Map<string, string>
 }
 
 const NO_KEEPS: readonly MemberKeep[] = []
@@ -150,6 +158,8 @@ function ruleFields(schema: ModelSchema, entity: EntityName, lanes: readonly Lan
 }
 
 export function createColdIndex(schema: ModelSchema): ColdIndex {
+  const readers = createReaderIndex()
+  let collapseVersion = 0
   const lanes = laneSources(schema)
   const entities = (Object.keys(schema) as EntityName[]).filter(
     (entity) => schema[entity].cold.kind !== 'never',
@@ -186,6 +196,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       groups: new Map(),
       groupOf: new Map(),
       collapsed: new Set(),
+      orderKeys: new Map(),
     })
   }
 
@@ -450,12 +461,18 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       touched.add(after)
     }
     const flipped = new Set<string>()
-    if (state.collapsed.delete(id)) flipped.add(id)
+    if (before !== (after ?? undefined) && state.orderKeys.delete(id)) collapseVersion++
+    if (after === null && state.collapsed.delete(id)) flipped.add(id)
     for (const key of touched) {
       const group = state.groups.get(key)
       const members: CollapseMember[] = group === undefined ? [] : [...group].map(([member, fields]) => ({ id: member, row: fields }))
       const losers = new Set(collapseLosers(state.rule, members))
+      const first = state.rule.order === 'first-member' && losers.size ? members.map(member => member.id).sort()[0] : undefined
       for (const member of members) {
+        const previous = state.orderKeys.get(member.id)
+        if (first !== undefined && !losers.has(member.id) && member.id !== first) state.orderKeys.set(member.id, first)
+        else state.orderKeys.delete(member.id)
+        if (previous !== state.orderKeys.get(member.id)) collapseVersion++
         const was = state.collapsed.has(member.id)
         const is = losers.has(member.id)
         if (was === is) continue
@@ -468,6 +485,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       if (member === id) continue
       for (const lane of laneStates) if (lane.lane.member === entity) reseat(lane, member)
     }
+    if (flipped.size) collapseVersion++
   }
 
   // ------------------------------------------------------------- members
@@ -584,6 +602,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       state.groups.clear()
       state.groupOf.clear()
       state.collapsed.clear()
+      state.orderKeys.clear()
     }
     for (const map of byTarget.values()) map.clear()
     for (const set of open.values()) set.clear()
@@ -647,6 +666,11 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
   }
 
   return {
+    get readerVersion() { return readers.version + collapseVersion },
+    readerIds: question => readers.ids(question),
+    issueRepoIds: () => readers.repoIds(),
+    sessionCollapsed: id => collapses.get('session')?.collapsed.has(id) ?? false,
+    sessionOrderKey: id => collapses.get('session')?.orderKeys.get(id) ?? id,
     get version() {
       return version
     },
@@ -668,6 +692,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       version += 1
       if (event.type === 'replace') clear()
       for (const record of event.rows) ingest(record)
+      readers.apply(event)
     },
   }
 }

@@ -4,7 +4,7 @@ import type { MessageRecordWire, MachineWire } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import type { MobxPool } from './pool'
-import { headerIds, knownIssueIds, knownSessionIds } from './enumerate'
+import { headerIds } from './enumerate'
 import type { Loaded } from './worklist/rollup'
 
 // Loaded by the screen attachment only. Web hooks import the reader's type.
@@ -21,7 +21,7 @@ export function chatMentionIssues(pool: MobxPool) {
   const issues: IssueViewModel[] = []
   let pending = loading(order) ? 1 : 0
   if (!order || loading(order)) return { issues, pending }
-  const known = knownIssueIds(pool), present = new Set(known)
+  const known = pool.queries.ids({ kind: 'mentionIssues' }), present = new Set(known)
   for (const id of new Set([...order.ids.filter(id => present.has(id)), ...known])) {
     const row = chatIssue(pool, id)
     if (loading(row)) pending++
@@ -73,7 +73,7 @@ export function chatReferenceSessions(pool: MobxPool) {
   const sessions: SessionView[] = []
   let pending = loading(order) ? 1 : 0
   if (!order || loading(order)) return { sessions, pending }
-  const known = knownSessionIds(pool), present = new Set(known)
+  const known = pool.queries.ids({ kind: 'referenceSessions' }), present = new Set(known)
   for (const id of new Set([...order.ids.filter(id => present.has(id)), ...known])) {
     const row = pool.row('session', id, 'summary') as Loaded<SessionView>
     if (loading(row)) pending++

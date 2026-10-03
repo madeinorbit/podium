@@ -12,7 +12,6 @@ import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
 import { missions } from './mission'
-import { knownIssueIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { overlayRow } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -843,7 +842,7 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
     if (issue) selected.push(issue)
   }
   let pending = false
-  if (!sessionId) for (const id of knownIssueIds(view.pool).sort()) {
+  if (!sessionId) for (const id of view.pool.queries.ids({ kind: 'missionIssues' }).sort()) {
     const issue = view.catalogIssue(id)
     if (issue === LOADING) pending = true
     else if (issue) allIssues.push(issue)

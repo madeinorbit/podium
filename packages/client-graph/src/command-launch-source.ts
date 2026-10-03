@@ -3,7 +3,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
 import type { MobxPool } from './pool'
-import { allResidentSessions, knownIssueIds, knownSessionIds } from './enumerate'
+import { allResidentSessions } from './enumerate'
 import { COMMAND_ENTITIES, COMMAND_RELATIONS, type CommandEntity, type CommandLaunchRows } from './command-launch-schema'
 import type { PoolSource, PoolSourceRows } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -28,7 +28,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     this.catalog = computed((): CommandLaunchRows['commandCatalog'] => ({
       repositories: this.orders.get('commandRepository') ?? [], repos: this.orders.get('commandRepo') ?? [],
       worktrees: this.orders.get('commandWorktree') ?? [], machines: this.orders.get('commandMachine') ?? [],
-      issues: knownIssueIds(pool).sort(), sessions: this.sessionOrder(),
+      issues: pool.queries.ids({ kind: 'commandIssues' }).sort(), sessions: this.sessionOrder(),
     }), { equals: compareStructural })
     const locals = () => {
       if (this.disposed) return
@@ -60,10 +60,10 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   }
 
   private sessionOrder(): readonly string[] {
-    return knownSessionIds(this.pool)
-      .filter(id => !this.pool.graph.isCollapsed('session', id))
+    return this.pool.queries.ids({ kind: 'commandSessions' })
+      .filter(id => !this.pool.queries.collapsed(id))
       .sort((a, b) => {
-        const left = this.pool.graph.orderKey('session', a), right = this.pool.graph.orderKey('session', b)
+        const left = this.pool.queries.orderKey(a), right = this.pool.queries.orderKey(b)
         return left < right ? -1 : left > right ? 1 : 0
       })
   }
