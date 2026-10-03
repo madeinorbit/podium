@@ -678,6 +678,7 @@ export function AgentPanel({
 
   // macOS menu accelerators are consumed before WKWebView sees a keydown. The
   // focused panel therefore publishes the two hooks the native menu evaluates.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The callback closes over this fixed session and the gate values listed below.
   useEffect(() => {
     if (!active || !focused) return
     const globals = globalThis as DesktopSessionGlobals
@@ -700,7 +701,14 @@ export function AgentPanel({
       if (globals.__PODIUM_TOGGLE_SESSION_VIEW__ === toggleView)
         delete globals.__PODIUM_TOGGLE_SESSION_VIEW__
     }
-  }, [active, focused, gates.terminalActive, gates.modeSwitchOffered, effectiveMode, mountedRef, pickModeWithTrace])
+  }, [
+    active,
+    focused,
+    gates.terminalActive,
+    gates.modeSwitchOffered,
+    effectiveMode,
+    mountedRef,
+  ])
 
   // Keep later appearance changes on the shared, eligibility-gated path. The
   // initial mount is handled directly above because the hook's first appearance

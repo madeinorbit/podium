@@ -1,7 +1,7 @@
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
-import { allIssueViewModels } from '@podium/client-core/replica'
 import type { Store } from '@podium/client-core/engine'
+import { allIssueViewModels } from '@podium/client-core/replica'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import { MobxPool } from '@podium/client-graph'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'

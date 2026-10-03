@@ -3093,7 +3093,7 @@ export function FlightDeckContent({
       new Map(
         rows.map((row) => [row.issue.id, poolValues.titles.get(row.issue.id) ?? row.issue.title]),
       ),
-    [allWorktreePaths, rows, sessions, poolValues],
+    [rows, poolValues],
   )
   const byId = poolValues.byId
   /**
@@ -3748,6 +3748,7 @@ export function FlightDeckContent({
               menu as well as their click: right-clicking the mission has to
               reach the mission's own actions, or the one task in the column with
               no strip would be the one task with no menu. */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the header; its buttons provide keyboard actions. */}
             <div
               className="deck-header relative flex-none"
               onContextMenu={(event) => openIssueMenu(root.id, event)}

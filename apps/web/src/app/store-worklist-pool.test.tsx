@@ -6,7 +6,6 @@ import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { screenOptions } from '@podium/client-graph/host'
-import { poolBackedScreens } from './pool-screens'
 import * as runtimePool from '@podium/client-graph/runtime-pool'
 import { asUserId } from '@podium/model'
 import { act, StrictMode } from 'react'
@@ -17,6 +16,7 @@ import {
   pickTargets,
   ScenarioCache,
 } from '../../../../packages/worklist-proto/shared/src/scenarios'
+import { poolBackedScreens } from './pool-screens'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -107,7 +107,10 @@ describe('StoreProvider owns the sidebar pool', () => {
     render()
     const pool = await ready()
     expect(create).toHaveBeenCalledTimes(1)
-    expect(create).toHaveBeenCalledExactlyOnceWith(runtime, screenOptions(poolBackedScreens, runtime!))
+    expect(create).toHaveBeenCalledExactlyOnceWith(
+      runtime,
+      screenOptions(poolBackedScreens, runtime!),
+    )
     expect(replicaFactory).toHaveBeenCalledTimes(1)
     expect(runtime!.replica).toBe(runtime!.getSnapshot().replica)
     render()
@@ -153,7 +156,11 @@ describe('StoreProvider owns the sidebar pool', () => {
   })
 
   it('builds the workspace pool with retired overrides off', async () => {
-    history.replaceState(null, '', '/?mobxSidebar=0&mobxPane=0&mobxHeader=0&mobxSessionPane=0&mobxBoard=0')
+    history.replaceState(
+      null,
+      '',
+      '/?mobxSidebar=0&mobxPane=0&mobxHeader=0&mobxSessionPane=0&mobxBoard=0',
+    )
     const create = vi.spyOn(runtimePool, 'createRuntimeWorklistPool')
     render()
     await ready()

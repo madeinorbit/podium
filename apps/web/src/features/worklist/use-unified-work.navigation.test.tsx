@@ -105,11 +105,14 @@ describe('issue navigation gesture', () => {
     vi.mocked(fixture.store.navigateWorkspace as () => boolean)
       .mockReset()
       .mockReturnValue(false)
-    const { result } = renderHook(() => ({ work: usePoolUnifiedWork(useWorklistPool()!), focus: useOperatorFocus() }), {
-      wrapper: ({ children }) => (
-        <OperatorFocusProvider missionId={root.id}>{children}</OperatorFocusProvider>
-      ),
-    })
+    const { result } = renderHook(
+      () => ({ work: usePoolUnifiedWork(useWorklistPool()!), focus: useOperatorFocus() }),
+      {
+        wrapper: ({ children }) => (
+          <OperatorFocusProvider missionId={root.id}>{children}</OperatorFocusProvider>
+        ),
+      },
+    )
     act(() => result.current.work.selectIssue(child.id))
     expect(result.current.focus.focusedIssueId).toBe(child.id)
     expect(fixture.store.markIssueRead).toHaveBeenCalledExactlyOnceWith(child.id)
@@ -125,11 +128,14 @@ describe('issue navigation gesture', () => {
       .mockImplementation(() => {
         throw new Error('invalid plan')
       })
-    const { result } = renderHook(() => ({ work: usePoolUnifiedWork(useWorklistPool()!), focus: useOperatorFocus() }), {
-      wrapper: ({ children }) => (
-        <OperatorFocusProvider missionId={root.id}>{children}</OperatorFocusProvider>
-      ),
-    })
+    const { result } = renderHook(
+      () => ({ work: usePoolUnifiedWork(useWorklistPool()!), focus: useOperatorFocus() }),
+      {
+        wrapper: ({ children }) => (
+          <OperatorFocusProvider missionId={root.id}>{children}</OperatorFocusProvider>
+        ),
+      },
+    )
     expect(() => result.current.work.selectIssue(child.id)).toThrow('invalid plan')
     expect(result.current.focus.focusedIssueId).toBe(root.id)
     expect(fixture.store.markIssueRead).not.toHaveBeenCalled()
