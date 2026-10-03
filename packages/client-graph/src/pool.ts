@@ -312,7 +312,7 @@ export class MobxPool {
               const row = this.row(entity, id, 'mark')
               return row === LOADING ? undefined : row
             },
-            load: lazy.load,
+            load: (entity, id) => lazy.load(entity, id),
             // Read at ingest, after the constructor has built the clock.
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
