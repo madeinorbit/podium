@@ -21,8 +21,9 @@ export const EMPTY_BOARD: PoolBoardData = {
 function useLegacyBase() {
   return { pool: false, issues: useReplicaIssues(), sessions: useStoreSelector(store => store.sessions), openIssueId: useStoreSelector(store => store.openIssueId) }
 }
+const readWindow = (pool: MobxPool) => pool.row('issueBoardWindow', 'current')
 function usePoolBase() {
-  const window = useWorklistPoolProjection(pool => pool.row('issueBoardWindow', 'current'), undefined)
+  const window = useWorklistPoolProjection(readWindow, undefined)
   return { pool: true, issues: EMPTY_ISSUES, sessions: EMPTY_SESSIONS, openIssueId: window && typeof window !== 'symbol' ? window.openIssueId : null }
 }
 /** The branch is fixed at startup. The pool branch never enters a legacy hook. */
