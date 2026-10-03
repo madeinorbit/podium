@@ -24,7 +24,7 @@ import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/
 let subjects: ReturnType<typeof makeIssue>[] = []
 const testHandle = vi.hoisted(() => ({ getSnapshot: (): unknown => ({}) }))
 vi.mock('@podium/client-core/react', async (original) => ({
-  ...await original<typeof import('@podium/client-core/react')>(),
+  ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => testHandle,
 }))
 const list = vi.fn()

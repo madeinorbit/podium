@@ -61,7 +61,7 @@ function publishUnchangedSelection(): void {
 }
 
 vi.mock('@podium/client-core/react', async (original) => ({
-  ...await original<typeof import('@podium/client-core/react')>(),
+  ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => ({ getSnapshot: () => storeSnapshot }),
 }))
 
