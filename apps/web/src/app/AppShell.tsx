@@ -341,26 +341,26 @@ export function AppShell({
                 onServerRelocation={browserServerRelocation(window.location)}
               >
                 <PoolScreenLatch>
-                <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
-                <ReplicaReadyPodiumLinkHost
-                  syncProgress={kernel.assembly.progress}
-                  initialHref={pendingInitialPodiumHref.current}
-                  onInitialHrefConsumed={() => {
-                    pendingInitialPodiumHref.current = null
-                    onInitialPodiumHrefConsumed()
-                  }}
-                />
-                <RoutedDensityProvider>
-                  <ThemeUiStateMirror />
-                  <BrowserOpenOverlay />
-                  <ConfirmProvider>
-                    {/* Above both TopBar and the view outlet: the command bar's centre
+                  <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
+                  <ReplicaReadyPodiumLinkHost
+                    syncProgress={kernel.assembly.progress}
+                    initialHref={pendingInitialPodiumHref.current}
+                    onInitialHrefConsumed={() => {
+                      pendingInitialPodiumHref.current = null
+                      onInitialPodiumHrefConsumed()
+                    }}
+                  />
+                  <RoutedDensityProvider>
+                    <ThemeUiStateMirror />
+                    <BrowserOpenOverlay />
+                    <ConfirmProvider>
+                      {/* Above both TopBar and the view outlet: the command bar's centre
                     is a portal target the active mode fills (POD-365). */}
-                    <ToolbarSlotProvider>
-                      <AppBody syncProgress={kernel.assembly.progress} />
-                    </ToolbarSlotProvider>
-                  </ConfirmProvider>
-                </RoutedDensityProvider>
+                      <ToolbarSlotProvider>
+                        <AppBody syncProgress={kernel.assembly.progress} />
+                      </ToolbarSlotProvider>
+                    </ConfirmProvider>
+                  </RoutedDensityProvider>
                 </PoolScreenLatch>
               </StoreProvider>
             </ErrorBoundary>
