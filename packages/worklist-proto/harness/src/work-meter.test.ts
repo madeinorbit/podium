@@ -176,7 +176,7 @@ describe('pool reader windows', () => {
   it('counts resident, summary, repeated and absent reads plus untracked app consumer bodies', async () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'i1', value: {
-      id: 'i1', seq: 1, title: 'One', stage: 'planning', createdAt: '', updatedAt: '',
+      id: 'i1', seq: 1, title: 'One', stage: 'planning', repoPath: '/synthetic', createdAt: '', updatedAt: '',
     } }] })
     const original = pool.row
     try {
