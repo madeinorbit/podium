@@ -399,11 +399,7 @@ function PoolScreenLatch({ children }: { children: ReactNode }): ReactNode {
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
   const densityEnabled = useFeature('shell-density')
-  return (
-    <DensityProvider densityEnabled={densityEnabled}>
-      {children}
-    </DensityProvider>
-  )
+  return <DensityProvider densityEnabled={densityEnabled}>{children}</DensityProvider>
 }
 
 /** Module-scope so the setter keeps a stable identity across renders — an inline

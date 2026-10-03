@@ -13,11 +13,16 @@ import {
 } from '@/features/settings/readers'
 import { DensityProvider, SHELL_DENSITY_KEY, useDensity } from './density'
 
-const ports = vi.hoisted(() => ({ pool: null as MobxPool | null, ui: null as RoutedUiState | null }))
+const ports = vi.hoisted(() => ({
+  pool: null as MobxPool | null,
+  ui: null as RoutedUiState | null,
+}))
 
 vi.mock('@podium/client-core/react', () => ({
   useStoreHandle: () => ({ getSnapshot: () => ({ uiState: ports.ui }) }),
-  useStoreSelector: () => { throw new Error('Preference consumers must use the pool') },
+  useStoreSelector: () => {
+    throw new Error('Preference consumers must use the pool')
+  },
 }))
 
 vi.mock('@/app/store-worklist-pool', async () => {
@@ -27,8 +32,14 @@ vi.mock('@/app/store-worklist-pool', async () => {
   return {
     useWorklistPoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T {
       const pool = ports.pool
-      const projection = useMemo(() => pool ? createPoolProjection(pool, read) : null, [pool, read])
-      return useSyncExternalStore(projection?.subscribe ?? subscribe, () => projection?.getSnapshot() ?? empty)
+      const projection = useMemo(
+        () => (pool ? createPoolProjection(pool, read) : null),
+        [pool, read],
+      )
+      return useSyncExternalStore(
+        projection?.subscribe ?? subscribe,
+        () => projection?.getSnapshot() ?? empty,
+      )
     },
   }
 })
@@ -46,7 +57,10 @@ describe('pool-only preference consumers', () => {
     for (const wake of listeners) wake()
   }
   const paint = (node: ReactNode) => act(() => root.render(node))
-  const settle = () => act(async () => { await Promise.resolve() })
+  const settle = () =>
+    act(async () => {
+      await Promise.resolve()
+    })
 
   beforeEach(() => {
     values.clear()
@@ -54,10 +68,16 @@ describe('pool-only preference consumers', () => {
     ui = {
       get: vi.fn((key: string) => values.get(key) ?? null),
       set: vi.fn(publish),
-      subscribe: (wake: () => void) => { listeners.add(wake); return () => { listeners.delete(wake) } },
+      subscribe: (wake: () => void) => {
+        listeners.add(wake)
+        return () => {
+          listeners.delete(wake)
+        }
+      },
     } as RoutedUiState
     pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
-      preferences: true, schedule: () => () => {},
+      preferences: true,
+      schedule: () => () => {},
     })
     pool.attachPreferences(ui)
     ports.pool = pool
@@ -85,31 +105,50 @@ describe('pool-only preference consumers', () => {
       const [draft, setDraft] = useSettingsDraft(key, parseSettingsText, serializeSettingsText)
       const [persisted] = useSettingsPersistedUiState(key, parseSettingsText, serializeSettingsText)
       const seed = useSettingsDraftSeed(key, parseSettingsText)
-      return <>
-        <output data-value="draft">{draft}</output>
-        <output data-value="persisted">{persisted}</output>
-        <output data-value="seed">{seed.loading ? 'loading' : seed.value}</output>
-        <button type="button" onClick={() => {
-          setDraft(previous => previous + '!')
-          setDraft(previous => previous + '!')
-        }}>Edit</button>
-      </>
+      return (
+        <>
+          <output data-value="draft">{draft}</output>
+          <output data-value="persisted">{persisted}</output>
+          <output data-value="seed">{seed.loading ? 'loading' : seed.value}</output>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft((previous) => previous + '!')
+              setDraft((previous) => previous + '!')
+            }}
+          >
+            Edit
+          </button>
+        </>
+      )
     }
     paint(<Draft />)
     expect(container.querySelector('[data-value="draft"]')?.textContent).toBe('')
     expect(container.querySelector('[data-value="seed"]')?.textContent).toBe('loading')
     expect(ui.get).not.toHaveBeenCalled()
     await settle()
-    expect([...container.querySelectorAll('output')].map(row => row.textContent)).toEqual(['saved draft', 'saved draft', 'saved draft'])
+    expect([...container.querySelectorAll('output')].map((row) => row.textContent)).toEqual([
+      'saved draft',
+      'saved draft',
+      'saved draft',
+    ])
     expect(ui.get).toHaveBeenCalledTimes(1)
     act(() => container.querySelector('button')?.click())
     expect(ui.set).toHaveBeenNthCalledWith(1, key, 'saved draft!')
     expect(ui.set).toHaveBeenNthCalledWith(2, key, 'saved draft!!')
     await settle()
-    expect([...container.querySelectorAll('output')].map(row => row.textContent)).toEqual(['saved draft!!', 'saved draft!!', 'saved draft!!'])
+    expect([...container.querySelectorAll('output')].map((row) => row.textContent)).toEqual([
+      'saved draft!!',
+      'saved draft!!',
+      'saved draft!!',
+    ])
     act(() => publish(key, 'arrived draft'))
     await settle()
-    expect([...container.querySelectorAll('output')].map(row => row.textContent)).toEqual(['arrived draft', 'arrived draft', 'arrived draft'])
+    expect([...container.querySelectorAll('output')].map((row) => row.textContent)).toEqual([
+      'arrived draft',
+      'arrived draft',
+      'arrived draft',
+    ])
   })
 
   it('leaves a form without a saved key ready without issuing a preference question', async () => {
@@ -126,10 +165,18 @@ describe('pool-only preference consumers', () => {
 
   function Density() {
     const { density, setDensity } = useDensity()
-    return <button type="button" onClick={() => setDensity('balanced')}>{density}</button>
+    return (
+      <button type="button" onClick={() => setDensity('balanced')}>
+        {density}
+      </button>
+    )
   }
 
-  const density = (enabled: boolean) => <DensityProvider densityEnabled={enabled}><Density /></DensityProvider>
+  const density = (enabled: boolean) => (
+    <DensityProvider densityEnabled={enabled}>
+      <Density />
+    </DensityProvider>
+  )
 
   it('keeps compact dormant while disabled, then adopts saved and replicated density with the existing writer', async () => {
     values.set(SHELL_DENSITY_KEY, 'compact')

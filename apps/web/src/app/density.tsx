@@ -1,4 +1,3 @@
-import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import {
   readStoredDensity,
   SHELL_DENSITY_KEY,
@@ -6,6 +5,7 @@ import {
 } from '@podium/client-core/ui-state'
 import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useLayoutEffect } from 'react'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
 export { readStoredDensity, SHELL_DENSITY_KEY, type ShellDensity }
 
@@ -26,20 +26,34 @@ interface DensityContextValue {
 
 const DensityContext = createContext<DensityContextValue | null>(null)
 
-const parseDensity = (raw: string | null): ShellDensity => raw === 'compact' ? 'compact' : 'balanced'
+const parseDensity = (raw: string | null): ShellDensity =>
+  raw === 'compact' ? 'compact' : 'balanced'
 const serializeDensity = (value: ShellDensity): string => value
 
-function PoolDensityProvider({ children, densityEnabled }: {
-  children: ReactNode; densityEnabled: boolean
+function PoolDensityProvider({
+  children,
+  densityEnabled,
+}: {
+  children: ReactNode
+  densityEnabled: boolean
 }): JSX.Element {
-  const [preferred, setPreferred] = usePersistedUiState(SHELL_DENSITY_KEY, parseDensity, serializeDensity)
+  const [preferred, setPreferred] = usePersistedUiState(
+    SHELL_DENSITY_KEY,
+    parseDensity,
+    serializeDensity,
+  )
   const density = resolveDensity(preferred, densityEnabled)
   useLayoutEffect(() => applyDensity(density, document.documentElement), [density])
-  return <DensityContext.Provider value={{ density, setDensity: setPreferred }}>{children}</DensityContext.Provider>
+  return (
+    <DensityContext.Provider value={{ density, setDensity: setPreferred }}>
+      {children}
+    </DensityContext.Provider>
+  )
 }
 
 export function DensityProvider(props: {
-  children: ReactNode; densityEnabled: boolean
+  children: ReactNode
+  densityEnabled: boolean
 }): JSX.Element {
   return <PoolDensityProvider children={props.children} densityEnabled={props.densityEnabled} />
 }
