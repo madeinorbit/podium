@@ -17,11 +17,9 @@ const countsOnly = process.argv.includes('--counts-only'),
 await mkdir(output, { recursive: true })
 const webRequire = createRequire(new URL('../../web/package.json', import.meta.url))
 const viteBin = join(dirname(webRequire.resolve('vite/package.json')), 'bin/vite.js')
-const server = spawn(
-  process.execPath,
-  [viteBin, '--config', 'apps/mobile/vite.inbox.config.ts'],
-  { stdio: ['ignore', 'ignore', 'inherit'] },
-)
+const server = spawn(process.execPath, [viteBin, '--config', 'apps/mobile/vite.inbox.config.ts'], {
+  stdio: ['ignore', 'ignore', 'inherit'],
+})
 const exited = new Promise<void>((resolve, reject) => {
   server.once('exit', () => resolve())
   server.once('error', reject)
@@ -48,7 +46,9 @@ try {
     const page = await browser.newPage({ viewport: { width: 430, height: 1050 } }),
       errors: string[] = []
     let failReady: (error: Error) => void = () => {}
-    const startupFailure = new Promise<never>((_resolve, reject) => { failReady = reject })
+    const startupFailure = new Promise<never>((_resolve, reject) => {
+      failReady = reject
+    })
     page.on('pageerror', (error) => {
       errors.push(error.message)
       console.error(error.message)
@@ -67,11 +67,15 @@ try {
         startupFailure,
       ])
     } catch (error) {
-      console.error(JSON.stringify(await page.evaluate(() => ({
-        readiness: window.__inbox?.readiness(),
-        stats: window.__inbox?.stats(),
-        text: document.body.textContent?.slice(-1800),
-      }))))
+      console.error(
+        JSON.stringify(
+          await page.evaluate(() => ({
+            readiness: window.__inbox?.readiness(),
+            stats: window.__inbox?.stats(),
+            text: document.body.textContent?.slice(-1800),
+          })),
+        ),
+      )
       throw error
     }
     failReady = () => {}

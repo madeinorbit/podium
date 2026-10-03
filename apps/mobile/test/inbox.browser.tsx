@@ -54,7 +54,8 @@ let owner: ClientRuntime,
 storeStats.enable()
 function Pulse() {
   const data = usePulseFeed()
-  pulseReady = data.machines.length === 3 && data.hosts.length === 3 && (data.quota?.length ?? 0) > 0
+  pulseReady =
+    data.machines.length === 3 && data.hosts.length === 3 && (data.quota?.length ?? 0) > 0
   return (
     <aside data-testid="pulse">
       {data.machines.map((machine) => machine.name).join(' · ')}
@@ -80,8 +81,12 @@ function Surface() {
         Isolated proof: launch, storage and refresh siblings stubbed.
       </small>
       <nav>
-        <button type="button" onClick={() => setScreen('inbox')}>Inbox</button>
-        <button type="button" onClick={() => setScreen('proposals')}>Proposals</button>
+        <button type="button" onClick={() => setScreen('inbox')}>
+          Inbox
+        </button>
+        <button type="button" onClick={() => setScreen('proposals')}>
+          Proposals
+        </button>
       </nav>
       <Profiler
         id="phone-readers"

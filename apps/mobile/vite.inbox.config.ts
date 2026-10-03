@@ -22,11 +22,26 @@ export default async () => {
       alias: [
         { find: /^react-native$/, replacement: resolveMobilePackage('react-native-web') },
         { find: /^lucide-react$/, replacement: webRequire.resolve('lucide-react') },
-        { find: /^expo-blur$/, replacement: fileURLToPath(new URL('./harness/stub-expo-blur.tsx', import.meta.url)) },
-        { find: /^expo-haptics$/, replacement: fileURLToPath(new URL('./harness/stub-expo-haptics.ts', import.meta.url)) },
-        { find: /^react-native-safe-area-context$/, replacement: fileURLToPath(new URL('./harness/stub-safe-area.ts', import.meta.url)) },
-        { find: /^expo-symbols$/, replacement: fileURLToPath(new URL('./harness/stub-expo-symbols.tsx', import.meta.url)) },
-        { find: /^react-native-svg$/, replacement: fileURLToPath(new URL('./test/inbox-svg.tsx', import.meta.url)) },
+        {
+          find: /^expo-blur$/,
+          replacement: fileURLToPath(new URL('./harness/stub-expo-blur.tsx', import.meta.url)),
+        },
+        {
+          find: /^expo-haptics$/,
+          replacement: fileURLToPath(new URL('./harness/stub-expo-haptics.ts', import.meta.url)),
+        },
+        {
+          find: /^react-native-safe-area-context$/,
+          replacement: fileURLToPath(new URL('./harness/stub-safe-area.ts', import.meta.url)),
+        },
+        {
+          find: /^expo-symbols$/,
+          replacement: fileURLToPath(new URL('./harness/stub-expo-symbols.tsx', import.meta.url)),
+        },
+        {
+          find: /^react-native-svg$/,
+          replacement: fileURLToPath(new URL('./test/inbox-svg.tsx', import.meta.url)),
+        },
         { find: /^react$/, replacement: resolveRootPackage('react') },
         { find: /^react-dom$/, replacement: resolveRootPackage('react-dom') },
         { find: /^react-dom\/client$/, replacement: resolveRootFile('react-dom/client') },

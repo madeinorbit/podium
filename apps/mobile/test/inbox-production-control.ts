@@ -23,8 +23,11 @@ try {
   )
   const output = `${run.stdout}\n${run.stderr}`
   if (
-    run.error || run.status === 0 || !/\b1 failed\b/.test(output) ||
-    !/toHaveURL/.test(output) || !/wrong-issue/.test(output)
+    run.error ||
+    run.status === 0 ||
+    !/\b1 failed\b/.test(output) ||
+    !/toHaveURL/.test(output) ||
+    !/wrong-issue/.test(output)
   ) {
     console.error(output)
     throw new Error('Production route fault did not demonstrate the expected collected red')
