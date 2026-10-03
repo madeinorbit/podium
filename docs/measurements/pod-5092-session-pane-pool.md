@@ -29,6 +29,16 @@ The final private replay at candidate `9df0b71249`, after the shared-host rebase
 
 Earlier bounded replays either failed to connect or did not complete. The result above is the completed run, using the source export condition. The earlier registry failure in the notices and automations startup latches was repaired by POD-5307 at `17fd640a3f`; the refreshed 13-file run confirms the registry is green with this screen registered.
 
+## Startup attachment proof
+
+The pane hooks choose their read path from the startup latch, including while the pool is absent. The session guard receives an empty array in that phase, so it also keeps its pool branch. No hook choice depending on pool availability was found.
+
+[The attachment regression](../../apps/web/src/features/terminal/session-pane-attach.test.tsx) mounts the real StoreProvider, web pool host, runtime and session-pane source with the pilot on. AgentPanel, dock recovery controls and the actual chat-header hook render first without a pool, then with the attached pool and catalog enrichment. Both normal mode and StrictMode reach the expected values without a React hook warning, and the actual runtime's legacy pane counters remain zero.
+
+After rebasing onto frozen session read views and the relation updates, candidate `5009621807` passed four focused files on flatblock: 7 graph tests and 17 web tests, totaling 24. The web typecheck passed all 16 required tasks, including ten cache hits. Focused Biome lint exited zero for the new test, with four non-null assertion warnings. This batch followed POD-4286's revised rule: wait while the one-minute load exceeds 8, without taking the timing lease.
+
+A planted change made `usePaneSession` choose the legacy hook while the pool was absent and the pool hook after attachment. Both attachment cases failed; React's hook-order warning named AgentPanel and the changed hook slot. The driver verified restoration of the original source bytes. Its count-only summary is attached to the issue.
+
 ## Remaining rollout evidence
 
 POD-4286 cleared this code to land with the switch off after the planted checks completed. Same-SHA browser timing for session switching remains pending on POD-5091's generic `speed:gate --switch` option. The capture will vary only `mobxSessionPane`, hold `bench:flatblock` for its timing run and retain the other screen switches. No before/after timing claim is made here.
