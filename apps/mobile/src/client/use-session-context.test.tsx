@@ -87,9 +87,17 @@ const { TerminalPane: NativePane } = await import('../terminal/TerminalPane.nati
 const { default: TerminalRoute } = await import('../../app/session/[sessionId]/terminal')
 const SID = asSessionId('synthetic-session-0')
 const NOW = Date.parse('2026-10-03T00:00:00Z')
+const reactErrors: string[] = []
 
-beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW); seams.route = SID; seams.terminalInputs.length = 0; seams.nativeInputs.length = 0; seams.transcriptInputs.length = 0 })
-afterEach(() => { cleanup(); storeStats.enable(false); vi.restoreAllMocks() })
+beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW); reactErrors.length = 0; vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => reactErrors.push(values.map(String).join(' '))); seams.route = SID; seams.terminalInputs.length = 0; seams.nativeInputs.length = 0; seams.transcriptInputs.length = 0 })
+afterEach(() => { cleanup(); storeStats.enable(false); vi.restoreAllMocks(); expect(reactErrors).toEqual([]) })
+
+// React adds newly resolved attributes in commit order. Compare their values,
+// text and DOM order without treating attribute insertion order as rendering.
+function rendered(node: Node): unknown {
+  if (!(node instanceof Element)) return node.textContent
+  return { tag: node.tagName, attributes: [...node.attributes].map(({ name, value }) => [name, value]).sort(([a], [b]) => a!.localeCompare(b!)), children: [...node.childNodes].map(rendered) }
+}
 
 async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false) {
   const host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
@@ -100,7 +108,7 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
   const stateId = sessionUserStateRowId(asUserId('operator'), SID)
   data.records.set(`sessionUserState:${stateId}`, { entity: 'sessionUserState', entityId: stateId, provenance: { seq: 1 }, value: { userId: 'operator', sessionId: SID, readAt: '2026-10-03T00:00:00Z', snoozedUntil: null } })
   const archived = data.records.get('session:synthetic-session-11')!
-  data.records.set('session:synthetic-session-11', { ...archived, value: { ...(archived.value as object), archived: true, status: 'exited', geometry: { cols: 132, rows: 37 }, privateBody: 'Not a summary field' } })
+  data.records.set('session:synthetic-session-11', { ...archived, value: { ...(archived.value as object), archived: true, status: 'exited', lastActiveAt: '2020-01-01T00:00:00Z', stoppedAt: '2020-01-01T00:00:00Z', geometry: { cols: 132, rows: 37 }, privateBody: 'Not a summary field' } })
   if (cold) data.records.clear()
   Object.assign(data.api, { sessions: {
     transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
@@ -138,10 +146,10 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
 }
 
 it('renders the same six phone readers through real late attachment with no React errors', async () => {
-  const legacy = await mount(false), expected = legacy.view.container.innerHTML
+  const legacy = await mount(false), expected = rendered(legacy.view.container)
   legacy.view.unmount()
   const enabled = await mount(true)
-  expect(enabled.view.container.innerHTML).toEqual(expected)
+  expect(rendered(enabled.view.container)).toEqual(expected)
   expect(enabled.errors).toEqual([])
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some(pool => pool !== null)).toBe(true)
