@@ -200,7 +200,9 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
     try {
       await rowNamed(page, tapLabel).click()
       await expect(page).toHaveURL(/\/mobile\/mission\//)
-      await page.waitForFunction(() => Reflect.get(window, '__phoneTap')?.ready, undefined, { timeout: 30_000 })
+      await page.waitForFunction(() => Reflect.get(window, '__phoneTap')?.ready, undefined, {
+        timeout: 30_000,
+      })
     } finally {
       events = (await stop()) as typeof events
     }
@@ -212,65 +214,108 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
   // mission tap so visiting Tasks cannot warm its legacy all-issue cache.
   async function openScreen(label: string, path: string, selector: string) {
     console.info('[phone screen]', label, page.url())
-    const action = page.getByRole(label === 'Tasks' ? 'tab' : 'button', { name: label, exact: true })
+    const action = page.getByRole(label === 'Tasks' ? 'tab' : 'button', {
+      name: label,
+      exact: true,
+    })
     await action.waitFor({ state: 'visible', timeout: 15_000 })
-    await action.evaluate((element, { path, selector }) => {
-      performance.clearMarks('phone:input')
-      performance.clearMarks('phone:dom')
-      const capture = { input: false, dom: false, ready: false }
-      Object.assign(window, { __phoneScreenAction: capture })
-      element.addEventListener('pointerdown', () => {
-        capture.input = true
-        performance.mark('phone:input')
-      }, { once: true })
-      const check = () => {
-        if (capture.dom || !capture.input) return
-        if (!location.pathname.endsWith(path) || !document.querySelector(selector)) {
-          requestAnimationFrame(check)
-          return
+    await action.evaluate(
+      (element, { path, selector }) => {
+        performance.clearMarks('phone:input')
+        performance.clearMarks('phone:dom')
+        const capture = { input: false, dom: false, ready: false }
+        Object.assign(window, { __phoneScreenAction: capture })
+        element.addEventListener(
+          'pointerdown',
+          () => {
+            capture.input = true
+            performance.mark('phone:input')
+          },
+          { once: true },
+        )
+        const check = () => {
+          if (capture.dom || !capture.input) return
+          if (!location.pathname.endsWith(path) || !document.querySelector(selector)) {
+            requestAnimationFrame(check)
+            return
+          }
+          observer.disconnect()
+          capture.dom = true
+          performance.mark('phone:dom')
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              capture.ready = true
+            }),
+          )
         }
-        observer.disconnect()
-        capture.dom = true
-        performance.mark('phone:dom')
-        requestAnimationFrame(() => requestAnimationFrame(() => { capture.ready = true }))
-      }
-      const observer = new MutationObserver(check)
-      observer.observe(document.body, { subtree: true, childList: true, attributes: true })
-    }, { path, selector })
+        const observer = new MutationObserver(check)
+        observer.observe(document.body, { subtree: true, childList: true, attributes: true })
+      },
+      { path, selector },
+    )
     const stop = await paintTraceStart(cdp)
     let events: Parameters<typeof paintOf>[0] = []
     try {
       await action.click({ timeout: 15_000 })
-      await page.waitForFunction(() => Reflect.get(window, '__phoneScreenAction')?.ready, undefined, { timeout: 30_000 })
+      await page.waitForFunction(
+        () => Reflect.get(window, '__phoneScreenAction')?.ready,
+        undefined,
+        { timeout: 30_000 },
+      )
     } catch (error) {
-      console.info('[phone screen pending]', label, await page.evaluate((selector) => ({
-        path: location.pathname,
-        matches: document.querySelectorAll(selector).length,
-        capture: Reflect.get(window, '__phoneScreenAction'),
-      }), selector))
+      console.info(
+        '[phone screen pending]',
+        label,
+        await page.evaluate(
+          (selector) => ({
+            path: location.pathname,
+            matches: document.querySelectorAll(selector).length,
+            capture: Reflect.get(window, '__phoneScreenAction'),
+          }),
+          selector,
+        ),
+      )
       throw error
-    } finally { events = await stop() }
+    } finally {
+      events = await stop()
+    }
     return paintOf(events, 'phone:input', 'phone:dom')
   }
 
   async function screenActions(pool: boolean): Promise<NonNullable<Sample['screens']>> {
     console.info('[phone screen]', pool ? 'ON' : 'OFF', 'mission updates')
     const missionUpdate = await measureUpdates(tapIssue.id, tapTitle, async (next) => {
-      await expect(page.getByText(next, { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 30_000 })
+      await expect(
+        page.getByText(next, { exact: true }).filter({ visible: true }).first(),
+      ).toBeVisible({ timeout: 30_000 })
       tapLabel = next
     })
-    const detailsOpen = await openScreen('Mission details', '/details', '[aria-label="Launch an agent on this mission"]')
+    const detailsOpen = await openScreen(
+      'Mission details',
+      '/details',
+      '[aria-label="Launch an agent on this mission"]',
+    )
     const detailsUpdate = await measureUpdates(detailIssue!.id, detailTitle, async (next) => {
-      await expect(page.getByText(next, { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 30_000 })
+      await expect(
+        page.getByText(next, { exact: true }).filter({ visible: true }).first(),
+      ).toBeVisible({ timeout: 30_000 })
       detailLabel = next
     })
-    await expect(page.getByText(detailLabel, { exact: true }).filter({ visible: true }).first()).toBeVisible()
+    await expect(
+      page.getByText(detailLabel, { exact: true }).filter({ visible: true }).first(),
+    ).toBeVisible()
     // A new Work document preserves the first-visit Tasks cost, including the
     // legacy cache that the OFF work list warms and the ON work list bypasses.
     await launchWork(pool)
-    const tasksOpen = await openScreen('Tasks', '/issues', `[aria-label^="Task "][aria-label*="${updateLabel}"]`)
+    const tasksOpen = await openScreen(
+      'Tasks',
+      '/issues',
+      `[aria-label^="Task "][aria-label*="${updateLabel}"]`,
+    )
     const tasksUpdate = await measureUpdates(updateIssue.id, updateTitle, async (next) => {
-      await expect(page.getByRole('button', { name: new RegExp(`^Task \\d+: ${next}(?:,|$)`) })).toBeVisible({ timeout: 30_000 })
+      await expect(
+        page.getByRole('button', { name: new RegExp(`^Task \\d+: ${next}(?:,|$)`) }),
+      ).toBeVisible({ timeout: 30_000 })
       updateLabel = next
     })
     return { missionUpdate, detailsOpen, detailsUpdate, tasksOpen, tasksUpdate }
@@ -287,8 +332,14 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
   for (const pool of order) {
     console.info('[phone arm]', pool ? 'ON' : 'OFF', 'timed', timed.length, loadavg())
     await launchWork(pool)
-    timed.push({ pool, traced: false, load: loadavg(), updates: await updates(), tap: await tap(),
-      ...(screens ? { screens: await screenActions(pool) } : {}) })
+    timed.push({
+      pool,
+      traced: false,
+      load: loadavg(),
+      updates: await updates(),
+      tap: await tap(),
+      ...(screens ? { screens: await screenActions(pool) } : {}),
+    })
   }
   for (const [index, pool] of order.entries()) {
     console.info('[phone arm]', pool ? 'ON' : 'OFF', 'traced', index, loadavg())
@@ -335,10 +386,16 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
       tapPaintOn: median(true, timed, paint),
       tracedTapPaintOff: median(false, traced, paint),
       tracedTapPaintOn: median(true, traced, paint),
-      ...(screens ? Object.fromEntries(
-        [false, true].flatMap(pool => screenMetrics.map(([key, pick]) =>
-          [`${key}${pool ? 'On' : 'Off'}`, median(pool, timed, pick)])),
-      ) : {}),
+      ...(screens
+        ? Object.fromEntries(
+            [false, true].flatMap((pool) =>
+              screenMetrics.map(([key, pick]) => [
+                `${key}${pool ? 'On' : 'Off'}`,
+                median(pool, timed, pick),
+              ]),
+            ),
+          )
+        : {}),
     },
     timed,
     traced,
