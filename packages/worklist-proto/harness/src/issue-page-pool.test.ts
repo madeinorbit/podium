@@ -252,11 +252,12 @@ describe('declared issue page', () => {
 
   it('uses cold summaries for menus and batches page payload loads without peek', () => {
     const ctx = open([task('arch', { archived: true, deps: [{ id: 'cold', type: 'custom' }] }),
-      task('cold', { archived: true, parentId: 'arch' }), task('cold-2', { archived: true, parentId: 'arch' })],
+      task('cold', { archived: true, parentId: 'arch' }), task('cold-2', { archived: true, parentId: 'arch' }),
+      task('remote', { archived: true })],
       [seat('old', 'arch', { archived: true, status: 'exited' }),
         seat('old-child', 'cold-2', { archived: true, status: 'exited' }),
-        seat('born-a', null, { refIssueId: 'arch', archived: true, status: 'exited' }),
-        seat('born-b', null, { refIssueId: 'arch', archived: true, status: 'exited' })], true)
+        seat('born-a', 'remote', { refIssueId: 'arch', archived: true, status: 'exited' }),
+        seat('born-b', 'remote', { refIssueId: 'arch', archived: true, status: 'exited' })], true)
     const read = vi.spyOn(ctx.pool, 'row'), before = ctx.load.mock.calls.length
     expect(tracked(() => ctx.pool.row('session', 'born-a', 'summary'))).toMatchObject({ refIssueId: 'arch' })
     expect(tracked(() => [...ctx.pool.graph.many('issue', 'arch', 'bornSessions')])).toEqual(['born-a', 'born-b'])
@@ -268,7 +269,7 @@ describe('declared issue page', () => {
     expect(ctx.pool.hydrate()).toBe(7)
     const page = tracked(() => ctx.views.data('arch'))
     expect(page && page !== LOADING ? page.issue.id : null).toBe('arch')
-    expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
+    expect(ctx.settle(ctx.check)).toMatchObject({ differences: 0, pending: 0 })
     expect(read.mock.calls.some(call => String(call[2]) === 'peek')).toBe(false)
     expect(new Set(ctx.load.mock.calls.slice(before).map(call => `${call[0]}:${call[1]}`)).size).toBe(ctx.load.mock.calls.length - before)
   })
