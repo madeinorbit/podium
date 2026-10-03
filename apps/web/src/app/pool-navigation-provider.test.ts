@@ -110,7 +110,7 @@ describe('web pool navigation', () => {
     expect([...knownTabIdsForWorkspace(state, 'mission:root')]).toEqual(['bound', 'foreign', 'loose'])
     let ready = false
     state.navigation = { ...loadingNavigationProvider, missionMembers: () => new Set(['child']),
-      issue: id => ready ? { ...issue(id), id: asIssueId(id), worktreePath: '/wt/elsewhere' } : NAVIGATION_LOADING }
+      issue: id => ready ? { ...issue(id), id: asIssueId(id), archived: false, worktreePath: '/wt/elsewhere' } : NAVIGATION_LOADING }
     expect([...knownTabIdsForWorkspace(state, 'mission:root')]).toEqual(['bound', 'loose'])
     ready = true
     expect([...knownTabIdsForWorkspace(state, 'mission:root')]).toEqual(['bound'])
