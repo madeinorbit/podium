@@ -20,6 +20,8 @@ const fixture = createWorkflowsFixture(5600, 5014)
 let owner: ReturnType<typeof useStoreHandle<Trpc>> | undefined
 let pool: ReturnType<typeof useWorklistPool>
 const failures: string[] = []
+const runtimeOwners = new Set<object>()
+let capture: ReturnType<typeof storeStats.begin>
 // Latch before any child renders; attaching the pool happens later, exactly as
 // in the app. Choosing by pool availability would change hook order here.
 initializePoolScreens({ get: () => null } as never)
@@ -38,6 +40,7 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('workflow-brows
   config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
   createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={() => failures.push('provider-failure')}
   attachRuntime={runtime => {
+    runtimeOwners.add(runtime)
     fixture.bindHub(runtime.hub)
     void runtime.getSnapshot().refreshRepos().catch(() => failures.push('fixture-discovery-failure'))
     return attachWorklistPool(runtime, () => failures.push('pool-failure'))
@@ -48,10 +51,11 @@ const driver = {
   ready: () => Boolean(owner && fixture.calls.get && fixture.calls.locks && document.querySelector('[data-profile-id]')
     && document.querySelector('[data-run-id]') && !document.querySelector('[role="status"]')
     && document.querySelector('[data-placement="available"]')),
-  reset: () => storeStats.reset(),
+  reset() { storeStats.reset(); capture = storeStats.begin('feed') },
   async activity(count: number) {
     for (let step = 1; step <= count; step++) fixture.patch('session', `synthetic-session-${step % 12}`, { lastActiveAt: new Date(Date.now() + step).toISOString() })
     await frame()
+    storeStats.end(capture)
   },
   async update() {
     fixture.remove('issueProjection', 'synthetic-0')
@@ -62,11 +66,15 @@ const driver = {
   },
   check: () => pool && owner ? checkWorkflows(pool, owner.getSnapshot(), fixture) : null,
   stats() {
-    const runtimes = storeStats.snapshot().runtimes
-    return { runtimes: runtimes.length, issues: owner?.getSnapshot().issueProjections.length ?? 0,
+    // The global ring evicts old owners as legacy sessionById records each
+    // immutable array. A capture window retains the actual publishing runtime.
+    const stats = storeStats.snapshot(), runtimes = stats.windows.at(-1)?.runtimes ?? []
+    return { runtimes: runtimeOwners.size, publishingRuntimes: runtimes.filter(row => row.publishes > 0).length,
+      droppedOwners: stats.dropped, issues: owner?.getSnapshot().issueProjections.length ?? 0,
       sessions: owner?.getSnapshot().sessions.length ?? 0, profiles: fixture.profiles.length, runs: fixture.runs.length, pool: Boolean(pool),
       publishes: runtimes.reduce((sum, row) => sum + row.publishes, 0),
       selectors: runtimes.reduce((sum, row) => sum + row.selectorRuns, 0),
+      legacyDerivations: runtimes.reduce((sum, row) => sum + Object.values(row.slices).reduce((total, count) => total + count, 0), 0),
       legacy: Object.fromEntries(['workflows.machines', 'workflows.subject'].map(key => [key, runtimes.reduce((sum, row) => sum + (row.slices[key] ?? 0), 0)])),
       calls: fixture.calls, failures }
   },
