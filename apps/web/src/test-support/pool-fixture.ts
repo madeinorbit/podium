@@ -55,7 +55,7 @@ function useFixturePool() {
 }
 
 /** Fake actions publish through the same boundary as a render's snapshot. */
-export function syncPoolFixture(input: Store) {
+export function syncPoolFixture(input: Store, sidebarGesture = false) {
   const state = input as Store & {
     issues?: readonly unknown[]
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]
@@ -129,8 +129,9 @@ export function syncPoolFixture(input: Store) {
     previousRows = nextRows
     const selectionChanged = (pool.selection.keys().next().value ?? null) !== (state.selectedIssueId ?? null)
     pool.applyLocals(
-      { selectedIssueId: state.selectedIssueId ?? null, coarseNow: state.coarseNow ?? Date.now() },
-      new Set(selectionChanged ? ['selectedIssueId', 'coarseNow'] : ['coarseNow']),
+      { selectedIssueId: state.selectedIssueId ?? null, coarseNow: state.coarseNow ?? Date.now(),
+        selectedIssueWasFolded: sidebarGesture ? undefined : false },
+      new Set(selectionChanged ? sidebarGesture ? ['selectedIssueId', 'coarseNow'] : ['selectedIssueId', 'selectedIssueWasFolded', 'coarseNow'] : ['coarseNow']),
     )
     pool.header.apply(
       (state.machines ?? []).map((value) => ({ kind: 'machine', id: value.id, value })),
