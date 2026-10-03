@@ -1,7 +1,10 @@
+import { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { useMemo, useSyncExternalStore } from 'react'
 import type { Store } from '@podium/client-core/engine'
 import { readStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, StoreStatsProfiler, useStore } from '@podium/client-core/react'
+import { StoreProvider, StoreStatsProfiler } from '@podium/client-core/react'
 import { createSubscriptionStore } from '@podium/client-core/store'
 import { asUserId, type GitRepositoryWire } from '@podium/model'
 import { act, cleanup, render } from '@testing-library/react'
@@ -10,7 +13,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { MobileTrpc } from '../client/trpc'
 import { NewIssueScreen } from './NewIssueScreen'
 
-const fixture = vi.hoisted(() => ({ handle: null as unknown, legacy: false }))
+const fixture = vi.hoisted(() => ({ handle: null as unknown, pool: null as MobxPool | null }))
 vi.mock('../../../../packages/client-core/src/engine/runtime', () => ({
   createClientRuntime: () => fixture.handle,
 }))
@@ -22,15 +25,16 @@ vi.mock('../components/Screen', () => ({
 vi.mock('../components/LaunchConfigurationFields', () => ({
   LaunchConfigurationFields: () => null,
 }))
-vi.mock('../client/hooks', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../client/hooks')>()
-  return {
-    ...actual,
-    // The same production screen and scenario, restoring only the old read seam.
-    useStoreSelector: (...args: Parameters<typeof actual.useStoreSelector>) =>
-      fixture.legacy ? args[0](useStore<MobileTrpc>()) : actual.useStoreSelector(...args),
-  }
+vi.mock('../client/hooks', async original => {
+  const real = await original<typeof import('../client/hooks')>()
+  return { ...real, useSessions: () => [] }
 })
+vi.mock('../client/mobile-pool', () => ({
+  useMobilePoolProjection: <T,>(read: (pool: MobxPool) => T) => {
+    const view = useMemo(() => createPoolProjection(fixture.pool!, read), [read])
+    return useSyncExternalStore(view.subscribe, view.getSnapshot)
+  },
+}))
 afterEach(() => {
   cleanup()
   storeStats.enable(false)
@@ -42,8 +46,10 @@ const repo = (path: string) =>
 
 it('isolates NewIssueScreen from unrelated publishes while still painting repository updates', async () => {
   const results = []
-  for (const legacy of [true, false]) {
-    fixture.legacy = legacy
+  {
+    fixture.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    fixture.pool.header.apply([{ kind: 'repository', id: '/before', value: repo('/before') }])
+    fixture.pool.header.order('repository', ['/before'])
     const owner = { start() {}, dispose() {}, destroy() {} }
     const trpc = { settings: { get: { query: async () => ({}) } } } as unknown as MobileTrpc
     const store = createSubscriptionStore(
@@ -85,28 +91,27 @@ it('isolates NewIssueScreen from unrelated publishes while still painting reposi
     storeStats.reset()
     // Same selected path avoids a separate local selection effect; the added
     // option must appear in both arms and requires a real selected-field update.
-    act(() =>
+    act(() => {
       store.publish(
         { ...store.getSnapshot(), repos: [repo('/before'), repo('/after')] },
         new Set(['repos']),
-      ),
-    )
+      )
+      fixture.pool!.header.apply([{ kind: 'repository', id: '/after', value: repo('/after') }])
+      fixture.pool!.header.order('repository', ['/before', '/after'])
+    })
     const relevant = readStoreStats().runtimes[0]!
     expect(view.getByRole('radio', { name: 'Repository after' })).toBeTruthy()
     results.push({
-      legacy,
       publishes: unrelated.publishes,
       unrelatedCommits: unrelated.reactCommits,
       relevantPublishes: relevant.publishes,
       relevantCommits: relevant.reactCommits,
     })
     view.unmount()
+    fixture.pool.dispose()
     storeStats.enable(false)
   }
-  // The legacy arm cannot satisfy the zero-commit assertion; useful updates
-  // remain equal, so simply suppressing all notifications cannot pass.
   expect(results).toEqual([
-    { legacy: true, publishes: 3, unrelatedCommits: 3, relevantPublishes: 1, relevantCommits: 1 },
-    { legacy: false, publishes: 3, unrelatedCommits: 0, relevantPublishes: 1, relevantCommits: 1 },
+    { publishes: 3, unrelatedCommits: 0, relevantPublishes: 1, relevantCommits: 1 },
   ])
 })

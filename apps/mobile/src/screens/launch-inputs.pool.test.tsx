@@ -8,17 +8,12 @@ import { useLaunchInputs } from '../client/use-launch-inputs'
 import { renderWithMobileStore } from '../client/test-support'
 import type { LaunchConfiguration, LaunchPlan } from '../lib/launch-configuration'
 
-const state = vi.hoisted(() => ({ host: undefined as MobilePool | undefined, poolRead: false }))
+const state = vi.hoisted(() => ({ host: undefined as MobilePool | undefined }))
 vi.mock('../client/mobile-pool', async original => {
   const real = await original<typeof import('../client/mobile-pool')>()
   return { ...real,
     useMobilePoolProjection: <T,>(...args: Parameters<MobilePool['host']['usePoolProjection']>) => state.host!.host.usePoolProjection(...args) as T,
   }
-})
-vi.mock('../client/hooks', async original => {
-  const real = await original<typeof import('../client/hooks')>()
-  return { ...real, useStoreSelector: (...args: Parameters<typeof real.useStoreSelector>) =>
-    state.poolRead ? useLaunchInputs() : real.useStoreSelector(...args) }
 })
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }), useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }) }))
 vi.mock('expo-router', () => ({ useRouter: () => ({ back() {}, replace() {} }) }))
@@ -46,37 +41,28 @@ async function mount(element: import('react').ReactNode) {
 }
 
 it('preserves new-task form output from the accepted repository reader', async () => {
-  let expected: string | undefined
-  for (const poolRead of [false, true]) {
-    state.poolRead = poolRead
+  {
     storeStats.enable(); storeStats.reset()
     const app = await mount(<NewIssueScreen />)
     await waitFor(() => expect(app.view.getByRole('radio', { name: 'Repository project' })).toBeTruthy())
     const output = app.view.container.innerHTML
-    if (expected === undefined) expected = output
-    else expect(output).toBe(expected)
     expect(output).toMatchSnapshot('last green new-task form')
-    expect(readRuntimeStoreStats(app.runtime)?.selectorRuns).toBeGreaterThan(0)
+    expect(readRuntimeStoreStats(app.runtime)?.selectorRuns ?? 0).toBe(0)
     app.view.unmount()
   }
 })
 
 it('preserves launch fields and validity plans from the accepted machine and repository readers', async () => {
   const value: LaunchConfiguration = { agentKind: 'claude-code', modelPick: 'auto', effort: 'auto', machineId: '' }
-  let expected: { html: string; plan: LaunchPlan | undefined } | undefined
-  for (const poolRead of [false, true]) {
-    state.poolRead = poolRead
+  {
     storeStats.enable(); storeStats.reset()
     let plan: LaunchPlan | undefined
     const app = await mount(<LaunchConfigurationFields repoPath="/synthetic/project" value={value} onChange={() => {}} onPlan={next => { plan = next }} />)
     await waitFor(() => expect(app.view.getByText('Agent', { exact: true })).toBeTruthy())
     const output = { html: app.view.container.innerHTML, plan }
-    if (expected === undefined) expected = output
-    else expect(output).toEqual(expected)
     expect(output).toMatchSnapshot('last green launch fields and plan')
     const selectors = readRuntimeStoreStats(app.runtime)?.selectorRuns ?? 0
-    if (poolRead) expect(selectors).toBe(0)
-    else expect(selectors).toBeGreaterThan(0)
+    expect(selectors).toBe(0)
     app.view.unmount()
   }
 })

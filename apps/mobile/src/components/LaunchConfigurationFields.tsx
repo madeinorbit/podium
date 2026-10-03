@@ -9,7 +9,7 @@ import {
 } from '@podium/model'
 import { useLayoutEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useStoreSelector } from '../client/hooks'
+import { useLaunchInputs } from '../client/use-launch-inputs'
 import type { MobileTrpc } from '../client/trpc'
 import {
   AUTO,
@@ -55,7 +55,7 @@ export function LaunchConfigurationFields({
   onPlan?: (plan: LaunchPlan) => void
   allowInheritedAgent?: boolean
 }) {
-  const store = useStoreSelector((s) => ({ repos: s.repos, machines: s.machines }), shallowEqual)
+  const store = useLaunchInputs()
   const [fallback, setFallback] = useState<Picker>(null)
   const repo = useMemo(
     () => reposToViews(store.repos).find((candidate) => candidate.path === repoPath),

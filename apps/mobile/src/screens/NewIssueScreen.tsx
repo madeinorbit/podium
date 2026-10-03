@@ -1,4 +1,3 @@
-import { shallowEqual } from '@podium/client-core/store'
 import {
   codingRoleHarness,
   ISSUE_STAGE_LABELS,
@@ -9,7 +8,8 @@ import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
-import { useStoreSelector, useSessions, useTrpc } from '../client/hooks'
+import { useSessions, useTrpc } from '../client/hooks'
+import { useLaunchInputs } from '../client/use-launch-inputs'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
 import {
   type LaunchConfiguration,
@@ -45,7 +45,7 @@ export function NewIssueScreen() {
   // inset here).
   const bottomInset = useContentBottomInset()
   const trpc = useTrpc()
-  const store = useStoreSelector((s) => ({ repos: s.repos }), shallowEqual)
+  const store = useLaunchInputs()
   const sessions = useSessions()
   const [fallbackRepos, setFallbackRepos] = useState<string[]>([])
   const repos = useMemo(() => {
