@@ -2,6 +2,11 @@ import type { SuperagentTurnFailure } from '@podium/client-core/api'
 import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
 import { useStoreSelector } from '@podium/client-core/react'
 import { useModelCatalog, useSlice } from '@podium/client-core/react'
+import { recordSliceDerivation } from '@podium/client-core/perf'
+import { superagentQuestion, superagentState } from '@podium/client-graph/superagent'
+import type { MobxPool } from '@podium/client-graph'
+import type { SuperagentSliceValue } from '@podium/client-core/viewmodels'
+import { mobileDataLayer, useMobilePoolProjection } from '../client/mobile-pool'
 import {
   mergeTranscriptFrame,
   prependTranscriptItems,
@@ -69,6 +74,32 @@ const THREAD_ID = asThreadId('global')
 
 type LocalPendingTurn = PendingTurn & { wire: string }
 
+function useLegacySuperagent() {
+  return { ...useSlice(superagentSlice), booting: useBooting(), loading: false }
+}
+const EMPTY_SUPERAGENT: SuperagentSliceValue & { booting: boolean; loading: boolean } = {
+  threads: [], active: undefined, activeSessionId: undefined, booting: true, loading: true,
+}
+function usePoolSuperagent() { return useMobilePoolProjection(superagentState, EMPTY_SUPERAGENT) }
+function useLegacyQuestion(id: SessionId | undefined) {
+  return useStoreSelector(s => {
+    recordSliceDerivation(s.replica ?? s, 'superagent.question')
+    return (s.pendingInteractions ?? []).find(row => row.sessionId === id && row.kind === 'question' && row.status === 'asked')
+  })
+}
+function usePoolQuestion(id: SessionId | undefined) {
+  const read = useCallback((pool: MobxPool) => superagentQuestion(pool, id).question, [id])
+  return useMobilePoolProjection(read, undefined)
+}
+function useLegacyTranscriptSession(id: SessionId | undefined) {
+  const sessions = useSessions()
+  return id ? sessions.find(row => row.sessionId === id) : undefined
+}
+function usePoolTranscriptSession(id: SessionId | undefined) {
+  const read = useCallback((pool: MobxPool) => pool.sessionPanes.session(id), [id])
+  return useMobilePoolProjection(read, undefined)
+}
+
 export function SuperagentScreen() {
   // Narrow subscriptions: everything this screen reads off the store is
   // either an identity-stable static or the sessions slice it paints from.
@@ -76,9 +107,7 @@ export function SuperagentScreen() {
   const { refreshSuperThreads } = useStoreActions()
   const replica = useReplica()
   const httpOrigin = useHttpOrigin()
-  const sessions = useSessions()
   const hub = useHub()
-  const booting = useBooting()
   // The signed-in user's threads, from the store's published slice — the same
   // one the desktop superagent column reads. The screen used to fetch the list
   // itself on mount AND poll it on a 5s interval, which is a second copy of
@@ -90,7 +119,9 @@ export function SuperagentScreen() {
   // used — the slice exposes no lookup that takes a bare id and goes looking,
   // which is what makes another user's thread unaddressable from here
   // (doc §3.1.6 S2).
-  const superagent = useSlice(superagentSlice)
+  const useSuperagent = mobileDataLayer() === 'pool' ? usePoolSuperagent : useLegacySuperagent
+  const superagent = useSuperagent()
+  const booting = superagent.booting
   const tabBarInset = useTabBarInset()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
@@ -126,14 +157,10 @@ export function SuperagentScreen() {
   const publishedSid =
     superagent.activeSessionId === clearedSid ? undefined : superagent.activeSessionId
   const podiumSid = ackedSid ?? publishedSid
-  const currentQuestion = useStoreSelector((s) =>
-    (s.pendingInteractions ?? []).find(
-      (row) => row.sessionId === podiumSid && row.kind === 'question' && row.status === 'asked',
-    ),
-  )
-  const transcriptSession = podiumSid
-    ? sessions.find((session) => session.sessionId === podiumSid)
-    : undefined
+  const useQuestion = mobileDataLayer() === 'pool' ? usePoolQuestion : useLegacyQuestion
+  const currentQuestion = useQuestion(podiumSid)
+  const useTranscriptSession = mobileDataLayer() === 'pool' ? usePoolTranscriptSession : useLegacyTranscriptSession
+  const transcriptSession = useTranscriptSession(podiumSid)
   const modelCatalog = useModelCatalog<MobileTrpc>(transcriptSession?.machineId)
   const [backendPick, setBackendPick] = useState<SuperagentBackendPick>({})
   const backend = useMemo(

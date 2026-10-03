@@ -1,8 +1,5 @@
-import { shallowEqual } from '@podium/client-core/store'
-import { asSessionId } from '@podium/model'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
-import { useSession, useStoreSelector } from '@/app/store'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,6 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MENU_HINT } from '@/lib/menu-surface'
 import { conciergeThreadId, resolveConciergeRepo } from './concierge'
+import { useSuperagentAccess, useSuperagentFocus } from './use-superagent-inputs'
 
 /**
  * The concierge + button (issue #65): the product's front door. One click opens
@@ -20,29 +18,15 @@ import { conciergeThreadId, resolveConciergeRepo } from './concierge'
  * genuinely ambiguous the button becomes a minimal repo picker.
  */
 export function ConciergeButton(): JSX.Element {
-  const { repos, selectedWorktree, paneA, setSuperThreadId, setSuperOpen } = useStoreSelector(
-    (s) => ({
-      repos: s.repos,
-      selectedWorktree: s.selectedWorktree,
-      paneA: s.paneA,
-      setSuperThreadId: s.setSuperThreadId,
-      setSuperOpen: s.setSuperOpen,
-    }),
-    shallowEqual,
-  )
-  const focusedSession = useSession(paneA ? asSessionId(paneA) : undefined)
+  const { setSuperThreadId, setSuperOpen } = useSuperagentAccess()
+  const focus = useSuperagentFocus()
 
   const open = (repoPath: string) => {
     setSuperThreadId(conciergeThreadId(repoPath))
     setSuperOpen(true)
   }
 
-  const resolution = resolveConciergeRepo({
-    repos,
-    selectedWorktree,
-    sessions: focusedSession ? [focusedSession] : [],
-    paneA,
-  })
+  const resolution = resolveConciergeRepo(focus)
 
   const button = (
     <button

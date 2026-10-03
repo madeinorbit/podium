@@ -8,6 +8,7 @@ import { initializeSidebarDataLayer, sidebarDataLayer, sidebarCheckRequested } f
 import { initializeHeaderDataLayer, headerDataLayer, headerCheckRequested } from '@/lib/header-data-layer'
 import { initializeChipsDataLayer, chipsDataLayer, chipsCheckRequested } from '@/lib/chips-data-layer'
 import { noticePoolScreen } from '@/features/chat/notice-pool-screen'
+import { superagentPoolScreen } from '@/features/superagent/pool-screen'
 import { initializeAutomationsDataLayer, automationsDataLayer, specsDataLayer, automationsCheckRequested } from '@/lib/automations-data-layer'
 import type { PoolScreen } from '@podium/client-graph/host'
 import { panePoolScreen } from './pane-pool-screen'
@@ -29,6 +30,7 @@ export const poolBackedScreens: readonly PoolScreen[] = [
   sessionPanePoolScreen,
   commandLaunchScreen,
   noticePoolScreen,
+  superagentPoolScreen,
   missionPanePoolScreen,
   workflowPoolScreen,
   { optional: true, initialize: initializeSettingsDataLayer, enabled: () => settingsDataLayer() === 'pool',

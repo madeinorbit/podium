@@ -1,14 +1,12 @@
-import { shallowEqual } from '@podium/client-core/store'
-import { superagentSlice, threadById } from '@podium/client-core/viewmodels'
 import { asSessionId, asThreadId } from '@podium/model'
 import { Eraser, SquareTerminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { DockHeaderActions } from '@/app/DockHeaderSlot'
-import { useSession, useSlice, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { ChatView } from '@/features/chat/ChatView'
 import { useIssueEvents } from './useIssueEvents'
+import { useSuperagentAccess, useSuperagentSession, useSuperagentThread } from './use-superagent-inputs'
 
 /** ONE chat across all issues (engraved-column.md §2.5): the column always
  *  binds the global thread; per-turn issue context rides the focus payload.
@@ -84,19 +82,7 @@ export function SuperagentView(): JSX.Element {
     setSelectedIssueId,
     setView,
     readPosition,
-  } = useStoreSelector(
-    (s) => ({
-      hub: s.hub,
-      trpc: s.trpc,
-      refreshSuperThreads: s.refreshSuperThreads,
-      setPane: s.setPane,
-      setSelectedWorktree: s.setSelectedWorktree,
-      setSelectedIssueId: s.setSelectedIssueId,
-      setView: s.setView,
-      readPosition: s.readPosition,
-    }),
-    shallowEqual,
-  )
+  } = useSuperagentAccess()
   const [error, setError] = useState<string | null>(null)
   // POD-330 (audit item zero): the thread list is STORE state. The view used to
   // declare its own SuperThread type, hold the list in useState, fetch it from
@@ -115,8 +101,7 @@ export function SuperagentView(): JSX.Element {
   //
   // One name for one thread closes that off structurally: this pane cannot be
   // aimed at a thread it does not also drive.
-  const { threads } = useSlice(superagentSlice)
-  const thread = threadById(threads, THREAD_ID)
+  const { thread, loading: threadLoading } = useSuperagentThread(THREAD_ID)
   const podiumSessionId = thread?.podiumSessionId
 
   // The pane is one surface now — no sections, so no per-section collapse and
@@ -136,7 +121,7 @@ export function SuperagentView(): JSX.Element {
   // bar on a pane the user merely opened is noise. A retry rides the next open.
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshThreads is re-created each render
   useEffect(() => {
-    if (podiumSessionId) return
+    if (podiumSessionId || threadLoading) return
     let cancelled = false
     void trpc.superagent.ensureSession
       .mutate({ threadId: THREAD_ID })
@@ -147,7 +132,7 @@ export function SuperagentView(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [trpc, podiumSessionId, refreshSuperThreads])
+  }, [trpc, podiumSessionId, refreshSuperThreads, threadLoading])
 
   // The thread learns its harnessSessionId when a turn ENDS — that id reveals
   // the "open in terminal" button, so refetch on turn end.
@@ -162,7 +147,7 @@ export function SuperagentView(): JSX.Element {
   // "Open in terminal": focus the PTY session once its row lands in the
   // sessions broadcast (a fresh resume may beat the broadcast by a beat).
   const [focusSessionId, setFocusSessionId] = useState<string | null>(null)
-  const focusSession = useSession(focusSessionId ? asSessionId(focusSessionId) : undefined)
+  const focusSession = useSuperagentSession(focusSessionId ? asSessionId(focusSessionId) : undefined)
   useEffect(() => {
     if (!focusSessionId) return
     const s = focusSession

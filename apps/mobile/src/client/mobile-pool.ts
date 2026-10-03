@@ -7,12 +7,13 @@
  * The switch is ONE device setting, off by default: this phone's own copy of the
  * web's "MobX pilot" preference, a device-local UI-state key kept in the mobile
  * replica's side cache (never synced from another device, and no URL override).
- * It latches at the first signed-in attachment of the app load; a principal
+ * It latches before the first signed-in screen of the app load; a principal
  * rebuild or a later edit keeps that answer, and an app restart applies a new one.
  * Mobile screens convert later, so there is one app-wide entry and no per-screen
  * switch yet.
  */
 import { debugFlagEnabled, MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
+import { SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUPERAGENT_SUMMARIES, createSuperagentSource } from '@podium/client-graph/superagent'
 import {
   createPoolHost,
   type PoolDataLayer,
@@ -29,7 +30,8 @@ export function mobileSwitchStorage(ui: Parameters<typeof debugFlagEnabled>[0]):
 
 export interface MobilePool {
   readonly host: PoolHost
-  /** The latched choice for this app load; 'legacy' before the first attachment. */
+  initialize(ui: Parameters<typeof mobileSwitchStorage>[0]): void
+  /** The latched choice for this app load; 'legacy' before initialization. */
   layer(): PoolDataLayer
 }
 
@@ -45,11 +47,19 @@ export function createMobilePool(
         id: 'mobile-pilot',
         initialize: (ui) => void pilot.initialize(ui),
         enabled: () => pilot.layer() === 'pool',
+        options: () => ({ header: true, summaries: SUPERAGENT_SUMMARIES }),
+        async attach(runtime, pool) {
+          await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => createSuperagentSource(runtime))
+          const [{ NoticeSource, NOTICE_SOURCE_KEY }, { NOTICE_ENTITIES }] = await Promise.all([
+            import('@podium/client-graph/notice-source'), import('@podium/client-graph/notice-schema'),
+          ])
+          await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(runtime))
+        },
       },
     ],
     dev,
   })
-  return { host, layer: pilot.layer }
+  return { host, initialize: (ui) => void pilot.initialize(ui), layer: pilot.layer }
 }
 
 const mobilePool = createMobilePool(typeof __DEV__ !== 'undefined' && __DEV__)
@@ -57,6 +67,10 @@ const mobilePool = createMobilePool(typeof __DEV__ !== 'undefined' && __DEV__)
 /** StoreProvider's attachRuntime: it owns this teardown on sign-out, user switch
  * and unmount, including while the graph import is in flight. */
 export const attachMobilePool = mobilePool.host.attach
+/** Called by the composition root with hydrated device state before children. */
+export const initializeMobileDataLayer = mobilePool.initialize
 /** null while switched off or while the graph loads. */
 export const useMobilePool = mobilePool.host.usePool
+/** Scalar screen reads share the host's tracking and attachment loading state. */
+export const useMobilePoolProjection = mobilePool.host.usePoolProjection
 export const mobileDataLayer = mobilePool.layer

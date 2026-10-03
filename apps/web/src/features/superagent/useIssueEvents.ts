@@ -2,6 +2,9 @@ import { FEED_EVENT_KINDS, type IssueEventWire } from '@podium/model'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { Store } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { superagentCursor, superagentFeed } from '@podium/client-graph/superagent'
+import { legacySuperagentRead, superagentDataLayer } from './data-layer'
 
 /** Re-exported for the surfaces that name the vocabulary. It is `@podium/model`'s
  *  list now (POD-1772): the server publishes exactly these kinds onto the feed,
@@ -22,6 +25,18 @@ export interface FeedEvent {
 /** The tail the divider arithmetic runs over. The server's window is larger; this
  *  is what a human would scroll. */
 const KEEP = 40
+
+function useLegacyFeed(readPosition: Store['readPosition']) {
+  const rows = useStoreSelector(s => legacySuperagentRead(s.replica ?? s, 'events', () => s.issueEvents))
+  const events = useMemo(() => projectFeed(rows), [rows])
+  const cursor = useSyncExternalStore(onChange => readPosition.subscribe(onChange), () => readPosition.get('issueEvents'))
+  return { events, cursor, loading: false }
+}
+function usePoolFeed(_readPosition: Store['readPosition']) {
+  const feed = useWorklistPoolProjection(superagentFeed, { events: [], loading: true })
+  const position = useWorklistPoolProjection(superagentCursor, { cursor: { lastEventId: 0, seenAt: null }, loading: true })
+  return { events: feed.events, cursor: position.cursor, loading: feed.loading || position.loading }
+}
 
 /**
  * The chat's cross-project event feed + its YOU-WERE-HERE read cursor
@@ -48,30 +63,29 @@ export function useIssueEvents(
   readPosition: Store['readPosition'],
   visible: boolean,
 ): { events: FeedEvent[]; unread: boolean; dividerId: number; dividerTs: string | null } {
-  const rows = useStoreSelector((s) => s.issueEvents)
-  const events = useMemo(() => projectFeed(rows), [rows])
+  const useRead = superagentDataLayer() === 'pool' ? usePoolFeed : useLegacyFeed
+  const { events, cursor, loading } = useRead(readPosition)
   const maxId = events.length > 0 ? (events[events.length - 1]?.id ?? 0) : 0
 
   // The cursor is external state: this device's advance is one writer, and the
   // person's OTHER device is another (its row arrives on the scoped feed).
-  const cursor = useSyncExternalStore(
-    (onChange) => readPosition.subscribe(onChange),
-    () => readPosition.get('issueEvents'),
-  )
   // Freeze the divider where the cursor stood when the feed became visible.
   const [divider, setDivider] = useState(cursor)
   const wasVisible = useRef(false)
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: cursor/divider are advanced, not observed
   useEffect(() => {
+    // Declared read-position context: one imperative read at the visibility
+    // edge preserves the freeze BEFORE async pool attachment (0 vs a later
+    // hydrated 9). Continuous cursor and event row reads use the pool.
     if (visible && !wasVisible.current) setDivider(readPosition.get('issueEvents'))
     wasVisible.current = visible
-    if (visible && maxId > cursor.lastEventId) {
+    if (visible && !loading && maxId > cursor.lastEventId) {
       // Monotonic on both sides: the port refuses a proposal at or behind the
       // position it holds, and the server clamps to max.
       readPosition.advance('issueEvents', { lastEventId: maxId, seenAt: new Date().toISOString() })
     }
-  }, [visible, maxId, readPosition])
+  }, [visible, maxId, readPosition, loading, cursor])
 
   return {
     events,
