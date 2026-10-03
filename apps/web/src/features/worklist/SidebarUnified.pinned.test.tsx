@@ -1,14 +1,10 @@
+import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
 import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified, WorkSections } from './SidebarUnified'
-
-vi.mock('@/lib/sidebar-data-layer', () => ({
-  sidebarDataLayer: () => 'legacy',
-  initializeSidebarDataLayer: vi.fn(),
-}))
 
 const selection = vi.hoisted(() => ({
   issueId: 'closed-selected' as string | null,

@@ -64,7 +64,7 @@ try {
   page.on('console', (message) => {
     if (message.type() === 'error') console.error('Synthetic sidebar console:', message.text())
   })
-  await page.goto(`${origin}/sidebar-harness.html?perfPanel=1&mobxSidebar=0&rows=6`, {
+  await page.goto(`${origin}/sidebar-harness.html?perfPanel=1&rows=6`, {
     waitUntil: 'networkidle',
     timeout: 60_000,
   })
@@ -101,13 +101,13 @@ try {
     console.log(`Idle ${Math.round((Date.now() - began) / 1000)}s: 0 rows, 0 derivations, 0 ms`)
   }
   if (!inputOnly) {
-    await page.screenshot({ path: resolve(out, 'legacy-idle.png') })
+    await page.screenshot({ path: resolve(out, 'pool-idle.png') })
     await writeFile(
-      resolve(out, 'legacy-idle-proof.json'),
+      resolve(out, 'pool-idle-proof.json'),
       JSON.stringify(
         {
           synthetic: true,
-          path: 'legacy',
+          path: 'pool',
           requestedSeconds: idleSeconds,
           elapsedMs: Date.now() - began,
           before,
@@ -132,7 +132,7 @@ try {
     afterInput.input.p95 === null
   )
     throw new Error('Sidebar click/key did not reach the input-to-paint collector')
-  await page.screenshot({ path: resolve(out, 'legacy-input.png') })
+  await page.screenshot({ path: resolve(out, 'pool-input.png') })
   await page.getByRole('button', { name: 'Close performance panel' }).click()
   const disabled = await page.evaluate(() => ({
     enabled: globalThis.__podiumStoreStats?.snapshot().enabled,
@@ -142,11 +142,11 @@ try {
     throw new Error('Closing panel left diagnostics enabled')
   if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`)
   await writeFile(
-    resolve(out, 'legacy-proof.json'),
+    resolve(out, 'pool-proof.json'),
     JSON.stringify(
       {
         synthetic: true,
-        path: 'legacy',
+        path: 'pool',
         requestedSeconds: inputOnly ? 0 : idleSeconds,
         inputOnly,
         elapsedMs: Date.now() - began,
@@ -160,7 +160,7 @@ try {
     ),
   )
   console.log(
-    `Panel proof GREEN: ${inputOnly ? 'input portion' : `${idleSeconds}s idle`}, real click/key, statistics disabled after close. Pool application proof pending POD-5006.`,
+    `Panel proof GREEN: ${inputOnly ? 'input portion' : `${idleSeconds}s idle`}, real click/key, statistics disabled after close. `,
   )
 } finally {
   await browser?.close()

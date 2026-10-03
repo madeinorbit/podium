@@ -12,11 +12,6 @@ import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { useHasFirstTask } from './mobile-handoff'
 
 const mode = vi.hoisted(() => ({ value: 'pool' as 'legacy' | 'pool', legacyReads: 0 }))
-vi.mock('@/lib/sidebar-data-layer', () => ({
-  sidebarDataLayer: () => mode.value,
-  initializeSidebarDataLayer: () => {},
-  sidebarCheckRequested: () => false,
-}))
 vi.mock('@/app/store', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/app/store')>()
   return {

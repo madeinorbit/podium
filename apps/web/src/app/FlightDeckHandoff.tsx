@@ -1,17 +1,8 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MissionHandoffValues } from '@podium/client-graph/mission-view'
 import { useStoreHandle } from '@podium/client-core/react'
-import {
-  deriveHandoffNext,
-  deriveHandoffNow,
-  missionSessions,
-  reviewReturnCount,
-  summarizeHandoffSessions,
-  type HandoffNowEntry,
-  type HandoffTranscriptPair,
-  type IssueNavigationModel,
-} from '@podium/client-core/viewmodels'
-import type { IssueId, SessionId} from '@podium/model/browser'
+import { reviewReturnCount, summarizeHandoffSessions, type HandoffNowEntry, type HandoffTranscriptPair, type IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -247,7 +238,6 @@ export function FlightDeckHandoff({
   onOpenSession,
   onOpenIssue,
   poolValues,
-  legacyRead,
 }: {
   rootIssue: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
@@ -257,22 +247,10 @@ export function FlightDeckHandoff({
   onOpenTranscript: (sessionId: SessionId, itemKey: string) => void
   onOpenSession: (issueId: IssueId, sessionId: SessionId) => void
   onOpenIssue: (issueId: IssueId) => void
-  poolValues?: MissionHandoffValues
-  legacyRead?: <T>(operation: string, read: () => T) => T
+  poolValues: MissionHandoffValues
 }): JSX.Element {
-  const crew = useMemo(
-    () => poolValues ? poolValues.crew : legacyRead ? legacyRead('handoffCrew', () => missionSessions(issues, sessions, rootIssue.id, true)) : missionSessions(issues, sessions, rootIssue.id, true),
-    [issues, sessions, rootIssue.id, poolValues, legacyRead],
-  )
+  const { crew, current, next } = poolValues
   const transcript = useHandoffTranscript(true, crew)
-  const current = useMemo(
-    () => poolValues ? poolValues.current : legacyRead ? legacyRead('handoffNow', () => deriveHandoffNow(issues, sessions, rootIssue.id)) : deriveHandoffNow(issues, sessions, rootIssue.id),
-    [issues, sessions, rootIssue.id, poolValues, legacyRead],
-  )
-  const next = useMemo(
-    () => poolValues ? poolValues.next : legacyRead ? legacyRead('handoffNext', () => deriveHandoffNext(issues, sessions, rootIssue.id)) : deriveHandoffNext(issues, sessions, rootIssue.id),
-    [issues, sessions, rootIssue.id, poolValues, legacyRead],
-  )
   const summary = useMemo(() => summarizeHandoffSessions(crew), [crew])
   const [currentLimit, setCurrentLimit] = useState(INITIAL_ROWS)
   const [nextLimit, setNextLimit] = useState(INITIAL_ROWS)

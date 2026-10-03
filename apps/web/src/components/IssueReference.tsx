@@ -1,12 +1,10 @@
-import { resolveIssueReference, type IssueReferenceModel as IssueReferenceView } from '@podium/client-core/viewmodels'
+import { type IssueReferenceModel as IssueReferenceView } from '@podium/client-core/viewmodels'
 import { useStoreHandle } from '@podium/client-core/react'
 import { recordChipWork } from '@podium/client-core/perf'
 import type { JSX } from 'react'
 import { memo, useCallback, useLayoutEffect } from 'react'
-import { useReplicaIssues } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { MobxPool } from '@podium/client-graph'
-import { chipsDataLayer } from '@/lib/chips-data-layer'
 import { StageGlyph, UnknownRefGlyph } from '@/features/issues/issue-glyphs'
 import { cn } from '@/lib/utils'
 
@@ -20,15 +18,8 @@ type ChipProps = Omit<Parameters<typeof IssueReference>[0], 'model'> & { token: 
 /** The same UI with a leaf subscription to its one issue. Startup dispatch
  * keeps the legacy list hook completely outside the switched render path. */
 export const LiveIssueReference = memo(function LiveIssueReference(props: ChipProps): JSX.Element {
-  return chipsDataLayer() === 'pool' ? <PoolIssueReference {...props} /> : <LegacyIssueReference {...props} />
+  return <PoolIssueReference {...props} />
 })
-
-function LegacyIssueReference({ token, ...props }: ChipProps): JSX.Element {
-  const owner = useStoreHandle()
-  const issues = useReplicaIssues()
-  recordChipWork(owner, 'legacyScans')
-  return <IssueReference {...props} model={resolveIssueReference(token, issues) ?? unavailable(token)} />
-}
 
 function PoolIssueReference({ token, ...props }: ChipProps): JSX.Element {
   const owner = useStoreHandle()

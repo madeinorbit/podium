@@ -11,13 +11,7 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import type { RuntimePoolFixture } from '../../../packages/worklist-proto/harness/browser/runtime-pool-fixture'
 import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
-import {
-  attachWorklistPool,
-  useWorklistPool,
-  worklistPoolSurvivors,
-} from '../src/app/store-worklist-pool'
-import { sidebarDataLayer } from '../src/lib/sidebar-data-layer'
-import { chipsDataLayer } from '../src/lib/chips-data-layer'
+import { attachWorklistPool, useWorklistPool, worklistPoolSurvivors } from '../src/app/store-worklist-pool'
 import { IssueChipLiveness } from '../src/features/chat/IssueChipLiveness'
 
 const corpus = buildCorpus(1)
@@ -93,7 +87,7 @@ function Probe(): null {
 function ReferenceProbe() {
   const pool = useWorklistPool()
   const [host, setHost] = useState<HTMLDivElement | null>(null)
-  if (pool === null || chipsDataLayer() !== 'pool') return null
+  if (pool === null) return null
   // A missing sentinel proves the asynchronous production watcher is attached
   // before the driver goes offline, without reading or warming the cold issue.
   return <><div id="offline-reference-host" ref={setHost}>
@@ -133,7 +127,7 @@ function show(name: string | null, rebuild = false): void {
 const fixture = {
   show,
   ready: () =>
-    sidebarDataLayer() === 'legacy' ? attachments > 0 : current !== null && observed === current,
+    current !== null && observed === current,
   state: () => ({ replicas, attachments, pool: current !== null, failures }),
   survivors: () => [
     ...worklistPoolSurvivors(),

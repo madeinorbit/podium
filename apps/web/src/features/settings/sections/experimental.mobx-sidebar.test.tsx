@@ -3,7 +3,6 @@ import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
 import { DEFAULT_SETTINGS } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initializeSidebarDataLayer, sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import type { FeaturesStateSnapshot } from '@/lib/use-feature'
 import { getFeatureStates } from '../../../../../server/src/features'
 import { ExperimentalSection } from './experimental'
@@ -65,7 +64,6 @@ afterEach(cleanup)
 
 describe('principal-local MobX pilot preference', () => {
   it('saves on/off immediately to ui-state without changing the running mode or shared settings', () => {
-    initializeSidebarDataLayer(state.ui)
     const patch = vi.fn()
     const props = { settings: DEFAULT_SETTINGS, patch, onReset: vi.fn() }
     const { unmount } = render(<ExperimentalSection {...props} />)
@@ -78,8 +76,6 @@ describe('principal-local MobX pilot preference', () => {
     fireEvent.click(toggle)
     expect(state.ui.get(MOBX_SIDEBAR_KEY)).toBe('1')
     expect(toggle.getAttribute('aria-checked')).toBe('true')
-    initializeSidebarDataLayer(state.ui)
-    expect(sidebarDataLayer()).toBe('legacy')
     expect(patch).not.toHaveBeenCalled()
 
     // Closing/reopening Settings preserves the choice, without reselecting hooks.
@@ -90,7 +86,6 @@ describe('principal-local MobX pilot preference', () => {
     fireEvent.click(toggle)
     expect(state.ui.get(MOBX_SIDEBAR_KEY)).toBe('0')
     expect(toggle.getAttribute('aria-checked')).toBe('false')
-    expect(sidebarDataLayer()).toBe('legacy')
     expect(patch).not.toHaveBeenCalled()
   })
 

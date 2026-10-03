@@ -4,11 +4,7 @@ import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/
 import { issueBoardStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import {
-  createKernelReplica,
-  createSideCache,
-  replicaNamespaceKey,
-} from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, replicaNamespaceKey } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { useEffect, useState } from 'react'
@@ -19,7 +15,6 @@ import { initializePoolScreens } from '../src/app/pool-screens'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { ToolbarSlotProvider, ToolbarSlotTarget } from '../src/app/ToolbarSlot'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { boardDataLayer } from '../src/features/issues/board-data-layer'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
 import { IssueExplorerList } from '../src/features/issues/explorer/IssueExplorerList'
 import { IssuesView } from '../src/features/issues/IssuesView'
@@ -144,8 +139,7 @@ Object.assign(window, {
   __boardHarness: {
     ready: () =>
       ready &&
-      (boardDataLayer() !== 'pool' ||
-        (!!pool && typeof pool.row('issueBoardWindow', 'current') !== 'symbol')),
+      ((!!pool && typeof pool.row('issueBoardWindow', 'current') !== 'symbol')),
     errors: () => [...errors],
     corpus: corpus.stats,
     now: FIXED_NOW,

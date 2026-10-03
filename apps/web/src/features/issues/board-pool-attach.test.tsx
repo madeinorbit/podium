@@ -48,17 +48,14 @@ it('attaches a real pool after the pending board render without legacy derivatio
   function Probe() {
     const pool = useWorklistPool()
     const base = useBoardBase()
-    const data = useBoardData(
-      {
+    const data = useBoardData({
         display: DEFAULT_DISPLAY,
         filter: {},
         expanded: [],
         isMobile: false,
         openIssueId: base.openIssueId,
         now: 0,
-      },
-      base,
-    )
+      })
     sawPending ||= pool === null
     return <span>{pool && data !== EMPTY_BOARD ? 'ready' : 'pending'}</span>
   }

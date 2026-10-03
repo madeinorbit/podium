@@ -55,9 +55,9 @@
  */
 import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/viewmodels'
 import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/viewmodels'
-import type { IssueId, } from '@podium/model/browser'
+import type { IssueId } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
-import { type IssueViewModel, useStoreSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
 import { useIssuePageData, useIssuePageIssues } from './issue-page-data'
 import { issueRefLong } from '../issue-card'
 
@@ -98,24 +98,6 @@ export function IssueExitProvider({
   return <IssueExitContext.Provider value={exitOf}>{children}</IssueExitContext.Provider>
 }
 
-/**
- * The replica's exit record, as this page's id-only lookup.
- *
- * `'issueProjection'` is the AUTHORITY's singular entity name, which is what `exitKind`
- * keys on — not the `'issues'` collection kind. The two vocabularies are mapped
- * in `client-core`'s `replica/kernel/kinds.ts`, and passing the plural here
- * would answer `undefined` forever: a wiring that looks done and restores
- * nothing, which is the failure mode this whole module is about.
- *
- * `exitKind` is OPTIONAL on the contract, so the call is optional too — a
- * replica that keeps no exit record (the legacy TanStack one) answers
- * `undefined` and every edge stays `pending`, exactly as before this wiring.
- */
-function useReplicaExitLookup(enabled: boolean): IssueExitLookup {
-  const replica = useStoreSelector((s) => enabled ? s.replica : undefined)
-  return useMemo(() => (id: string) => replica?.exitKind?.('issueProjection', id), [replica])
-}
-
 /** Resolve any issue-to-issue reference against the partial world this replica
  *  holds. One resolver per render, closed over the issue rows and the exit
  *  lookup, so a section resolving five edges does one index build. */
@@ -125,8 +107,7 @@ export function useIssueEdgeResolver(): (id: string | undefined | null) => Issue
   const override = useContext(IssueExitContext)
   const exits = page?.data.exits
   const fromPool = useMemo(() => (id: string) => exits?.[id], [exits])
-  const fromReplica = useReplicaExitLookup(!page)
-  const exitOf = override ?? (page ? fromPool : fromReplica)
+  const exitOf = override ?? fromPool
   return useMemo(() => {
     const byId = new Map(issues.map((i) => [i.id as string, i]))
     // The slice is typed over `IssueViewModel`; `IssueViewModel` is a superset of it

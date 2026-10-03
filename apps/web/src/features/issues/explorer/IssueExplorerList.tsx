@@ -1,4 +1,4 @@
-import type { SessionView } from '@podium/client-core/session-values'
+
 import { relativeTime } from '@podium/client-core/focus'
 import { operationalState } from '@podium/client-core/viewmodels'
 
@@ -17,7 +17,6 @@ import { useIssueStatusApply } from '../use-issue-status-apply'
 import { useIssueExplorer } from './explorer-context'
 import { EXPLORER_TABS } from './explorer-list'
 import { useExplorerData } from './explorer-pool-data'
-import { boardDataLayer } from '../board-data-layer'
 import { useBoardCard, useBoardSessionReader } from '../board-pool-row'
 
 /**
@@ -42,7 +41,7 @@ export function IssueExplorerList(): JSX.Element {
   // One apply and one close guard for every row's status glyph (POD-1271) —
   // held here rather than per row, which the virtualizer would unmount.
   const sessionReader = useBoardSessionReader()
-  const rowStatus = useIssueStatusApply(boardDataLayer() === 'pool' ? sessions : undefined, sessionReader)
+  const rowStatus = useIssueStatusApply(sessions, sessionReader)
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)

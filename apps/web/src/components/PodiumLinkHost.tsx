@@ -4,22 +4,8 @@ import type { ArtifactId } from '@podium/model/browser'
 import { podiumTargetPath, type PodiumTarget } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { useShellActions, useShellLinks } from '@/app/shell-data'
-import { shellDataLayer } from '@/app/shell-pool-screen'
-import {
-  PODIUM_NATIVE_OPEN_EVENT,
-  activatePodiumHref,
-  canonicalizePodiumAnchors,
-  classifyPodiumLink,
-  hasServerSelector,
-  hasUnsupportedTypedDetail,
-  setKnownPodiumOrigins,
-  setPodiumTargetActivator,
-  systemBrowserPodiumHref,
-} from '@/lib/podium-link'
-import {
-  handlePodiumLinkAuxClick,
-  handlePodiumLinkContextMenu,
-} from '@/lib/podium-link-click'
+import { PODIUM_NATIVE_OPEN_EVENT, activatePodiumHref, canonicalizePodiumAnchors, classifyPodiumLink, hasServerSelector, hasUnsupportedTypedDetail, setKnownPodiumOrigins, setPodiumTargetActivator, systemBrowserPodiumHref } from '@/lib/podium-link'
+import { handlePodiumLinkAuxClick, handlePodiumLinkContextMenu } from '@/lib/podium-link-click'
 import { findLinkedIssue, resolvePodiumTarget } from '@/lib/podium-link-open'
 
 export const PODIUM_LINK_RESOLUTION_TIMEOUT_MS = 5_000
@@ -293,7 +279,7 @@ function PodiumLinkHostView({
 
 const PoolPodiumLinkHost = observer(PodiumLinkHostView)
 export function PodiumLinkHost(props: Parameters<typeof PodiumLinkHostView>[0]) {
-  const Surface = shellDataLayer() === 'pool' ? PoolPodiumLinkHost : PodiumLinkHostView
+  const Surface = PoolPodiumLinkHost
   return <Surface {...props} />
 }
 

@@ -1,44 +1,14 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { headerDataLayer } from '@/lib/header-data-layer'
 import { usePoolConcurrencyHistory } from './header-data'
 import { Popover } from '@base-ui/react/popover'
 
-import { type JSX, useEffect, useMemo, useState } from 'react'
+import { type JSX, useMemo } from 'react'
 import { StatusMetric } from './StatusMetric'
 import { shareAgentConcurrency } from './status-share'
 import type { Trpc } from './trpc'
 
 const BUCKETS = 24
 const DEFAULT_BUCKET_MS = 30 * 60 * 1_000
-const REFRESH_MS = 5 * 60 * 1_000
-
-interface HistoryBucket {
-  start: string
-  count: number
-}
-
-interface HistoryResult {
-  sampledAt: string
-  bucketMs: number
-  peak: number
-  buckets: HistoryBucket[]
-}
-
-function validHistory(value: HistoryResult): boolean {
-  return (
-    Number.isFinite(value.bucketMs) &&
-    value.bucketMs > 0 &&
-    Number.isInteger(value.peak) &&
-    value.peak >= 0 &&
-    value.buckets.length === BUCKETS &&
-    value.buckets.every(
-      (bucket) =>
-        Number.isInteger(bucket.count) &&
-        bucket.count >= 0 &&
-        Number.isFinite(Date.parse(bucket.start)),
-    )
-  )
-}
 
 /**
  * The status strip's 71×12px history skyline. It is deliberately informational:
@@ -53,8 +23,7 @@ export function AgentConcurrencyHistory({
   trpc: Trpc
 }): JSX.Element {
   const working = workingSessions.length
-  const useHistory = headerDataLayer() === 'pool' ? usePoolConcurrencyHistory : useLegacyConcurrencyHistory
-  const history = useHistory(trpc, working)
+  const history = usePoolConcurrencyHistory()
 
   const buckets = useMemo(() => {
     const next =
@@ -125,32 +94,4 @@ export function AgentConcurrencyHistory({
       shareText={shareAgentConcurrency(working)}
     />
   )
-}
-
-function useLegacyConcurrencyHistory(trpc: Trpc, working: number) {
-  const [history, setHistory] = useState<HistoryResult | null>(null)
-  useEffect(() => {
-    let disposed = false
-    const load = (): void => {
-      void trpc.sessions.concurrencyHistory
-        .query()
-        .then((next) => {
-          if (!disposed && validHistory(next)) {
-            const buckets = next.buckets.map((bucket) => ({ ...bucket }))
-            const latest = buckets.at(-1)
-            if (latest) latest.count = Math.max(latest.count, working)
-            setHistory({ ...next, peak: Math.max(next.peak, working), buckets })
-          }
-        })
-        .catch(() => {})
-    }
-    load()
-    const timer = window.setInterval(load, REFRESH_MS)
-    return () => {
-      disposed = true
-      window.clearInterval(timer)
-    }
-  }, [trpc, working])
-
-  return history
 }

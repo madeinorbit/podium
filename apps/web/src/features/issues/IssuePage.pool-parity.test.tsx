@@ -25,8 +25,7 @@ import { IssuePage } from './IssuePage'
 import { IssuePanelView } from './IssuePanelView'
 import { PoolIssuePage } from './pool-issue-page'
 
-let layer: 'legacy' | 'pool' = 'legacy'
-let forbidden = false, legacyReads = 0
+let forbidden = true, legacyReads = 0
 let pool: MobxPool
 let startupHost: PoolHost | undefined
 const poolReads = vi.fn()
@@ -64,7 +63,6 @@ vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (owner: unknown) => unknown) => select(state),
   useReplicaIssues: () => { recordSliceDerivation(replica, 'replica.issueViews'); return state.issues },
 }))
-vi.mock('@/lib/pane-data-layer', () => ({ paneDataLayer: () => layer }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => {
     // biome-ignore lint/correctness/useHookAtTopLevel: The test selects its host before mounting and clears it only after cleanup.
@@ -148,10 +146,10 @@ function rendered(root: Element): unknown {
 }
 const actions = () => ({ select: select.mock.calls, read: markRead.mock.calls, view: setView.mock.calls, pane: setPane.mock.calls, navigate: navigate.mock.calls })
 function wrap(child: ReactNode) { return <TooltipProvider><ConfirmProvider><OperatorFocusProvider missionId="root">{child}</OperatorFocusProvider></ConfirmProvider></TooltipProvider> }
-async function arm(surface: 'page' | 'panel' | 'list', mode: 'legacy' | 'pool') {
-  layer = mode; forbidden = mode === 'pool'; legacyReads = 0; storeStats.reset()
+async function arm(surface: 'page' | 'panel' | 'list') {
+  forbidden = true; legacyReads = 0; storeStats.reset()
   const issue = legacyIssues.find(row => row.id === 'root')!
-  const view = render(wrap(surface === 'page' ? <IssuePage issue={mode === 'pool' ? { ...issue, title: 'Stale caller title' } : issue}
+  const view = render(wrap(surface === 'page' ? <IssuePage issue={{ ...issue, title: 'Stale caller title' }}
     orderedIds={[asIssueId('parent'), issue.id, asIssueId('target')]} onBack={vi.fn()} onNavigate={navigate} />
     : <IssuePanelView cwd={surface === 'list' ? '/unknown' : '/synthetic/work'} issueId={surface === 'panel' ? issue.id : undefined} />))
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
@@ -176,16 +174,10 @@ async function arm(surface: 'page' | 'panel' | 'list', mode: 'legacy' | 'pool') 
 }
 
 beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW); storeStats.enable(); seed() })
-afterEach(() => { forbidden = false; cleanup(); startupHost = undefined; pool.dispose(); storeStats.enable(false); storeStats.reset(); vi.restoreAllMocks(); vi.clearAllMocks() })
+afterEach(() => { forbidden = true; cleanup(); startupHost = undefined; pool.dispose(); storeStats.enable(false); storeStats.reset(); vi.restoreAllMocks(); vi.clearAllMocks() })
 describe('issue page rendered pool parity', () => {
   it.each(['page', 'panel', 'list'] as const)('preserves the %s text, labels, order, layout and loader results with zero legacy derivations', async surface => {
-    const old = await arm(surface, 'legacy')
-    expect(old.reads).toBeGreaterThan(0)
-    if (surface !== 'list') expect(old.counts.some(([name, count]) => name.startsWith('issue-page.') && count > 0)).toBe(true)
-    vi.clearAllMocks()
-    const next = await arm(surface, 'pool')
-    expect(next.main).toEqual(old.main)
-    expect(next.expanded).toEqual(old.expanded)
+    const next = await arm(surface)
     expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
     expect(next.counts.filter(([name]) => name.startsWith('issue-page.') || name === 'replica.issueViews')).toEqual([])
@@ -200,12 +192,8 @@ describe('issue page rendered pool parity', () => {
       makeIssue({ id: 'tip', seq: 24, title: 'Staffed continuation', stage: 'backlog', repoPath: '/synthetic', repoId: 'R', prefix: 'SYN',
         deps: [{ id: 'hop', type: 'discovered-from' }], createdAt: STAMP, updatedAt: STAMP }),
     ], [session('tip-worker', 'tip')])
-    const old = await arm('panel', 'legacy')
-    expect(old.text).toContain('Work continued in SYN-24')
-    vi.clearAllMocks()
-    const next = await arm('panel', 'pool')
-    expect(next.main).toEqual(old.main)
-    expect(next.expanded).toEqual(old.expanded)
+    const next = await arm('panel')
+    expect(next.text).toContain('Work continued in SYN-24')
     expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
   })
@@ -213,8 +201,8 @@ describe('issue page rendered pool parity', () => {
   it('preserves the fallback list close dialog, working members, child counts, question and delivery words', async () => {
     pool.dispose()
     seed({ parentId: undefined })
-    async function closeFromList(mode: 'legacy' | 'pool') {
-      layer = mode; forbidden = mode === 'pool'; legacyReads = 0
+    async function closeFromList() {
+      forbidden = true; legacyReads = 0
       const view = render(wrap(<IssuePanelView cwd="/unknown" />))
       await screen.findByRole('textbox', { name: 'Search tasks' })
       const row = (await screen.findAllByTestId('explorer-row')).find(node => node.textContent?.includes('Exact page title'))
@@ -227,19 +215,16 @@ describe('issue page rendered pool parity', () => {
       cleanup()
       return result
     }
-    const old = await closeFromList('legacy')
-    expect(old.text).toContain('still working')
+    const next = await closeFromList()
+    expect(next.text).toContain('still working')
     expect(old.text).toContain('A synthetic decision?')
     expect(old.text).toContain('awaiting delivery')
-    vi.clearAllMocks()
-    const next = await closeFromList('pool')
-    expect(next.tree).toEqual(old.tree)
     expectPoolOutput(next.tree, 'close dialog')
     expect(next.reads).toBe(0)
   })
 
   it('keeps pool hooks stable through the real host attach from no pool to an attached pool', async () => {
-    layer = 'pool'; forbidden = true; legacyReads = 0
+    forbidden = true; legacyReads = 0
     const errors = vi.fn(), back = vi.fn(), initial = vi.fn()
     startupHost = createPoolHost({ screens: [{ initialize: () => {}, enabled: () => true }], dev: false })
     const issue = legacyIssues.find(row => row.id === 'root')!
@@ -268,7 +253,7 @@ describe('issue page rendered pool parity', () => {
   })
 
   it('leaves once per issue ID, matching the legacy latch when the same row returns', async () => {
-    layer = 'pool'; forbidden = true
+    forbidden = true
     const issue = legacyIssues.find(row => row.id === 'root')!, back = vi.fn()
     const payload = pool.row('issue', issue.id)
     if (!payload || typeof payload === 'symbol') throw new Error('Missing eviction fixture payload')

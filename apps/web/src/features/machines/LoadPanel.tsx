@@ -1,20 +1,9 @@
-import { headerDataLayer } from '@/lib/header-data-layer'
+
 import { useHeaderActions, usePoolPanelMetric, usePoolHostAggregate, usePoolSessionLabels } from '@/app/header-data'
-import { shallowEqual } from '@podium/client-core/store'
-import {
-  DEFAULT_LOAD_PER_CORE,
-  formatMemBytes,
-  hostDiskView,
-  hostLoadView,
-  hostMemoryView,
-  createHostSessionAggregatesSelector,
-  panelLabel,
-  reclaimSpaceLabel,
-} from '@podium/client-core/viewmodels'
+import { DEFAULT_LOAD_PER_CORE, formatMemBytes, hostDiskView, hostLoadView, hostMemoryView, panelLabel, reclaimSpaceLabel } from '@podium/client-core/viewmodels'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import { RotateCw } from 'lucide-react'
-import { useMemo, type JSX, type ReactNode } from 'react'
-import { useHostMetrics, useStoreSelector } from '@/app/store'
+import { type JSX, type ReactNode } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
@@ -82,11 +71,8 @@ export function LoadPanel({
   onOpenConnection: () => void
   onOpenReclaim?: () => void
 }): JSX.Element {
-  const useMetric = headerDataLayer() === 'pool' ? usePoolPanelMetric : useLegacyPanelMetric
-  const metric = useMetric(machineId)
+  const metric = usePoolPanelMetric(machineId)
   const { trpc, setView, setSettingsTab } = useHeaderActions()
-  const useSessions = headerDataLayer() === 'pool' ? useEmptySessions : useLegacyLoadSessions
-  const sessions = useSessions()
   const lifecycle = useHostLifecycleSettings()
   const hibernation = lifecycle?.hibernation ?? null
   const worktreeGc = lifecycle?.worktreeGc ?? null
@@ -117,8 +103,7 @@ export function LoadPanel({
   // it is read. Until the walk answers the row is drawn empty rather than
   // withheld: appearing late would push the whole body down a line.
   const disk = data?.disk ? hostDiskView(data.disk) : null
-  const useAggregate = headerDataLayer() === 'pool' ? usePoolHostAggregate : useLegacyLoadAggregate
-  const aggregate = useAggregate(machineId)
+  const aggregate = usePoolHostAggregate(machineId)
   const idleSplit = aggregate.idleSplit
   const { inventory: reclaimable } = useReclaimInventory(trpc, machineId)
   const reclaimCount = reclaimable?.candidates.length ?? 0
@@ -130,10 +115,9 @@ export function LoadPanel({
   const projectBytes = data?.projects.reduce((sum, p) => sum + p.bytes, 0) ?? 0
   const seg = (bytes: number): string => `${total > 0 ? (bytes / total) * 100 : 0}%`
 
-  const useLabels = headerDataLayer() === 'pool' ? usePoolSessionLabels : useEmptyLabels
-  const labels = useLabels(data?.agents.map((agent) => agent.sessionId) ?? [])
+  const labels = usePoolSessionLabels(data?.agents.map((agent) => agent.sessionId) ?? [])
   const sessionLabel = (sessionId: SessionId): string => {
-    const s = headerDataLayer() === 'pool' ? labels[sessionId] : sessions.find((s) => s.sessionId === sessionId)
+    const s = labels[sessionId]
     if (!s) return sessionId.slice(0, 8)
     return `${panelLabel(s.agentKind)} — ${s.title}`
   }
@@ -415,11 +399,6 @@ export function LoadPanel({
   )
 }
 
-function useLegacyPanelMetric(machineId: MachineId | undefined) {
-  const metrics = useHostMetrics()
-  return machineId === undefined ? metrics[0] : metrics.find((metric) => metric.machineId === machineId)
-}
-
 /**
  * When what you are reading was measured. A wall clock rather than a counted age
  * — the panel is open for seconds at a time, and a figure that ticks in the
@@ -528,12 +507,3 @@ function ProcessRow({
   )
 }
 
-function useLegacyLoadSessions() { return useStoreSelector((state) => state.sessions) }
-const EMPTY_SESSIONS: ReturnType<typeof useLegacyLoadSessions> = []
-function useEmptySessions() { return EMPTY_SESSIONS }
-function useEmptyLabels() { return {} as Record<string, ReturnType<typeof useLegacyLoadSessions>[number] | undefined> }
-function useLegacyLoadAggregate(machineId: MachineId | undefined) {
-  const sessions = useLegacyLoadSessions()
-  const select = useMemo(() => createHostSessionAggregatesSelector(), [])
-  return select(sessions).forMachine(machineId)
-}

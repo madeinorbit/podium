@@ -1,19 +1,14 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { Store } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  type SidebarProject,
-  type SidebarSections,
-  worklistSlice,
-} from '@podium/client-core/viewmodels'
+import { type SidebarProject, type SidebarSections } from '@podium/client-core/viewmodels'
 import type { LOADING, MobxPool } from '@podium/client-graph'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 
 import { useCallback } from 'react'
-import { useSlice, useStoreSelector } from '@/app/store'
+import { useStoreSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 
 const EMPTY_PROJECTS: SidebarProject[] = []
 const EMPTY_SECTIONS: SidebarSections = { pinnedRepos: [], repos: [], pinnedWorktrees: [] }
@@ -28,15 +23,6 @@ function useLayout(): SidebarState {
 }
 
 export function useSidebarProjects(): SidebarProject[] {
-  const useRead = sidebarDataLayer() === 'legacy' ? useLegacyProjects : usePoolProjects
-  return useRead()
-}
-
-function useLegacyProjects(): SidebarProject[] {
-  return useSlice(worklistSlice).projects
-}
-
-function usePoolProjects(): SidebarProject[] {
   const layout = useLayout()
   const read = useCallback(
     (pool: MobxPool) =>
@@ -50,18 +36,7 @@ function usePoolProjects(): SidebarProject[] {
   return useWorklistPoolProjection(read, EMPTY_PROJECTS)
 }
 
-/** The palette only needs the pool's discovered project/worktree tree.
- * It never subscribes to worklistSlice or re-runs its derivation. */
 export function useSidebarProjectSections(): SidebarSections {
-  const useRead = sidebarDataLayer() === 'legacy' ? useLegacySections : usePoolSections
-  return useRead()
-}
-
-function useLegacySections(): SidebarSections {
-  return useSlice(worklistSlice).sections
-}
-
-function usePoolSections(): SidebarSections {
   const layout = useLayout()
   const read = useCallback(
     (pool: MobxPool): SidebarSections => {

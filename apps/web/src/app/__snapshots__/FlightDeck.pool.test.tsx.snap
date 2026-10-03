@@ -1,0 +1,64 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`rendered mission pane parity > keeps archived-session reveal names/order and opens the same session > rendered output 1`] = `
+{
+  "bytes": 180410,
+  "sha256": "a2af5f08f499bfc3346e75dbaf4b9233f40de7201b1c2c855be351e584f2e3ad",
+}
+`;
+
+exports[`rendered mission pane parity > preserves folded bar words, labels, tick order and layout > rendered output 1`] = `
+{
+  "bytes": 6883,
+  "sha256": "da55c605ab459346fb1349f04a59df6e302d2ee65dd34528de4813d60ffe69bc",
+}
+`;
+
+exports[`rendered mission pane parity > preserves issue action labels and order > menu output 1`] = `
+{
+  "bytes": 9380,
+  "sha256": "74bfc23ae1fe0ea048db530ff3672ea79592efc0b642a4a4c0a2bfe74c03c500",
+}
+`;
+
+exports[`rendered mission pane parity > preserves session action labels and order > menu output 1`] = `
+{
+  "bytes": 10826,
+  "sha256": "50d5f74c13a9e31f78be0338c95b0556cbcafb9fd06f27cdb267c41b161fd5f7",
+}
+`;
+
+exports[`rendered mission pane parity > preserves visible words, labels, order and layout in full > rendered output 1`] = `
+{
+  "bytes": 161774,
+  "sha256": "951679e6c4a619a27362d42325e65de0c78545d007568e52a693e1595dab780f",
+}
+`;
+
+exports[`rendered mission pane parity > preserves visible words, labels, order and layout in handoff > rendered output 1`] = `
+{
+  "bytes": 50303,
+  "sha256": "997e93f45e858734f505c291005a1d465175e4a2120344a92e8a6d7b4141a30d",
+}
+`;
+
+exports[`rendered mission pane parity > preserves visible words, labels, order and layout in needs-you > rendered output 1`] = `
+{
+  "bytes": 42424,
+  "sha256": "3bf977e01431d47440f55846630d798a005b97c5f626208405ff3e9965fc2808",
+}
+`;
+
+exports[`rendered mission pane parity > preserves visible words, labels, order and layout in waterfall > rendered output 1`] = `
+{
+  "bytes": 77425,
+  "sha256": "60d1535a43dc6766ef4cb2024ec4d6e8da16fefb316fe02363416bb12c8a9e89",
+}
+`;
+
+exports[`rendered mission pane parity > preserves visible words, labels, order and layout in working > rendered output 1`] = `
+{
+  "bytes": 22918,
+  "sha256": "928162ba3f928ff7bacfba4a7efec6db6d13081a70ab1ed64ad13dcb2d4b8c52",
+}
+`;

@@ -7,19 +7,17 @@ import { makeIssue } from '@/lib/test-issue'
 import { EMPTY_BOARD, useBoardBase, useBoardData } from './board-pool-data'
 import { useBoardCloseGuard } from './board-pool-row'
 import { useExplorerData } from './explorer/explorer-pool-data'
-import { IssueBulkCloseDialog, useIssueCloseGuard } from './issue-lifecycle'
+import { IssueBulkCloseDialog } from './issue-lifecycle'
 import { DEFAULT_DISPLAY } from './issues-display'
 import { useIssueStatusApply } from './use-issue-status-apply'
 
 const state = vi.hoisted(() => ({
-  pool: true,
   attached: false,
   issueReads: vi.fn(),
   sessionReads: vi.fn(),
   close: vi.fn(async () => {}),
   update: vi.fn(async () => {}),
 }))
-vi.mock('./board-data-layer', () => ({ boardDataLayer: () => (state.pool ? 'pool' : 'legacy') }))
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => {
     state.issueReads()
@@ -59,7 +57,6 @@ vi.mock('@/app/store-worklist-pool', () => ({
 }))
 afterEach(() => {
   cleanup()
-  state.pool = true
   state.attached = false
   state.issueReads.mockClear()
   state.sessionReads.mockClear()
@@ -71,17 +68,14 @@ afterEach(() => {
 })
 function useBoundary() {
   const base = useBoardBase()
-  const board = useBoardData(
-    {
+  const board = useBoardData({
       display: DEFAULT_DISPLAY,
       filter: {},
       expanded: [],
       isMobile: false,
       openIssueId: base.openIssueId,
       now: 0,
-    },
-    base,
-  )
+    })
   const explorer = useExplorerData(null, '')
   useBoardCloseGuard(board.sessions)
   return { board, explorer }
@@ -106,16 +100,6 @@ it('keeps board-only pool reads off both legacy collections before and after att
         0,
       ),
   ).toBe(0)
-})
-it('records actual legacy derivations as the switch-off positive control', () => {
-  state.pool = false
-  issueBoardStats.enable()
-  storeStats.enable()
-  renderHook(useBoundary)
-  expect(state.issueReads).toHaveBeenCalled()
-  expect(state.sessionReads).toHaveBeenCalled()
-  expect(issueBoardStats.read()['legacy.board'] ?? 0).toBeGreaterThan(0)
-  expect(issueBoardStats.read()['legacy.explorer'] ?? 0).toBeGreaterThan(0)
 })
 it('keeps the pool bulk-close dialog off the legacy session collection', () => {
   render(

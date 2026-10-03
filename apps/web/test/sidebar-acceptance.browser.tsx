@@ -4,12 +4,7 @@ import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/
 import { bindSidebarPerf, createSidebarPerf, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
-import { useReplicaIssues } from '../src/app/store'
-import {
-  createKernelReplica,
-  createSideCache,
-  replicaNamespaceKey,
-} from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, replicaNamespaceKey } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
@@ -19,14 +14,8 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { allIssueViewModels } from '../../../packages/client-core/src/replica/issue-view-cache'
 import { buildFlightDeckRows } from '../../../packages/client-core/src/viewmodels/mission'
-import {
-  buildCorpus,
-  buildCorpusCell,
-  FIXED_NOW,
-} from '../../../packages/worklist-proto/harness/src/fixture'
-import {
-  pickTargets,
-} from '../../../packages/worklist-proto/shared/src/scenarios'
+import { buildCorpus, buildCorpusCell, FIXED_NOW } from '../../../packages/worklist-proto/harness/src/fixture'
+import { pickTargets } from '../../../packages/worklist-proto/shared/src/scenarios'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { FlightDeck } from '../src/app/FlightDeck'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
@@ -41,14 +30,8 @@ import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { IssuePage } from '../src/features/issues/IssuePage'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { paneDataLayer } from '../src/lib/pane-data-layer'
-import {
-  bindSidebarRowMeasurements,
-  createPaintBoundary,
-  initializeSidebarMeasurements,
-} from '../src/features/worklist/sidebar-measurements'
+import { bindSidebarRowMeasurements, createPaintBoundary } from '../src/features/worklist/sidebar-measurements'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
-import { initializeSidebarDataLayer, sidebarDataLayer } from '../src/lib/sidebar-data-layer'
 import '../src/index.css'
 import '../src/styles.css'
 
@@ -64,8 +47,6 @@ const full = params.get('surface') === 'full'
 const pageSurface = params.get('surface') === 'page'
 const measured = params.get('measure') === '1'
 const errors: string[] = []
-initializeSidebarDataLayer({ get: () => null })
-initializeSidebarMeasurements()
 if (measured) storeStats.enable()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
@@ -208,8 +189,7 @@ function MeasurementBinding() {
     const unbindRows = bindSidebarRowMeasurements({
       owner: runtime,
       perf: meter,
-      mode: sidebarDataLayer(),
-    })
+          })
     return () => {
       unbindRows()
       unbind()
@@ -237,7 +217,7 @@ function Fixture() {
       .getSnapshot()
       .refreshRepos()
       .then(() => {
-        ready = sidebarDataLayer() === 'legacy' || pool !== null
+        ready = pool !== null
       })
     return () => {
       ready = false
@@ -290,16 +270,9 @@ function IssuePageProbe({ ids }: { ids: string[] }) {
         onClick={() => { void markIssueRead(asIssueId(id)); setOpenIssueId(asIssueId(id)) }}>Open {id}</button>)}
     </div>
     {openIssueId && <div className="flex min-h-0 flex-1" data-fixture-issue-page={openIssueId}>
-      {paneDataLayer() === 'pool'
-        ? <IssuePage issue={{ id: openIssueId } as IssueViewModel} orderedIds={ids.map(asIssueId)} onBack={() => setOpenIssueId(null)} onNavigate={setOpenIssueId} />
-        : <LegacyIssuePageProbe id={openIssueId} ids={ids} />}
+      {<IssuePage issue={{ id: openIssueId } as IssueViewModel} orderedIds={ids.map(asIssueId)} onBack={() => setOpenIssueId(null)} onNavigate={setOpenIssueId} />}
     </div>}
   </div>
-}
-function LegacyIssuePageProbe({ id, ids }: { id: string; ids: string[] }) {
-  const issue = useReplicaIssues().find(issue => issue.id === id)
-  const setOpenIssueId = useStoreSelector(s => s.setOpenIssueId)
-  return issue ? <IssuePage issue={issue} orderedIds={ids.map(asIssueId)} onBack={() => setOpenIssueId(null)} onNavigate={setOpenIssueId} /> : null
 }
 
 async function show(name = 'acceptance-alice', rebuild = false) {
@@ -370,8 +343,8 @@ function patch(entity: string, id: string, changes: Record<string, unknown>) {
 
 const fixture = {
   ready: () => ready,
-  mode: sidebarDataLayer,
-  paneMode: paneDataLayer,
+  mode: () => 'pool' as const,
+  paneMode: () => 'pool' as const,
   errors: () => [...errors],
   corpus: corpus.stats,
   targets,

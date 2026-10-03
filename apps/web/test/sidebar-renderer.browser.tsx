@@ -7,28 +7,15 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
-import {
-  attachWorklistPool,
-  useWorklistPool,
-  worklistPoolSurvivors,
-} from '../src/app/store-worklist-pool'
+import { attachWorklistPool, useWorklistPool, worklistPoolSurvivors } from '../src/app/store-worklist-pool'
 import { SidebarPerfPanel } from '../src/features/worklist/SidebarPerfPanel'
 import { SidebarRail } from '../src/features/worklist/SidebarRail'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
-import {
-  bindSidebarRowMeasurements,
-  createPaintBoundary,
-  initializeSidebarMeasurements,
-  observeSidebarInputs,
-} from '../src/features/worklist/sidebar-measurements'
+import { bindSidebarRowMeasurements, createPaintBoundary, observeSidebarInputs } from '../src/features/worklist/sidebar-measurements'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
-import { initializeSidebarDataLayer, sidebarDataLayer } from '../src/lib/sidebar-data-layer'
 import { createSidebarFixture } from './sidebar-fixture'
 import '../src/index.css'
 import '../src/styles.css'
-
-initializeSidebarDataLayer({ get: () => null })
-initializeSidebarMeasurements()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 const count = Number(new URLSearchParams(location.search).get('rows') ?? 18)
@@ -55,7 +42,7 @@ function WorklistProofMeasurements() {
     proofPerf = perf
     const paint = createPaintBoundary()
     const unbind = bindSidebarPerf(owner, perf, paint.afterPaint)
-    const unbindRows = bindSidebarRowMeasurements({ owner, perf, mode: sidebarDataLayer() })
+    const unbindRows = bindSidebarRowMeasurements({ owner, perf })
     const stopInput = observeSidebarInputs(perf, paint.afterPaint)
     return () => {
       stopInput()
@@ -79,7 +66,7 @@ function Fixture() {
       .getSnapshot()
       .refreshRepos()
       .then(() => {
-        ready = sidebarDataLayer() === 'legacy' || pool !== null
+        ready = pool !== null
       })
     return () => {
       runtime = undefined
@@ -100,7 +87,7 @@ function Fixture() {
         {rail ? <SidebarRail /> : <SidebarUnified />}
       </aside>
       <div className="p-6 text-sm text-text-dim">
-        Synthetic StoreProvider fixture · {sidebarDataLayer()}
+        Synthetic StoreProvider fixture · {'pool'}
       </div>
       {worklistProof ? (
         <>
@@ -149,8 +136,7 @@ const fixture = {
     synthetic.patch('issueProjection', `synthetic-${count - 1}`, patch),
   select: (id: string) => runtime?.getSnapshot().setSelectedIssueId(asIssueId(id)),
   state: () => ({
-    mode: sidebarDataLayer(),
-    selected: runtime?.getSnapshot().selectedIssueId,
+        selected: runtime?.getSnapshot().selectedIssueId,
     pane: runtime?.getSnapshot().paneA,
     projectOrder: runtime?.getSnapshot().sidebarSettings.repoOrder,
     coarseNow: runtime?.getSnapshot().coarseNow,

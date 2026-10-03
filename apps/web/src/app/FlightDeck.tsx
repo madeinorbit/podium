@@ -1,105 +1,21 @@
+import PoolFlightDeck from './FlightDeckPool'
 import type { SessionView } from '@podium/client-core/session-values'
-import { useStoreHandle } from '@podium/client-core/react'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  FLIGHT_DECK_BRIEF_CUTOFF_KEY,
-  FLIGHT_DECK_FOLDS_KEY,
-  FLIGHT_DECK_MODE_KEY,
-} from '@podium/client-core/ui-state'
-import {
-  archivedSessionsForIssue,
-  buildFlightDeckRows,
-  type CollapsedSummary,
-  type DeckIssueState,
-  type DeckState,
-  deckIssueState,
-  deckSessions,
-  deckViewEmptyLine,
-  type FlightDeckFoldMap,
-  type FlightDeckFoldState,
-  type FlightDeckMode,
-  type FlightDeckRow,
-  flightDeckRowDefaultFolded,
-  flightDeckRowHasPayload,
-  flightDeckRowIsFolded,
-  type IssueContinuation,
-  type IssueNavigationModel,
-  type IssueNote,
-  isCoordinatorSession,
-  issueAbandoned,
-  issueContinuation,
-  issueDisplayTitle,
-  issueNote,
-  issueOwnContentUnread,
-  type MissionDeparture,
-  machineViewsFromWire,
-  missionDepartures,
-  missionIssueIds,
-  missionProgress,
-  missionRootFor,
-  motionPhase,
-  nativeSubagentRows,
-  type PresenceNote,
-  presenceNote,
-  readFlightDeckFolds,
-  reposToViews,
-  reuseFlightDeckRows,
-  type SessionRole,
-  selectedMissionRoot,
-  sessionAsksOnIssue,
-  sessionNeedsHuman,
-  sessionRole,
-  sessionSettled,
-  sessionUnreadEmphasized,
-  continuationPresenceLine as sharedContinuationPresenceLine,
-  spawnIssueAgent,
-  subtreeUnread,
-  treeGuides,
-  writeFlightDeckFolds,
-} from '@podium/client-core/viewmodels'
+import { FLIGHT_DECK_BRIEF_CUTOFF_KEY, FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
+import { type CollapsedSummary, type DeckIssueState, type DeckState, deckSessions, deckViewEmptyLine, type FlightDeckFoldMap, type FlightDeckFoldState, type FlightDeckMode, type FlightDeckRow, flightDeckRowDefaultFolded, flightDeckRowHasPayload, flightDeckRowIsFolded, type IssueContinuation, type IssueNavigationModel, type IssueNote, isCoordinatorSession, issueAbandoned, issueOwnContentUnread, type MissionDeparture, machineViewsFromWire, motionPhase, nativeSubagentRows, type PresenceNote, readFlightDeckFolds, reuseFlightDeckRows, type SessionRole, sessionAsksOnIssue, sessionNeedsHuman, sessionRole, sessionSettled, sessionUnreadEmphasized, continuationPresenceLine as sharedContinuationPresenceLine, spawnIssueAgent, subtreeUnread, treeGuides, writeFlightDeckFolds } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
-import type { IssueId, MachineId, SessionId} from '@podium/model/browser'
+import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import {
-  Archive,
-  ArrowDown,
-  ArrowRight,
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
-  Ellipsis,
-  Hourglass,
-  Maximize2,
-  Minimize2,
-  Search,
-  UserPlus,
-  X,
-} from 'lucide-react'
+import { Archive, ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Ellipsis, Hourglass, Maximize2, Minimize2, Search, UserPlus, X } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import type {
-  CSSProperties,
-  JSX,
-  KeyboardEvent as ReactKeyboardEvent,
-  MouseEvent as ReactMouseEvent,
-  ReactNode,
-  PointerEvent as ReactPointerEvent,
-} from 'react'
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { UnreadDot } from '@/components/UnreadMark'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
@@ -107,12 +23,7 @@ import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
 import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
 import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
-import {
-  type AgentRowStatus,
-  agentFleetStatus,
-  CapabilityAgentItem,
-  candidateFromAvailability,
-} from '@/lib/agent-capability'
+import { type AgentRowStatus, agentFleetStatus, CapabilityAgentItem, candidateFromAvailability } from '@/lib/agent-capability'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
@@ -130,19 +41,12 @@ import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useSessionHovered } from './session-hover'
-import {
-  CLOSE_RIGHT_PANEL,
-  OPEN_RIGHT_PANEL_EVENT,
-  REVEAL_IN_DECK_EVENT,
-  RIGHT_PANEL_KEY,
-  readRightPanel,
-} from './shell-state'
-import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
-import { paneDataLayer } from '@/lib/pane-data-layer'
+import { CLOSE_RIGHT_PANEL, OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY, readRightPanel } from './shell-state'
+import { useSessionDraft, useStoreSelector } from './store'
 import type { MissionViewValues, MissionRowPresentation, MissionHandoffValues } from '@podium/client-graph/mission-view'
-import { measureLegacyMission, useMissionPaneCensus } from './mission-pane-perf'
+import { useMissionPaneCensus } from './mission-pane-perf'
 
-const PoolFlightDeck = lazy(() => import('./FlightDeckPool'))
+
 
 /**
  * TWO QUESTIONS, NOT ONE SLIDER (POD-1452). `Active` sat between `Full spine`
@@ -185,35 +89,11 @@ type MissionAgentMenuProps = {
   repoPath: string
   machineId?: MachineId | null
   onAdd: (agentKind?: IssueAgentKind) => Promise<unknown>
-  poolHosts?: ReturnType<typeof machineViewsFromWire>
+  poolHosts: ReturnType<typeof machineViewsFromWire>
 }
 
 function MissionAgentMenu(props: MissionAgentMenuProps): JSX.Element {
-  return props.poolHosts
-    ? <MissionAgentMenuContent {...props} hosts={props.poolHosts} />
-    : <LegacyMissionAgentMenu {...props} />
-}
-
-function LegacyMissionAgentMenu({
-  defaultAgent,
-  repoPath,
-  machineId,
-  onAdd,
-}: MissionAgentMenuProps): JSX.Element {
-  const { repos, machines } = useStoreSelector(
-    (s) => ({ repos: s.repos, machines: s.machines }),
-    shallowEqual,
-  )
-  /** The hosts this issue's agents could land on. Empty = unknowable (no machines
-   *  recorded for the repo), which stays offered rather than guessing. */
-  const hosts = useMemo(() => {
-    const views = machineViewsFromWire(machines)
-    if (machineId) return views.filter((view) => view.machine.id === machineId)
-    const repo = reposToViews(repos).find((r) => r.path === repoPath)
-    const ids = new Set((repo?.machines ?? []).map((m) => m.machineId))
-    return views.filter((view) => ids.has(view.machine.id))
-  }, [machines, machineId, repos, repoPath])
-  return <MissionAgentMenuContent defaultAgent={defaultAgent} repoPath={repoPath} onAdd={onAdd} hosts={hosts} />
+  return <MissionAgentMenuContent {...props} hosts={props.poolHosts} />
 }
 
 function MissionAgentMenuContent({ defaultAgent, onAdd, hosts }: MissionAgentMenuProps & { hosts: ReturnType<typeof machineViewsFromWire> }): JSX.Element {
@@ -1515,7 +1395,6 @@ const TaskRow = memo(
     displayTitle,
     renameSeed,
     byId,
-    pooled = false,
     presentation,
     carries,
     mode,
@@ -1547,8 +1426,7 @@ const TaskRow = memo(
      *  read mode; a string keeps the editor and its no-op comparison in sync. */
     renameSeed: string | null
     byId: ReadonlyMap<string, IssueNavigationModel>
-    pooled?: boolean
-    presentation?: MissionRowPresentation
+    presentation: MissionRowPresentation
     /** Which ancestor guide rails cross this row — see `treeGuides`. */
     carries: readonly boolean[]
     /** The tone of the rail at each of those levels — see `railTones`. */
@@ -1590,8 +1468,8 @@ const TaskRow = memo(
     const payload = hasPayload(row)
     const bandLeft = SPINE_PAD + row.depth * DEPTH_STEP
     const ownRailX = SPINE_PAD + (row.depth - 1) * DEPTH_STEP + RAIL_INSET
-    if (pooled && !presentation) throw new Error('Pool mission row has no presentation values')
-    const state = pooled ? presentation!.state : deckIssueState(row.issue, row.sessions, byId)
+    if (!presentation) throw new Error('Pool mission row has no presentation values')
+    const state = presentation!.state
     const sessions = deckSessions(row, mode)
     /**
      * A ROW THAT IS ONLY THE PATH TO A MATCH (POD-1245).
@@ -1621,10 +1499,10 @@ const TaskRow = memo(
     const proposed = row.issue.stage === 'proposed'
     const bandHeight = proposed ? PROPOSED_BAND : BAND_HEIGHT
     const mid = proposed ? PROPOSED_MID : BAND_MID
-    const note = pooled ? presentation!.note : issueNote(row.issue, byId, row.sessions)
+    const note = presentation!.note
     // The seat is held for work that could be picked up — never under a proposal,
     // and never to restate a dependency the strip has already named above it.
-    const seat = proposed ? null : seatFor(pooled ? presentation!.presence : presenceNote(row.issue, row.sessions, byId))
+    const seat = proposed ? null : seatFor(presentation!.presence)
     // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload
     // chip: "2 running" is the thing the fold is hiding, and `3 tasks` is printed
     // two inches to the left of it.
@@ -1872,7 +1750,6 @@ const TaskRow = memo(
   },
   (previous, next) =>
     previous.row === next.row &&
-    previous.pooled === next.pooled &&
     previous.presentation === next.presentation &&
     previous.displayTitle === next.displayTitle &&
     previous.renameSeed === next.renameSeed &&
@@ -2957,19 +2834,17 @@ export interface FlightDeckPreferences {
   setPreferredView: (view: FlightDeckView) => void
 }
 export interface FlightDeckSource {
-  kind: 'legacy' | 'pool'
   issues: IssueNavigationModel[]
   sessions: SessionView[]
   allWorktreePaths: string[]
-  mission?: MissionViewValues
+  mission: MissionViewValues
   handoff?: MissionHandoffValues
-  agentHosts?: ReturnType<typeof machineViewsFromWire>
+  agentHosts: ReturnType<typeof machineViewsFromWire>
   issue: (id: string) => IssueNavigationModel | undefined
   session: (id: string) => SessionView | undefined
   rootFor: (id: string) => string | null
   attached: (id: string) => readonly SessionView[]
-  legacyRead?: <T>(operation: string, read: () => T) => T
-  IssueMenu?: typeof IssueContextMenu
+  IssueMenu: typeof IssueContextMenu
 }
 
 export function FlightDeck(props: FlightDeckProps): JSX.Element {
@@ -2990,24 +2865,7 @@ export function FlightDeck(props: FlightDeckProps): JSX.Element {
   const mode: FlightDeckMode = view === 'waterfall' || view === 'handoff' ? 'full' : view
   const modes = developmentEnabled ? [...MODES, WATERFALL_MODE, TIMELINE_MODE] : MODES
   const preferences = { view, mode, modes, setPreferredView }
-  return paneDataLayer() === 'pool'
-    ? <Suspense fallback={<SettlingDeck />}><PoolFlightDeck {...props} preferences={preferences} /></Suspense>
-    : <LegacyFlightDeck {...props} preferences={preferences} />
-}
-
-function LegacyFlightDeck(props: FlightDeckProps & { preferences: FlightDeckPreferences }): JSX.Element {
-  const owner = useStoreHandle()
-  const { sessions, repos } = useStoreSelector(store => ({ sessions: store.sessions, repos: store.repos }), shallowEqual)
-  const issues = useReplicaIssues()
-  const allWorktreePaths = useMemo(() => reposToViews(repos).flatMap(repo => repo.worktrees.map(worktree => worktree.path)), [repos])
-  const source = useMemo<FlightDeckSource>(() => ({ kind: 'legacy', issues, sessions, allWorktreePaths,
-    issue: id => issues.find(issue => issue.id === id),
-    session: id => sessions.find(session => session.sessionId === id),
-    rootFor: id => missionRootFor(issues, asIssueId(id))?.id ?? id,
-    attached: id => sessions.filter(session => session.issueId === id),
-    legacyRead: (operation, read) => measureLegacyMission(owner, operation, read),
-  }), [issues, sessions, allWorktreePaths, owner])
-  return <FlightDeckContent {...props} source={source} />
+  return <PoolFlightDeck {...props} preferences={preferences} />
 }
 
 export function FlightDeckContent({
@@ -3016,12 +2874,8 @@ export function FlightDeckContent({
   const { issues, sessions, allWorktreePaths } = source
   const { view, mode, modes, setPreferredView } = preferences
   const poolValues = source.mission
-  const IssueMenu = source.IssueMenu ?? IssueContextMenu
-  if (source.kind === 'pool' && !poolValues) throw new Error('Pool mission pane has no supplied values')
-  const legacyRead = useCallback(<T,>(operation: string, read: () => T): T => {
-    if (source.kind === 'pool') throw new Error('Pool mission pane reached a legacy reader')
-    return source.legacyRead ? source.legacyRead(operation, read) : read()
-  }, [source.kind, source.legacyRead])
+  const IssueMenu = source.IssueMenu
+
   const {
     selectedIssueId,
     paneA,
@@ -3126,20 +2980,20 @@ export function FlightDeckContent({
   // `selectedMissionRoot`, not `missionRootFor`: a persisted selection left
   // pointing at an empty draft vessel is not a mission, and this column shows
   // `EmptyDeck` for it rather than a header and a gauge over nothing (POD-1112).
-  const root = poolValues ? poolValues.root : legacyRead('root', () => selectedMissionRoot(issues, sessions, selectedIssueId))
+  const root = poolValues.root
   const rootIssue = root ? source.issue(root.id) : undefined
   // Every strip's status glyph is a picker (POD-1271). The deck holds the apply
   // and its close guard once; a strip carries the id, and the REPLICA's model is
   // what the guard is handed — the mission tree's own row model is a navigation
   // shape, not the one `issueCloseConcerns` reads.
-  const rowStatus = useIssueStatusApply(poolValues?.sessions)
+  const rowStatus = useIssueStatusApply(poolValues.sessions)
   const pickRowStatus = (id: string, value: string): void => {
     const issue = source.issue(id)
     if (issue) rowStatus.pick(issue, value)
   }
   const computedRows = useMemo(
-    () => poolValues ? poolValues.rows : legacyRead('rows', () => root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
-    [issues, sessions, root, mode, allWorktreePaths, poolValues, legacyRead],
+    () => poolValues.rows,
+    [issues, sessions, root, mode, allWorktreePaths, poolValues],
   )
   const stableRowsRef = useRef<FlightDeckRow[]>([])
   const rows = useMemo(() => {
@@ -3150,11 +3004,11 @@ export function FlightDeckContent({
   const rowDisplayTitles = useMemo(
     () =>
       new Map(
-        rows.map((row) => [row.issue.id, poolValues ? (poolValues.titles.get(row.issue.id) ?? row.issue.title) : legacyRead('title', () => issueDisplayTitle(row.issue, sessions, allWorktreePaths))]),
+        rows.map((row) => [row.issue.id, (poolValues.titles.get(row.issue.id) ?? row.issue.title)]),
       ),
-    [allWorktreePaths, rows, sessions, poolValues, legacyRead],
+    [allWorktreePaths, rows, sessions, poolValues],
   )
-  const byId = useMemo(() => poolValues ? poolValues.byId : new Map(issues.map((issue) => [issue.id, issue])), [issues, poolValues])
+  const byId = useMemo(() => poolValues.byId, [issues, poolValues])
   /**
    * The session the operator is ACTUALLY in.
    *
@@ -3173,16 +3027,16 @@ export function FlightDeckContent({
   // does: resolving against the mode-filtered rows let a switch to "Needs you"
   // silently move the highlight — and the Task dock with it — to the root.
   const missionMembers = useMemo(
-    () => poolValues ? poolValues.members : legacyRead('members', () => root ? missionIssueIds(issues, root.id, sessions) : new Set<string>()),
-    [issues, root, sessions, poolValues, legacyRead],
+    () => poolValues.members,
+    [issues, root, sessions, poolValues],
   )
   const focused = resolveFocus(focusedIssueId, missionMembers, root?.id)
-  const progress = poolValues ? poolValues.progress : legacyRead('progress', () => missionProgress(issues, sessions, root?.id))
+  const progress = poolValues.progress
   // What this mission discovered and no longer owns. Derived beside the rows
   // from the same membership set, so a departure can never also be a strip.
   const allDepartures = useMemo(
-    () => poolValues ? poolValues.departures : legacyRead('departures', () => missionDepartures(issues, sessions, root?.id, allWorktreePaths)),
-    [issues, sessions, root, allWorktreePaths, poolValues, legacyRead],
+    () => poolValues.departures,
+    [issues, sessions, root, allWorktreePaths, poolValues],
   )
   const liveCount = rows[0]?.liveAgentCount ?? 0
   const workingCount = rows[0]?.workingAgentCount ?? 0
@@ -3222,7 +3076,7 @@ export function FlightDeckContent({
    * hiding what that view had just promised to show.
    */
   const rootRow = rows[0]
-  const rootContinuation = poolValues ? poolValues.continuation : legacyRead('continuation', () => root ? issueContinuation(root, byId, sessions) : null)
+  const rootContinuation = poolValues.continuation
   /**
    * THE CONTINUATION IS A DEPARTURE — the one with an action attached.
    *
@@ -3243,7 +3097,7 @@ export function FlightDeckContent({
   )
   const continuationState =
     allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
-  const rootNote = poolValues ? poolValues.note : legacyRead('note', () => root ? issueNote(root, byId, sessions) : null)
+  const rootNote = poolValues.note
   /**
    * The mission header's roster — content, and therefore the view bar's (POD-1356).
    *
@@ -3262,7 +3116,7 @@ export function FlightDeckContent({
   // The whole slice as the fourth argument — the root's OWN sessions cannot see
   // a spin-off its agent hopped to (see `staffedSpinOff`).
   const rootSeat = rootRow
-    ? seatFor(poolValues ? poolValues.presence : legacyRead('presence', () => presenceNote(rootRow.issue, rootRow.sessions, byId, sessions)))
+    ? seatFor(poolValues.presence)
     : null
   /**
    * Why the spine is empty, when it is — and the root's OWN sessions answer it,
@@ -3270,7 +3124,7 @@ export function FlightDeckContent({
    * filtered the column down to working agents is the POD-1233 bug in a new
    * costume; a parked agent still holds the task and this must keep saying so.
    */
-  const rootEmptyNote = poolValues ? poolValues.presence : legacyRead('presence', () => root ? presenceNote(root, rootRow?.sessions ?? [], byId, sessions) : null)
+  const rootEmptyNote = poolValues.presence
   /** `done` is the note's word for "closed, and nobody is on it" — the one
    *  empty-spine state that still has a decision left in it. */
   const rootRetired = rootEmptyNote?.kind === 'done'
@@ -3394,19 +3248,7 @@ export function FlightDeckContent({
    * (`sessionsForIssueNav` drops them), so they are gathered per mission issue
    * and de-duplicated — one session may be a member of two.
    */
-  const archivedSessions = useMemo(() => {
-    if (poolValues) return poolValues.archived
-    const seen = new Set<string>()
-    const found: SessionView[] = []
-    for (const row of rows) {
-      for (const session of legacyRead('archivedRow', () => archivedSessionsForIssue(row.issue, sessions, allWorktreePaths))) {
-        if (seen.has(session.sessionId)) continue
-        seen.add(session.sessionId)
-        found.push(session)
-      }
-    }
-    return found
-  }, [rows, sessions, allWorktreePaths, poolValues, legacyRead])
+  const archivedSessions = poolValues.archived
   const [archivedOpen, setArchivedOpen] = useState(false)
   const missionSessionIds = useMemo(() => {
     const ids = new Set<string>()
@@ -3418,7 +3260,7 @@ export function FlightDeckContent({
   // Naming and lifecycle answer different questions. `draftFilling` governs
   // the temporary mission brief; the title switches as soon as the optimistic
   // rename carries a non-placeholder value, before the server clears `draft`.
-  const rootDisplayTitle = root ? poolValues ? (poolValues.titles.get(root.id) ?? root.title) : legacyRead('title', () => issueDisplayTitle(root, sessions, allWorktreePaths)) : ''
+  const rootDisplayTitle = root ? (poolValues.titles.get(root.id) ?? root.title) : ''
   const rootDraft = useSessionDraft(draftFilling ? rootSession?.sessionId : undefined)
   /**
    * The header's one paragraph, resolved and rendered in one place (POD-1455).
@@ -3660,7 +3502,7 @@ export function FlightDeckContent({
    */
   const rootFinished = Boolean(root && (root.closedReason || root.stage === 'done'))
   const [signpostClosing, setSignpostClosing] = useState(false)
-  const needsCloseGuard = useIssueCloseGuard(poolValues?.sessions)
+  const needsCloseGuard = useIssueCloseGuard(poolValues.sessions)
   const closeAndTuckRoot = (): void => {
     if (!root) return
     const id = root.id
@@ -4127,8 +3969,7 @@ export function FlightDeckContent({
             ) : view === 'handoff' ? (
               <FlightDeckHandoff
                 rootIssue={root}
-                poolValues={source.handoff}
-                legacyRead={source.legacyRead}
+                poolValues={source.handoff!}
                 issues={issues}
                 sessions={sessions}
                 visitReadAt={
@@ -4203,8 +4044,7 @@ export function FlightDeckContent({
                     displayTitle={rowDisplayTitles.get(row.issue.id) ?? row.issue.title}
                     renameSeed={renameTarget?.id === row.issue.id ? renameTarget.seed : null}
                     byId={byId}
-                    pooled={source.kind === 'pool'}
-                    presentation={poolValues?.rowPresentation.get(row.issue.id)}
+                    presentation={poolValues.rowPresentation.get(row.issue.id)!}
                     carries={guides[index] ?? []}
                     rails={rails[index] ?? []}
                     agentRail={railFor(leadTone(row.issue.id))}
@@ -4436,7 +4276,7 @@ export function FlightDeckContent({
       {rootIssue && (
         <IssueCloseDialog
           issue={rootIssue}
-          sessions={poolValues?.sessions}
+          sessions={poolValues.sessions}
           reason={signpostClosing ? 'done' : null}
           onOpenChange={(open) => setSignpostClosing(open)}
           onConfirm={closeAndTuckRoot}

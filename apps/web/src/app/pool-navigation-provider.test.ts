@@ -16,10 +16,7 @@ import { NAVIGATION_SUMMARIES, panePoolScreen } from './pane-pool-screen'
 import { preparePoolScreens, screenOptions } from '@podium/client-graph/host'
 import { attachWorklistPool } from './store-worklist-pool'
 
-const choice = vi.hoisted(() => ({ mode: 'pool' }))
-vi.mock('@/lib/pane-data-layer', () => ({ initializePaneDataLayer() {}, paneDataLayer: () => choice.mode }))
-vi.mock('@/lib/sidebar-data-layer', () => ({ initializeSidebarDataLayer() {}, sidebarDataLayer: () => 'legacy', sidebarCheckRequested: () => false }))
-afterEach(() => { navigationStats.disable(); navigationStats.reset(); missionLegacyStats.disable(); missionLegacyStats.reset(); vi.restoreAllMocks(); choice.mode = 'pool' })
+afterEach(() => { navigationStats.disable(); navigationStats.reset(); missionLegacyStats.disable(); missionLegacyStats.reset(); vi.restoreAllMocks() })
 const stamp = '2026-09-18T00:00:00.000Z'
 const tracked = <T>(read: () => T): T => computed(read).get()
 const issue = (id: string, patch: Partial<SliceIssue> = {}): SliceIssue => ({
@@ -250,15 +247,14 @@ describe('web pool navigation', () => {
     } finally { pool.dispose() }
   })
 
-  it('keeps existing screen options and preparation unchanged when the pane switch is off', () => {
-    choice.mode = 'legacy'
+  it('always prepares navigation and combines declared cold fields with other screens', () => {
     const setNavigationProvider = vi.fn(), prepare = vi.fn(), stop = vi.fn()
     const screens = [{ initialize() {}, enabled: () => true, options: () => ({ settings: true }), prepare: () => { prepare(); return stop } }, panePoolScreen]
     const runtime = { setNavigationProvider } as never
     const detach = preparePoolScreens(screens, runtime)
-    expect(screenOptions(screens, runtime)).toEqual({ settings: true })
+    expect(screenOptions(screens, runtime)).toEqual({ settings: true, summaries: NAVIGATION_SUMMARIES })
     expect(prepare).toHaveBeenCalledTimes(1)
-    expect(setNavigationProvider).not.toHaveBeenCalled()
+    expect(setNavigationProvider).toHaveBeenCalledExactlyOnceWith(loadingNavigationProvider)
     detach(); detach()
     expect(stop).toHaveBeenCalledTimes(1)
   })

@@ -130,7 +130,7 @@ it('MissionCostChip acquires the existing runtime API without a snapshot subscri
 it('FlightDeckHandoff acquires review events without a snapshot subscription', async () => {
   const ctx = setup()
   const view = render(<FlightDeckHandoff rootIssue={issue} issues={[issue]} sessions={[]}
-    visitReadAt={null} proposed={null} onOpenTranscript={() => {}} onOpenSession={() => {}} onOpenIssue={() => {}}
+    poolValues={{ crew: [], current: [{ kind: 'review', issueId: issue.id, text: 'Ready for review.' }], next: [] }} visitReadAt={null} proposed={null} onOpenTranscript={() => {}} onOpenSession={() => {}} onOpenIssue={() => {}}
   />, { wrapper: ctx.Wrapper })
   await ctx.prove()
   expect(ctx.reads.events).toHaveBeenCalledExactlyOnceWith({ since: 0, repoPath: null, subject: issue.id, limit: 200 })

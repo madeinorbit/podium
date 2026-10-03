@@ -1,9 +1,4 @@
-import {
-  asUserId,
-  type IssueId,
-  type IssueStage,
-  parseIssueStatusValue,
-} from '@podium/model/browser'
+import { asUserId, type IssueId, type IssueStage, parseIssueStatusValue } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
@@ -19,24 +14,12 @@ import { boardKeyAction } from './board-shortcuts'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssueListView } from './IssueListView'
 import { IssuePage } from './IssuePage'
-import {
-  AnchoredIssueMenu,
-  BulkBar,
-  DisplayMenu,
-  FilterMenu,
-  ProjectMenu,
-  type PropMenuKind,
-} from './IssuesFilters'
+import { AnchoredIssueMenu, BulkBar, DisplayMenu, FilterMenu, ProjectMenu, type PropMenuKind } from './IssuesFilters'
 import { IssuesKanban } from './IssuesKanban'
 import { type BoardFilter, clearChip } from './issue-board-filter'
 import { contextMenuTargets } from './issue-context-menu'
 import { IssueBulkCloseDialog, type IssueCloseReason } from './issue-lifecycle'
-import {
-  DISPLAY_KEY,
-  type IssuesDisplay,
-  readIssuesDisplay,
-  writeIssuesDisplay,
-} from './issues-display'
+import { DISPLAY_KEY, type IssuesDisplay, readIssuesDisplay, writeIssuesDisplay } from './issues-display'
 import { type IssuesKeyAction, type IssuesKeyState, issuesKeyReduce } from './issues-keys'
 import { type IssuesDisplayPatch } from './issues-view-model'
 import { useBoardBase, useBoardData } from './board-pool-data'
@@ -135,7 +118,7 @@ export function IssuesView(): JSX.Element {
 
   const options = useMemo(() => ({ display, filter: deferredFilter, expanded: [...expanded], isMobile,
     openIssueId, now, menu: ctxMenu !== null, addressed: [...keyState.selected, ...(ctxMenu?.ids ?? []), ...(bulkClose?.ids ?? []), ...(propMenu ? [propMenu.id] : [])] }), [display, deferredFilter, expanded, isMobile, openIssueId, now, ctxMenu, keyState.selected, bulkClose, propMenu])
-  const { issues, sessions, projectPaths: availableProjectPaths, view, menuInputs } = useBoardData(options, base)
+  const { issues, sessions, projectPaths: availableProjectPaths, view, menuInputs } = useBoardData(options)
   const needsCloseGuard = useBoardCloseGuard(sessions)
 
   const runMut = useCallback((promise: Promise<unknown>): void => {
@@ -477,7 +460,7 @@ export function IssuesView(): JSX.Element {
           animating out. */}
       {bulkClose && bulkCloseTargets.length > 0 && (
         <IssueBulkCloseDialog
-          sessions={base.pool ? sessions : undefined}
+          sessions={sessions}
           issues={bulkCloseTargets}
           reason={bulkClose.reason}
           busy={bulkClosing}

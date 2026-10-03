@@ -7,24 +7,14 @@ import { createHeaderFixture } from '../../test/header-fixture'
 import type { Trpc } from './trpc'
 
 afterEach(() => { cleanup(); history.replaceState(null, '', '/'); vi.resetModules() })
-it('defaults off, latches the URL override once, and gates the diagnostic on the enabled screen', async () => {
-  let module = await import('./shell-pool-screen')
-  const ui = { get: () => null }
-  expect(module.shellDataLayer()).toBe('legacy')
-  module.initializeShellDataLayer(ui)
-  history.replaceState(null, '', '/?mobxShell=1&mobxShellCheck=1')
-  module.initializeShellDataLayer(ui)
-  expect(module.shellDataLayer()).toBe('legacy'); expect(module.shellCheckRequested()).toBe(false)
-  vi.resetModules(); module = await import('./shell-pool-screen'); module.initializeShellDataLayer(ui)
-  expect(module.shellDataLayer()).toBe('pool'); expect(module.shellCheckRequested()).toBe(true)
-  history.replaceState(null, '', '/?mobxShell=0'); module.initializeShellDataLayer(ui)
-  expect(module.shellDataLayer()).toBe('pool')
-  vi.resetModules(); module = await import('./shell-pool-screen'); module.initializeShellDataLayer(ui)
-  expect(module.shellDataLayer()).toBe('legacy'); expect(module.shellCheckRequested()).toBe(false)
+it('registers shell inputs without a startup switch', async () => {
+  const { shellPoolScreen } = await import('./shell-pool-screen')
+  expect(shellPoolScreen.initialize).toBeUndefined()
+  expect(shellPoolScreen.enabled).toBeUndefined()
 })
 
 it('attaches the existing pool after mounting every reader without a legacy fallback or React hook error', async () => {
-  history.replaceState(null, '', '/?mobxSidebar=0&mobxShell=1')
+  history.replaceState(null, '', '/')
   const [{ initializePoolScreens }, { attachWorklistPool, useWorklistPool }, reads, { StoreProvider, useStoreHandle }, { storeStats }] = await Promise.all([
     import('./pool-screens'), import('./store-worklist-pool'), import('./shell-data'), import('@podium/client-core/react'), import('@podium/client-core/perf'),
   ])

@@ -1,15 +1,12 @@
-import { legacyIssueBoard } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { BoardOptions, PoolBoardData } from '@podium/client-graph/issue-board-schema'
 import { ISSUE_BOARD_STAGES } from '@podium/model/browser'
-import { useCallback, useMemo } from 'react'
-import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useCallback } from 'react'
+import { type IssueViewModel } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { boardDataLayer } from './board-data-layer'
 import { useBoardPoolProjection } from './board-pool-projection'
-import { deriveIssuesViewModel } from './issues-view-model'
 
 const EMPTY_ISSUES: IssueViewModel[] = [],
   EMPTY_SESSIONS: SessionView[] = []
@@ -36,64 +33,14 @@ export const EMPTY_BOARD: PoolBoardData = {
     orderedIdsForOpen: [],
   },
 }
-function useLegacyBase() {
-  return {
-    pool: false,
-    issues: useReplicaIssues(),
-    sessions: useStoreSelector((store) => store.sessions),
-    openIssueId: useStoreSelector((store) => store.openIssueId),
-  }
-}
 const readWindow = (pool: MobxPool) => pool.row('issueBoardWindow', 'current')
-function usePoolBase() {
+export function useBoardBase() {
   const window = useWorklistPoolProjection(readWindow, undefined)
   return {
-    pool: true,
-    issues: EMPTY_ISSUES,
-    sessions: EMPTY_SESSIONS,
     openIssueId: window && typeof window !== 'symbol' ? window.openIssueId : null,
   }
 }
-/** The branch is fixed at startup. The pool branch never enters a legacy hook. */
-export function useBoardBase() {
-  const useRead = boardDataLayer() === 'pool' ? usePoolBase : useLegacyBase
-  return useRead()
-}
-function useLegacyData(
-  options: BoardOptions,
-  base: ReturnType<typeof useBoardBase>,
-): PoolBoardData {
-  const owner = useStoreHandle()
-  const { issues, sessions } = base
-  const { display, filter, isMobile, openIssueId, now } = options
-  const expansionKey = JSON.stringify(options.expanded)
-  const expanded = useMemo(() => new Set(JSON.parse(expansionKey) as string[]), [expansionKey])
-  const projectPaths = useMemo(
-    () =>
-      [...new Set(issues.map((row) => row.repoPath).filter(Boolean))].sort((a, b) =>
-        (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
-      ),
-    [issues],
-  )
-  const view = useMemo(
-    () =>
-      legacyIssueBoard(owner, 'board', () =>
-        deriveIssuesViewModel({
-          display: display as Parameters<typeof deriveIssuesViewModel>[0]['display'],
-          filter,
-          isMobile,
-          openIssueId,
-          now,
-          issues,
-          sessions,
-          expanded,
-        }),
-      ),
-    [owner, issues, sessions, display, filter, isMobile, openIssueId, now, expanded],
-  )
-  return { issues, sessions, projectPaths, view }
-}
-function usePoolData(options: BoardOptions): PoolBoardData {
+export function useBoardData(options: BoardOptions): PoolBoardData {
   // Facets belong to the mounted board, rather than a particular filter's
   // projection. Retain that observation while React replaces the row reader.
   const agents = String(options.display.showAgentTasks)
@@ -105,11 +52,4 @@ function usePoolData(options: BoardOptions): PoolBoardData {
   const key = JSON.stringify({ ...options, windowed: true, now: 0 })
   const value = useBoardPoolProjection<PoolBoardData | symbol>('issueBoardModel', key)
   return value && typeof value !== 'symbol' ? value : EMPTY_BOARD
-}
-export function useBoardData(
-  options: BoardOptions,
-  base: ReturnType<typeof useBoardBase>,
-): PoolBoardData {
-  const useRead = boardDataLayer() === 'pool' ? usePoolData : useLegacyData
-  return useRead(options, base)
 }

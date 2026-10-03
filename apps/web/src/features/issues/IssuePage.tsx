@@ -4,18 +4,11 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { issueColorHex } from '@/lib/issueColors'
 import { useNow } from '@/lib/useNow'
-import { paneDataLayer } from '@/lib/pane-data-layer'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
 import { IssueBanners } from './issue-page/IssueBanners'
-import {
-  IssueBrief,
-  IssueDescription,
-  IssueTitle,
-  LongFormFields,
-  StatusStrip,
-} from './issue-page/IssueBody'
+import { IssueBrief, IssueDescription, IssueTitle, LongFormFields, StatusStrip } from './issue-page/IssueBody'
 import { IssueDetailHeader } from './issue-page/IssueDetailHeader'
 import { IssueNow } from './issue-page/IssueNow'
 import { IssueProperties } from './issue-page/IssueProperties'
@@ -61,9 +54,7 @@ import { repoMatesOf, useIssuePageModel } from './issue-page-model'
 const PoolIssuePage = lazy(() => import('./pool-issue-page').then(module => ({ default: module.PoolIssuePage })))
 
 export function IssuePage(props: Parameters<typeof IssuePageBody>[0]): JSX.Element {
-  return paneDataLayer() === 'pool'
-    ? <Suspense fallback={null}><PoolIssuePage issueId={props.issue.id} orderedIds={props.orderedIds} onBack={props.onBack} onNavigate={props.onNavigate} /></Suspense>
-    : <IssuePageBody {...props} />
+  return <Suspense fallback={null}><PoolIssuePage issueId={props.issue.id} orderedIds={props.orderedIds} onBack={props.onBack} onNavigate={props.onNavigate} /></Suspense>
 }
 
 export function IssuePageBody({

@@ -1,20 +1,11 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
-import {
-  boardSnapshot,
-  compareBoardValues,
-  explorerSnapshot,
-  inBoardCheck,
-} from '@podium/client-graph/diagnostics/issue-board-check'
-import type {
-  BoardOptions,
-  PoolBoardData,
-  PoolExplorerData,
-} from '@podium/client-graph/issue-board-schema'
-import { defaultTab, EXPLORER_TABS, explorerCounts, explorerRows } from './explorer/explorer-list'
-import { DEFAULT_DISPLAY } from './issues-display'
-import { deriveIssuesViewModel } from './issues-view-model'
+import { boardSnapshot, compareBoardValues, explorerSnapshot } from '@podium/client-graph/diagnostics/issue-board-check'
+import type { BoardOptions, PoolBoardData, PoolExplorerData } from '@podium/client-graph/issue-board-schema'
+import { defaultTab, EXPLORER_TABS, explorerCounts, explorerRows } from '../src/features/issues/explorer/explorer-list'
+import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
+import { deriveIssuesViewModel } from '../src/features/issues/issues-view-model'
 
 export function checkBoard(runtime: ClientRuntime, pool: MobxPool, options: BoardOptions) {
   const issues = allIssueViewModels(runtime.replica),
@@ -75,23 +66,4 @@ export function checkExplorer(
   return !actual || typeof actual === 'symbol'
     ? { differences: 0, pending: 1, first: null }
     : compareBoardValues(explorerSnapshot(expected), explorerSnapshot(actual))
-}
-export function installBoardCheck(runtime: ClientRuntime, pool: MobxPool) {
-  const check = (
-    options: BoardOptions = {
-      display: DEFAULT_DISPLAY,
-      filter: {},
-      expanded: [],
-      isMobile: false,
-      openIssueId: null,
-      now: pool.clock.current,
-    },
-  ) => inBoardCheck(() => checkBoard(runtime, pool, options))
-  const explorer = (tab: PoolExplorerData['tab'] | null = null, query = '') =>
-    inBoardCheck(() => checkExplorer(runtime, pool, tab, query))
-  Object.assign(window, { __boardCheck: check, __boardExplorerCheck: explorer })
-  return () => {
-    Reflect.deleteProperty(window, '__boardCheck')
-    Reflect.deleteProperty(window, '__boardExplorerCheck')
-  }
 }

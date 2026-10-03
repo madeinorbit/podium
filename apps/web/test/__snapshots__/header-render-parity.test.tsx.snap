@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`old and pool header rendering > preserves the working sentence, roster names, refs, order and machine numbers after addressed changes > working roster and machines 1`] = `
+{
+  "bytes": 12328,
+  "sha256": "a7a5072bc63b5f9481fb434afeb102b72ce78697b703a3486330e5f5ef910aea",
+}
+`;
+
+exports[`old and pool header rendering > preserves visible names, QUOTA, labels and element order across both paths > header indicators 1`] = `
+{
+  "bytes": 5592,
+  "sha256": "c54fcf6c4eb51d8c7097ba66c3e0f4870467825458427f8fdc5172d9e412b785",
+}
+`;

@@ -1,36 +1,20 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { blockingCloseConcerns, issueCloseConcerns } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
-import type { BoardCardData } from '@podium/client-graph/issue-board-schema'
 import type { JSX } from 'react'
 import { useCallback } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { boardDataLayer } from './board-data-layer'
-import { issueMemberSessions, useIssueCloseGuard } from './issue-lifecycle'
+import { issueMemberSessions } from './issue-lifecycle'
 
-function usePoolCard(id: string, now: number, agents: boolean) {
+export function useBoardCard(id: string, now: number, agents = false) {
   const key = JSON.stringify({ id, now, agents })
   const read = useCallback((pool: MobxPool) => pool.row('issueBoardCard', key), [key])
   return useWorklistPoolProjection(read, undefined)
 }
-function useLegacyCard(_id: string, _now: number, _agents: boolean) {
-  return undefined
-}
-export function useBoardCard(
-  id: string,
-  now: number,
-  agents = false,
-): BoardCardData | symbol | undefined {
-  const useRead = boardDataLayer() === 'pool' ? usePoolCard : useLegacyCard
-  return useRead(id, now, agents)
-}
-function usePoolRow(issue: IssueViewModel) {
+function useBoardRow(issue: IssueViewModel) {
   const read = useCallback((pool: MobxPool) => pool.row('issueBoardRow', issue.id), [issue.id])
   return useWorklistPoolProjection(read, undefined)
-}
-function useLegacyRow(issue: IssueViewModel) {
-  return issue
 }
 export function BoardPoolRow({
   issue,
@@ -39,22 +23,14 @@ export function BoardPoolRow({
   issue: IssueViewModel
   children: (issue: IssueViewModel) => JSX.Element
 }) {
-  const useRead = boardDataLayer() === 'pool' ? usePoolRow : useLegacyRow
-  const value = useRead(issue)
+  const value = useBoardRow(issue)
   return value && typeof value !== 'symbol' ? children(value) : null
 }
-function usePoolSessions() {
+export function useBoardSessionReader() {
   const pool = useWorklistPool()
   return useCallback((issue: IssueViewModel) => pool?.row('issueBoardSessions', issue.id), [pool])
 }
-function useLegacySessions() {
-  return undefined
-}
-export function useBoardSessionReader() {
-  const useRead = boardDataLayer() === 'pool' ? usePoolSessions : useLegacySessions
-  return useRead()
-}
-function usePoolGuard(_sessions: readonly SessionView[]) {
+export function useBoardCloseGuard(_sessions: readonly SessionView[]) {
   const pool = useWorklistPool()
   return useCallback(
     (issue: IssueViewModel) => {
@@ -67,11 +43,4 @@ function usePoolGuard(_sessions: readonly SessionView[]) {
     },
     [pool],
   )
-}
-function useLegacyGuard(_sessions: readonly SessionView[]) {
-  return useIssueCloseGuard()
-}
-export function useBoardCloseGuard(sessions: readonly SessionView[]) {
-  const useRead = boardDataLayer() === 'pool' ? usePoolGuard : useLegacyGuard
-  return useRead(sessions)
 }

@@ -14,9 +14,7 @@ import { ChatComposer } from '../src/features/chat/ChatComposer'
 import { OfferArtifactStrip } from '../src/features/chat/OfferArtifactStrip'
 import { useChatSend } from '../src/features/chat/use-chat-send'
 import { chatContextDataLayer, initializeChatContextDataLayer } from '../src/features/chat/chat-context-data-layer'
-import { initializeSessionPaneDataLayer } from '../src/features/terminal/session-pane-data-layer'
-import { useChatArtifactIssue, useChatContextWindow, useChatConversationPorts, useChatDraft, useChatInteractions, useChatIssueSeq,
-  useChatMachines, useChatMentions, useChatReferenceMachines, useChatReferenceSessions, useChatRepositoryKey, useChatSession, useChatSessionExitKind, useChatThreads } from '../src/features/chat/use-chat-context'
+import { useChatArtifactIssue, useChatContextWindow, useChatConversationPorts, useChatDraft, useChatInteractions, useChatIssueSeq, useChatMachines, useChatMentions, useChatReferenceMachines, useChatReferenceSessions, useChatRepositoryKey, useChatSession, useChatSessionExitKind, useChatThreads } from '../src/features/chat/use-chat-context'
 import { checkChatContext } from '../src/features/chat/chat-context-check'
 import { createHeaderFixture } from './header-fixture'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
@@ -24,7 +22,6 @@ import '../src/index.css'
 import '../src/styles.css'
 
 initializeChatContextDataLayer({ get: () => null })
-initializeSessionPaneDataLayer({ get: () => null })
 const rows = Number(new URLSearchParams(location.search).get('rows') ?? 5600)
 const omitArtifactStrip = new URLSearchParams(location.search).get('omitArtifactStrip') === '1'
 const fixture = createHeaderFixture(rows)

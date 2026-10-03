@@ -66,7 +66,7 @@ try {
     console.error(error.message)
   })
   await page.goto(
-    `${origin}/test/sidebar-pool-perf.browser.html?mobxSidebar=1&mobxSidebarCheck=1`,
+    `${origin}/test/sidebar-pool-perf.browser.html`,
     { waitUntil: 'networkidle', timeout: 60_000 },
   )
   await page.waitForFunction(() => window.__poolPerfFixture?.ready(), null, { timeout: 30_000 })
@@ -83,7 +83,6 @@ try {
   const before = await read()
   if (!before.report.pool.connected || before.report.pool.rows !== 1)
     throw new Error('Real pool counters not connected')
-  if (before.report.check.state !== 'waiting') throw new Error('Pending S5 seam not displayed')
   if (planted) await page.evaluate(() => window.__poolPerfFixture.startRedraw())
   const began = Date.now()
   const samples: Array<Awaited<ReturnType<typeof read>>> = []
@@ -139,12 +138,6 @@ try {
   const input = await read()
   if (input.report.input.count < 2 || input.report.input.p95 === null)
     throw new Error('Synthetic pool row click/key missed the paint seam')
-  // Publish an S5 status through the named hook, without running a checker.
-  await page.evaluate(() => window.__poolPerfFixture.check('different'))
-  await page.waitForTimeout(1200)
-  if (!(await page.getByTestId('perf-check').textContent())?.includes('1 differences'))
-    throw new Error('S5 status publishing hook missing')
-  await page.evaluate(() => window.__poolPerfFixture.check('waiting'))
   await page.evaluate(() => window.__poolPerfFixture.startRedraw())
   await page.waitForTimeout(5500)
   const redraw = await read()
@@ -165,23 +158,6 @@ try {
   if (errors.length || failures.length)
     throw new Error(`Fixture errors: ${[...errors, ...failures].join('; ')}`)
 
-  // Switch-off reaches the same StoreProvider, with zero graph/MobX requests.
-  const legacy = await browser.newPage()
-  const graphRequests: string[] = []
-  legacy.on('request', (request) => {
-    if (/client-graph|runtime-pool|\/mobx(?:[_.\/]|$)/.test(request.url()))
-      graphRequests.push(request.url())
-  })
-  await legacy.goto(`${origin}/test/store-worklist-pool.browser.html?mobxSidebar=0`, {
-    waitUntil: 'networkidle',
-    timeout: 60_000,
-  })
-  await legacy.waitForFunction(() => window.__poolFixture?.ready())
-  const legacyState = await legacy.evaluate(() => window.__poolFixture.state())
-  if (graphRequests.length || legacyState.pool || legacyState.failures.length)
-    throw new Error('Switch-off loaded pool code or attached a pool')
-  await legacy.close()
-
   const proof = {
     synthetic: true,
     path: 'app-runtime-pool',
@@ -195,9 +171,8 @@ try {
     redraw,
     visibleIdle,
     closed,
-    legacy: { state: legacyState, graphRequests },
     scope:
-      'Real StoreProvider and pool; a synthetic measured observer row. Shipping rendering awaits POD-4955 and real S5 checking awaits POD-4954.',
+      'Real StoreProvider and pool; a synthetic measured observer row. Pool rendering and pool-only counters.',
   }
   await writeFile(resolve(out, 'pool-proof.json'), JSON.stringify(proof, null, 2))
   const picture = async (name: string) =>

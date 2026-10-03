@@ -1,3 +1,4 @@
+import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 import { dedupeSessions } from '@podium/client-core/engine'
 import {
@@ -130,6 +131,7 @@ vi.mock('@podium/client-core/react', async original => ({ ...await original<type
 vi.mock('./store', () => ({
   useStoreSelector: (select: (store: Record<string, unknown>) => unknown) =>
     select({
+      issues: harness.issues,
       sessions: harness.sessions,
       repos: harness.repos,
       selectedIssueId: harness.selectedIssueId,

@@ -24,15 +24,9 @@ import { createRoot } from 'react-dom/client'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarPerfSession } from '@/features/worklist/SidebarPerfPanel'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import {
-  ResizableAside,
-  SIDEBAR_RAIL_WIDTH,
-  SIDEBAR_WIDTH_DEFAULT,
-} from '@/features/worklist/sidebar-common'
-import { initializeSidebarMeasurements } from '@/features/worklist/sidebar-measurements'
+import { ResizableAside, SIDEBAR_RAIL_WIDTH, SIDEBAR_WIDTH_DEFAULT } from '@/features/worklist/sidebar-common'
 import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { initializeSidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { sidebarHarnessOwner } from './sidebar-store'
 import '@/index.css'
 import '@/styles.css'
@@ -40,8 +34,6 @@ import '@/styles.css'
 const params = new URLSearchParams(location.search)
 const mode = params.get('mode') ?? 'dark'
 const width = Number(params.get('width') ?? 306)
-initializeSidebarDataLayer({ get: () => null })
-initializeSidebarMeasurements()
 
 function PerformanceFixture(): JSX.Element | null {
   const [open, setOpen] = useState(params.get('perfPanel') === '1')

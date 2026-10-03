@@ -1,3 +1,6 @@
+import '@/test-support/mock-core-store-handle'
+import '@/test-support/mock-pool-fixture'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 // @vitest-environment happy-dom
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { asIssueId, asSessionId } from '@podium/model/browser'
@@ -5,7 +8,7 @@ import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { useEffect, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
-import { useUnifiedWork } from './use-unified-work'
+import { usePoolUnifiedWork } from './use-pool-unified-work'
 
 const fixture = vi.hoisted(() => ({ store: {} as Record<string, unknown>, issues: [] as unknown[] }))
 vi.mock('@/app/store', () => ({
@@ -21,7 +24,7 @@ const child = { ...root, id: asIssueId('child'), parentId: root.id,
 
 beforeEach(() => {
   fixture.issues = [root, child]
-  fixture.store = { repos: [], sessions: [], pins: {}, selectedIssueId: null,
+  fixture.store = { issues: fixture.issues, repos: [], sessions: [], pins: {}, selectedIssueId: null,
     selectedWorktree: null, paneA: null, fileTabs: [],
     navigateWorkspace: vi.fn().mockReturnValueOnce(true).mockReturnValue(false),
     // S5: the gesture batch runs synchronously in the mock, like runtime.batch.
@@ -38,13 +41,13 @@ describe('issue navigation gesture', () => {
       return <OperatorFocusProvider missionId={null}>{children}</OperatorFocusProvider>
     }
     const { result } = renderHook(() => {
-      const work = useUnifiedWork()
+      const work = usePoolUnifiedWork(useWorklistPool()!)
       const focus = useOperatorFocus()
       useEffect(() => { commits(focus.focusedIssueId) }, [focus.focusedIssueId])
       return { work, focus }
     }, { wrapper: Wrapper })
     commits.mockClear()
-    act(() => result.current.work.selectPanelForIssue(child, asSessionId('member')))
+    act(() => result.current.work.selectPanelForIssue(child.id, asSessionId('member')))
     // S5: one gesture batch per click — navigation + optimistic paints share it.
     expect(fixture.store.batchGesture).toHaveBeenCalledTimes(1)
     expect(fixture.store.navigateWorkspace).toHaveBeenCalledExactlyOnceWith({
@@ -66,7 +69,7 @@ describe('issue navigation gesture', () => {
     const { result } = renderHook(() => ({ work: useUnifiedWork(), focus: useOperatorFocus() }), {
       wrapper: ({ children }) => <OperatorFocusProvider missionId={root.id}>{children}</OperatorFocusProvider>,
     })
-    act(() => result.current.work.selectIssue(child))
+    act(() => result.current.work.selectIssue(child.id))
     expect(result.current.focus.focusedIssueId).toBe(child.id)
     expect(fixture.store.markIssueRead).toHaveBeenCalledExactlyOnceWith(child.id)
     expect(fixture.store.markSessionRead).not.toHaveBeenCalled()

@@ -1,3 +1,5 @@
+const RETIRED_POOL_SWITCHES = new Set(['mobxSidebar', 'mobxSidebarCheck', 'mobxHeader', 'mobxHeaderCheck', 'mobxChips', 'mobxChipsCheck', 'mobxPane', 'mobxPaneCheck', 'mobxSessionPane', 'mobxSessionPaneCheck', 'mobxBoard', 'mobxBoardCheck', 'mobxShell', 'mobxShellCheck'])
+
 export type SpeedSwitch = readonly [key: string, value: '0' | '1']
 
 /** Repeatable URL overrides; every unspecified startup setting stays intact. */
@@ -8,6 +10,7 @@ export function parseSpeedSwitches(args: readonly string[]): SpeedSwitch[] {
     const match = /^--switch=([^=]+)=(0|1)$/.exec(arg)
     if (!match || match[1]!.trim() !== match[1]) throw new Error(`Invalid switch override ${arg}`)
     const key = match[1]!, value = match[2] as '0' | '1'
+    if (RETIRED_POOL_SWITCHES.has(key)) continue
     if (switches.has(key) && switches.get(key) !== value) throw new Error(`Conflicting switch override ${key}`)
     switches.set(key, value)
   }

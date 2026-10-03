@@ -8,39 +8,17 @@ import type { Operation } from '@podium/protocol'
 import { ChevronLeft } from 'lucide-react'
 import { observer } from '@podium/client-graph/react'
 import { useShellMachines } from './shell-data'
-import { shellDataLayer } from './shell-pool-screen'
 import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { useSettingsClient } from '@/features/settings/stable-access'
-import { useSettingsCatalog } from '@/features/settings/readers'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useMachinePairing } from '@/features/machines/machine-pairing'
-import {
-  SERVER_MOVE_CONFIRMATION,
-  serverMoveErrorCopy,
-  settleServerMoveRecovery,
-  startServerMove,
-  useServerMoveOperations,
-} from '@/features/machines/server-move'
+import { SERVER_MOVE_CONFIRMATION, serverMoveErrorCopy, settleServerMoveRecovery, startServerMove, useServerMoveOperations } from '@/features/machines/server-move'
 import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
 import { NetworkStep } from '@/features/setup/network-step'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
@@ -159,7 +137,7 @@ function MachinesPanelView({
   showOwnershipTransfer?: boolean
 } = {}): JSX.Element {
   const { trpc, setSettingsTab } = useSettingsClient()
-  const useRead = shellDataLayer() === 'pool' ? useShellMachines : useSettingsMachines
+  const useRead = useShellMachines
   const machines = useRead()
   const [now, setNow] = useState(() => Date.now())
   const [addOpen, setAddOpen] = useState(false)
@@ -448,11 +426,9 @@ function MachinesPanelView({
  */
 const PoolMachinesPanel = observer(MachinesPanelView)
 export function MachinesPanel(props: Parameters<typeof MachinesPanelView>[0] = {}) {
-  const Surface = shellDataLayer() === 'pool' ? PoolMachinesPanel : MachinesPanelView
+  const Surface = PoolMachinesPanel
   return <Surface {...props} />
 }
-
-function useSettingsMachines() { return useSettingsCatalog().machines }
 
 function AddMachineFlow({
   onBack,

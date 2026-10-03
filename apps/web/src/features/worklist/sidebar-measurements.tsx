@@ -1,25 +1,8 @@
-import {
-  cancelSidebarSwitchInput,
-  captureSidebarSwitchInput,
-  recordStoreRowRedraw,
-  type SidebarPerf,
-} from '@podium/client-core/perf'
+import { cancelSidebarSwitchInput, captureSidebarSwitchInput, type SidebarPerf } from '@podium/client-core/perf'
 import type { JSX } from 'react'
 import { useLayoutEffect } from 'react'
-import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 
-let requested: boolean | undefined
-/** Called beside the data-layer latch at boot, never flipped under mounted hooks. */
-export function initializeSidebarMeasurements(): void {
-  if (requested !== undefined) return
-  requested =
-    sidebarDataLayer() === 'pool' || new URLSearchParams(location.search).get('perfPanel') === '1'
-}
-export function sidebarMeasurementsRequested(): boolean {
-  return requested ?? false
-}
-
-let active: { owner: object; mode: 'legacy' | 'pool'; perf: SidebarPerf } | null = null
+let active: { owner: object; perf: SidebarPerf } | null = null
 export function bindSidebarRowMeasurements(binding: NonNullable<typeof active>): () => void {
   active = binding
   return () => {
@@ -39,13 +22,12 @@ export function measureSidebarRow<P>(Row: (props: P) => JSX.Element): (props: P)
     const end = start === undefined ? undefined : performance.now()
     useLayoutEffect(() => {
       if (!binding || active !== binding || start === undefined || end === undefined) return
-      if (binding.mode === 'legacy') recordStoreRowRedraw(binding.owner, start, end)
-      else binding.perf.record({ rows: 1, start, end })
+      binding.perf.record({ rows: 1, start, end })
     })
     return element
   }
   return function SidebarRow(props: P): JSX.Element {
-    return requested ? MeasuredRow(props) : Row(props)
+    return MeasuredRow(props)
   }
 }
 

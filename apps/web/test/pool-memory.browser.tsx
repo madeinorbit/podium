@@ -8,24 +8,14 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
-import {
-  allIssueViewModels,
-  createKernelReplica,
-  createSideCache,
-  replicaNamespaceKey,
-  retainReplicaEntity,
-} from '@podium/client-core/replica'
+import { allIssueViewModels, createKernelReplica, createSideCache, replicaNamespaceKey, retainReplicaEntity } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import {
-  buildCorpus,
-  buildCorpusCell,
-  FIXED_NOW,
-} from '../../../packages/worklist-proto/harness/src/fixture'
+import { buildCorpus, buildCorpusCell, FIXED_NOW } from '../../../packages/worklist-proto/harness/src/fixture'
 import { seedCacheFromCorpus } from '../../../packages/worklist-proto/shared/src/scenarios'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
@@ -33,9 +23,7 @@ import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-p
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
-import { initializeSidebarMeasurements } from '../src/features/worklist/sidebar-measurements'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
-import { initializeSidebarDataLayer, sidebarDataLayer } from '../src/lib/sidebar-data-layer'
 import '../src/index.css'
 import '../src/styles.css'
 
@@ -47,8 +35,6 @@ let corpus: ReturnType<typeof buildCorpus> | null = params.has('operator')
     ? buildCorpusCell({ history: 10, active: 1 }, 4443)
     : buildCorpus(scale, 4443)
 const errors: string[] = []
-initializeSidebarDataLayer({ get: () => null })
-initializeSidebarMeasurements()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 
@@ -140,7 +126,7 @@ function Fixture() {
       .getSnapshot()
       .refreshRepos()
       .then(() => {
-        ready = sidebarDataLayer() === 'legacy' || pool !== null
+        ready = pool !== null
       })
     return () => {
       ready = false
@@ -205,7 +191,7 @@ function fields(prefix: string, value: object, into: Record<string, object>) {
 
 const memory = {
   ready: () => ready,
-  mode: sidebarDataLayer,
+  mode: () => 'pool' as const,
   errors: () => [...errors],
   state: () => ({
     issues: owner?.getSnapshot().issueProjections.length,

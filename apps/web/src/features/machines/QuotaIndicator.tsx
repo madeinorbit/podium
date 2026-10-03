@@ -1,29 +1,11 @@
-import { headerDataLayer } from '@/lib/header-data-layer'
+
 import { useHeaderActions, usePoolHeaderQuotas } from '@/app/header-data'
-import type { Trpc } from '@/app/trpc'
-import {
-  type AccountQuotaGroup,
-  agentLabel,
-  agentShortLabel,
-  formatReset,
-  groupQuotaByAccount,
-  modelLimitNote,
-  paceHint,
-  paceLabel,
-  percentTone,
-  type QuotaPace,
-  type QuotaTone,
-  splitQuotaWindows,
-  statusNote,
-  windowElapsedPercent,
-  windowPace,
-  windowScopeModel,
-} from '@podium/client-core/viewmodels'
-import type { AgentQuotaWire, MachineQuotaWire } from '@podium/model/browser'
+import { type AccountQuotaGroup, agentLabel, agentShortLabel, formatReset, groupQuotaByAccount, modelLimitNote, paceHint, paceLabel, percentTone, type QuotaPace, type QuotaTone, splitQuotaWindows, statusNote, windowElapsedPercent, windowPace, windowScopeModel } from '@podium/client-core/viewmodels'
+import type { AgentQuotaWire } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { Gauge } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { agentIconFor } from '@/lib/agent-tone'
@@ -138,8 +120,7 @@ export function QuotaIndicator({
   detail?: boolean
 }): JSX.Element | null {
   const { trpc } = useHeaderActions()
-  const useRead = headerDataLayer() === 'pool' ? usePoolHeaderQuotas : useLegacyQuotas
-  const machines = useRead(trpc)
+  const machines = usePoolHeaderQuotas()
   const [open, setOpen] = useState(false)
 
   // Nothing to show until the first payload arrives, or when no account is
@@ -450,29 +431,4 @@ function QuotaWindowRow({
       </div>
     </div>
   )
-}
-
-function useLegacyQuotas(trpc: Trpc) {
-  const [machines, setMachines] = useState<MachineQuotaWire[] | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    const load = () => {
-      trpc.quota.summary
-        .query()
-        .then((r) => {
-          if (!cancelled) setMachines(r)
-        })
-        .catch(() => {
-          if (!cancelled) setMachines((prev) => prev ?? [])
-        })
-    }
-    load()
-    const t = setInterval(load, 60_000)
-    return () => {
-      cancelled = true
-      clearInterval(t)
-    }
-  }, [trpc])
-
-  return machines
 }

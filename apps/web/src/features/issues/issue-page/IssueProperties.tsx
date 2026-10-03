@@ -1,4 +1,4 @@
-import { sessionById } from '@podium/client-core/store'
+import { usePoolMachines } from '@/app/header-data'
 /**
  * The properties rail for the issue page. Rendered in the desktop `<aside>` and
  * mirrored inside the mobile `Details` disclosure.
@@ -58,15 +58,7 @@ import { sessionById } from '@podium/client-core/store'
  * `../issue-page-model.ts`.
  */
 import { shallowEqual } from '@podium/client-core'
-import {
-  type IssueId,
-  IssueType,
-  issueStatusControlLabel,
-  issueStatusMenuEntries,
-  issueStatusOf,
-  issueStatusValueOf,
-  parseIssueStatusValue,
-} from '@podium/model/browser'
+import { type IssueId, IssueType, issueStatusControlLabel, issueStatusMenuEntries, issueStatusOf, issueStatusValueOf, parseIssueStatusValue } from '@podium/model/browser'
 import { Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
@@ -104,21 +96,19 @@ export function IssueProperties({
   onNavigate: (id: IssueId) => void
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
-  const pooled = useIssuePageData()?.data
-  const { trpc, machines, sessions, navigateToSession } = useStoreSelector(
+  const pooled = useIssuePageData()!.data
+  const { trpc, navigateToSession } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      sessions: pooled ? pooled.sessions : s.sessions,
-      machines: s.machines,
       navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
+  const machines = usePoolMachines()
+  const sessions = pooled.sessions
   const issues = useIssuePageIssues()
   const resolve = useIssueEdgeResolver()
-  const memberSessions = pooled?.memberSessions ?? (issue.memberSessionIds ?? [])
-    .map((id) => sessionById(sessions).get(id))
-    .filter((session) => session !== undefined)
+  const memberSessions = pooled.memberSessions
   const mergeStyle = useMergeStyle(trpc)
   // Relation add is two steps: pick a dep type, then a target issue.
   const [addRelType, setAddRelType] = useState('blocks')

@@ -1,64 +1,26 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { recordChipWork } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
-import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
 import type { MobxPool } from '@podium/client-graph'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { chipsDataLayer } from '@/lib/chips-data-layer'
 import { useChatReferenceSessions, useChatReferenceMachines, useChatRepositoryKey } from '@/features/chat/use-chat-context'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
-import {
-  ArchiveRestore,
-  Check,
-  ExternalLink,
-  ListTree,
-  LoaderCircle,
-  MessagesSquare,
-  Play,
-  User,
-  X,
-} from 'lucide-react'
-import {
-  type JSX,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react'
+import { ArchiveRestore, Check, ExternalLink, ListTree, LoaderCircle, MessagesSquare, Play, User, X } from 'lucide-react'
+import { type JSX, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useStoreSelector } from '@/app/store'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
 import type { LaunchMachine } from '@/features/issues/LaunchBox'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
-import {
-  closeMiniview,
-  getMiniviewState,
-  openMiniview,
-  REF_PREFIXES_CHANGED_EVENT,
-  setRefActivator,
-  subscribeMiniview,
-} from '@/lib/ref-activation'
-import {
-  collectRefPrefixes,
-  type IssueSessionTarget,
-  type RefIssueLike,
-  type RefSessionLike,
-  type ResolvedRef,
-  resolveRef,
-  sessionForIssue,
-  sessionWorkingIssueRef,
-} from '@/lib/ref-miniview'
+import { closeMiniview, getMiniviewState, openMiniview, REF_PREFIXES_CHANGED_EVENT, setRefActivator, subscribeMiniview } from '@/lib/ref-activation'
+import { collectRefPrefixes, type IssueSessionTarget, type RefIssueLike, type RefSessionLike, type ResolvedRef, resolveRef, sessionForIssue, sessionWorkingIssueRef } from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
-import { IssueReference, LiveIssueReference } from './IssueReference'
+import { LiveIssueReference } from './IssueReference'
 
 /**
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
@@ -67,13 +29,7 @@ import { IssueReference, LiveIssueReference } from './IssueReference'
  *  - rendering the <RefCard> when a ref is open and resolvable.
  */
 export function RefMiniviewHost(): JSX.Element | null {
-  return chipsDataLayer() === 'pool' ? <PoolRefMiniviewHost /> : <LegacyRefMiniviewHost />
-}
-
-function LegacyRefMiniviewHost(): JSX.Element {
-  const issues = useReplicaIssues()
-  recordChipWork(useStoreHandle(), 'legacyScans')
-  return <RefMiniviewContents issues={issues} resolveIssue={(token) => resolveRef(token, issues, [])} />
+  return <PoolRefMiniviewHost />
 }
 
 function PoolRefMiniviewHost(): JSX.Element {
@@ -332,28 +288,6 @@ export function RefCard({
       : target?.kind === 'session'
         ? target.session.name || target.session.title || ''
         : ''
-  const issueRefModel: IssueReferenceModel | null =
-    chipsDataLayer() === 'legacy' && target?.kind === 'issue'
-      ? target.issue.stage
-        ? issueReferenceModel({
-            id: target.issue.id,
-            seq: target.issue.seq,
-            title: target.issue.title,
-            stage: target.issue.stage,
-            ...(target.issue.prefix ? { prefix: target.issue.prefix } : {}),
-            ...(target.issue.displayRef ? { displayRef: target.issue.displayRef } : {}),
-            ...(target.issue.archived !== undefined ? { archived: target.issue.archived } : {}),
-            ...(target.issue.deletedAt ? { deletedAt: target.issue.deletedAt } : {}),
-          })
-        : {
-            ref: refToken,
-            issueId: target.issue.id,
-            title: target.issue.title,
-            stage: null,
-            availability: 'unavailable',
-            accessibleLabel: `Task ${refToken} has no available status`,
-          }
-      : null
 
   // Escape closes — but never at the expense of surfaces with their own Escape
   // semantics: keys headed into a terminal or another open dialog pass through
@@ -422,7 +356,7 @@ export function RefCard({
                 same mono voice, and reads first. */}
             <div className="mb-2.5 flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
-                {chipsDataLayer() === 'pool' ? <LiveIssueReference token={refToken} showTitle={false} /> : issueRefModel && <IssueReference model={issueRefModel} showTitle={false} />}
+                {<LiveIssueReference token={refToken} showTitle={false} />}
                 {target.issue.priority !== undefined && (
                   <span
                     className="flex flex-none items-center gap-1"
@@ -548,13 +482,7 @@ export function RefCard({
  * Linkification is inert until this runs (an empty prefix set disables it).
  */
 export function RefPrefixSync(): JSX.Element {
-  return chipsDataLayer() === 'pool' ? <PoolRefPrefixSync /> : <LegacyRefPrefixSync />
-}
-
-function LegacyRefPrefixSync(): JSX.Element {
-  const issues = useReplicaIssues()
-  recordChipWork(useStoreHandle(), 'legacyScans')
-  return <RefPrefixSyncContents issuePrefixKey={[...collectRefPrefixes(issues)].sort().join(',')} />
+  return <PoolRefPrefixSync />
 }
 
 function PoolRefPrefixSync(): JSX.Element {

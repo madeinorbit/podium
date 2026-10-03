@@ -16,7 +16,7 @@ import { measurePoolMission } from './mission-pane-perf'
 import { readMissionPane } from './mission-pane-reader'
 
 /** The same pool and mutation owner as the sidebar. This module loads only
- * after the startup pane choice, and never subscribes to legacy entity slices. */
+ * for the mission pane and reads only pool entity values. */
 export default observer(function PoolFlightDeck(props: FlightDeckProps & { preferences: FlightDeckPreferences }): JSX.Element {
   const { selectedIssueId, paneA, paneB, split } = useStoreSelector(store => ({
     selectedIssueId: store.selectedIssueId, paneA: store.paneA, paneB: store.paneB, split: store.split,
@@ -34,7 +34,7 @@ export default observer(function PoolFlightDeck(props: FlightDeckProps & { prefe
     if (!pool || values === LOADING) return null
     const reader = missionView(pool)
     return {
-      kind: 'pool', mission: values.mission, handoff: values.handoff, agentHosts: values.hosts,
+      mission: values.mission, handoff: values.handoff, agentHosts: values.hosts,
       IssueMenu: PoolIssueContextMenu,
       issues: [...values.mission.byId.values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       sessions: [...values.mission.sessions], allWorktreePaths: [],

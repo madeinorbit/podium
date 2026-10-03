@@ -27,45 +27,6 @@ const snapshot = () => {
 }
 const handle = { getSnapshot: snapshot, subscribe: (_listener: () => void) => () => {} }
 vi.mock('./chat-context-data-layer', () => ({ chatContextDataLayer: () => f.mode }))
-vi.mock('../terminal/session-pane-data-layer', () => ({ sessionPaneDataLayer: () => 'legacy' }))
-vi.mock('@/app/store', () => ({
-  useStoreSelector: (read: (state: Store) => unknown) => read(snapshot()),
-  useReplicaIssues: () => {
-    if (f.guard) throw new Error('Legacy chat issue views ran')
-    return f.fixture!.issues.filter(row => !row.deletedAt)
-  },
-  useSessionDraft: (id: string) => snapshot().drafts[id] ?? '',
-  useSessionExitKind: (id: string) => {
-    if (f.guard) throw new Error('Legacy session exit metadata read')
-    return f.fixture!.owner.replica.exitKind?.('session', id)
-  },
-}))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => handle }))
-vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPool: () => useSyncExternalStore((fn: () => void) => { f.listeners.add(fn); return () => { f.listeners.delete(fn) } }, () => f.pool),
-  useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T, empty: T) => {
-    const pool = useSyncExternalStore((fn: () => void) => { f.listeners.add(fn); return () => { f.listeners.delete(fn) } }, () => f.pool)
-    const projection = useMemo(() => pool ? createPoolProjection(pool, read) : null, [pool, read])
-    return useSyncExternalStore(projection?.subscribe ?? (() => () => {}), projection?.getSnapshot ?? (() => empty))
-  },
-}))
-vi.mock('@/lib/at-mention/useFileMentions', () => ({ useFileMentions: () => [] }))
-vi.mock('@/lib/ModelEffortPicker', () => ({ AllConnectorsModelPicker: () => null, EffortPicker: () => null }))
-import { useChatArtifactIssue, useChatContextWindow, useChatConversationPorts, useChatDraft, useChatInteractions, useChatIssueSeq,
-  useChatMachines, useChatMentions, useChatReferenceMachines, useChatReferenceSessions, useChatRepositoryKey, useChatSession, useChatSessionExitKind, useChatThreads } from './use-chat-context'
-import { ChatComposer } from './ChatComposer'
-import { OfferArtifactStrip } from './OfferArtifactStrip'
-import { useChatSend } from './use-chat-send'
-
-beforeEach(async () => {
-  f.mode = 'legacy'; f.guard = false
-  f.fixture = await createChatContextFixture()
-  f.pool = f.fixture.pool
-  f.seams = { httpOrigin: 'http://synthetic.invalid', openArtifact: vi.fn(), openFileInWorktree: vi.fn() }
-  bindStoreStatsOwner(handle, f.fixture.owner)
-  bindStoreStatsOwner(f.fixture.owner.replica, f.fixture.owner)
-  storeStats.enable(); storeStats.reset()
-})
 afterEach(() => { cleanup(); f.fixture?.pool.dispose(); f.pool = null; f.fixture = undefined; f.listeners.clear(); storeStats.enable(false); vi.restoreAllMocks() })
 
 it('declares and batches demand, with zero synchronous replica reads for absent context', async () => {

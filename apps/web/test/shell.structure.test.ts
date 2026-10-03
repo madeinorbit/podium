@@ -51,7 +51,8 @@ describe('web shell structure', () => {
         'features/worklist/SidebarUnified.tsx',
         'features/worklist/new-task-row.tsx',
         'features/worklist/work-folds.tsx',
-        'features/worklist/use-unified-work.ts',
+        'features/worklist/pool-sidebar.tsx',
+        'features/worklist/use-pool-unified-work.ts',
         'app/DesktopMenuHost.tsx',
       ].map(read),
       readClientCore('viewmodels/slices/worklist/published.ts'),
@@ -60,8 +61,7 @@ describe('web shell structure', () => {
 
   it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
     const src = readWorklist()
-    expect(src).toContain('sidebarSections')
-    expect(src).toContain('groupUnifiedWorkRows')
+    expect(src).toContain('pool.sidebar.sections')
     expect(src).toContain('ProjectGroupLabel')
     // Panel-pinning is retired (POD-169) — issue pinning renders its own section.
     expect(src).toContain('splitPinnedWork')
@@ -69,10 +69,8 @@ describe('web shell structure', () => {
     expect(readClientCore('viewmodels/slices/worklist/published.ts')).toContain(
       'const { pinned, rest } = splitPinnedWork(work)',
     )
-    expect(read('features/worklist/use-unified-work.ts')).toContain(
-      'derivationOverride?.pinned ?? published.pinned',
-    )
-    expect(read('features/worklist/SidebarUnified.tsx')).toContain('data-testid="pinned-section"')
+    expect(read('features/worklist/pool-sidebar.tsx')).toContain('sections.pinnedIds')
+    expect(read('features/worklist/pool-sidebar.tsx')).toContain('data-testid="pinned-section"')
     // The negative invariant stays scoped to the component that must not regain
     // it: widening a "must NOT contain" over more files only makes it stricter,
     // but naming the file is what makes the failure legible.

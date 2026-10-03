@@ -13,15 +13,7 @@ import { createHeaderFixture } from './header-fixture'
 import { AgentConcurrencyHistory } from '../src/app/AgentConcurrencyHistory'
 import { useHeaderActions, useHeaderStatus } from '../src/app/header-data'
 
-// Only the startup switch changes. Both arms use the real runtime, header
-// source/projections, hooks and components against the same synthetic inputs.
-const choice = vi.hoisted(() => ({ mode: 'legacy' as 'legacy' | 'pool' }))
-vi.mock('@/lib/header-data-layer', () => ({
-  initializeHeaderDataLayer: () => {},
-  headerDataLayer: () => choice.mode,
-  headerCheckRequested: () => false,
-}))
-
+// Exercise the real runtime, pool projections, hooks and components.
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
@@ -47,8 +39,7 @@ function renderedHeader(element: Element): unknown {
   return { tag: element.tagName, class: element.getAttribute('class'), children }
 }
 
-async function mount(mode: 'legacy' | 'pool', roster = false) {
-  choice.mode = mode
+async function mount(roster = false) {
   const fixture = createHeaderFixture(6, 6)
   const failures: string[] = []
   let ready = false
@@ -63,12 +54,12 @@ async function mount(mode: 'legacy' | 'pool', roster = false) {
     const pool = useWorklistPool()
     useEffect(() => {
       runtime = owner
-      ready = mode === 'legacy' || pool !== null
+      ready = pool !== null
     }, [owner, pool])
     return <><HeaderHostIndicators />{roster && <Working />}</>
   }
   const view = render(
-    <StoreProvider principal={asClientPrincipal(asUserId(`header-parity-${mode}`))}
+    <StoreProvider principal={asClientPrincipal(asUserId('header-pool-regression'))}
       config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
       api={fixture.api} createReplicaFn={() => fixture.newReplica()} networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
@@ -93,8 +84,8 @@ async function mount(mode: 'legacy' | 'pool', roster = false) {
 
 describe('old and pool header rendering', () => {
   it('preserves the working sentence, roster names, refs, order and machine numbers after addressed changes', async () => {
-    const capture = async (mode: 'legacy' | 'pool') => {
-      const header = await mount(mode, true)
+    const capture = async () => {
+      const header = await mount(true)
       await act(async () => {
         header.fixture.patch('session', 'synthetic-session-0', { name: 'First agent', displayRef: 'S-101', status: 'live',
           lastActiveAt: new Date().toISOString(), agentState: { phase: 'working', since: new Date().toISOString() } })
@@ -123,22 +114,14 @@ describe('old and pool header rendering', () => {
       header.unmount()
       return { before, changed }
     }
-    const legacy = await capture('legacy')
-    const current = await capture('pool')
-    expect(current).toEqual(legacy)
+    const current = await capture()
     expectPoolOutput(current, 'working roster and machines')
-    expect(legacy.before.sentence).toBe('2 agents working')
-    expect(legacy.changed.sentence).toBe('1 agent working')
+    expect(current.before.sentence).toBe('2 agents working')
+    expect(current.changed.sentence).toBe('1 agent working')
   }, 30000)
 
   it('preserves visible names, QUOTA, labels and element order across both paths', async () => {
-    const old = await mount('legacy')
-    const before = renderedHeader(old.container.querySelector('.header-host-indicators')!)
-    const text = old.container.textContent
-    old.unmount()
-    const pool = await mount('pool')
-    expect(renderedHeader(pool.container.querySelector('.header-host-indicators')!)).toEqual(before)
-    expect(pool.container.textContent).toBe(text)
+    const pool = await mount()
     expectPoolOutput(renderedHeader(pool.container.querySelector('.header-host-indicators')!), 'header indicators')
     expect([...pool.container.querySelectorAll('.header-machine-name')].map((node) => node.textContent))
       .toEqual(['Host 1', 'Host 2', 'Host 3'])
@@ -150,8 +133,8 @@ describe('old and pool header rendering', () => {
     }
   }, 30000)
 
-  it.each(['legacy', 'pool'] as const)('%s shows df disk usage and keeps an unknown disk distinct from empty', async (mode) => {
-    const header = await mount(mode)
+  it('pool shows df disk usage and keeps an unknown disk distinct from empty', async () => {
+    const header = await mount()
     const chip = header.container.querySelector('.header-machine-chip')!
     const disk = () => chip.querySelector('.header-machine-meters > .header-readout:nth-child(3)')!
     expect(disk().textContent).toBe('DISK60%')

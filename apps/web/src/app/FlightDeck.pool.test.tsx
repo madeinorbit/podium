@@ -20,7 +20,7 @@ import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { missionLegacyCountsFor, resetMissionLegacyCounts } from './mission-pane-perf'
 
 const state = vi.hoisted(() => ({
-  layer: 'legacy' as 'legacy' | 'pool', pool: null as unknown,
+  pool: null as unknown,
   issues: [] as unknown[], sessions: [] as unknown[], repos: [], machines: [],
   selectedIssueId: null as string | null, paneA: null as string | null, paneB: null as string | null, split: false,
   coarseNow: 0, uiState: { get: (_key: string): string | null => null, set: vi.fn(), subscribe: () => () => {} },
@@ -32,7 +32,7 @@ const state = vi.hoisted(() => ({
 const owner = { getSnapshot: () => state, subscribe: () => () => {} }
 vi.mock('./store', () => ({
   useStoreSelector: (read: (store: typeof state) => unknown) => read(state),
-  useReplicaIssues: () => { if (state.layer === 'pool') throw new Error('Pool pane read legacy issue models'); return state.issues },
+  useReplicaIssues: () => { throw new Error('Pool pane read legacy issue models') },
   useSessionDraft: () => '',
 }))
 vi.mock('@podium/client-core/react', async original => ({ ...await original<typeof import('@podium/client-core/react')>(),
@@ -49,7 +49,6 @@ vi.mock('./store-worklist-pool', () => {
     },
   }
 })
-vi.mock('@/lib/pane-data-layer', () => ({ paneDataLayer: () => state.layer, initializePaneDataLayer: () => {} }))
 vi.mock('@/lib/use-harness-descriptors', () => ({ useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' }) }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => true }))
 
@@ -64,7 +63,7 @@ beforeEach(() => {
   sessions = dedupeSessions(sessionViews([...replica.rows('sessions')], {
     userId: 'operator', userStates: [...replica.rows('sessionUserStates')], machines: [...replica.rows('machines')], repos: [...replica.rows('repos')],
   }))
-  state.layer = 'legacy'; state.issues = issues; state.sessions = sessions; state.coarseNow = corpus.fixedNow
+  state.issues = issues; state.sessions = sessions; state.coarseNow = corpus.fixedNow
   state.paneA = null; state.paneB = null; state.split = false
   state.replica = replica
   state.trpc = { cost: { task: { query: async () => null }, tasks: { query: async () => [] } },
@@ -111,7 +110,7 @@ describe('rendered mission pane parity', () => {
     const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12)
     if (!root) throw new Error('Missing mission fixture')
     const renamed = { ...root, title: 'Changed mission catalog check' }
-    state.layer = 'pool'; state.selectedIssueId = root.id
+    state.selectedIssueId = root.id
     const publishCatalog = (prefix: string) => pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: '/catalog-only',
       value: { path: '/catalog-only', repoPath: '/catalog-only', repoName: 'Catalog only', prefix } }] })
     publishCatalog('before')
@@ -129,7 +128,7 @@ describe('rendered mission pane parity', () => {
     const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12 &&
       sessions.some(session => session.issueId === issue.id && !session.archived && !session.headless && session.agentKind !== 'shell'))
     if (!root) throw new Error('Missing mission fixture')
-    state.layer = 'pool'; state.selectedIssueId = root.id
+    state.selectedIssueId = root.id
     const reader = missionView(pool)
     const current = mount('full'); await settled()
     expect(reader.stats.values).toBe(1)
@@ -147,15 +146,9 @@ describe('rendered mission pane parity', () => {
   for (const view of ['full', 'working', 'needs-you', 'waterfall', 'handoff'] as const) it(`preserves visible words, labels, order and layout in ${view}`, async () => {
     const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12)!
     state.selectedIssueId = root.id
-    const legacy = mount(view); await settled()
-    const expected = renderedOutput(legacy.container)
-    expect(missionLegacyCountsFor(owner)['root']).toBeGreaterThan(0)
-    cleanup()
-    state.layer = 'pool'
     resetMissionLegacyCounts(owner)
     const baseline = missionIndexStats(), ownership = sessionOwnershipStats()
     const current = mount(view); await settled()
-    expect(renderedOutput(current.container)).toEqual(expected)
     expectPoolOutput(renderedOutput(current.container), "rendered output")
     expect(missionIndexStats()).toEqual(baseline)
     expect(sessionOwnershipStats()).toEqual(ownership)
@@ -166,36 +159,23 @@ describe('rendered mission pane parity', () => {
     const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId &&
       sessions.some(session => session.issueId === issue.id && session.archived && !session.headless && session.agentKind !== 'shell'))!
     state.selectedIssueId = root.id
-    const legacy = mount('full'); await settled()
-    fireEvent.click(screen.getByRole('button', { name: /archived session/i })); await settled()
-    const expected = renderedOutput(legacy.container)
     const archivedId = sessions.find(session => session.issueId === root.id && session.archived && !session.headless && session.agentKind !== 'shell')!.sessionId
     const selector = `[data-flight-session="${archivedId}"] button.deck-agent`
-    fireEvent.keyDown(legacy.container.querySelector(selector)!, { key: 'Enter' }); await settled()
-    const expectedOpen = state.openSessionTab.mock.calls.at(-1)
-    expect(expectedOpen).toEqual([archivedId, { permanent: true }])
-    state.openSessionTab.mockClear()
-    cleanup(); state.layer = 'pool'
     const current = mount('full'); await settled()
     fireEvent.click(screen.getByRole('button', { name: /archived session/i })); await settled()
-    expect(renderedOutput(current.container)).toEqual(expected)
     expectPoolOutput(renderedOutput(current.container), "rendered output")
     fireEvent.keyDown(current.container.querySelector(selector)!, { key: 'Enter' }); await settled()
-    expect(state.openSessionTab.mock.calls.at(-1)).toEqual(expectedOpen)
+    expect(state.openSessionTab.mock.calls.at(-1)).toEqual([archivedId, { permanent: true }])
   }, 120_000)
 
   for (const menu of ['issue', 'session'] as const) it(`preserves ${menu} action labels and order`, async () => {
     state.selectedIssueId = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount > 1 && issue.childCount < 12 &&
       sessions.some(session => session.issueId === issue.id && !session.archived && !session.headless && session.agentKind !== 'shell'))!.id
     const target = menu === 'issue' ? '.deck-header' : 'button.deck-agent'
-    const legacy = mount('full'); await settled()
-    fireEvent.contextMenu(legacy.container.querySelector(target)!, { clientX: 10, clientY: 20 }); await settled()
-    const expected = renderedOutput(screen.getByRole('menu'))
-    cleanup(); state.layer = 'pool'; resetMissionLegacyCounts(owner)
+    resetMissionLegacyCounts(owner)
     const baseline = missionIndexStats(), ownership = sessionOwnershipStats()
     const current = mount('full'); await settled()
     fireEvent.contextMenu(current.container.querySelector(target)!, { clientX: 10, clientY: 20 }); await settled()
-    expect(renderedOutput(screen.getByRole('menu'))).toEqual(expected)
     expectPoolOutput(renderedOutput(screen.getByRole('menu')), 'menu output')
     expect(missionIndexStats()).toEqual(baseline); expect(sessionOwnershipStats()).toEqual(ownership)
     expect(missionLegacyCountsFor(owner)).toEqual({})
@@ -203,13 +183,9 @@ describe('rendered mission pane parity', () => {
 
   it('preserves folded bar words, labels, tick order and layout', async () => {
     state.selectedIssueId = 'i1884'
-    const legacy = render(<FoldedFlightDeckBar onExpand={() => {}} />)
-    const expected = renderedOutput(legacy.container)
-    cleanup(); state.layer = 'pool'
     const baseline = missionIndexStats(), ownership = sessionOwnershipStats()
     const current = render(<FoldedFlightDeckBar onExpand={() => {}} />)
     await waitFor(() => expect(current.container.querySelector('[data-testid="flight-deck-gauge"]')).not.toBeNull())
-    expect(renderedOutput(current.container)).toEqual(expected)
     expectPoolOutput(renderedOutput(current.container), "rendered output")
     expect(missionIndexStats()).toEqual(baseline); expect(sessionOwnershipStats()).toEqual(ownership)
   }, 120_000)

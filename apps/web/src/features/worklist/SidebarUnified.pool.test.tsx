@@ -1,3 +1,4 @@
+import '@/test-support/mock-pool-fixture'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -51,11 +52,6 @@ vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
     },
   }
 })
-vi.mock('@/lib/sidebar-data-layer', () => ({
-  sidebarDataLayer: () => mode.value,
-  initializeSidebarDataLayer: () => {},
-  sidebarCheckRequested: () => false,
-}))
 vi.mock('@/app/store', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/app/store')>()
   return {

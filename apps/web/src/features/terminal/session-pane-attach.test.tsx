@@ -19,7 +19,6 @@ import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { useChatSurface } from '../chat/use-chat-surface'
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'
-import { initializeSessionPaneDataLayer, sessionPaneDataLayer } from './session-pane-data-layer'
 import {
   useDockPaneInputs,
   usePaneMachines,
@@ -148,8 +147,7 @@ function Inputs() {
 
 beforeEach(() => {
   localStorage.clear()
-  window.history.replaceState(null, '', '/?mobxSessionPane=1')
-  initializeSessionPaneDataLayer({ get: () => null })
+  window.history.replaceState(null, '', '/')
   runtime = undefined
   pools.length = 0
   errors.length = 0
@@ -171,7 +169,6 @@ it.each([
   true,
 ])('keeps session hooks stable from no pool through the real attachment (StrictMode=%s)', async (strict) => {
   const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => {})
-  expect(sessionPaneDataLayer()).toBe('pool')
   const provider = (
     <StoreProvider
       principal={principal}

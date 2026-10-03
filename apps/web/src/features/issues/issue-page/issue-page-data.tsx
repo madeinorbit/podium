@@ -1,29 +1,38 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { IssuePageData, IssuePageViews } from '@podium/client-graph/issue-page'
-import { createContext, useContext } from 'react'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { issuePages, type IssuePageData, type IssuePageViews } from '@podium/client-graph/issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { MobxPool } from '@podium/client-graph'
+import { createContext, useContext } from 'react'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
-/** One page read owner. Nested controls reuse its pool values; controls on
- * other screens keep their existing data subscriptions. */
+/** Nested controls reuse their page's addressed values. Other pool surfaces
+ * read the declared catalog; attachment never falls back to a store slice. */
 export const IssuePageDataContext = createContext<{ data: IssuePageData; views: IssuePageViews } | null>(null)
 export const IssuePageWorldContext = createContext<{ issues: IssueViewModel[]; sessions: SessionView[] } | null>(null)
 export function useIssuePageData() { return useContext(IssuePageDataContext) }
 
-export function useIssuePageIssues() {
-  const value = useIssuePageData()
+const EMPTY_ISSUES: IssueViewModel[] = []
+const EMPTY_SESSIONS: SessionView[] = []
+const readIssues = (pool: MobxPool) => issuePages(pool).issues()
+const readSessions = (pool: MobxPool) => issuePages(pool).explorer()
+function usePoolIssues(): IssueViewModel[] {
+  const value = useWorklistPoolProjection(readIssues, undefined)
+  return value && typeof value !== 'symbol' ? value : EMPTY_ISSUES
+}
+function usePoolSessions(): SessionView[] {
+  const value = useWorklistPoolProjection(readSessions, undefined)
+  return value && typeof value !== 'symbol' ? value.sessions : EMPTY_SESSIONS
+}
+export function useIssuePageIssues(): IssueViewModel[] {
+  const page = useIssuePageData()
   const world = useContext(IssuePageWorldContext)
-  // PoolIssuePage/PoolIssuePanelView and the explorer choose this provider at
-  // their mounting boundary; it cannot appear or disappear within a mounted
-  // legacy reader. Keep the legacy addressed subscription exactly as before.
-  if (value) return value.data.issues
-  if (world) return world.issues
-  // biome-ignore lint/correctness/useHookAtTopLevel: the mounting boundary fixes this branch; the pool body unmounts before its provider disappears.
-  return useReplicaIssues()
+  // The host fixes the context for this component's lifetime.
+  // biome-ignore lint/correctness/useHookAtTopLevel: Pool page/world bodies unmount before their provider disappears.
+  return page?.data.issues ?? world?.issues ?? usePoolIssues()
 }
 export function useIssuePageSessions(): SessionView[] {
-  const value = useIssuePageData()
+  const page = useIssuePageData()
   const world = useContext(IssuePageWorldContext)
-  const provided = value?.data.sessions ?? world?.sessions
-  return useStoreSelector(store => provided ?? store.sessions) ?? []
+  // biome-ignore lint/correctness/useHookAtTopLevel: Pool page/world bodies unmount before their provider disappears.
+  return page?.data.sessions ?? world?.sessions ?? usePoolSessions()
 }

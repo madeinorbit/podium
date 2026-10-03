@@ -20,19 +20,11 @@ import { workspaceFetch } from '@/lib/workspace-request'
 
 import { focusedPaneSession } from '@podium/client-core/engine'
 import { MOBILE_PROMO_DISMISSED_KEY } from '@podium/client-core/ui-state'
-import {
-  canonicalPodiumOrigin,
-  formatPodiumLink,
-  PODIUM_SCHEME,
-  parsePodiumLink,
-  parseServerVersion,
-  podiumTargetPath,
-} from '@podium/protocol'
+import { canonicalPodiumOrigin, formatPodiumLink, PODIUM_SCHEME, parsePodiumLink, parseServerVersion, podiumTargetPath } from '@podium/protocol'
 import { useEffect, useState } from 'react'
-import { type Store, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { type Store, useStoreSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { MobxPool } from '@podium/client-graph'
-import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
 const HANDOFF_ORIGIN_PARAM = 'origin'
@@ -162,28 +154,10 @@ export function useFocusedHandoffSessionId(): string | null {
   })
 }
 
-/**
- * THE GATE, shared by both surfaces: one task has been created.
- *
- * Before that there is nothing on a phone to watch, so an invitation would be
- * an ad in a status bar. Deliberately "a task exists", not "a task is open" —
- * the pitch is about carrying work around, and a shell with work in it has
- * earned it whatever state that work is in.
- */
-export function useHasFirstTask(): boolean {
-  const useRead = sidebarDataLayer() === 'pool' ? usePoolHasFirstTask : useLegacyHasFirstTask
-  return useRead()
-}
-
 const readHasFirstTask = (pool: MobxPool): boolean => pool.hasFirstTask === true
 
-function usePoolHasFirstTask(): boolean {
+export function useHasFirstTask(): boolean {
   return useWorklistPoolProjection(readHasFirstTask, false)
-}
-
-function useLegacyHasFirstTask(): boolean {
-  const issues = useReplicaIssues()
-  return issues.some((issue) => !issue.deletedAt)
 }
 
 const parseDismissed = (raw: string | null): boolean => raw === 'true'

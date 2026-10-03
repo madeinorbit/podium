@@ -105,9 +105,9 @@ export function createPoolHost({
   ): () => void {
     // Structural legacy/test runtimes without UI state request no pool screen.
     if (!runtime.ui) return () => {}
-    for (const screen of screens) screen.initialize(runtime.ui)
+    for (const screen of screens) screen.initialize?.(runtime.ui)
     const stopStart = start?.(runtime) ?? (() => {})
-    if (!screens.some((screen) => screen.enabled())) return stopStart
+    if (!screens.some((screen) => screen.enabled?.() !== false)) return stopStart
     const stopPrepared = preparePoolScreens(screens, runtime)
     reportSidebarPool(runtime, null, false)
     const slot = slotFor(runtime)

@@ -1,25 +1,11 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
-import {
-  blockingCloseConcerns,
-  type IssueCloseConcern,
-  issueCloseConcerns,
-} from '@podium/client-core/viewmodels'
-import { ISSUE_STATUS_LABELS, type IssueCloseReason} from '@podium/model/browser'
+import { blockingCloseConcerns, type IssueCloseConcern, issueCloseConcerns } from '@podium/client-core/viewmodels'
+import { ISSUE_STATUS_LABELS, type IssueCloseReason } from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useStoreSelector } from '@/app/store'
 import { useIssuePageSessions } from './issue-page/issue-page-data'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { issueRefLabel } from '@/lib/issue-labels'
 
 /** Re-exported from the model (POD-1074), where the vocabulary now lives with
@@ -82,17 +68,10 @@ export function issueMemberSessions(
  * is being closed until the press — the palette closes whatever the command was
  * run against, the menu is mounted over a selection.
  */
-function useLegacyCloseSessions(_supplied?: readonly SessionView[]) { return useIssuePageSessions() }
-function useSuppliedCloseSessions(supplied?: readonly SessionView[]) { return supplied ?? [] }
-/** A host chooses its reader once per mount; pool hosts never subscribe here. */
 function useCloseSessions(supplied?: readonly SessionView[]) {
-  const useRead = supplied === undefined ? useLegacyCloseSessions : useSuppliedCloseSessions
-  return useRead(supplied)
-}
-function useLegacyBulkCloseSessions(_supplied?: readonly SessionView[]) { return useStoreSelector(store => store.sessions) ?? [] }
-function useBulkCloseSessions(supplied?: readonly SessionView[]) {
-  const useRead = supplied === undefined ? useLegacyBulkCloseSessions : useSuppliedCloseSessions
-  return useRead(supplied)
+  // The host fixes supplied inputs for this component's lifetime.
+  // biome-ignore lint/correctness/useHookAtTopLevel: Supplied pool hosts unmount before changing their reader contract.
+  return supplied ?? useIssuePageSessions()
 }
 export function useIssueCloseGuard(suppliedSessions?: readonly SessionView[]): (issue: IssueNavigationModel) => boolean {
   const sessions = useCloseSessions(suppliedSessions)
@@ -264,7 +243,7 @@ export function IssueBulkCloseDialog({
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element | null {
-  const sessions = useBulkCloseSessions(suppliedSessions)
+  const sessions = useCloseSessions(suppliedSessions)
   const summary = issueBulkCloseSummary(issues, sessions)
   const first = issues[0]
   if (!first) return null

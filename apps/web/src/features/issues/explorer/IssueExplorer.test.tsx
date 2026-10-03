@@ -43,9 +43,8 @@ const SPINOFF = makeIssue({
 })
 const BASE_ISSUES = [EPIC, CHILD, STRANGER, ARCHIVED, SPINOFF]
 const ROOT_SESSION = { sessionId: 'sess-p', issueId: 'p' } as never
-const poolMode = vi.hoisted(() => ({ enabled: false, pool: null as MobxPool | null }))
+const poolMode = vi.hoisted(() => ({ enabled: true, pool: null as MobxPool | null }))
 const legacyIssueRead = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/sidebar-data-layer', () => ({ sidebarDataLayer: () => poolMode.enabled ? 'pool' : 'legacy' }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => poolMode.pool,
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => poolMode.pool ? read(poolMode.pool) : empty,
@@ -166,7 +165,7 @@ afterEach(() => {
   state.selectedIssueId = null
   state.issues = BASE_ISSUES
   state.sessions = [] as never[]
-  poolMode.enabled = false
+  poolMode.enabled = true
   poolMode.pool?.dispose()
   poolMode.pool = null
   vi.clearAllMocks()

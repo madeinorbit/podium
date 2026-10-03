@@ -16,7 +16,7 @@ import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from '@podium/client-graph/session-pane-schema'
 import { sessionPaneFixture, SESSION_PANE_NOW } from '@podium/client-graph/diagnostics/session-pane-fixture'
 
-const f = vi.hoisted(() => ({ mode: 'legacy' as 'legacy' | 'pool', state: {} as Store,
+const f = vi.hoisted(() => ({ state: {} as Store,
   pool: null as MobxPool | null, owner: { transcriptWindow: () => undefined, putTranscriptWindow: vi.fn() },
   issues: [] as IssueReferenceSource[], mounted: { current: null as MountedSession | null },
   end: vi.fn(async () => ({ ok: true })), resurrect: vi.fn(async () => {}), kill: vi.fn(async () => {}),
@@ -25,10 +25,9 @@ const f = vi.hoisted(() => ({ mode: 'legacy' as 'legacy' | 'pool', state: {} as 
   transcriptRead: vi.fn(async (_input: unknown) => ({ items: [], hasMore: false })),
   transcript: vi.fn((_session: unknown, _since?: unknown, _listener?: unknown) => () => {}), confirm: vi.fn(async () => true) }))
 const paneStoreHandle = { getSnapshot: () => f.state, subscribe: (_listener: () => void) => () => {} }
-vi.mock('./session-pane-data-layer', () => ({ sessionPaneDataLayer: () => f.mode }))
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: Store) => unknown) => { recordStoreSelector(f.owner); return select(f.state) },
-  useReplicaIssues: vi.fn(() => f.issues), useSessionDraft: () => '',
+  useReplicaIssues: vi.fn(() => { throw new Error('Session pane read the legacy issue list') }), useSessionDraft: () => '',
   useSessionExitKind: () => undefined,
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
@@ -71,7 +70,6 @@ import { usePaneSession, usePaneMachines, usePanePanelModes, usePaneSpawnConfirm
 
 let sessions: SessionView[]
 beforeEach(() => {
-  f.mode = 'legacy'
   f.issues = []
   f.mounted.current = null
   sessions = sessionPaneFixture()
@@ -113,20 +111,13 @@ const view = (container: HTMLElement) => ({
 
 it('renders the same real AgentPanel header, lifecycle text and controls for every corpus state', async () => {
   for (const row of sessions) {
-    f.mode = 'legacy'
-    const legacy = render(<AgentPanel sessionId={row.sessionId} />)
-    const expected = view(legacy.container)
-    legacy.unmount()
-    f.mode = 'pool'
-    const actual = render(<AgentPanel sessionId={row.sessionId} />)
-    expect(view(actual.container), row.sessionId).toEqual(expected)
+      const actual = render(<AgentPanel sessionId={row.sessionId} />)
     expectPoolOutput(view(actual.container), row.sessionId)
     actual.unmount()
   }
 })
 
 it('uses the same wake action and parked shell without resolving a replacement', () => {
-  f.mode = 'pool'
   const agent = render(<AgentPanel sessionId={sessions[5]!.sessionId} />)
   fireEvent.click(agent.container.querySelector<HTMLButtonElement>('[data-testid="lifecycle-resume"]')!)
   expect(f.resurrect).toHaveBeenCalledWith(sessions[5]!.sessionId)
@@ -138,20 +129,11 @@ it('uses the same wake action and parked shell without resolving a replacement',
 })
 
 it('has zero legacy pane derivations while mounted and after an unrelated session delta', () => {
-  f.mode = 'pool'
   const mounted = render(<AgentPanel sessionId={sessions[0]!.sessionId} />)
   const shell = render(<DockShellPanel cwd="/synthetic/w19" />)
   act(() => f.pool!.apply({ type: 'update', rows: [{ kind: 'session', id: sessions[1]!.sessionId, value: { ...sessions[1]!, title: 'Other delta' } as never }] }))
   expect(Object.entries(readRuntimeStoreStats(f.owner)?.slices ?? {}).filter(([name]) => name.startsWith('sessionPane.'))).toEqual([])
   mounted.unmount(); shell.unmount()
-  f.mode = 'legacy'
-  const legacy = render(<AgentPanel sessionId={sessions[0]!.sessionId} />)
-  const counts = readRuntimeStoreStats(f.owner)?.slices ?? {}
-  expect(counts['sessionPane.session']).toBeGreaterThan(0)
-  expect(counts['sessionPane.machines']).toBeGreaterThan(0)
-  expect(counts['sessionPane.panelMode']).toBeGreaterThan(0)
-  expect(counts['sessionPane.referenceIssues']).toBeGreaterThan(0)
-  legacy.unmount()
 })
 
 it('keeps native reference underlines equal and live without legacy issue reads on the pool path', async () => {
@@ -172,19 +154,11 @@ it('keeps native reference underlines equal and live without legacy issue reads 
     stages = tokens.map(token => next.resolveStage?.(token) ?? null)
   })
   f.mounted.current = { setAppearance: vi.fn(), view: { setRefLinks: paint, setFileLinks: vi.fn() } } as unknown as MountedSession
-  const legacy = render(<AgentPanel sessionId={sessions[0]!.sessionId} />)
-  const expected = { ...view(legacy.container), stages }
-  expect(stages).toEqual(['in_progress', 'in_progress', 'review', null, null, null, null, null])
-  legacy.unmount()
-  expect(readRuntimeStoreStats(f.owner)?.slices['sessionPane.referenceIssues']).toBeGreaterThan(0)
-  vi.mocked(useReplicaIssues).mockClear()
-  storeStats.reset()
-  f.mode = 'pool'
   const actual = render(<AgentPanel sessionId={sessions[0]!.sessionId} />)
   await waitFor(() => {
     // Demand lookup is nonblocking while cold identities/rows load locally.
     f.pool!.hydrate()
-    expect({ ...view(actual.container), stages }).toEqual(expected)
+    expect(stages).toEqual(['in_progress', 'in_progress', 'review', null, null, null, null, null])
   })
   expectPoolOutput({ ...view(actual.container), stages }, 'reference underlines')
   expect(vi.mocked(useReplicaIssues)).not.toHaveBeenCalled()
@@ -206,7 +180,6 @@ it('keeps native reference underlines equal and live without legacy issue reads 
 })
 
 it('never accesses legacy session, machine or window collections on the pool input path', () => {
-  f.mode = 'pool'
   f.state = new Proxy(f.state, { get(target, key) {
     if (['sessions', 'machines', 'panelMode', 'pendingSpawnIds', 'dockShells', 'reposLoaded', 'selectedIssueId', 'issueProjections', 'issueUserStates'].includes(String(key))) throw new Error(`Legacy input read: ${String(key)}`)
     return Reflect.get(target, key)
@@ -223,7 +196,6 @@ it('never accesses legacy session, machine or window collections on the pool inp
 })
 
 it('uses pool facts in the real chat header while leaving transcript reads on the original transport', async () => {
-  f.mode = 'pool'
   const row = sessions.find(row => row.machineId === 'machine-b' && row.condition === undefined)!
   function Header() {
     const chat = useChatSurface({ sessionId: row.sessionId, active: true, superThread: undefined,

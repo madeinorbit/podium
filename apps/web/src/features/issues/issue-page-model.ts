@@ -7,33 +7,18 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import { shallowEqual } from '@podium/client-core'
-import {
-  type ActivityComment,
-  type ActivityItem,
-  buildActivityFeed,
-  type IssueEvent,
-  subIssuesOf,
-} from '@podium/client-core/viewmodels'
+import { type ActivityComment, type ActivityItem, buildActivityFeed, type IssueEvent } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Store } from '@/app/store'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
-import { recordSliceDerivation } from '@podium/client-core/perf'
 import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import { issueNeighbors } from './issue-page'
-import {
-  type IssueMailMessage,
-  loadIssueComments,
-  loadIssueEventsPage,
-  loadIssueMail,
-  loadMergeStyle,
-  type MergeStyle,
-  type RunMutation,
-} from './issue-page-commands'
+import { type IssueMailMessage, loadIssueComments, loadIssueEventsPage, loadIssueMail, loadMergeStyle, type MergeStyle, type RunMutation } from './issue-page-commands'
 
 /** Page size for the subject-narrowed event drain. One issue's whole history is
  *  normally far below this, so the drain is a single round trip; a full page is
@@ -82,7 +67,7 @@ export interface IssuePageModel {
 }
 
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
-  const pooled = useIssuePageData()?.data
+  const pooled = useIssuePageData()!.data
   const {
     trpc,
     sessions,
@@ -97,7 +82,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      sessions: pooled ? pooled.sessions : s.sessions ?? [],
+      sessions: pooled.sessions,
       navigateToSession: s.navigateToSession,
       updateIssue: s.updateIssue,
       deleteIssue: s.deleteIssue,
@@ -112,7 +97,6 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   const issues = useIssuePageIssues()
   // Same store-level census as the sidebar pilot. Diagnostic comparisons are
   // separately bracketed; a pool page never executes this legacy derivation.
-  useStoreSelector(s => { if (!pooled) recordSliceDerivation(s.replica ?? s, 'issue-page.model'); return s.trpc })
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<IssueEvent[]>([])
   const drainEvents = useRef<(() => void) | null>(null)
@@ -284,11 +268,9 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     feed: buildActivityFeed(comments, events),
     mail,
     sessions,
-    memberSessions: pooled?.memberSessions ?? (issue.memberSessionIds ?? [])
-      .map((id) => (sessions ?? []).find((session) => session.sessionId === id))
-      .filter((session): session is SessionView => session !== undefined),
+    memberSessions: pooled.memberSessions,
     openSession: navigateToSession,
-    children: pooled?.children ?? subIssuesOf(issues, issue.id),
+    children: pooled.children,
     appendLocalComment: (body) =>
       setComments((cur) => [...cur, { author: 'me', body, createdAt: new Date().toISOString() }]),
   }

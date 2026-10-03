@@ -1,0 +1,36 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`issue page rendered pool parity > preserves the fallback list close dialog, working members, child counts, question and delivery words > close dialog 1`] = `
+{
+  "bytes": 9167,
+  "sha256": "3c18aa07fdedff83253c1a47fb962cda7b4aadc9aa5c1c5749146ce37e4044cc",
+}
+`;
+
+exports[`issue page rendered pool parity > preserves the list text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
+{
+  "bytes": 10732,
+  "sha256": "1d3cd6f13faa2c973c13ef62a886155b163d2fa7d981942fca6a48dca803da20",
+}
+`;
+
+exports[`issue page rendered pool parity > preserves the page text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
+{
+  "bytes": 247632,
+  "sha256": "8b867f59c76d566bcb60b06d697520cc0bb9285f87fb50d67b6da8c5d092a8ba",
+}
+`;
+
+exports[`issue page rendered pool parity > preserves the panel text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
+{
+  "bytes": 83498,
+  "sha256": "1898790ebd0b5c28be239768c5983fe344b5a169a9ed0206c6c1d7690e949d4b",
+}
+`;
+
+exports[`issue page rendered pool parity > preserves the rendered continuation after multiple spin-off hops > rendered output 1`] = `
+{
+  "bytes": 53592,
+  "sha256": "d5578bb1224fb49351f3460a83970b2898842efee5e8634736edb9586632c00f",
+}
+`;

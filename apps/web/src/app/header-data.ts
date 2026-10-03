@@ -1,57 +1,26 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/store'
-import { measureLegacyHeader } from '@podium/client-core/perf'
-import { isAgentConfirmedComputing, type MachineId } from '@podium/model/browser'
+import { type MachineId } from '@podium/model/browser'
 import type { MobxPool } from '@podium/client-graph'
 import { useMemo } from 'react'
-import { headerDataLayer } from '@/lib/header-data-layer'
-import { useNow } from '@/lib/useNow'
-import { useReplicaIssues, useStoreSelector, type Store } from './store'
+import { type Store } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
-
-type HeaderActions = Pick<Store, 'trpc' | 'setView' | 'setSettingsTab'>
 
 /** Stable actions and transport handles stay on the existing mutation owner.
  * No snapshot subscription and no legacy data derivation in the pool branch. */
-function usePoolActions() {
+export function useHeaderActions() {
   const owner = useStoreHandle<Store['trpc']>()
   return useMemo(() => {
     const state = owner.getSnapshot()
     return { trpc: state.trpc, setView: state.setView, setSettingsTab: state.setSettingsTab }
   }, [owner])
 }
-function useLegacyActions() {
-  return useStoreSelector((state) => ({ trpc: state.trpc, setView: state.setView, setSettingsTab: state.setSettingsTab }), shallowEqual)
-}
-export function useHeaderActions(): HeaderActions {
-  const useRead = headerDataLayer() === 'pool' ? usePoolActions : useLegacyActions
-  return useRead()
-}
 
 const readStatus = (pool: MobxPool) => ({ workingSessions: pool.headerViews.working(), issue: pool.headerViews.selectedIssue() })
 const EMPTY_STATUS = { workingSessions: [], issue: undefined }
-function usePoolStatus() { return useWorklistPoolProjection(readStatus, EMPTY_STATUS) }
-function useLegacyStatus() {
-  const { sessions, selectedIssueId, trpc: owner } = useStoreSelector((state) => ({ sessions: state.sessions, selectedIssueId: state.selectedIssueId, trpc: state.trpc }), shallowEqual)
-  const issues = useReplicaIssues()
-  const now = useNow(60_000)
-  return {
-    workingSessions: measureLegacyHeader(owner, 'workingSessions', () => sessions.filter((session) => isAgentConfirmedComputing(session, now))),
-    issue: selectedIssueId ? issues.find((issue) => issue.id === selectedIssueId && !issue.deletedAt) : undefined,
-  }
-}
-export function useHeaderStatus() {
-  const useRead = headerDataLayer() === 'pool' ? usePoolStatus : useLegacyStatus
-  return useRead()
-}
+export function useHeaderStatus() { return useWorklistPoolProjection(readStatus, EMPTY_STATUS) }
 
 const readView = (pool: MobxPool) => pool.headerViews.row('window', 'window')?.view ?? 'workspace'
-function usePoolView() { return useWorklistPoolProjection(readView, 'workspace' as Store['view']) }
-function useLegacyView() { return useStoreSelector((state) => state.view) }
-export function useHeaderView() {
-  const useRead = headerDataLayer() === 'pool' ? usePoolView : useLegacyView
-  return useRead()
-}
+export function useHeaderView() { return useWorklistPoolProjection(readView, 'workspace' as Store['view']) }
 
 const readMetrics = (pool: MobxPool) => pool.headerViews.metrics()
 const EMPTY_METRICS: ReturnType<typeof readMetrics> = []
@@ -91,11 +60,7 @@ export function usePoolReclaimCounts(afterDays: number) {
   return useWorklistPoolProjection(read, {})
 }
 const readFolded = (pool: MobxPool) => pool.headerViews.folded()
-export function usePoolFolded() {
-  return useWorklistPoolProjection(readFolded, { root: undefined, progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }, live: 0, working: 0, needs: 0, loading: true })
-}
 const readShipping = (pool: MobxPool) => pool.headerViews.shipping()
-export function usePoolShipping() { return useWorklistPoolProjection(readShipping, { unfinishedCount: 0, decisionCount: 0 }) }
 
 /** Load-panel session rows are loaded by the one reader in one batch. */
 export function usePoolSessionLabels(ids: readonly string[]) {
@@ -110,12 +75,7 @@ export function usePoolSessionLabels(ids: readonly string[]) {
 const readOffline = (pool: MobxPool) => pool.headerViews.offlineMachines()
 export function usePoolOfflineMachines() { return useWorklistPoolProjection(readOffline, EMPTY_MACHINES) }
 const readOutbox = (pool: MobxPool) => pool.headerViews.row('window', 'window')?.outboxSize ?? 0
-function usePoolOutbox() { return useWorklistPoolProjection(readOutbox, 0) }
-function useLegacyOutbox() { return useStoreSelector((state) => state.outboxSize) }
-export function useHeaderOutboxSize() {
-  const useRead = headerDataLayer() === 'pool' ? usePoolOutbox : useLegacyOutbox
-  return useRead()
-}
+export function useHeaderOutboxSize() { return useWorklistPoolProjection(readOutbox, 0) }
 
 const readHistory = (pool: MobxPool) => pool.headerViews.history()
 export function usePoolConcurrencyHistory() { return useWorklistPoolProjection(readHistory, null) }

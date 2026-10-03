@@ -1,7 +1,7 @@
 import { expectPoolOutput } from './pool-output'
 import { reaction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { checkSidebar, compareSidebarSnapshots, poolSidebarSnapshot, type SidebarDifference, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import { compareSidebarSnapshots, poolSidebarSnapshot, type SidebarDifference, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import { createWorklistPool } from '@podium/client-graph/create'
@@ -159,14 +159,13 @@ describe('sidebar readiness', () => {
     try {
       const store = ctx.engine.getSnapshot()
       const state: SidebarState = { pinnedRepos: store.pins.repos, pinnedWorktrees: store.pins.worktrees, projectOrder: store.sidebarSettings.repoOrder }
-      const cold = tracked(() => checkSidebar(handle.pool, store, state))
+      const cold = tracked(() => poolSidebarSnapshot(handle.pool, state))
       expect(hydrate).not.toHaveBeenCalled()
       expect(cold.pending).toBeGreaterThan(0)
-      expect(cold).toMatchObject({ differences: 0, first: null })
       const snapshot = tracked(() => poolSidebarSnapshot(handle.pool, state))
       expect(snapshot.sections.flatMap(section => section.rows).some(row => row.pending && 'sessions' in row.fields)).toBe(true)
       settle(handle.pool, state)
-      expect(tracked(() => checkSidebar(handle.pool, store, state))).toMatchObject({ differences: 0, first: null, pending: 0 })
+      expect(tracked(() => poolSidebarSnapshot(handle.pool, state)).pending).toBe(0)
     } finally { hydrate.mockRestore(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 120_000)
 })
@@ -177,22 +176,22 @@ describe('sidebar differential replay', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
     const stop = reaction(() => poolSidebarSnapshot(handle.pool), () => {}, { fireImmediately: true })
-    const checks: Array<{ scenario: string; rows: number; differences: number }> = []
+    const checks: Array<{ scenario: string; rows: number; pending: number }> = []
     const check = (scenario: string): void => {
       feeds.flush(); settle(handle.pool)
       const store = ctx.engine.getSnapshot()
       const state: SidebarState = { pinnedRepos: store.pins.repos, pinnedWorktrees: store.pins.worktrees, projectOrder: store.sidebarSettings.repoOrder }
-      const result = tracked(() => checkSidebar(handle.pool, store, state))
-      expect(result, scenario).toMatchObject({ differences: 0, first: null, pending: 0 })
+      const result = tracked(() => poolSidebarSnapshot(handle.pool, state))
+      expect(result.pending, scenario).toBe(0)
       expectPoolOutput(tracked(() => poolSidebarSnapshot(handle.pool, state)), scenario)
-      checks.push({ scenario, rows: result.rows, differences: result.differences })
+      checks.push({ scenario, rows: result.sections.reduce((sum, section) => sum + section.rows.length, 0), pending: result.pending })
     }
     try {
       check('corpus')
       for (const scenario of FENCE_SCENARIOS) { await scenario.write(ctx); check(scenario.scenario) }
       await writeRescopeGrow(ctx); check('rescopeGrowth')
       await writeRescopeBack(ctx); check('rescopeBack')
-      writeResult(`sidebar-check-${scale}x`, { issue: 'POD-4954', scale, checks })
+      writeResult(`sidebar-check-${scale}x`, { issue: 'POD-5437', scale, checks })
     } finally { stop(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 600_000)
 
@@ -206,7 +205,7 @@ describe('sidebar differential replay', () => {
         ctx.engine.start()
         for (let turn = 0; turn < 10; turn += 1) await new Promise(resolve => setTimeout(resolve, 0))
         rows.flush(); locals.flush(); settle(handle.pool)
-        expect(tracked(() => checkSidebar(handle.pool, ctx.engine.getSnapshot()))).toMatchObject({ differences: 0, first: null })
+        expect(tracked(() => poolSidebarSnapshot(handle.pool)).pending).toBe(0)
       } finally { handle.dispose(); locals.dispose(); rows.dispose(); ctx.engine.destroy() }
     }
   }, 600_000)
@@ -235,11 +234,10 @@ describe('sidebar differential replay', () => {
         const keys = tracked(() => handle.pool.groups.keys)
         const state: SidebarState = { pinnedRepos: store.pins.repos, pinnedWorktrees: store.pins.worktrees,
           projectOrder: index % 2 ? [...keys].reverse() : [], collapsed: { 'podium:sidebar:pinned-fold': index % 2 === 1 } }
-        const result = tracked(() => checkSidebar(handle.pool, store, state))
-        expect(result, `seed ${seed} step ${index} ${changes[index]!.kind}`).toMatchObject({ differences: 0, first: null, pending: 0 })
+        expect(tracked(() => poolSidebarSnapshot(handle.pool, state)).pending).toBe(0)
         expectPoolOutput(tracked(() => poolSidebarSnapshot(handle.pool, state)), `step ${index}`)
       }
-      writeResult(`sidebar-check-seed-${seed}`, { issue: 'POD-4954', seed, steps: changes.length, differences: 0 })
+      writeResult(`sidebar-check-seed-${seed}`, { issue: 'POD-4954', seed, steps: changes.length, frozenOutputs: true })
     } finally { stop(); handle.dispose(); locals.dispose(); run.dispose() }
   }, 600_000)
 })

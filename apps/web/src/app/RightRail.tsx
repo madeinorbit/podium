@@ -1,23 +1,10 @@
-import { measureLegacyHeader } from '@podium/client-core/perf'
-import { headerDataLayer } from '@/lib/header-data-layer'
-import { usePoolShipping } from './header-data'
-import { shallowEqual } from '@podium/client-core/store'
-import {
-  cwdInWorktree,
-  issueForCwd,
-  reposToViews,
-  resolveActiveWorktree,
-  shippingPanelModel,
-} from '@podium/client-core/viewmodels'
+
 import type { JSX } from 'react'
 import { observer } from '@podium/client-graph/react'
-import { useMemo } from 'react'
 import { useFeature } from '@/lib/use-feature'
 import { RIGHT_PANELS } from './RightDock'
 import { type RightPanelTab, rightPanelAllowed } from './shell-state'
-import { useReplicaIssues, useStoreSelector } from './store'
 import { useShellShipping } from './shell-data'
-import { shellDataLayer } from './shell-pool-screen'
 
 /**
  * The 44px right rail (handoff §2.5): one cell per dock panel — Tasks,
@@ -57,8 +44,7 @@ export const RightRail = observer(function RightRail({
   const messagesPanelEnabled = useFeature('messages-panel')
   const mergeQueueEnabled = useFeature('merge-queue')
   const shippingEnabled = useFeature('shipping')
-  const useRead = shellDataLayer() === 'pool' ? useShellShipping : headerDataLayer() === 'pool' ? usePoolShipping : useLegacyShipping
-  const shipping = useRead()
+  const shipping = useShellShipping()
   const panelAllowed = (panel: RightPanelTab): boolean =>
     rightPanelAllowed(panel, {
       git: gitPanelEnabled,
@@ -115,60 +101,3 @@ export const RightRail = observer(function RightRail({
     </nav>
   )
 })
-
-function useLegacyShipping() {
-  const {
-    paneA,
-    fileTabs,
-    sessions,
-    repos,
-    shipOrders,
-    shipLanes,
-    trpc: owner,
-  } = useStoreSelector(
-    (state) => ({
-      paneA: state.paneA,
-      fileTabs: state.fileTabs,
-      sessions: state.sessions,
-      repos: state.repos,
-      shipOrders: state.shipOrders,
-      shipLanes: state.shipLanes,
-      trpc: state.trpc,
-    }),
-    shallowEqual,
-  )
-  const issues = useReplicaIssues()
-  const active = useMemo(
-    () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
-    [fileTabs, paneA, sessions],
-  )
-  const repoId = useMemo(() => {
-    if (!active) return null
-    for (const repo of reposToViews(repos)) {
-      const worktree = repo.worktrees
-        .filter(
-          (candidate) =>
-            (!active.machineId ||
-              !candidate.machineId ||
-              candidate.machineId === active.machineId) &&
-            cwdInWorktree(active.cwd, candidate.path),
-        )
-        .sort((a, b) => b.path.length - a.path.length)[0]
-      if (worktree) return repo.repoId ?? worktree.repoId ?? null
-    }
-    const activeIssueId =
-      active.issueId ?? sessions.find((session) => session.sessionId === active.sessionId)?.issueId
-    const issue = activeIssueId
-      ? issues.find((candidate) => candidate.id === activeIssueId)
-      : issueForCwd(issues, active.cwd)
-    return issue?.repoId ?? null
-  }, [active, issues, repos, sessions])
-  const shipping = useMemo(
-    () =>
-      measureLegacyHeader(owner, 'shipping', () =>
-        shippingPanelModel(shipOrders, issues, repoId, shipLanes),
-      ),
-    [issues, owner, repoId, shipOrders, shipLanes],
-  )
-  return shipping
-}

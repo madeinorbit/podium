@@ -1,21 +1,9 @@
 import { createLogger } from '@podium/logger'
-import {
-  BarChart3,
-  CalendarClock,
-  FileText,
-  LayoutPanelLeft,
-  Minus,
-  Settings,
-  Square,
-  SquareKanban,
-  Workflow,
-  X,
-} from 'lucide-react'
+import { BarChart3, CalendarClock, FileText, LayoutPanelLeft, Minus, Settings, Square, SquareKanban, Workflow, X } from 'lucide-react'
 import type { ComponentType, JSX } from 'react'
 import { HeaderHostIndicators } from '@/features/machines/HostIndicators'
 import { PodiumLogo } from '@/lib/icons/PodiumLogo'
 import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDesktop'
-import type { SidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { HostedWorkspaceSwitcher } from './HostedWorkspaceSwitcher'
@@ -54,14 +42,11 @@ const log = createLogger('web:desktop-window')
 export function TopBar({
   chromeless = false,
   revealing = false,
-  sidebarLayer = 'legacy',
 }: {
   /** First-run setup (POD-1174): the bar is a chassis, not an instrument panel. */
   chromeless?: boolean
   /** The first bar after setup hands the window back — fade its contents in. */
   revealing?: boolean
-  /** Fixed startup request; the pool-backed sidebar lands in the next pilot step. */
-  sidebarLayer?: SidebarDataLayer
 } = {}): JSX.Element {
   const view = useHeaderView()
   const { setView } = useHeaderActions()
@@ -141,15 +126,6 @@ export function TopBar({
       {slotFilled && <span className="topbar-seam" aria-hidden="true" />}
       <ToolbarSlotTarget className="desktop-topbar-slot" />
       <span className="desktop-topbar-gap" {...dragRegion} />
-      {import.meta.env.DEV && (
-        <span
-          data-testid="sidebar-pilot-badge"
-          data-sidebar-data-layer={sidebarLayer}
-          className="flex-none rounded border border-border px-2 py-0.5 font-mono text-xs text-muted-foreground"
-        >
-          {sidebarLayer === 'pool' ? 'pool requested, not built yet' : 'sidebar MobX off'}
-        </span>
-      )}
       <HeaderHostIndicators />
       {/* No seam here: the bar's 18px zone gap already divides the instrument
           from the utilities, and a rule between an object with internal

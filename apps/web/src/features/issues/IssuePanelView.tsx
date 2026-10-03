@@ -1,46 +1,13 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  artifactKind,
-  artifactUrl,
-  basename,
-  buildActivityFeed,
-  deckDestinationFor,
-  groupRelations,
-  type IssueEvent,
-  issueDisplayTitle,
-  issueForPanel,
-  operationalState,
-  type PresenceKind,
-  type PresenceNote,
-  presenceNote,
-  reposToViews,
-  sessionNeedsHuman,
-  subIssuesOf,
-} from '@podium/client-core/viewmodels'
+import { artifactKind, artifactUrl, basename, buildActivityFeed, type IssueEvent, operationalState, type PresenceKind, type PresenceNote, sessionNeedsHuman } from '@podium/client-core/viewmodels'
 import type { IssueComment, IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import {
-  ArrowDown,
-  ArrowRight,
-  ArrowUpRight,
-  Ban,
-  Check,
-  CircleAlert,
-  FileText,
-  Folder,
-  History,
-  type LucideIcon,
-  MessageSquare,
-  Play,
-  Truck,
-} from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUpRight, Ban, Check, CircleAlert, FileText, Folder, History, type LucideIcon, MessageSquare, Play, Truck } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
-import { recordSliceDerivation } from '@podium/client-core/perf'
-import { paneDataLayer } from '@/lib/pane-data-layer'
 import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
@@ -53,17 +20,7 @@ import { costSectionMeta, TaskCostSection } from '../cost/TaskCostSection'
 import { useTaskCost } from '../cost/useTaskCost'
 import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
 import { IssueExplorerList } from './explorer/IssueExplorerList'
-import {
-  DOCK_BODY,
-  DOCK_ROW,
-  DOCK_STAMP,
-  IssueCompactControls,
-  IssueDecisionBand,
-  IssueGitScope,
-  IssueSessionRow,
-  isOpenSession,
-  issueSessions,
-} from './IssueCompactControls'
+import { DOCK_BODY, DOCK_ROW, DOCK_STAMP, IssueCompactControls, IssueDecisionBand, IssueGitScope, IssueSessionRow, isOpenSession, issueSessions } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
 import { useIssueStatusApply } from './use-issue-status-apply'
@@ -828,9 +785,7 @@ function ProducedAndDeferred({
 const PoolIssuePanelView = lazy(() => import('./pool-issue-page').then(module => ({ default: module.PoolIssuePanelView })))
 
 export function IssuePanelView(props: Parameters<typeof IssuePanelBody>[0]): JSX.Element {
-  return paneDataLayer() === 'pool'
-    ? <Suspense fallback={null}><PoolIssuePanelView {...props} /></Suspense>
-    : <IssuePanelBody {...props} />
+  return <Suspense fallback={null}><PoolIssuePanelView {...props} /></Suspense>
 }
 
 export function IssuePanelBody({
@@ -856,11 +811,9 @@ export function IssuePanelBody({
    */
   onNavigate?: (issueId: IssueId) => void
 }): JSX.Element {
-  const page = useIssuePageData()
-  const pooled = page?.data
+  const page = useIssuePageData()!
+  const pooled = page.data
   const {
-    sessions,
-    repos,
     trpc,
     updateIssue,
     setPane,
@@ -870,8 +823,6 @@ export function IssuePanelBody({
     markSessionRead,
   } = useStoreSelector(
     (s) => ({
-      sessions: pooled ? pooled.sessions : s.sessions,
-      repos: pooled ? [] : s.repos,
       trpc: s.trpc,
       updateIssue: s.updateIssue,
       setPane: s.setPane,
@@ -882,17 +833,15 @@ export function IssuePanelBody({
     }),
     shallowEqual,
   )
+  const sessions = pooled.sessions
   const issues = useIssuePageIssues()
-  useStoreSelector(s => { if (!pooled) recordSliceDerivation(s.replica ?? s, 'issue-page.panel'); return s.trpc })
   // Every task row in this column carries its own status door (POD-1271); the
   // apply and its close guard are shared by all of them, once, here.
-  const rowStatus = useIssueStatusApply()
+  const rowStatus = useIssueStatusApply(pooled.sessions)
   const { setFocusedIssueId } = useOperatorFocus()
   const issue = useMemo(
     () =>
-      pooled ? pooled.issue : cwd || sessionId || issueId
-        ? issueForPanel({ issues, sessions, cwd, sessionId, issueId })
-        : null,
+      pooled.issue,
     [pooled, issues, sessions, cwd, sessionId, issueId],
   )
   // WHAT THIS TASK COST. Read here rather than inside the section so the hook
@@ -904,18 +853,18 @@ export function IssuePanelBody({
   // The same derivation the Flight Deck makes from the same slice — every
   // worktree root the shell knows, for `issueDisplayTitle` below.
   const allWorktreePaths = useMemo(
-    () => pooled?.worktreePaths ?? reposToViews(repos).flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)),
-    [pooled, repos],
+    () => pooled.worktreePaths,
+    [pooled],
   )
   // DIRECT children only — the artifact's Subtasks section is one tier deep
   // with a completed fold, not a flattened recursive subtree. The meter counts
   // exactly this list and nothing else (POD-516 r3 #4): it used to walk the
   // whole subtree AND count the issue itself, which is how a childless task
   // came to wear a progress bar reading "0 of 1 done".
-  const children = useMemo(() => pooled?.children ?? (issue ? subIssuesOf(issues, issue.id) : []), [pooled, issues, issue])
+  const children = useMemo(() => pooled.children, [pooled, issues, issue])
   // Typed relations (POD-85): the compact disclosure surface — the sidebar
   // whispers (⤷ tick), this panel names every edge.
-  const relations = useMemo(() => pooled?.relations ?? (issue ? groupRelations(issue) : []), [pooled, issue])
+  const relations = useMemo(() => pooled.relations, [pooled, issue])
   const [showCompleted, setShowCompleted] = useState(false)
   const [showRetired, setShowRetired] = useState(false)
 
@@ -930,9 +879,9 @@ export function IssuePanelBody({
    * task within it.
    */
   const showInDeck = (target: IssueViewModel): void => {
-    const root = page ? page.views.destination(target.id) : deckDestinationFor(issues, sessions, target.id)
+    const root = page.views.destination(target.id)
     if (!root || typeof root === 'symbol') return
-    const resolved = page ? page.views.attachedSessions(target.id) : issueSessions(target, sessions)
+    const resolved = page.views.attachedSessions(target.id)
     if (!resolved || typeof resolved === 'symbol') return
     setSelectedIssueId(root.id)
     setFocusedIssueId(target.id)
@@ -999,7 +948,7 @@ export function IssuePanelBody({
   // The whole slice as the fourth argument, not just this issue's sessions: a
   // hop's destination holds none of THESE, and reading where the work went is
   // what tells a vacated origin from one whose agent simply retired.
-  const presence = pooled ? pooled.presence : presenceNote(issue, all, issueById, sessions)
+  const presence = pooled.presence
 
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
   const parent = issue.parentId ? issueById.get(issue.parentId) : undefined
@@ -1016,7 +965,7 @@ export function IssuePanelBody({
   // paths are the fallback arm of `sessionsForIssueNav` and are read only for a
   // row with no `memberSessionIds`; the view-model builder always supplies them,
   // so this is the shape the derivation asks for rather than a lookup it makes.
-  const title = pooled?.title ?? issueDisplayTitle(issue, sessions, allWorktreePaths)
+  const title = pooled.title
   // UNCAUGHT, like every other outboxed curation write (`use-unified-work.ts`):
   // the queue keeps a rejected write, replays it on reconnect, and parks it in
   // the recovery surface with its own toast. A `.catch` here would be a second
@@ -1044,7 +993,7 @@ export function IssuePanelBody({
           title={title}
           onRename={renameIssue}
           onOpenInWork={
-            onNavigate && workable && (page ? typeof page.views.destination(issue.id) === 'object' : deckDestinationFor(issues, sessions, issue.id))
+            onNavigate && workable && (typeof page.views.destination(issue.id) === 'object')
               ? () => showInDeck(issue)
               : undefined
           }

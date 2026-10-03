@@ -7,7 +7,6 @@ import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { attachWorklistPool } from '@/app/store-worklist-pool'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import { initializeSidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { createSidebarFixture } from '../../test/sidebar-fixture'
 
 const ISSUE_COUNT = 674
@@ -180,7 +179,6 @@ describe('large-state responsive filtering', () => {
   it('commits the urgent query before the deferred 674-row pool sidebar, then settles', async () => {
     largeState.pool = true
     history.replaceState(null, '', '/?mobxSidebar=1')
-    initializeSidebarDataLayer({ get: () => null })
     const fixture = createSidebarFixture(ISSUE_COUNT, Date.now(), true, 'responsive-pool')
     render(
       <StoreProvider

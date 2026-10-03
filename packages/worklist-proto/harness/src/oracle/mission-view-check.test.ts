@@ -2,9 +2,9 @@ import { expectPoolOutput } from './pool-output'
 import { autorun, reaction, runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { allIssueViewModels } from '@podium/client-core/replica'
-import { missionIndexStats, missionRootFor, reposToViews, sessionOwnershipStats } from '@podium/client-core/viewmodels'
+import { missionIndexStats, missionRootFor, sessionOwnershipStats } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { checkMissionView, checkWorkspaceMission, poolMissionViewSnapshot } from '@podium/client-graph/diagnostics/mission-view-check'
+import { poolMissionViewSnapshot } from '@podium/client-graph/diagnostics/mission-view-check'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { missionView, readMissionView, readWorkspaceMission } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph'
@@ -46,7 +46,6 @@ function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, a
   const ids = roots(store)
   const selections = all ? ids : [...new Set([store.selectedIssueId, ...ids.slice(0, 3), ...ids.slice(-3)])]
   const issues = allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)
-  const worktreePaths = reposToViews(store.repos).flatMap(repo => repo.worktrees.map(worktree => worktree.path))
   // Keep the selected pane's groups alive, then release them on the next
   // selection. Holding every mission simultaneously is not the screen's use.
   for (const id of selections) {
@@ -56,12 +55,13 @@ function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, a
     try {
     if (id !== null) settle(pool, [id])
     const focused = issues.find(issue => issue.parentId === id)?.id ?? null
-    expect(tracked(() => checkWorkspaceMission(pool, issues, store.sessions, id, focused)), `${label} workspace ${id}`)
-      .toMatchObject({ differences: 0, first: null, pending: 0 })
+    const workspace = tracked(() => readWorkspaceMission(missionView(pool), id, focused))
+    expect(workspace).not.toBe(LOADING)
+    if (workspace !== LOADING) {
+      expect(workspace.missionRoot?.id ?? null).toBe(id)
+      expect(workspace.issue?.id ?? null).toBe(focused ?? id)
+    }
     for (const mode of ['full', 'working', 'needs-you'] as const) {
-    const check = () => checkMissionView(pool, issues, store.sessions, id, mode, worktreePaths)
-    expect(id === null ? runInAction(check) : tracked(check), `${label} ${id} ${mode}`)
-      .toMatchObject({ differences: 0, first: null, pending: 0 })
     expectPoolOutput(id === null ? runInAction(() => poolMissionViewSnapshot(pool, id, mode)) : tracked(() => poolMissionViewSnapshot(pool, id, mode)), `${label} ${id} ${mode}`)
     }
     } finally { stop() }

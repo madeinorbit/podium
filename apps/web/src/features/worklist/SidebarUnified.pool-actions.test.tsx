@@ -1,3 +1,4 @@
+import '@/test-support/mock-pool-fixture'
 import {
   type ClientRuntime,
   createEngineOutbox,
@@ -52,12 +53,6 @@ vi.mock('./useRowDrag', async (original) => {
     },
   }
 })
-
-vi.mock('@/lib/sidebar-data-layer', () => ({
-  sidebarDataLayer: () => 'pool',
-  initializeSidebarDataLayer: () => {},
-  sidebarCheckRequested: () => false,
-}))
 vi.mock('@/app/store', async (original) => {
   const module = await original<typeof import('@/app/store')>()
   return {

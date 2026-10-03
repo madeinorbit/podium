@@ -14,13 +14,10 @@ import { LiveIssueReference } from '../src/components/IssueReference'
 import { RefMiniviewHost } from '../src/components/RefMiniview'
 import { ChatView } from '../src/features/chat/ChatView'
 import { IssueChipLiveness } from '../src/features/chat/IssueChipLiveness'
-import { chipsDataLayer, initializeChipsDataLayer } from '../src/lib/chips-data-layer'
 import { setKnownRefPrefixes } from '../src/lib/markdown-references'
 import { createSidebarFixture } from './sidebar-fixture'
 import '../src/index.css'
 import '../src/styles.css'
-
-initializeChipsDataLayer({ get: () => null })
 chipPerf.enable()
 setKnownRefPrefixes(new Set(['SYN']))
 document.documentElement.classList.add('dark')
@@ -139,7 +136,7 @@ const proof = {
   ready: () =>
     !!runtime &&
     runtime.getSnapshot().repos.length > 0 &&
-    (chipsDataLayer() === 'legacy' || pool !== null),
+    (pool !== null),
   status: () => ({
     runtime: !!runtime,
     pool: !!pool,

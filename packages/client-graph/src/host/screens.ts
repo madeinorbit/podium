@@ -9,9 +9,9 @@ export interface PoolScreen {
   readonly id?: string
   /** TEMPORARY with the per-screen switches (./switches): latch this screen's
    * switch from the app's storage; delete with the switch when default-on. */
-  initialize(ui: ClientRuntime['ui']): void
+  initialize?(ui: ClientRuntime['ui']): void
   /** TEMPORARY: the latched switch; default-on screens are always enabled. */
-  enabled(): boolean
+  enabled?(): boolean
   /** Synchronous startup guard, before any lazy graph import. */
   prepare?(runtime: ClientRuntime): void | (() => void)
   options?(runtime: ClientRuntime): PoolScreenOptions
@@ -28,7 +28,7 @@ export function preparePoolScreens(
   runtime: ClientRuntime,
 ): () => void {
   const stops = screens
-    .filter((screen) => screen.enabled())
+    .filter((screen) => screen.enabled?.() !== false)
     .flatMap((screen) => {
       const stop = screen.prepare?.(runtime)
       return stop ? [stop] : []
@@ -43,7 +43,7 @@ export function screenOptions(
   runtime: ClientRuntime,
 ): PoolScreenOptions {
   const options = screens
-    .filter((screen) => screen.enabled())
+    .filter((screen) => screen.enabled?.() !== false)
     .map((screen) => screen.options?.(runtime) ?? {})
   const summaries: NonNullable<PoolScreenOptions['summaries']> = {}
   for (const option of options)
@@ -69,7 +69,7 @@ export function attachPoolScreens(
   let disposed = false
   const stops: (() => void)[] = []
   for (const screen of screens) {
-    if (!screen.enabled() || !screen.attach) continue
+    if (screen.enabled?.() === false || !screen.attach) continue
     void screen
       .attach(runtime, pool)
       .then((stop) => {

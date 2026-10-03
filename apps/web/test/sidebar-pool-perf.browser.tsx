@@ -15,16 +15,9 @@ import { createRoot } from 'react-dom/client'
 import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { SidebarPerfPanel } from '../src/features/worklist/SidebarPerfPanel'
-import {
-  initializeSidebarMeasurements,
-  measureSidebarRow,
-} from '../src/features/worklist/sidebar-measurements'
-import { initializeSidebarDataLayer } from '../src/lib/sidebar-data-layer'
+import { measureSidebarRow } from '../src/features/worklist/sidebar-measurements'
 import '../src/index.css'
 import '../src/styles.css'
-
-initializeSidebarDataLayer({ get: () => null })
-initializeSidebarMeasurements()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 

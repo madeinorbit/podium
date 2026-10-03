@@ -12,13 +12,9 @@ import { RightRail } from '../src/app/RightRail'
 import { ToolbarSlotProvider } from '../src/app/ToolbarSlot'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
-import { headerDataLayer, initializeHeaderDataLayer } from '../src/lib/header-data-layer'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 import '../src/styles.css'
-
-// Choose the startup path before any component runs its data-layer hooks.
-initializeHeaderDataLayer({ get: () => null })
 const count = Number(new URLSearchParams(location.search).get('rows') ?? 5600)
 const sessionCount = Math.min(count, Number(new URLSearchParams(location.search).get('sessions') ?? count))
 const fixture = createHeaderFixture(count, sessionCount)
@@ -41,7 +37,7 @@ function Surfaces() {
   useEffect(() => {
     runtime = owner; pool = graph
     owner.getSnapshot().setSelectedIssueId(asIssueId('synthetic-1'))
-    ready = headerDataLayer() === 'legacy' || graph !== null
+    ready = graph !== null
     return () => { ready = false; runtime = undefined; pool = null }
   }, [owner, graph])
   const record = (id: string, _phase: string, duration: number) => {

@@ -6,9 +6,6 @@ import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import type { UiState } from '@podium/client-core/ui-state'
 import { initializeSettingsDataLayer, settingsDataLayer, settingsCheckRequested } from '@/features/settings/data-layer'
 import { initializePreferencesDataLayer, preferencesDataLayer, preferencesCheckRequested } from '@/lib/preferences-data-layer'
-import { initializeSidebarDataLayer, sidebarDataLayer, sidebarCheckRequested } from '@/lib/sidebar-data-layer'
-import { initializeHeaderDataLayer, headerDataLayer, headerCheckRequested } from '@/lib/header-data-layer'
-import { initializeChipsDataLayer, chipsDataLayer, chipsCheckRequested } from '@/lib/chips-data-layer'
 import { noticePoolScreen } from '@/features/chat/notice-pool-screen'
 import { superagentPoolScreen } from '@/features/superagent/pool-screen'
 import { initializeAutomationsDataLayer, automationsDataLayer, specsDataLayer, automationsCheckRequested } from '@/lib/automations-data-layer'
@@ -22,7 +19,7 @@ import { shellPoolScreen } from './shell-pool-screen'
 /** Latch with hydrated UI state before rendering any screen, including settings.
  * Provider attachments and principal rebuilds reuse the same app-load choices. */
 export function initializePoolScreens(ui: UiState): void {
-  for (const screen of poolBackedScreens) screen.initialize(ui)
+  for (const screen of poolBackedScreens) screen.initialize?.(ui)
 }
 
 /** Screen declarations are the only provider registration surface. Graph code
@@ -55,43 +52,8 @@ export const poolBackedScreens: readonly PoolScreen[] = [
       return installPreferenceCheck(pool, runtime.ui)
     },
   },
-  { optional: true, initialize: initializeSidebarDataLayer, enabled: () => sidebarDataLayer() === 'pool',
-    options: () => ({ summaries: MISSION_SUMMARIES }),
-    async attach(runtime, pool) {
-      const { startSidebarCheck } = await import('@podium/client-graph/diagnostics/runtime-check')
-      return startSidebarCheck(runtime, pool, {
-        startup: sidebarCheckRequested(),
-        state: store => {
-          const base = { pinnedRepos: store.pins.repos, pinnedWorktrees: store.pins.worktrees, projectOrder: store.sidebarSettings.repoOrder }
-          const keys = ['podium:sidebar:pinned-fold', ...pool.sidebar.sections(base).bands.flatMap(band => [band.foldKey, band.snoozedFoldKey, band.closedFoldKey])]
-          return { ...base, paneA: store.paneA, selectedWorktree: store.selectedWorktree,
-            collapsed: Object.fromEntries(keys.flatMap(key => {
-              const raw = runtime.ui.get(key)
-              return raw === null ? [] : [[key, raw === 'true']]
-            })),
-          }
-        },
-      })
-    },
-  },
-  { optional: true, initialize: initializeHeaderDataLayer, enabled: () => headerDataLayer() === 'pool',
-    options: () => ({ header: true }),
-    async attach(runtime, pool) {
-      if (!headerCheckRequested()) return
-      const { startHeaderCheck } = await import('@podium/client-graph/diagnostics/header-runtime-check')
-      return startHeaderCheck(runtime, pool, report => {
-        if (typeof window !== 'undefined') Object.assign(window, { __headerCheck: report })
-      })
-    },
-  },
-  { optional: true, initialize: initializeChipsDataLayer, enabled: () => chipsDataLayer() === 'pool',
-    async attach(runtime, pool) {
-      const references = pool.references
-      if (!chipsCheckRequested()) return
-      const { startChipCheck } = await import('@podium/client-graph/diagnostics/chip-check')
-      return startChipCheck(runtime, references, () => [...document.querySelectorAll('a.ref-link--issue[data-ref], [data-issue-reference]')].map(node => node.getAttribute('data-ref') ?? node.getAttribute('data-issue-reference')!))
-    },
-  },
+  { id: 'sidebar', options: () => ({ summaries: MISSION_SUMMARIES }) },
+  { id: 'header', options: () => ({ header: true }) },
   { initialize: initializeAutomationsDataLayer, enabled: () => automationsDataLayer() === 'pool' || specsDataLayer() === 'pool',
     options: () => ({ settings: true }),
     async attach(runtime, pool) {

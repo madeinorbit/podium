@@ -1,9 +1,5 @@
 /** Real pointer routing on private synthetic rows and the app's single outbox. */
-import {
-  type ClientRuntime,
-  createEngineOutbox,
-  type OutboxOutcome,
-} from '@podium/client-core/engine'
+import { type ClientRuntime, createEngineOutbox, type OutboxOutcome } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
@@ -15,12 +11,9 @@ import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
-import { initializeSidebarDataLayer } from '../src/lib/sidebar-data-layer'
 import { createSidebarActionsFixture } from './sidebar-actions-fixture'
 import '../src/index.css'
 import '../src/styles.css'
-
-initializeSidebarDataLayer({ get: () => null })
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 const synthetic = createSidebarActionsFixture(12, Date.now(), true)
