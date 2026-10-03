@@ -86,6 +86,9 @@ export interface ColdQueries {
   residentCandidates(entity: EntityName, now: number): string[]
   /** Membership/order changes relevant to history readers (not heartbeats). */
   readonly readerVersion: number
+  readerRevision(question: ReaderQuestion): number
+  readonly issueRepoRevision: number
+  readonly sessionRevision: number
   readerIds(question: ReaderQuestion): string[]
   issueRepoIds(): string[]
   sessionCollapsed(id: string): boolean
@@ -584,6 +587,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
   }
 
   function clear(): void {
+    collapseVersion++
     for (const map of rules.values()) map.clear()
     for (const set of plain.values()) set.clear()
     byOwner.clear()
@@ -667,6 +671,9 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
 
   return {
     get readerVersion() { return readers.version + collapseVersion },
+    readerRevision: question => readers.revision(question),
+    get issueRepoRevision() { return readers.repoRevision },
+    get sessionRevision() { return collapseVersion },
     readerIds: question => readers.ids(question),
     issueRepoIds: () => readers.repoIds(),
     sessionCollapsed: id => collapses.get('session')?.collapsed.has(id) ?? false,

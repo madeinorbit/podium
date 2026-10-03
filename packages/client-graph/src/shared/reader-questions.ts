@@ -5,7 +5,8 @@ import type { RowSourceEvent } from './source'
 
 export type ReaderQuestion =
   | { kind: 'residentIssues' | 'commandIssues' | 'mentionIssues' | 'pageIssues' | 'shellIssues' | 'missionIssues' | 'boardCatalog' | 'boardCounts' | 'proposedIssues' | 'reclaimIssues' }
-  | { kind: 'commandSessions' | 'inboxSessions' | 'setupSessions' | 'referenceSessions' | 'explorerSessions' | 'shellSessions' | 'headerSessions' | 'headerOccupancy' | 'headerRecentSession' }
+  | { kind: 'commandSessions' | 'inboxSessions' | 'setupSessions' | 'referenceSessions' | 'explorerSessions' | 'shellSessions' | 'headerSessions' | 'headerOccupancy' }
+  | { kind: 'headerRecentSession'; excluded?: readonly string[] }
   | { kind: 'sessionReference'; ref: string }
   | { kind: 'containingIssues'; cwd: string }
   | { kind: 'boardIssues'; priority?: number; stage?: string; status?: string; projectPaths?: readonly string[]; archived?: boolean; deleted?: boolean; explorerTab?: string; searching?: boolean }
@@ -24,8 +25,33 @@ export function createReaderIndex() {
   const repos = new Set<string>()
   const filed = new Map<string, Set<string>>()
   const recent: { id: string; at: string }[] = []
-  const activity = new Map<string, string>()
+  const positions = new Map<string, number>()
+  const revisions = new Map<string, number>()
+  let replacement = 0
+  let repoRevision = 0
   let version = 0
+  const touch = (key: string) => revisions.set(key, ++version)
+  const better = (a: { id: string; at: string }, b: { id: string; at: string }) => a.at > b.at || (a.at === b.at && byId(a.id, b.id) < 0)
+  function swap(a: number, b: number) {
+    const entry = recent[a]!
+    recent[a] = recent[b]!; recent[b] = entry
+    positions.set(recent[a]!.id, a); positions.set(recent[b]!.id, b)
+  }
+  function repair(at: number) {
+    while (at > 0) {
+      const parent = (at - 1) >>> 1
+      if (!better(recent[at]!, recent[parent]!)) break
+      swap(at, parent); at = parent
+    }
+    for (;;) {
+      const left = at * 2 + 1, right = left + 1
+      let best = at
+      if (left < recent.length && better(recent[left]!, recent[best]!)) best = left
+      if (right < recent.length && better(recent[right]!, recent[best]!)) best = right
+      if (best === at) break
+      swap(at, best); at = best
+    }
+  }
   function bucket(key: string): ReadonlySet<string> { return buckets.get(key) ?? new Set<string>() }
   function keys(kind: string, row: Row): Set<string> {
     const out = new Set<string>([`${kind}:all`])
@@ -33,7 +59,7 @@ export function createReaderIndex() {
       out.add(`issue:repo:${row.repoId ?? ''}`)
       out.add(`issue:path:${row.repoPath ?? ''}`)
       out.add(`issue:priority:${row.priority}`)
-      out.add(`issue:status:${issueStatusOf(row as Parameters<typeof issueStatusOf>[0])}`)
+      out.add(`issue:status:${issueStatusOf({ stage: row.stage, closedReason: row.closedReason } as Parameters<typeof issueStatusOf>[0])}`)
       out.add(row.stage === 'done' || row.closedReason != null ? 'issue:closed' : 'issue:open')
       if (row.blocked) out.add('issue:blocked')
       if (!row.archived && !row.deletedAt) out.add('issue:live')
@@ -55,43 +81,42 @@ export function createReaderIndex() {
   function set(kind: string, id: string, row: Row | undefined) {
     const address = `${kind}:${id}`, before = filed.get(address) ?? new Set<string>()
     const after = row ? keys(kind, row) : new Set<string>()
-    let changed = false
     for (const key of before) if (!after.has(key)) {
       const ids = buckets.get(key)
       ids?.delete(id)
-      if (ids?.size === 0) { buckets.delete(key); if (key.startsWith('issue:repo:')) repos.delete(key.slice('issue:repo:'.length)) }
-      changed = true
+      if (ids?.size === 0) {
+        buckets.delete(key)
+        if (key.startsWith('issue:repo:') && repos.delete(key.slice('issue:repo:'.length))) repoRevision++
+      }
+      touch(key)
     }
     for (const key of after) if (!before.has(key)) {
       let ids = buckets.get(key)
-      if (!ids) { ids = new Set(); buckets.set(key, ids); if (key.startsWith('issue:repo:') && key !== 'issue:repo:') repos.add(key.slice('issue:repo:'.length)) }
+      if (!ids) {
+        ids = new Set(); buckets.set(key, ids)
+        if (key.startsWith('issue:repo:') && key !== 'issue:repo:') { repos.add(key.slice('issue:repo:'.length)); repoRevision++ }
+      }
       ids.add(id)
-      changed = true
+      touch(key)
     }
     if (after.size) filed.set(address, after)
     else filed.delete(address)
     if (kind === 'session') {
       const at = row && !row.archived ? String(row.lastActiveAt ?? '') : undefined
-      const previous = activity.get(id)
+      const position = positions.get(id), previous = position === undefined ? undefined : recent[position]!.at
       if (at !== previous) {
-        if (previous !== undefined) {
-          const index = recent.findIndex(entry => entry.id === id)
-          if (index !== -1) recent.splice(index, 1)
-          activity.delete(id)
+        if (position !== undefined) {
+          const last = recent.pop()!
+          positions.delete(id)
+          if (position < recent.length) { recent[position] = last; positions.set(last.id, position); repair(position) }
         }
         if (at !== undefined) {
-          let lo = 0, hi = recent.length
-          while (lo < hi) {
-            const mid = (lo + hi) >>> 1, item = recent[mid]!
-            if (item.at > at || (item.at === at && byId(item.id, id) < 0)) lo = mid + 1
-            else hi = mid
-          }
-          recent.splice(lo, 0, { id, at }); activity.set(id, at)
+          const index = recent.length
+          recent.push({ id, at }); positions.set(id, index); repair(index)
         }
-        changed = true
+        touch('session:recent')
       }
     }
-    if (changed) version++
   }
   function intersection(sets: ReadonlySet<string>[]): string[] {
     sets.sort((a, b) => a.size - b.size)
@@ -99,8 +124,35 @@ export function createReaderIndex() {
   }
   return {
     get version() { return version },
+    get repoRevision() { return repoRevision },
+    revision(question: ReaderQuestion): number {
+      const keys = [`${questionEntity(question)}:all`]
+      switch (question.kind) {
+        case 'proposedIssues': keys.push('issue:proposed'); break
+        case 'reclaimIssues': keys.push('issue:reclaim'); break
+        case 'inboxSessions': keys.push('session:inbox'); break
+        case 'headerSessions': case 'headerOccupancy': keys.push('session:host'); break
+        case 'headerRecentSession': keys.push('session:recent'); break
+        case 'sessionReference': keys.push(`session:ref:${question.ref}`); break
+        case 'containingIssues':
+          keys.push(`issue:root:${question.cwd}`)
+          for (let at = question.cwd.indexOf('/'); at >= 0; at = question.cwd.indexOf('/', at + 1)) keys.push(`issue:root:${question.cwd.slice(0, at)}`, `issue:root:${question.cwd.slice(0, at + 1)}`)
+          break
+        case 'boardCounts': keys.push('issue:live'); break
+        case 'boardIssues':
+          if (question.priority != null) keys.push(`issue:priority:${question.priority}`)
+          if (question.stage) keys.push(`issue:status:${question.stage}`)
+          if (question.status) keys.push(`issue:${question.status}`)
+          for (const path of question.projectPaths ?? []) keys.push(`issue:path:${path}`)
+          keys.push('issue:live', 'issue:unarchived', 'issue:undeleted')
+          if (question.explorerTab === 'cancelled') keys.push('issue:status:cancelled', 'issue:status:duplicate', 'issue:status:superseded')
+          else if (question.explorerTab && question.explorerTab !== 'needs') keys.push(`issue:status:${question.explorerTab}`)
+          break
+      }
+      return Math.max(replacement, ...keys.map(key => revisions.get(key) ?? 0))
+    },
     apply(event: RowSourceEvent) {
-      if (event.type === 'replace') { buckets.clear(); repos.clear(); filed.clear(); recent.length = 0; activity.clear(); version++ }
+      if (event.type === 'replace') { buckets.clear(); repos.clear(); filed.clear(); recent.length = 0; positions.clear(); revisions.clear(); replacement = ++version; repoRevision++ }
       for (const record of event.rows) if (record.kind !== 'worktree') set(record.kind, record.id, record.value as Row | undefined)
     },
     repoIds(): string[] {
@@ -113,7 +165,17 @@ export function createReaderIndex() {
         case 'reclaimIssues': return [...bucket('issue:reclaim')]
         case 'inboxSessions': return [...bucket('session:inbox')]
         case 'headerSessions': case 'headerOccupancy': return [...bucket('session:host')]
-        case 'headerRecentSession': return recent[0] ? [recent[0].id] : []
+        case 'headerRecentSession': {
+          const excluded = new Set(question.excluded), frontier = recent.length ? [0] : []
+          while (frontier.length) {
+            frontier.sort((a, b) => better(recent[a]!, recent[b]!) ? -1 : 1)
+            const at = frontier.shift()!, entry = recent[at]!
+            if (!excluded.has(entry.id)) return [entry.id]
+            if (at * 2 + 1 < recent.length) frontier.push(at * 2 + 1)
+            if (at * 2 + 2 < recent.length) frontier.push(at * 2 + 2)
+          }
+          return []
+        }
         case 'sessionReference': return [...bucket(`session:ref:${question.ref}`)]
         case 'containingIssues': {
           const ids = new Set<string>()

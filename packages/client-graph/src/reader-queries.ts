@@ -1,4 +1,4 @@
-import { observable, runInAction } from 'mobx'
+import { createAtom, type IAtom, observable, runInAction } from 'mobx'
 import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { createColdIndex, type ColdIndex, type ColdQueries } from './shared/cold-index'
@@ -10,21 +10,36 @@ import type { RowSourceEvent } from './shared/source'
  * the row source. Directly-fed pools (fixtures/standalone consumers) use the
  * same feed index as a substitute source, never the residency registry. */
 export class ReaderQueries {
-  private readonly changed = observable.box(0)
+  private readonly sessionsChanged = observable.box(0)
   private readonly standalone: ColdIndex | undefined
-  private version = -1
+  private sessionVersion = -1
+  private readonly observed = new Map<string, { atom: IAtom; version: number; revision(index: ColdQueries): number }>()
   private readonly listeners = new Set<(event: RowSourceEvent) => void>()
   readonly counts = { questions: 0, returnedIds: 0 }
   constructor(private readonly pool: MobxPool, schema: ModelSchema, private readonly source?: () => ColdQueries) {
     if (!source) this.standalone = createColdIndex(schema)
   }
-  private index(): ColdQueries { this.changed.get(); return this.source?.() ?? this.standalone! }
+  private index(): ColdQueries { return this.source?.() ?? this.standalone! }
+  private watch(key: string, revision: (index: ColdQueries) => number): ColdQueries {
+    const index = this.index()
+    let state = this.observed.get(key)
+    if (!state) {
+      state = { atom: createAtom(`history.${key}`, undefined, () => this.observed.delete(key)), version: revision(index), revision }
+      this.observed.set(key, state)
+    }
+    if (!state.atom.reportObserved()) this.observed.delete(key)
+    return index
+  }
   publish(event: RowSourceEvent): void {
     this.standalone?.apply(event)
-    const version = (this.source?.() ?? this.standalone!).readerVersion
-    if (this.version !== version) {
-      this.version = version
-      runInAction(() => this.changed.set(this.changed.get() + 1))
+    const index = this.index()
+    for (const state of this.observed.values()) {
+      const version = state.revision(index)
+      if (state.version !== version) { state.version = version; state.atom.reportChanged() }
+    }
+    if (this.sessionVersion !== index.sessionRevision) {
+      this.sessionVersion = index.sessionRevision
+      runInAction(() => this.sessionsChanged.set(this.sessionsChanged.get() + 1))
     }
     for (const listener of this.listeners) listener(event)
   }
@@ -33,17 +48,24 @@ export class ReaderQueries {
     return () => this.listeners.delete(listener)
   }
   ids(question: ReaderQuestion): string[] {
-    const index = this.index(), entity = questionEntity(question)
+    const index = this.watch(JSON.stringify(question), value => value.readerRevision(question)), entity = questionEntity(question)
     // Resident identities remain the pool's authority, including pending
     // edits that have not reached the feed. A query is a candidate set; the
     // reader checks its current fields through pool.row.
-    const ids = [...new Set([...residentIds(this.pool, entity), ...index.readerIds(question)])]
+    let ids = [...new Set([...residentIds(this.pool, entity), ...index.readerIds(question)])]
+    if (question.kind === 'headerRecentSession' && question.excluded?.length) {
+      const excluded = new Set(question.excluded)
+      ids = ids.filter(id => !excluded.has(id))
+    }
     this.counts.questions++; this.counts.returnedIds += ids.length
     return entity === 'session' ? ids.sort() : ids
   }
-  count(entity: 'issue' | 'session'): number { return Math.max(this.index().count(entity), this.pool.tables[entity].size) }
-  repoIds(): string[] { return this.index().issueRepoIds() }
-  collapsed(id: string): boolean { return this.index().sessionCollapsed(id) }
-  orderKey(id: string): string { return this.index().sessionOrderKey(id) }
-  dispose(): void { this.listeners.clear() }
+  count(entity: 'issue' | 'session'): number {
+    const question: ReaderQuestion = { kind: entity === 'issue' ? 'commandIssues' : 'commandSessions' }
+    return Math.max(this.watch(`count:${entity}`, value => value.readerRevision(question)).count(entity), this.pool.tables[entity].size)
+  }
+  repoIds(): string[] { return this.watch('repos', value => value.issueRepoRevision).issueRepoIds() }
+  collapsed(id: string): boolean { this.sessionsChanged.get(); return this.index().sessionCollapsed(id) }
+  orderKey(id: string): string { this.sessionsChanged.get(); return this.index().sessionOrderKey(id) }
+  dispose(): void { this.listeners.clear(); this.observed.clear() }
 }

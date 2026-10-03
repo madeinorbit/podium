@@ -182,9 +182,19 @@ export function createHeaderViews(pool: MobxPool) {
       }
       if (!active) {
         let latest: ReturnType<typeof sessionSummary>
-        for (const id of pool.queries.ids({ kind: 'headerRecentSession' })) {
-          const member = sessionSummary(id)
-          if (member && !member.archived && (!latest || (member.lastActiveAt ?? '') > (latest.lastActiveAt ?? ''))) latest = member
+        let latestId: string | undefined
+        const excluded = new Set<string>()
+        for (;;) {
+          const before = excluded.size
+          for (const id of pool.queries.ids({ kind: 'headerRecentSession', excluded: [...excluded] })) {
+            const member = sessionSummary(id)
+            if (!member || member.archived) { excluded.add(id); continue }
+            if (!latest || (member.lastActiveAt ?? '') > (latest.lastActiveAt ?? '') ||
+              (member.lastActiveAt ?? '') === (latest.lastActiveAt ?? '') && id < latestId!) {
+              latest = member; latestId = id
+            }
+          }
+          if (excluded.size === before) break
         }
         if (latest?.cwd) active = { cwd: latest.cwd, machineId: latest.machineId, issueId: latest.issueId ?? undefined }
       }

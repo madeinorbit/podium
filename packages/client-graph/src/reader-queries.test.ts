@@ -53,7 +53,7 @@ function fixture(scale = 1) {
   const index = createColdIndex(SCHEMA)
   index.apply({ type: 'replace', rows })
   const load = vi.fn((entity: string, id: string) => values.get(`${entity}:${id}`))
-  const summaries = [COMMAND_SUMMARIES, MOBILE_INBOX_SUMMARIES, CHAT_CONTEXT_SUMMARIES, ISSUE_PAGE_SUMMARIES, ISSUE_BOARD_SUMMARIES, MISSION_VIEW_SUMMARIES, SHELL_SUMMARIES].reduce(mergePoolSummaries, {})
+  const summaries = mergePoolSummaries(COMMAND_SUMMARIES, MOBILE_INBOX_SUMMARIES, CHAT_CONTEXT_SUMMARIES, ISSUE_PAGE_SUMMARIES, ISSUE_BOARD_SUMMARIES, MISSION_VIEW_SUMMARIES, SHELL_SUMMARIES)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load, cold: () => index, header: true, settings: true, summaries, schedule: () => () => {},
   })
