@@ -146,6 +146,12 @@ root.render(
 )
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 const driver = {
+  readiness: () => ({
+    pulse: pulseReady,
+    screening: !!document.querySelector('[data-testid="screening-card"]'),
+    attached: !!pool,
+    booting: pool ? mobileInboxViews(pool)?.inbox().booting : null,
+  }),
   ready: () =>
     pulseReady &&
     !!document.querySelector('[data-testid="screening-card"]') &&

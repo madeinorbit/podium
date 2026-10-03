@@ -61,10 +61,19 @@ try {
       }),
     )
     await page.goto(`${origin}/test/inbox.browser.html?pool=${mode === 'on' ? 1 : 0}`)
-    await Promise.race([
-      page.waitForFunction(() => window.__inbox?.ready(), null, { timeout: 90000 }),
-      startupFailure,
-    ])
+    try {
+      await Promise.race([
+        page.waitForFunction(() => window.__inbox?.ready(), null, { timeout: 20000 }),
+        startupFailure,
+      ])
+    } catch (error) {
+      console.error(JSON.stringify(await page.evaluate(() => ({
+        readiness: window.__inbox?.readiness(),
+        stats: window.__inbox?.stats(),
+        text: document.body.textContent?.slice(-1800),
+      }))))
+      throw error
+    }
     failReady = () => {}
     await page.evaluate(
       () =>
