@@ -1,6 +1,6 @@
 # POD-5077 switch acceptance
 
-POD-5093, 2026-10-03. **Operator-size timing is GREEN on exact landed `fba57c0c8fd01c24c2a9258d4a734961e76fdf80`; the 4× mission p50 remains RED and final corpus checks are in progress.** At operator size, ON mission, small-mission and session switching all satisfy store/derive p50 <200 ms and p95 <500 ms. At 4×, small-mission and session switching pass, while mission p50 is 240 ms. All 120 ON gestures across both sizes have zero actual legacy, mission and engine-selection entries. POD-5406 removes the global command-launch work; its four global counters remain zero during every ON gesture. POD-5402's account fix is included; the aligned parent probe confirms zero survivors after real successor focus, with nine retained beforehand in ON. This issue has changed no defaults or application source.
+POD-5093, 2026-10-03. **Operator-size acceptance is GREEN on exact landed `fba57c0c8fd01c24c2a9258d4a734961e76fdf80`.** ON mission, small-mission and session switching satisfy store/derive p50 <200 ms and p95 <500 ms. Final synthetic diagnostics and five private replays have zero unexpected differences or pending rows. All 120 ON timed gestures across both sizes have zero actual legacy, mission and engine-selection entries; all four global command-launch counters remain zero. Account release is bounded: nine objects remain before real successor focus in ON and zero afterward. The 4× mission p50 remains a negative stress result at 240 ms, explicitly accepted as non-blocking by POD-4286 and assigned to POD-5421/POD-5454. This issue has changed no defaults or application source.
 
 Both paired measurements use exactly `fba57c0c8f`, as instructed by POD-4286. It contains POD-5406 and excludes POD-5437's legacy removal, so OFF and ON remain available in the same build. The owner's first changed-source 4× attempt retained only 39 of 120 records and is incomplete; it is not combined with any completed capture. Historical frozen-product results below remain RED before this fix.
 
@@ -11,9 +11,9 @@ Both paired measurements use exactly `fba57c0c8f`, as instructed by POD-4286. It
 | Store and derive p50 <200 ms, p95 <500 ms | Exact `fba57c0c8f`, 120 retained profiles at each size | Passes at operator size; 4× mission p50 misses |
 | IndexedDB, layout and total reported separately | Exclusive CPU partition, request wait union and Chromium layout/paint union below | Recorded at both sizes |
 | Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, 120 final ON gestures on exact `fba57c0c8f`; earlier candidate/frozen controls retained | Zero entries |
-| Synthetic corpus parity | 1× browser diagnostics and focused corpus/rendering files green; 4× untimed browser checks interrupted | Zero differences / pending on completed checks; 4× browser result unavailable |
-| Private operator replay | Five read-only ludovico checks; aligned sidebar repeated at frozen `c38a12b360` | Zero unexpected differences / pending |
-| Account switch leaves no survivors | Landed `70f3c661f4`, aligned parent Chromium probe; Alice → Bob → Alice, actual principals checked | Bounded release: OFF 0/0; ON 9 before real successor focus, 0 afterward |
+| Synthetic corpus parity | Final exact-source 4× browser diagnostics; 1× render fields and earlier diagnostics; focused corpus/rendering files | Zero diagnostic differences / pending; raw timer labels advance |
+| Private operator replay | Five ludovico checks on exact `fba57c0c8f`; earlier aligned frozen-base replay retained | Zero unexpected differences / pending; accepted ownership changes disclosed below |
+| Account switch leaves no survivors | Landed `70f3c661f4` operator-size probe and final exact `fba57c0c8f` 4× probe; Alice → Bob → Alice, actual principals checked | Bounded release: OFF 0/0; ON 9 before real successor focus, 0 afterward |
 | Focused corpus and rendering gates | Saved results, three missing node files and the aligned navigation case: all fourteen files have passing evidence | Green |
 
 ## Final operator-size timing
@@ -52,7 +52,7 @@ The same fresh `fba57c0c8f` build, Chromium configuration, seed and twenty-sampl
 
 All sixty ON legacy, mission and navigation maps are zero; the four global launcher deltas remain zero, with addressed session reads at most two. The cold-session counter was armed at 11,231 before the retained ON gestures. Positive OFF source-map attribution contributes 86,438.232 ms of legacy data work. Artifact 28 retains the complete 4× analysis.
 
-Small-mission and session budgets pass; mission p50 exceeds 200 ms by 40 ms, while its p95 is below 500 ms. Remaining mission self time is led by `reader-queries.ts:118 activity` (66.450 ms mean); small switches include its `question.roots.some` callback. This result remains explicitly negative even though the command-launch scan is gone. No product change was made in this measurement lane.
+Small-mission and session budgets pass; mission p50 exceeds 200 ms by 40 ms, while its p95 is below 500 ms. Remaining mission self time is led by `reader-queries.ts:118 activity` (66.450 ms mean); small switches include its `question.roots.some` callback. POD-4286 confirmed at 19:19 UTC that this negative stress result does not block operator-size acceptance. POD-5421 owns the 4× mission target; POD-5454 can use the remaining reader attribution. No product change was made in this measurement lane.
 
 The separate twenty-minute lease was granted at 18:57:34.935 UTC. Retained inputs begin at 18:59:09.2224 and the final Paint ends at 19:09:14.653938. All 120 records/manifest were saved, PID 1281563 exited 0, and the lease was released. A later audit finds no surviving recorded descendants from either timing capture. Per-sample one-minute load ranges from 5.31 to 11.05. The timing-only verification arrays are unavailable; raw render differences are only countdowns (`17:02`/`16:52`, `21:43`/`21:33`), with all other text and deck/dock labels equal.
 
@@ -102,9 +102,11 @@ Actual function-entry instrumentation covers `missionRootFor`, `selectedMissionR
 
 The all-ON candidate records zero entries for all three switch actions, with zero engine selection counters. OFF is a positive control: the session switch records 1,116 `missionIssueIds` entries and 1,198 `indexMissionSessions` entries; the 307-row mission switch calls `archivedSessionsForIssue` 307 times. Before POD-5396, session navigation still entered `missionIssueIds` four times and `indexMissionSessions` once through `Reactions.pruneWorkspaces` → `workspaceMembership`. Candidate `91bb0f3488` removes that path through the pool navigation provider.
 
-Browser diagnostics compare 1,008 sidebar rows / 35 sections, mission snapshots of 389 and 237 diagnostic rows / five sections, 4,867 issue-page positions and 4,308 session positions. Every result has differences=0 and pending=0. Raw elapsed labels advance between separate contexts; fixed-clock rendering gates supply deterministic output parity rather than treating elapsed time as a data mismatch.
+Earlier operator-size browser diagnostics compare 1,008 sidebar rows / 35 sections, mission snapshots of 389 and 237 diagnostic rows / five sections, 4,867 issue-page positions and 4,308 session positions. Every result has differences=0 and pending=0. Raw elapsed labels advance between separate contexts; fixed-clock rendering gates supply deterministic output parity rather than treating elapsed time as a data mismatch.
 
 Those same diagnostic counts and zero ON entry maps are confirmed again on landed account source `70f3c661f4`, at parent checkpoint `7cd4fe0015` using minified build `0b25846f8d`. This foreground count-only verification exited 0 and took no timing lease; artifact 26 retains its complete result.
+
+The final exact-source `fba57c0c8f` 4× count-only probe exits 0 and marks verification complete. At both mission targets, it compares 4,029 sidebar rows / 35 sections, 397 and 345 mission rows / five sections, 19,468 issue-page positions and 17,214 session positions. Every diagnostic has differences=0 and pending=0, with zero accepted deadline or ownership changes in the synthetic corpus. All three actual ON switches also have zero legacy, mission and navigation entries. Artifact 29, `fba-4-controls/counts.json`, retains that complete count-only proof. No performance claim is taken from this unleased verification run.
 
 ## Private replay
 
@@ -112,15 +114,17 @@ Rows remain in ludovico memory. Only counts, positions, field names and opaque I
 
 | Screen | Positions or rows | Unexpected differences | Pending | Explicitly accepted semantic differences |
 | --- | ---: | ---: | ---: | ---: |
-| Sidebar, current joined seed (`c38a12b360`) | 1,209 rows / 35 sections; 6,087 issues, 5,186 sessions | 0 | 0 | 0 |
-| Mission view | 8,432 selections / 10,495 rows / 2,108 roots | 0 | 0 | 0 |
-| Issue page | 6,074 positions | 0 | 0 | 0 deadline differences |
-| Session pane | 5,180 positions | 0 | 0 | 1,600 ownership differences |
-| Shell | 78,869 positions / seven contexts | 0 | 0 | 0 |
+| Sidebar, current joined seed (`fba57c0c8f`) | 1,220 rows / 35 sections; 6,132 issues, 5,196 sessions | 0 | 0 | 0 |
+| Mission view | 8,480 selections / 10,578 rows / 2,120 roots | 0 | 0 | 0 |
+| Issue page | 6,132 positions | 0 | 0 | 0 deadline differences |
+| Session pane | 5,192 positions | 0 | 0 | 1,614 ownership differences |
+| Shell | 79,352 positions / seven contexts | 0 | 0 | 0 |
 
-The aligned sidebar row is a fresh replay at exact `c38a12b360` on 2026-10-03 at 10:04:37 UTC. It ran on ludovico in a detached checkout with its own frozen dependency graph and unchanged tracked product source, and exited 0. Issue artifact 13, `aligned-replay-frozen-counts.json`, retains its count-only result and fixture fingerprint. The other private rows retain the earlier `c8bccb92cb` product results.
+All five final rows run on exact `fba57c0c8f` on ludovico in a detached checkout with its own frozen dependency graph and unchanged tracked product source. The sidebar original-entry retry exits 0 at 19:36:39 UTC, with unchanged fixture SHA256 `5dda5ca72810e3fcc5038c8e7dd52ca332ecbcff40dca7d9de0763bb4fa0479f`. The first sidebar attempt exited 1 before producing comparison counts; that attempt is preserved separately, and only that missing case was retried. A diagnostic invocation of the same comparison logic also passed. The four already-passing screen replays were retained. `fba-private-counts.json` and `fba-sidebar-counts.json` retain only permitted counts, positions and opaque IDs.
 
-Session ownership follows the previously accepted POD-5092 rule: explicit issue ownership first, then nearest worktree ownership, rather than legacy list order. The 1,600 accepted differences are reported separately; this is not a claim that every historical ownership value is identical. See [session pane evidence](pod-5092-session-pane-pool.md).
+The earlier aligned sidebar replay at exact `c38a12b360`, 10:04:37 UTC, also exited 0: 6,087 issues / 5,186 sessions / 1,209 rows / 35 sections. Artifact 13 retains that frozen-base count-only result and identical fixture fingerprint. Earlier `c8bccb92cb` results are retained with the historical evidence.
+
+Session ownership follows the previously accepted POD-5092 rule: explicit issue ownership first, then nearest worktree ownership, rather than legacy list order. The current 1,614 accepted differences (1,600 in the earlier replay) are reported separately; this is not a claim that every historical ownership value is identical. See [session pane evidence](pod-5092-session-pane-pool.md).
 
 The unchanged older sidebar replay fails equally at morning `803ecfa597` and the then-current `c8bccb92cb` product: 1,116 differences across 1,207 rows, with identical first opaque positions and field counts. It does not seed current session homes/user states/machines or declare mission summaries. A measurement-only copy follows the current browser fixture, reads joined sessions through the pool row source, declares `MISSION_SUMMARIES`, and yields zero differences. Dropping the joined session list is a planted red control: 1,192 differences, exit 1, exact source restoration verified. No shared replay or product source has been changed by this issue.
 
@@ -139,11 +143,15 @@ The same closure retains the old replica through outbox callbacks. POD-5402 land
 
 The parent probe at `7cd4fe0015` independently confirms OFF Bob/Alice 0 survivors before and after focus. In ON, React's selection cache retains the retired generation's nine objects before focus on each transition; afterward all nine are absent. The first generation remains absent when Alice returns, while the second generation is then collected. Each actual principal matches the requested account, and the successor field is a connected text INPUT. The result follows five GC/settled-render rounds on each side of that public focus interaction. This is a bounded release result, not unconditional zero immediately after account switch. The original strong Window path remains a separate, permanent defect in the frozen baseline.
 
+The final `fba57c0c8f` 4× probe reproduces the same bound in both directions: OFF has zero before/after focus; ON has nine before real successor focus and zero afterward. Both actual principals match, every successor field is a connected text INPUT, and the first generation remains absent on the return transition. Artifact 29 retains these final no-focus and post-focus identities/counts alongside the synthetic parity proof.
+
 The collector also releases its startup wait handle and clears Playwright 1.60's retained locator target set with an absent-locator count assertion before GC. Those harness references are separate from the original strong Workspace path. Artifact 26 records no-focus counts, the connected successor field that receives real focus, and post-focus counts in both arms. The saved heap/object IDs have been copied by POD-5402 and remain retained here.
 
 ## Evidence and controls
 
 POD-5093 issue artifacts retain the aligned private counts, morning/current replay comparison, candidate browser manifest, and source-name-only account retaining path. Artifact 23, `frozen-switch-baselines.tgz`, contains all 240 synthetic CPU profiles, timelines and records, their manifests/analyses, compiled assets/maps and exact baseline collectors. Its 75,791,677 bytes have SHA256 `b587809fe389c42c250bcee21fc626ade9f10fec7d3d87c3bd45a58fcf9edd64`; artifact 24 records that provenance. Private rows and heap snapshots are excluded.
+
+The final exact-source 240-record archive is prepared at `~/podium-test-5093/.artifacts/5093/fba-switch-acceptance.tgz`. It contains both completed captures, their analyses/manifests, the matching production assets/maps, exact collector/analyzer, build hash manifest, recorded PID audit and final count-only browser/private proofs. It excludes private operator rows and heap snapshots. Final analyses are attached as artifacts 27/28 and the completed browser/account count proof as artifact 29. The original requested retired heap remains retained separately.
 
 Eleven focused report guards accept clean input and reject planted startup, legacy-entry, selection, parity, pending, survivor, principal, CPU coverage, CPU partition, p50 and p95 faults. These run on flatblock with an exact cp-aside/restore check, without a timing lease. The guards are falsifiability evidence, not measured acceptance results.
 
