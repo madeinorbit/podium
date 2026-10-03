@@ -46,7 +46,7 @@ import type { MobileTrpc } from './trpc'
 
 export interface MobileStoreFixture {
   /** Exercise an app's real pool attachment on the provider-owned runtime. */
-  attachRuntime?: (runtime: ClientRuntime<MobileTrpc>, onError: (error: Error) => void) => () => void
+  attachRuntime?: (runtime: ClientRuntime<MobileTrpc>) => () => void
   sessions?: SessionMeta[]
   sessionUserStates?: SessionUserStateWire[]
   machineProjections?: MachineProjection[]

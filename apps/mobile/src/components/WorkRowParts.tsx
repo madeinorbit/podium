@@ -58,7 +58,7 @@ export function FleetSummary({ sessions, display }: {
     <View accessibilityRole="image" accessibilityLabel={label} style={styles.fleet}>
       <View style={styles.stack}>
         {shown.map(({ kind, parked }, index) => {
-          const tone = kindTone(kind)
+          const tone = kindTone(kind ?? undefined)
           const t = parked ? { ...tone, ...PARKED_TONE } : tone
           return (
             <View
@@ -70,7 +70,7 @@ export function FleetSummary({ sessions, display }: {
                 { zIndex: index + 1 },
               ]}
             >
-              <AgentMark kind={kind} size={markSize(FLEET_TILE)} ink={t.fg} />
+              <AgentMark kind={kind ?? undefined} size={markSize(FLEET_TILE)} ink={t.fg} />
             </View>
           )
         })}

@@ -88,16 +88,15 @@ class MobileSectionsView {
   readonly value: IComputedValue<MobileWorkSections>
 
   constructor(private readonly pool: MobxPool, private readonly state: MobileWorkState) {
+    const pinnedData = computed(() => pool.groups.pinnedRootIds.map(id => ref(id)), { equals: compareStructural })
+    const pinnedSection = computed(() => band('pinned', 'Pinned', 'pinned', pinnedData.get()), { equals: compareStructural })
+    const pinnedAttention = computed(() => pinnedData.get().filter(row => this.waiting(row).asking)
+      .map(row => ({ ...row, listKey: `needs-you:${row.id}` })), { equals: compareStructural })
     this.pinned = computed(() => {
       let pending = 0
-      const data = pool.groups.pinnedRootIds.map(id => ref(id))
-      const attention = data.filter(row => {
-        const waiting = this.waiting(row)
-        pending += waiting.pending
-        return waiting.asking
-      }).map(row => ({ ...row, listKey: `needs-you:${row.id}` }))
-      const section = band('pinned', 'Pinned', 'pinned', data)
-      return { section, ordering: section, attention, issueCount: data.length, pending }
+      for (const row of pinnedData.get()) pending += this.waiting(row).pending
+      const section = pinnedSection.get()
+      return { section, ordering: section, attention: pinnedAttention.get(), issueCount: section.total, pending }
     }, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.pinned') })
     this.attention = computed(() => band('needs-you', 'Needs you', 'attention', [
       ...this.pinned.get().attention,
@@ -136,22 +135,24 @@ class MobileSectionsView {
       const openRows = computed(() => this.pool.groups.rootOpen.lane(key).map(id => ref(id)), { equals: compareStructural })
       const snoozedRows = computed(() => this.pool.groups.rootSnoozed.lane(key).slice(), { equals: compareStructural })
       const closedRows = computed(() => this.pool.groups.rootClosed.lane(key).slice(), { equals: compareStructural })
-      view = computed(() => {
-        const { label, worktreeIds } = header.get()
-        const open = openRows.get()
-        const snoozedIds = snoozedRows.get()
-        const closedIds = closedRows.get()
-        const data = [...open, ...worktreeIds.map(id => ref(id, 'worktree'))]
+      const allRows = computed(() => [...openRows.get(), ...header.get().worktreeIds.map(id => ref(id, 'worktree'))], { equals: compareStructural })
+      const split = computed(() => {
         const live: MobileWorkRef[] = [], attention: MobileWorkRef[] = []
         let pending = 0
-        for (const row of data) {
+        for (const row of allRows.get()) {
           const waiting = this.waiting(row)
           pending += waiting.pending
           ;(waiting.asking ? attention : live).push(row)
         }
-        return { section: band(key, label, 'project', live, snoozedIds, closedIds),
-          ordering: band(key, label, 'project', data, snoozedIds, closedIds),
-          attention, issueCount: open.length, pending }
+        return { live, attention, pending }
+      }, { equals: compareStructural })
+      const liveRows = computed(() => split.get().live, { equals: compareStructural })
+      const attentionRows = computed(() => split.get().attention, { equals: compareStructural })
+      const section = computed(() => band(key, header.get().label, 'project', liveRows.get(), snoozedRows.get(), closedRows.get()), { equals: compareStructural })
+      const ordering = computed(() => band(key, header.get().label, 'project', allRows.get(), snoozedRows.get(), closedRows.get()), { equals: compareStructural })
+      view = computed(() => {
+        return { section: section.get(), ordering: ordering.get(),
+          attention: attentionRows.get(), issueCount: openRows.get().length, pending: split.get().pending }
       }, { equals: compareStructural, name: debugName(() => `pool.mobileWork.project:${key}`) })
       this.projects.set(key, view)
     }

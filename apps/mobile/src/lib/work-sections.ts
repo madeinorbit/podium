@@ -12,7 +12,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { issueStatusLabel } from '@podium/model'
+import { issueStatusLabel, type IssueGitState } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 
 /**
@@ -197,7 +197,7 @@ export function foldWorkSections(
 export function mobileRowPaint(value: MobileRowValues, now: number) {
   const sidebar = value.sidebar
   const issue = sidebar?.issue
-  const git = deriveGitStamp(value.branch, value.gitState)
+  const git = deriveGitStamp(value.branch, value.gitState as IssueGitState | undefined)
   const ahead = value.suppressAhead ? undefined : git.ahead
   const gitShown = git.kind === 'ready' && (git.mismatch || git.merged || git.dirty !== undefined || ahead !== undefined)
   return {
@@ -225,7 +225,8 @@ export function mobileRowPaint(value: MobileRowValues, now: number) {
       decision: value.decision,
       unread: value.unread,
       draftOnly: value.draftOnly,
-      fleet: { ...value.fleet, tiles: value.fleet.tiles.slice(0, FLEET_KIND_LIMIT) },
+      fleet: value.draftOnly ? { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] }
+        : { ...value.fleet, tiles: value.fleet.tiles.slice(0, FLEET_KIND_LIMIT) },
       gitStamp: { kind: gitShown ? 'ready' as const : 'hidden' as const,
         mismatch: gitShown && git.mismatch, merged: gitShown && git.merged,
         dirty: gitShown ? git.dirty : undefined, ahead: gitShown ? ahead : undefined },
@@ -255,7 +256,7 @@ function mobileRowStatus(value: MobileRowValues, now: number): string {
   if (value.decision === 'review') return 'needs review'
   if (sidebar.continuation) return `${sidebar.continuation.kind} · ${sidebar.continuation.ref}`
   if (sidebar.issue.blocked) return 'blocked'
-  return issueStatusLabel(sidebar.issue).toLowerCase()
+  return issueStatusLabel(sidebar.issue as unknown as Parameters<typeof issueStatusLabel>[0]).toLowerCase()
 }
 
 export function mobileRowStamp(timing: MobileRowValues['timing'], now: number): string | null {
@@ -270,6 +271,7 @@ export function mobileRowStamp(timing: MobileRowValues['timing'], now: number): 
  * equality-filtered reader wakes React only if its displayed stamp changed. */
 export function mobilePaintNow(pool: MobxPool): number {
   const now = pool.clock.current
+  pool.clock.reached(now)
   pool.clock.reached(now + 1)
   return now
 }

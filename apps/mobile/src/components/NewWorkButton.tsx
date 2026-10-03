@@ -69,16 +69,17 @@ function usePoolLaunchInputs() {
   const data = useMobileLaunchData()
   return useMemo(() => {
     const sessions = data?.sessions ?? []
-    const pins = data?.pins ?? { repos: [], worktrees: [] }
-    const projects = (data?.repoViews ?? []).map(repo => ({
+    const pins = data?.pins ?? { repos: [] as string[], worktrees: [] as string[] }
+    const allProjects: RepoNavView[] = (data?.repoViews ?? []).map(repo => ({
       ...repo,
-      worktrees: repo.worktrees.filter(tree => !pins.worktrees.includes(tree.path)),
+      worktrees: repo.worktrees.map(tree => ({ ...tree, repoName: repo.name, sessions: [], issues: [] })),
     }))
-    const sections = {
+    const projects = allProjects.map(repo => ({ ...repo, worktrees: repo.worktrees.filter(tree => !pins.worktrees.includes(tree.path)) }))
+    const sections: SidebarSections = {
       pinnedRepos: pins.repos.flatMap(path => projects.filter(repo => repo.path === path)),
       repos: projects.filter(repo => !pins.repos.includes(repo.path) && repo.worktrees.length > 0),
-      pinnedWorktrees: (data?.repoViews ?? []).flatMap(repo => repo.worktrees.filter(tree => pins.worktrees.includes(tree.path))),
-    } as SidebarSections
+      pinnedWorktrees: allProjects.flatMap(repo => repo.worktrees.filter(tree => pins.worktrees.includes(tree.path))),
+    }
     return { sessions, sections }
   }, [data])
 }

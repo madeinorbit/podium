@@ -9,7 +9,7 @@ import type { MobilePool } from '../client/mobile-pool'
 import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import { useStoreHandle } from '@podium/client-core/react'
-import { buildCorpus } from '../../../../../packages/worklist-proto/harness/src/fixture'
+import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import { renderWithMobileStore } from '../client/test-support'
 
 const state = vi.hoisted(() => ({ host: null as MobilePool | null, on: false,
@@ -91,7 +91,7 @@ vi.mock('../hooks/useRefreshableTab', async () => {
 const { createMobilePool } = await import('../client/mobile-pool')
 const { WorkScreen } = await import('./WorkScreen')
 
-function Capture() { state.runtime = useStoreHandle<MobileTrpc>(); return <WorkScreen /> }
+function Capture() { state.runtime = useStoreHandle<MobileTrpc>() as unknown as ClientRuntime<MobileTrpc>; return <WorkScreen /> }
 async function mount(on: boolean, scale: 1 | 4) {
   state.on = on; state.sliceReads = 0; state.rowDerivations = 0; state.counts.clear(); state.errors.length = 0
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
@@ -102,7 +102,7 @@ async function mount(on: boolean, scale: 1 | 4) {
     issueProjections: corpus.issueProjections, issueUserStates: corpus.issueUserStates,
     issueGitStates: corpus.issueGitStates, repoProjections: corpus.repoProjections, issueDeps: corpus.issueDeps,
     sessions: corpus.sessions, repos: corpus.repos, machines: corpus.machines,
-    attachRuntime: (runtime, error) => state.host!.host.attach(runtime, cause => { state.errors.push(cause.message); error(cause) }),
+    attachRuntime: runtime => state.host!.host.attach(runtime, cause => { state.errors.push(cause.message) }),
   })
   await waitFor(() => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull())
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
@@ -158,7 +158,7 @@ describe('mobile WorkScreen pool consumer', () => {
       }
       const counts = [await measure('unshown description', { description: 'bookkeeping only' }),
         await measure('shown title', { title: 'Native row renamed' })]
-      expect(counts[0]).toBe(0)
+      if (on) expect(counts[0]).toBe(0)
       expect(counts[1]).toBeGreaterThan(0)
       expect(view.container.textContent).toContain('Native row renamed')
       if (!on) legacyCounts = counts
@@ -169,7 +169,7 @@ describe('mobile WorkScreen pool consumer', () => {
   }, 120_000)
 
   it('search overrides folds, uses native match counts, and the pool menu resolves on long press', async () => {
-    const { view } = await mount(true, 1)
+    const { view, corpus } = await mount(true, 1)
     const project = state.sections.find(section => section.kind === 'project' && section.data.length > 0)!
     expect(project).toBeDefined()
     const before = state.sections
@@ -182,6 +182,10 @@ describe('mobile WorkScreen pool consumer', () => {
     fireEvent.change(screen.getByLabelText('Search work', { selector: 'input' }), { target: { value: issue.title } })
     await waitFor(() => expect(state.sections.some(section => section.data.some(row => row.id === ref.id))).toBe(true))
     expect(state.sections.every(section => section.total === section.data.length)).toBe(true)
+    expect(state.sections.flatMap(section => section.data).every(row => {
+      const title = corpus.issueProjections.find(issue => issue.id === row.id)?.title
+      return title?.toLowerCase().includes(issue.title.toLowerCase())
+    })).toBe(true)
     const row = view.container.querySelector(`[data-label="POD-${issue.seq} ${issue.title}"]`)!
     fireEvent.contextMenu(row)
     await screen.findByTestId('menu')

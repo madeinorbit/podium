@@ -13,7 +13,7 @@ import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import type { MobileWorkRef, MobileWorkSection, MobileWorkState } from '@podium/client-graph/worklist/mobile'
 import { compareSidebarSnapshots, type CheckRow, type SidebarDifference, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { sidebarComparable, legacySidebarRow, sessionComparable } from '@podium/client-graph/diagnostics/oracle'
-import { buildWorkSections, foldWorkSections, workRowListKey, workRowId, type WorkSection } from '../../../../../apps/mobile/src/lib/work-sections'
+import { buildWorkSections, foldWorkSections, mobileRowPaint, workRowListKey, workRowId, type WorkSection } from '../../../../../apps/mobile/src/lib/work-sections'
 import type { LegacyDerivation } from './oracle'
 
 function stamp(timing: MobileRowValues['timing'], now: number): string | null {
@@ -69,17 +69,10 @@ function poolRow(pool: MobxPool, ref: MobileWorkRef): CheckRow {
   const value = pool.mobileWork.row(ref)
   if (value === LOADING) return { id: ref.id, pending: true, fields: { loading: true } }
   if (value === undefined) return { id: ref.id, fields: { absent: true } }
-  const sidebar = value.sidebar
-  // Run the unchanged formatter on pool inputs. Mobile does not override
-  // task/decision copy with the web row's continuation-first presentation.
-  const row = sidebar ? { kind: 'issue', issue: sidebar.issue, sessions: sidebar.sessions,
-    aggregateSessions: sidebar.aggregateSessions, activityAt: value.activityAt,
-    missionRollup: { progress: sidebar.progress, fromChildren: sidebar.statusFromChildren },
-    continuation: sidebar.continuation ? `${sidebar.continuation.kind} · ${sidebar.continuation.ref}` : undefined,
-  } : { kind: 'worktree', worktree: { sessions: value.sessions }, activityAt: value.activityAt }
+  // Compare the actual pool consumer's formatter with the legacy oracle.
+  const paint = mobileRowPaint(value, pool.clock.current)
   return { id: ref.id, fields: { ...comparable(value),
-    statusLine: sidebar?.awaitingFirstPrompt ? 'awaiting first prompt' : rowStatusLine(row as unknown as UnifiedWorkRow, pool.clock.current, 0),
-    stamp: stamp(value.timing, pool.clock.current) } }
+    statusLine: paint.statusLine, stamp: paint.stamp } }
 }
 
 export function legacyMobileSnapshot(derivation: LegacyDerivation, state: MobileWorkState = {}): SidebarSnapshot {

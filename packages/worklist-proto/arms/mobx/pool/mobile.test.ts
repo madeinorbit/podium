@@ -75,7 +75,7 @@ describe('mobile pool values', () => {
       check('corpus')
       for (const scenario of FENCE_SCENARIOS) { await scenario.write(ctx); check(scenario.scenario) }
       expect(retained).toBeGreaterThan(0)
-      writeResult(`mobile-${scale}x`, { issue: 'POD-4975', scale, checks })
+      writeResult(`mobile-${scale}x`, { issue: 'POD-4977', scale, checks, retainedNativeArrays: retained })
     } finally { stop(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 600_000)
 
@@ -179,7 +179,7 @@ describe('mobile pool values', () => {
         expect(tracked(() => checkMobile(handle.pool, derivation, state)), `seed ${seed}, step ${index}, ${changes[index]!.kind}`)
           .toMatchObject({ differences: 0, first: null, pending: 0 })
       }
-      writeResult(`mobile-seed-${seed}`, { issue: 'POD-4975', seed, steps: changes.length, ...countKinds(changes), differences: 0 })
+      writeResult(`mobile-seed-${seed}`, { issue: 'POD-4977', seed, steps: changes.length, ...countKinds(changes), differences: 0 })
     } finally { stop(); handle.dispose(); locals.dispose(); run.dispose() }
   }, 600_000)
 })
