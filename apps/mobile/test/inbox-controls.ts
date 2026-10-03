@@ -91,8 +91,8 @@ const controls = [
   [
     'triage bucket',
     views,
-    'summary.archived || summary.headless || summary.agentKind',
-    'summary.archived || false || summary.agentKind',
+    "summary.agentKind === 'shell'",
+    "summary.agentKind !== 'shell'",
   ],
   ['screening ancestor', views, '!underProposal(issue)', 'true'],
   [
