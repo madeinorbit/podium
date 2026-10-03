@@ -13,8 +13,10 @@
  */
 import { debugFlagEnabled, MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
 import { COMMAND_ENTITIES, COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
-import type { commandLaunchViews, CommandLaunchData } from '@podium/client-graph/command-launch-views'
-import type { MobxPool } from '@podium/client-graph/pool'
+import type {
+  CommandLaunchData,
+  commandLaunchViews,
+} from '@podium/client-graph/command-launch-views'
 import {
   createPoolHost,
   type PoolDataLayer,
@@ -30,6 +32,7 @@ import {
 } from '@podium/client-graph/mobile-inbox-schema'
 import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
+import type { MobxPool } from '@podium/client-graph/pool'
 import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
@@ -70,7 +73,11 @@ export function createMobilePool(
           ])
           launchViews = commandLaunchViews
           commandLaunchViews(pool)
-          await pool.sources.ensure('commands', COMMAND_ENTITIES, () => new CommandLaunchSource(pool, runtime))
+          await pool.sources.ensure(
+            'commands',
+            COMMAND_ENTITIES,
+            () => new CommandLaunchSource(pool, runtime),
+          )
         },
       },
       {
