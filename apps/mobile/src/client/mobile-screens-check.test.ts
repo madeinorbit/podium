@@ -36,7 +36,11 @@ const legacy = { mostRelevantSession, buildScreeningQueue, taskBoardProgress, ta
 function fingerprint(value: unknown) {
   const normalized = JSON.stringify(value, (_key, item) =>
     item !== null && typeof item === 'object' && !Array.isArray(item)
-      ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]))
+      ? Object.fromEntries(
+          Object.keys(item)
+            .sort()
+            .map((key) => [key, item[key]]),
+        )
       : item,
   )
   if (normalized === undefined) throw new Error('Phone pool output is not settled')

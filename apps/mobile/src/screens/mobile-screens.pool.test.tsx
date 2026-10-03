@@ -493,9 +493,11 @@ it.each([
         // Capture only after the actual OFF/ON output comparison passes. The
         // pool-only regression keeps these values without updating snapshots.
         for (const [index, id] of ids.entries()) {
-          expect(createHash('sha256').update(text[index] ?? '').digest('hex')).toMatchSnapshot(
-            `${phase} ${id}`,
-          )
+          expect(
+            createHash('sha256')
+              .update(text[index] ?? '')
+              .digest('hex'),
+          ).toMatchSnapshot(`${phase} ${id}`)
         }
       } else off.set(phase, text)
     }
