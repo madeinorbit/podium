@@ -150,6 +150,21 @@ async function durable(page: Page, mobile: boolean) {
 const bulk = (sample: Capture) =>
   sample.deliveries.filter((delivery) => delivery.sessions === SIZED_CORPUS.sessions)
 
+function appErrors(errors: string[], mobile: boolean): string[] {
+  // Blocking workers prevents a controlling-worker handoff from adding a second
+  // navigation. Workbox reports that Playwright's blocked register() returned
+  // undefined; retain the report, but exclude only that harness-induced error.
+  return errors.filter(
+    (error) =>
+      mobile ||
+      !(
+        error.includes('ERROR web:sw service worker registration failed') &&
+        error.includes("Cannot read properties of undefined (reading 'waiting')") &&
+        error.includes('workbox-window.prod.es5-')
+      ),
+  )
+}
+
 test('certified warm attach removes the second delivery and preserves live values', async ({
   browser,
   page: seedPage,
@@ -187,6 +202,9 @@ test('certified warm attach removes the second delivery and preserves live value
         baseURL: ORIGIN,
         serviceWorkers: 'block',
       })
+      // route.fulfill() has no peer IP. Chromium consequently treats the page
+      // as public and requires this permission for the harness's loopback WS.
+      await context.grantPermissions(['local-network-access'], { origin: ORIGIN })
       const page = await context.newPage()
       page.on('response', (response) => {
         if (new URL(response.url()).pathname.startsWith('/sync/'))
@@ -225,7 +243,7 @@ test('certified warm attach removes the second delivery and preserves live value
       if (STARTUP_ONLY) {
         expect(arm.corpus.installations()).toBe(1)
         expect(await certified(page, isMobile)).toBe(name === 'candidate')
-        expect(arm.errors.errors).toEqual([])
+        expect(appErrors(arm.errors.errors, isMobile)).toEqual([])
         console.log(`[warm-cache-startup ${surface} ${name}] committed production cache`)
         continue
       }
@@ -280,7 +298,7 @@ test('certified warm attach removes the second delivery and preserves live value
       expect(bulk(result).at(-1)?.unread).toBe(SIZED_CORPUS.sessions)
       expect(bulk(result).every((delivery) => typeof delivery.duration === 'number')).toBe(true)
       expect(result.certified).toBe(name === 'candidate')
-      expect(arm.errors.errors).toEqual([])
+      expect(appErrors(arm.errors.errors, isMobile)).toEqual([])
       expect(arm.mappings.pauses).toEqual([])
       return result
     }
