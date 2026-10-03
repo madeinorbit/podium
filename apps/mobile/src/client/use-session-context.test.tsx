@@ -150,7 +150,9 @@ vi.mock('../components/Composer', () => ({
   Composer: ({ value, onChangeText, onSend }: ComposerProps) => (
     <div>
       <input aria-label="Draft" value={value} onChange={(e) => onChangeText?.(e.target.value)} />
-      <button type="button" onClick={() => onSend('New synthetic prompt')}>Send</button>
+      <button type="button" onClick={() => onSend('New synthetic prompt')}>
+        Send
+      </button>
     </div>
   ),
 }))
@@ -296,9 +298,13 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
     ['message', notices.messages],
     ['pendingInteraction', notices.interactions],
   ] as const) {
-    for (const row of rows) data.records.set(`${entity}:${row.id}`, {
-      entity, entityId: row.id, provenance: { seq: 1 }, value: row,
-    })
+    for (const row of rows)
+      data.records.set(`${entity}:${row.id}`, {
+        entity,
+        entityId: row.id,
+        provenance: { seq: 1 },
+        value: row,
+      })
   }
   if (cold) data.records.clear()
   Object.assign(data.api, {
@@ -509,7 +515,9 @@ it('borrows each shared source once and keeps the conversation bridge across dra
   const stopRecord = records.subscribe(recordWake),
     stopOutbox = outbox.subscribe(outboxWake)
   expect(records.getSnapshot().map((row) => row.id)).toEqual([
-    'notice-message-0', 'notice-message-3', 'notice-message-4',
+    'notice-message-0',
+    'notice-message-3',
+    'notice-message-4',
   ])
   await act(async () => {
     enabled.data.patch('message', 'notice-message-0', { body: 'Updated replicated message' })

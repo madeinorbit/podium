@@ -257,10 +257,17 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
     const all = [...chunks.map((chunk) => ({ ...chunk, last: false })), ...extra]
     all.at(-1)!.last = true
     const rows = original.length + additions.length
-    const body = `${[{ ...meta, totalRows: rows }, ...all, { ...complete, rows, records: all.length }]
+    const body = `${[
+      { ...meta, totalRows: rows },
+      ...all,
+      { ...complete, rows, records: all.length },
+    ]
       .map((frame) => JSON.stringify(frame))
       .join('\n')}\n`
-    const headers: Record<string, string> = { ...reply.headers(), 'content-type': 'application/x-ndjson' }
+    const headers: Record<string, string> = {
+      ...reply.headers(),
+      'content-type': 'application/x-ndjson',
+    }
     delete headers['content-length']
     delete headers['content-encoding']
     delete headers['transfer-encoding']
@@ -304,7 +311,8 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
       const protocol = await page.context().newCDPSession(page)
       await protocol.send('Network.clearBrowserCache')
       await protocol.send('Storage.clearDataForOrigin', {
-        origin, storageTypes: 'indexeddb,cache_storage',
+        origin,
+        storageTypes: 'indexeddb,cache_storage',
       })
       await protocol.detach()
     }
