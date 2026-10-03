@@ -72,5 +72,5 @@ export const ISSUE_BOARD_SUMMARIES = {
   issue: [...ISSUE_PAGE_SUMMARIES.issue, 'priority', 'createdAt', 'type', 'description',
     'estimateMin', 'dueAt', 'intentOrigin', 'closedAt', 'branch', 'pinned', 'tuckedAt', 'defaultAgent'],
   session: [...ISSUE_PAGE_SUMMARIES.session, 'refIssueId', 'createdAt', 'agentColor', 'displayRef',
-    'stopReason', 'readAt', 'unread', 'snoozedUntil', 'createdBy', 'machineId', 'resumable'],
+    'stopReason', 'readAt', 'unread', 'snoozedUntil', 'createdBy', 'machineId', 'resumable', 'harnessHandoff'],
 } as const

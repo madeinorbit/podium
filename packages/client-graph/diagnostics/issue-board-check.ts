@@ -1,5 +1,6 @@
 /** Values stay in the check process; reports contain counts/positions only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { operationalState } from '@podium/client-core/viewmodels'
 import type { PoolBoardData, PoolExplorerData } from '../src/issue-board-schema'
 import { issuePageFirstDifference } from './issue-page-check'
 import { runInAction } from 'mobx'
@@ -23,6 +24,7 @@ export function boardSnapshot(data: PoolBoardData) {
 }
 export function explorerSnapshot(data: PoolExplorerData) {
   return { counts: data.counts, tab: data.tab, total: data.total, rows: data.rows.map(row => ({ fields: fields(row),
+    state: operationalState(row, data.rowSessions.get(row.id) ?? [], data.byId),
     sessions: (data.rowSessions.get(row.id) ?? []).map(seat => ({ sessionId: seat.sessionId, issueId: seat.issueId,
       status: seat.status, agentKind: seat.agentKind, archived: seat.archived, agentState: seat.agentState, offer: seat.offer })) })) }
 }

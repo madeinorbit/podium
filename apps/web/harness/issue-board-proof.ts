@@ -40,9 +40,10 @@ const runs: unknown[] = []
 const outputs: Record<string, unknown[]> = {}
 
 async function rendered(page: Page) {
-  return page.locator('main').evaluate(node => [...node.querySelectorAll('button, [data-issue-id], [data-testid="issue-column"], h1, h2, h3')].map(element => ({
+  return page.locator('main').evaluate(node => [...node.querySelectorAll('button, [data-issue-id], [data-testid="issue-column"], h1, h2, h3, li[aria-posinset]')].map(element => ({
     tag: element.tagName, id: element.getAttribute('data-issue-id'), label: element.getAttribute('aria-label'),
     text: element.textContent?.trim(), title: element.getAttribute('title'),
+    position: element.getAttribute('aria-posinset'), total: element.getAttribute('aria-setsize'), selected: element.getAttribute('aria-selected'),
   })))
 }
 async function capture(page: Page, trigger: string, expected: string, perform: () => Promise<unknown>) {
@@ -115,7 +116,6 @@ try {
     const filtered = await rendered(page)
     const filteredRows = await population()
     if (!(filteredRows > 0 && filteredRows < fullRows)) throw new Error('Filter must select a nonempty proper subset')
-    outputs[arm] ??= [full, filtered]
     if (run === 0) await page.screenshot({ path: resolve(root, `${label}-board.png`) })
     if (arm === 'pool' && run === 1) await page.screenshot({ path: resolve(root, `${label}-pool-board.png`) })
     const final = await page.evaluate(() => ({ state: Reflect.get(window, '__boardHarness').state(), errors: Reflect.get(window, '__boardHarness').errors() }))
@@ -132,11 +132,29 @@ try {
       }
     }
     if (errors.length || final.errors.length) throw new Error(`Fixture errors: ${JSON.stringify([...errors, ...final.errors])}`)
-    runs.push({ arm, status: 'planning', fullRows, filteredRows, initial, startup, final: final.state, open, filter })
+    await page.evaluate(() => Reflect.get(window, '__boardHarness').reset())
+    await page.locator('[data-explorer-open]').click()
+    await page.getByTestId('explorer-row').first().waitFor()
+    await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
+    const explorer = await rendered(page)
+    await page.getByRole('tab').filter({ hasText: 'Planning' }).click()
+    await page.getByRole('tab', { selected: true }).filter({ hasText: 'Planning' }).waitFor()
+    await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
+    const explorerPlanning = await rendered(page)
+    outputs[arm] ??= [full, filtered, explorer, explorerPlanning]
+    const explorerStats = await page.evaluate(() => Reflect.get(window, '__boardHarness').stats())
+    if (countsOnly) for (const key of Object.keys(explorerStats.board)) if (key.endsWith('Ms')) delete explorerStats.board[key]
+    if (arm === 'pool') {
+      if (explorerStats.runtimes.some((runtime: { rowBuilds: number }) => runtime.rowBuilds) || explorerStats.board['legacy.explorer']) throw new Error('Enabled explorer entered legacy derivation')
+      const residency = await page.evaluate(() => Reflect.get(window, '__boardHarness').state().residentIssues)
+      if (residency !== initial.residentIssues) throw new Error('Explorer promoted cold issues')
+    }
+    if (arm === 'pool' && run === 1) await page.screenshot({ path: resolve(root, `${label}-pool-explorer.png`) })
+    runs.push({ arm, status: 'planning', fullRows, filteredRows, initial, startup, final: final.state, open, filter, explorerStats })
     console.log(JSON.stringify({ run, arm, fullRows, filteredRows, startup, open, filter, final: final.state }))
     await context.close()
   }
-  if (outputs.pool && JSON.stringify(outputs.pool) !== JSON.stringify(outputs.legacy)) throw new Error('Rendered board parity differs')
+  if (outputs.pool && JSON.stringify(outputs.pool) !== JSON.stringify(outputs.legacy)) throw new Error('Rendered board/explorer parity differs')
   const report = { sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), label, countsOnly, browser: browser.version(), runs, renderedParity: outputs.pool ? true : null }
   await writeFile(resolve(root, `${label}.json`), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ saved: `${root}/${label}.json`, renderedParity: report.renderedParity }))
