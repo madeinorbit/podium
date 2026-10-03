@@ -169,6 +169,7 @@
         "$TURBO_ROOT$/apps/mobile/src/lib/screening.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/pool-work-menu.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/work-menu.ts",
+        "$TURBO_ROOT$/apps/mobile/src/lib/work-sections.ts",
         "$TURBO_ROOT$/apps/web/src/app/command-launch-readers.ts",
         "$TURBO_ROOT$/apps/web/src/app/mission-pane-reader.ts",
         "$TURBO_ROOT$/apps/web/src/app/pool-navigation-provider.ts"

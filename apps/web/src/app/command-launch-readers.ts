@@ -10,3 +10,12 @@ export const readGuardSessions = (pool: MobxPool) => {
   const sessions = commandLaunchViews(pool).sessions()
   return sessions && sessions !== LOADING ? sessions : EMPTY_SESSIONS
 }
+export const readOpen = (pool: MobxPool) => {
+  const value = commandLaunchViews(pool).window('paletteOpen')
+  return value !== LOADING ? value ?? false : false
+}
+const EMPTY_FILES: import('@podium/client-core/engine').Store['recentFiles'] = []
+export const readFiles = (pool: MobxPool) => {
+  const value = commandLaunchViews(pool).window('recentFiles')
+  return value && value !== LOADING ? value : EMPTY_FILES
+}

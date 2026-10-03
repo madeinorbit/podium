@@ -36,10 +36,11 @@ import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { createMobileSessionReader } from '@podium/client-graph/mobile-session-context'
 import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
 import { createMobileSettingsSource, MOBILE_SETTINGS_ENTITIES } from '@podium/client-graph/mobile-settings'
-import { readLaunch, readPalette, readGuardSessions } from '../../../../apps/web/src/app/command-launch-readers'
+import { readLaunch, readPalette, readGuardSessions, readOpen, readFiles } from '../../../../apps/web/src/app/command-launch-readers'
 import { readMissionPane } from '../../../../apps/web/src/app/mission-pane-reader'
 import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
 import { readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
+import { MobileSearchSections, searchMobileSections } from '../../../../apps/mobile/src/lib/work-sections'
 import { startScenarioEngine, upsert, upsertIssue, type FixtureScale, type ScenarioEngine } from '../../shared/src/scenarios'
 import { insideReader, measureWork } from './work-meter'
 import { SCREEN_ACTIONS, type ScreenAction, type ScreenWorkCell } from './screen-work-ratios'
@@ -110,6 +111,16 @@ function assertObservedParity(readers: readonly ScreenReader[], values: Readonly
 
 export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWorkRun> {
   const ctx = await startScenarioEngine(scale, { ownRows: true })
+  try {
+    return await measureScreenCells(ctx, scale)
+  } finally {
+    ctx.engine.destroy()
+  }
+}
+
+async function measureScreenCells(ctx: ScenarioEngine, scale: FixtureScale): Promise<ScreenWorkRun> {
+  const progress = (message: string) => process.stdout.write(`[screen work] ${scale}x ${message}\n`)
+  progress('kernel ready')
   const ref = seedNeighbourhood(ctx, scale)
   const handle = createRuntimeWorklistPool(ctx.engine, { header: true, settings: true, preferences: true,
     summaries: mergePoolSummaries(COMMAND_SUMMARIES, SHELL_SUMMARIES, ISSUE_PAGE_SUMMARIES,
@@ -161,6 +172,8 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
     add('sidebar.sections', ['PoolSidebar', 'PoolSidebarRail', 'useSidebarProjectSections'], () => pool.sidebar.sections(layout))
     add('sidebar.row', ['PoolRowSlot'], () => pool.issue(selected())?.sidebar)
     add('mobile-work.sections', ['PoolWorkScreen', 'GroupHeader'], () => pool.mobileWork.sections(layout))
+    const search = new MobileSearchSections()
+    add('mobile-work.search', ['PoolWorkScreen'], () => searchMobileSections(pool, pool.mobileWork.sections(layout).sections, '', search))
     add('mobile-work.row', ['PoolWorkRowSlot'], () => pool.mobileWork.row({ kind: 'issue', id: selected() }))
     add('header.folded', ['FoldedFlightDeckBar'], () => pool.headerViews.folded())
     add('header.shipping', ['useShippingCounts'], () => pool.headerViews.shipping())
@@ -176,9 +189,11 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
     add('launcher.launch', ['NewPanelMenu', 'NewWorkButton', 'useMobileLaunchData'], () => readLaunch(pool))
     add('launcher.palette', ['CommandPalette'], () => readPalette(pool))
     add('launcher.guard', ['CommandPalette', 'NewPanelMenu', 'NewWorkButton'], () => readGuardSessions(pool))
+    add('launcher.window', ['CommandPaletteBoundary', 'CommandPalette'], () => ({ open: readOpen(pool), files: readFiles(pool) }))
     add('mission.pane', ['PoolFlightDeck', 'MissionDeck'], () => readMissionPane(pool, { ...window.get(), mode: 'full', handoff: false }))
     add('mission.workspace', ['Workspace', 'FoldedFlightDeckBar'], () => readWorkspaceMission(missionView(pool), selected(), selected()))
     add('mission.menu', ['PoolIssueContextMenu', 'PoolSessionContextMenu'], () => readMissionActionInputs(missionView(pool), [selected()]))
+    add('mission.session-menu', ['PoolSessionContextMenu'], () => readMissionActionInputs(missionView(pool), [], SESSION))
     add('navigation.activity', ['ClientRuntime navigation watch'], () => navigation.activityAt(ROOT))
     add('navigation.ref', ['navigateToSession', 'PodiumLinkHost'], () => navigation.session(ref))
     add('navigation.mission', ['ClientRuntime navigation watch'], () => ({ root: navigation.missionRoot(selected()), members: navigation.missionMembers(ROOT), readAt: navigation.issueReadAt(selected()) }))
@@ -188,6 +203,11 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
     add('board.catalog', ['useBoardData', 'IssueBoard'], () => board.catalog(false))
     add('board.query', ['IssueBoard', 'IssueExplorer'], () => board.queryIds({ kind: 'board', showAgentTasks: false }))
     add('board.card', ['PoolBoardCard'], () => board.card({ id: selected(), now: ctx.corpus.fixedNow }))
+    add('board.model', ['IssueBoard', 'useBoardData'], () => pool.row('issueBoardModel', JSON.stringify({
+      display: { layout: 'board', ordering: 'priority', showAgentTasks: false }, filter: {}, expanded: [],
+      isMobile: false, openIssueId: selected(), now: 0, windowed: true,
+    })))
+    add('board.explorer', ['IssueExplorer'], () => pool.row('issueExplorerModel', JSON.stringify({ tab: null, query: '', windowed: true })))
     add('chat.detail', ['SessionConversation', 'AgentPanel'], () => ({ issue: chat.issue(selected()), interactions: chat.interactions(SESSION),
       records: chat.records(SESSION), artifact: chat.artifactIssue({ sessionId: asSessionId(SESSION), issueId: asIssueId(ROOT) }), threads: chat.threads() }))
     add('chat.references', ['RichMarkdown', 'RefMiniview'], () => ({ issues: chat.mentions(), sessions: chat.sessions(), machines: chat.machines(), repos: chat.repositoryKey() }))
@@ -195,7 +215,7 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
       recovery: noticeRecovery(pool), continuity: noticeContinuity(pool) }))
     add('session-pane', ['AgentPanel', 'DockTerminal'], () => ({ session: pool.sessionPanes.session(SESSION), machines: pool.sessionPanes.machines(),
       window: pool.sessionPanes.window(), dock: pool.sessionPanes.dock('/synthetic', null), ownership: pool.sessionPanes.ownership(pool.sessionPanes.session(SESSION), color => color ?? undefined) }))
-    add('settings', ['SettingsView', 'SettingsScreen', 'NewIssueScreen'], () => ({ setup: pool.settingsViews.setup(), sessions: pool.settingsViews.sessions() }))
+    add('settings', ['SettingsView', 'SettingsScreen', 'NewIssueScreen', 'WorkflowForm'], () => ({ setup: pool.settingsViews.setup(), sessions: pool.settingsViews.sessions(), present: pool.settingsViews.sessionPresent(SESSION) }))
     add('preferences', ['SettingsView', 'SettingsScreen', 'WorkScreen'], () => pool.row('preference', 'podium:sidebar:pinned-fold'))
     add('references', ['IssueChipLiveness', 'RefChip'], () => pool.references.read('#999999'))
     const automations = automationViews(pool)
@@ -210,8 +230,10 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
       prompt: mobileSession.spawnPrompt(SESSION), exit: mobileSession.exit(SESSION), conversation: mobileSession.conversation(SESSION), booting: mobileSession.booting() }))
     add('mobile-settings', ['SettingsScreen'], () => pool.row('mobileSettingsDiagnostics', 'diagnostics'))
     for (const reader of readers) stops.push(autorun(() => values.set(reader.name, insideReader(reader.name, reader.read)), { name: `consumer:${reader.name}` }))
+    progress('readers mounted')
     await drain(pool)
     assertObservedParity(readers, values)
+    progress(`${readers.length} reader projections settled`)
     // The neighbourhood is declared from the actual rows drawn by this probe,
     // not all members/history of the selected mission. It is inspected per step.
     function neighbourhood(): string[] {
@@ -245,6 +267,7 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
       const counted = await measureWork(async () => { await actions[action](); await drain(pool) }, { pool })
       const members = [...new Set([...before, ...neighbourhood()])]
       cells.push({ action, neighbourhood: members, work: counted.work })
+      progress(`${action}: ${counted.work.rows} row calls, ${counted.work.derivations} derivations, ${counted.work.elements} collection elements; neighbourhood ${members.length}`)
       // Correctness is outside the count window, and is never expected-failed.
       await drain(pool)
       assertObservedParity(readers, values)
@@ -258,6 +281,5 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
   } finally {
     for (const stop of stops.reverse()) stop()
     handle.dispose()
-    ctx.engine.destroy()
   }
 }
