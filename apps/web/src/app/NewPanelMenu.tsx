@@ -1,6 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
 import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
-import { reposToViews } from '@podium/client-core/viewmodels'
 import {
   type AgentKind,
   agentCapabilityRejection,
@@ -146,9 +145,9 @@ function NewPanelMenuBody({
   /** Override the default "+" trigger button (e.g. a compact per-repo "+"). */
   trigger?: React.ReactElement
 }): JSX.Element {
-  const { repos, sessions, machines } = data
+  const { sessions, machines } = data
   const { trpc, setPanelMode } = useCommandLaunchActions()
-  const repoViews = 'repoViews' in data ? data.repoViews : reposToViews(repos)
+  const repoViews = data.repoViews
   // Uncontrolled fallback so the desktop/mobile "+" still works without a parent
   // driving its open state; the controlled props win when supplied.
   const [internalOpen, setInternalOpen] = useState(false)

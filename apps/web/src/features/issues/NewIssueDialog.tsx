@@ -1,4 +1,4 @@
-import { type RepoView, reposToViews, repoUsageAt } from '@podium/client-core/viewmodels'
+import type { RepoView } from '@podium/client-core/viewmodels'
 import {
   agentCapabilityRejection,
   agentLoginCondition,
@@ -228,9 +228,9 @@ function NewIssueDialogBody({
    *  patch. */
   initialStage?: IssueStage
 }): JSX.Element {
-  const { repos, sessions, machines } = data
+  const { sessions, machines } = data
   const { trpc } = useCommandLaunchActions()
-  const repoViews = 'repoViews' in data ? data.repoViews : reposToViews(repos)
+  const repoViews = data.repoViews
   const isMobile = useIsMobile()
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
@@ -238,12 +238,7 @@ function NewIssueDialogBody({
   const [stage, setStage] = useState<IssueStage>(initialStage ?? 'backlog')
   const [priority, setPriority] = useState(2)
   // Default repo = the most recently used one (mount-time snapshot).
-  const [repoPath, setRepoPath] = useState(() => {
-    if ('initialRepoPath' in data) return data.initialRepoPath
-    const choices = repos.filter((r) => r.kind !== 'worktree')
-    const mru = [...choices].sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))[0]
-    return mru?.path ?? repos[0]?.path ?? ''
-  })
+  const [repoPath, setRepoPath] = useState(() => data.initialRepoPath)
   // Placeholder until settings load (line ~258 resolves the coding role):
   // the named product default, never a literal (POD-4737).
   const [defaultAgent, setDefaultAgent] = useState(DEFAULT_HARNESS_AGENT)
@@ -276,13 +271,7 @@ function NewIssueDialogBody({
   }, [trpc])
 
   // Most-recently-used repos first — matches the sidebar's New-agent menu.
-  const repoChoices = 'repoChoices' in data ? data.repoChoices : repos
-    .filter((r) => r.kind !== 'worktree')
-    .sort(
-      (a, b) =>
-        repoUsageAt(b, sessions) - repoUsageAt(a, sessions) ||
-        repoLabel(a.path).localeCompare(repoLabel(b.path), undefined, { sensitivity: 'base' }),
-    )
+  const repoChoices = data.repoChoices
   const repoOptions: PropertyOption[] = repoChoices.map((r) => ({
     value: r.path,
     label: repoLabel(r.path),

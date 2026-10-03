@@ -3,7 +3,6 @@ import type { SpawnTarget } from '@podium/client-core'
 import {
   issueReferenceModel,
   panelLabel,
-  reposToViews,
   resolveDefaultAgent,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
@@ -242,15 +241,8 @@ function PaletteDialogBody({
     setIssueLabels, restoreIssue, markSessionRead, markSessionUnread, setPane, setView, setSettingsTab,
     setSelectedWorktree, setSelectedIssueId, setOpenIssueId, setSnooze, clearSnooze,
     hibernateSession, resurrectSession, startBtw, spawnDraftAgent } = useCommandLaunchActions()
-  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined,
-    'repoViews' in data ? sessions : undefined)
-  const suppliedRepoViews = 'repoViews' in data ? data.repoViews : undefined
-  // A fresh fallback array rebuilds commands and retriggers the highlight-reset
-  // effect on every render, even when the repository data has not changed.
-  const repoViews = useMemo(
-    () => suppliedRepoViews ?? reposToViews(repos),
-    [suppliedRepoViews, repos],
-  )
+  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined, sessions)
+  const repoViews = data.repoViews
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')

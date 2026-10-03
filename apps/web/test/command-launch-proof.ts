@@ -20,12 +20,12 @@ try {
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
   const results: Record<string, unknown> = {}, clock = Date.now()
-  for (const mode of ['legacy', 'pool'] as const) {
+  for (const mode of ['pool'] as const) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' })
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
     await page.addInitScript(({ clock }) => { const fixed = new Proxy(Date, { construct: (target, args) => Reflect.construct(target, args.length ? args : [clock]), get: (target, key) => key === 'now' ? () => clock : Reflect.get(target, key) }); Object.assign(window, { Date: fixed }) }, { clock })
-    await page.goto(`${origin}/test/command-launch.browser.html?mobxCommands=${mode === 'pool' ? 1 : 0}`)
+    await page.goto(`${origin}/test/command-launch.browser.html`)
     await page.waitForFunction(() => window.__commandLaunch?.ready(), null, { timeout: 60000 })
     const cdp = await page.context().newCDPSession(page)
     if (!countsOnly) await cdp.send('Performance.enable')
@@ -42,8 +42,7 @@ try {
     const after = countsOnly ? {} : await metrics(), stats = await page.evaluate(() => window.__commandLaunch.stats())
     const { commitMs, ...counts } = stats
     results[`${mode}.activity`] = { ...counts, ...(!countsOnly ? { taskMs: ((after.TaskDuration ?? 0) - (before.TaskDuration ?? 0)) * 1000, scriptMs: ((after.ScriptDuration ?? 0) - (before.ScriptDuration ?? 0)) * 1000, commitMs } : {}) }
-    if (mode === 'pool' && (stats.selectors || stats.legacyReads || stats.legacyDerivations)) throw new Error(`Enabled command path read legacy: ${JSON.stringify(counts)}`)
-    if (mode === 'legacy' && !stats.legacyReads) throw new Error('Legacy command positive control did not execute')
+    if (stats.selectors || stats.legacyDerivations) throw new Error(`Command path read legacy: ${JSON.stringify(counts)}`)
     await page.screenshot({ path: `${output}/${mode}-palette.png` })
     // One real keyboard command: search and activate a known task, then inspect
     // the existing owner's resulting route/selection.
@@ -62,7 +61,7 @@ try {
     const composerStats = await page.evaluate(() => window.__commandLaunch.stats())
     const { commitMs: composerCommitMs, ...composerCounts } = composerStats
     results[`${mode}.composer`] = { ...composerCounts, ...(!countsOnly ? { commitMs: composerCommitMs } : {}) }
-    if (mode === 'pool' && (composerStats.selectors || composerStats.legacyReads || composerStats.legacyDerivations)) throw new Error(`Enabled composer path read legacy: ${JSON.stringify(composerCounts)}`)
+    if (composerStats.selectors || composerStats.legacyDerivations) throw new Error(`Composer path read legacy: ${JSON.stringify(composerCounts)}`)
     await page.screenshot({ path: `${output}/${mode}-composer.png` })
     await page.getByRole('button', { name: 'Create', exact: true }).click()
     await page.waitForFunction(() => window.__commandLaunch.calls().some(call => call.kind === 'issue'))
@@ -75,7 +74,6 @@ try {
     if (errors.length || stats.failures.length) throw new Error(`Synthetic browser errors: ${JSON.stringify(errors)}`)
     await page.evaluate(() => window.__commandLaunch.close()); await page.close()
   }
-  if (JSON.stringify(results['legacy.calls']) !== JSON.stringify(results['pool.calls'])) throw new Error('Launch payload parity failed')
   await writeFile(`${output}/${countsOnly ? 'counts' : 'timings'}.json`, JSON.stringify(results, null, 2))
   console.log(JSON.stringify(results))
 } finally { await browser?.close(); server.kill(); await exited }

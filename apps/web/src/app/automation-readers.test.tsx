@@ -130,6 +130,11 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   expect(storeStats.snapshot().runtimes[0]?.selectorRuns ?? 0).toBe(0)
   expect(fatal).not.toHaveBeenCalled()
   const state = owner.getSnapshot()
+  expect(result.current.repos.repos).toEqual(state.repos)
+  expect(result.current.list.automationRuns).toEqual(state.automationRuns)
+  expect(result.current.targets.choices).toEqual(
+    automationTargetChoices(state.repos, state.sessions, machineViewsFromWire(state.machines), '/synthetic/missing').choices,
+  )
   const check = checkAutomations(pool!, state, path => automationTargetChoices(state.repos, state.sessions, machineViewsFromWire(state.machines), path), [null, '/synthetic/missing'])
   expect(check).toMatchObject({ differences: 0, pending: 0, first: null })
   await act(async () => { fixture.patch('automation', 'synthetic-auto-0', { enabled: false, system: true }); await Promise.resolve() })

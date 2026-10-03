@@ -1,10 +1,8 @@
-/** Explicit side-by-side diagnostic. Row values stay in process; reports
- * contain counts and positions. Never imported by a product pool reader. */
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+/** Fixture and private-replay comparison. Row values stay in process;
+ * reports contain counts and positions. */
+import type { Store } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { beginSidebarCheck } from '@podium/client-core/perf'
 import { lastUsedMaps, reposToViews, repoUsageAt, spawnTargetForRepo, type RepoNavView } from '@podium/client-core/viewmodels'
-import { runInAction } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import { commandLaunchViews, type CommandLaunchData } from '../src/command-launch-views'
 import { COMMAND_SUMMARIES } from '../src/command-launch-schema'
@@ -52,17 +50,4 @@ export function compareCommandLaunchSnapshots(expected: SidebarSnapshot, actual:
 }
 export function checkCommandLaunch(pool: MobxPool, store: Store<PodiumClientApi>) {
   return compareCommandLaunchSnapshots(legacyCommandLaunchSnapshot(store), poolCommandLaunchSnapshot(pool))
-}
-export function startCommandLaunchCheck(runtime: ClientRuntime<PodiumClientApi>, pool: MobxPool, intervalMs = 5000): () => void {
-  if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new Error('Command check interval must be positive')
-  let checks = 0
-  const timer = setInterval(() => {
-    const finish = beginSidebarCheck(runtime)
-    try {
-      const result = runInAction(() => checkCommandLaunch(pool, runtime.getSnapshot()))
-      if (typeof window !== 'undefined') Object.assign(window, { __commandLaunchCheck: { checks: ++checks, differences: result.differences, pending: result.pending,
-        first: result.first ? { sectionIndex: result.first.sectionIndex, rowIndex: result.first.rowIndex, field: result.first.field } : null } })
-    } finally { finish() }
-  }, intervalMs)
-  return () => clearInterval(timer)
 }

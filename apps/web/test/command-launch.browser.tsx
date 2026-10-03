@@ -12,7 +12,6 @@ import { NewIssueDialog } from '../src/features/issues/NewIssueDialog'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { initializePoolScreens } from '../src/app/pool-screens'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
-import { commandLaunchDataLayer, commandLaunchReadStats } from '../src/lib/command-launch-data-layer'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 import '../src/styles.css'
@@ -29,7 +28,7 @@ api.discovery = { refreshRepos: { mutate: async () => ({ repositories: repos, ma
 api.sessions = { create: { mutate: async (input: unknown) => { calls.push({ kind: 'session', input }); return { sessionId: asSessionId('synthetic-launched') } } } }
 api.issues = { searchNormalized: { query: async () => [] }, create: { mutate: async (input: unknown) => { calls.push({ kind: 'issue', input }); return { id: asIssueId('synthetic-created') } } }, update: { mutate: async (input: unknown) => { calls.push({ kind: 'update', input }); return {} } } }
 let owner: ClientRuntime, pool: ReturnType<typeof useWorklistPool> = null, booted = false, commits = 0, commitMs = 0
-storeStats.enable(); commandLaunchReadStats.enable()
+storeStats.enable()
 document.documentElement.classList.add('dark'); document.documentElement.dataset.theme = 'podium'
 function Surface() {
   owner = useStoreHandle() as ClientRuntime
@@ -61,14 +60,14 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('command-synthe
 ><ConfirmProvider><Surface /></ConfirmProvider></StoreProvider>)
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
 const driver = {
-  ready: () => booted && (commandLaunchDataLayer() === 'legacy' || (pool !== null && typeof pool.row('commandWindow', 'window') === 'object')),
-  reset() { storeStats.reset(); commandLaunchReadStats.reset(owner); commits = 0; commitMs = 0 },
+  ready: () => booted && pool !== null && typeof pool.row('commandWindow', 'window') === 'object',
+  reset() { storeStats.reset(); commits = 0; commitMs = 0 },
   async activity(count: number) { for (let step = 1; step <= count; step++) { fixture.activity(step); await frame() } },
   stats() {
     const runtimes = storeStats.snapshot().runtimes
     return { selectors: runtimes.reduce((sum, row) => sum + row.selectorRuns, 0),
       legacyDerivations: runtimes.reduce((sum, row) => sum + Object.values(row.slices).reduce((a, n) => a + n, 0), 0),
-      ...commandLaunchReadStats.read(owner), commits, commitMs, failures: [...failures] }
+      commits, commitMs, failures: [...failures] }
   },
   calls: () => calls,
   selection: () => ({ issueId: owner.getSnapshot().openIssueId, view: owner.getSnapshot().view }),

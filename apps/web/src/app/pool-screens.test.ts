@@ -1,4 +1,4 @@
-import { MOBX_SIDEBAR_KEY, type UiState } from '@podium/client-core/ui-state'
+import type { UiState } from '@podium/client-core/ui-state'
 import { afterEach, expect, it, vi } from 'vitest'
 
 afterEach(() => {
@@ -6,45 +6,29 @@ afterEach(() => {
   vi.resetModules()
 })
 
-it('initializes every converted screen from the shared MobX pilot setting before mount', async () => {
-  history.replaceState(null, '', '/')
-  const { poolBackedScreens, initializePoolScreens } = await import('./pool-screens')
-  const { automationsDataLayer, specsDataLayer } = await import('@/lib/automations-data-layer')
-  const { noticesDataLayer } = await import('@/features/chat/notice-data-layer')
-  expect(poolBackedScreens.length).toBeGreaterThanOrEqual(5)
-  expect(
-    poolBackedScreens.filter((screen) => screen.enabled).every((screen) => !screen.enabled!()),
-  ).toBe(true)
-  const values = new Map([[MOBX_SIDEBAR_KEY, '1']])
-  const ui: UiState = {
-    get: (key) => values.get(key) ?? null,
-    set: vi.fn(),
-    subscribe: vi.fn(() => () => {}),
+const convertedIds = [
+  'chatContext',
+  'commands',
+  'notices',
+  'superagent',
+  'workflows',
+  'automations',
+]
+it.each([
+  '',
+  '?mobxChatContext=0&mobxCommands=0&mobxNotices=0&mobxSuperagent=0&mobxWorkflows=0&mobxPreferences=0&mobxAutomations=0&mobxSpecs=0',
+])('keeps remaining converted screens on the sole pool read path: %s', async (query) => {
+  history.replaceState(null, '', '/' + query)
+  const { poolBackedScreens } = await import('./pool-screens')
+  const screens = poolBackedScreens.filter((screen) => convertedIds.includes(screen.id ?? ''))
+  const get = vi.fn(() => null)
+  const ui: UiState = { get, set: vi.fn(), subscribe: vi.fn(() => () => {}) }
+  expect(screens).toHaveLength(convertedIds.length)
+  for (const screen of screens) {
+    screen.initialize?.(ui)
+    expect(screen.enabled?.()).not.toBe(false)
   }
-  initializePoolScreens(ui)
-  // Automations and specs share a registration; either one can enable it.
-  // Check each reader's choice so a working sibling cannot hide a regression.
-  expect(automationsDataLayer()).toBe('pool')
-  expect(specsDataLayer()).toBe('pool')
-  expect(noticesDataLayer()).toBe('pool')
-  expect(poolBackedScreens.every((screen) => screen.enabled?.() !== false)).toBe(true)
-
-  // The next principal/provider and a preference edit share the app-load latch.
-  values.set(MOBX_SIDEBAR_KEY, '0')
-  initializePoolScreens(ui)
-  expect(automationsDataLayer()).toBe('pool')
-  expect(specsDataLayer()).toBe('pool')
-  expect(noticesDataLayer()).toBe('pool')
-  expect(poolBackedScreens.every((screen) => screen.enabled?.() !== false)).toBe(true)
-
-  vi.resetModules()
-  const reloaded = await import('./pool-screens')
-  reloaded.initializePoolScreens(ui)
-  expect(
-    reloaded.poolBackedScreens
-      .filter((screen) => screen.enabled)
-      .every((screen) => !screen.enabled!()),
-  ).toBe(true)
+  expect(get).not.toHaveBeenCalled()
 })
 
 const permanentIds = [
