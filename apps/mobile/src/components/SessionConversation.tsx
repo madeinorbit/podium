@@ -7,7 +7,7 @@ import {
 import { randomUUID } from '@podium/client-core/id'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { type SessionView, sessionValues } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   createTranscriptController,
   transcriptActivitySignal,
@@ -175,7 +175,7 @@ export function SessionConversation({
   const allSessions = useSessions()
   const machines = useMachines()
   const sessionId = session.sessionId
-  const machineName = sessionValues(session).machineName
+  const machineName = session.machineName
   // LIVE machine presence (this issue, POD-4830's desktop banner):
   // session.machineId -> the store's live machines list, via the same
   // live-terminal predicate (online OR daemon). Unknown (no row) reads as no
