@@ -10,7 +10,7 @@ import { useCoarseNow } from './hooks'
 import { renderWithMobileStore } from './test-support'
 import type { MobileTrpc } from './trpc'
 
-globalThis.IS_REACT_ACT_ENVIRONMENT = true
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))
 vi.mock('./mobile-pool', async original => ({

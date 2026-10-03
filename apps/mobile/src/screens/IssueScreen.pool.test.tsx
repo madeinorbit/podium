@@ -21,7 +21,7 @@ import type { MobilePool } from '../client/mobile-pool'
 import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
 import { afterEach, expect, it, vi } from 'vitest'
 
-globalThis.IS_REACT_ACT_ENVIRONMENT = true
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const state = vi.hoisted(() => ({ host: null as MobilePool | null, pool: null as MobxPool | null,
   runtime: null as ClientRuntime<MobileTrpc> | null, reads: 0, measuring: false, errors: [] as string[] }))
 vi.mock('../client/mobile-pool', async original => ({

@@ -81,3 +81,37 @@ neighbourhood ratio. All 28 action controls were green, with 91 action-state
 expectations and 33 exact menu outputs frozen before narrowing the reader.
 Later click row-read counts are deltas; the first press's recorded counts
 start from zero.
+
+## Bounded phone inputs
+
+The menu candidate keeps all 91 accepted action-state and 33 menu fingerprints.
+At source `a492c463c6`, the same long press reads six rows and runs zero
+MobX derivations at both 1x and 4x. Close and launch open/close read zero rows;
+the fold's 4x work is below its visible-neighbourhood allowance. The fixed
+pressed issue, origin, children and roster are identical at both sizes.
+
+The new-task form's old session sort read 28,803 and 115,203 row/field values
+at 1x and 4x for three choices. At `c6591714ba`, its existing declared
+`commandRootActivity` question reads six rows and runs two derivations at
+both sizes, preserving the literal repository order. Historical sessions in
+that fixture have explicit stop timestamps and are asserted cold.
+
+Planted faults at `e89e124719` execute two named checks: a whole-table menu
+loop increases menu reads to 2,436/9,757 and fails the 18/13 neighbourhood
+allowance; exact-root matching loses nested-worktree activity and changes the
+repository order, failing the literal output check. Both source files are
+restored and their clean diff is verified. The preserved runner log is the
+result; the temporary JSON report is automatically removed by `test:file`.
+
+The issue page's before-fix real-kernel control (`cac38ed71b`) preserves the
+same closed-page fingerprint at both sizes, but reads 43,190/164,942 values
+and uses eleven legacy selectors. Its growth check is red. The approved
+replacement reads only the displayed neighbourhood and asks for picker
+catalogs when they open. Its final green result waits for the shared clock
+and host retirement. The earlier compatibility-replica fixture failure is
+excluded from evidence.
+
+The clock control at `f922f86779` also records its actual old mechanism: ten
+legacy selector runs and no repaint after the first real pool tick. Its pool
+clock regression, including forward ticks and rewind, remains to pass after
+the generic hook retirement.
