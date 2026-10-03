@@ -313,22 +313,21 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
   }
   const arms: {
     pool: boolean
-    cache: 'cold' | 'warm'
+    replicaCache: 'cold' | 'warm'
     navigationMs: number
     draftMs: number[]
     counts: Awaited<ReturnType<typeof counts>>
   }[] = []
   for (const on of [false, true, false, true]) {
     await settings(page, on)
-    const cache = arms.length < 2 ? 'cold' : 'warm'
-    if (cache === 'cold') {
-      // Keep the selected device preference and auth cookie, but make both
-      // first arms pay for a fresh replica and asset cache. Leaving the app
-      // closes its IndexedDB handles before the browser clears those homes.
+    const replicaCache = arms.length < 2 ? 'cold' : 'warm'
+    if (replicaCache === 'cold') {
+      // Keep the device preference and auth cookie; close the app's handles
+      // before clearing both first arms' replica homes. Bootstrap interception
+      // disables browser HTTP caching in every arm, including the warm arms.
       const origin = new URL(page.url()).origin
       await page.goto('about:blank')
       const protocol = await page.context().newCDPSession(page)
-      await protocol.send('Network.clearBrowserCache')
       await protocol.send('Storage.clearDataForOrigin', {
         origin,
         storageTypes: 'indexeddb,cache_storage',
@@ -374,12 +373,12 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
       expect(reads.context).toBeGreaterThan(0)
       expect(reads.ports).toBeGreaterThan(0)
     }
-    arms.push({ pool: on, cache, navigationMs, draftMs, counts: reads })
+    arms.push({ pool: on, replicaCache, navigationMs, draftMs, counts: reads })
   }
   expect(corpus.installations()).toBeGreaterThan(0)
   expect(errors).toEqual([])
   writeFileSync(
     resolve(artifacts, 'browser-measurement.json'),
-    `${JSON.stringify({ corpus: corpus.size, bootstrapInstallations: corpus.installations(), browser: 'chromium-pixel', method: 'Document navigation start to settled conversation, and input event to two animation frames; interleaved legacy/pool/legacy/pool. Not the web speed gate.', arms, errors: errors.length }, null, 2)}\n`,
+    `${JSON.stringify({ corpus: corpus.size, bootstrapInstallations: corpus.installations(), browser: 'chromium-pixel', httpCache: 'Disabled by bootstrap interception in every arm', method: 'Document navigation start to settled conversation, and input event to two animation frames; cold replica legacy/pool, then warm replica legacy/pool. Cold arms clear IndexedDB, warm arms retain it. Not the web speed gate.', arms, errors: errors.length }, null, 2)}\n`,
   )
 })
