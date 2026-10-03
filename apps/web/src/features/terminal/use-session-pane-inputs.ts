@@ -3,7 +3,7 @@ import { useStoreHandle } from '@podium/client-core/react'
 import { sessionById } from '@podium/client-core/store'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionId, MachineWire } from '@podium/model/browser'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { resolveIssueReference } from '@podium/client-core/viewmodels'
 import type { IssueStage } from '@podium/model/browser'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -110,10 +110,10 @@ function useLegacyPaneReferenceStages(): PaneReferenceStages {
   const owner = useStoreHandle()
   const issues = useReplicaIssues()
   legacySessionPaneRead(owner, 'referenceIssues', () => issues)
-  const current = useRef(issues)
-  current.current = issues
-  const resolveStage = useCallback((ref: string) => resolveIssueReference(ref, current.current)?.stage ?? null, [])
-  return useMemo(() => ({ resolveStage, subscribe: EMPTY_REFERENCE_STAGES.subscribe }), [issues, resolveStage])
+  return useMemo(() => ({
+    resolveStage: (ref: string) => resolveIssueReference(ref, issues)?.stage ?? null,
+    subscribe: EMPTY_REFERENCE_STAGES.subscribe,
+  }), [issues])
 }
 
 function usePoolPaneReferenceStages(): PaneReferenceStages {
