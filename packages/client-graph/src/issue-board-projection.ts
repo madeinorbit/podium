@@ -15,23 +15,42 @@ export function createBoardProjection<T>(read: () => T, released: () => void): B
   let stop: (() => void) | undefined
   let disposed = false
   const clear = () => {
-    stop?.(); stop = undefined; snapshot = undefined
+    stop?.()
+    stop = undefined
+    snapshot = undefined
     released()
   }
   const start = () => {
     if (stop || disposed) return
-    stop = reaction(read, next => {
-      snapshot = next
-      for (const wake of listeners) wake()
-    }, { equals: compareStructural, fireImmediately: true })
-    queueMicrotask(() => { if (!listeners.size) clear() })
+    stop = reaction(
+      read,
+      (next) => {
+        snapshot = next
+        for (const wake of listeners) wake()
+      },
+      { equals: compareStructural, fireImmediately: true },
+    )
+    queueMicrotask(() => {
+      if (!listeners.size) clear()
+    })
   }
   return {
-    getSnapshot() { start(); return snapshot },
-    subscribe(wake) {
-      listeners.add(wake); start()
-      return () => { listeners.delete(wake); if (!listeners.size) clear() }
+    getSnapshot() {
+      start()
+      return snapshot
     },
-    dispose() { disposed = true; listeners.clear(); clear() },
+    subscribe(wake) {
+      listeners.add(wake)
+      start()
+      return () => {
+        listeners.delete(wake)
+        if (!listeners.size) clear()
+      }
+    },
+    dispose() {
+      disposed = true
+      listeners.clear()
+      clear()
+    },
   }
 }

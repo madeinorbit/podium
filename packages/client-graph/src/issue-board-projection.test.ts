@@ -3,7 +3,10 @@ import { expect, it, vi } from 'vitest'
 import { createBoardProjection } from './issue-board-projection'
 
 it('derives once for initial read plus subscribe and releases the mounted observer', () => {
-  const input = observable.box(1), read = vi.fn(() => ({ count: input.get() })), released = vi.fn(), wake = vi.fn()
+  const input = observable.box(1),
+    read = vi.fn(() => ({ count: input.get() })),
+    released = vi.fn(),
+    wake = vi.fn()
   const view = createBoardProjection(read, released)
   expect(view.getSnapshot()).toEqual({ count: 1 })
   const off = view.subscribe(wake)
@@ -17,7 +20,8 @@ it('derives once for initial read plus subscribe and releases the mounted observ
   expect(released).toHaveBeenCalledTimes(1)
 })
 it('releases an abandoned initial render and can attach again', async () => {
-  const input = observable.box(1), released = vi.fn()
+  const input = observable.box(1),
+    released = vi.fn()
   const view = createBoardProjection(() => input.get(), released)
   expect(view.getSnapshot()).toBe(1)
   await Promise.resolve()

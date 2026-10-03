@@ -1,13 +1,35 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { BoardFilter, IssueRow, IssuesOrdering, TaskProgress } from '@podium/client-core/viewmodels'
+import type {
+  BoardFilter,
+  IssueRow,
+  IssuesOrdering,
+  TaskProgress,
+} from '@podium/client-core/viewmodels'
 import type { IssueId, IssueStage } from '@podium/model/browser'
+import type { BoardProjection } from './issue-board-projection'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import type { MissionActionInputs } from './mission-view'
-import type { BoardProjection } from './issue-board-projection'
 
-export type BoardExplorerTab = 'needs' | 'proposed' | 'backlog' | 'planning' | 'in_progress' | 'review' | 'done' | 'cancelled'
-export const BOARD_EXPLORER_TABS: readonly BoardExplorerTab[] = ['needs', 'in_progress', 'review', 'planning', 'backlog', 'proposed', 'done', 'cancelled']
+export type BoardExplorerTab =
+  | 'needs'
+  | 'proposed'
+  | 'backlog'
+  | 'planning'
+  | 'in_progress'
+  | 'review'
+  | 'done'
+  | 'cancelled'
+export const BOARD_EXPLORER_TABS: readonly BoardExplorerTab[] = [
+  'needs',
+  'in_progress',
+  'review',
+  'planning',
+  'backlog',
+  'proposed',
+  'done',
+  'cancelled',
+]
 export interface BoardOptions {
   display: { layout: 'board' | 'list'; ordering: IssuesOrdering; showAgentTasks: boolean }
   filter: BoardFilter
@@ -25,29 +47,46 @@ export interface PoolBoardData {
   projectPaths: string[]
   menuInputs?: MissionActionInputs
   view: {
-    nonArchived: IssueViewModel[]; scope: IssueViewModel[]; active: IssueViewModel[]
-    assignees: string[]; labels: string[]; chips: { key: keyof BoardFilter; label: string }[]
-    layout: 'board' | 'list'; boardIssues: IssueViewModel[]
+    nonArchived: IssueViewModel[]
+    scope: IssueViewModel[]
+    active: IssueViewModel[]
+    assignees: string[]
+    labels: string[]
+    chips: { key: keyof BoardFilter; label: string }[]
+    layout: 'board' | 'list'
+    boardIssues: IssueViewModel[]
     stageCounts: Map<string, { stage: IssueStage; count: number }[]>
     epicProgress: Map<string, TaskProgress | null>
     orderedByStage: { stage: IssueStage; issues: IssueViewModel[] }[]
     rowGroups: { stage: IssueStage; rows: IssueRow<IssueViewModel>[] }[]
     listIds: IssueId[]
     nav: { kind: 'rows'; ids: IssueId[] } | { kind: 'columns'; columns: IssueId[][] }
-    presentIds: Set<string>; open?: IssueViewModel; orderedIdsForOpen: IssueId[]
+    presentIds: Set<string>
+    open?: IssueViewModel
+    orderedIdsForOpen: IssueId[]
   }
 }
 export interface PoolExplorerData {
-  counts: Record<BoardExplorerTab, number>; tab: BoardExplorerTab; total: number
-  rows: IssueViewModel[]; sessions: SessionView[]
-  byId: Map<string, IssueViewModel>; rowSessions: Map<string, SessionView[]>
+  counts: Record<BoardExplorerTab, number>
+  tab: BoardExplorerTab
+  total: number
+  rows: IssueViewModel[]
+  sessions: SessionView[]
+  byId: Map<string, IssueViewModel>
+  rowSessions: Map<string, SessionView[]>
 }
 export interface BoardCatalog {
-  scope: string[]; projectPaths: string[]; assignees: string[]; labels: string[]
+  scope: string[]
+  projectPaths: string[]
+  assignees: string[]
+  labels: string[]
 }
 export interface BoardQuery {
-  kind: 'board' | 'explorer'; filter?: BoardFilter; showAgentTasks?: boolean
-  tab?: BoardExplorerTab; query?: string
+  kind: 'board' | 'explorer'
+  filter?: BoardFilter
+  showAgentTasks?: boolean
+  tab?: BoardExplorerTab
+  query?: string
 }
 export interface BoardCardData {
   issue: IssueViewModel
@@ -68,26 +107,103 @@ export interface IssueBoardSourceRows {
   issueBoardCard: BoardCardData
   issueBoardSessions: SessionView[]
 }
-declare module './source-registry' { interface PoolSourceRows extends IssueBoardSourceRows {} }
+declare module './source-registry' {
+  interface PoolSourceRows extends IssueBoardSourceRows {}
+}
 export const ISSUE_BOARD_SOURCE_KEY = 'issue-board'
-export const ISSUE_BOARD_ENTITIES = ['issueBoardWindow', 'issueBoardQuery', 'issueBoardCatalog', 'issueBoardModel', 'issueExplorerModel', 'issueBoardRow', 'issueBoardProjection', 'issueBoardCard', 'issueBoardSessions'] as const
+export const ISSUE_BOARD_ENTITIES = [
+  'issueBoardWindow',
+  'issueBoardQuery',
+  'issueBoardCatalog',
+  'issueBoardModel',
+  'issueExplorerModel',
+  'issueBoardRow',
+  'issueBoardProjection',
+  'issueBoardCard',
+  'issueBoardSessions',
+] as const
 export const ISSUE_BOARD_SOURCE_SCHEMA = {
-  issueBoardWindow: { key: 'windowId', source: 'runtime:openIssueId', fields: ['openIssueId'], residency: 'window-scalar' },
-  issueBoardQuery: { key: 'serializedFilter', source: 'pool:resident-index+declared-cold-summaries', fields: ['ids'], residency: 'mounted-demand-ids' },
-  issueBoardCatalog: { key: 'showAgentTasks', source: 'pool:issue-summaries+treeParent', fields: ['scope', 'projectPaths', 'assignees', 'labels'], residency: 'mounted-demand' },
-  issueBoardModel: { key: 'serializedDisplayAndFilter', source: 'pool:issueBoardQuery+issueBoardCatalog+issue-relations', residency: 'mounted-view' },
-  issueExplorerModel: { key: 'serializedTabAndQuery', source: 'pool:issueBoardQuery+issue-relations+session-summaries', residency: 'mounted-view' },
-  issueBoardRow: { key: 'issueId', source: 'pool:issue-summary+repo+treeChildren+pageDependents+pageSessions', residency: 'observed-row' },
-  issueBoardProjection: { key: 'entityAndDemandKey', source: 'pool:issueBoardModel|issueExplorerModel', residency: 'mounted-observation' },
-  issueBoardCard: { key: 'issueIdAndDisplay', source: 'pool:issueBoardRow+issue-relations+session-summaries', residency: 'virtual-row' },
-  issueBoardSessions: { key: 'issueId', source: 'pool:missionSessions+session-summaries', residency: 'addressed-read' },
+  issueBoardWindow: {
+    key: 'windowId',
+    source: 'runtime:openIssueId',
+    fields: ['openIssueId'],
+    residency: 'window-scalar',
+  },
+  issueBoardQuery: {
+    key: 'serializedFilter',
+    source: 'pool:resident-index+declared-cold-summaries',
+    fields: ['ids'],
+    residency: 'mounted-demand-ids',
+  },
+  issueBoardCatalog: {
+    key: 'showAgentTasks',
+    source: 'pool:issue-summaries+treeParent',
+    fields: ['scope', 'projectPaths', 'assignees', 'labels'],
+    residency: 'mounted-demand',
+  },
+  issueBoardModel: {
+    key: 'serializedDisplayAndFilter',
+    source: 'pool:issueBoardQuery+issueBoardCatalog+issue-relations',
+    residency: 'mounted-view',
+  },
+  issueExplorerModel: {
+    key: 'serializedTabAndQuery',
+    source: 'pool:issueBoardQuery+issue-relations+session-summaries',
+    residency: 'mounted-view',
+  },
+  issueBoardRow: {
+    key: 'issueId',
+    source: 'pool:issue-summary+repo+treeChildren+pageDependents+pageSessions',
+    residency: 'observed-row',
+  },
+  issueBoardProjection: {
+    key: 'entityAndDemandKey',
+    source: 'pool:issueBoardModel|issueExplorerModel',
+    residency: 'mounted-observation',
+  },
+  issueBoardCard: {
+    key: 'issueIdAndDisplay',
+    source: 'pool:issueBoardRow+issue-relations+session-summaries',
+    residency: 'virtual-row',
+  },
+  issueBoardSessions: {
+    key: 'issueId',
+    source: 'pool:missionSessions+session-summaries',
+    residency: 'addressed-read',
+  },
 } as const
 /** Core already declares repo, treeParent/treeChildren, pageDependencies,
  * pageDependents and pageSessions. This screen uses those exact relations.
  * Cold cards/filtering need these projection fields, never a document panel. */
 export const ISSUE_BOARD_SUMMARIES = {
-  issue: [...ISSUE_PAGE_SUMMARIES.issue, 'priority', 'createdAt', 'type', 'description',
-    'estimateMin', 'dueAt', 'intentOrigin', 'closedAt', 'branch', 'pinned', 'tuckedAt', 'defaultAgent'],
-  session: [...ISSUE_PAGE_SUMMARIES.session, 'refIssueId', 'createdAt', 'agentColor', 'displayRef',
-    'stopReason', 'readAt', 'unread', 'snoozedUntil', 'createdBy', 'machineId', 'resumable', 'harnessHandoff'],
+  issue: [
+    ...ISSUE_PAGE_SUMMARIES.issue,
+    'priority',
+    'createdAt',
+    'type',
+    'description',
+    'estimateMin',
+    'dueAt',
+    'intentOrigin',
+    'closedAt',
+    'branch',
+    'pinned',
+    'tuckedAt',
+    'defaultAgent',
+  ],
+  session: [
+    ...ISSUE_PAGE_SUMMARIES.session,
+    'refIssueId',
+    'createdAt',
+    'agentColor',
+    'displayRef',
+    'stopReason',
+    'readAt',
+    'unread',
+    'snoozedUntil',
+    'createdBy',
+    'machineId',
+    'resumable',
+    'harnessHandoff',
+  ],
 } as const
