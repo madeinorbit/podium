@@ -14,6 +14,7 @@ import { MobileInboxSource } from '@podium/client-graph/mobile-inbox-source'
 import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { sessionUserStateRowId } from '@podium/model'
 import type { PodiumTarget } from '@podium/protocol'
+import { parseIssueRef, parseSessionRef } from '@podium/protocol'
 import { readLive } from '../fixture/export-snapshot'
 import { corpusFromLive } from '../fixture/live-snapshot'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
@@ -55,15 +56,17 @@ async function main() {
       ...(session.displayRef ? [{ kind: 'session' as const, session: session.displayRef }] : [])])
     // All issue cards/refs, plus addressed direct/birth session targets. Replay
     // validates every value without writing any operator values to disk.
-    const targets = [...issueTargets, ...sessionTargets]
+    const targets = process.argv.includes('--issue-routes-only') ? issueTargets : [...issueTargets, ...sessionTargets]
     const tokens = issues.flatMap(issue => issue.prefix && issue.displayRef ? [{ token: issue.displayRef, kind: 'issue' as const, prefix: issue.prefix }] : [])
     const input = { now: corpus.fixedNow, targets, tokens, screeningIds: issues.map(issue => issue.id) }
     const legacy = { issues, sessions: store.sessions, booting: false, queue, outboxSize: 0,
       routes: targets.map(target => mobilePodiumRoute(target, { issues, sessions: store.sessions })) }
-    let result = runInAction(() => checkMobileInbox(pool, legacy, input))
+    const locations: { sectionIndex: number; rowIndex: number | null; field: string }[] = []
+    const compare = () => { locations.length = 0; return checkMobileInbox(pool, legacy, input, location => locations.push(location)) }
+    let result = runInAction(compare)
     for (let round = 0; round < 64 && result.pending; round++) {
       pool.hydrate(); await Promise.resolve()
-      result = runInAction(() => checkMobileInbox(pool, legacy, input))
+      result = runInAction(compare)
     }
     const fields: readonly string[] = ['booting', 'outboxSize', ...MOBILE_CARD_FIELDS, 'route', 'model', 'known',
       'title', 'summary', 'tone', 'time', 'agentState', 'offer', 'agentColor', 'busy', 'issue']
@@ -72,7 +75,17 @@ async function main() {
     const first = result.first ? { sectionPosition: result.first.sectionIndex, rowPosition: result.first.rowIndex,
       fieldPosition: fields.indexOf(result.first.field.split('.')[0] ?? '') } : null
     console.log(JSON.stringify({ issues: issues.length, sessions: store.sessions.length, targets: targets.length,
-      positions: result.positions, differences: result.differences, pending: result.pending, first }))
+      positions: result.positions, differences: result.differences, pending: result.pending, first,
+      locations: locations.slice(0, 20).map(location => {
+        const target = location.sectionIndex === 7 && location.rowIndex !== null ? targets[location.rowIndex] : undefined
+        const index = target?.kind === 'issue' ? issues.findIndex(issue => mobilePodiumRoute(target, { issues: [issue], sessions: [] }) === legacy.routes[location.rowIndex!]) : -1
+        return { sectionPosition: location.sectionIndex, rowPosition: location.rowIndex,
+          targetKindPosition: target?.kind === 'issue' ? 0 : target?.kind === 'session' ? 1 : -1,
+          issuePosition: index, draftCount: index >= 0 ? Number(issues[index]!.isDraftVessel) : 0,
+          parsedCount: target?.kind === 'issue' ? Number(!!parseIssueRef(target.issue)) : target?.kind === 'session' ? Number(!!parseSessionRef(target.session)) : 0,
+          expectedFoundCount: Number(location.rowIndex !== null && !!legacy.routes[location.rowIndex]),
+          actualFoundCount: Number(!!(target && runInAction(() => pool.sources.view(MOBILE_INBOX_VIEW_KEY, () => createMobileInboxViews(pool)).route(target)))) }
+      }) }))
     if (result.differences || result.pending) process.exitCode = 1
   } finally { handle.dispose(); locals.dispose(); rows.dispose() }
 }

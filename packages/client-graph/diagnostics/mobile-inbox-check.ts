@@ -5,7 +5,7 @@ import { resolveIssueReference, sessionCardModel } from '@podium/client-core/vie
 import type { PodiumTarget } from '@podium/protocol'
 import { mobileInboxViews } from '../src/mobile-inbox'
 import type { MobxPool } from '../src/pool'
-import { compareSidebarSnapshots, type CheckSection } from './sidebar-check'
+import { compareSidebarSnapshots, type CheckSection, type SidebarDifference } from './sidebar-check'
 
 export const MOBILE_CARD_FIELDS = ['id', 'seq', 'title', 'stage', 'description', 'brief', 'color', 'repoPath', 'displayRef',
   'priority', 'type', 'createdAt', 'defaultAgent', 'defaultModel', 'defaultEffort', 'parentBranch', 'parentId',
@@ -29,7 +29,8 @@ export interface MobileInboxCheckInput {
 
 /** Explicit differential only. Legacy inputs are supplied by the caller and
  * never touched by ordinary pool readers. Reports retain no authored values. */
-export function checkMobileInbox(pool: MobxPool, legacy: MobileInboxLegacy, input: MobileInboxCheckInput) {
+export function checkMobileInbox(pool: MobxPool, legacy: MobileInboxLegacy, input: MobileInboxCheckInput,
+  onDifference?: (difference: Pick<SidebarDifference, 'sectionIndex' | 'rowIndex' | 'field'>) => void) {
   const views = mobileInboxViews(pool)
   if (!views) return { differences: 0, pending: 1, positions: 0, first: null }
   const inbox = views.inbox(), screening = views.screening(), rows = views.screeningRows(input.screeningIds)
@@ -58,7 +59,9 @@ export function checkMobileInbox(pool: MobxPool, legacy: MobileInboxLegacy, inpu
   }
   const actual = sections(true), expected = sections(false)
   const pending = Number(inbox.booting && !legacy.booting) + Number(screening.booting && !legacy.booting) + Number(rows.loading)
-  const result = compareSidebarSnapshots({ sections: expected, pending: 0 }, { sections: actual, pending })
+  const result = compareSidebarSnapshots({ sections: expected, pending: 0 }, { sections: actual, pending }, difference => {
+    onDifference?.({ sectionIndex: difference.sectionIndex, rowIndex: difference.rowIndex, field: difference.field })
+  })
   return { differences: result.differences, pending: result.pending, positions: result.rows,
     first: result.first ? { sectionIndex: result.first.sectionIndex, rowIndex: result.first.rowIndex, field: result.first.field } : null }
 }
