@@ -33,6 +33,9 @@ test.use({ serviceWorkers: 'block' })
 const ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/5403')
 const TITLE = 'Warm cache completeness proof'
 const ORIGIN = RELAY.replace(/^ws/, 'http')
+// Functional cold-start diagnosis has no debugger probes or timing capture and
+// can run while another issue holds the shared timing lease.
+const STARTUP_ONLY = process.env.PODIUM_WARM_CACHE_STARTUP_ONLY === '1'
 type Name = 'baseline' | 'candidate'
 interface Sample extends Capture {
   arm: Name
@@ -198,17 +201,19 @@ test('certified warm attach removes the second delivery and preserves live value
         cdp: await context.newCDPSession(page),
         corpus: await sizedBootstrap(page, seed),
         errors: observeErrors(page),
-        mappings: undefined as unknown as Awaited<ReturnType<typeof logpoints>>,
+        mappings: { points: [], resolved: [], pauses: [] } as Awaited<ReturnType<typeof logpoints>>,
       }
       arms[name] = arm
       await productionFiles(context, () => metadata[arm.current].dist, isMobile)
-      await installProbe(page, isMobile, `${TITLE} ${surface}`)
-      arm.mappings = await logpoints(
-        arm.cdp,
-        metadata[name].dist,
-        metadata[name].checkout,
-        isMobile,
-      )
+      if (!STARTUP_ONLY) {
+        await installProbe(page, isMobile, `${TITLE} ${surface}`)
+        arm.mappings = await logpoints(
+          arm.cdp,
+          metadata[name].dist,
+          metadata[name].checkout,
+          isMobile,
+        )
+      }
       if (isMobile) {
         await firstLaunch(page)
         await setPilot(page, true, false)
@@ -216,6 +221,13 @@ test('certified warm attach removes the second delivery and preserves live value
         await page.goto(route, { waitUntil: 'domcontentloaded' })
         await page.locator('aside').first().waitFor({ state: 'visible', timeout: 60_000 })
         await durable(page, false)
+      }
+      if (STARTUP_ONLY) {
+        expect(arm.corpus.installations()).toBe(1)
+        expect(await certified(page, isMobile)).toBe(name === 'candidate')
+        expect(arm.errors.errors).toEqual([])
+        console.log(`[warm-cache-startup ${surface} ${name}] committed production cache`)
+        continue
       }
       // Unmeasured pilot-on launch ensures each arm retains a fully committed cache.
       await page.goto(route, { waitUntil: 'domcontentloaded' })
@@ -231,6 +243,7 @@ test('certified warm attach removes the second delivery and preserves live value
       expect(arm.corpus.installations()).toBe(1)
       expect(await certified(page, isMobile)).toBe(name === 'candidate')
     }
+    if (STARTUP_ONLY) return
 
     const measure = async (
       arm: (typeof arms)[Name],
