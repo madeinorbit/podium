@@ -5,15 +5,9 @@ import { chatContextPoolScreen } from '@/features/chat/chat-context-pool-screen'
 import { noticePoolScreen } from '@/features/chat/notice-pool-screen'
 import { issueBoardPoolScreen } from '@/features/issues/board-pool-screen'
 import { issuePagePoolScreen } from '@/features/issues/issue-page/pool-screen'
-import {
-  initializeSettingsDataLayer,
-  settingsCheckRequested,
-  settingsDataLayer,
-} from '@/features/settings/data-layer'
 import { superagentPoolScreen } from '@/features/superagent/pool-screen'
 import { sessionPanePoolScreen } from '@/features/terminal/session-pane-pool-screen'
 import { workflowPoolScreen } from '@/features/workflows/workflow-pool-screen'
-import { initializePreferencesDataLayer } from '@/lib/preferences-data-layer'
 import { commandLaunchScreen } from './command-launch-pool-screen'
 import { missionPanePoolScreen } from './mission-pane-pool-screen'
 import { panePoolScreen } from './pane-pool-screen'
@@ -25,8 +19,7 @@ export function initializePoolScreens(ui: UiState): void {
   for (const screen of poolBackedScreens) screen.initialize?.(ui)
 }
 
-/** Screen declarations are the only provider registration surface. Graph code
- * stays behind startup choices; every entry uses the existing runtime/pool. */
+/** Screen declarations register sources on the existing runtime and pool. */
 export const poolBackedScreens: readonly PoolScreen[] = [
   issueBoardPoolScreen,
   issuePagePoolScreen,
@@ -39,31 +32,15 @@ export const poolBackedScreens: readonly PoolScreen[] = [
   missionPanePoolScreen,
   workflowPoolScreen,
   shellPoolScreen,
-  {
-    optional: true,
-    initialize: initializeSettingsDataLayer,
-    enabled: () => settingsDataLayer() === 'pool',
-    options: () => ({ settings: true }),
-    async attach(runtime, pool) {
-      if (!settingsCheckRequested()) return
-      const { installSettingsCheck } = await import(
-        '@podium/client-graph/diagnostics/settings-check'
-      )
-      return installSettingsCheck(pool, runtime)
-    },
-  },
+  { id: 'settings', options: () => ({ settings: true }) },
   {
     id: 'preferences',
-    initialize: initializePreferencesDataLayer,
-    enabled: () => true,
     options: () => ({ preferences: true }),
   },
   { id: 'sidebar', options: () => ({ summaries: MISSION_SUMMARIES }) },
   { id: 'header', options: () => ({ header: true }) },
   {
     id: 'automations',
-    initialize() {},
-    enabled: () => true,
     options: () => ({ settings: true }),
     async attach(runtime, pool) {
       const [{ AutomationSource }, { AUTOMATION_ENTITIES }] = await Promise.all([

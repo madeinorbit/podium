@@ -7,7 +7,6 @@ import { normalizeSettings } from '@podium/runtime'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
-import { settingsDataLayer } from '../src/features/settings/data-layer'
 import { SettingsView } from '../src/features/settings/SettingsView'
 import { ColdStartComposer } from '../src/features/setup/ColdStartComposer'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
@@ -78,7 +77,7 @@ function Surface() {
       await runtime.getSnapshot().refreshRepos()
       if (!active) return
       runtime.getSnapshot().setSettingsTab('accounts')
-      ready = settingsDataLayer() === 'legacy' || currentPool !== null
+      ready = currentPool !== null
     })
     return () => {
       active = false

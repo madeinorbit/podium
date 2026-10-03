@@ -1,4 +1,4 @@
-/** On-demand differential using the sidebar comparison contract. Expected
+/** Fixture and private-replay comparison using the sidebar contract. Expected
  * values exist only in this process; reports retain counts and positions. */
 import type { Store } from '@podium/client-core/engine'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
@@ -57,11 +57,4 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
     first: result.first ? { section: result.first.sectionIndex, index: result.first.rowIndex }
       : preferences.first ? { section: expected.length, index: preferences.first.index } : null,
   }
-}
-
-export function installSettingsCheck(pool: MobxPool, owner: SettingsCheckOwner): () => void {
-  if (typeof window === 'undefined') return () => {}
-  const check = () => checkSettings(pool, owner)
-  Object.assign(window, { __settingsCheck: check })
-  return () => { if (Reflect.get(window, '__settingsCheck') === check) Reflect.deleteProperty(window, '__settingsCheck') }
 }

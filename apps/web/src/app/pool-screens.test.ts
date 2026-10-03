@@ -13,10 +13,12 @@ const convertedIds = [
   'superagent',
   'workflows',
   'automations',
+  'settings',
+  'preferences',
 ]
 it.each([
   '',
-  '?mobxChatContext=0&mobxCommands=0&mobxNotices=0&mobxSuperagent=0&mobxWorkflows=0&mobxPreferences=0&mobxAutomations=0&mobxSpecs=0',
+  '?mobxChatContext=0&mobxCommands=0&mobxNotices=0&mobxSuperagent=0&mobxWorkflows=0&mobxPreferences=0&mobxSettings=0&mobxAutomations=0&mobxSpecs=0',
 ])('keeps remaining converted screens on the sole pool read path: %s', async (query) => {
   history.replaceState(null, '', '/' + query)
   const { poolBackedScreens } = await import('./pool-screens')
@@ -24,6 +26,9 @@ it.each([
   const get = vi.fn(() => null)
   const ui: UiState = { get, set: vi.fn(), subscribe: vi.fn(() => () => {}) }
   expect(screens).toHaveLength(convertedIds.length)
+  expect(
+    screens.every((screen) => screen.initialize === undefined && screen.enabled === undefined),
+  ).toBe(true)
   for (const screen of screens) {
     screen.initialize?.(ui)
     expect(screen.enabled?.()).not.toBe(false)

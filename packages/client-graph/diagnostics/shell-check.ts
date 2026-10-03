@@ -1,10 +1,7 @@
-/** Optional comparison only. The switched screen never imports this legacy
- * derivation; reports retain counts and numeric positions, never row values. */
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
-import { beginSidebarCheck } from '@podium/client-core/perf'
+/** Synthetic fixture and private count-only replay comparisons. */
+import type { Store } from '@podium/client-core/engine'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
 import { cwdInWorktree, issueForCwd, reposToViews, resolveActiveWorktree, shippingPanelModel, allTabIds, focusedPane, emptyWorkspace, selectedMissionRoot, type IssueNavigationModel } from '@podium/client-core/viewmodels'
-import { runInAction } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import { shellViews } from '../src/shell-views'
 import { SHELL_SCHEMA, SHELL_SUMMARIES } from '../src/shell-schema'
@@ -96,15 +93,3 @@ export function compareShellSnapshots(expected: SidebarSnapshot, actual: Sidebar
     first: result.first ? { sectionIndex: result.first.sectionIndex, rowIndex: result.first.rowIndex, field: result.first.field } : null }
 }
 export function checkShell(pool: MobxPool, state: Store, issues?: readonly IssueViewModel[]) { return compareShellSnapshots(legacyShellSnapshot(state, issues), poolShellSnapshot(pool)) }
-export function startShellCheck(runtime: ClientRuntime, pool: MobxPool, intervalMs = 5000): () => void {
-  if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new Error('Shell check interval must be positive')
-  let checks = 0
-  const timer = setInterval(() => {
-    const finish = beginSidebarCheck(runtime)
-    try {
-      const report = runInAction(() => checkShell(pool, runtime.getSnapshot()))
-      if (typeof window !== 'undefined') Object.assign(window, { __shellCheck: { checks: ++checks, ...report } })
-    } finally { finish() }
-  }, intervalMs)
-  return () => clearInterval(timer)
-}

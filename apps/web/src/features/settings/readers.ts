@@ -1,11 +1,8 @@
-import { recordSliceDerivation } from '@podium/client-core/perf'
 import type { MobxPool } from '@podium/client-graph'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
-import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef, useState } from 'react'
+import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
 import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
-import { settingsDataLayer } from './data-layer'
 import { useSettingsClient } from './stable-access'
 
 const EMPTY_CATALOG: Pick<Store, 'machines' | 'repos'> = { machines: [], repos: [] }
@@ -86,50 +83,21 @@ function usePoolPreference<T>(
   return [value, set]
 }
 
-/** Activation drafts were seeded in the old screen. Preserve that fallback;
- * the enabled reader hydrates through the declared preference entity. */
+/** Drafts hydrate through the declared preference entity. */
 export function useSettingsDraft<T>(
   key: string,
   parse: (raw: string | null) => T,
   serialize: (value: T) => string | null,
 ): [T, Dispatch<SetStateAction<T>>] {
-  const useRead = settingsDataLayer() === 'pool' ? usePoolPreference : useLegacySettingsDraft
-  return useRead(key, parse, serialize)
+  return usePoolPreference(key, parse, serialize)
 }
 
-function useLegacySettingsDraft<T>(
-  key: string,
-  parse: (raw: string | null) => T,
-  serialize: (value: T) => string | null,
-): [T, Dispatch<SetStateAction<T>>] {
-  const { owner, uiState } = useSettingsClient()
-  const [value, setValue] = useState(() => {
-    recordSliceDerivation(owner, 'settings.preference')
-    return parse(uiState?.get(key) ?? null)
-  })
-  const current = useRef(value)
-  current.current = value
-  const set = useCallback(
-    (next: SetStateAction<T>) => {
-      const resolved =
-        typeof next === 'function' ? (next as (previous: T) => T)(current.current) : next
-      current.current = resolved
-      setValue(resolved)
-      uiState?.set(key, serialize(resolved))
-    },
-    [uiState, key, serialize],
-  )
-  return [value, set]
-}
-
-/** The cold-start composer already subscribed; keep its existing fallback. */
 export function useSettingsPersistedUiState<T>(
   key: string,
   parse: (raw: string | null) => T,
   serialize: (value: T) => string | null,
 ): [T, (value: T) => void] {
-  const useRead = settingsDataLayer() === 'pool' ? usePoolPreference : usePersistedUiState
-  return useRead(key, parse, serialize)
+  return usePoolPreference(key, parse, serialize)
 }
 
 export const parseSettingsText = (raw: string | null): string => raw ?? ''
@@ -141,9 +109,7 @@ export function useSettingsDraftSeed<T>(
   key: string | null,
   parse: (raw: string | null) => T,
 ): { value: T; loading: boolean } {
-  const useRead =
-    settingsDataLayer() === 'pool' ? usePoolSettingsDraftSeed : useLegacySettingsDraftSeed
-  return useRead(key, parse)
+  return usePoolSettingsDraftSeed(key, parse)
 }
 
 function usePoolSettingsDraftSeed<T>(
@@ -160,16 +126,4 @@ function usePoolSettingsDraftSeed<T>(
   )
   const seed = useWorklistPoolProjection(read, { raw: null, loading: key !== null })
   return { value: useMemo(() => parse(seed.raw), [seed.raw, parse]), loading: seed.loading }
-}
-
-function useLegacySettingsDraftSeed<T>(
-  key: string | null,
-  parse: (raw: string | null) => T,
-): { value: T; loading: boolean } {
-  const { owner, uiState } = useSettingsClient()
-  const [value] = useState(() => {
-    recordSliceDerivation(owner, 'settings.preferenceSeed')
-    return parse(key === null ? null : (uiState?.get(key) ?? null))
-  })
-  return { value, loading: false }
 }

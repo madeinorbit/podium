@@ -398,10 +398,9 @@ function PoolScreenLatch({ children }: { children: ReactNode }): ReactNode {
 }
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const uiState = useStoreHandle().getSnapshot().uiState
   const densityEnabled = useFeature('shell-density')
   return (
-    <DensityProvider uiState={uiState} densityEnabled={densityEnabled}>
+    <DensityProvider densityEnabled={densityEnabled}>
       {children}
     </DensityProvider>
   )

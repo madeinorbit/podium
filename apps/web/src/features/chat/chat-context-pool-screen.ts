@@ -5,8 +5,6 @@ import { SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
 
 export const chatContextPoolScreen: PoolScreen = {
   id: 'chatContext',
-  initialize() {},
-  enabled: () => true,
   options: () => ({
     header: true,
     summaries: {

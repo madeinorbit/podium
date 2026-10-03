@@ -5,7 +5,5 @@ import { WORKFLOW_SUMMARIES } from '@podium/client-graph/workflow-schema'
  * remain RPC inputs supplied by the sole useWorkflows hook. */
 export const workflowPoolScreen: PoolScreen = {
   id: 'workflows',
-  initialize() {},
-  enabled: () => true,
   options: () => ({ settings: true, summaries: WORKFLOW_SUMMARIES }),
 }

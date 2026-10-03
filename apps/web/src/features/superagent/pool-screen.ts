@@ -8,8 +8,6 @@ import {
 
 export const superagentPoolScreen: PoolScreen = {
   id: 'superagent',
-  initialize() {},
-  enabled: () => true,
   options: () => ({ header: true, summaries: SUPERAGENT_SUMMARIES }),
   async attach(runtime, pool) {
     await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () =>

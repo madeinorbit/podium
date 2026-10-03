@@ -1,13 +1,11 @@
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
-import { preferencesDataLayer } from '@/lib/preferences-data-layer'
 import {
   readStoredDensity,
   SHELL_DENSITY_KEY,
   type ShellDensity,
-  type UiState,
 } from '@podium/client-core/ui-state'
 import type { JSX, ReactNode } from 'react'
-import { createContext, useContext, useLayoutEffect, useState } from 'react'
+import { createContext, useContext, useLayoutEffect } from 'react'
 
 export { readStoredDensity, SHELL_DENSITY_KEY, type ShellDensity }
 
@@ -28,30 +26,6 @@ interface DensityContextValue {
 
 const DensityContext = createContext<DensityContextValue | null>(null)
 
-function LegacyDensityProvider({
-  children,
-  uiState,
-  densityEnabled,
-}: {
-  children: ReactNode
-  uiState: Pick<UiState, 'get' | 'set'>
-  densityEnabled: boolean
-}): JSX.Element {
-  const [preferredDensity, setDensityState] = useState<ShellDensity>(() => readStoredDensity(uiState))
-  const density = resolveDensity(preferredDensity, densityEnabled)
-
-  useLayoutEffect(() => {
-    applyDensity(density, document.documentElement)
-    if (densityEnabled) uiState.set(SHELL_DENSITY_KEY, preferredDensity)
-  }, [density, densityEnabled, preferredDensity, uiState])
-
-  return (
-    <DensityContext.Provider value={{ density, setDensity: setDensityState }}>
-      {children}
-    </DensityContext.Provider>
-  )
-}
-
 const parseDensity = (raw: string | null): ShellDensity => raw === 'compact' ? 'compact' : 'balanced'
 const serializeDensity = (value: ShellDensity): string => value
 
@@ -65,11 +39,9 @@ function PoolDensityProvider({ children, densityEnabled }: {
 }
 
 export function DensityProvider(props: {
-  children: ReactNode; uiState: Pick<UiState, 'get' | 'set'>; densityEnabled: boolean
+  children: ReactNode; densityEnabled: boolean
 }): JSX.Element {
-  return preferencesDataLayer() === 'pool'
-    ? <PoolDensityProvider children={props.children} densityEnabled={props.densityEnabled} />
-    : <LegacyDensityProvider {...props} />
+  return <PoolDensityProvider children={props.children} densityEnabled={props.densityEnabled} />
 }
 
 export function useDensity(): DensityContextValue {

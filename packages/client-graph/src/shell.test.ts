@@ -1,7 +1,7 @@
 import { autorun } from 'mobx'
 import { asSessionId } from '@podium/model/browser'
 import { describe, expect, it, vi } from 'vitest'
-import { checkShell, compareShellSnapshots, legacyShellSnapshot, poolShellSnapshot, startShellCheck } from '../diagnostics/shell-check'
+import { checkShell, compareShellSnapshots, legacyShellSnapshot, poolShellSnapshot } from '../diagnostics/shell-check'
 import { shellFixture } from '../diagnostics/shell-fixture'
 import { shellViews } from './shell-views'
 import { SHELL_ENTITIES, SHELL_SOURCE_KEY } from './shell-schema'
@@ -150,17 +150,11 @@ describe('shell pool', () => {
       expect(compareShellSnapshots(expected, changed).differences).toBe(2)
     } finally { f.pool.dispose() }
   })
-  it('shares source ownership across attachments and tears down the opt-in timer', async () => {
+  it('shares source ownership across attachments', () => {
     const f = shellFixture()
     try {
       // This source's fixed entity set is already registered by the fixture.
       expect(() => f.pool.sources.ensure(SHELL_SOURCE_KEY, SHELL_ENTITIES, () => new ShellSource({} as never))).toThrow('conflicts')
-      vi.useFakeTimers()
-      const callback = vi.fn(() => { throw new Error('timer must be stopped') })
-      const runtime = { getSnapshot: callback } as never
-      const stop = startShellCheck(runtime, f.pool, 10)
-      stop(); vi.advanceTimersByTime(30); expect(callback).not.toHaveBeenCalled()
-      expect(() => startShellCheck(runtime, f.pool, 0)).toThrow('positive')
-    } finally { vi.useRealTimers(); f.pool.dispose() }
+    } finally { f.pool.dispose() }
   })
 })
