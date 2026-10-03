@@ -1,8 +1,8 @@
 # ADR 3 — Amendment 2: a definitive answer releases the partition
 
-- **Status:** Proposed — awaiting the operator's signature (POD-4286). The direction was
-  decided by the operator on 2026-10-03 (pinned comment on POD-5426); this text is the written
-  form that decision asked for.
+- **Status:** Accepted — signed by the operator, 2026-10-03 (relayed by POD-4286). The
+  direction was decided by the operator on 2026-10-03 (pinned comment on POD-5426); this text
+  is the written form that decision asked for.
 - **Date:** 2026-10-03
 - **Issue:** POD-5430 (step 1 of `docs/plans/pod-4286-optimism-and-refusals.md`, the POD-5426
   spec). Fixes POD-5415.
