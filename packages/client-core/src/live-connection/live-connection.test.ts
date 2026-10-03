@@ -30,7 +30,7 @@ function sink() {
     requestRebootstrap: vi.fn(),
   } satisfies FeedSinkPort
 }
-const delta = (seq: number): FeedServerFrame => ({
+const delta = (seq: number): Extract<FeedServerFrame, { type: 'feedDelta' }> => ({
   type: 'feedDelta',
   feedId: 'feed',
   epoch: 'epoch',
