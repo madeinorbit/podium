@@ -234,17 +234,20 @@ type Ports = {
 function useLegacyPorts(id: SessionId): Ports {
   const owner = useStoreHandle<MobileTrpc>()
   return useMemo(() => {
-    const records = storeConversationRecords(owner, id),
-      outbox = storeConversationOutbox(owner, id)
-    const count = <T>(read: () => T): T => {
-      recordSliceDerivation(owner, 'mobileSession.ports')
-      return read()
+    // Count the adapter's subscriber selectors too: replacing only its
+    // getSnapshot facade would leave the legacy store subscription invisible.
+    const source = {
+      getSnapshot: () => {
+        recordSliceDerivation(owner, 'mobileSession.ports')
+        return owner.getSnapshot()
+      },
+      subscribe: (fn: () => void) => owner.subscribe(fn),
     }
     return {
-      records: { getSnapshot: () => count(records.getSnapshot), subscribe: records.subscribe },
-      outbox: { held: () => count(outbox.held), subscribe: outbox.subscribe },
+      records: storeConversationRecords(source, id),
+      outbox: storeConversationOutbox(source, id),
       ready: true,
-      draft: count(() => owner.getSnapshot().drafts[id] ?? ''),
+      draft: source.getSnapshot().drafts[id] ?? '',
     }
   }, [owner, id])
 }
