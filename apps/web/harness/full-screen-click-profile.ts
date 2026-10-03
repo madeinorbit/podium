@@ -278,6 +278,7 @@ async function main() {
     let profile: Awaited<ReturnType<NonNullable<typeof stopCpu>>> | null = null
     let react: typeof window.__speedReact | null = null
     let boundary: Capture | null = null
+    let browserTimeOriginMs: number | null = null
     try {
       await perform()
       await page.waitForFunction(() => window.__speedCapture?.twoRaf)
@@ -300,9 +301,11 @@ async function main() {
         const observed = await page.evaluate(() => ({
           react: window.__speedReact,
           boundary: window.__speedCapture,
+          timeOriginMs: performance.timeOrigin,
         }))
         react = observed.react
         boundary = observed.boundary
+        browserTimeOriginMs = observed.timeOriginMs
       }
       await page.evaluate(() => {
         window.__speedCapture = null
@@ -319,7 +322,10 @@ async function main() {
         iteration: sampleIndex, trigger, expected, paint: result, boundary,
         react, stateBefore, stateAfter: await page.evaluate(() => window.__acceptance.state()),
         loadavg: loadavg(),
-        clockSync: { wallMs: Date.now(), monotonicUs: Number(process.hrtime.bigint() / 1000n) },
+        // Browser performance.timeOrigin + boundary.input locates the input
+        // in UTC. Bun's process.hrtime has a process-relative origin and must
+        // not be aligned directly with Chromium's uptime-based trace clock.
+        clockSync: { wallMs: Date.now(), browserTimeOriginMs },
       }
       await saveRecording(profileDir, file, profile, events, record)
       profileRecords.push(record)

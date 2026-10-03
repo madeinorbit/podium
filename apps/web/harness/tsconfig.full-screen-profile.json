@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../tsconfig.full-screen-profile.tsbuildinfo"
+  },
+  "include": [
+    "full-screen-click-profile.ts",
+    "full-screen-click-profile.browser.ts",
+    "full-screen-profile.ts",
+    "full-screen-profile-analyze.ts"
+  ]
+}

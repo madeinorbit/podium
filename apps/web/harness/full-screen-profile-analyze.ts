@@ -250,6 +250,30 @@ for (const { file, profile } of raw) {
   const start = mark.ts, end = paint.ts + (paint.dur ?? 0), wall = (end - start) / 1000
   if (Math.abs(wall - record.paint.inputToPaintMs) > 0.001 || end <= start || dom[0]!.ts < start)
     throw new Error(`${file}: invalid paint window`)
+  const commits = record.react.commits.filter((commit, index) => {
+    const marker = events.find((e) => e.name === `speed:commit:${index}`)
+    if (!marker) {
+      const estimated = start + (commit.at - record.boundary.input) * 1000
+      if (estimated > end) return false
+      throw new Error(`${file}: missing in-window commit marker ${index}`)
+    }
+    return marker.ts >= start && marker.ts <= end
+  })
+  // Injected DevTools-hook work is not consistently exposed as a V8 frame:
+  // some samples charge its React caller instead. Locate it by the measured
+  // browser performance.now intervals, anchored to the trusted input mark.
+  const observerIntervals = commits.map(c => [
+    Math.max(start, start + (c.at - record.boundary.input) * 1000),
+    Math.min(end, start + (c.end - record.boundary.input) * 1000),
+  ] as [number, number])
+  for (let i = 0; i < observerIntervals.length; i++) {
+    const [begin, finish] = observerIntervals[i]!
+    if (finish < begin || (i && begin < observerIntervals[i - 1]![1] - 1))
+      throw new Error(`${file}: invalid/overlapping observer intervals`)
+  }
+  const observerOverlap = (begin: number, finish: number) => observerIntervals.reduce(
+    (sum, [lo, hi]) => sum + Math.max(0, Math.min(finish, hi) - Math.max(begin, lo)), 0,
+  ) / 1000
   const nodes = new Map(profile.nodes.map((node) => [node.id, node]))
   const parents = new Map(profile.nodes.flatMap((node) => (node.children ?? []).map((child) => [child, node.id] as const)))
   const chains = new Map<number, { frame: Frame; source: Location | null }[]>()
@@ -266,11 +290,13 @@ for (const { file, profile } of raw) {
   let clock = profile.startTime
   const points = profile.samples.map((id, i) => { clock += profile.timeDeltas[i]!; return { clock, id } }).sort((a, b) => a.clock - b.clock)
   const self: Record<string, number> = {}, inclusive: Record<string, number> = {}, buckets: Record<string, number> = {}
+  const rawSelf: Record<string, number> = {}, rawInclusive: Record<string, number> = {}
   const functions = new Map<string, { name: string; source: string | null; mappedLine?: number; generated: string }>()
   const windowSamples: number[] = [], windowDeltas: number[] = []
   let previous = profile.startTime, sampled = 0, reactMobxMs = 0, reactionInclusiveMs = 0
   for (const point of points) {
-    const ms = Math.max(0, Math.min(point.clock, end) - Math.max(previous, start)) / 1000
+    const begin = Math.max(previous, start), finish = Math.min(point.clock, end)
+    const ms = Math.max(0, finish - begin) / 1000
     previous = point.clock
     if (!ms) continue
     windowSamples.push(point.id)
@@ -278,18 +304,28 @@ for (const { file, profile } of raw) {
     sampled += ms
     const chain = chains.get(point.id)!
     const kind = bucket(chain)
-    add(buckets, kind, ms)
+    const observerMs = kind === 'measurement commit observer' ? ms : observerOverlap(begin, finish)
+    const productMs = Math.max(0, ms - observerMs)
+    if (observerMs) add(buckets, 'measurement commit observer', observerMs)
+    if (productMs) add(buckets, kind, productMs)
     const hasMobxDerivation = chain.some(({ source }) => source && /mobx\/.+\/(derivation|computedvalue)\.ts$/.test(source.file))
-    if (kind.startsWith('React render') && hasMobxDerivation) reactMobxMs += ms
-    if (chain.some(({ source }) => source?.file.includes('mobx') && /runReaction_|runReactionsHelper/.test(source.name))) reactionInclusiveMs += ms
+    if (kind.startsWith('React render') && hasMobxDerivation) reactMobxMs += productMs
+    if (chain.some(({ source }) => source?.file.includes('mobx') && /runReaction_|runReactionsHelper/.test(source.name))) reactionInclusiveMs += productMs
     const seen = new Set<string>()
     chain.forEach(({ frame, source }, index) => {
       if (frame.functionName === '(root)') return
       const label = source ? `${source.name} — ${source.file}:${source.line}` : frame.functionName || '(native/unmapped)'
       functions.set(label, { name: (source?.name ?? frame.functionName) || '(native/unmapped)',
         source: source ? `${source.file}:${source.line}` : null, mappedLine: source?.mappedLine, generated: frame.functionName })
-      if (index === 0) add(self, label, ms)
-      if (!seen.has(label)) { add(inclusive, label, ms); seen.add(label) }
+      if (index === 0) {
+        add(rawSelf, label, ms)
+        if (productMs) add(self, label, productMs)
+      }
+      if (!seen.has(label)) {
+        add(rawInclusive, label, ms)
+        if (productMs) add(inclusive, label, productMs)
+        seen.add(label)
+      }
     })
   }
   if (sampled > wall + 0.01 || sampled < wall * 0.98) throw new Error(`${file}: incomplete/overlapping CPU coverage ${sampled}/${wall}`)
@@ -298,6 +334,17 @@ for (const { file, profile } of raw) {
   await writeFile(resolve(directory, file + '.window.cpuprofile'), JSON.stringify({
     ...profile, startTime: start, endTime: end, samples: windowSamples, timeDeltas: windowDeltas,
     nodes: profile.nodes.map(({ positionTicks: _ticks, ...node }) => ({ ...node, hitCount: hitCounts.get(node.id) ?? 0 })),
+  }))
+  // Readable DevTools companion; original nodes/frames remain in the raw and
+  // unmodified-frame window files. Keep exactly the same graph and intervals.
+  await writeFile(resolve(directory, file + '.mapped.window.cpuprofile'), JSON.stringify({
+    ...profile, startTime: start, endTime: end, samples: windowSamples, timeDeltas: windowDeltas,
+    nodes: profile.nodes.map(({ positionTicks: _ticks, ...node }) => {
+      const source = maps.locate(node.callFrame)
+      return { ...node, hitCount: hitCounts.get(node.id) ?? 0,
+        callFrame: source ? { ...node.callFrame, functionName: source.name,
+          url: source.file, lineNumber: source.line - 1, columnNumber: 0 } : node.callFrame }
+    }),
   }))
   const main = events.filter((e) => e.ph === 'X' && e.pid === mark.pid && e.tid === mark.tid && e.ts < end && e.ts + (e.dur ?? 0) > start)
   const intervals = (selected: Event[]) => selected.map((e) => [Math.max(start, e.ts), Math.min(end, e.ts + (e.dur ?? 0))] as [number, number])
@@ -313,17 +360,6 @@ for (const { file, profile } of raw) {
     .map((e) => ({ windowMs: (Math.min(end, e.ts + e.dur!) - Math.max(start, e.ts)) / 1000,
       fullMs: e.dur! / 1000, offsetMs: (e.ts - start) / 1000 }))
     .sort((a, b) => b.windowMs - a.windowMs)
-  const commits = record.react.commits.filter((_commit, index) => {
-    const marker = events.find((e) => e.name === `speed:commit:${index}`)
-    if (!marker) {
-      // Reading state after Tracing.end can see later commits. They have no
-      // trace mark and cannot belong to the already-ended first-Paint window.
-      const estimated = start + (_commit.at - record.boundary.input) * 1000
-      if (estimated > end) return false
-      throw new Error(`${file}: missing in-window commit marker ${index}`)
-    }
-    return marker.ts >= start && marker.ts <= end
-  })
   const rendered: Record<string, number> = {}
   for (const commit of commits) for (const [id, count] of Object.entries(commit.components)) {
     const component = components[record.pilot]!.get(Number(id))
@@ -337,10 +373,12 @@ for (const { file, profile } of raw) {
     sampledMs: sampled, exclusiveSampledMs: buckets, mobxDerivationWithinReactRenderMs: reactMobxMs,
     mobxReactionInclusiveMs: reactionInclusiveMs, timelineMs: timeline,
     tasks: { eventName: taskEventName, count: tasks.length, longCount: longTasks.length, longestMs: longTasks[0]?.windowMs ?? 0,
-      occupiedMs: union(intervals(tasks)), longTasks },
+      occupiedMs: union(intervals(tasks)), longTasks,
+      beforeLongestMs: Math.max(0, longTasks[0]?.offsetMs ?? 0),
+      observerBeforeLongestMs: observerOverlap(start, start + Math.max(0, longTasks[0]?.offsetMs ?? 0) * 1000) },
     commits: { count: commits.length, observerMs: commits.reduce((sum, c) => sum + c.end - c.at, 0),
       renderedInstances: Object.values(rendered).reduce((sum, count) => sum + count, 0), components: rendered },
-    self: ranked(self), inclusive: ranked(inclusive),
+    self: ranked(self), inclusive: ranked(inclusive), rawSelf: ranked(rawSelf), rawInclusive: ranked(rawInclusive),
   })
 }
 const groups = []
@@ -373,12 +411,12 @@ await writeFile(resolve(directory, 'analysis.json'), JSON.stringify({
   definitions: {
     wall: 'trusted pointerdown (background feed delivery) through end of first main-thread Paint after expected DOM change',
     sampled: 'reconstructed 1ms V8 sample intervals clipped to the wall window; each interval counted once',
-    self: `arithmetic mean of ${manifest.repetitions} samples per action/arm; leaf-only time by source function declaration`,
-    inclusive: `arithmetic mean of ${manifest.repetitions} samples per action/arm; all descendant samples per function, recursive occurrences deduplicated within one stack; overlapping, never additive`,
+    self: `arithmetic mean of ${manifest.repetitions} samples per action/arm; leaf-only time by source function declaration, excluding trace-located measurement observer intervals; rawSelf preserves original V8 attribution`,
+    inclusive: `arithmetic mean of ${manifest.repetitions} samples per action/arm; all descendant samples per function, observer intervals excluded, recursive occurrences deduplicated within one stack; overlapping, never additive; rawInclusive preserves original attribution`,
     react: 'committed PerformedWork composite instances, excluding hosts/providers/bailouts; render restarts excluded from counts and included in CPU',
     timeline: 'union of clipped main-thread complete events per name; layoutPaintUnion merges style/layout/prepaint/paint; timeline overlaps stack samples',
     longTasks: 'ThreadControllerImpl::RunTask (legacy trace: RunTask) window intersection >50ms; fullMs additionally preserves the original task duration',
-    observer: 'wall time spent in the measurement-only commit-hook tree walk',
+    observer: 'union of measured browser performance.now tree-walk intervals anchored to the input mark, plus sampled onCommitFiberRoot stacks; removed from product CPU buckets/rankings even if V8 exposes only the React caller; recorded observerMs separately counts the walk wall duration',
     medians: `per-column medians of ${manifest.repetitions} recordings; independently computed medians need not add to the wall median`,
   }, groups, records: summaries,
 }, null, 2) + '\n')
