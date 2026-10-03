@@ -39,7 +39,8 @@ class MobileMissionReader extends MissionViewReader {
     const rootId = this.rootFor(id)
     if (rootId === LOADING) return LOADING
     if (rootId) return this.issue(rootId)
-    // An absent addressed row must spend the ordinary batched load window.
+    // A known cold row spends the shared load window. An unknown ID is
+    // outside today's complete principal replica (POD-4286's contract).
     if (id && this.pool.row('issue', id) === LOADING) return LOADING
     return undefined
   }

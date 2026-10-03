@@ -54,8 +54,12 @@ export interface MobileLegacyReads {
 /** Keep MobX and the pool test arm's native list out of the phone test package. */
 export function trackMobileScreenRead<T>(read: () => T): T {
   let value!: T
-  const stop = autorun(() => { value = read() })
+  let failure: { error: unknown } | undefined
+  const stop = autorun(() => {
+    try { value = read() } catch (error) { failure = { error } }
+  })
   stop()
+  if (failure) throw failure.error
   return value
 }
 export function observeMobileScreens(pool: MobxPool, input: MobileScreenCheck): () => void {

@@ -100,15 +100,22 @@ it('retains matching ancestors, promotes proposal blocks, and keeps collapsed ch
     board: [{ stage: 'in_progress', rows: [{ issue: { id: 'root' }, depth: 0 }] }],
   })
 })
-it('an absent mission remains LOADING until one batched load answers absence', async () => {
-  const { pool, reader, load } = await setup([issue('root')])
-  expect(reader.mission('absent')).toBe(LOADING)
-  expect(reader.deck('absent', 'full')).toBe(LOADING)
-  expect(reader.mission('absent')).toBe(LOADING)
+it('a known cold mission remains LOADING until one batched load supplies its row', async () => {
+  const { pool, reader, load } = await setup([issue('cold', { archived: true, stage: 'done' })])
+  expect(reader.mission('cold')).toBe(LOADING)
+  expect(reader.deck('cold', 'full')).toBe(LOADING)
+  expect(reader.mission('cold')).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
   expect(pool.hydrate()).toBe(1)
   expect(load).toHaveBeenCalledTimes(1)
+  expect(reader.mission('cold')).toMatchObject({ root: { id: 'cold' }, missionSessions: [] })
+})
+it('an unknown mission is not found in the complete principal replica and never queues a load', async () => {
+  const { pool, reader, load } = await setup([issue('root')])
   expect(reader.mission('absent')).toMatchObject({ root: undefined, missionSessions: [] })
+  expect(reader.deck('absent', 'full')).toMatchObject({ root: undefined, rows: [] })
+  expect(pool.hydrate()).toBe(0)
+  expect(load).not.toHaveBeenCalled()
 })
 it('observes an addressed mission without subscribing to unrelated issue content', async () => {
   const { pool, reader } = await setup([issue('root'), issue('unrelated')])
