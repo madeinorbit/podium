@@ -131,7 +131,7 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
     }}><Surface /></StoreProvider></StrictMode>)
   await waitFor(() => expect(runtime).toBeDefined())
   if (on) await waitFor(() => expect(seen.at(-1)?.row('mobileSessionReader', 'reader')).toBeTypeOf('object'), { timeout: 10000 })
-  if (screen === 'all') await waitFor(() => expect(view.getByLabelText('Draft')).toHaveValue('Saved synthetic draft'), { timeout: 10000 })
+  if (screen === 'all') await waitFor(() => expect((view.getByLabelText('Draft') as HTMLInputElement).value).toBe('Saved synthetic draft'), { timeout: 10000 })
   else await waitFor(() => expect(latest.ports?.ready).toBe(true), { timeout: 10000 })
   return { data, runtime, view, errors, seen, host, latest: () => latest, pool: () => seen.at(-1)!,
     check() { const state = runtime.getSnapshot(); return checkMobileSessionContext(seen.at(-1)!, state, allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates), [SID, 'synthetic-session-11', 'missing-session']) } }
@@ -156,7 +156,7 @@ it('has zero legacy selectors and conversation-port reads on relevant updates; l
   expect(stats().selectorRuns).toBe(0)
   expect(Object.keys(stats().slices).filter(key => key.startsWith('mobileSession.'))).toEqual([])
   await act(async () => { enabled.data.activity(1); enabled.runtime.getSnapshot().setSessionDraft(SID, 'Changed draft') })
-  await waitFor(() => expect(enabled.view.getByLabelText('Draft')).toHaveValue('Changed draft'))
+  await waitFor(() => expect((enabled.view.getByLabelText('Draft') as HTMLInputElement).value).toBe('Changed draft'))
   expect(stats().selectorRuns).toBe(0)
   expect(Object.keys(stats().slices).filter(key => key.startsWith('mobileSession.'))).toEqual([])
   enabled.view.unmount()
@@ -168,11 +168,11 @@ it('has zero legacy selectors and conversation-port reads on relevant updates; l
 
 it('compares roster, addressed context, read state, geometry and ports with a planted mismatch', async () => {
   const enabled = await mount(true, 'probe')
+  expect(enabled.pool().row('session', 'synthetic-session-11', 'summary')).not.toHaveProperty('privateBody')
   await waitFor(() => expect(enabled.check()).toMatchObject({ differences: 0, pending: 0 }))
   const state = enabled.runtime.getSnapshot()
   const wrong = { ...state, pendingSpawnPrompts: new Map([[SID, 'Planted wrong prompt']]) }
   expect(checkMobileSessionContext(enabled.pool(), wrong, allIssueViewModels(state.replica), [SID]).differences).toBeGreaterThan(0)
-  expect(enabled.pool().row('session', 'synthetic-session-11', 'summary')).not.toHaveProperty('privateBody')
   expect(enabled.latest().session).toMatchObject({ readAt: '2026-10-03T00:00:00Z', unread: false, snoozedUntil: null })
   await act(async () => enabled.data.patch('sessionUserState', sessionUserStateRowId(asUserId('operator'), SID), { readAt: null, snoozedUntil: '2026-10-04T00:00:00Z' }))
   await waitFor(() => expect(enabled.latest().session).toMatchObject({ readAt: null, unread: true, snoozedUntil: '2026-10-04T00:00:00Z' }))
