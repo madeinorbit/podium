@@ -1,6 +1,7 @@
 /** Mobile corpus parity and the observed random-change gate. Only the oracle
  * imports the real phone band projection and legacy row derivation. */
 import { reaction } from 'mobx'
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { createWorklistPool } from '@podium/client-graph/create'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -79,6 +80,7 @@ describe('mobile pool values', () => {
           .map(key => [`podium:sidebar:work-group-fold:${key}`, true])) }
         const result = tracked(() => checkMobile(handle.pool, derivation, state))
         expect(result, `${scenario}, searching=${searching}`).toMatchObject({ differences: 0, first: null, pending: 0 })
+        expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool, state)))).digest('hex')).toMatchSnapshot(`${scenario}, searching=${searching}`)
         checks.push({ scenario, searching, ...result })
       }
       const first = tracked(() => handle.pool.mobileWork.sections().orderingSections.flatMap(section => section.data)[0]!)
@@ -114,6 +116,7 @@ describe('mobile pool values', () => {
       expect(new Set(ids).size).toBe(ids.length)
       expect(tracked(() => checkMobile(handle.pool, legacyDerivationFromStore(run.ctx.engine.getSnapshot(), handle.pool.clock.current))))
         .toMatchObject({ differences: 0, first: null, pending: 0 })
+      expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool)))).digest('hex')).toMatchSnapshot('last green pinned ask output')
     } finally { handle.dispose(); locals.dispose(); run.dispose() }
   }, 120_000)
 
@@ -137,6 +140,7 @@ describe('mobile pool values', () => {
         expect(tracked(() => handle.pool.mobileWork.row(ref))).toMatchObject({ draftOnly: true, draftQuiet: false })
         expect(tracked(() => checkMobile(handle.pool, legacyDerivationFromStore(run.ctx.engine.getSnapshot(), handle.pool.clock.current))))
           .toMatchObject({ differences: 0, first: null, pending: 0 })
+        expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool)))).digest('hex')).toMatchSnapshot('last green draft output')
       } finally { stop() }
     } finally { handle.dispose(); locals.dispose(); run.dispose() }
   }, 120_000)
@@ -193,6 +197,7 @@ describe('mobile pool values', () => {
         const state = { searching: index % 3 === 0, collapsed: { 'podium:sidebar:work-group-fold:needs-you': index % 2 === 1 } }
         expect(tracked(() => checkMobile(handle.pool, derivation, state)), `seed ${seed}, step ${index}, ${changes[index]!.kind}`)
           .toMatchObject({ differences: 0, first: null, pending: 0 })
+        expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool, state)))).digest('hex')).toMatchSnapshot(`step ${index}, ${changes[index]!.kind}`)
       }
       writeResult(`mobile-seed-${seed}`, { issue: 'POD-4977', seed, steps: changes.length, ...countKinds(changes), differences: 0 })
     } finally { stop(); handle.dispose(); locals.dispose(); run.dispose() }

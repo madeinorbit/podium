@@ -21,7 +21,8 @@ import {
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
-import { checkMobile } from '../../../../packages/worklist-proto/harness/src/oracle/mobile'
+import { checkMobile, poolMobileSnapshot } from '../../../../packages/worklist-proto/harness/src/oracle/mobile'
+import { createHash } from 'node:crypto'
 import { createSidebarActionsFixture } from '../../../web/test/sidebar-actions-fixture'
 import type { MobilePool } from '../client/mobile-pool'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
@@ -368,6 +369,7 @@ async function parity() {
     expect(result.pending).toBe(0)
     expect(result.first, JSON.stringify(result.first)).toBeNull()
     expect(result.differences).toBe(0)
+    expect(createHash('sha256').update(JSON.stringify(poolMobileSnapshot(pool()))).digest('hex')).toMatchSnapshot('last green pilot-ON action output')
     comparisons++
   } finally {
     state.diagnostic = false
