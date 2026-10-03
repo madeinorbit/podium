@@ -333,6 +333,10 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
   await settings(page, false)
   await conversation(page, session.sessionId)
   expect(observed.errors, observed.errors.join('\n')).toEqual([])
+  if (process.env.PODIUM_MOBILE_SESSION_PREFLIGHT_ONLY === '1') {
+    console.log('Sized phone startup preflight is green; no timing capture was requested')
+    test.skip(true, 'Only the sized startup preflight was requested')
+  }
   if (process.env.PODIUM_MOBILE_SESSION_WAIT_FOR_LEASE === '1') {
     // The lane builds and boots first. The operator grants the timing lease
     // only at this boundary, so build and correctness work never hold it.
