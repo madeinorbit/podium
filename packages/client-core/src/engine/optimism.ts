@@ -53,6 +53,19 @@ import {
   sessionUserStateRowId,
 } from '@podium/model'
 import type { PodiumClientApi } from '../api'
+import {
+  AWAITING_TRUTH_TTL_MS,
+  type AwaitingTruth,
+  foldOverlays,
+  insertOverlay,
+  type OverlayRow,
+  type OverlayTarget,
+  overlaysForOutboxEntry,
+  type PendingOverlay,
+  patchedCellsMovedPast,
+  pruneAwaiting,
+  rowFingerprint,
+} from '../command-reducers'
 import { randomUUID } from '../id'
 import type { OutboxEntry } from '../outbox'
 import {
@@ -72,19 +85,6 @@ import {
   optimisticStartingSession,
   type StartingSessionRow,
 } from '../viewmodels'
-import {
-  AWAITING_TRUTH_TTL_MS,
-  type AwaitingTruth,
-  foldOverlays,
-  insertOverlay,
-  type OverlayRow,
-  type OverlayTarget,
-  overlaysForOutboxEntry,
-  type PendingOverlay,
-  patchedCellsMovedPast,
-  pruneAwaiting,
-  rowFingerprint,
-} from '../command-reducers'
 import type { EngineState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
@@ -121,6 +121,22 @@ interface LocalOverlay {
    *  on its own — there is no queue entry to carry it yet. */
   unqueued: boolean
 }
+
+/**
+ * A spawn placeholder's life, for an observer that paints the same rows
+ * (POD-5431: the pool's transaction layer adopts them). `painted` carries the
+ * insert overlays exactly as this ledger folds them and the first turn, if any;
+ * `removed` names the placeholder rows a failed create took back. A placeholder
+ * whose server row arrived is not announced: the observer sees the row itself.
+ */
+export type SpawnPlaceholderEvent =
+  | {
+      readonly type: 'painted'
+      readonly overlays: readonly PendingOverlay[]
+      readonly sessionId: SessionId
+      readonly prompt?: string
+    }
+  | { readonly type: 'removed'; readonly ids: readonly string[] }
 
 /** The replica's unpainted rows — server truth for this principal's slice. */
 export interface OptimismBase {
@@ -243,6 +259,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   private readonly ports: OptimismPorts<TApi>
   private readonly spawnConfirmGraceMs: number
   private spawnOverlays: PendingOverlay[] = []
+  private readonly spawnListeners = new Set<(event: SpawnPlaceholderEvent) => void>()
   // One bounded fold per entity. Retirement still runs on every recompute;
   // only the pure paint is reusable across press → queue → awaiting truth.
   private readonly folds = new Map<
@@ -324,6 +341,30 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     this.awaitingTruth = restored
   }
 
+  /** The spawn placeholders painted now, and their first turns (POD-5431). */
+  spawnPlaceholders(): {
+    readonly overlays: readonly PendingOverlay[]
+    readonly prompts: ReadonlyMap<string, string>
+  } {
+    return { overlays: this.spawnOverlays, prompts: this.spawnPrompts }
+  }
+
+  /** Observe placeholders being painted and taken back (POD-5431). */
+  subscribeSpawnPlaceholders(listener: (event: SpawnPlaceholderEvent) => void): () => void {
+    this.spawnListeners.add(listener)
+    return () => this.spawnListeners.delete(listener)
+  }
+
+  private announceSpawn(event: SpawnPlaceholderEvent): void {
+    for (const listener of [...this.spawnListeners]) {
+      try {
+        listener(event)
+      } catch (err) {
+        log.warn('spawn placeholder listener threw', { err, type: event.type })
+      }
+    }
+  }
+
   /** Clear every timer this ledger armed. Called from the runtime's dispose so
    *  a superseded principal's grace timer cannot fire into its successor. */
   dispose(): void {
@@ -345,6 +386,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       for (const resolve of waiters) resolve()
     }
     this.spawnConfirmWaiters.clear()
+    this.spawnListeners.clear()
   }
 
   /**
@@ -948,17 +990,21 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    * `opts.mutationId` lets a caller that must know the id synchronously name it
    * (POD-4554: a round-three prototype returns it from its `edit()` as the
    * transaction id). Omitted, it is minted here, as before.
+   *
+   * `opts.queuedAt` is the press clock of a caller that painted the same entry
+   * itself (POD-5431: the pool's transaction layer). The five clock-stamped
+   * kinds then paint the same instant here as there. Omitted, the press is now.
    */
   async enqueueOverlayed<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
-    enqueueOpts?: { mutationId?: MutationId },
+    enqueueOpts?: { mutationId?: MutationId; queuedAt?: number },
   ): Promise<void> {
     // Enqueue-time baseline (#263 review finding 2): fingerprint the target
     // rows' REPLICA truth (unpainted — the replica is server truth only) so
     // resolution can tell whether truth already moved while in flight.
     const mutationId = enqueueOpts?.mutationId ?? asMutationId(randomUUID())
-    const queuedAt = Date.now()
+    const queuedAt = enqueueOpts?.queuedAt ?? Date.now()
     const probe = overlaysForOutboxEntry({ mutationId, kind, input, queuedAt }).filter(
       (o): o is PatchOverlay => o.op === 'patch',
     )
@@ -1047,8 +1093,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     // A temporary issue projection and personal markers accompany the starting
     // session. Markers retire with their issue: create need not publish a row
     // whose markers are all unset.
-    this.spawnOverlays = [
-      ...this.spawnOverlays,
+    const placeholders: PendingOverlay[] = [
       insertOverlay('sessions', sessionId, args.session as SessionMeta),
       insertOverlay(
         'sessionUserStates',
@@ -1068,7 +1113,14 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         pinned: args.issue.pinned === true,
       }),
     ]
+    this.spawnOverlays = [...this.spawnOverlays, ...placeholders]
     if (args.prompt) this.spawnPrompts = new Map(this.spawnPrompts).set(sessionId, args.prompt)
+    this.announceSpawn({
+      type: 'painted',
+      overlays: placeholders,
+      sessionId,
+      ...(args.prompt ? { prompt: args.prompt } : {}),
+    })
     this.recomputeFor(['sessions', ...ISSUE_TARGETS])
     let settle: (outcome: TaskSpawnOutcome) => void = () => {}
     const outcome = new Promise<TaskSpawnOutcome>((resolve) => {
@@ -1098,6 +1150,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
             this.spawnOverlays = this.spawnOverlays.filter(
               (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
             )
+            this.announceSpawn({ type: 'removed', ids: [sessionId, issueId] })
             this.recomputeFor(['sessions', ...ISSUE_TARGETS])
             this.ports.notices.error(
               `The task was saved, but its agent couldn't start — ${error instanceof Error ? error.message : 'unknown error'}`,
@@ -1108,6 +1161,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
           this.spawnOverlays = this.spawnOverlays.filter(
             (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
           )
+          this.announceSpawn({ type: 'removed', ids: [sessionId, issueId] })
           this.recomputeFor(['sessions', ...ISSUE_TARGETS])
           this.ports.notices.error(
             `Couldn't start the ${args.failureSubject} — ${error instanceof Error ? error.message : 'unknown error'}`,

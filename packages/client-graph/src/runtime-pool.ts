@@ -7,6 +7,7 @@ import { createWorklistPool, type WorklistPoolHandle } from './create'
 import type { MobxPool } from './pool'
 import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
 import { createRowSource, type RowSourceReplica, type RowSourceRuntime } from './shared/row-source'
+import { createPoolTransactions, type PoolTransactions, type PoolTransactionsPorts } from './write/transactions'
 import { measureWorklistPoolDelivery, observeWorklistPoolPerf } from './sidebar-perf'
 import type { PoolSummaryFields } from './source-registry'
 
@@ -130,9 +131,51 @@ function releaseProjection<T>(state: ProjectionState<T>): void {
 export type WorklistRuntime = RowSourceRuntime &
   LocalsEngine & { readonly replica: RowSourceReplica; readonly ui?: RoutedUiState }
 
-/** A read-only attachment: optimism and every write still belong to the runtime. */
-export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { preferences?: boolean; settings?: boolean; header?: boolean; summaries?: PoolSummaryFields } = {}): WorklistPoolHandle {
-  const rows = createRowSource(runtime, runtime.replica, { mode: 'overlaid' })
+/** What the transaction log needs from the runtime beyond the row feed. */
+type TransactionsRuntime = WorklistRuntime & {
+  readonly principal: { userId: string }
+  readonly outbox: PoolTransactionsPorts['outbox']
+  readonly subscribeOutboxOutcomes: PoolTransactionsPorts['outcomes']
+  readonly enqueueOverlayed: PoolTransactionsPorts['enqueue']
+  readonly spawnPlaceholders: NonNullable<PoolTransactionsPorts['spawns']>['current']
+  readonly subscribeSpawnPlaceholders: NonNullable<PoolTransactionsPorts['spawns']>['subscribe']
+}
+
+function transactionsFor(runtime: WorklistRuntime): PoolTransactions {
+  const rt = runtime as Partial<TransactionsRuntime>
+  const subscribeAddressed = runtime.replica.subscribeAddressedBatch?.bind(runtime.replica)
+  if (!rt.principal || !rt.outbox || !rt.subscribeOutboxOutcomes || !rt.enqueueOverlayed ||
+    !rt.spawnPlaceholders || !rt.subscribeSpawnPlaceholders || !subscribeAddressed) {
+    throw new Error('Pool transactions require the runtime outbox, outcome, enqueue and spawn seams')
+  }
+  return createPoolTransactions({
+    userId: rt.principal.userId,
+    outbox: rt.outbox,
+    outcomes: rt.subscribeOutboxOutcomes,
+    enqueue: rt.enqueueOverlayed,
+    addressed: subscribeAddressed,
+    spawns: { current: rt.spawnPlaceholders, subscribe: rt.subscribeSpawnPlaceholders },
+  })
+}
+
+/**
+ * The pool over the app's runtime. By default a read-only attachment:
+ * optimism and every write still belong to the runtime's ledger. With
+ * `transactions` (POD-5431, OFF by default) the pool owns its optimism: its
+ * transaction log paints pool screens (`pooled` feed) and `pool.mutate` and
+ * the model setters write through it; the ledger keeps painting legacy screens
+ * from the same outbox records.
+ */
+export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { preferences?: boolean; settings?: boolean; header?: boolean; summaries?: PoolSummaryFields; transactions?: boolean } = {}): WorklistPoolHandle & { readonly transactions?: PoolTransactions } {
+  const transactions = options.transactions === true ? transactionsFor(runtime) : null
+  let rows: ReturnType<typeof createRowSource>
+  try {
+    rows = createRowSource(runtime, runtime.replica,
+      transactions === null ? { mode: 'overlaid' } : { mode: 'pooled', pending: transactions.pending })
+  } catch (error) {
+    transactions?.dispose()
+    throw error
+  }
   let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
   let stopHeader: (() => void) | undefined
@@ -168,10 +211,15 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
     }
     if (options.header) stopHeader = attachHeaderSource(handle.pool, runtime as Parameters<typeof attachHeaderSource>[1])
     stopPerf = observeWorklistPoolPerf(runtime, handle.pool)
+    if (transactions !== null) {
+      transactions.bind(rows)
+      handle.pool.attachTransactions(transactions)
+    }
   } catch (error) {
     stopHeader?.()
     handle?.dispose()
     locals?.dispose()
+    transactions?.dispose()
     rows.dispose()
     throw error
   }
@@ -179,6 +227,7 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
   let disposed = false
   return {
     pool: attached.pool,
+    ...(transactions === null ? {} : { transactions }),
     dispose(): void {
       if (disposed) return
       disposed = true
@@ -187,6 +236,7 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
       try {
         attached.dispose()
       } finally {
+        transactions?.dispose()
         locals?.dispose()
         rows.dispose()
       }

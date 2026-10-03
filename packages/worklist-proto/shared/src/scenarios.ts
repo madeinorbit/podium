@@ -257,6 +257,8 @@ export interface ScenarioServer {
     mutationId: string
   }) => Promise<unknown>
   issueMarkRead?: (input: { id: string; mutationId: string }) => Promise<unknown>
+  /** POD-5431: a spawn's `sessions.create` (absent: it succeeds). */
+  sessionsCreate?: (input: Record<string, unknown>) => Promise<unknown>
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: scenario API stub — shaped per-test like engine runtime.test.ts
@@ -295,7 +297,13 @@ function scenarioApi(
       },
     },
     superagent: { listThreads: { query: async () => [] } },
-    sessions: { markRead: { mutate: async () => ({}) } },
+    sessions: {
+      markRead: { mutate: async () => ({}) },
+      create: {
+        mutate: async (input: Record<string, unknown>) =>
+          opts.server?.sessionsCreate ? opts.server.sessionsCreate(input) : {},
+      },
+    },
     issues: {
       update: {
         mutate: async (input: Parameters<NonNullable<ScenarioServer['issueUpdate']>>[0]) =>

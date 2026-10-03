@@ -6,7 +6,13 @@ import { useMemo, useRef, useSyncExternalStore } from 'react'
 import type { WorklistPoolHandle } from '../create'
 import type { MobxPool } from '../pool'
 import type { createPoolProjection } from '../runtime-pool'
-import { attachPoolScreens, type PoolScreen, preparePoolScreens, screenOptions } from './screens'
+import {
+  attachPoolScreens,
+  type PoolScreen,
+  type PoolScreenOptions,
+  preparePoolScreens,
+  screenOptions,
+} from './screens'
 
 export interface PoolHostOptions {
   /** The app's screen list. Each entry latches its own switch at attachment. */
@@ -16,6 +22,9 @@ export interface PoolHostOptions {
   /** App startup work after the switches latch, with or without an enabled
    * screen. Its stop runs first at teardown. */
   start?(runtime: ClientRuntime): (() => void) | void
+  /** Pool-wide options that belong to no screen (POD-5431: the transaction
+   * log). Read when a pool is built; never builds one by itself. */
+  options?(runtime: ClientRuntime): PoolScreenOptions
 }
 
 export interface PoolHost {
@@ -42,7 +51,12 @@ interface PoolSlot {
 
 /** One pool per signed-in runtime for an app. No graph code, row feed, locals
  * subscription or pool is built while every screen is switched off. */
-export function createPoolHost({ screens, dev, start }: PoolHostOptions): PoolHost {
+export function createPoolHost({
+  screens,
+  dev,
+  start,
+  options: hostOptions,
+}: PoolHostOptions): PoolHost {
   // The store handle IS the runtime. Weak keys never retain a departed principal;
   // clearing the slot also releases the pool from React's subscription closures.
   const slots = new WeakMap<object, PoolSlot>()
@@ -112,7 +126,7 @@ export function createPoolHost({ screens, dev, start }: PoolHostOptions): PoolHo
     void import('../runtime-pool')
       .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
         if (disposed) return
-        const options = screenOptions(screens, runtime)
+        const options = { ...screenOptions(screens, runtime), ...hostOptions?.(runtime) }
         slot.handle = Object.keys(options).length
           ? createRuntimeWorklistPool(runtime, options)
           : createRuntimeWorklistPool(runtime)

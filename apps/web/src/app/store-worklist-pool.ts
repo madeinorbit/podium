@@ -3,6 +3,7 @@ import { chipCheckFor, chipPerf } from '@podium/client-core/perf'
 import { createPoolHost } from '@podium/client-graph/host'
 import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { chipsPerfRequested } from '@/lib/chips-data-layer'
+import { initializePoolTransactions, poolTransactionsEnabled } from '@/lib/pool-transactions-switch'
 import { poolBackedScreens } from './pool-screens'
 
 /** TEMPORARY with the chip switch: the ?chipsPerf=1 census measures chips on
@@ -25,8 +26,10 @@ const host = createPoolHost({
   dev: import.meta.env.DEV,
   start(runtime) {
     if (sidebarDataLayer() === 'pool') runtime.enablePoolRuntimeWork?.()
+    if (runtime.ui) initializePoolTransactions(runtime.ui)
     return installChipCensus(runtime)
   },
+  options: () => (poolTransactionsEnabled() ? { transactions: true } : {}),
 })
 
 /** StoreProvider owns this teardown, including while the import is in flight. */

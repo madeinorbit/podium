@@ -81,8 +81,10 @@ import type {
   SliceLocals,
   SliceSession,
 } from './shared/slice-types'
+import type { OutboxKinds } from '@podium/client-core/engine'
 import type { RowSourceEvent } from './shared/source'
 import {
+  commandFor,
   type EditPatch,
   type TxId,
   type WritableKind,
@@ -194,6 +196,11 @@ export interface WriteSeam {
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
 }
 
+/** The transaction log as the pool sees it (`write/transactions.ts`). */
+export interface PoolMutator {
+  mutate<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): TxId
+}
+
 /**
  * What `MobxPool.row` answers for a row that is not in memory (a cold row):
  * - `load`: `LOADING`, and the row is queued for the next load window (a
@@ -271,6 +278,13 @@ export class MobxPool {
   readonly residency: Residency | null
   /** The write layer (pending edits and model edits); null without one. */
   readonly writes: WriteSeam | null
+  /**
+   * The pool's transaction log (POD-5431, `write/transactions.ts`), attached
+   * after construction because it repaints through the row source the pool is
+   * built from. Null while the switch is off. It writes visible rows into the
+   * tables, so the one reader has nothing to lay over them.
+   */
+  private transactions: PoolMutator | null = null
   private readonly stopPending: (() => void) | undefined
   /** The one object per row, by entity: built on first request, never twice. */
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
@@ -541,6 +555,7 @@ export class MobxPool {
       | 'object'
       | 'release'
       | 'hidden'
+      | 'transactions'
     >(this, {
       sidebar: false,
       mobileWork: false,
@@ -589,6 +604,9 @@ export class MobxPool {
       hasFirstTask: false,
       release: false,
       edit: false,
+      transactions: false,
+      attachTransactions: false,
+      mutate: false,
       row: false,
       rosterCandidates: false,
       rosterColdPending: false,
@@ -779,9 +797,33 @@ export class MobxPool {
   /** A model's edit (`issue.title = x`): one transaction of the write layer's log. */
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId {
     if (this.writes === null) {
+      if (this.transactions !== null) {
+        const command = commandFor(entity, id, patch)
+        return this.transactions.mutate(command.kind, command.input)
+      }
       throw new WriteContractError(`the pool has no write layer: cannot edit ${entity} ${id}`)
     }
     return this.writes.edit(entity, id, patch)
+  }
+
+  /** Attach the transaction log (POD-5431); one per pool, before any change. */
+  attachTransactions(transactions: PoolMutator): void {
+    if (this.writes !== null || this.transactions !== null) {
+      throw new WriteContractError('the pool already has a write layer')
+    }
+    this.transactions = transactions
+  }
+
+  /**
+   * One change, any queued command (POD-5431): the model and every reader of
+   * it see the new visible row in the same action, and the outbox takes the
+   * command. Refused without the transaction log (the switch is off).
+   */
+  mutate<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): TxId {
+    if (this.transactions === null) {
+      throw new WriteContractError(`the pool has no transaction log: cannot ${kind}`)
+    }
+    return this.transactions.mutate(kind, input)
   }
 
   issue(id: string): ModelOf['issue'] | undefined {

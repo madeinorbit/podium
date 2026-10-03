@@ -94,7 +94,7 @@ import { OutboxSettlements } from './chat-send'
 import { createHostMetricsStore } from './host-metrics'
 import { machinesMaterialSignature } from './machines-material'
 import { type NavigationIntent, planNavigation } from './navigation'
-import { dedupeSessions, OptimismLedger } from './optimism'
+import { dedupeSessions, OptimismLedger, type SpawnPlaceholderEvent } from './optimism'
 import type { OverlayTarget, PendingOverlay } from './overlay'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
 import {
@@ -675,8 +675,18 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly enqueueOverlayed = <K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
-    opts?: { mutationId?: MutationId },
+    opts?: { mutationId?: MutationId; queuedAt?: number },
   ): Promise<void> => this.optimism.enqueueOverlayed(kind, input, opts)
+
+  /** The ledger's spawn placeholders now, for a reader that adopts them
+   *  (POD-5431: the pool's transaction layer). */
+  readonly spawnPlaceholders = (): ReturnType<OptimismLedger<TApi>['spawnPlaceholders']> =>
+    this.optimism.spawnPlaceholders()
+
+  /** Spawn placeholders being painted and taken back (POD-5431). */
+  readonly subscribeSpawnPlaceholders = (
+    listener: (event: SpawnPlaceholderEvent) => void,
+  ): (() => void) => this.optimism.subscribeSpawnPlaceholders(listener)
 
   // ------------------------------------------------------------------ lifecycle
 

@@ -9,10 +9,12 @@ import { ISSUE_SESSION_FACTS_SUMMARY, SCHEMA } from './schema'
  * POD-4444, rewritten per-row by POD-4553 — the kernel's effective per-row
  * change stream, as the arms see it.
  *
- * MODES. `overlaid` (ledger overlays folded in, as the app paints) or `truth`
- * (server rows only, for pools that own their optimism). Every consumer names
- * one; see {@link RowSourceMode}. The rest of this header describes
- * `overlaid`; `truth` is the same feed with the ledger read as empty.
+ * MODES. `overlaid` (ledger overlays folded in, as the app paints), `truth`
+ * (server rows only, for pools that own their optimism) or `pooled` (server
+ * rows with the pool's own transactions folded in, POD-5431). Every consumer
+ * names one; see {@link RowSourceMode}. The rest of this header describes
+ * `overlaid`; `truth` is the same feed with the ledger read as empty, and
+ * `pooled` is the same feed with the pool's log read in the ledger's place.
  *
  * One publication from the runtime is one {@link RowSourceEvent}. Each row in
  * it is read BY ID: the authority row from the kernel replica
@@ -224,6 +226,25 @@ export interface RowSourceHandle {
   dispose(): void
 }
 
+/** What the pool's transaction log reaches through the feed (POD-5431). */
+export interface RowSourceRepaint {
+  /**
+   * `pooled` mode (POD-5431): re-read these rows now, with the pool's log as it
+   * stands, and emit those whose value moved from what the arms hold, as one
+   * update. The transaction layer calls it inside the action that changed its
+   * log, so the change and the visible row land together. Visits exactly the
+   * rows named.
+   */
+  repaint(rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>): RowSourceEvent | null
+  /**
+   * The server-truth row a pending overlay is judged against, by overlay
+   * target and row id: the session view with this principal's truth markers
+   * joined, the issue projection, or this principal's per-user row. Undefined
+   * when absent. One keyed read.
+   */
+  truth(entity: OverlayTarget, id: string): Readonly<Record<string, unknown>> | undefined
+}
+
 const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'sessions',
   'sessionUserStates',
@@ -242,7 +263,7 @@ const OVERLAID: readonly OverlayTarget[] = [
   'issueProjections',
 ]
 const NO_OVERLAYS: readonly PendingOverlay[] = []
-type PendingByRow = Record<OverlayTarget, ReadonlyMap<string, readonly PendingOverlay[]>>
+type PendingByRow = Record<OverlayTarget, PendingRows>
 const NO_PENDING: PendingByRow = {
   sessions: new Map(),
   sessionUserStates: new Map(),
@@ -264,6 +285,23 @@ function idOf(row: AnyRow): string | null {
 }
 
 /**
+ * The pool's transaction log as the feed reads it (POD-5431): the same
+ * per-row overlay lists, in the same fold order, as the ledger's
+ * `pendingByRow`. O(1) to ask for: the log keeps them per row.
+ */
+export interface PooledPending {
+  byRow(entity: OverlayTarget): PendingRows
+}
+
+/** One target's pending overlays by row, as the feed reads them: the ledger's
+ *  `pendingByRow` map, or the pool log's view of the same lists. */
+export interface PendingRows {
+  get(id: string): readonly PendingOverlay[] | undefined
+  has(id: string): boolean
+  keys(): Iterable<string>
+}
+
+/**
  * Which rows the feed hands out — chosen by every consumer, no default
  * (coordinator ruling on POD-4553 after the L1c write contract):
  *
@@ -275,22 +313,29 @@ function idOf(row: AnyRow): string | null {
  *   their own optimistic edits (`write-contract.ts`): an overlay here would
  *   hide a remote value for a locally pending field and rewind a rejection
  *   twice.
+ * - `pooled`: server truth with the pool's own transactions folded over it
+ *   (`write/transactions.ts`, POD-5431). The ledger is never read; the log
+ *   names its rows through `repaint`, and a runtime publication alone is a
+ *   signal only for discovery, as in `truth`.
  */
 export type RowSourceMode = 'overlaid' | 'truth'
 
-export interface RowSourceOptions {
-  readonly mode: RowSourceMode
-}
+export type RowSourceOptions =
+  | { readonly mode: RowSourceMode }
+  | { readonly mode: 'pooled'; readonly pending: PooledPending }
 
 export function createRowSource(
   runtime: RowSourceRuntime,
   replica: RowSourceReplica,
   options: RowSourceOptions,
-): RowSourceHandle {
+): RowSourceHandle & RowSourceRepaint {
   const { mode } = options
-  if (mode !== 'overlaid' && mode !== 'truth') {
-    throw new Error(`createRowSource: mode must be 'overlaid' or 'truth', got ${String(mode)}`)
+  if (mode !== 'overlaid' && mode !== 'truth' && mode !== 'pooled') {
+    throw new Error(
+      `createRowSource: mode must be 'overlaid', 'truth' or 'pooled', got ${String(mode)}`,
+    )
   }
+  const pooled = options.mode === 'pooled' ? options.pending : null
   const rowOf = replica.row?.bind(replica)
   const addressedOf = replica.subscribeAddressedBatch?.bind(replica)
   if (rowOf === undefined || addressedOf === undefined) {
@@ -517,6 +562,14 @@ export function createRowSource(
 
   function readPending(): PendingByRow {
     if (mode === 'truth') return NO_PENDING
+    if (pooled !== null) {
+      return {
+        sessions: pooled.byRow('sessions'),
+        sessionUserStates: pooled.byRow('sessionUserStates'),
+        issueUserStates: pooled.byRow('issueUserStates'),
+        issueProjections: pooled.byRow('issueProjections'),
+      }
+    }
     return {
       sessions: runtime.pendingOverlaysByRow('sessions'),
       sessionUserStates: runtime.pendingOverlaysByRow('sessionUserStates'),
@@ -1251,6 +1304,57 @@ export function createRowSource(
   heldFrom = currentRepos()
   offs.push(runtime.subscribe(mode === 'overlaid' ? onRuntimePublication : onTruthPublication))
 
+  function repaint(
+    rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,
+  ): RowSourceEvent | null {
+    if (disposed) return null
+    const pending = readPending()
+    const byKey = new Map<string, RowRecord>()
+    for (const { kind, id } of rows) {
+      const key = `${kind}:${id}`
+      if (byKey.has(key)) continue
+      stats.rowsVisited += 1
+      const held = overlaid.has(key) ? overlaid.get(key) : resolve(kind, id, null)
+      const value = retain(key, resolve(kind, id, pending))
+      if (hasOverlays(kind, id, pending)) overlaid.set(key, value)
+      else overlaid.delete(key)
+      if (value !== held) byKey.set(key, { kind, id, value })
+    }
+    if (byKey.size === 0) return null
+    const event: RowSourceEvent = { type: 'update', rows: [...byKey.values()] }
+    emit(event)
+    return event
+  }
+
+  function truth(entity: OverlayTarget, id: string): AnyRow | undefined {
+    if (disposed) return undefined
+    switch (entity) {
+      case 'sessions':
+        return sessionInput(id, null)
+      case 'issueProjections':
+        return authority('issueProjections', id)
+      // The per-user keys are computed from the principal rather than read off
+      // the join maps: those are installed by the next flush, and a truth read
+      // inside a kernel batch (settlement) must see the row that batch wrote.
+      case 'issueUserStates': {
+        const principal = runtime.principal?.userId
+        const key =
+          principal === undefined
+            ? userStateKeys.get(id)
+            : issueUserStateRowId(asUserId(principal), asIssueId(id))
+        return key === undefined ? undefined : authority('issueUserStates', key)
+      }
+      case 'sessionUserStates': {
+        const principal = runtime.principal?.userId
+        const key =
+          principal === undefined
+            ? sessionUserKeys.get(id)
+            : sessionUserStateRowId(asUserId(principal), asSessionId(id))
+        return key === undefined ? undefined : authority('sessionUserStates', key)
+      }
+    }
+  }
+
   // Bootstrap the declared small summaries here, before an addressed update
   // can arrive. Neither the first heartbeat nor the first edge change may
   // hide a whole-kind scan inside an ordinary publication.
@@ -1277,6 +1381,8 @@ export function createRowSource(
     source,
     stats,
     flush,
+    repaint,
+    truth,
     dispose() {
       if (disposed) return
       disposed = true
