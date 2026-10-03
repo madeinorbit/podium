@@ -6,6 +6,7 @@ import {
   confirmedWorkingAgentCount,
   type FlightDeckMode,
   type IssueRow,
+  issueAbandoned,
   orderIssues,
   type TaskProgress,
 } from '@podium/client-core/viewmodels'
@@ -311,9 +312,34 @@ export function createMobileScreenReader(pool: MobxPool) {
       stats.deck++
       const values = readMissionView(mission, id, mode)
       if (values === LOADING) throw LOADING
-      return values.rows.some((row) => row.issue.id === values.root?.id)
+      let progress = values.progress
+      if (values.root && (values.root.archived || values.root.deletedAt)) {
+        // Mobile can explicitly open a hidden root. The shared visible-root
+        // meter's fallback must not resurrect it as a unit; accepted formal
+        // children still count. Walk only this root's declared relation.
+        const stack = [...pool.graph.many('issue', values.root.id, 'children')]
+        const seen = new Set<string>([values.root.id])
+        let accepted = false
+        while (stack.length) {
+          const childId = stack.pop()!
+          if (seen.has(childId)) continue
+          seen.add(childId)
+          const child = requireRow(pool.row('issueBoardRow', childId))
+          if (!child || child.archived || child.deletedAt) continue
+          if (child.stage !== 'proposed' && !issueAbandoned(child)) {
+            accepted = true
+            break
+          }
+          stack.push(...pool.graph.many('issue', childId, 'children'))
+        }
+        if (!accepted) progress = EMPTY_MOBILE_MISSION.progress
+      }
+      const presence = values.rows.some((row) => row.issue.id === values.root?.id)
+        ? values.presence
+        : null
+      return progress === values.progress && presence === values.presence
         ? values
-        : { ...values, presence: null }
+        : { ...values, progress, presence }
     })
   }
   function readMission(id: string | null): MobileMissionData | typeof LOADING {

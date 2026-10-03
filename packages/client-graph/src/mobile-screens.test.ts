@@ -108,7 +108,21 @@ it('a known cold mission remains LOADING until one batched load supplies its row
   expect(load).not.toHaveBeenCalled()
   expect(pool.hydrate()).toBe(1)
   expect(load).toHaveBeenCalledTimes(1)
-  expect(reader.mission('cold')).toMatchObject({ root: { id: 'cold' }, missionSessions: [] })
+  expect(reader.mission('cold')).toMatchObject({
+    root: { id: 'cold' }, missionSessions: [], progress: { total: 0, done: 0 },
+  })
+})
+it('an explicitly opened archived mission counts accepted formal children without counting its root', async () => {
+  const { pool, reader } = await setup([
+    issue('cold', { archived: true, stage: 'done' }),
+    issue('child', { parentId: 'cold' }),
+  ])
+  expect(reader.mission('cold')).toBe(LOADING)
+  while (pool.hydrate()) {}
+  expect(reader.mission('cold')).toMatchObject({
+    root: { id: 'cold' }, progress: { total: 1, done: 0, stall: 1 },
+  })
+  expect(reader.deck('cold', 'full')).toMatchObject({ rows: [], presence: null })
 })
 it('an unknown mission is not found in the complete principal replica and never queues a load', async () => {
   const { pool, reader, load } = await setup([issue('root')])

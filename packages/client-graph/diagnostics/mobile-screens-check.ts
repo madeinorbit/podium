@@ -68,7 +68,7 @@ export function observeMobileScreens(pool: MobxPool, input: MobileScreenCheck): 
   return reaction(() => poolMobileScreensSnapshot(pool, input), () => {}, { fireImmediately: true })
 }
 const fields = (value: object, keys: readonly string[]) =>
-  Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? null]))
+  Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? (key === 'labels' ? [] : null)]))
 const BOARD_FIELDS = [
   'seq',
   'displayRef',

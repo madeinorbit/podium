@@ -88,6 +88,7 @@ export const MOBILE_SCREEN_SCHEMA = {
   mission: {
     root: 'mission.rootFor',
     members: 'mission.members',
+    formal: 'children: declared visible-child relation',
     rows: 'mission-view reader',
     sessions: 'missionSessions',
     provenance: 'missionStartedIssues',
