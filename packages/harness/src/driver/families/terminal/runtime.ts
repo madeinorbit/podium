@@ -276,8 +276,14 @@ type AcceptWaiter = {
   /** Live-only witness: these native entries were seen before this typing.
    * A rewrite or coarse timestamp cannot make them new. Never persisted. */
   beforeTypingIds: ReadonlySet<string>
-  /** At most four entries: also link history that arrives before its hook. */
+  /** Every prompt entry after the start (dedupe for re-reads, and links history
+   * that arrives before its hook). The pass budget counts only unexplained
+   * entries; see unexplainedSeen. */
   seenPrompts: Map<string, TranscriptItem>
+  /** How many seen entries were NOT provably another Podium send (POD-5436):
+   *  only these count toward LATER_PROMPT_LIMIT. Every entry is still recorded
+   *  in seenPrompts, so a re-read dedupes instead of spending order again. */
+  unexplainedSeen: number
   cancel: () => void
 }
 
@@ -1701,15 +1707,18 @@ export function createTerminalRuntime(
       // re-read carries passes nothing. Entries provably belonging to another
       // Podium send are not evidence the history moved past this watch
       // (POD-5436): a Podium frame id for a different message, or an entry
-      // credited to another open watch. The 30-minute bound still applies.
+      // credited to another open watch. Every entry is still recorded in
+      // seenPrompts, so a re-read dedupes instead of spending order again;
+      // only unexplained entries count toward the limit. The 30-minute bound
+      // still applies.
       const itemFrameId = podiumFrameId(typed)
       for (const waiter of after) {
-        if (waiter !== credited) {
-          if (itemFrameId !== null && itemFrameId !== waiter.frameId) continue
-          if (credited !== undefined) continue
-        }
         waiter.seenPrompts.set(item.id, item)
-        if (waiter !== credited && waiter.seenPrompts.size >= LATER_PROMPT_LIMIT) {
+        if (waiter === credited) continue
+        if (itemFrameId !== null && itemFrameId !== waiter.frameId) continue
+        if (credited !== undefined) continue
+        waiter.unexplainedSeen += 1
+        if (waiter.unexplainedSeen >= LATER_PROMPT_LIMIT) {
           waiter.pass()
           waiter.cancel()
           if (waiter.turnId) removeProofWatch(session, waiter.turnId)
@@ -1948,6 +1957,7 @@ export function createTerminalRuntime(
         beforeTypingIds: atMs === undefined && waiters === session.echoWaiters
           ? new Set(session.transcriptIds) : new Set(),
         seenPrompts: new Map(),
+        unexplainedSeen: 0,
         cancel: () => {
           waiters.delete(waiter)
           if (deadline !== undefined) host.clearTimer(deadline)
