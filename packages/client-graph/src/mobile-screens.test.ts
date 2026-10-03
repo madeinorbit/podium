@@ -133,6 +133,22 @@ it('retains matching ancestors, promotes proposal blocks, and keeps collapsed ch
     board: [{ stage: 'in_progress', rows: [{ issue: { id: 'root' }, depth: 0 }] }],
   })
 })
+it('does not resurrect a collapsed resume twin as a mission author', async () => {
+  const seat = {
+    issueId: 'elsewhere', title: 'Author', cwd: '/fixture', agentKind: 'codex',
+    status: 'exited', archived: true, resume: { kind: 'codex', value: 'same-conversation' },
+    createdAt: '2026-01-01T00:00:00Z', lastActiveAt: '2026-01-01T00:00:00Z',
+  }
+  const { pool, reader } = await setup([
+    issue('root', { startedBySession: 'old' }),
+    issue('elsewhere', { stage: 'done', closedAt: '2026-01-01T00:00:00Z', readAt: '2026-01-01T00:00:00Z' }),
+  ], [
+    { ...seat, sessionId: 'old' },
+    { ...seat, sessionId: 'new', lastActiveAt: '2026-01-02T00:00:00Z' },
+  ])
+  expect(pool.graph.isCollapsed('session', 'old')).toBe(true)
+  expect(reader.mission('root')).toMatchObject({ sessions: [] })
+})
 it('a known cold mission remains LOADING until one batched load supplies its row', async () => {
   const { pool, reader, load } = await setup([issue('cold', { archived: true, stage: 'done' })])
   expect(reader.mission('cold')).toBe(LOADING)

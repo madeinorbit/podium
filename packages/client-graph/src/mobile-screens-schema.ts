@@ -91,6 +91,7 @@ export const MOBILE_SCREEN_SCHEMA = {
     formal: 'children: declared visible-child relation',
     rows: 'mission-view reader',
     sessions: 'missionSessions',
+    authors: 'startedBySession: addressed session summary, shared resume collapse verdict',
     provenance: 'missionStartedIssues',
     context: ['pageDependencies', 'pageDependents', 'supersedingIssue', 'canonicalIssue'],
   },

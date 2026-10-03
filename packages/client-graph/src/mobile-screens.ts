@@ -370,7 +370,11 @@ export function createMobileScreenReader(pool: MobxPool) {
             const target = requireRow(pool.row('issueBoardRow', dep.id))
             if (target) issues.set(dep.id, target)
           }
-        if (row.startedBySession && !sessions.has(row.startedBySession)) {
+        if (
+          row.startedBySession &&
+          !sessions.has(row.startedBySession) &&
+          !pool.graph.isCollapsed('session', row.startedBySession)
+        ) {
           const author = requireRow(mission.session(row.startedBySession))
           if (author) sessions.set(author.sessionId, author)
         }
