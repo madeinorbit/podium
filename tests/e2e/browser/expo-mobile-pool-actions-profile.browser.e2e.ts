@@ -51,6 +51,8 @@ const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
 interface Sample {
   pool: boolean
   traced: boolean
+  startedAtUtc: string
+  endedAtUtc: string
   load: number[]
   updates: { taskMs: number; wallMs: number; perUpdateTaskMs: number }
   tap: { inputToPaintMs: number; selectedDomMs: number }
@@ -330,29 +332,35 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
   const timed: Sample[] = [],
     traced: Sample[] = []
   for (const pool of order) {
+    const startedAtUtc = new Date().toISOString()
     console.info('[phone arm]', pool ? 'ON' : 'OFF', 'timed', timed.length, loadavg())
     await launchWork(pool)
     timed.push({
       pool,
       traced: false,
+      startedAtUtc,
       load: loadavg(),
       updates: await updates(),
       tap: await tap(),
       ...(screens ? { screens: await screenActions(pool) } : {}),
+      endedAtUtc: new Date().toISOString(),
     })
   }
   for (const [index, pool] of order.entries()) {
+    const startedAtUtc = new Date().toISOString()
     console.info('[phone arm]', pool ? 'ON' : 'OFF', 'traced', index, loadavg())
     const name = `${pool ? 'on' : 'off'}-${index}.trace.json.gz`
     await launchWork(pool)
     traced.push({
       pool,
       traced: true,
+      startedAtUtc,
       load: loadavg(),
       updates: await updates(`updates-${name}`),
       tap: await tap(`tap-${name}`),
       traces: { updates: `updates-${name}`, tap: `tap-${name}` },
       ...(screens ? { screens: await screenActions(pool) } : {}),
+      endedAtUtc: new Date().toISOString(),
     })
   }
   expect(observed.errors, observed.errors.join('\n')).toEqual([])
