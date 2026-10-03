@@ -64,7 +64,7 @@ it('renders the actual screens through no-pool then real attachment without chan
   await screen.findByText('Synthetic profile 0')
   await screen.findByText('session · synthetic-session-0')
   expect(screen.queryByText('Loading execution profiles…')).toBeNull()
-  expect(screen.getAllByText('synthetic-missing · no access')).toHaveLength(2)
+  expect(screen.getAllByText(/synthetic-missing · no access/)).toHaveLength(2)
   expect(screen.getByLabelText('Machine').querySelectorAll('option')).toHaveLength(2)
   expect(fixture.calls).toMatchObject({ list: 1, bindings: 1, profiles: 1, runs: 1, get: 1, locks: 1 })
   expect(fixture.lockInputs).toEqual([{ repoPath: '/synthetic/project' }])
@@ -75,17 +75,20 @@ it('renders the actual screens through no-pool then real attachment without chan
 
 it('matches scoped placement and cold issue/session targets through the one reader, with no peeks', async () => {
   const { fixture, Wrapper, fatal } = setup()
+  const old = new Date(Date.now() - 14 * 86400000).toISOString()
+  fixture.patch('issueProjection', 'synthetic-5', { archived: true, closedAt: old, updatedAt: old })
+  fixture.patch('session', 'synthetic-session-5', { status: 'hibernated', archived: true, lastActiveAt: old })
   const { result } = renderHook(() => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool(), machines: useWorkflowMachines(),
     issue: useWorkflowSubject(fixture.runs[1]!), session: useWorkflowSubject(fixture.runs[4]!),
   }), { wrapper: Wrapper })
   await waitFor(() => expect(result.current.machines.pending).toBe(0))
   const pool = result.current.pool!, row = vi.spyOn(pool, 'row')
-  expect(pool.resident('issue', 'synthetic-5')).toBe(false)
+  expect(pool.tables.issue.has('synthetic-5')).toBe(false)
   const check = checkWorkflows(pool, result.current.owner.getSnapshot(), fixture)
   expect(check).toMatchObject({ differences: 0, pending: 0, positions: 14, first: null })
   expect(result.current.issue).toMatchObject({ state: 'present' })
   expect(result.current.session).toMatchObject({ state: 'present' })
-  expect(pool.resident('issue', 'synthetic-5')).toBe(false)
+  expect(pool.tables.issue.has('synthetic-5')).toBe(false)
   expect(placementOptions(result.current.machines.views)).toMatchObject({ offerable: [{ id: 'synthetic-available' }] })
   expect(fixture.profiles.map(profile => pool.row('settingsMachine', profile.machineId ?? ''))).toHaveLength(8)
   expect(result.current.machines.views.map(view => view.availability)).toEqual(['available', 'unauthorized', 'unreachable', 'incapable', 'disabled', 'degraded'])
@@ -104,13 +107,13 @@ it('preserves resume twins and reacts to addressed removals and replacement', as
     suppressed: useWorkflowSubject(twins[0]!), kept: useWorkflowSubject(twins[1]!), issue: useWorkflowSubject(fixture.runs[0]!),
   }), { wrapper: Wrapper })
   await waitFor(() => expect(result.current.machines.pending).toBe(0))
-  expect(result.current.suppressed).toMatchObject({ state: 'not-visible' })
+  expect(result.current.suppressed).toMatchObject({ state: 'pending' })
   expect(result.current.kept).toMatchObject({ state: 'present' })
   expect(checkWorkflows(result.current.pool!, result.current.owner.getSnapshot(), inputs)).toMatchObject({ differences: 0, pending: 0 })
   await act(async () => { fixture.remove('session', 'synthetic-session-7'); fixture.remove('issueProjection', 'synthetic-0') })
   await waitFor(() => expect(result.current.suppressed).toMatchObject({ state: 'present' }))
-  expect(result.current.kept).toMatchObject({ state: 'not-visible' })
-  expect(result.current.issue).toMatchObject({ state: 'not-visible' })
+  expect(result.current.kept).toMatchObject({ state: 'pending' })
+  expect(result.current.issue).toMatchObject({ state: 'pending' })
   await act(async () => { fixture.replace() })
   expect(checkWorkflows(result.current.pool!, result.current.owner.getSnapshot(), inputs)).toMatchObject({ differences: 0, pending: 0 })
 })
@@ -126,7 +129,7 @@ it('batches initial machine demand and returns LOADING before the shared source 
   expect(pool.row('settingsCatalog', 'catalog')).toBe(LOADING)
   await act(async () => { await Promise.resolve() })
   expect(workflowMachines(pool).pending).toBe(0)
-  expect(workflowSubject(pool, fixture.runs[2]!)).toMatchObject({ state: 'not-visible' })
+  expect(workflowSubject(pool, fixture.runs[2]!)).toMatchObject({ state: 'pending' })
 })
 
 it('executes zero legacy readers after feed activity and preserves one denied-write attempt', async () => {
