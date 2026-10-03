@@ -30,7 +30,7 @@ async function fixture() {
     outbox: { subscribe: () => () => {}, deadLetters: () => [] } } as unknown as ClientRuntime
   state = { ...state, readPosition: owner.readPosition }
   const load = vi.fn((_entity: string, id: string) => state.sessions.find(row => row.sessionId === id) as never)
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined,
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-03T00:00:00Z') }, undefined,
     { summaries: SUPERAGENT_SUMMARIES, load, schedule: () => () => {} })
   pool.apply({ type: 'replace', rows: state.sessions.map(row => ({ kind: 'session', id: row.sessionId, value: row as never })) })
   const source = await createSuperagentSource(owner)
