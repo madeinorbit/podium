@@ -254,14 +254,16 @@ describe('declared issue page', () => {
     const ctx = open([task('arch', { archived: true, deps: [{ id: 'cold', type: 'custom' }] }),
       task('cold', { archived: true, parentId: 'arch' }), task('cold-2', { archived: true, parentId: 'arch' })],
       [seat('old', 'arch', { archived: true, status: 'exited' }),
-        seat('old-child', 'cold-2', { archived: true, status: 'exited' })], true)
+        seat('old-child', 'cold-2', { archived: true, status: 'exited' }),
+        seat('born-a', null, { refIssueId: 'arch', archived: true, status: 'exited' }),
+        seat('born-b', null, { refIssueId: 'arch', archived: true, status: 'exited' })], true)
     const read = vi.spyOn(ctx.pool, 'row'), before = ctx.load.mock.calls.length
     expect(tracked(() => ctx.views.menuIssues())).not.toBe(LOADING)
     expect(ctx.load.mock.calls.length).toBe(before)
     expect(tracked(() => ctx.views.data('arch'))).toBe(LOADING)
     expect(tracked(() => ctx.views.panel({ issueId: 'arch', cwd: '/synthetic' }))).toBe(LOADING)
     expect(ctx.load.mock.calls.length).toBe(before)
-    expect(ctx.pool.hydrate()).toBe(5)
+    expect(ctx.pool.hydrate()).toBe(7)
     const page = tracked(() => ctx.views.data('arch'))
     expect(page && page !== LOADING ? page.issue.id : null).toBe('arch')
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
