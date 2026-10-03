@@ -72,7 +72,7 @@ it('retains the snapshot object when observed inputs change to an equal result',
   expect(f.read).toHaveBeenCalledTimes(2)
 })
 
-it('observes changes between render and subscribe without reading again at subscribe', () => {
+it('publishes a real change between the first read and subscription exactly once', () => {
   const f = fixture()
   const first = f.view.getSnapshot()
   f.change('target')
@@ -81,7 +81,7 @@ it('observes changes between render and subscribe without reading again at subsc
   expect(f.view.getSnapshot()).toEqual({ selected: true })
   expect(f.view.getSnapshot()).not.toBe(first)
   expect(f.read).toHaveBeenCalledTimes(2)
-  expect(wake).not.toHaveBeenCalled()
+  expect(wake).toHaveBeenCalledTimes(1)
 })
 
 it('re-arms after the last unsubscribe and preserves equal snapshot identity', () => {
