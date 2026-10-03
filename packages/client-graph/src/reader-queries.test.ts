@@ -245,7 +245,7 @@ describe('readers behind declared cold questions', () => {
       const f = fixture(1, reader.bootOnly),
         pool = f.pool
       let scans = 0
-      const ids = pool.residency?.ids.bind(pool.residency)
+      const ids = pool.residency!.ids.bind(pool.residency)
       const census = vi.spyOn(pool.residency!, 'ids').mockImplementation((...args) => {
         scans++
         return ids(...args)
@@ -304,12 +304,12 @@ describe('readers behind declared cold questions', () => {
         // The counter rejects an actual planted old enumeration, not a mock
         // number. Keep the output identical so this proves the cost assertion.
         vi.spyOn(pool.queries, 'ids').mockImplementation((question) => {
-          pool.residency?.ids(questionEntity(question))
+          pool.residency!.ids(questionEntity(question))
           return original(question)
         })
         const originalCount = pool.queries.count.bind(pool.queries)
         vi.spyOn(pool.queries, 'count').mockImplementation((entity) => {
-          pool.residency?.ids(entity)
+          pool.residency!.ids(entity)
           return originalCount(entity)
         })
         runInAction(() => reader.read(pool))
@@ -388,7 +388,7 @@ describe('readers behind declared cold questions', () => {
       f.index.apply({ type: 'update', rows: [removed] })
       f.pool.apply({ type: 'update', rows: [removed] })
       expect(reads).toHaveBeenCalledTimes(2)
-      expect(reads.mock.results[1]?.value).not.toContain(removed.id)
+      expect(reads.mock.results[1]!.value).not.toContain(removed.id)
     } finally {
       stop()
       f.pool.dispose()
