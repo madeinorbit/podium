@@ -45,6 +45,11 @@ config.resolver.unstable_conditionsByPlatform = {
   android: ['@podium/source', ...(config.resolver.unstable_conditionsByPlatform?.android || [])],
 }
 
+// Load a split chunk before requiring its module on web too: Expo's web loader
+// requires first, and Metro reports that miss to the crash handler as a fatal
+// before the chunk loads. The reasons live in the module [POD-5370].
+config.transformer.asyncRequireModulePath = require.resolve('./src/lib/async-require-load-first.js')
+
 // Point the web build at a gesture handler that actually handles gestures; the
 // rule and the reasons live in ./scripts/metro-gesture-handler-web.js [POD-402].
 const baseResolveRequest = config.resolver.resolveRequest
