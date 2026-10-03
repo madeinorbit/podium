@@ -63,6 +63,8 @@ Both enabled mounts and all activity, relevant-update and reference-action phase
 
 Three new browser controls each failed at the expected assertion, with every original restored in `finally`: an enabled legacy Inbox issue hook, the old enabled NewWorkButton machine hook, and retaining the launch stub. Together with the 22 unit controls and seeded production route control, **26 planted faults demonstrated red checks**. The launch owner's existing real-provider regression also passed: **one collected test, eight explicitly skipped**, selected with `test:file -t "launch choices"`.
 
+Final changed-project typecheck for `@podium/mobile` passed **all 14 tasks**, using the normal cache contract without a forced bypass. Final focused Biome lint passed for the seven changed launch/proof files. No unchanged correctness or timing lane was repeated for confidence.
+
 Reproduce the complete counts-only acceptance without a timing lease:
 
 ```sh
