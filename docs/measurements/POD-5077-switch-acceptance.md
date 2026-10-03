@@ -53,7 +53,7 @@ Window.__PODIUM_CLOSE_TAB__
   → destroyed initial ClientRuntime
 ```
 
-The same closure retains the old replica through outbox callbacks. `Workspace.tsx` already registers the handler every render; the action/selector identity across runtime replacement must be fixed. POD-5402 is a blocking child; this measurement issue has not modified Workspace.
+The same closure retains the old replica through outbox callbacks. `Workspace.tsx` already registers the handler every render. POD-5402 owns the account control arms and the fix; candidate `93f6b51297` separates the mount-lifetime drag callbacks from account actions. It has not landed and has no new control or fix survivor counts because flatblock is unreachable. The account acceptance condition remains failed. The saved remote `retired.heapsnapshot` and `retired-object.json` are retained for POD-5402's verification.
 
 ## Evidence and controls
 
