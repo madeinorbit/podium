@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react
 import { Profiler, type ReactNode } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { SessionId } from '@podium/model'
+import { asIssueId, asSessionId, isSortKey, sortKeyBetween, type SessionId } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 import type { MobilePool } from '../client/mobile-pool'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -141,11 +141,10 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
 }
 
 function Capture() { return <WorkScreen /> }
-async function mount(on: boolean, scale: 1 | 4) {
+async function mount(on: boolean, scale: 1 | 4, corpus = buildCorpus(scale)) {
   state.on = on; state.sliceReads = 0; state.rowDerivations = 0; state.counts.clear(); state.errors.length = 0
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
   state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
-  const corpus = buildCorpus(scale)
   const feed = kernelFixture(corpus)
   vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
   const view = await renderWithMobileStore(<Capture />, {
@@ -160,6 +159,44 @@ async function mount(on: boolean, scale: 1 | 4) {
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
   expect(state.errors).toEqual([])
   return { view, corpus, feed }
+}
+/** Grow the surrounding corpus, keeping the exact pressed neighbourhood.
+ * The normal corpus changes its random seed with scale, so its first visible
+ * row is a different issue with a different roster and children at 4x. */
+function clickCorpus(scale: 1 | 4) {
+  const base = buildCorpus(1), corpus = scale === 1 ? base : buildCorpus(scale)
+  const id = asIssueId('phone-click-target'), origin = asIssueId('phone-click-origin')
+  const firstKey = corpus.issueProjections.map(row => row.sortKey).filter(isSortKey).sort()[0]
+  const issue = {
+    ...base.issueProjections[0]!, id, seq: 20_001, title: 'Fixed phone menu target',
+    parentId: undefined, stage: 'in_progress' as const, archived: false, deletedAt: null,
+    isDraftVessel: false, needsHuman: false, asked: null, deferUntil: null,
+    audience: 'human' as const, createdAt: new Date(base.fixedNow).toISOString(),
+    sortKey: sortKeyBetween(null, firstKey),
+  }
+  const neighbours = [
+    issue,
+    { ...issue, id: origin, seq: 20_002, title: 'Fixed phone origin', archived: true, stage: 'done' as const },
+    ...(['planning', 'done'] as const).map((stage, index) => ({
+      ...issue, id: asIssueId(`phone-click-child-${index}`), seq: 20_003 + index,
+      title: `Fixed phone child ${index}`, parentId: id, stage,
+    })),
+  ]
+  return {
+    ...corpus,
+    issueProjections: [...corpus.issueProjections, ...neighbours],
+    issueUserStates: [...(corpus.issueUserStates ?? []), {
+      ...base.issueUserStates![0]!, entityId: id, pinned: true,
+    }],
+    issueDeps: [...corpus.issueDeps, {
+      ...base.issueDeps[0]!, id: 'phone-click-dependency', fromId: id, toId: origin, type: 'discovered-from' as const,
+    }],
+    sessions: [...corpus.sessions, ...base.sessions.slice(0, 2).map((session, index) => ({
+      ...session, sessionId: asSessionId(`phone-click-session-${index}`), issueId: id, refIssueId: id,
+      archived: false, headless: index === 1, status: 'live' as const, resume: undefined,
+      lastActiveAt: new Date(base.fixedNow).toISOString(),
+    }))],
+  }
 }
 function output(container: HTMLElement) {
   return { text: container.textContent,
@@ -185,7 +222,7 @@ describe('mobile WorkScreen pool consumer', () => {
     for (const scale of [1, 4] as const) {
       let rowReads = 0
       const census = startCensus({ sample: () => ({ rowReads }) })
-      const { view } = await mount(true, scale)
+      const { view } = await mount(true, scale, clickCorpus(scale))
       await drainNativeLoads()
       const pool = state.pool!
       const original = pool.row.bind(pool)
@@ -207,11 +244,15 @@ describe('mobile WorkScreen pool consumer', () => {
         expect(state.rowDerivations, name).toBe(0)
       }
       try {
-        const first = state.sections.flatMap(section => section.data).find(ref => ref.kind === 'issue')!
+        const first = state.sections.flatMap(section => section.data).find(ref => ref.id === 'phone-click-target')!
+        expect(first).toBeDefined()
         const title = state.runtime!.replica.rows('issueProjections').find(issue => issue.id === first.id)!.title
         const row = view.container.querySelector(`[data-label$=" ${title}"]`)!
+        expect(row).not.toBeNull()
         await click('open selected row menu', () => fireEvent.contextMenu(row), () => screen.findByTestId('menu'))
         expect(screen.getByTestId('menu').getAttribute('data-issue')).toBe(first.id)
+        expect(screen.getByTestId('menu').getAttribute('data-issues')).toBe('2')
+        expect(screen.getByTestId('menu').getAttribute('data-sessions')).toBe('2')
         await click('close selected row menu', () => fireEvent.click(screen.getByLabelText('Close row menu')),
           () => waitFor(() => expect(screen.queryByTestId('menu')).toBeNull()))
         const band = state.sections[0]!
