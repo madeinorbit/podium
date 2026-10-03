@@ -26,7 +26,7 @@ async function mount(inline: boolean) {
   const subscriptions: (() => number)[] = []
   create.mockImplementation(<T,>(pool: MobxPool, read: (pool: MobxPool) => T) => {
     const view = original(pool, read)
-    const subscribe = vi.spyOn(view, 'subscribeInvalidations')
+    const subscribe = vi.spyOn(view, 'subscribe')
     subscriptions.push(() => subscribe.mock.calls.length)
     return view
   })
@@ -39,19 +39,21 @@ async function mount(inline: boolean) {
   let runtime: ClientRuntime
   let pool: MobxPool | null = null
   let reads = 0
+  let renders = 0
   let snapshot: { selected: boolean } | null = null
   const read = (current: MobxPool) => {
     reads++
-    return { selected: current.selection.has('projection-target') }
+    return { selected: current.selection.size > 0 && current.selection.has('projection-target') }
   }
   let reader = read
   let target = 'projection-target'
   function Probe() {
+    renders++
     const captured = target
     pool = host.usePool()
     snapshot = host.usePoolProjection(inline ? (current) => {
       reads++
-      return { selected: current.selection.has(captured) }
+      return { selected: current.selection.size > 0 && current.selection.has(captured) }
     } : reader, null)
     return null
   }
@@ -89,12 +91,17 @@ async function mount(inline: boolean) {
   expect(snapshot).not.toBeNull()
   return {
     reads: () => reads,
+    renders: () => renders,
     snapshot: () => snapshot!,
     projections: () => create.mock.calls.length,
     subscriptions: () => subscriptions.reduce((sum, count) => sum + count(), 0),
     render,
     replaceReader: () => { reader = (current) => read(current); render() },
     capture: (id: string) => { target = id; render() },
+    select: (id: string) => act(async () => {
+      const publisher = runtime as unknown as { apply(patch: { selectedIssueId: string | null }): void }
+      publisher.apply({ selectedIssueId: id })
+    }),
     change: () => act(async () => {
       const publisher = runtime as unknown as { apply(patch: { selectedIssueId: string | null }): void }
       publisher.apply({ selectedIssueId: snapshot!.selected ? null : 'projection-target' })
@@ -116,11 +123,24 @@ describe('real host projection read counts with the pilot on', () => {
     const parentRerender = fixture.reads() - beforeRerender
     console.info('[pool projection counts]', { inline, firstMount, perChange, parentRerender,
       stableOnRerender: fixture.snapshot() === updated })
-    // Publication polls only a revision; render reads the latest callback once.
+    // The equality gate derives once per publication. A fresh inline closure
+    // gets one additional evaluation in render, without replacing the view.
+    expect(perChange).toBe(inline ? 2 : 1)
     expect(firstMount).toBe(1)
-    expect(perChange).toBe(1)
     expect(parentRerender).toBe(inline ? 1 : 0)
     expect(fixture.snapshot()).toBe(updated)
+    expect(fixture.projections()).toBe(1)
+    expect(fixture.subscriptions()).toBe(1)
+  })
+
+  it.each([false, true])('does not render the owner for structurally equal results (inline=%s)', async (inline) => {
+    const fixture = await mount(inline)
+    const snapshot = fixture.snapshot()
+    const reads = fixture.reads(), renders = fixture.renders()
+    await fixture.select('another-target')
+    expect(fixture.reads() - reads).toBe(1)
+    expect(fixture.renders()).toBe(renders)
+    expect(fixture.snapshot()).toBe(snapshot)
     expect(fixture.projections()).toBe(1)
     expect(fixture.subscriptions()).toBe(1)
   })

@@ -21,7 +21,7 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
         state.read = nextRead
         state.dirty = true
       }
-      if (observeProjection(state) && !state.listeners.size && !state.invalidations.size) {
+      if (observeProjection(state) && !state.listeners.size) {
         // React can abandon a render before subscribing. Use the same cleanup
         // as observer components, including its fallback on engines without GC hooks.
         _observerFinalizationRegistry.register(view, state, state)
@@ -48,23 +48,6 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
         releaseProjection(state)
       }
     },
-    // The host reads the current callback in render. Polling this revision must
-    // not derive with yesterday's callback before React renders with today's props.
-    getVersion: () => state.version,
-    subscribeInvalidations(wake: () => void): () => void {
-      const rearmed = observeProjection(state)
-      _observerFinalizationRegistry.unregister(state)
-      const listener = () => wake()
-      state.invalidations.add(listener)
-      if (rearmed) {
-        state.version++
-        wake()
-      }
-      return () => {
-        state.invalidations.delete(listener)
-        releaseProjection(state)
-      }
-    },
   }
   return view
 }
@@ -78,7 +61,6 @@ interface ProjectionState<T> {
   version: number
   reaction: Reaction | null
   readonly listeners: Set<() => void>
-  readonly invalidations: Set<() => void>
 }
 
 // These helpers stay outside createPoolProjection: reaction closures must not
@@ -93,7 +75,6 @@ function projectionState<T>(pool: MobxPool, read: (pool: MobxPool) => T): Projec
     version: 0,
     reaction: null,
     listeners: new Set(),
-    invalidations: new Set(),
   }
 }
 
@@ -103,15 +84,14 @@ function observeProjection<T>(state: ProjectionState<T>): boolean {
   state.reaction = new Reaction('pool projection', () => {
     state.dirty = true
     state.version++
-    // Imperative consumers keep structural notification filtering. React's host
-    // subscribes to invalidation instead, deriving once with its latest reader.
+    // Filter before notifying React or imperative consumers: equal projections
+    // must not trigger owner renders, even when an observed input changes.
     if (state.listeners.size) {
       const before = state.snapshot, error = state.error
       refreshProjection(state)
       if (state.snapshot !== before || state.error !== error)
         for (const listener of [...state.listeners]) listener()
     }
-    for (const listener of [...state.invalidations]) listener()
   })
   return true
 }
@@ -133,7 +113,7 @@ function refreshProjection<T>(state: ProjectionState<T>): void {
 }
 
 function releaseProjection<T>(state: ProjectionState<T>): void {
-  if (state.listeners.size || state.invalidations.size) return
+  if (state.listeners.size) return
   state.reaction?.dispose()
   state.reaction = null
 }

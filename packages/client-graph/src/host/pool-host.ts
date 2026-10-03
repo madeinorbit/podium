@@ -155,8 +155,11 @@ export function createPoolHost({ screens, dev, start }: PoolHostOptions): PoolHo
     )
   }
 
-  // Layout-only pool subscription for companions that remain on their current
-  // component tree. The MobX implementation arrives with the startup attachment.
+  /** Layout-only subscription that keeps one projection and subscription per hook.
+   * Mount and each observed change read once; structurally equal values keep their
+   * identity and do not wake React. A new reader closure is evaluated once in render
+   * to adopt changed captures. Large screens should pass a memoized reader.
+   * The MobX implementation arrives with the startup attachment. */
   function usePoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T {
     const runtime = useStoreHandle()
     const pool = usePool()
@@ -169,11 +172,11 @@ export function createPoolHost({ screens, dev, start }: PoolHostOptions): PoolHo
       // below without replacing its observer or React subscription.
       [pool, project],
     )
-    useSyncExternalStore(
-      view?.subscribeInvalidations ?? (() => () => {}),
-      view?.getVersion ?? (() => 0),
+    view?.getSnapshot(reader.current)
+    return useSyncExternalStore(
+      view?.subscribe ?? (() => () => {}),
+      view?.getSnapshot ?? (() => empty),
     )
-    return view ? view.getSnapshot(reader.current) : empty
   }
 
   return { attach, usePool, usePoolProjection, survivors }
