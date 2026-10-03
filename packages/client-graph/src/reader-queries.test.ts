@@ -17,6 +17,7 @@ import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { MOBILE_INBOX_SUMMARIES } from './mobile-inbox-schema'
 import { MobileInboxSource } from './mobile-inbox-source'
 import { createMobileInboxViews } from './mobile-inbox-views'
+import { createMobileSessionReader } from './mobile-session-context'
 import { MobxPool } from './pool'
 import { paneHasSessions } from './session-pane'
 import { createColdIndex } from './shared/cold-index'
@@ -30,8 +31,8 @@ import { LOADING } from './worklist/rollup'
 
 const now = Date.parse('2026-10-03T12:00:00Z'),
   old = '2020-01-01T00:00:00Z'
-function fixture(scale = 1) {
-  const rows: RowRecord[] = []
+function fixture(scale = 1, bootOnly = false) {
+  let rows: RowRecord[] = []
   const issue = (id: string, extra: object = {}) =>
     ({
       kind: 'issue',
@@ -107,6 +108,8 @@ function fixture(scale = 1) {
       prefix: 'Q',
     },
   })
+  if (bootOnly)
+    rows = rows.filter((row) => row.kind !== 'session' && !row.id.includes('proposal'))
   const values = new Map(rows.map((row) => [`${row.kind}:${row.id}`, row.value]))
   const index = createColdIndex(SCHEMA)
   index.apply({ type: 'replace', rows })
@@ -139,12 +142,17 @@ function fixture(scale = 1) {
   pool.sources.register(['mobileInboxState', 'mobileReferencePrefixes'], mobile)
   pool.sources.register(['chatIssueOrder', 'chatSessionOrder'], {
     read: (entity: string) => ({
-      ids: rows
+      ids: (bootOnly ? [] : rows)
         .filter((row) => row.kind === (entity === 'chatIssueOrder' ? 'issue' : 'session'))
         .map((row) => row.id),
     }),
     dispose() {},
   } as never)
+  if (bootOnly)
+    pool.sources.register(['mobileSessionWindow'], {
+      read: () => ({ cursor: null, pendingSpawnPrompts: new Map() }),
+      dispose() {},
+    })
   attachCommandLaunchSource(pool, {
     getSnapshot: () => ({ repos: [], machines: [] }),
     subscribe: () => () => {},
@@ -157,7 +165,7 @@ function fixture(scale = 1) {
 function snapshot(name: string, value: unknown): SidebarSnapshot {
   return { pending: 0, sections: [{ key: name, fields: { value }, rows: [] }] }
 }
-const readers: { name: string; read(pool: MobxPool): unknown }[] = [
+const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown }[] = [
   { name: 'phone launcher', read: (pool) => pool.row('commandCatalog', 'catalog') },
   {
     name: 'phone inbox',
@@ -184,6 +192,11 @@ const readers: { name: string; read(pool: MobxPool): unknown }[] = [
   },
   { name: 'automation sessions', read: (pool) => automationViews(pool).session('cold-session-0') },
   { name: 'session pane', read: paneHasSessions },
+  {
+    name: 'phone session boot',
+    bootOnly: true,
+    read: (pool) => createMobileSessionReader(pool).booting(),
+  },
   {
     name: 'chat mentions',
     read: (pool) => ({ issues: chatMentionIssues(pool), sessions: chatReferenceSessions(pool) }),
@@ -230,7 +243,7 @@ const readers: { name: string; read(pool: MobxPool): unknown }[] = [
 describe('readers behind declared cold questions', () => {
   for (const reader of readers)
     it(`${reader.name}: preserves output, rejects a plant, and never enumerates the cold registry`, async () => {
-      const f = fixture(),
+      const f = fixture(1, reader.bootOnly),
         pool = f.pool
       let scans = 0
       const ids = pool.residency!.ids.bind(pool.residency)
@@ -258,11 +271,17 @@ describe('readers behind declared cold questions', () => {
           .mockImplementation((question) =>
             questionEntity(question) === 'session' ? knownSessionIds(pool) : knownIssueIds(pool),
           )
+        const legacyCount = vi
+          .spyOn(pool.queries, 'count')
+          .mockImplementation(
+            (entity) => (entity === 'issue' ? knownIssueIds(pool) : knownSessionIds(pool)).length,
+          )
         const expected = snapshot(
           reader.name,
           runInAction(() => reader.read(pool)),
         )
         legacy.mockRestore()
+        legacyCount.mockRestore()
         expect(compareSidebarSnapshots(expected, actual)).toMatchObject({
           differences: 0,
           pending: 0,

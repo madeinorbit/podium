@@ -9,7 +9,6 @@ import {
 } from './chat-context'
 import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
 import { ChatContextSource } from './chat-context-source'
-import { knownIssueIds } from './enumerate'
 import { issuePages } from './issue-page'
 import {
   MOBILE_SESSION_ENTITIES,
@@ -76,7 +75,7 @@ export function createMobileSessionReader(pool: MobxPool) {
         sessions.ids.length === 0 &&
         issues.ids.length === 0 &&
         !paneHasSessions(pool) &&
-        knownIssueIds(pool).length === 0
+        pool.queries.count('issue') === 0
       )
     },
     conversation(id: string) {
