@@ -120,7 +120,27 @@ The actual parent-picker control at `0c94ed68f9` renders the same newest-first
 fourteen literal choices at both sizes, including archived tasks. Opening it
 still reads 2,400/9,600 values and runs 1,201/4,801 derivations. Its visible
 neighbourhood ratio is one, so the guard is red. The declared identity-query
-scope has been sent to POD-4286 before any shared-query or picker change.
+scope was approved by POD-4286 in `msg_3ed6d6f5-d2ee-4557-ae99-3e4d912ff9c0`.
+
+The committed replacement at `ad9747168c` uses the declared
+`mobileIssueTargets` question over source identity/facet postings, with no
+pool index or row cache. It takes joined prefixes from the existing pool repo
+facts, including multiple repositories at the same path. Only mounted choices
+read title, reference and stage through the pool; missing facts stay loading.
+The unchanged target-search controls were last green at `9f7114b4d4` before
+their eager array filter was removed (three focused checks, recorded in the issue).
+
+The foreground flatblock regression batch has nine green checks across three
+named files: five source-question checks, three sheet checks, and the actual
+parent-sheet click. The closed-page clock case is deliberately filtered until
+the generic hook retirement. The actual picker reads 29/29 rows and runs 15/15
+derivations for the same fourteen visible choices, with unchanged literal order
+and three literal title/reference searches. Source identity visits are 15/15
+for an open and 12/12 for the two specific searches. The source guard first
+rejected numeric suffix scanning at `7aca1b4ea4` (23/99 visits for identical
+search results); the sequence-prefix correction preserved those results and
+made that counter flat. Compiler, lint and planted eager-catalog evidence for
+this checkpoint remain pending shared-host admission; this is not final acceptance.
 
 The long-press fix also retires this issue's exact `rows` and `elements`
 exceptions in the shared structural speed guard. Other issues' exceptions
@@ -148,7 +168,7 @@ in blocking internal POD-5458 for ownership or a deterministic correction.
 No allowances were widened. POD-5425 was closed, so mail to it was refused;
 POD-4286 received the complete measured evidence and scope questions.
 
-The current branch is rebased onto `264dc412cf`, including the already-landed
+The current branch is rebased onto `2180eaad84`, including the already-landed
 transaction changes. This removal still has no own write-path changes. The
 structural result above remains attached to its measured source; the rebased
 candidate has not yet run its final gate.
