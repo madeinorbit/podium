@@ -135,9 +135,11 @@ export async function logpoints(cdp: CDPSession, dist: string, checkout: string,
     const path = `${mobile ? '/mobile' : ''}/${relative(dist, point.file).replaceAll('\\', '/')}`
     const line = readFileSync(point.file, 'utf8').split('\n')[point.line]!
     const prefix = line.slice(Math.max(0, point.column - 400), point.column)
-    const signature = point.name === 'kernel' ? /onKernelEvent\(([$\w]+)\)\{$/ : /apply\(([$\w]+)\)\{$/
+    const signature =
+      point.name === 'kernel' ? /onKernelEvent\(([$\w]+)\)\{$/ : /apply\(([$\w]+)\)\{$/
     const parameter = point.name === 'poolEnd' ? undefined : prefix.match(signature)?.[1]
-    if (point.name !== 'poolEnd' && !parameter) throw new Error(`No production parameter at ${point.name}: ${prefix.slice(-100)}`)
+    if (point.name !== 'poolEnd' && !parameter)
+      throw new Error(`No production parameter at ${point.name}: ${prefix.slice(-100)}`)
     const call =
       point.name === 'kernel'
         ? `kernel(${parameter})`

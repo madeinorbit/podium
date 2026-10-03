@@ -95,8 +95,7 @@ async function readMetadata(page: Page, mobile: boolean) {
   return page.evaluate(
     async (database) => {
       if (!(await indexedDB.databases()).some((entry) => entry.name === database)) return []
-      return (
-      new Promise<{ key: string; value: Record<string, unknown> }[]>((done, fail) => {
+      return new Promise<{ key: string; value: Record<string, unknown> }[]>((done, fail) => {
         const request = indexedDB.open(database)
         request.onerror = () => fail(request.error)
         request.onsuccess = () => {
@@ -115,7 +114,6 @@ async function readMetadata(page: Page, mobile: boolean) {
           tx.onerror = () => fail(tx.error)
         }
       })
-      )
     },
     mobile ? 'podium-replica.db' : 'podium-kernel-replica',
   )
@@ -189,7 +187,9 @@ test('certified warm attach removes the second delivery and preserves live value
       const page = await context.newPage()
       page.on('response', (response) => {
         if (new URL(response.url()).pathname.startsWith('/sync/'))
-          console.log(`[${surface} ${name}] ${response.status()} ${new URL(response.url()).pathname}`)
+          console.log(
+            `[${surface} ${name}] ${response.status()} ${new URL(response.url()).pathname}`,
+          )
       })
       const arm = {
         context,
@@ -357,10 +357,15 @@ test('certified warm attach removes the second delivery and preserves live value
         mappings: arm.mappings,
       }
       diagnostics.push(state)
-      await arm.page.screenshot({ path: resolve(ARTIFACTS, `${surface}-${name}-failure.png`) }).catch(() => {})
+      await arm.page
+        .screenshot({ path: resolve(ARTIFACTS, `${surface}-${name}-failure.png`) })
+        .catch(() => {})
       console.log(`[warm-cache-failure] ${JSON.stringify(state)}`)
     }
-    writeFileSync(resolve(ARTIFACTS, `${surface}-failure.json`), `${JSON.stringify(diagnostics, null, 2)}\n`)
+    writeFileSync(
+      resolve(ARTIFACTS, `${surface}-failure.json`),
+      `${JSON.stringify(diagnostics, null, 2)}\n`,
+    )
     throw error
   } finally {
     for (const arm of Object.values(arms)) await arm.context.close()
