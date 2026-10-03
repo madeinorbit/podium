@@ -7,7 +7,8 @@ import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
 import { MOBILE_SESSION_ENTITIES, MOBILE_SESSION_SOURCE_KEY, type MobileSessionRows } from './mobile-session-schema'
 import type { MobxPool } from './pool'
 import { issuePages } from './issue-page'
-import { paneSession } from './session-pane'
+import { paneSession, paneHasSessions } from './session-pane'
+import { knownIssueIds } from './enumerate'
 import { SessionPaneSource, SESSION_PANE_SOURCE_KEY } from './session-pane-source'
 import { SESSION_PANE_ENTITIES } from './session-pane-schema'
 import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from './session-exit-source'
@@ -52,7 +53,7 @@ export function createMobileSessionReader(pool: MobxPool) {
       const window = pool.row('mobileSessionWindow', 'window')
       const sessions = pool.row('chatSessionOrder', 'order'), issues = pool.row('chatIssueOrder', 'order')
       if (!window || window === LOADING || !sessions || sessions === LOADING || !issues || issues === LOADING) return true
-      return window.cursor === null && sessions.ids.length === 0 && issues.ids.length === 0
+      return window.cursor === null && sessions.ids.length === 0 && issues.ids.length === 0 && !paneHasSessions(pool) && knownIssueIds(pool).length === 0
     },
     conversation(id: string) {
       const held = pool.row('chatHeld', id), draft = pool.row('chatDraft', id), records = chatRecords(pool, id)

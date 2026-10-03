@@ -50,5 +50,11 @@ it('keeps spawn confirmation loading until the shared pane source is attached an
   pool.sources.register(['sessionPaneWindow'], { read: () => ({ pendingSpawnIds: new Set([asSessionId('provisional')]), panelMode: {}, dockShells: {}, reposLoaded: false }), dispose() {} })
   expect(reader.spawnPending('provisional')).toBe(true)
   expect(reader.spawnPending('confirmed')).toBe(false)
+  pool.sources.register(['mobileSessionWindow'], { read: () => ({ cursor: null, pendingSpawnPrompts: new Map() }), dispose() {} })
+  pool.sources.register(['chatSessionOrder', 'chatIssueOrder'], { read: () => ({ ids: [] }), dispose() {} })
+  expect(reader.booting()).toBe(true)
+  // The first provisional row can arrive before the replica cursor or order.
+  pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'provisional', value: { sessionId: 'provisional', agentKind: 'codex', status: 'starting', archived: false, cwd: '/synthetic/project', lastActiveAt: '2026-10-03T00:00:00Z' } as never }] })
+  expect(reader.booting()).toBe(false)
   pool.dispose()
 })
