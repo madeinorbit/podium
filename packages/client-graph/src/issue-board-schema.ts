@@ -4,6 +4,7 @@ import type { BoardFilter, IssueRow, IssuesOrdering, TaskProgress } from '@podiu
 import type { IssueId, IssueStage } from '@podium/model/browser'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import type { MissionActionInputs } from './mission-view'
+import type { BoardProjection } from './issue-board-projection'
 
 export type BoardExplorerTab = 'needs' | 'proposed' | 'backlog' | 'planning' | 'in_progress' | 'review' | 'done' | 'cancelled'
 export const BOARD_EXPLORER_TABS: readonly BoardExplorerTab[] = ['needs', 'in_progress', 'review', 'planning', 'backlog', 'proposed', 'done', 'cancelled']
@@ -53,10 +54,11 @@ export interface IssueBoardSourceRows {
   issueBoardModel: PoolBoardData
   issueExplorerModel: PoolExplorerData
   issueBoardRow: IssueViewModel
+  issueBoardProjection: BoardProjection
 }
 declare module './source-registry' { interface PoolSourceRows extends IssueBoardSourceRows {} }
 export const ISSUE_BOARD_SOURCE_KEY = 'issue-board'
-export const ISSUE_BOARD_ENTITIES = ['issueBoardWindow', 'issueBoardQuery', 'issueBoardCatalog', 'issueBoardModel', 'issueExplorerModel', 'issueBoardRow'] as const
+export const ISSUE_BOARD_ENTITIES = ['issueBoardWindow', 'issueBoardQuery', 'issueBoardCatalog', 'issueBoardModel', 'issueExplorerModel', 'issueBoardRow', 'issueBoardProjection'] as const
 export const ISSUE_BOARD_SOURCE_SCHEMA = {
   issueBoardWindow: { key: 'windowId', source: 'runtime:openIssueId', fields: ['openIssueId'], residency: 'window-scalar' },
   issueBoardQuery: { key: 'serializedFilter', source: 'pool:resident-index+declared-cold-summaries', fields: ['ids'], residency: 'mounted-demand-ids' },
@@ -64,6 +66,7 @@ export const ISSUE_BOARD_SOURCE_SCHEMA = {
   issueBoardModel: { key: 'serializedDisplayAndFilter', source: 'pool:issueBoardQuery+issueBoardCatalog+issue-relations', residency: 'mounted-view' },
   issueExplorerModel: { key: 'serializedTabAndQuery', source: 'pool:issueBoardQuery+issue-relations+session-summaries', residency: 'mounted-view' },
   issueBoardRow: { key: 'issueId', source: 'pool:issue-summary+repo+treeChildren+pageDependents+pageSessions', residency: 'observed-row' },
+  issueBoardProjection: { key: 'entityAndDemandKey', source: 'pool:issueBoardModel|issueExplorerModel', residency: 'mounted-observation' },
 } as const
 /** Core already declares repo, treeParent/treeChildren, pageDependencies,
  * pageDependents and pageSessions. This screen uses those exact relations.

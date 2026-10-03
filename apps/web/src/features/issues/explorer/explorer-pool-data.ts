@@ -9,6 +9,7 @@ import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { boardDataLayer } from '../board-data-layer'
 import { useIssuePageIssues, useIssuePageSessions } from '../issue-page/issue-page-data'
 import { defaultTab, EXPLORER_TABS, explorerCounts, explorerRows, type ExplorerTab } from './explorer-list'
+import { useBoardPoolProjection } from '../board-pool-projection'
 
 const EMPTY: PoolExplorerData = { counts: { needs: 0, proposed: 0, backlog: 0, planning: 0, in_progress: 0, review: 0, done: 0, cancelled: 0 },
   tab: 'in_progress', total: 0, rows: [], sessions: [], byId: new Map(), rowSessions: new Map() }
@@ -35,8 +36,7 @@ function useLegacyExplorer(pickedTab: ExplorerTab | null, query: string): PoolEx
 }
 function usePoolExplorer(tab: ExplorerTab | null, query: string): PoolExplorerData {
   const key = JSON.stringify({ tab, query })
-  const read = useCallback((pool: MobxPool) => pool.row('issueExplorerModel', key), [key])
-  const value = useWorklistPoolProjection(read, undefined)
+  const value = useBoardPoolProjection<PoolExplorerData | symbol>('issueExplorerModel', key)
   return value && typeof value !== 'symbol' ? value : EMPTY
 }
 export function useExplorerData(tab: ExplorerTab | null, query: string): PoolExplorerData {

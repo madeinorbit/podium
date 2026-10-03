@@ -11,6 +11,7 @@ import { BOARD_EXPLORER_TABS, ISSUE_BOARD_SUMMARIES, type BoardCatalog, type Boa
   type BoardOptions, type BoardQuery, type IssueBoardSourceRows, type PoolBoardData, type PoolExplorerData } from './issue-board-schema'
 import type { MobxPool } from './pool'
 import type { PoolSource } from './source-registry'
+import { createBoardProjection, type BoardProjection } from './issue-board-projection'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const byId = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
@@ -41,6 +42,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
   const cache = new Map<string, IComputedValue<unknown>>()
   const buckets = observable.map<string, ReturnType<typeof observable.set<string>>>(undefined, { deep: false })
   const stops = new Map<string, () => void>()
+  const projections = new Map<string, BoardProjection>()
   let disposed = false
   const open = observable.box(owner?.getSnapshot().openIssueId ?? null)
   const stopOwner = owner?.subscribe(() => runInAction(() => open.set(owner.getSnapshot().openIssueId))) ?? (() => {})
@@ -444,11 +446,23 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
         case 'issueBoardModel': return board(JSON.parse(id))
         case 'issueExplorerModel': return explorer(JSON.parse(id))
         case 'issueBoardRow': return issue(id)
+        case 'issueBoardProjection': {
+          let view = projections.get(id)
+          if (!view) {
+            const [entity, key] = JSON.parse(id) as ['issueBoardModel' | 'issueExplorerModel', string]
+            view = createBoardProjection(() => pool.row(entity, key), () => {
+              if (projections.get(id) === view) projections.delete(id)
+            })
+            projections.set(id, view)
+          }
+          return view
+        }
       }
     },
     dispose() {
       if (disposed) return
       disposed = true; stopOwner(); stopTable()
+      for (const projection of projections.values()) projection.dispose()
       for (const stop of stops.values()) stop()
       stops.clear(); cache.clear(); runInAction(() => buckets.clear())
     },

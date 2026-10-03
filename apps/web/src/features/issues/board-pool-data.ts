@@ -9,6 +9,7 @@ import { useReplicaIssues, useStoreSelector, type IssueViewModel } from '@/app/s
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { boardDataLayer } from './board-data-layer'
 import { deriveIssuesViewModel } from './issues-view-model'
+import { useBoardPoolProjection } from './board-pool-projection'
 
 const EMPTY_ISSUES: IssueViewModel[] = [], EMPTY_SESSIONS: SessionView[] = []
 export const EMPTY_BOARD: PoolBoardData = {
@@ -48,8 +49,7 @@ function usePoolData(options: BoardOptions): PoolBoardData {
   const readCatalog = useCallback((pool: MobxPool) => pool.row('issueBoardCatalog', agents), [agents])
   useWorklistPoolProjection(readCatalog, undefined)
   const key = JSON.stringify(options)
-  const read = useCallback((pool: MobxPool) => pool.row('issueBoardModel', key), [key])
-  const value = useWorklistPoolProjection(read, undefined)
+  const value = useBoardPoolProjection<PoolBoardData | symbol>('issueBoardModel', key)
   return value && typeof value !== 'symbol' ? value : EMPTY_BOARD
 }
 export function useBoardData(options: BoardOptions, base: ReturnType<typeof useBoardBase>): PoolBoardData {
