@@ -21,7 +21,7 @@ import { checkMobile, legacyMobileSnapshot, poolMobileSnapshot } from './mobile'
 
 async function main(): Promise<void> {
   if (hostname() !== 'ludovico' || !process.argv.includes('--live')) throw new Error('Local live replay only')
-  const { raw, sessionHomes } = await readLive('http://127.0.0.1:18787')
+  const { raw, sessionHomes, snapshotSeq } = await readLive('http://127.0.0.1:18787')
   const corpus = { ...corpusFromLive(raw, Date.now()), issueProjections: raw.issueProjections,
     issueUserStates: raw.issueUserStates ?? [], issueGitStates: raw.issueGitStates ?? [], repoProjections: raw.repoProjections }
   const cache = seedCacheFromCorpus(corpus)
@@ -33,6 +33,8 @@ async function main(): Promise<void> {
   ])
   const replica = createKernelReplica({ cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
+  replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq,
+    entityCount: cache.records.length, bufferedFramesApplied: 0 })
   const store = sidebarReplayStore(corpus, replica)
   // Same read view and resume-collapse order as ClientRuntime.readSessionViews.
   store.sessions = dedupeSessions(sessionViews(replica.rows('sessions'), {
