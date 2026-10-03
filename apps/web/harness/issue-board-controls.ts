@@ -1,0 +1,49 @@
+/** Foreground, focused planted failures; private flatblock checkout only. */
+import { execFileSync, spawnSync } from 'node:child_process'
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { hostname } from 'node:os'
+import { resolve } from 'node:path'
+
+if (hostname() !== 'flatblock' || !process.cwd().endsWith('/podium-test-5080')) throw new Error('Private flatblock checkout required')
+const root = resolve('.artifacts/issue-board/controls')
+mkdirSync(root, { recursive: true })
+const source = 'packages/client-graph/src/issue-board-source.ts'
+const test = 'packages/client-graph/src/issue-board-source.test.ts'
+const cases = [
+  { name: 'unmount-release', file: source, test, title: 'releases demanded', from: 'onBecomeUnobserved(value, () => cache.delete(key))', to: 'onBecomeUnobserved(value, () => {})' },
+  { name: 'summary-only', file: source, test, title: 'uses declared cold', from: "const row = pool.row('issue', id, 'summary')", to: "const row = pool.row('issue', id)" },
+  { name: 'loading-boundary', file: source, test, title: 'answers a missing summary', from: 'if (!value || value === LOADING) return value', to: 'if (!value || value === LOADING) return undefined' },
+  { name: 'resident-scaling', file: source, test, title: 'stage changes examine', from: 'const result = intersection(filters)', to: "const result = new Set(bucket('all')); countIssueBoard('residentCandidates', result.size)" },
+  { name: 'pending-overlay', file: source, test, title: 'updates overlays', from: "const row = pool.row('issue', id, 'summary')", to: "const row = pool.tables.issue.get(id) ?? pool.row('issue', id, 'summary')" },
+  { name: 'resident-release', file: source, test, title: 'updates overlays', from: "if (change.type === 'delete') { stops.get(change.name)?.(); stops.delete(change.name) }", to: "if (change.type === 'delete') {}" },
+  { name: 'vacated-review', file: source, test, title: 'keeps an empty review', from: 'issueIsActionable(attention,', to: 'issueIsActionable(row,' },
+  { name: 'row-values', file: source, test: 'apps/web/src/features/issues/board-pool-parity.test.ts', title: 'matches legacy', from: 'return { ...fields, id: asIssueId(id), description:', to: 'return { ...fields, priority: 99, id: asIssueId(id), description:' },
+  { name: 'mismatch-detector', file: 'packages/client-graph/diagnostics/issue-board-check.ts', test: 'packages/client-graph/diagnostics/issue-board-check.test.ts', title: 'detects a planted', from: 'const field = issuePageFirstDifference(expected, actual)', to: 'const field = null' },
+  { name: 'legacy-read-fence', file: 'apps/web/src/features/issues/board-pool-data.ts', test: 'apps/web/src/features/issues/board-pool-hooks.test.tsx', title: 'keeps board-only', from: "boardDataLayer() === 'pool' ? usePoolBase : useLegacyBase", to: "boardDataLayer() === 'pool' ? useLegacyBase : useLegacyBase" },
+  { name: 'legacy-positive-counter', file: 'packages/client-core/src/perf/issue-board-perf.ts', test: 'apps/web/src/features/issues/board-pool-hooks.test.tsx', title: 'records actual legacy', from: 'countIssueBoard(`legacy.${name}`)', to: '// planted: omit the counter' },
+  { name: 'default-off', file: 'apps/web/src/features/issues/board-pool-screen.ts', test: 'apps/web/src/features/issues/board-pool-screen.test.ts', title: 'latches the independent', from: "enabled: () => issueBoardSwitch.layer() === 'pool'", to: 'enabled: () => true' },
+]
+const git = (...args: string[]) => execFileSync('git', ['-c', 'gc.auto=0', ...args], { stdio: 'pipe' })
+const reports: { name: string; status: number | null; assertion: boolean; restored: boolean }[] = []
+for (const control of cases) {
+  const path = resolve(control.file), original = readFileSync(path, 'utf8'), aside = resolve(root, `${control.name}.aside`)
+  if (!original.includes(control.from)) throw new Error(`Control target missing: ${control.name}`)
+  git('commit', '--allow-empty', '-m', `wip(board): before ${control.name} plant`)
+  copyFileSync(path, aside)
+  try {
+    writeFileSync(path, original.replace(control.from, control.to))
+    git('add', control.file); git('commit', '-m', `wip(board): planted ${control.name} run`)
+    const run = spawnSync(process.execPath, ['run', 'test:file', '--', control.test, '-t', control.title], { encoding: 'utf8', timeout: 120_000, maxBuffer: 12_000_000 })
+    const output = `${run.stdout ?? ''}\n${run.stderr ?? ''}`
+    const assertion = /AssertionError/.test(output) && /[1-9]\d* failed/.test(output)
+    reports.push({ name: control.name, status: run.status, assertion, restored: false })
+    if (run.status !== 1 || !assertion) { writeFileSync(resolve(root, `${control.name}.log`), output); throw new Error(`Control did not fail an assertion: ${control.name}`) }
+  } finally {
+    copyFileSync(aside, path); rmSync(aside)
+    git('add', control.file); git('commit', '-m', `wip(board): restored ${control.name}`)
+    if (reports.at(-1)?.name === control.name) reports.at(-1)!.restored = readFileSync(path, 'utf8') === original
+    writeFileSync(resolve(root, 'report.json'), JSON.stringify(reports, null, 2))
+  }
+  console.log(JSON.stringify(reports.at(-1)))
+}
+if (reports.some(report => !report.restored)) throw new Error('Restoration failed')
