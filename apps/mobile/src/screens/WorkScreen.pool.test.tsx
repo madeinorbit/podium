@@ -6,6 +6,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { MobileTrpc } from '../client/trpc'
 import type { MobilePool } from '../client/mobile-pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import { createKernelReplica, createSideCache, entityForKind, rowKey, memoryStorage, type ReplicaKind, type ReplicaRows } from '@podium/client-core/replica'
@@ -13,7 +14,7 @@ import type { EntityRecord } from '@podium/sync/replica'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import { renderWithMobileStore } from '../client/test-support'
 
-const state = vi.hoisted(() => ({ host: null as MobilePool | null, on: false,
+const state = vi.hoisted(() => ({ host: null as MobilePool | null, pool: null as MobxPool | null, on: false,
   sections: [] as readonly MobileWorkSection[], runtime: null as ClientRuntime<MobileTrpc> | null,
   counts: new Map<string, number>(), sliceReads: 0, rowDerivations: 0, errors: [] as string[] }))
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
@@ -26,7 +27,11 @@ vi.mock('../client/mobile-pool', async importOriginal => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return { ...real,
     mobileDataLayer: () => state.host!.layer(),
-    useMobilePool: () => state.host!.host.usePool(),
+    useMobilePool: () => {
+      const pool = state.host!.host.usePool()
+      state.pool = pool
+      return pool
+    },
     useMobilePoolProjection: (read: never, empty: never) => state.host!.host.usePoolProjection(read, empty),
     useMobileLaunchData: () => state.host!.host.usePoolProjection(readLaunch, null),
   }
@@ -159,6 +164,16 @@ function output(container: HTMLElement) {
     labels: [...container.querySelectorAll('[data-label]')].map(el => el.getAttribute('data-label')),
     styles: [...container.querySelectorAll('[style]')].map(el => el.getAttribute('style')) }
 }
+/** Search can request row-paint inputs beyond the list's placement inputs.
+ * Settle the real batched loader before comparing one title publication. */
+async function drainNativeLoads() {
+  for (let turn = 0; turn < 100; turn++) {
+    let loaded = 0
+    await act(async () => { loaded = state.pool!.hydrate() })
+    if (loaded === 0) return
+  }
+  throw new Error('native fixture load window did not settle')
+}
 afterEach(() => { cleanup(); vi.restoreAllMocks(); state.counts.clear() })
 afterAll(() => vi.unstubAllEnvs())
 
@@ -219,6 +234,7 @@ describe('mobile WorkScreen pool consumer', () => {
     fireEvent.click(screen.getByLabelText('Search work'))
     fireEvent.change(screen.getByLabelText('Search work', { selector: 'input' }), { target: { value: 'reconcile' } })
     await waitFor(() => expect(state.sections.length).toBeGreaterThan(1))
+    await drainNativeLoads()
     const singleBand = (id: string) => state.sections.filter(band => band.data.some(item => item.id === id)).length === 1
     const section = state.sections.find(band => band.kind === 'project' && band.data.some(item => item.kind === 'issue' && singleBand(item.id)))!
     expect(section).toBeDefined()
