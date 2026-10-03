@@ -74,7 +74,12 @@ class Maps {
       if (ts.isFunctionLike(node) && 'body' in node && node.body) {
         const parent = node.parent
         const entryStart = ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)
-          ? parent.getStart(ast) : node.getStart(ast)
+          ? parent.getStart(ast)
+          // Hook/callback entries can map to the call before their arrow.
+          // Keep those frames on the callback rather than its enclosing hook.
+          : ts.isCallExpression(parent) && parent.arguments[0] === node
+            ? ast.getPositionOfLineAndCharacter(ast.getLineAndCharacterOfPosition(parent.getStart(ast)).line, 0)
+            : node.getStart(ast)
         functions.push({ start: node.getStart(ast), entryStart, end: node.end, name: functionName(node, ast),
           line: ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1 })
       }
@@ -380,7 +385,7 @@ for (const { file, profile } of raw) {
   for (const commit of commits) for (const [id, count] of Object.entries(commit.components)) {
     const component = components[record.pilot]!.get(Number(id))
     if (!component) throw new Error(`${file}: missing component ${id}`)
-    const name = component.file.includes('lucide') ? component.runtimeName : component.name
+    const name = component.file.includes('lucide') && component.runtimeName ? component.runtimeName : component.name
     add(rendered, `${name} — ${component.file}:${component.line}`, count)
   }
   const ranked = (counts: Record<string, number>) => Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([label, ms]) => ({ label, ...functions.get(label), ms }))
