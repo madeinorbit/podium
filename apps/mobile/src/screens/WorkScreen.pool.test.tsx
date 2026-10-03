@@ -8,7 +8,6 @@ import type { MobileTrpc } from '../client/trpc'
 import type { MobilePool } from '../client/mobile-pool'
 import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
-import { useStoreHandle } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, entityForKind, rowKey, memoryStorage, type ReplicaKind, type ReplicaRows } from '@podium/client-core/replica'
 import type { EntityRecord } from '@podium/sync/replica'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
@@ -133,7 +132,7 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
   } }
 }
 
-function Capture() { state.runtime = useStoreHandle<MobileTrpc>() as unknown as ClientRuntime<MobileTrpc>; return <WorkScreen /> }
+function Capture() { return <WorkScreen /> }
 async function mount(on: boolean, scale: 1 | 4) {
   state.on = on; state.sliceReads = 0; state.rowDerivations = 0; state.counts.clear(); state.errors.length = 0
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
@@ -143,7 +142,10 @@ async function mount(on: boolean, scale: 1 | 4) {
   vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
   const view = await renderWithMobileStore(<Capture />, {
     replica: feed.replica, principal: 'u-bench', repos: corpus.repos, machines: corpus.machines,
-    attachRuntime: runtime => state.host!.host.attach(runtime, cause => { state.errors.push(cause.message) }),
+    attachRuntime: runtime => {
+      state.runtime = runtime
+      return state.host!.host.attach(runtime, cause => { state.errors.push(cause.message) })
+    },
   })
   await waitFor(() => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull(), { timeout: 30_000 })
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
@@ -211,7 +213,9 @@ describe('mobile WorkScreen pool consumer', () => {
 
   it('search overrides folds, uses native match counts, and the pool menu resolves on long press', async () => {
     const { view, corpus } = await mount(true, 1)
-    const project = state.sections.find(section => section.kind === 'project' && section.data.length > 0)!
+    // The initial native window contains Pinned; later project headers are
+    // intentionally not mounted until that window reaches them.
+    const project = state.sections[0]!
     expect(project).toBeDefined()
     const before = state.sections
     fireEvent.click(screen.getByLabelText(`${project.label} · ${project.total}`))
@@ -219,7 +223,7 @@ describe('mobile WorkScreen pool consumer', () => {
     for (const section of state.sections) if (section.key !== project.key) expect(section).toBe(before.find(old => old.key === section.key))
     fireEvent.click(screen.getByLabelText('Search work'))
     const ref = before[0]!.data[0]!
-    const issue = state.runtime!.replica.rows('issueProjections').find(row => row.id === ref.id)!
+    const issue = state.runtime!.getSnapshot().replica.rows('issueProjections').find(row => row.id === ref.id)!
     fireEvent.change(screen.getByLabelText('Search work', { selector: 'input' }), { target: { value: issue.title } })
     await waitFor(() => expect(state.sections.some(section => section.data.some(row => row.id === ref.id))).toBe(true))
     expect(state.sections.every(section => section.total === section.data.length)).toBe(true)
@@ -227,7 +231,7 @@ describe('mobile WorkScreen pool consumer', () => {
       const title = corpus.issueProjections.find(issue => issue.id === row.id)?.title
       return title?.toLowerCase().includes(issue.title.toLowerCase())
     })).toBe(true)
-    const row = view.container.querySelector(`[data-label="POD-${issue.seq} ${issue.title}"]`)!
+    const row = view.container.querySelector(`[data-label$=" ${issue.title}"]`)!
     fireEvent.contextMenu(row)
     await screen.findByTestId('menu')
     expect(screen.getByTestId('menu').getAttribute('data-issue')).toBe(ref.id)
