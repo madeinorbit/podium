@@ -31,8 +31,13 @@ installMobxWarnTrap()
 describe('schema fields on models', () => {
   it('reads every declared field of every entity off a model, from the fed row', () => {
     const corpus = buildCorpus(1)
+    const projections = new Map(corpus.issueProjections.map((issue) => [issue.id, issue]))
     const replay = createReplaySource({
-      issues: corpus.sliceIssues.map((value) => ({ kind: 'issue', id: value.id, value })),
+      // SliceIssue is the worklist payload. The schema test also feeds the
+      // normalized projection's required fields (priority, type, labels).
+      issues: corpus.sliceIssues.map((value) => ({
+        kind: 'issue', id: value.id, value: { ...projections.get(value.id), ...value },
+      })),
       sessions: corpus.sliceSessions.map((value) => ({
         kind: 'session',
         id: value.sessionId,
