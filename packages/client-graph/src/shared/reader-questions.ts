@@ -96,7 +96,9 @@ export function createReaderIndex() {
   const compareTargets = (a: string, b: string) =>
     (targetOrder.get(b) ?? 0) - (targetOrder.get(a) ?? 0) || byId(a, b)
   const orderedTargetKey = (key: string) =>
-    key.startsWith('issue:path:') || key.startsWith('issue:targetGram:') || key.startsWith('issue:targetSequenceStart:')
+    key.startsWith('issue:path:') ||
+    key.startsWith('issue:targetGram:') ||
+    key.startsWith('issue:targetSequenceStart:')
   function removeTarget(key: string, id: string) {
     const ids = targetPostings.get(key)
     if (!ids) return
@@ -306,7 +308,10 @@ export function createReaderIndex() {
       const keys = [`${questionEntity(question)}:all`]
       switch (question.kind) {
         case 'mobileIssueTargets':
-          return Math.max(replacement, revisions.get(`mobileTargets:issue:path:${question.repoPath}`) ?? 0)
+          return Math.max(
+            replacement,
+            revisions.get(`mobileTargets:issue:path:${question.repoPath}`) ?? 0,
+          )
         case 'proposedIssues':
           keys.push('issue:proposed')
           break
@@ -395,7 +400,10 @@ export function createReaderIndex() {
               for (let cut = 0; cut < refNeedle.length; cut++) {
                 const tail = refNeedle.slice(cut)
                 if (prefix.endsWith(refNeedle.slice(0, cut)) && /^\d+$/.test(tail))
-                  sequences.set(`${cut > 0 ? 'start' : 'any'}:${tail}`, { text: tail, starts: cut > 0 })
+                  sequences.set(`${cut > 0 ? 'start' : 'any'}:${tail}`, {
+                    text: tail,
+                    starts: cut > 0,
+                  })
               }
             }
           const candidates = (field: 'title' | 'ref', text: string, starts = false) => {
@@ -417,7 +425,9 @@ export function createReaderIndex() {
           const lanes = needle
             ? [
                 candidates('title', needle),
-                ...[...sequences.values()].map(({ text, starts }) => candidates('ref', text, starts)),
+                ...[...sequences.values()].map(({ text, starts }) =>
+                  candidates('ref', text, starts),
+                ),
               ]
             : [candidates('title', '')]
           const positions = lanes.map(() => 0),
