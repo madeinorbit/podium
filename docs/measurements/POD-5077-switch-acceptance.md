@@ -1,18 +1,18 @@
 # POD-5077 switch acceptance
 
-POD-5093, 2026-10-03. **Acceptance remains open.** The pruning candidate has zero legacy entries and zero unexpected diagnostic differences, but the initial account remains reachable through the workspace Close Tab hook. Final timings wait for the coordinator's POD-5395 landing; no default has been changed.
+POD-5093, 2026-10-03. **Acceptance remains open.** The pruning candidate has zero legacy entries and zero unexpected diagnostic differences, but the initial account remains reachable through the workspace Close Tab hook. The frozen integration product is `c38a12b360`, containing POD-5395 and POD-5396. Flatblock access stopped during the focused gate when ludovico Tailscale entered `NeedsLogin`; the gate result is not yet retrievable and no accepted timing capture has run. No default has been changed.
 
 ## Evidence status
 
 | Requirement | Evidence | Result |
 | --- | --- | --- |
-| Store and derive p50 <200 ms, p95 <500 ms | Final interleaved browser capture awaits frozen integration candidate | Pending |
+| Store and derive p50 <200 ms, p95 <500 ms | Frozen product `c38a12b360`; new flatblock connections blocked by Tailscale login | Pending |
 | IndexedDB, layout and total reported separately | Exclusive source-mapped CPU partition and Chromium timeline collector prepared | Pending |
 | Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, candidate `91bb0f3488`, mission / small / session switches | Zero entries |
 | Synthetic corpus parity | Sidebar, mission, issue-page and session diagnostics on the same browser candidate | Zero differences / pending |
 | Private operator replay | Five read-only ludovico checks; current sidebar seed alignment | Zero unexpected differences / pending |
 | Account switch leaves no survivors | Alice → Bob → Alice, actual principals checked, five forced GC and settled-render rounds per transition | Fails: POD-5402 |
-| Focused corpus and rendering gates | Await final committed integration candidate | Pending |
+| Focused corpus and rendering gates | Fourteen exact files started on committed `b2846d011e`; transport lost before result retrieval | Pending |
 
 ## Correctness and legacy work
 
@@ -63,4 +63,10 @@ Eleven focused report guards accept clean input and reject planted startup, lega
 
 ## Rollout and deletion
 
-The operator decides when these screens become ON by default after the remaining acceptance evidence is green. Their escape switches remain for about one week after that activation. The final POD-5077 child will remove the legacy read path for these screens and their switches after that interval. Shared legacy helpers needed by unmigrated mobile screens remain until their own screen migration; the snapshot pipeline is retired by step 07.
+The operator decides when these screens become ON by default after the remaining acceptance evidence is green. Their escape switches remain for about one week after that activation. POD-5408, the final deletion child under POD-5077, will remove the legacy read path for these screens and their switches after that interval. Shared legacy helpers needed by unmigrated mobile screens remain until their own screen migration; the snapshot pipeline is retired by step 07.
+
+## Validation boundary
+
+The focused gate is `bun run test:file --` with these fourteen exact files on flatblock: sidebar-check, mission-view-check, issue-page-check, issue-page-replay, engine navigation-pool, web pool-navigation-provider and pool-navigation-render, FlightDeck.pool, IssuePage.pool-parity, session-pane.pool, chat-context.pool, shell-pool-screen, graph pool-host and pool-projection. It runs through the repository admission/collection wrapper with a foreground 900-second timeout, checkout-local Bun 1.4.2 and no timing lease. At transport loss the worker was actively executing; no result is inferred from that observation. Retrieve its existing log before deciding whether any rerun is needed.
+
+This issue changes only this report in tracked source. It does not require an additional runtime typecheck or the ordinary lean gate; the focused corpus/rendering lane is the relevant acceptance evidence. The product-fix owners report their own focused regressions and lean gates green. New checker sources and synthetic results are retained as issue artifacts rather than committed application code.
