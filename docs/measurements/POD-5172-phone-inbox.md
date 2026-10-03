@@ -2,7 +2,7 @@
 
 The phone Inbox, proposal screening, Pulse live health, reference chips and link host now read the app-owned pool when the existing mobile pilot is enabled. The device switch still defaults OFF and is latched once; an enabled screen waits through asynchronous pool attachment without mounting a legacy reader. Mutations, RPC polling, transcript requests, optimism and the outbox remain with the existing runtime.
 
-This report covers isolated reader acceptance. The unchanged launch child is owned by POD-5356 on POD-4977's branch and is stubbed in this proof; complete mounted Inbox acceptance and a seeded production export are tracked in POD-5373 after POD-4977 and POD-5370 land. Work, Issues, Issue and Mission screens remain with their allocated lanes. Legacy retirement is proposed in POD-5376 for about a week after the operator defaults the screen ON.
+This report covers isolated reader acceptance. The unchanged launch child is owned by POD-5356 on POD-4977's branch and is stubbed in the five-reader proof; complete mounted Inbox acceptance is tracked in POD-5373 after POD-4977 lands. POD-5370's phone startup fix has landed at `8db927c57f`, and this branch is rebased onto it. Work, Issues, Issue and Mission screens remain with their allocated lanes. Legacy retirement is proposed in POD-5376 for about a week after the operator defaults the screen ON.
 
 ## Scope and declarations
 
@@ -38,6 +38,32 @@ The corrected full replay ran only on ludovico against the existing operator ins
 
 ## Browser and production evidence
 
-The production mobile web export passed on the rebased `80dc17543d` candidate, including postprocessing, compression and the source build stamp. Metro bundled 2,433 modules; all 12 web bundles were exported. This proves export/build coherence; seeded production runtime acceptance remains with POD-5373 after the separate crash fix lands.
+The production mobile web export passed on the earlier rebased `80dc17543d` candidate, including postprocessing, compression and the source build stamp. Metro bundled 2,433 modules; all 12 web bundles were exported. The seeded production reader lane is now committed and awaits its flatblock run after rebasing onto the startup fix.
 
-The interleaved Chromium capture remains the last isolated reader gate. Browser evidence uses 5,600 synthetic issues and 5,014 synthetic sessions with the actual five readers, existing store/provider attachment and the real startup latch. Platform router/profile adapters, native animation, launch, storage and refresh siblings are explicit fixture stubs; it is an isolated reader measurement, not complete phone application acceptance.
+The clean interleaved capture passed on `23d4493446`, Chromium **148.0.7778.96**, Bun **1.4.2**, on flatblock while holding `bench:flatblock`. It ran OFF/ON/OFF/ON in separate pages at 430×1050. Earlier incomplete fixture runs and the run started before its lease grant are excluded; the lease was released after every completed/failed capture. The evidence uses **5,600 synthetic issues and 5,016 sessions**: 5,014 linked sessions plus two guest sessions inherited from the shared fixture. The screenshot header shows the linked subtotal. Twelve linked sessions remain unarchived; the remainder supplies cold history.
+
+The fixture mounts the actual five readers with the existing store/provider attachment and real startup latch. Router/profile adapters, native swipe animation, launch, storage and refresh siblings are explicit stubs. Five SVG DOM adapters preserve the actual stage-glyph geometry and colours; they supply the browser primitives that Expo normally supplies. This is an isolated development reader measurement. InboxScreen has no current Expo app route; complete mounted Inbox acceptance removes the launch stub after POD-4977 lands.
+
+Enabled mount, activity, relevant updates and reference actions recorded **zero selectorRuns, zero rowBuilds and zero legacy slice derivations**. The OFF mount built 5,600 issue rows and ran 107 selectors. Each OFF activity arm ran 761 selectors and built 27 rows; each OFF relevant-update arm ran 638 selectors and built 20 rows. Both ON comparison arms matched **27 visible positions with zero differences and zero pending reads**. Known issue and permanent session taps reached their expected routes; a missing reference opened the actual RN Web popup destination once per arm. The proposal Skip button advanced the existing deck. There were no page errors or synthetic runtime failures.
+
+| Phase | OFF A commits / task ms | ON A commits / task ms | OFF B commits / task ms | ON B commits / task ms |
+| --- | ---: | ---: | ---: | ---: |
+| 30 activity publications | 43 / 1,400.7 | 25 / 1,617.7 | 43 / 1,612.0 | 25 / 1,668.0 |
+| 20 issue/health updates | 40 / 1,032.3 | 21 / 1,313.5 | 40 / 1,093.5 | 21 / 1,139.6 |
+
+Task time is the CDP `Performance.TaskDuration` delta for the whole publication loop, including the retained proposal screen and platform work. Average React commit duration fell from 608.2 to 332.9 ms for activity and from 502.0 to 401.0 ms for relevant updates. Total task time increased about 9% and 15%, respectively, in these two development-fixture samples. This does not establish an end-to-end speed gain or a production regression; Proposed POD-5387 records the attribution/reproduction work. The device default remains OFF. Initial async attachment took 12–13 ON commits versus eight OFF commits; startup task time and heap were not measured.
+
+Reproduce from the committed candidate in the dedicated checkout:
+
+```sh
+podium lock acquire bench:flatblock --ttl 10m --wait
+# Wait for the grant, then on flatblock:
+cd ~/podium-test-5172
+export PATH="$HOME/podium-test-5172/.toolchain:$PATH"
+export LD_LIBRARY_PATH="$HOME/podium-test-5172/.toolchain/lib"
+timeout 600 bun apps/mobile/test/inbox-proof.ts
+# Release the lease immediately after capture, including a failure:
+podium lock release bench:flatblock
+```
+
+Raw synthetic capture results and Inbox/proposal screenshots are attached to the issue. The upcoming production suite uses the isolated authority's seeded issues to check proposal updates/deck decisions, streamed Pulse machines, addressed RefChip updates and an actual PodiumLinkHost route. It uses the unchanged issue detail only as a rich-text host and does not migrate that screen.
