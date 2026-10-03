@@ -612,6 +612,9 @@ it('resolves an earlier cold alias owner before a later resident claimant and fo
   })
   const views = mobileInboxViews(app.pool)!,
     target = { kind: 'issue' as const, issue: '#99999' }
+  const padded = { kind: 'issue' as const, issue: '#099999' }
+  expect(mobilePodiumRoute(padded, { issues: legacy(app).issues, sessions: [] })).toBeNull()
+  expect(views.route(padded)).toBeNull()
   expect(app.pool.residency!.isCold('issue', 'synthetic-18')).toBe(true)
   expect(app.pool.residency!.isCold('issue', 'synthetic-7')).toBe(false)
   const expected = () => {

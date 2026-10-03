@@ -108,6 +108,12 @@ const controls = [
     'hasCursor = this.runtime.replica.getCursor() !== null',
     'hasCursor = false',
   ],
+  [
+    'before a later resident claimant',
+    views,
+    'if (/^#0\\d+$/.test(target.issue.trim())) return null',
+    '// planted: normalize a bare alias that legacy matches literally',
+  ],
 ] as const
 const fromArg = process.argv.indexOf('--from')
 const from = fromArg < 0 ? 0 : controls.findIndex(([name]) => name === process.argv[fromArg + 1])
