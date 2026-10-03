@@ -10,7 +10,7 @@ import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import { reaction } from 'mobx'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { gen, genCorpus } from '../../../shared/src/gen/changes'
 import { startGenRun } from '../../../shared/src/gen/run'
 import {
@@ -21,10 +21,16 @@ import {
 import { tracked } from '../adapters/mobx-pool'
 import { FENCE_SCENARIOS, openFenceFeeds } from '../fence-scenarios'
 import { installMobxWarnTrap } from '../mobx-trap'
+import { FIXED_NOW } from '../fixture/corpus'
 import { writeResult } from '../results'
 import { expectPoolOutput } from './pool-output'
 
 installMobxWarnTrap()
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(FIXED_NOW)
+})
+afterEach(() => vi.useRealTimers())
 
 function settle(pool: MobxPool, state: SidebarState = {}): void {
   for (let round = 0; round < 64; round += 1) {
