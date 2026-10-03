@@ -2,6 +2,7 @@ import { vi } from 'vitest'
 import { useStoreSelector as selectMockSnapshot } from '@/app/store'
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
+import './mock-screen-pool'
 
 // Opt-in for provider-free suites that replace the web store. Stable accessors
 // must reach the SAME fake owner as the suite's reactive selectors. Keeping this

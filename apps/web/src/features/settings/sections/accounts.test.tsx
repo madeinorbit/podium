@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import '@/test-support/mock-screen-pool'
 import { asMachineId } from '@podium/model'
 import { Profiler, useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'

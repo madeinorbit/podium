@@ -1,4 +1,5 @@
 import type { IssueEventWire, SessionId } from '@podium/model'
+import '@/test-support/mock-core-store-handle'
 import { asSessionId, issueEventRowId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
