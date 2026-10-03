@@ -51,7 +51,8 @@ and the pool's resulting order without adding a new mobile control.
 
 All **28 action checks** rejected planted faults before their restored result
 counted. The final full action file passed on `integrate/4286-pilot` base
-`7f718e75c6`, including its cold-index and cycle-parent reader changes. It observed
+`ccce76d346`, including its cold-index, cycle-parent reader and search-cache
+reset changes. It observed
 **91 clean mobile side-by-side comparisons**, with zero differences or pending
 rows. Guards reject a mounted legacy slice subscription or legacy row
 derivation; only the explicit independent diagnostic oracle may evaluate the
@@ -80,8 +81,9 @@ flatblock checkout. No assertions are weakened.
 
 ## Production phone and final gates
 
-The required uncached mobile typecheck is green on the final integration
-runtime. It initially found unsupported
+The required uncached mobile and E2E typechecks are green on the final
+integration runtime and phone driver: 2/2 tasks, zero cache hits. The initial
+mobile run found unsupported
 `exact` options in Testing Library role queries and an untyped replica-call
 capture. Removing the ignored options and declaring the existing call types
 preserves the runtime assertions. Only the changed mobile project was retried;
@@ -133,7 +135,7 @@ controls.
 
 The final lean gate is green: **154 checks in four of 1,783 collected node
 files (0.2%)**. Its workspace typecheck reports 28/28 successful tasks, with
-19 cache hits; span-effect lint reports 162 bodies, zero unclassified effects
+23 cache hits; span-effect lint reports 162 bodies, zero unclassified effects
 and eight opaque bodies. The first lean run correctly rejected two uncovered
 imports from the new mobile test. `turbo.json` now declares the shared action
 fixture and mobile oracle in both mobile typecheck and test keys; the restored
@@ -145,6 +147,10 @@ warnings and one informational diagnostic). Root shadowing passes across
 fix separately as **POD-5414**, `ccce76d346`, with both reset paths tested and a
 rejected no-reset plant. This branch is rebased onto it. The original
 **Proposed POD-5411** finding is now covered by that landing.
+The final changed WorkScreen and phone driver pass scoped `biome lint` with
+zero errors (five warnings and one informational diagnostic). A broader
+`biome check` also examined WorkScreen's formatting/import order and failed
+those two checks; that result is not represented as green.
 
 All fixtures are synthetic. The operator's live data remains on ludovico;
 no screenshot, export or dump of it is used. Tests, typecheck and lint run
