@@ -1,7 +1,7 @@
 /** Real components and their sole offline runtime, with the fixed 4x corpus. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
-import { storeStats } from '@podium/client-core/perf'
+import { storeStats, issueBoardStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, replicaNamespaceKey } from '@podium/client-core/replica'
@@ -20,6 +20,7 @@ import { IssuesView } from '../src/features/issues/IssuesView'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
 import { IssueExplorerList } from '../src/features/issues/explorer/IssueExplorerList'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
+import { boardDataLayer } from '../src/features/issues/board-data-layer'
 import '../src/index.css'
 import '../src/styles.css'
 
@@ -52,6 +53,7 @@ let owner: ClientRuntime
 let pool: ReturnType<typeof useWorklistPool> = null
 let ready = false
 storeStats.enable()
+issueBoardStats.enable()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 
@@ -82,10 +84,12 @@ function Fixture() {
 }
 
 Object.assign(window, { __boardHarness: {
-  ready: () => ready, errors: () => [...errors], corpus: corpus.stats, now: FIXED_NOW,
+  ready: () => ready && (boardDataLayer() !== 'pool' || !!pool && typeof pool.row('issueBoardWindow', 'current') !== 'symbol'),
+  errors: () => [...errors], corpus: corpus.stats, now: FIXED_NOW,
   state: () => ({ issues: owner?.getSnapshot().issueProjections.length, sessions: owner?.getSnapshot().sessions.length,
     residentIssues: pool?.tables.issue.size, coldIssues: pool?.residency?.ids('issue', true).length }),
-  reset: () => storeStats.reset(), stats: () => storeStats.snapshot(),
+  reset: () => { storeStats.reset(); issueBoardStats.reset() },
+  stats: () => ({ ...storeStats.snapshot(), board: issueBoardStats.read() }),
 } })
 createRoot(document.getElementById('root')!).render(<StoreProvider
   principal={asClientPrincipal(asUserId(principal), 'board-proof')}

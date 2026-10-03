@@ -7,7 +7,7 @@ import {
 import { Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useStoreSelector } from '@/app/store'
 import { ToolbarSlot } from '@/app/ToolbarSlot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,7 +38,8 @@ import {
   writeIssuesDisplay,
 } from './issues-display'
 import { type IssuesKeyAction, type IssuesKeyState, issuesKeyReduce } from './issues-keys'
-import { deriveIssuesViewModel, type IssuesDisplayPatch } from './issues-view-model'
+import { type IssuesDisplayPatch } from './issues-view-model'
+import { useBoardBase, useBoardData } from './board-pool-data'
 import { NewIssueDialog } from './NewIssueDialog'
 
 const ResponsiveIssueList = memo(IssueListView)
@@ -50,9 +51,8 @@ const ResponsiveIssuesKanban = memo(IssuesKanban)
  * by the list, kanban, keyboard navigation and issue page.
  */
 export function IssuesView(): JSX.Element {
-  const issues = useReplicaIssues()
-  const openIssueId = useStoreSelector((store) => store.openIssueId)
-  const sessions = useStoreSelector((store) => store.sessions)
+  const base = useBoardBase()
+  const { openIssueId } = base
   const setOpenIssueId = useStoreSelector((store) => store.setOpenIssueId)
   const trpc = useStoreSelector((store) => store.trpc)
   // The board's own writes ride the outbox-as-overlay too (POD-781) — the same
@@ -87,7 +87,6 @@ export function IssuesView(): JSX.Element {
     null,
   )
   const [bulkClosing, setBulkClosing] = useState(false)
-  const needsCloseGuard = useIssueCloseGuard()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [showShortcuts, setShowShortcuts] = useState(false)
   const issueScrollPositions = useRef<{
@@ -133,28 +132,10 @@ export function IssuesView(): JSX.Element {
     [deferredText, priority, projectPaths, status, stage, archived, deleted],
   )
 
-  const availableProjectPaths = useMemo(
-    () =>
-      [...new Set(issues.map((issue) => issue.repoPath).filter(Boolean))].sort((a, b) =>
-        (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
-      ),
-    [issues],
-  )
-
-  const view = useMemo(
-    () =>
-      deriveIssuesViewModel({
-        issues,
-        sessions,
-        now,
-        display,
-        filter: deferredFilter,
-        expanded,
-        isMobile,
-        openIssueId,
-      }),
-    [issues, sessions, now, display, deferredFilter, expanded, isMobile, openIssueId],
-  )
+  const options = useMemo(() => ({ display, filter: deferredFilter, expanded: [...expanded], isMobile,
+    openIssueId, now, menu: ctxMenu !== null }), [display, deferredFilter, expanded, isMobile, openIssueId, now, ctxMenu])
+  const { issues, sessions, projectPaths: availableProjectPaths, view, menuInputs } = useBoardData(options, base)
+  const needsCloseGuard = useIssueCloseGuard(base.pool ? sessions : undefined)
 
   const runMut = useCallback((promise: Promise<unknown>): void => {
     setError('')
@@ -494,6 +475,7 @@ export function IssuesView(): JSX.Element {
           animating out. */}
       {bulkClose && bulkCloseTargets.length > 0 && (
         <IssueBulkCloseDialog
+          sessions={base.pool ? sessions : undefined}
           issues={bulkCloseTargets}
           reason={bulkClose.reason}
           busy={bulkClosing}
@@ -534,6 +516,7 @@ export function IssuesView(): JSX.Element {
             .filter((issue): issue is IssueViewModel => issue !== undefined)
           return targets.length > 0 ? (
             <IssueContextMenu
+              poolInputs={menuInputs}
               issues={targets}
               allIssues={view.scope}
               anchor={ctxMenu.anchor}

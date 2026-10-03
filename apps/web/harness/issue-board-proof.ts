@@ -87,7 +87,7 @@ try {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
-    await page.goto(`${origin}/harness/issue-board.browser.html?mobxSidebar=1&mobxBoard=${arm === 'pool' ? 1 : 0}`)
+    await page.goto(`${origin}/harness/issue-board.browser.html?mobxSidebar=1&mobxBoard=${arm === 'pool' ? 1 : 0}&mobxBoardCheck=${countsOnly && arm === 'pool' ? 1 : 0}`)
     await page.waitForFunction(() => Reflect.get(window, '__boardHarness')?.ready(), undefined, { timeout: 120_000 })
     const initial = await page.evaluate(() => Reflect.get(window, '__boardHarness').state())
     const open = await capture(page, '[data-board-open]', '[data-testid="issues-board"] [data-issue-id]', () => page.locator('[data-board-open]').click())
@@ -112,6 +112,18 @@ try {
     outputs[arm] ??= [full, filtered]
     if (run === 0) await page.screenshot({ path: resolve(root, `${label}-board.png`) })
     const final = await page.evaluate(() => ({ state: Reflect.get(window, '__boardHarness').state(), errors: Reflect.get(window, '__boardHarness').errors() }))
+    if (arm === 'pool') {
+      for (const result of [open, filter]) {
+        const stats = result.counts as { board: Record<string, number>; runtimes: { rowBuilds: number }[] }
+        if (stats.runtimes.some(runtime => runtime.rowBuilds) || stats.board['legacy.board'] || stats.board['legacy.explorer']) throw new Error('Enabled board entered legacy derivation')
+      }
+      if (final.state.residentIssues !== initial.residentIssues) throw new Error('Board promoted cold issues')
+      if (countsOnly) {
+        const check = await page.evaluate(() => ({ board: Reflect.get(window, '__boardCheck')(), explorer: Reflect.get(window, '__boardExplorerCheck')() }))
+        console.log(JSON.stringify({ check }))
+        if (check.board.differences || check.board.pending || check.explorer.differences || check.explorer.pending) throw new Error('Board diagnostic differs')
+      }
+    }
     if (errors.length || final.errors.length) throw new Error(`Fixture errors: ${JSON.stringify([...errors, ...final.errors])}`)
     runs.push({ arm, status: 'planning', fullRows, filteredRows, initial, final: final.state, open, filter })
     console.log(JSON.stringify({ run, arm, fullRows, filteredRows, open, filter, final: final.state }))

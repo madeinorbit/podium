@@ -7,7 +7,6 @@ import { Search, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { useIssuePageIssues, useIssuePageSessions } from '../issue-page/issue-page-data'
 import { GhostBar, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
 import { DOCK_ROW, DOCK_STAMP } from '../IssueCompactControls'
@@ -16,7 +15,9 @@ import { issueIdTitle } from '../issue-card'
 import { useBoundedVirtualList } from '../use-bounded-virtual-list'
 import { useIssueStatusApply } from '../use-issue-status-apply'
 import { useIssueExplorer } from './explorer-context'
-import { defaultTab, EXPLORER_TABS, explorerCounts, explorerRows } from './explorer-list'
+import { EXPLORER_TABS } from './explorer-list'
+import { useExplorerData } from './explorer-pool-data'
+import { boardDataLayer } from '../board-data-layer'
 
 /**
  * Level 0 — every task in the repo, searchable, bucketed by stage.
@@ -36,51 +37,26 @@ export function IssueExplorerList(): JSX.Element {
     listScrollTop,
     rememberListScrollTop,
   } = useIssueExplorer()
-  const sessions = useIssuePageSessions()
-  const issues = useIssuePageIssues()
+  const { sessions, counts, tab, total, rows, byId, rowSessions } = useExplorerData(pickedTab, query)
   // One apply and one close guard for every row's status glyph (POD-1271) —
   // held here rather than per row, which the virtualizer would unmount.
-  const rowStatus = useIssueStatusApply()
+  const rowStatus = useIssueStatusApply(boardDataLayer() === 'pool' ? sessions : undefined)
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
 
-  const counts = useMemo(() => explorerCounts(issues, sessions), [issues, sessions])
   // Until the operator picks a bucket, open on the first one with anything in
   // it: landing on an empty In progress teaches nothing about a repo with
   // hundreds of tasks in it.
-  const tab = pickedTab ?? defaultTab(counts)
   // The stage buckets partition the listable set, so their sum is the honest
   // total — `issues.length` would have counted archived work the list refuses
   // to show and promised a search wider than the one it runs.
-  const total = EXPLORER_TABS.reduce((n, t) => (t.id === 'needs' ? n : n + counts[t.id]), 0)
-  const rows = useMemo(
-    () => explorerRows(issues, sessions, { tab, query }),
-    [issues, sessions, tab, query],
-  )
   const searching = query.trim().length > 0
 
   // ONE pass for the whole list, not one per row. `operationalState` needs the
   // task's sessions and an id map, and resolving those inside the row made a
   // 450-row stage O(n²) — the Done tab alone would have built 450 maps over
   // every issue in the repo.
-  const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  const rowSessions = useMemo(() => {
-    const map = new Map<string, SessionView[]>()
-    const memberOf = new Map<string, string>()
-    for (const issue of issues) {
-      for (const id of issue.memberSessionIds ?? []) memberOf.set(id, issue.id)
-    }
-    for (const session of sessions) {
-      const owner = session.issueId ?? memberOf.get(session.sessionId)
-      if (!owner) continue
-      const list = map.get(owner)
-      if (list) list.push(session)
-      else map.set(owner, [session])
-    }
-    return map
-  }, [issues, sessions])
-
   const rowIds = useMemo(() => rows.map((issue) => issue.id), [rows])
   const virtual = useBoundedVirtualList({
     keys: rowIds,

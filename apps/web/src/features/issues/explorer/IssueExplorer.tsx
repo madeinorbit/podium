@@ -4,7 +4,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { ChevronRight, ListTree } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { useReplicaIssues } from '@/app/store'
+import { useExplorerCrumbs } from './explorer-pool-data'
 import { cn } from '@/lib/utils'
 import { IssuePanelView } from '../IssuePanelView'
 import { useIssueExplorer } from './explorer-context'
@@ -112,8 +112,8 @@ export function IssueExplorer({
  */
 export function IssueExplorerCrumbs(): JSX.Element {
   const { stack, popTo } = useIssueExplorer()
-  const issues = useReplicaIssues()
   const trail = crumbTrail(stack)
+  const issues = useExplorerCrumbs(trail.flatMap(crumb => crumb.kind === 'issue' ? [crumb.id] : []))
   return (
     <nav
       className="flex min-w-0 flex-1 items-center gap-px"

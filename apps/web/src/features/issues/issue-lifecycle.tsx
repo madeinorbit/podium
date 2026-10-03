@@ -250,20 +250,23 @@ export function IssueBulkCloseDialog({
   busy = false,
   onOpenChange,
   onConfirm,
+  sessions: suppliedSessions,
 }: {
   issues: readonly IssueNavigationModel[]
   reason: IssueCloseReason | null
   busy?: boolean
+  sessions?: readonly SessionView[]
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element | null {
-  const sessions = useStoreSelector((store) => store.sessions) ?? []
+  const sessions = useCloseSessions(suppliedSessions)
   const summary = issueBulkCloseSummary(issues, sessions)
   const first = issues[0]
   if (!first) return null
   if (issues.length === 1)
     return (
       <IssueCloseDialog
+        sessions={suppliedSessions}
         issue={first}
         reason={reason}
         busy={busy}

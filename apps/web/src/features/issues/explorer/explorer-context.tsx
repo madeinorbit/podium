@@ -16,6 +16,7 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { paneDataLayer } from '@/lib/pane-data-layer'
+import { boardDataLayer } from '../board-data-layer'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { poolMissionContains, poolMissionRoot } from '@/features/worklist/use-pool-unified-work'
@@ -88,7 +89,7 @@ const IssueExplorerContext = createContext<IssueExplorerNav>({
 })
 
 export function IssueExplorerProvider({ children }: { children: ReactNode }): ReactElement {
-  return sidebarDataLayer() === 'pool' || paneDataLayer() === 'pool'
+  return sidebarDataLayer() === 'pool' || paneDataLayer() === 'pool' || boardDataLayer() === 'pool'
     ? <PoolIssueExplorerProvider>{children}</PoolIssueExplorerProvider>
     : <LegacyIssueExplorerProvider>{children}</LegacyIssueExplorerProvider>
 }

@@ -1,4 +1,5 @@
 import { issuePagePoolScreen } from '@/features/issues/issue-page/pool-screen'
+import { issueBoardPoolScreen } from '@/features/issues/board-pool-screen'
 import { sessionPanePoolScreen } from '@/features/terminal/session-pane-pool-screen'
 import { chatContextPoolScreen } from '@/features/chat/chat-context-pool-screen'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
@@ -27,6 +28,7 @@ export function initializePoolScreens(ui: UiState): void {
 /** Screen declarations are the only provider registration surface. Graph code
  * stays behind startup choices; every entry uses the existing runtime/pool. */
 export const poolBackedScreens: readonly PoolScreen[] = [
+  issueBoardPoolScreen,
   issuePagePoolScreen,
   panePoolScreen,
   sessionPanePoolScreen,
