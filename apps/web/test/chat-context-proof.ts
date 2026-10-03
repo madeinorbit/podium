@@ -59,7 +59,16 @@ try {
     await page.evaluate(() => window.__chatContextFixture.close())
     await page.close()
   }
-  if (JSON.stringify(snapshots[0]) !== JSON.stringify(snapshots[1])) throw new Error('Rendered conversation inputs or composer/offer UI differed')
+  if (JSON.stringify(snapshots[0]) !== JSON.stringify(snapshots[1])) {
+    const names: string[] = []
+    const pair = snapshots as { before: { context: string }; after: { context: string } }[]
+    for (const phase of ['before', 'after'] as const) {
+      const expected = JSON.parse(pair[0]![phase].context), actual = JSON.parse(pair[1]![phase].context)
+      for (const field of Object.keys(expected)) if (JSON.stringify(expected[field]) !== JSON.stringify(actual[field])) names.push(`${phase}.${field}`)
+    }
+    await writeFile(`${output}/results.json`, JSON.stringify({ rows, updates, renderedDifferences: names.length, fields: names, ...results }, null, 2))
+    throw new Error(`Rendered conversation input fields differed: ${names.join(',')}`)
+  }
   const report = { rows, updates, renderedDifferences: 0, ...results }
   await writeFile(`${output}/results.json`, JSON.stringify(report, null, 2))
   console.log(JSON.stringify(report))
