@@ -3,6 +3,7 @@ import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { beginSidebarCheck, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
+import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { observer } from '@podium/client-graph/react'
 import { useEffect } from 'react'
@@ -28,7 +29,9 @@ import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 import '../src/styles.css'
 
-initializePoolScreens({ get: () => null } as never)
+initializePoolScreens({ get: (key: string) => key === MOBX_SIDEBAR_KEY ? '1' : null } as never)
+const sessionIndex = { calls: 0, first: undefined as string | undefined }
+Object.assign(globalThis, { __shellSessionIndex: sessionIndex })
 const count = Number(new URLSearchParams(location.search).get('rows') ?? 5600)
 const fixture = createHeaderFixture(count, Math.min(count, 5014))
 const artifactIssueId = `synthetic-${count - 1}`, artifactRef = `SYN-${1000 + count - 1}`
@@ -112,7 +115,7 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('operator'))}
 
 const driver = {
   ready: () => ready, close: () => root.unmount(), failures: () => failures.length,
-  reset() { storeStats.reset(); capture = storeStats.begin('feed') },
+  reset() { storeStats.reset(); sessionIndex.calls = 0; sessionIndex.first = undefined; capture = storeStats.begin('feed') },
   async activity(steps: number) {
     for (let step = 0; step < steps; step++) {
       fixture.patch('session', `synthetic-session-${step % 12}`, { lastActiveAt: new Date(Date.now() + step + 1).toISOString(),
@@ -124,6 +127,7 @@ const driver = {
   stats() {
     const all = storeStats.snapshot(), runtimes = all.windows.at(-1)?.runtimes ?? all.runtimes
     return { runtimeCount: runtimes.filter(row => row.publishes > 0).length, diagnosticOwners: runtimes.length, dropped: all.dropped,
+      sessionIndexCalls: sessionIndex.calls, firstSessionIndexCaller: sessionIndex.first ?? null, feedUpdates: 200,
       publishes: runtimes.reduce((sum, row) => sum + row.publishes, 0),
       selectors: runtimes.reduce((sum, row) => sum + row.selectorRuns, 0), wakes: runtimes.reduce((sum, row) => sum + row.subscriberWakes, 0),
       legacyDerivations: runtimes.reduce((sum, row) => sum + Object.values(row.slices).reduce((total, value) => total + value, 0), 0), failures: failures.length }

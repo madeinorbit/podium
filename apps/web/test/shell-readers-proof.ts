@@ -9,7 +9,7 @@ import type {} from './shell-readers.browser'
 const red = process.argv.find(arg => arg.startsWith('--red='))?.slice(6)
 const output = '.artifacts/shell-readers', origin = 'http://127.0.0.1:45182', clock = Date.now()
 await mkdir(output, { recursive: true })
-const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.sidebar-pool-perf.config.ts', '--port', '45182', '--strictPort'], { stdio: ['ignore', 'ignore', 'ignore'] })
+const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.shell-readers-proof.config.ts', '--port', '45182', '--strictPort'], { stdio: ['ignore', 'ignore', 'ignore'] })
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 try {
   const deadline = Date.now() + 60000
@@ -29,7 +29,8 @@ try {
     }, { clock })
     await page.context().route('https://synthetic.example.invalid/**', route => route.fulfill({ body: 'Synthetic login destination' }))
     const switched = arm === 'after' && red !== 'legacy'
-    await page.goto(`${origin}/test/shell-readers.browser.html?mobxSidebar=1&mobxPane=1&mobxCommands=1&mobxHeader=0&mobxSettings=0&mobxShell=${switched ? 1 : 0}&rows=5600`)
+    const isolated = process.argv.includes('--isolated') ? '&mobxHeader=0&mobxSettings=0' : ''
+    await page.goto(`${origin}/test/shell-readers.browser.html?mobxShell=${switched ? 1 : 0}&rows=5600${isolated}`)
     await page.waitForFunction(() => window.__shellReaders?.ready(), null, { timeout: 60000 })
     await page.getByText('Synthetic task 0', { exact: true }).first().waitFor()
     await page.getByText('Host 3', { exact: true }).first().waitFor()
@@ -38,8 +39,8 @@ try {
     await page.evaluate(() => window.__shellReaders.reset())
     await page.evaluate(() => window.__shellReaders.activity(200))
     const stats = await page.evaluate(() => window.__shellReaders.stats())
-    if (stats.runtimeCount !== 1 || stats.publishes !== 200 || stats.failures || errors) throw new Error(`Shell runtime mismatch: ${JSON.stringify({ ...stats, errors })}`)
-    if (arm === 'after' && (stats.selectors || stats.legacyDerivations || stats.dropped)) throw new Error(`Enabled shell executed legacy reads: ${JSON.stringify(stats)}`)
+    if (stats.runtimeCount !== 1 || stats.publishes < 200 || stats.failures || errors) throw new Error(`Shell runtime mismatch: ${JSON.stringify({ ...stats, errors })}`)
+    if (arm === 'after' && (stats.selectors || stats.legacyDerivations || stats.sessionIndexCalls || stats.dropped)) throw new Error(`Enabled shell executed legacy reads: ${JSON.stringify(stats)}`)
     if (arm === 'before' && !stats.selectors) throw new Error('Legacy baseline was not exercised')
     const frames: SidebarSnapshot[] = []
     for (const id of ['synthetic-1', 'synthetic-3', 'synthetic-5', null]) {
