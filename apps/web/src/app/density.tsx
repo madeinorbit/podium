@@ -55,7 +55,11 @@ export function DensityProvider(props: {
   children: ReactNode
   densityEnabled: boolean
 }): JSX.Element {
-  return <PoolDensityProvider children={props.children} densityEnabled={props.densityEnabled} />
+  return (
+    <PoolDensityProvider densityEnabled={props.densityEnabled}>
+      {props.children}
+    </PoolDensityProvider>
+  )
 }
 
 export function useDensity(): DensityContextValue {
