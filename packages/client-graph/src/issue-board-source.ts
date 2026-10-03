@@ -104,7 +104,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
   function actionable(row: IssueViewModel): boolean {
     if (row.archived || row.deletedAt || row.stage === 'done' || row.closedReason) return false
     const roster = sessions(row.id)
-    const attention = row.stage === 'review' ? { ...row, dependents: pool.graph.many('issue', row.id, 'spinOffs').map(id => ({ id: asIssueId(id), type: 'discovered-from' })) } : row
+    const attention = row.stage === 'review' ? { ...row, dependents: [...pool.graph.many('issue', row.id, 'spinOffs')].map(id => ({ id: asIssueId(id), type: 'discovered-from' })) } : row
     return roster !== LOADING && issueIsActionable(attention, (roster ?? []).filter(seat => !seat.archived))
   }
   function indexKeys(row: IssueViewModel): Set<string> {
