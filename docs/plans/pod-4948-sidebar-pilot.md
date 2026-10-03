@@ -143,3 +143,34 @@ Synthetic corpus Chromium measurements at `585e9f07bc` use the existing producti
 | 4x | 71.5 | 72.1 | 1,477.0 | 218.9 | 1,259.9 | 187.6→170.9 |
 
 These are candidate measurements of the complete data payload in the pilot renderer, plus real-provider lifetime evidence. They establish neither a before/after speedup nor acceptance of the real sidebar's future consumer cutover. That wiring remains under POD-4948; POD-4949 owns the normalized homes that retire the single temporary adapter. The product worklist UI files are untouched and the startup switch remains off by default. The issue's acceptance artifact retains the full synthetic corpus, random-gate, before/after census, before/after work and browser records.
+
+## Mobile field inventory (POD-4975)
+
+Mobile consumes the published, unselected worklist in `WorkScreen.tsx`, projects it with `lib/work-sections.ts`, and draws `WorkListRow.tsx` and `WorkRowParts.tsx`. The product pool now lives in `packages/client-graph`; the corpus and random-change harness remain in `packages/worklist-proto`. `pool.mobileWork` projects the existing resident root and fallback-roster indexes. `IssueModel.mobileWork` is a lazy cached group on the same issue object; its exact waiting count comes from the already-composed attention counters, including offer-only decision deduplication. No new per-row reaction, legacy selector, runtime, replica, outbox, or peek caller is added.
+
+| Mobile value | Legacy source | Pool source / rule | Oracle surface |
+| --- | --- | --- | --- |
+| Band order and labels | `buildWorkSections`: Pinned, Needs you, populated projects in published project order | `mobileWork.sections`: existing sidebar project metadata/order plus unselected resident root lanes | Exact ordered bands and headers |
+| Needs-you membership and count | `rowWaitingCount > 0`; pinned asks appear in both bands | Issue attention counters; worktree session verdicts; pinned copies lead Needs you | Exact membership, count and order |
+| Canonical ID / SectionList key | `workRowId`, `workRowListKey`; second pinned rendering uses `needs-you:<id>` | `MobileWorkRef.id/listKey`; both copies share one row payload and navigation identity | Ordered keys and duplicate-key regression |
+| Issue/pinned/attention subtitle counts | `buildWorkSections` counts open issues, all pinned rows and all asking open rows | `issueCount`, `pinnedCount`, `attentionCount`; duplicates do not inflate counts | Exact subtitle totals |
+| Reorder scopes | `orderingSections` retains lifted asks in their original pinned/project scope | Full `orderingSections`; Needs you has no reorder scope | Exact original row order and totals |
+| Snoozed/Closed disclosures | Original project `snoozedRows/closedRows` | Resident root snoozed/closed lanes; mobile never applies the desktop selection latch | Exact disclosure IDs/order and folded-row payloads |
+| Band fold key, total and search override | `workGroupFoldKey`, `foldWorkSections`; header total survives folding | `work-group-fold:<key>` in the existing sidebar namespace; folded rows/disclosures empty; `searching` overrides folds | Both folded and search-overridden corpus projections |
+| Display label | `issueDisplayTitle`; worktree repo name plus branch | Cached issue title; worktree `label` | Every row label |
+| Progress counts | Own `missionRollup.progress`, otherwise `missionProgress` | Existing cached formal progress, `progress`; worktrees null | All progress states and totals |
+| Spin-off origin tick | First `discovered-from` dependency's issue sequence | Existing sidebar `originTick.seq`, exposed as `originSeq` | Exact origin sequence/null |
+| Status phrase | `rowStatusLine(row, now, 0)` | Existing sidebar task/decision/continuation/progress/first-prompt inputs; worktree session payload | Unchanged formatter on pool inputs (mobile's task-first priority) |
+| Phase / timer stamp | `rowMotionPhase`, `rowMotionTiming`, `timeStamp` | `timing.phase/sinceMs/baseMs/totalMs`; queued stays silent, working elapsed, waiting relative age, done compute total | Numeric anchors and rendered stamp |
+| Working textures | `rowHasWorkingSession`, independently of waiting phase | Existing branch attention `working`; worktree session verdicts | Exact boolean, including simultaneous ask/work |
+| Attention tint/count/action | Waiting count; issue `rowPendingDecision`; Review for any decision, Answer otherwise | `waitingCount`, `decision`, `attentionAction`; worktrees have no action | Exact badge and action |
+| Unread title/dot | `rowUnreadEmphasized`, then quiet-draft suppression | Existing sidebar unread plus `draftQuiet`; worktree unread suppressed while working | Exact unread and first-runtime-state regression |
+| Draft vessel / primary navigation | `isDraftAgentVessel`; draft's first own session opens directly | `draftOnly`, `draftQuiet`, `navigation`; same sorted own roster | Exact issue/session target |
+| Issue ref, colour, internal/pinned marks | `issueDisplayRef`, issue colour/audience/pinned | Borrowed `sidebar.issue`/displayRef; `color`, `internal`, `pinned` | Existing issue-content field comparison plus mobile flags |
+| Snooze/Unsnoozed marks | `isIssueDeferred`, `issueReturnedFromDefer` | Existing deadline-aware lifecycle: `snoozed`, `unsnoozed` | Exact marks after clock changes |
+| Tuck affordance | `rowAwaitsTuck(row, null, false, now)` | Existing lifecycle `tuckable` | Exact affordance across changes |
+| Fleet tiles, parked/native counts | `deriveFleetPresence` over aggregate sessions; hidden for draft vessels | Existing composed `fleet` plus `draftOnly`; complete borrowed roster | Exact fleet totals, tiles/order and roster fields |
+| Git exceptions / merge suppression | Branch/git inputs to `deriveGitStamp`; decision suppresses ahead count | `branch`, `gitState`, `suppressAhead` | Exact inputs and suppression verdict |
+| Press, long-press, tuck callbacks; delayed opening loader | Native callbacks and local `navPending` / 150 ms delay | Data supplies navigation target, canonical ID, issue record and tuck verdict; local feedback/handlers stay in native UI | Data targets/eligibility; no interaction change |
+
+`harness/src/oracle/mobile.ts` imports the actual mobile `buildWorkSections` and `foldWorkSections` exclusively on the expected side, then compares every display field and full row payload against the pool. The observed mobile random-change gate uses the existing generator with all issue/session fact variants forced, including optimistic edits, receipts, rollback, eviction, reload and clock changes. Cold reads explicitly return `LOADING`, enqueue one batched load window without hydrating synchronously, recover after hydration, and return absent after removal. Live operator data is never read or transferred for these checks. The consumer cutover and browser/native timing remain separate pilot work.

@@ -54,6 +54,7 @@ import { debugName } from './debug-name'
 import { PreferenceSource } from './preference-source'
 import type { PreferenceRow } from './preference-schema'
 import { SidebarIndex } from './worklist/sidebar'
+import { MobileWorkIndex } from './worklist/mobile'
 import { SidebarRosterIndex } from './worklist/sidebar-roster'
 import { overlayRow } from './shared/overlay-row'
 import {
@@ -214,6 +215,7 @@ export interface LazyMembers {
 export class MobxPool {
   /** The tables: every read and write in the pool goes here. */
   readonly sidebar: SidebarIndex
+  readonly mobileWork: MobileWorkIndex
   readonly sidebarRosters: SidebarRosterIndex
   private preferenceSource: PreferenceSource | undefined
   readonly sources = new PoolSources()
@@ -429,6 +431,7 @@ export class MobxPool {
     }
     this.sidebarRosters = new SidebarRosterIndex(this)
     this.sidebar = new SidebarIndex(this)
+    this.mobileWork = new MobileWorkIndex(this)
     this.selectedId = null
     // Every row below comes from the one reader (`row`); none of these
     // functions is replaced after construction (the write layer's pending
@@ -519,6 +522,7 @@ export class MobxPool {
       | 'release'
     >(this, {
       sidebar: false,
+      mobileWork: false,
       references: false,
       referenceReader: false,
       issueIdByRef: false,

@@ -70,6 +70,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues } from './worklist/sidebar-row'
 import { sidebarRosterOf, type SidebarRoster } from './worklist/sidebar'
+import { mobileIssueValues, mobileWaitingCount, type MobileRowValues } from './worklist/mobile-row'
 import { overlayRow } from './shared/overlay-row'
 import type { RelationReader } from './shared/relation-reader'
 import type {
@@ -461,6 +462,17 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
 
   private static readonly groups = {
+    mobileWork: cachedGroup('mobileWork', (issue: IssueModel): LoadedRow<MobileRowValues> => {
+      const sidebar = issue.sidebar
+      return sidebar === LOADING || sidebar === undefined ? sidebar
+        : mobileIssueValues(sidebar, issue.mobileWaitingCount, issue.activityAt)
+    }, (a, b) => {
+      if (a === b) return true
+      if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
+      const { sidebar: left, sessions: leftSeats, ...leftFacts } = a
+      const { sidebar: right, sessions: rightSeats, ...rightFacts } = b
+      return left === right && leftSeats === rightSeats && compareStructural(leftFacts, rightFacts)
+    }),
     /** One drawn row's complete payload, suppressing equal intermediate roll-ups. */
     sidebar: cachedGroup('sidebar', (issue: IssueModel) => issue.sidebarValues(), sameSidebar),
     /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
@@ -587,6 +599,15 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** All facts needed by the real row; reuses the issue's existing caches. */
   get sidebar(): SidebarRowValues | typeof LOADING | undefined {
     return IssueModel.groups.sidebar(this)
+  }
+
+  /** Native work-row facts on this same issue object, built only when read. */
+  get mobileWork(): LoadedRow<MobileRowValues> {
+    return IssueModel.groups.mobileWork(this)
+  }
+
+  get mobileWaitingCount(): number {
+    return mobileWaitingCount(this.aggregate, this.finished)
   }
 
   private sidebarValues(): SidebarRowValues | typeof LOADING | undefined {
