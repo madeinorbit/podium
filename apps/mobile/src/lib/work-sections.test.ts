@@ -1,99 +1,33 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
-import type {
-  IssueNavigationModel,
-  UnifiedIssueRow,
-  UnifiedWorkGroup,
-  UnifiedWorkRow,
-} from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
-import { asIssueId, asSessionId } from '@podium/model'
+import { MobileWorkIndex, type MobileWorkRef, type MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import { describe, expect, it } from 'vitest'
-import {
-  buildWorkSections,
-  foldWorkSections,
-  MobileSearchSections,
-  workGroupFoldKey,
-  workRowListKey,
-} from './work-sections'
+import { MobileNativeSections, MobileSearchSections, workGroupFoldKey } from './work-sections'
 
-/**
- * What this file guards is BANDING: which section of the Work tab a row lands
- * in, in what section order, and what a fold may and may not hide. Whether a
- * row is "waiting" is `rowWaitingCount`'s call and is tested where it lives
- * (client-core row-attention); the fixtures here make a row wait the real way
- * — a session blocked on the human — so the banding is exercised through the
- * genuine predicate rather than a stand-in.
- */
-function issue(over: Partial<IssueViewModel> = {}): IssueNavigationModel {
-  return {
-    id: asIssueId('i'),
-    repoPath: '/r',
-    seq: 1,
-    title: 't',
-    description: '',
-    stage: 'in_progress',
-    priority: 2,
-    type: 'task',
-    audience: 'human',
-    intentOrigin: 'human',
-    isDraftVessel: false,
-    archived: false,
-    labels: [],
-    deps: [],
-    dependents: [],
-    blockedByNotes: [],
-    ready: true,
-    blocked: false,
-    deferred: false,
-    pinned: false,
-    needsHuman: false,
-    unread: false,
-    childCount: 0,
-    childDoneCount: 0,
-    createdAt: '2026-08-01T00:00:00.000Z',
-    updatedAt: '2026-08-01T00:00:00.000Z',
-    ...over,
-  } as unknown as IssueNavigationModel
+// Synthetic resident lanes; the band/fold logic under test is the actual pool
+// projection. Waiting is an addressed fact, never a legacy row derivation.
+type Row = { id: string; waiting: boolean }
+type Group = { key: string; rows: Row[]; snoozedRows: Row[]; closedRows: Row[] }
+const row = (id: string, over: { waiting?: boolean; pinned?: boolean } = {}): Row => ({ id, waiting: over.waiting ?? false })
+const group = (key: string, rows: Row[], over: Partial<Group> = {}): Group => ({ key, rows, snoozedRows: [], closedRows: [], ...over })
+function nativeSections(pinned: Row[], groups: Group[]) {
+  const facts = new Map([...pinned, ...groups.flatMap(group => [...group.rows, ...group.snoozedRows, ...group.closedRows])].map(row => [row.id, row]))
+  const lane = (name: 'rows' | 'snoozedRows' | 'closedRows') => ({ lane: (key: string) => groups.find(group => group.key === key)?.[name].map(row => row.id) ?? [] })
+  const pool = {
+    groups: { pinnedRootIds: pinned.map(row => row.id), rootOpen: lane('rows'), rootSnoozed: lane('snoozedRows'), rootClosed: lane('closedRows') },
+    sidebar: { sections: () => ({ bands: groups.map(group => ({ key: group.key, label: group.key, worktreeIds: [] })) }) },
+    issue: (id: string) => facts.has(id) ? { mobileWaitingCount: Number(facts.get(id)!.waiting), aggregate: { pending: 0 } } : undefined,
+    row: () => undefined,
+  } as unknown as MobxPool
+  return new MobileWorkIndex(pool).sections()
 }
+const bandKeys = (split: ReturnType<typeof nativeSections>) => split.sections.map(section => section.key)
+const ids = (rows: readonly MobileWorkRef[] = []) => rows.map(row => row.id)
+const listKey = (row: MobileWorkRef) => row.listKey
+const foldedSections = (sections: readonly MobileWorkSection[], collapsed: ReadonlySet<string>, searching: boolean) => new MobileNativeSections().update(sections, collapsed, searching)
 
-/** An agent blocked on the human — the state that makes a row an ask. */
-const waitingSession = (id: string): SessionView =>
-  ({
-    sessionId: asSessionId(id),
-    agentKind: 'claude-code',
-    status: 'live',
-    archived: false,
-    cwd: '/r',
-    lastActiveAt: '2026-08-27T00:00:00.000Z',
-    agentState: { phase: 'needs_user', since: '2026-08-27T00:00:00.000Z' },
-  }) as SessionView
-
-function row(id: string, over: { pinned?: boolean; waiting?: boolean } = {}): UnifiedIssueRow {
-  return {
-    kind: 'issue',
-    issue: issue({ id: asIssueId(id), pinned: over.pinned ?? false }),
-    sessions: over.waiting ? [waitingSession(`${id}-s`)] : [],
-    activityAt: 0,
-  }
-}
-
-function group(
-  key: string,
-  rows: UnifiedWorkRow[],
-  over: Partial<UnifiedWorkGroup> = {},
-): UnifiedWorkGroup {
-  return { key, label: key, rows, snoozedRows: [], closedRows: [], ...over }
-}
-
-const bandKeys = (split: ReturnType<typeof buildWorkSections>) => split.sections.map((s) => s.key)
-const ids = (rows: UnifiedWorkRow[] = []) =>
-  rows.map((r) => (r.kind === 'issue' ? r.issue.id : r.worktree.path))
-
-describe('buildWorkSections', () => {
+describe('nativeSections', () => {
   it('puts Pinned first, above Needs you, above the project bands', () => {
-    const split = buildWorkSections(
+    const split = nativeSections(
       [row('pin', { pinned: true })],
       [group('repo', [row('ask', { waiting: true }), row('calm')])],
     )
@@ -104,7 +38,7 @@ describe('buildWorkSections', () => {
   })
 
   it('shows a waiting pinned row in BOTH Pinned and Needs you, pinned asks first', () => {
-    const split = buildWorkSections(
+    const split = nativeSections(
       [row('pin-ask', { pinned: true, waiting: true })],
       [group('repo', [row('ask', { waiting: true })])],
     )
@@ -117,11 +51,11 @@ describe('buildWorkSections', () => {
   })
 
   it('gives the duplicated pinned ask a distinct list key per band', () => {
-    const split = buildWorkSections(
+    const split = nativeSections(
       [row('pin-ask', { pinned: true, waiting: true })],
       [group('repo', [row('ask', { waiting: true })])],
     )
-    const keys = split.sections.flatMap((s) => s.data.map(workRowListKey))
+    const keys = split.sections.flatMap((s) => s.data.map(listKey))
     // SectionList flattens its sections, so the WHOLE list must be key-unique.
     expect(new Set(keys).size).toBe(keys.length)
     // The Pinned copy keeps the canonical id; the Needs-you copy is the marked one.
@@ -130,7 +64,7 @@ describe('buildWorkSections', () => {
   })
 
   it('keeps a calm pinned row out of Needs you', () => {
-    const split = buildWorkSections(
+    const split = nativeSections(
       [row('pin', { pinned: true })],
       [group('repo', [row('ask', { waiting: true })])],
     )
@@ -138,7 +72,7 @@ describe('buildWorkSections', () => {
   })
 
   it('lifts asks out of their project band without duplicating them', () => {
-    const split = buildWorkSections(
+    const split = nativeSections(
       [],
       [group('repo', [row('a'), row('ask', { waiting: true }), row('b')])],
     )
@@ -150,17 +84,17 @@ describe('buildWorkSections', () => {
 
   it('drops the empty bands but keeps a band that is only folds', () => {
     const closed = row('done')
-    const split = buildWorkSections(
+    const split = nativeSections(
       [],
       [group('empty', []), group('folded', [], { closedRows: [closed] })],
     )
     expect(bandKeys(split)).toEqual(['folded'])
     expect(split.sections[0]?.data).toEqual([])
-    expect(split.sections[0]?.closedRows).toEqual([closed])
+    expect(split.sections[0]?.closedIds).toEqual([closed.id])
   })
 
   it('scopes reordering to pinned and the FULL project groups, never Needs you', () => {
-    const split = buildWorkSections(
+    const split = nativeSections(
       [row('pin', { pinned: true })],
       [group('repo', [row('ask', { waiting: true }), row('calm')])],
     )
@@ -171,7 +105,7 @@ describe('buildWorkSections', () => {
   })
 
   it('counts issues, pinned rows and asks over the whole open set', () => {
-    const split = buildWorkSections(
+    const split = nativeSections(
       [row('pin', { pinned: true, waiting: true })],
       [group('repo', [row('ask', { waiting: true }), row('calm')])],
     )
@@ -188,8 +122,8 @@ describe('buildWorkSections', () => {
   })
 })
 
-describe('foldWorkSections', () => {
-  const split = buildWorkSections(
+describe('foldedSections', () => {
+  const split = nativeSections(
     [row('pin', { pinned: true })],
     [
       group('repo', [row('ask', { waiting: true }), row('calm')], {
@@ -199,17 +133,17 @@ describe('foldWorkSections', () => {
   )
 
   it('empties a collapsed band — rows AND its Snoozed/Closed folds — but keeps the count', () => {
-    const folded = foldWorkSections(split.sections, new Set(['repo']), false)
+    const folded = foldedSections(split.sections, new Set(['repo']), false)
     const repo = folded.find((s) => s.key === 'repo')
     expect(repo?.data).toEqual([])
-    expect(repo?.closedRows).toEqual([])
+    expect(repo?.closedIds).toEqual([])
     expect(repo?.total).toBe(1)
     // Untouched bands keep their rows.
     expect(ids(folded.find((s) => s.key === 'needs-you')?.data)).toEqual(['ask'])
   })
 
   it('ignores every fold while a search is active, so a match can never hide', () => {
-    const folded = foldWorkSections(split.sections, new Set(['repo', 'pinned']), true)
+    const folded = foldedSections(split.sections, new Set(['repo', 'pinned']), true)
     expect(ids(folded.find((s) => s.key === 'repo')?.data)).toEqual(['calm'])
     expect(ids(folded.find((s) => s.key === 'pinned')?.data)).toEqual(['pin'])
   })

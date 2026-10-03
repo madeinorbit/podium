@@ -1,5 +1,4 @@
-/** Mobile corpus parity and the observed random-change gate. Only the oracle
- * imports the real phone band projection and legacy row derivation. */
+/** Frozen mobile pool outputs, native identity and observed generated changes. */
 import { reaction } from 'mobx'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
@@ -15,8 +14,7 @@ import { createReplaySource } from '../../../harness/src/count-harness'
 import { openFenceFeeds, FENCE_SCENARIOS } from '../../../harness/src/fence-scenarios'
 import { buildCorpus } from '../../../harness/src/fixture/index'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
-import { checkMobile, poolMobileSnapshot } from '../../../harness/src/oracle/mobile'
-import { legacyDerivationFromStore } from '../../../harness/src/oracle/oracle'
+import { poolMobileSnapshot } from '../../../harness/src/oracle/mobile-snapshot'
 import { writeResult } from '../../../harness/src/results'
 import { countKinds, gen, genCorpus } from '../../../shared/src/gen/changes'
 import { startGenRun } from '../../../shared/src/gen/run'
@@ -74,14 +72,13 @@ describe('mobile pool values', () => {
       feeds.flush(); settle(handle.pool)
       if (identityFailure) throw identityFailure
       tracked(() => inspectNative(scenario))
-      const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), handle.pool.clock.current)
       for (const searching of [false, true]) {
-        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...derivation.slice.groups.map(group => group.key)]
+        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...tracked(() => handle.pool.mobileWork.sections().orderingSections.map(section => section.key))]
           .map(key => [`podium:sidebar:work-group-fold:${key}`, true])) }
-        const result = tracked(() => checkMobile(handle.pool, derivation, state))
-        expect(result, `${scenario}, searching=${searching}`).toMatchObject({ differences: 0, first: null, pending: 0 })
+        const result = tracked(() => poolMobileSnapshot(handle.pool, state))
+        expect(result.pending, `${scenario}, searching=${searching}`).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool, state)))).digest('hex')).toMatchSnapshot(`${scenario}, searching=${searching}`)
-        checks.push({ scenario, searching, ...result })
+        checks.push({ scenario, searching, sections: result.sections.length, pending: result.pending })
       }
       const first = tracked(() => handle.pool.mobileWork.sections().orderingSections.flatMap(section => section.data)[0]!)
       const value = tracked(() => handle.pool.mobileWork.row(first))
@@ -92,7 +89,7 @@ describe('mobile pool values', () => {
       check('corpus')
       for (const scenario of FENCE_SCENARIOS) { await scenario.write(ctx); check(scenario.scenario) }
       expect(retained).toBeGreaterThan(0)
-      writeResult(`mobile-${scale}x`, { issue: 'POD-4977', scale, checks, retainedNativeArrays: retained })
+      writeResult(`mobile-${scale}x`, { issue: 'POD-5439', scale, checks, retainedNativeArrays: retained })
     } finally { stop(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 600_000)
 
@@ -114,8 +111,7 @@ describe('mobile pool values', () => {
       expect(split.orderingSections.some(section => section.key === 'needs-you')).toBe(false)
       const ids = split.sections.flatMap(section => section.data.map(row => row.listKey))
       expect(new Set(ids).size).toBe(ids.length)
-      expect(tracked(() => checkMobile(handle.pool, legacyDerivationFromStore(run.ctx.engine.getSnapshot(), handle.pool.clock.current))))
-        .toMatchObject({ differences: 0, first: null, pending: 0 })
+      expect(tracked(() => poolMobileSnapshot(handle.pool)).pending).toBe(0)
       expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool)))).digest('hex')).toMatchSnapshot('last green pinned ask output')
     } finally { handle.dispose(); locals.dispose(); run.dispose() }
   }, 120_000)
@@ -138,8 +134,7 @@ describe('mobile pool values', () => {
         await run.apply({ kind: 'phaseChange', sessionId, phase: 'idle' })
         locals.flush(); settle(handle.pool)
         expect(tracked(() => handle.pool.mobileWork.row(ref))).toMatchObject({ draftOnly: true, draftQuiet: false })
-        expect(tracked(() => checkMobile(handle.pool, legacyDerivationFromStore(run.ctx.engine.getSnapshot(), handle.pool.clock.current))))
-          .toMatchObject({ differences: 0, first: null, pending: 0 })
+        expect(tracked(() => poolMobileSnapshot(handle.pool)).pending).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool)))).digest('hex')).toMatchSnapshot('last green draft output')
       } finally { stop() }
     } finally { handle.dispose(); locals.dispose(); run.dispose() }
@@ -193,13 +188,11 @@ describe('mobile pool values', () => {
           handle = createWorklistPool(feed.source, locals.source); stop = observe()
         }
         locals.flush(); settle(handle.pool)
-        const derivation = legacyDerivationFromStore(run.ctx.engine.getSnapshot(), handle.pool.clock.current)
         const state = { searching: index % 3 === 0, collapsed: { 'podium:sidebar:work-group-fold:needs-you': index % 2 === 1 } }
-        expect(tracked(() => checkMobile(handle.pool, derivation, state)), `seed ${seed}, step ${index}, ${changes[index]!.kind}`)
-          .toMatchObject({ differences: 0, first: null, pending: 0 })
+        expect(tracked(() => poolMobileSnapshot(handle.pool, state)).pending, `seed ${seed}, step ${index}, ${changes[index]!.kind}`).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool, state)))).digest('hex')).toMatchSnapshot(`step ${index}, ${changes[index]!.kind}`)
       }
-      writeResult(`mobile-seed-${seed}`, { issue: 'POD-4977', seed, steps: changes.length, ...countKinds(changes), differences: 0 })
+      writeResult(`mobile-seed-${seed}`, { issue: 'POD-5439', seed, steps: changes.length, ...countKinds(changes), regressions: 0 })
     } finally { stop(); handle.dispose(); locals.dispose(); run.dispose() }
   }, 600_000)
 })
