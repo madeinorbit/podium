@@ -14,15 +14,15 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
-import { missionLegacyStats } from '@podium/client-core/viewmodels'
 import type { SessionView } from '@podium/client-core/session-values'
+import { missionLegacyStats } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId, asSessionId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ComponentProps, type ReactNode, useCallback } from 'react'
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import type { MobilePool } from '../client/mobile-pool'
 import {
@@ -256,7 +256,10 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
   install('repos', corpus.repoProjections)
   install('issueDeps', corpus.issueDeps)
   install('sessions', corpus.sessions)
-  install('machines', corpus.machines.map((machine) => ({ ...machine, loggedOutHarnesses: [] })))
+  install(
+    'machines',
+    corpus.machines.map((machine) => ({ ...machine, loggedOutHarnesses: [] })),
+  )
   const replica = createKernelReplica({
     cache: {
       readCursor: () => ({ seq }),
@@ -577,11 +580,14 @@ it.each([
 }, 120_000)
 
 function ColdConversation({ id }: { id: string }) {
-  const read = useCallback((pool: MobxPool) => {
-    state.pool = pool
-    const session = pool.row('session', id, 'summary')
-    return session && typeof session !== 'symbol' ? session as SessionView : undefined
-  }, [id])
+  const read = useCallback(
+    (pool: MobxPool) => {
+      state.pool = pool
+      const session = pool.row('session', id, 'summary')
+      return session && typeof session !== 'symbol' ? (session as SessionView) : undefined
+    },
+    [id],
+  )
   const session = useMobilePoolProjection(read, undefined)
   return session ? <SessionConversation session={session} issue={undefined} /> : null
 }
@@ -591,33 +597,60 @@ it('a cold conversation renders its declared joined machine name without loading
   const issueId = asIssueId('phone-cold-machine-task')
   const machine = { ...corpus.machines[0]!, name: 'Cold phone machine', online: false }
   corpus.machines = [machine]
-  corpus.issueProjections = [{
-    ...corpus.issueProjections[0]!, id: issueId, parentId: undefined, isDraftVessel: false,
-    stage: 'done', closedAt: '2026-01-01T00:00:00Z',
-    createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
-  }]
+  corpus.issueProjections = [
+    {
+      ...corpus.issueProjections[0]!,
+      id: issueId,
+      parentId: undefined,
+      isDraftVessel: false,
+      stage: 'done',
+      closedAt: '2026-01-01T00:00:00Z',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    },
+  ]
   corpus.issueDeps = []
   corpus.issueUserStates = []
   corpus.issueGitStates = []
-  corpus.sessions = [{
-    ...corpus.sessions[0]!, sessionId: id, issueId, machineId: machine.id,
-    status: 'exited', archived: false, headless: false, agentState: undefined, offer: undefined,
-    createdAt: '2026-01-01T00:00:00Z', lastActiveAt: '2026-01-01T00:00:00Z',
-    stoppedAt: '2026-01-01T00:00:00Z', resume: undefined,
-  }]
+  corpus.sessions = [
+    {
+      ...corpus.sessions[0]!,
+      sessionId: id,
+      issueId,
+      machineId: machine.id,
+      status: 'exited',
+      archived: false,
+      headless: false,
+      agentState: undefined,
+      offer: undefined,
+      createdAt: '2026-01-01T00:00:00Z',
+      lastActiveAt: '2026-01-01T00:00:00Z',
+      stoppedAt: '2026-01-01T00:00:00Z',
+      resume: undefined,
+    },
+  ]
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
   state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
   vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
   const feed = kernelFixture(corpus)
   await renderWithMobileStore(
-    <ServerProfileContext.Provider value={profile}><ColdConversation id={id} /></ServerProfileContext.Provider>,
+    <ServerProfileContext.Provider value={profile}>
+      <ColdConversation id={id} />
+    </ServerProfileContext.Provider>,
     {
-      replica: feed.replica, principal: 'u-bench', repos: corpus.repos, machines: corpus.machines,
-      attachRuntime: (runtime) => state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
+      replica: feed.replica,
+      principal: 'u-bench',
+      repos: corpus.repos,
+      machines: corpus.machines,
+      attachRuntime: (runtime) =>
+        state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
     },
   )
-  await waitFor(() => expect(screen.getByTestId('machine-offline-banner').textContent)
-    .toContain("machine 'Cold phone machine' is offline"))
+  await waitFor(() =>
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain(
+      "machine 'Cold phone machine' is offline",
+    ),
+  )
   expect(state.pool!.tables.session.has(id)).toBe(false)
   expect(state.errors).toEqual([])
 }, 30_000)
