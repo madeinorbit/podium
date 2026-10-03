@@ -414,18 +414,26 @@ it.each([
   }
   const { view, feed } = await mount('u-bench')
   checkpoint('startup')
-  fireEvent.click(screen.getByLabelText('Show done tasks'))
-  fireEvent.click(screen.getByLabelText('Search tasks'))
-  fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: root.title } })
+  await act(async () => {
+    fireEvent.click(screen.getByLabelText('Show done tasks'))
+    fireEvent.click(screen.getByLabelText('Search tasks'))
+  })
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: root.title } })
+  })
   await waitFor(() => expect(screen.getByTestId('tasks').textContent).toContain(root.title))
   checkpoint('search and done')
   // Search by the stable reference while titles change. SectionList only mounts
   // its first window; this complex mission need not be in that initial window.
-  fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: `#${root.seq}` } })
-  fireEvent.click(screen.getByLabelText('Working'))
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: `#${root.seq}` } })
+    fireEvent.click(screen.getByLabelText('Working'))
+  })
   checkpoint('deck mode')
-  fireEvent.click(screen.getByLabelText('Full'))
-  fireEvent.click(screen.getByLabelText(/Fold every branch|Expand every branch/))
+  await act(async () => fireEvent.click(screen.getByLabelText('Full')))
+  await act(async () =>
+    fireEvent.click(screen.getByLabelText(/Fold every branch|Expand every branch/)),
+  )
   checkpoint('deck fold')
   const sessions = corpus.sessions.map((session, index) =>
     index === 0
@@ -472,7 +480,7 @@ it.each([
   })
   expect(state.runtime!.getSnapshot().coarseNow).toBeGreaterThan(beforeClock)
   checkpoint('idle clock')
-  fireEvent.click(screen.getByLabelText('Close task search'))
+  await act(async () => fireEvent.click(screen.getByLabelText('Close task search')))
   checkpoint('clear search')
   const before = state.runtime
   view.unmount()
