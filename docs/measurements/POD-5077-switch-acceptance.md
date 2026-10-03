@@ -2,6 +2,8 @@
 
 POD-5093, 2026-10-03. **Acceptance remains open: both timing baselines are RED.** At operator size, ON mission and session switching miss the 200 ms store/derive p50 target; all three actions miss the budget at 4×. All 120 ON gestures across both sizes have zero legacy entries. POD-5406 owns the command-launch projection cost. Frozen product `c38a12b360` contains POD-5395 and POD-5396; test-only `eb4a26a9d9` leaves it byte-identical. POD-5402 landed at `70f3c661f4`; the aligned parent probe confirms zero account survivors after real successor focus, with nine retained beforehand in ON. No default has been changed.
 
+The remaining paired measurement must use POD-5406's landed revision, or a descendant that does not contain POD-5437's legacy removal. That exact revision will be named with the results. The first changed-source 4× attempt retained only 39 of 120 records and is incomplete; its twenty ON mission records alone cannot supply a paired acceptance result.
+
 ## Evidence status
 
 | Requirement | Evidence | Result |
@@ -109,7 +111,9 @@ The actual source-map attribution guard is also proven red on a saved Chromium p
 
 ## Rollout and deletion
 
-The operator decides when these screens become ON by default after the remaining acceptance evidence is green. Their escape switches remain for about one week after that activation. POD-5408, the final deletion child under POD-5077, will remove the legacy read path for these screens and their switches after that interval. Shared legacy helpers needed by unmigrated mobile screens remain until their own screen migration; the snapshot pipeline is retired by step 07.
+The original one-week deletion child, POD-5408, has been superseded by POD-5437. On 2026-10-03 the operator authorized removing these workspace screens' legacy readers and switches immediately, without a soak interval or a default-on wait. POD-5437 records the last green control runs before removal and owns the pool-only change. This measurement issue has changed no defaults or application source.
+
+The paired timing evidence remains tied to a revision containing POD-5406 and excluding POD-5437, as instructed by POD-4286 at 17:00 UTC. The report can then land fast-forward onto the current integration branch even if legacy removal has advanced that branch. Shared legacy helpers needed by unmigrated mobile screens remain until their own screen migration; the snapshot pipeline is retired by step 07.
 
 ## Validation boundary
 
