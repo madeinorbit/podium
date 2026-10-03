@@ -13,6 +13,7 @@ import {
   type SessionId} from '@podium/model/browser'
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
+import { readIssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
 import { navigationIssue } from './pool-row-data'
 
 /** Addressed mission target seam shared with the explorer. It reads the raw
@@ -239,7 +240,8 @@ export function createPoolWorkActions(
           },
         ]
       })
-      return { single: all.filter((issue) => issue.id === id), all }
+      const single = all.filter((issue) => issue.id === id)
+      return { single, all, poolInputs: readIssueMenuPoolInputs(pool, single) }
     },
   }
 }

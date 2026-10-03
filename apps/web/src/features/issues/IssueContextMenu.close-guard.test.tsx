@@ -1,4 +1,4 @@
-import { asSessionId, type IssueCloseReason, type SessionMeta } from '@podium/model/browser'
+import { asSessionId, type IssueCloseReason } from '@podium/model/browser'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -10,25 +10,25 @@ import type { SessionView } from '@podium/client-core/session-values'
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
 const closeIssue = vi.fn(async () => {})
-const state: { sessions: SessionMeta[] } = { sessions: [] }
+const state: { sessions: SessionView[] } = { sessions: [] }
 
-vi.mock('@/app/store', () => {
-  const useStore = () => ({
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useStoreHandle: () => ({ getSnapshot: () => ({
     trpc: { issues: { start: { mutate: vi.fn() } } },
     markIssueRead: vi.fn(),
     markIssueUnread: vi.fn(),
     closeIssue,
-    sessions: state.sessions,
-    repos: [],
-    machines: [],
-  })
-  return {
-    useStore,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
-  }
-})
+    get sessions() { throw new Error('Task menu read legacy sessions') },
+    get repos() { throw new Error('Task menu read legacy repos') },
+    get machines() { throw new Error('Task menu read legacy machines') },
+  }) }),
+}))
+vi.mock('@/app/store', () => ({
+  useStoreSelector: () => { throw new Error('Task menu used a legacy selector') },
+}))
 
-const working = (): SessionMeta =>
+const working = (): SessionView =>
   ({
     sessionId: asSessionId('agent'),
     agentKind: 'claude-code',
@@ -40,7 +40,7 @@ const working = (): SessionMeta =>
     updatedAt: 't',
     unread: false,
     archived: false,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 function open(over: { onRequestClose?: (reason: IssueCloseReason) => void } = {}): {
   onClose: ReturnType<typeof vi.fn>
@@ -55,6 +55,7 @@ function open(over: { onRequestClose?: (reason: IssueCloseReason) => void } = {}
       <IssueContextMenu
         issues={[issue]}
         allIssues={[issue]}
+        poolInputs={{ sessions: state.sessions, repos: [], machines: [] }}
         anchor={{ x: 10, y: 10 }}
         onClose={onClose}
         onOpen={vi.fn()}

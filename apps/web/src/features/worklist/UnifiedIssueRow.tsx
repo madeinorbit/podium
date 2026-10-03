@@ -22,6 +22,8 @@ import {
   issueReturnedFromDefer,
   type SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
+import { LOADING } from '@podium/client-graph'
+import { observer } from '@podium/client-graph/react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { lazy, memo, Suspense, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
@@ -33,6 +35,7 @@ import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
+import type { IssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
 import type { PoolIssueDisplay } from './pool-row-data'
 import { RowProgressMeter } from './row-progress'
 import { measureSidebarRow } from './sidebar-measurements'
@@ -82,6 +85,7 @@ export interface UnifiedIssueRowOrigin {
 export interface UnifiedIssueRowMenuData {
   single: IssueNavigationModel[]
   all: IssueNavigationModel[]
+  poolInputs: IssueMenuPoolInputs | typeof LOADING
 }
 
 /**
@@ -257,10 +261,10 @@ export function UnifiedIssueRowInner({
   // MENU DATA IS BUILT ON OPEN ONLY (POD-4421): the row holds no issue array,
   // so the `issues.map` below runs only while the menu is open, never per row
   // per publish.
-  const menu = menuAnchor ? (
+  const menu = menuAnchor && resolveMenuData ? (
     <Suspense fallback={null}>
-      <IssueContextMenu
-        {...menuPropsForAnchor(issue, issues, resolveMenuData)}
+      <ResolvedIssueMenu
+        resolve={resolveMenuData}
         surface="sidebar"
         anchor={menuAnchor}
         onClose={() => setMenuAnchor(null)}
@@ -472,36 +476,24 @@ function fallbackEmptyProgress(): MissionProgress {
   return { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
 }
 
-function menuPropsForAnchor(
-  issue: IssueNavigationModel,
-  issues: IssueNavigationModel[] | undefined,
-  resolveMenuData: (() => UnifiedIssueRowMenuData) | undefined,
-): {
-  issues: Array<IssueNavigationModel & { memberSessionIds?: SessionId[] }>
-  allIssues: Array<IssueNavigationModel & { memberSessionIds?: SessionId[] }>
-} {
-  if (resolveMenuData) {
-    const data = resolveMenuData()
-    return {
-      issues: data.single.map((candidate) => ({
+const ResolvedIssueMenu = observer(function ResolvedIssueMenu({ resolve, ...props }: {
+  resolve: () => UnifiedIssueRowMenuData
+} & Omit<import('react').ComponentProps<typeof IssueContextMenu>, 'issues' | 'allIssues' | 'poolInputs'>) {
+  const data = resolve()
+  if (data.poolInputs === LOADING) return null
+  return <IssueContextMenu
+    {...props}
+    poolInputs={data.poolInputs}
+    issues={data.single.map((candidate) => ({
         ...candidate,
         memberSessionIds: candidate.memberSessionIds?.map(asSessionId),
-      })),
-      allIssues: data.all.map((candidate) => ({
+      }))}
+    allIssues={data.all.map((candidate) => ({
         ...candidate,
         memberSessionIds: candidate.memberSessionIds?.map(asSessionId),
-      })),
-    }
-  }
-  const list = issues ?? []
-  return {
-    issues: [{ ...issue, memberSessionIds: issue.memberSessionIds?.map(asSessionId) }],
-    allIssues: list.map((candidate) => ({
-      ...candidate,
-      memberSessionIds: candidate.memberSessionIds?.map(asSessionId),
-    })),
-  }
-}
+      }))}
+  />
+})
 
 /**
  * MEMOIZED ROW (POD-4421). Default shallow compare is the whole contract:

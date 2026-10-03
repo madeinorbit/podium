@@ -10,22 +10,22 @@ vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 const startMutate = vi.fn(async () => ({}))
 const addSessionMutate = vi.fn(async () => ({}))
 
-vi.mock('@/app/store', () => {
-  const useStore = () => ({
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useStoreHandle: () => ({ getSnapshot: () => ({
     trpc: {
       issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },
     },
     markIssueRead: vi.fn(),
     markIssueUnread: vi.fn(),
-    sessions: [],
-    repos: [],
-    machines: [],
-  })
-  return {
-    useStore,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
-  }
-})
+    get sessions() { throw new Error('Task menu read legacy sessions') },
+    get repos() { throw new Error('Task menu read legacy repos') },
+    get machines() { throw new Error('Task menu read legacy machines') },
+  }) }),
+}))
+vi.mock('@/app/store', () => ({
+  useStoreSelector: () => { throw new Error('Task menu used a legacy selector') },
+}))
 
 // The menu's Archive and Delete confirms are the app-wide dialog (POD-1077), so
 // it now reads the ConfirmProvider context the real tree supplies from AppShell.
@@ -36,6 +36,7 @@ function open(issue: ReturnType<typeof makeIssue>, primaryStart = false): void {
       <IssueContextMenu
         issues={[issue]}
         allIssues={[issue]}
+        poolInputs={{ sessions: [], repos: [], machines: [] }}
         anchor={{ x: 10, y: 10 }}
         primaryStart={primaryStart}
         onClose={vi.fn()}

@@ -112,8 +112,9 @@ function PoolMenuProbe({ id }: { id: string }) {
       >
         Open nested task menu
       </button>
-      {data && (
+      {data && data.poolInputs !== LOADING && (
         <IssueContextMenu
+          poolInputs={data.poolInputs}
           issues={data.single}
           allIssues={data.all}
           surface="sidebar"
@@ -852,7 +853,7 @@ describe('real pool row mutations and receipts', () => {
       }),
     )
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
-    const folded = screen.getByTestId('folded-work-row')
+    const folded = await screen.findByTestId('folded-work-row')
     fireEvent.contextMenu(folded)
     const blocked = await screen.findByTestId('bring-back-blocked')
     expect((blocked as HTMLButtonElement).disabled).toBe(true)
@@ -865,7 +866,7 @@ describe('real pool row mutations and receipts', () => {
   it('archives through the closed-fold dismiss, hides optimistically and returns on refusal', async () => {
     await mount()
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
-    fireEvent.click(screen.getByTestId('closed-issue-archive'))
+    fireEvent.click(await screen.findByTestId('closed-issue-archive'))
     await parity()
     expect(
       pool!.sidebar.sections().bands[0]!.closedIds,
@@ -1095,7 +1096,7 @@ describe('real pool row mutations and receipts', () => {
       }),
     )
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
-    fireEvent.click(screen.getByTestId('closed-issues-archive-all'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
     await parity()
     expect(
       runtime.outbox

@@ -44,7 +44,7 @@ import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
-import { IssueContextMenu } from './IssueContextMenu'
+import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
 import { StatusGlyph } from './issue-glyphs'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { issueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
@@ -812,7 +812,7 @@ export function IssueCompactControls({
         />
       )}
       {menu && (
-        <IssueContextMenu
+        <PoolIssueContextMenu
           issues={[issue]}
           allIssues={issues}
           anchor={menu}

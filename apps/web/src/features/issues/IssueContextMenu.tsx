@@ -1,6 +1,5 @@
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
-import type { MissionActionInputs } from '@podium/client-graph/mission-view'
-import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import {
   discoveredPlacement,
   type ProposalPlacement,
@@ -25,7 +24,8 @@ import { Check, ChevronRight } from 'lucide-react'
 import { Fragment, type JSX, type ReactNode, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import { useStoreSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
+import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
 import { useIssuePageData } from './issue-page/issue-page-data'
 import { IssueColorSwatches } from '@/components/IssueColorSwatches'
 import { useConfirm } from '@/lib/hooks/use-confirm'
@@ -124,7 +124,7 @@ export function IssueContextMenu({
   /** Flight Deck proposals use the sidebar's one-click start action instead of
    *  asking for an agent choice before the work has even been accepted. */
   primaryStart?: boolean
-  poolInputs?: MissionActionInputs
+  poolInputs: IssueMenuPoolInputs
 }): JSX.Element | null {
   const page = useIssuePageData()
   const menuIssues = page?.views.menuIssues()
@@ -141,31 +141,8 @@ export function IssueContextMenu({
     setIssueLabels,
     setIssuePlacement,
     restoreIssue,
-    sessions: legacySessions,
-    repos: legacyRepos,
-    machines: legacyMachines,
-  } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      markIssueRead: s.markIssueRead,
-      markIssueUnread: s.markIssueUnread,
-      updateIssue: s.updateIssue,
-      deleteIssue: s.deleteIssue,
-      closeIssue: s.closeIssue,
-      deferIssue: s.deferIssue,
-      undeferIssue: s.undeferIssue,
-      setIssueLabels: s.setIssueLabels,
-      setIssuePlacement: s.setIssuePlacement,
-      restoreIssue: s.restoreIssue,
-      sessions: poolInputs ? undefined : page ? page.data.sessions : s.sessions,
-      repos: poolInputs ? undefined : s.repos,
-      machines: poolInputs ? undefined : s.machines,
-    }),
-    shallowEqual,
-  )
-  const sessions = poolInputs?.sessions ?? legacySessions ?? []
-  const repos = poolInputs?.repos ?? legacyRepos ?? []
-  const machines = poolInputs?.machines ?? legacyMachines ?? []
+  } = useStoreHandle<Trpc>().getSnapshot()
+  const { sessions, repos, machines } = poolInputs
   const handoffEnabled = useFeature('session-handoff')
   // The app-wide dialog, replacing two raw `window.confirm` calls (POD-1077).
   // A native confirm cannot be styled, cannot be dismissed the way every other
@@ -177,7 +154,7 @@ export function IssueContextMenu({
   // its own. Non-null means the panel has handed over to the dialog.
   const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
-  const needsCloseGuard = useIssueCloseGuard(poolInputs?.sessions)
+  const needsCloseGuard = useIssueCloseGuard(sessions)
 
   // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two
   // other cursor-anchored panels (`use-cursor-menu.ts`). Dismissal is suspended
@@ -200,7 +177,7 @@ export function IssueContextMenu({
     return (
       <IssueCloseDialog
         issue={first}
-        sessions={poolInputs?.sessions}
+        sessions={sessions}
         reason={pendingClose}
         busy={closing}
         onOpenChange={(open) => !open && dismiss()}

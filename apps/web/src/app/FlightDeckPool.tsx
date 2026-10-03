@@ -91,7 +91,7 @@ export default observer(function PoolFlightDeck(
   return source ? <FlightDeckContent {...props} source={source} /> : <SettlingDeck />
 })
 
-function PoolIssueContextMenu(props: ComponentProps<typeof IssueContextMenu>) {
+function PoolIssueContextMenu(props: Omit<ComponentProps<typeof IssueContextMenu>, 'poolInputs'>) {
   const owner = useStoreHandle()
   const ids = props.issues.map((issue) => issue.id).join('\n')
   const read = useCallback(

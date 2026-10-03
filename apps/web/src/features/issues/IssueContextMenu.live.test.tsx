@@ -7,35 +7,35 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssuePageWorldContext } from './issue-page/issue-page-data'
+import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
 
 const featureEnabled = vi.hoisted(() => ({ value: true }))
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => featureEnabled.value,
 }))
 
-// The store slices the menu reads. Mutated per test before render.
-const state: { repos: unknown[]; machines: unknown[]; sessions: unknown[] } = {
+// Explicit pool values and the unchanged action owner are separate fixtures.
+const state: IssueMenuPoolInputs = {
   repos: [],
   machines: [],
   sessions: [],
 }
 const handoffMutate = vi.fn(async () => ({ ok: true }))
 
-vi.mock('@/app/store', () => {
-  const useStore = () => ({
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useStoreHandle: () => ({ getSnapshot: () => ({
     trpc: { sessions: { handoff: { mutate: handoffMutate } } },
     markIssueRead: vi.fn(),
     markIssueUnread: vi.fn(),
-    sessions: state.sessions,
-    repos: state.repos,
-    machines: state.machines,
-  })
-  return {
-    useStore,
-    useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
-  }
-})
+    get sessions() { throw new Error('Task menu read legacy sessions') },
+    get repos() { throw new Error('Task menu read legacy repos') },
+    get machines() { throw new Error('Task menu read legacy machines') },
+  }) }),
+}))
+vi.mock('@/app/store', () => ({
+  useStoreSelector: () => { throw new Error('Task menu used a legacy selector') },
+}))
 
 const LUD = asMachineId('ludovico')
 const MAC = asMachineId('mac')
@@ -90,6 +90,7 @@ function open(issue: IssueViewModel & { memberSessionIds?: string[] }): void {
       <IssueContextMenu
         issues={[viewIssue]}
         allIssues={[viewIssue]}
+        poolInputs={state}
         anchor={{ x: 10, y: 10 }}
         onClose={vi.fn()}
         onOpen={vi.fn()}
