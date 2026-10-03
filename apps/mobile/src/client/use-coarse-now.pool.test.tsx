@@ -4,7 +4,6 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, screen } from '@testing-library/react'
-import { runInAction } from 'mobx'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useCoarseNow } from './hooks'
@@ -45,7 +44,7 @@ it('paints forward ticks and rewinds of the shared pool clock with zero legacy s
     rowBuilds: readRuntimeStoreStats(runtime)?.rowBuilds,
   }))
   for (const next of [now + 60_000, now + 120_000, now - 60_000]) {
-    act(() => runInAction(() => state.pool!.clock.advance(next)))
+    act(() => state.pool!.applyLocals({ selectedIssueId: null, coarseNow: next }, new Set(['coarseNow'])))
     expect(screen.getByTestId('phone-clock').textContent).toBe(String(next))
   }
   expect(readRuntimeStoreStats(runtime)?.selectorRuns).toBe(0)
