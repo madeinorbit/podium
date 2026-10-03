@@ -238,7 +238,7 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
   for (const scale of [1, 4]) {
     state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
     state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
-    state.errors = []; state.reads = 0; state.measuring = false
+    state.pool = null; state.errors = []; state.reads = 0; state.measuring = false
     const history = Array.from({ length: 1_200 * scale }, (_, index) => ({
       ...projection, id: asIssueId(`page-history-${index}`), seq: 100 + index,
       title: `Historical task ${index}`, needsHuman: false, asked: null,
