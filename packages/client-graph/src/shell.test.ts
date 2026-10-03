@@ -39,7 +39,7 @@ describe('shell pool', () => {
       expect(settled(f).differences).toBe(0)
       f.change({ selectedIssueId: null, selectedWorktree: '/synthetic/empty' })
       expect(shellViews(f.pool).close()).toMatchObject({ workspaceKey: 'wt:/synthetic/empty', layout: undefined })
-      expect(settled(f)).toMatchObject({ differences: 0, pending: 0 })
+      expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
     } finally { f.pool.dispose() }
   })
   it('resolves recency ties, nested paths, explicit attachments and discovery-lag repository fallback', () => {
@@ -68,7 +68,7 @@ describe('shell pool', () => {
       f.sessions[2] = { ...f.sessions[2]!, archived: true }
       f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: f.sessions[2]!.sessionId, value: f.sessions[2]! }] as never })
       f.change({ selectedIssueId: draft.id })
-      expect(settled(f)).toMatchObject({ differences: 0, pending: 0 })
+      expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
       expect(shellViews(f.pool).chrome()).toHaveProperty('missionRoot', undefined)
     } finally { f.pool.dispose() }
   })

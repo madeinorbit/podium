@@ -446,7 +446,11 @@ function MachinesPanelView({
  * scrolls, and Escape means "back to the list" rather than "throw the whole
  * Settings sheet away mid-pairing".
  */
-export const MachinesPanel = observer(MachinesPanelView)
+const PoolMachinesPanel = observer(MachinesPanelView)
+export function MachinesPanel(props: Parameters<typeof MachinesPanelView>[0] = {}) {
+  const Surface = shellDataLayer() === 'pool' ? PoolMachinesPanel : MachinesPanelView
+  return <Surface {...props} />
+}
 
 function useSettingsMachines() { return useSettingsCatalog().machines }
 

@@ -57,7 +57,13 @@ export function shellFixture(count = 40) {
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })), ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
   ] as never })
   const syncHeader = () => {
+    const keepRepos = new Set(state.repos.map(value => JSON.stringify([value.machineId ?? '', value.path])))
+    const keepMachines = new Set<string>(state.machines.map(value => value.id))
+    const keepOrders = new Set<string>(state.shipOrders.map(value => value.id))
     pool.header.apply([
+      ...[...pool.header.tables.repository.keys()].filter(id => !keepRepos.has(id)).map(id => ({ kind: 'repository' as const, id, value: undefined })),
+      ...[...pool.header.tables.machine.keys()].filter(id => !keepMachines.has(id)).map(id => ({ kind: 'machine' as const, id, value: undefined })),
+      ...[...pool.header.tables.shipOrder.keys()].filter(id => !keepOrders.has(id)).map(id => ({ kind: 'shipOrder' as const, id, value: undefined })),
       ...state.repos.map(value => ({ kind: 'repository' as const, id: JSON.stringify([value.machineId ?? '', value.path]), value })),
       ...state.machines.map(value => ({ kind: 'machine' as const, id: value.id, value })),
       ...state.shipOrders.map(value => ({ kind: 'shipOrder' as const, id: value.id, value })),

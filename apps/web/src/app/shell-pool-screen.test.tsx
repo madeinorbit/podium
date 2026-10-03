@@ -1,6 +1,4 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { storeStats } from '@podium/client-core/perf'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { observer } from '@podium/client-graph/react'
@@ -27,8 +25,8 @@ it('defaults off, latches the URL override once, and gates the diagnostic on the
 
 it('attaches the existing pool after mounting every reader without a legacy fallback or React hook error', async () => {
   history.replaceState(null, '', '/?mobxSidebar=0&mobxShell=1')
-  const [{ initializePoolScreens }, { attachWorklistPool, useWorklistPool }, reads] = await Promise.all([
-    import('./pool-screens'), import('./store-worklist-pool'), import('./shell-data'),
+  const [{ initializePoolScreens }, { attachWorklistPool, useWorklistPool }, reads, { StoreProvider, useStoreHandle }, { storeStats }] = await Promise.all([
+    import('./pool-screens'), import('./store-worklist-pool'), import('./shell-data'), import('@podium/client-core/react'), import('@podium/client-core/perf'),
   ])
   initializePoolScreens({ get: () => null } as never)
   const fixture = createHeaderFixture(40, 40), failures: string[] = [], states: boolean[] = []

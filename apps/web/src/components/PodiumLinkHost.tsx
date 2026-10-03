@@ -4,6 +4,7 @@ import type { ArtifactId } from '@podium/model/browser'
 import { podiumTargetPath, type PodiumTarget } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { useShellActions, useShellLinks } from '@/app/shell-data'
+import { shellDataLayer } from '@/app/shell-pool-screen'
 import {
   PODIUM_NATIVE_OPEN_EVENT,
   activatePodiumHref,
@@ -55,7 +56,7 @@ function pendingPodiumHref(
  *    render so the activator always closes over the current issue rows —
  *    resolving `POD-1606` needs live data, exactly like the ref activator.
  */
-export const PodiumLinkHost = observer(function PodiumLinkHost({
+function PodiumLinkHostView({
   initialHref = null,
   onInitialHrefConsumed,
   replicaReady = true,
@@ -275,7 +276,13 @@ export const PodiumLinkHost = observer(function PodiumLinkHost({
   }, [])
 
   return null
-})
+}
+
+const PoolPodiumLinkHost = observer(PodiumLinkHostView)
+export function PodiumLinkHost(props: Parameters<typeof PodiumLinkHostView>[0]) {
+  const Surface = shellDataLayer() === 'pool' ? PoolPodiumLinkHost : PodiumLinkHostView
+  return <Surface {...props} />
+}
 
 /** The one view this build would show for a plain in-app path, or null when it
  *  has none — which is the answer for every backend route and every file the
