@@ -92,7 +92,7 @@ root.render(<StrictMode><StoreProvider principal={asClientPrincipal(asUserId('op
     const replica = fixture.newReplica()
     // The real runtime hydrates this device ledger in its constructor, before
     // either controller mounts. Attachment is intentionally a later boundary.
-    replica.uiState.set(DRAFTS_UI_KEY, JSON.stringify({ [id]: { text: 'Saved synthetic draft', serverRev: 0, editedAt: 1 } }))
+    replica.uiState().set(DRAFTS_UI_KEY, JSON.stringify({ [id]: { text: 'Saved synthetic draft', serverRev: 0, editedAt: 1 } }))
     return replica
   }} networkEnabled={false}
   onFatalError={error => failures.push(error)} attachRuntime={runtime => {
