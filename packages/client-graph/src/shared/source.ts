@@ -21,6 +21,7 @@ export interface RowSource {
   row?(kind: 'issue' | 'session', id: string): RowRecord['value']
   /** A keyed identity read from the local replica, including cold issues. */
   issueIdByRef?(ref: string): string | undefined
+  issueIdsByRef?(ref: string): readonly string[]
 }
 
 /**

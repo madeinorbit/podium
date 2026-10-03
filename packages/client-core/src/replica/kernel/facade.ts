@@ -155,6 +155,7 @@ export interface KernelReplicaInit {
 /** What the composition root drives, beyond the `Replica` interface itself. */
 export interface KernelBackedReplica extends Replica {
   issueIdByRef(ref: string): string | undefined
+  issueIdsByRef(ref: string): readonly string[]
   /**
    * Pipe the kernel Replica's `onEvent` here.
    *
@@ -577,6 +578,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       // lookup before hydration can seed it too; subsequent reads are keyed.
       if (issueRefs === undefined) buildMissingProjections()
       return issueRefs?.id(ref)
+    },
+
+    issueIdsByRef(ref: string): readonly string[] {
+      if (issueRefs === undefined) buildMissingProjections()
+      return issueRefs?.candidates(ref) ?? EMPTY
     },
 
     subscribeAddressedBatch(cb): () => void {

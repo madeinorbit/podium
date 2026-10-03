@@ -134,6 +134,9 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
     handle = createWorklistPool(
       {
         ...rows.source,
+        // The pool's display reader follows first-in-replica order. The
+        // replica's unique-only resolver keeps its existing ambiguity rule.
+        ...(rows.source.issueIdsByRef ? { issueIdByRef: (ref: string) => rows.source.issueIdsByRef!(ref)[0] } : {}),
         subscribe: (listener) =>
           rows.source.subscribe((event) => {
             measureWorklistPoolDelivery(runtime, () => listener(event))

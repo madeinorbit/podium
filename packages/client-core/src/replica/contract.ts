@@ -282,6 +282,8 @@ export interface Replica {
   /** Local display-reference lookup over every issue in the replica, independent
    * of pool residency. The kernel maintains it as issues and repo prefixes arrive. */
   issueIdByRef?(ref: string): string | undefined
+  /** Existing reference claimants in the same ID order as rows(), including cold rows. */
+  issueIdsByRef?(ref: string): readonly string[]
   /** Optional committed address batch, including explicit whole-scope replacement. */
   subscribeAddressedBatch?(cb: (batch: ReplicaAddressedBatch) => void): () => void
   /** Non-React change seam (#262). Notifications are COALESCED per application:

@@ -41,7 +41,9 @@ async function main() {
   const runtime = { principal: { userId: sessionHomes.userId }, replica, getSnapshot: () => store,
     subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' }), locals = createEngineLocals(runtime)
-  const handle = createWorklistPool(rows.source, locals.source, { summaries: MOBILE_INBOX_SUMMARIES })
+  const handle = createWorklistPool({ ...rows.source,
+    issueIdByRef: ref => rows.source.issueIdsByRef?.(ref)[0] ?? rows.source.issueIdByRef?.(ref),
+  }, locals.source, { summaries: MOBILE_INBOX_SUMMARIES })
   try {
     const pool = handle.pool
     pool.header.apply([{ kind: 'window', id: 'window', value: { view: 'workspace', paneA: null, fileTabs: [], outboxSize: 0 } }])

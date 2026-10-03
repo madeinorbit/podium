@@ -29,6 +29,21 @@ export class IssueRefIndex {
     return candidates?.size === 1 ? candidates.values().next().value : undefined
   }
 
+  /** Same identity index, in the order Replica.rows() presents its issues.
+   * A caller choosing a first display alias can do so without changing id()'s
+   * ambiguity contract or retaining another index over cold rows. */
+  candidates(token: string): readonly string[] {
+    return [...(this.claimants(token) ?? [])].sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+  }
+
+  private claimants(token: string): Set<string> | undefined {
+    const ref = token.trim()
+    const parsed = parseAnyRef(ref)
+    const key = /^#\d+$/.test(ref) ? `#${Number(ref.slice(1))}`
+      : parsed?.kind === 'issue' ? `${parsed.prefix}-${parsed.seq}` : undefined
+    return key === undefined ? undefined : this.ids.get(key)
+  }
+
   issue(id: string, value: unknown): void {
     const previous = this.issues.get(id)
     if (previous?.repoId !== undefined) {

@@ -195,6 +195,7 @@ export interface RowSourceReplica {
   rows<K extends ReplicaKind>(kind: K): readonly AnyRow[]
   row?<K extends ReplicaKind>(kind: K, id: string): AnyRow | undefined
   issueIdByRef?(ref: string): string | undefined
+  issueIdsByRef?(ref: string): readonly string[]
 }
 
 /** Counts-first instrumentation (methodology §5.7). `rowsVisited` counts slice
@@ -1198,6 +1199,10 @@ export function createRowSource(
     ...(replica.issueIdByRef ? { issueIdByRef(ref: string): string | undefined {
       if (disposed) throw new Error('createRowSource: issueIdByRef() on a disposed source')
       return replica.issueIdByRef!(ref)
+    } } : {}),
+    ...(replica.issueIdsByRef ? { issueIdsByRef(ref: string): readonly string[] {
+      if (disposed) throw new Error('createRowSource: issueIdsByRef() on a disposed source')
+      return replica.issueIdsByRef!(ref)
     } } : {}),
     subscribe(listener: (event: RowSourceEvent) => void): () => void {
       listeners.add(listener)

@@ -44,7 +44,7 @@ export interface IssueReferenceReader {
  * own identity and declared repo relation. Cold rows never enter this index.
  * Unresolved keys use the pool's load window, not a list scan or a peek. */
 export class IssueReferences implements IssueReferenceReader {
-  private readonly resident = observable.map<string, string>(undefined, { deep: false })
+  private readonly resident = observable.map<string, readonly string[]>(undefined, { deep: false })
   // Demand responses exist only for keys asked for by readers. This is not an
   // index over cold rows or their summaries. A loaded key wins immediately.
   private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, {
@@ -53,6 +53,12 @@ export class IssueReferences implements IssueReferenceReader {
   private readonly stops = new Map<string, () => void>()
   private readonly values = new Map<string, IComputedValue<Loaded<IssueReferenceModel | null>>>()
   private readonly stopTable: () => void
+  private orderedBareAliases = false
+
+  /** Enabled once by the phone source before its readers mount. A resident
+   * claimant can have an earlier cold twin, so bare aliases demand the same
+   * batched authority lookup instead of borrowing the warmed row's position. */
+  requireOrderedBareAliases(): void { this.orderedBareAliases = true }
   /** A replacement changes the visible scope. Only unresolved demand keys
    * need a fresh replica answer; resident subscriptions stay untouched. */
   resetUnresolved(): void {
@@ -130,11 +136,14 @@ export class IssueReferences implements IssueReferenceReader {
       },
       (key) =>
         runInAction(() => {
-          if (previous !== undefined && this.resident.get(previous) === id)
-            this.resident.delete(previous)
+          if (previous !== undefined) this.release(previous, id)
           previous = key
           if (key !== undefined) {
-            this.resident.set(key, id)
+            // Replica.rows() orders by row ID. Keep all resident claimants in
+            // the same index so a load arriving late cannot steal an earlier
+            // alias, and eviction hands it to the next owner without a scan.
+            const owners = [...(this.resident.get(key) ?? []), id].sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+            this.resident.set(key, owners)
             this.requests.delete(key)
           }
         }),
@@ -142,9 +151,15 @@ export class IssueReferences implements IssueReferenceReader {
     )
     this.stops.set(id, () => {
       stop()
-      if (previous !== undefined && this.resident.get(previous) === id)
-        this.resident.delete(previous)
+      if (previous !== undefined) this.release(previous, id)
     })
+  }
+
+  private release(key: string, id: string): void {
+    const owners = (this.resident.get(key) ?? []).filter(owner => owner !== id)
+    if (owners.length) this.resident.set(key, owners)
+    else this.resident.delete(key)
+    if (this.orderedBareAliases && key.startsWith('#')) this.requests.delete(key)
   }
 
   private untrack(id: string): void {
@@ -156,14 +171,18 @@ export class IssueReferences implements IssueReferenceReader {
   id(token: string): Loaded<string | null> {
     if (parseAnyRef(token.trim())?.kind !== 'issue' && !/^#\d+$/.test(token.trim())) return null
     const key = issueRefKey(token)
-    const resident = this.resident.get(key)
-    if (resident !== undefined) return resident
+    const resident = this.resident.get(key)?.[0]
+    const orderedBare = this.orderedBareAliases && key.startsWith('#')
+    if (resident !== undefined && !orderedBare) return resident
     const pending = this.requests.get(key)
     if (pending !== undefined) {
-      if (typeof pending !== 'string') return pending
+      if (typeof pending !== 'string') return pending === null && orderedBare ? resident ?? null : pending
       const model = this.readById(pending)
       // A prefix change cannot bind an old token to the row's new identity.
-      return model === LOADING || (model && issueRefKey(model.ref) === key) ? pending : null
+      if (model === LOADING) return LOADING
+      if (model && issueRefKey(model.ref) === key)
+        return orderedBare && resident !== undefined && resident < pending ? resident : pending
+      return orderedBare ? resident ?? null : null
     }
     // A read never blocks. Repeated chips of the same token enqueue it once.
     runInAction(() => this.requests.set(key, LOADING))

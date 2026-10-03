@@ -12,7 +12,7 @@ import {
 const PAIRED = 'https://ludovico.example'
 
 const issues = [{ id: 'iss_abc', prefix: 'POD', seq: 1606, displayRef: 'POD-1606' }]
-const sessions = [{ sessionId: 'sess-1', displayRef: 'POD-1606-A' }]
+const sessions = [sessionView({ sessionId: 'sess-1', refSeq: 1606, refLetter: 'A' }, { repo: { prefix: 'POD' } })]
 
 afterEach(() => {
   setKnownPodiumOrigins([])
@@ -83,7 +83,7 @@ describe('mobilePodiumRoute', () => {
 
   it('resolves a joined draft ref and honors an absent or cleared repo prefix', () => {
     const raw = { sessionId: 'sess-draft', refDraft: 7, displayRef: 'OLD-DRAFT-7' }
-    const route = (ref: string, repo?: { prefix: string | null }) =>
+    const route = (ref: string, repo: { prefix: string | null } = { prefix: 'OLD' }) =>
       mobilePodiumRoute(
         { kind: 'session', session: ref },
         { issues: [], sessions: [sessionView(raw, { repo })] },

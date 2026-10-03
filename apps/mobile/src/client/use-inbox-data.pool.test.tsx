@@ -10,7 +10,7 @@ import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import { MOBILE_INBOX_ENTITIES, MOBILE_INBOX_SOURCE_KEY } from '@podium/client-graph/mobile-inbox-schema'
 import { MobileInboxSource } from '@podium/client-graph/mobile-inbox-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import type { MobxPool } from '@podium/client-graph/pool'
+import { MobxPool } from '@podium/client-graph/pool'
 import { asUserId } from '@podium/model'
 import type { PodiumTarget } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -35,6 +35,7 @@ vi.mock('./mobile-pool', async original => {
 vi.mock('expo-router', () => ({ useRouter: () => state.router, useFocusEffect: (effect: () => void | (() => void)) => useEffect(effect, [effect]) }))
 vi.mock('./server-profile-context', () => ({ useServerProfile: () => ({ profile: state.profile, profiles: [state.profile], activation: 'verified' }) }))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 72 }))
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }))
 vi.mock('../components/Screen', () => ({ Screen: ({ children, right, title, subtitle }: { children: ReactNode; right: ReactNode; title: string; subtitle: string }) => <section><h1>{title}</h1><p>{subtitle}</p>{right}{children}</section>,
   HeaderButton: ({ children, label, onPress }: { children: ReactNode; label: string; onPress: () => void }) => <button aria-label={label} onClick={onPress}>{children}</button> }))
 vi.mock('../components/Icon', () => ({ Icon: () => null }))
@@ -68,8 +69,9 @@ function Screens() { return <><InboxScreen /><ProposalScreeningScreen />{tokens.
 beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW); state.router.push.mockClear(); state.router.replace.mockClear(); resetPulseCache(); storeStats.enable(); storeStats.reset() })
 afterEach(() => { cleanup(); retirePendingMobileHandoff(); vi.restoreAllMocks(); storeStats.enable(false) })
 
-async function mount(on: boolean, children: ReactNode = <Screens />) {
+async function mount(on: boolean, children: ReactNode = <Screens />, prepare?: (data: ReturnType<typeof createInboxFixture>) => void) {
   const data = createInboxFixture(), seen: (MobxPool | null)[] = [], errors: string[] = []
+  prepare?.(data)
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
   let runtime!: ClientRuntime, pool: MobxPool | null = null
   function Surface() {
@@ -180,7 +182,7 @@ it('routes issue and permanent session references and preserves scoped handoff d
 it('updates pulse machines and streamed health without rebuilding quota polling for unrelated rows', async () => {
   const app = await mount(true, <PulseProbe />)
   const reading = () => JSON.parse(app.view.getByTestId('pulse').textContent!)
-  await waitFor(() => { expect(reading().machines).toHaveLength(3); expect(reading().hosts).toHaveLength(3) })
+  await waitFor(() => { expect(reading().machines).toHaveLength(3); expect(reading().hosts).toHaveLength(3); expect(reading().quota).toHaveLength(1); expect(reading().history).not.toBeNull() })
   const quota = vi.spyOn(app.data.api.quota.summary, 'query'), history = vi.spyOn((app.data.api.quota as never as { history: { query: () => Promise<unknown[]> } }).history, 'query')
   await act(async () => { app.data.activity(1); app.data.publishMetrics(2) })
   await waitFor(() => expect(reading().hosts[0].load.one).toBe(0.5))
@@ -255,4 +257,40 @@ it('holds an early reference tap through null-to-pool attachment without opening
   expect(app.seen[0]).toBeNull()
   await waitFor(() => expect(state.router.push).toHaveBeenCalledWith('/issue/synthetic-18'))
   expect(open).not.toHaveBeenCalled()
+})
+
+it('keeps the first replica owner in the resident alias index and hands it to the next owner on eviction', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  const row = (id: string) => ({ kind: 'issue' as const, id, value: { id, seq: 8, title: id, stage: 'backlog', archived: false, deps: [], displayRef: '#8' } as never })
+  pool.apply({ type: 'replace', rows: [row('z'), row('a')] })
+  try {
+    expect(pool.references.id('#8')).toBe('a')
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'a', value: undefined }] })
+    expect(pool.references.id('#8')).toBe('z')
+  } finally { pool.dispose() }
+})
+
+it('resolves an earlier cold alias owner before a later resident claimant and follows its eviction', async () => {
+  const app = await mount(true, null, data => {
+    for (const [id, repoId] of [['synthetic-18', 'missing-a'], ['synthetic-7', 'missing-b']]) {
+      const key = `issueProjection:${id}`, record = data.records.get(key)!
+      data.records.set(key, { ...record, value: { ...record.value as object, repoId, seq: 99999 } })
+    }
+  })
+  const views = mobileInboxViews(app.pool)!, target = { kind: 'issue' as const, issue: '#99999' }
+  expect(app.pool.residency!.isCold('issue', 'synthetic-18')).toBe(true)
+  expect(app.pool.residency!.isCold('issue', 'synthetic-7')).toBe(false)
+  const expected = () => {
+    const snapshot = app.runtime.getSnapshot()
+    return mobilePodiumRoute(target, { issues: allIssueViewModels(snapshot.replica), sessions: snapshot.sessions })
+  }
+  expect(expected()).toBe('/issue/synthetic-18')
+  expect(views.route(target)).toBe(LOADING)
+  await waitFor(() => expect(views.route(target)).toBe(expected()))
+  await act(async () => {
+    app.data.records.delete('issueProjection:synthetic-18')
+    app.data.replica.onKernelEvent({ type: 'evicted', entity: 'issueProjection', entityId: 'synthetic-18' } as never)
+  })
+  await waitFor(() => expect(views.route(target)).toBe('/issue/synthetic-7'))
+  expect(views.route(target)).toBe(expected())
 })

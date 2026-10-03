@@ -21,7 +21,8 @@ const EMPTY_LINK = { booting: true, route: null as string | null, sessions: [] a
 type Pool = Parameters<typeof mobileInboxViews>[0]
 const readInbox = (pool: Pool) => mobileInboxViews(pool)?.inbox() ?? EMPTY_INBOX
 const readQueue = (pool: Pool) => mobileInboxViews(pool)?.screening() ?? EMPTY_QUEUE
-const readLive = (pool: Pool) => ({ machines: pool.headerViews.machines(), hosts: pool.headerViews.metrics() })
+const readMachines = (pool: Pool) => pool.headerViews.machines()
+const readHosts = (pool: Pool) => pool.headerViews.metrics()
 
 function useLegacyInbox(): InboxData {
   const sessions = useSessions(), issues = useIssues(), booting = useBooting(), outboxSize = useOutboxSize()
@@ -59,8 +60,15 @@ export function usePoolRefChip(token: string, refKind: 'issue' | 'session', pref
 }
 
 function useLegacyPulseLive() { return { machines: useMachines(), hosts: useHostMetrics() } }
+function usePoolPulseLive() {
+  // Independent projections preserve the machine array identity when only a
+  // health sample moves; Pulse's polling effect depends on that identity.
+  const machines = useMobilePoolProjection(readMachines, EMPTY_LIVE.machines)
+  const hosts = useMobilePoolProjection(readHosts, EMPTY_LIVE.hosts)
+  return { machines, hosts }
+}
 export function usePulseLive() {
-  return mobileDataLayer() === 'pool' ? useMobilePoolProjection(readLive, EMPTY_LIVE) : useLegacyPulseLive()
+  return mobileDataLayer() === 'pool' ? usePoolPulseLive() : useLegacyPulseLive()
 }
 
 /** Pending handoffs observe their addressed target. Ordinary taps read the

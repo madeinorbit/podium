@@ -18,6 +18,7 @@ export class MobileInboxSource {
   private readonly prefixes
 
   constructor(private readonly runtime: Pick<ClientRuntime, 'replica' | 'subscribe'>, pool: MobxPool) {
+    pool.references.requireOrderedBareAliases()
     this.stop = runtime.subscribe(() => { if (this.demanded) this.schedule() })
     this.prefixes = computed((): Loaded<MobileInboxRows['mobileReferencePrefixes']> => {
       this.counts.prefixReads++
