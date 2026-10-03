@@ -219,7 +219,7 @@ export async function liveConnectionProof() {
           undefined,
           { timeout: 20_000 },
         )
-        const row = IssueProjection.toWire({
+        const row = IssueProjection.parse({
           ...makeIssue({ id: 'fixture-issue', title: 'Relayed from the first tab' }),
           creator: actorUser(asUserId('alice')),
         })
