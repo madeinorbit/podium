@@ -26,8 +26,7 @@ test.setTimeout(180_000)
 test.use({ serviceWorkers: 'block' })
 
 const ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/POD-5370')
-const TITLE = 'Pilot seeded start proof'
-const toggle = (page: Page) => page.getByLabel('MobX pilot', { exact: true })
+const TITLE = 'Seeded phone start proof'
 
 async function settings(page: Page): Promise<void> {
   await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
@@ -54,7 +53,7 @@ async function seedIssue(page: Page): Promise<void> {
   expect(staged.ok(), await staged.text()).toBe(true)
 }
 
-test('with an issue on the device, the pilot-on start builds the pool and shows the work list', async ({
+test('with an issue on the device, every start builds the pool and shows the work list', async ({
   page,
 }) => {
   mkdirSync(ARTIFACTS, { recursive: true })
@@ -76,15 +75,6 @@ test('with an issue on the device, the pilot-on start builds the pool and shows 
       chunks.push(request.url())
   })
 
-  await settings(page)
-  await expect(toggle(page)).not.toBeChecked()
-  await toggle(page).click()
-  await expect(toggle(page)).toBeChecked()
-  // Let the write-behind storage bridge flush before the next app load.
-  await page.waitForTimeout(2_000)
-  expect(chunks).toEqual([])
-
-  // The restart that applies the pilot, straight onto Work.
   await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('tab', { name: 'Work', exact: true })).toBeVisible({
     timeout: 60_000,
@@ -98,13 +88,9 @@ test('with an issue on the device, the pilot-on start builds the pool and shows 
   await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 60_000 })
   // Settle: an issue object built after the first paint fails late.
   await page.waitForTimeout(2_000)
-  await page.screenshot({ path: resolve(ARTIFACTS, 'pilot-on-seeded-tasks.png') })
+  await page.screenshot({ path: resolve(ARTIFACTS, 'pool-seeded-tasks.png') })
 
   await settings(page)
-  await expect(page.getByText('Applies at the next app start. This launch: on.')).toBeVisible()
-  // Leave the device default (off) for any later suite on this harness.
-  await toggle(page).click()
-  await expect(toggle(page)).not.toBeChecked()
-  await page.waitForTimeout(2_000)
+  await expect(page.getByLabel('MobX pilot', { exact: true })).toHaveCount(0)
   expect(errors).toEqual([])
 })

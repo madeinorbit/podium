@@ -272,7 +272,7 @@ describe('mobile WorkScreen pool consumer', () => {
     expect(new Set(keys).size).toBe(keys.length)
   }, 120_000)
 
-  for (const scale of [1, 4] as const) it(`only commits changed paint, keeps native lane identity, and never exceeds legacy at ${scale}x`, async () => {
+  for (const scale of [1, 4] as const) it(`only commits changed paint, keeps native lane identity, and matches the accepted paint counts at ${scale}x`, async () => {
     const cells: unknown[] = []
     const { view, corpus, feed } = await mount(true, scale)
     const initial = output(view.container)

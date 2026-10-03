@@ -35,11 +35,12 @@ import {
   type SessionMeta,
   type SessionUserStateWire,
 } from '@podium/model'
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
 import { seedIssueFixtures } from './issue-fixtures'
 import type { ClientRuntime } from '@podium/client-core/engine'
+import { attachMobilePool, useMobilePool } from './mobile-pool'
 import { MobileShellProvider } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 import type { MobileTrpc } from './trpc'
@@ -178,13 +179,15 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   }
   const api = stubApi(fixture)
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null
+  let ready = false
+  function PoolReady() { ready = useMobilePool() !== null; return null }
 
   function Capture({ inner }: { inner: ReactNode }) {
     // Reaching the hub through the store snapshot, not through a module import:
     // the hub under test must be the one the provider built.
     const store = useStore<MobileTrpc>()
     hub = store.hub as unknown as { emit(event: string, ...payload: unknown[]): void }
-    return <>{inner}</>
+    return <>{!fixture.attachRuntime && <PoolReady />}{inner}</>
   }
 
   const notice =
@@ -205,7 +208,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
         principal={principal}
         createReplicaFn={createReplicaFn}
         routerWindow={routerWindow}
-        attachRuntime={fixture.attachRuntime}
+        attachRuntime={fixture.attachRuntime ?? attachMobilePool}
       >
         {inner}
       </StoreProvider>
@@ -256,6 +259,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
       await Promise.resolve()
     })
   }
+  if (!fixture.attachRuntime) await waitFor(() => { if (!ready) throw new Error('Mobile pool is attaching') })
   return {
     ...result,
     replica,

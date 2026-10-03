@@ -1,5 +1,5 @@
 /**
- * THE MOBILE POOL SWITCH ON THE REAL MOBILE PATH (POD-4976).
+ * THE MOBILE POOL ON THE REAL MOBILE PATH (POD-4976).
  *
  * Every case boots the production `MobileClientProvider`: the AsyncStorage
  * bridge, the shared replica assembly over a real SQLite file, the outbox and
@@ -7,13 +7,12 @@
  * module, the IndexedDB/SQLite engine choice, the socket and the network) and
  * the cold-sync loading boundary. An
  * "app restart" is a fresh module graph over the SAME storage, because the
- * switch latches once per app load.
+ * provider owns one pool per principal.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
 import type { MobxPool } from '@podium/client-graph'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -110,19 +109,18 @@ const status = (member: string): AuthStatus =>
     syncBoundaryId: 'boundary-a',
   }) as AuthStatus
 
-/** One app load: a fresh module graph (a fresh latch) over the device's storage. */
+/** One app load: a fresh module graph (a fresh host) over the device's storage. */
 async function launch(preferences = false, withRow = false) {
   vi.resetModules()
-  // Everything that holds a React context or the latch comes from the new graph.
+  // Everything that holds a React context or the host comes from the new graph.
   const [
     { MobileClientProvider },
-    { useMobilePool, mobileDataLayer },
+    { useMobilePool },
     { AuthStatusContext },
     { useStoreHandle },
     { usePersistedUiState },
     { useCollapsed },
     { useCollapsedSet },
-    { mobilePreferenceReadStats },
   ] = await Promise.all([
     import('./MobileClientProvider'),
     import('./mobile-pool'),
@@ -131,12 +129,10 @@ async function launch(preferences = false, withRow = false) {
     import('../hooks/usePersistedUiState'),
     import('../hooks/useCollapsed'),
     import('../hooks/useCollapsedSet'),
-    import('../hooks/mobile-preferences'),
   ])
   const { PoolWorkRowSlot } = withRow ? await import('../screens/WorkListRow') : { PoolWorkRowSlot: () => null }
   const callbacks = { navPending: false, onOpenIssue: () => {}, onOpenSession: () => {}, onLongPress: () => {}, onTuck: () => {} }
   const item = { id: 'attachment-probe-absent', kind: 'issue' as const, listKey: 'attachment-probe-absent' }
-  if (preferences) mobilePreferenceReadStats.enable()
   const seen: { runtime?: ClientRuntime; pool?: MobxPool | null; attached: boolean[] } = {
     attached: [],
   }
@@ -175,8 +171,6 @@ async function launch(preferences = false, withRow = false) {
   await screen.findByTestId('app', undefined, { timeout: 10_000 })
   return {
     seen,
-    layer: mobileDataLayer,
-    readStats: mobilePreferenceReadStats,
     switchUser: async (member: string) => {
       const before = seen.runtime
       view.rerender(tree(status(member)))
@@ -199,12 +193,6 @@ async function graphSettled() {
     await import('../../../../packages/client-graph/src/runtime-pool')
   })
   await settle()
-}
-
-/** What the Settings toggle does: write the device setting through UI state. */
-function toggleSetting(runtime: ClientRuntime | undefined, on: boolean): void {
-  if (!runtime) throw new Error('the app has no signed-in store')
-  act(() => runtime.ui.set(MOBX_SIDEBAR_KEY, on ? '1' : '0'))
 }
 
 function currentRuntime(runtime: ClientRuntime | undefined): ClientRuntime {
@@ -230,135 +218,98 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-describe('mobile pool switch', () => {
-  it('attaches the real pool after an already-mounted native row without changing hook order', async () => {
-    const first = await launch()
-    toggleSetting(first.seen.runtime, true)
-    await first.quit()
+describe('mobile pool ownership', () => {
+  it('attaches after an already-mounted native row without changing hook order', async () => {
     let release!: () => void
     state.graphGate = new Promise<void>(resolve => { release = resolve })
     const app = await launch(false, true)
-    expect(app.layer()).toBe('pool')
     expect(app.seen.pool).toBeNull()
     expect(screen.getByLabelText('Loading work')).toBeTruthy()
     await act(async () => { release(); await new Promise(resolve => setTimeout(resolve, 20)) })
     await waitFor(() => expect(app.seen.pool).toBeTruthy())
     await waitFor(() => expect(screen.queryByLabelText('Loading work')).toBeNull())
-    expect(state.pools.at(-1)?.runtime).toBe(app.seen.runtime)
+    expect(state.pools).toEqual([{ runtime: app.seen.runtime, disposed: false }])
     await app.quit()
   })
-  it('is off by default: the app runs with no pool and no graph built', async () => {
+
+  it('builds exactly one pool by default over the signed-in provider runtime', async () => {
     const app = await launch()
     await graphSettled()
-    expect(app.layer()).toBe('legacy')
-    expect(app.seen.pool).toBeNull()
-    expect(screen.getByTestId('app').textContent).toBe('no pool')
-    expect(state.pools).toEqual([])
+    await waitFor(() => expect(app.seen.pool).toBeTruthy())
+    expect(screen.getByTestId('app').textContent).toBe('pool')
+    expect(state.pools).toEqual([{ runtime: app.seen.runtime, disposed: false }])
     await app.quit()
+    expect(state.pools.map(pool => pool.disposed)).toEqual([true])
   })
 
-  it('applies the saved setting at the next start, not under the running app', async () => {
+  it('ignores obsolete saved OFF values through restart and disposes each pool once', async () => {
+    // Compatibility input only: this key is no longer a production reader.
+    state.device.set('podium.mobxSidebar', '0')
     const first = await launch()
-    toggleSetting(first.seen.runtime, true)
-    await graphSettled()
-    // Read once: the running app keeps its startup choice.
-    expect(first.layer()).toBe('legacy')
-    expect(state.pools).toEqual([])
+    await waitFor(() => expect(first.seen.pool).toBeTruthy())
+    const firstPool = first.seen.pool
     await first.quit()
-
     const second = await launch()
     await waitFor(() => expect(second.seen.pool).toBeTruthy())
-    expect(second.layer()).toBe('pool')
-    // ONE pool, built over the provider's own runtime (and so its replica).
-    expect(state.pools).toEqual([{ runtime: second.seen.runtime, disposed: false }])
-    expect(screen.getByTestId('app').textContent).toBe('pool')
-
-    // Turning it off is likewise a next-start change.
-    toggleSetting(second.seen.runtime, false)
-    await settle()
-    expect(second.layer()).toBe('pool')
-    expect(state.pools.map((pool) => pool.disposed)).toEqual([false])
+    expect(second.seen.pool).not.toBe(firstPool)
+    expect(state.pools.map(pool => pool.disposed)).toEqual([true, false])
+    expect(state.pools[1]?.runtime).toBe(second.seen.runtime)
     await second.quit()
-    expect(state.pools.map((pool) => pool.disposed)).toEqual([true])
-
-    const third = await launch()
-    await graphSettled()
-    expect(third.layer()).toBe('legacy')
-    expect(state.pools).toHaveLength(1)
-    await third.quit()
+    expect(state.pools.map(pool => pool.disposed)).toEqual([true, true])
   })
 
   it('disposes the pool with the signed-in user and rebuilds it for the next one', async () => {
-    const first = await launch()
-    toggleSetting(first.seen.runtime, true)
-    await first.quit()
-
     const app = await launch()
     await waitFor(() => expect(app.seen.pool).toBeTruthy())
     const alice = { runtime: app.seen.runtime, pool: app.seen.pool }
-
-    // Bob has never turned the setting on; the app load keeps its choice.
     await app.switchUser('bob')
     await waitFor(() => expect(app.seen.pool).toBeTruthy())
-    expect(app.layer()).toBe('pool')
-    expect(state.pools).toHaveLength(2)
-    expect(state.pools[0]).toEqual({ runtime: alice.runtime, disposed: true })
-    expect(state.pools[1]).toEqual({ runtime: app.seen.runtime, disposed: false })
+    expect(state.pools).toEqual([
+      { runtime: alice.runtime, disposed: true },
+      { runtime: app.seen.runtime, disposed: false },
+    ])
     expect(app.seen.pool).not.toBe(alice.pool)
-
-    // Sign-out unmounts the signed-in store and takes the pool with it.
     await app.quit()
-    expect(state.pools.map((pool) => pool.disposed)).toEqual([true, true])
+    expect(state.pools.map(pool => pool.disposed)).toEqual([true, true])
   })
 
-  it('loads saved phone preferences offline through the real lazy attachment and isolates the next principal', async () => {
+  it('loads saved phone preferences offline through lazy attachment and isolates the next principal', async () => {
     const errors = vi.spyOn(console, 'error')
     const first = await launch(true)
     const firstRuntime = currentRuntime(first.seen.runtime)
+    await waitFor(() => expect(first.seen.pool).toBeTruthy())
     act(() => {
       firstRuntime.ui.set('podium.chat.stickyPrompts', 'saved')
       firstRuntime.ui.set('podium:sidebar:task-details-fold', 'false')
       firstRuntime.ui.set('podium:sidebar:repo', 'true')
     })
-    expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true')
-    // UI optimism precedes async durable enqueue. Model a saved offline launch,
-    // rather than killing the app while its final command is still temporary.
-    // Sticky prompts are device-local; the two folds use the durable outbox.
+    await waitFor(() => expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'))
     await waitFor(() => expect(firstRuntime.getSnapshot().outboxSize).toBe(2))
     await firstRuntime.replica.flush()
-    toggleSetting(first.seen.runtime, true)
     await first.quit()
+    state.pools.length = 0
 
     const app = await launch(true)
-    app.readStats.enable()
     await waitFor(() => expect(app.seen.pool).toBeTruthy(), { timeout: 10_000 })
-    await waitFor(
-      () => expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'),
-      { timeout: 10_000 },
-    )
+    await waitFor(() => expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'), { timeout: 10_000 })
     expect(app.seen.attached[0]).toBe(false)
     expect(app.seen.attached).toContain(true)
     expect(state.pools).toEqual([{ runtime: app.seen.runtime, disposed: false }])
     const alice = { runtime: currentRuntime(app.seen.runtime), pool: app.seen.pool }
     if (!alice.pool) throw new Error('The mobile pool did not attach')
     expect(alice.pool.preferenceKeys()).toHaveLength(3)
-    expect(app.readStats.read(alice.runtime.ui).legacyReads).toBe(0)
-    const { checkPreferences } = await import('@podium/client-graph/diagnostics/preference-check')
-    expect(checkPreferences(alice.pool, alice.runtime.ui)).toMatchObject({
-      differences: 0,
-      pending: 0,
-      positions: 3,
-    })
+    expect(alice.pool.preferenceKeys().map(key => alice.pool!.row('preference', key))).toMatchObject([
+      { key: 'podium.chat.stickyPrompts', value: 'saved' },
+      { key: 'podium:sidebar:task-details-fold', value: 'false' },
+      { key: 'podium:sidebar:repo', value: 'true' },
+    ])
     await app.switchUser('bob')
     await waitFor(() => expect(app.seen.pool).toBeTruthy(), { timeout: 10_000 })
-    await waitFor(() =>
-      expect(screen.getByTestId('preferences').textContent).toBe('default:true:false'),
-    )
+    await waitFor(() => expect(screen.getByTestId('preferences').textContent).toBe('default:true:false'))
     expect(alice.pool.preferenceKeys()).toEqual([])
     act(() => alice.runtime.ui.set('podium.chat.stickyPrompts', 'old-person'))
     await settle()
     expect(screen.getByTestId('preferences').textContent).toBe('default:true:false')
-    expect(app.readStats.read(currentRuntime(app.seen.runtime).ui).legacyReads).toBe(0)
     const bobPool = app.seen.pool
     if (!bobPool) throw new Error('The next principal has no pool')
     await app.quit()

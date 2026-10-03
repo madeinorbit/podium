@@ -52,17 +52,7 @@ async function longPress(page: Page, cdp: CDPSession, label: string) {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
 }
 
-async function launchWork(page: Page, on: boolean, previousOn: boolean) {
-  await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
-  const toggle = page.getByLabel('MobX pilot', { exact: true })
-  await expect(toggle).toBeChecked({ checked: previousOn })
-  if (previousOn !== on) await toggle.click()
-  await expect(toggle).toBeChecked({ checked: on })
-  await page.waitForTimeout(2_000)
-  await replicaDurable(page)
-  // A hard navigation rebuilds the principal-scoped provider. The latch never
-  // changes under mounted WorkScreen hooks.
+async function launchWork(page: Page) {
   await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
 }
 
@@ -103,7 +93,7 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
   })
   await rpc(request, 'issues.markRead', { id: issue.id })
   const samples: unknown[] = []
-  for (const on of parityOnly ? [true] : [false, true, false, true]) {
+  for (const on of [true]) {
     // Each arm owns one fresh phone profile. A deliberately parked rename and
     // its following read receipt must not become the next arm's starting queue.
     const context = await browser.newContext({ ...devices['Pixel 7'], serviceWorkers: 'block' })
@@ -112,7 +102,7 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
       observe(page)
       const initial = () =>
         page.getByRole('button', { name: new RegExp(`^(?:[A-Z]+-\\d+|#\\d+) ${title}$`) })
-      await launchWork(page, on, false)
+      await launchWork(page)
       await expect(initial()).toBeVisible({ timeout: 60_000 })
       const cdp = await context.newCDPSession(page)
       const heap = async () => {
@@ -226,7 +216,7 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
         resourceReports,
         samples,
         scope:
-          'Synthetic production Expo export; four interleaved fresh phone profiles on one SHA over the same seeded issue; actual Chromium Paint after optimistic rename; HTTP refusal rollback and mission navigation.',
+          'Synthetic production Expo export; one fresh pool-only phone profile on one SHA over the same seeded issue; actual Chromium Paint after optimistic rename; HTTP refusal rollback and mission navigation.',
       },
       null,
       2,

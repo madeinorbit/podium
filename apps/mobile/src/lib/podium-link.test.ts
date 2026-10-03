@@ -1,9 +1,9 @@
+import { poolRoute } from '../../test/pool-routes'
 import { sessionView } from '@podium/client-core/session-values'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   followPodiumLink,
   internalPodiumTarget,
-  mobilePodiumRoute,
   setActivePodiumOrigin,
   setKnownPodiumOrigins,
   setPodiumTargetActivator,
@@ -38,20 +38,20 @@ describe('a link on a paired server', () => {
   })
 })
 
-describe('mobilePodiumRoute', () => {
+describe('poolRoute', () => {
   it('routes an issue ref to the screen, by the id the screen wants', () => {
     // The address space is plural (`/issues/…`), the route tree singular
     // (`/issue/[issueId]`) — the reason the resolver returns a target, not a path.
-    expect(mobilePodiumRoute({ kind: 'issue', issue: 'POD-1606' }, { issues, sessions })).toBe(
+    expect(poolRoute({ kind: 'issue', issue: 'POD-1606' }, { issues, sessions })).toBe(
       '/issue/iss_abc',
     )
   })
 
   it('routes a session by its birth ref as well as its id', () => {
     expect(
-      mobilePodiumRoute({ kind: 'session', session: 'POD-1606-A' }, { issues, sessions }),
+      poolRoute({ kind: 'session', session: 'POD-1606-A' }, { issues, sessions }),
     ).toBe('/session/sess-1')
-    expect(mobilePodiumRoute({ kind: 'session', session: 'sess-1' }, { issues, sessions })).toBe(
+    expect(poolRoute({ kind: 'session', session: 'sess-1' }, { issues, sessions })).toBe(
       '/session/sess-1',
     )
   })
@@ -71,14 +71,14 @@ describe('mobilePodiumRoute', () => {
     const target = (session: string) => ({ kind: 'session' as const, session })
     const before = [sessionView(raw, { repo: { prefix: 'POD' } })]
     const after = [sessionView(raw, { repo: { prefix: 'NEW' } })]
-    expect(mobilePodiumRoute(target('POD-42-B'), { issues: [], sessions: before })).toBe(
+    expect(poolRoute(target('POD-42-B'), { issues: [], sessions: before })).toBe(
       '/session/sess-born',
     )
-    expect(mobilePodiumRoute(target('NEW-42-B'), { issues: [], sessions: after })).toBe(
+    expect(poolRoute(target('NEW-42-B'), { issues: [], sessions: after })).toBe(
       '/session/sess-born',
     )
-    expect(mobilePodiumRoute(target('POD-42-B'), { issues: [], sessions: after })).toBeNull()
-    expect(mobilePodiumRoute(target('sess-born'), { issues: [], sessions: after })).toBe(
+    expect(poolRoute(target('POD-42-B'), { issues: [], sessions: after })).toBeNull()
+    expect(poolRoute(target('sess-born'), { issues: [], sessions: after })).toBe(
       '/session/sess-born',
     )
   })
@@ -86,7 +86,7 @@ describe('mobilePodiumRoute', () => {
   it('resolves a joined draft ref and honors an absent or cleared repo prefix', () => {
     const raw = { sessionId: 'sess-draft', refDraft: 7, displayRef: 'OLD-DRAFT-7' }
     const route = (ref: string, repo: { prefix: string | null } = { prefix: 'OLD' }) =>
-      mobilePodiumRoute(
+      poolRoute(
         { kind: 'session', session: ref },
         { issues: [], sessions: [sessionView(raw, { repo })] },
       )
@@ -97,7 +97,7 @@ describe('mobilePodiumRoute', () => {
 
   it('has no screen for an artifact or a file, and says so', () => {
     expect(
-      mobilePodiumRoute(
+      poolRoute(
         { kind: 'artifact', issue: 'POD-1606', artifactId: 'a', entry: null },
         {
           issues,
@@ -106,7 +106,7 @@ describe('mobilePodiumRoute', () => {
       ),
     ).toBeNull()
     expect(
-      mobilePodiumRoute(
+      poolRoute(
         { kind: 'file', path: '/w/a.ts', root: '/w', machineId: null },
         {
           issues,
@@ -117,15 +117,15 @@ describe('mobilePodiumRoute', () => {
   })
 
   it('routes nothing for a row this phone has not received', () => {
-    expect(mobilePodiumRoute({ kind: 'issue', issue: 'POD-9999' }, { issues, sessions })).toBeNull()
+    expect(poolRoute({ kind: 'issue', issue: 'POD-9999' }, { issues, sessions })).toBeNull()
     expect(
-      mobilePodiumRoute({ kind: 'session', session: 'POD-9999-A' }, { issues, sessions }),
+      poolRoute({ kind: 'session', session: 'POD-9999-A' }, { issues, sessions }),
     ).toBeNull()
   })
 
   it('does not claim a typed target when doing so would drop its detail', () => {
     expect(
-      mobilePodiumRoute(
+      poolRoute(
         { kind: 'issue', issue: 'POD-1606', search: '?tab=activity', hash: '#latest' },
         { issues, sessions },
       ),

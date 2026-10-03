@@ -33,20 +33,11 @@ async function rpc<T>(
   return (await result.json()).result.data as T
 }
 
-async function launchWork(page: Page, on: boolean, previousOn: boolean) {
-  await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
-  const toggle = page.getByLabel('MobX pilot', { exact: true })
-  // Pilot-on preferences arrive with the lazy pool. The screen's initial
-  // fallback is off, so wait for our last saved value before deciding to click.
-  await expect(toggle).toBeChecked({ checked: previousOn })
-  if (previousOn !== on) await toggle.click()
-  await expect(toggle).toBeChecked({ checked: on })
-  await page.waitForTimeout(2_000)
+async function launchWork(page: Page) {
   await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
 }
 
-test('production mobile never derives worklist with the pilot on, including mission details', async ({
+test('production mobile never derives worklist from the pool, including mission details', async ({
   page,
   request,
 }, testInfo) => {
@@ -84,8 +75,7 @@ test('production mobile never derives worklist with the pilot on, including miss
       (sum, runtime) => sum + (runtime.slices.worklist ?? 0),
       0,
     )
-    if (on) expect(worklist, phase).toBe(0)
-    else expect(worklist, phase).toBeGreaterThan(0)
+    expect(worklist, phase).toBe(0)
     counts.push({ on, phase, worklist })
   }
   const errors: string[] = []
@@ -117,7 +107,7 @@ test('production mobile never derives worklist with the pilot on, including miss
   const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
   const row = () => page.getByRole('button', { name: new RegExp(`^${prefix} ${title} 1$`) })
   // Prime the normal mark-read write before comparing the same data in both arms.
-  await launchWork(page, false, false)
+  await launchWork(page)
   await expect(row()).toBeVisible({ timeout: 60_000 })
   await row().click()
   await expect(page.getByLabel('Mission actions', { exact: true })).toBeVisible({ timeout: 30_000 })
@@ -129,8 +119,7 @@ test('production mobile never derives worklist with the pilot on, including miss
   }
   const cells: unknown[] = []
   let expected: unknown
-  let savedOn = false
-  for (const [arm, on] of [false, true, false, true].entries()) {
+  for (const [arm, on] of [true, true].entries()) {
     if (captureGate && !parityOnly) {
       writeFileSync(`${captureGate}.${arm}.ready`, 'ready\n')
       const deadline = Date.now() + 180_000
@@ -140,8 +129,7 @@ test('production mobile never derives worklist with the pilot on, including miss
         await new Promise((resolve) => setTimeout(resolve, 200))
       }
     }
-    await launchWork(page, on, savedOn)
-    savedOn = on
+    await launchWork(page)
     await expect(row()).toBeVisible({ timeout: 60_000 })
     // Each hard navigation constructs the real principal-scoped provider and
     // pool again. This is startup-to-row readiness, not a mounted user switch.
@@ -260,7 +248,7 @@ test('production mobile never derives worklist with the pilot on, including miss
         resourceReports,
         samples: cells,
         scope:
-          'Synthetic production Expo export; interleaved startup arms on one SHA; actual Chromium Paint after mission DOM.',
+          'Synthetic production Expo export; repeated pool-only startups on one SHA; actual Chromium Paint after mission DOM.',
       },
       null,
       2,

@@ -14,7 +14,6 @@ test.setTimeout(180_000)
 test.use({ serviceWorkers: 'block' })
 const artifacts = resolve(import.meta.dirname, '../../../.artifacts/mobile-inbox/production')
 const http = RELAY.replace(/^ws/, 'http')
-const toggle = (page: Page) => page.getByLabel('MobX pilot', { exact: true })
 
 async function mutate<T>(page: Page, procedure: string, data: object): Promise<T> {
   const response = await page.request.post(`${http}/trpc/${procedure}`, { data })
@@ -30,7 +29,7 @@ async function query<T>(page: Page, procedure: string, input?: object): Promise<
   return ((await response.json()) as { result: { data: T } }).result.data
 }
 
-test('seeded proposals, live health and addressed references survive the pool-on production start', async ({
+test('seeded proposals, live health and addressed references survive the pool-only production start', async ({
   page,
 }) => {
   if (process.env.PODIUM_E2E_REAL_AGENTS === '1')
@@ -78,14 +77,6 @@ test('seeded proposals, live health and addressed references survive the pool-on
       poolChunks.push(request.url())
   })
 
-  await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
-  await expect(toggle(page)).not.toBeChecked()
-  await toggle(page).click()
-  await expect(page.getByText('Applies at the next app start. This launch: off.')).toBeVisible()
-  await page.waitForTimeout(2_000)
-  expect(poolChunks).toEqual([])
-
   await page.goto(`/mobile/screen-proposed?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Pool proposal first', { exact: true })).toBeVisible({
     timeout: 60_000,
@@ -101,7 +92,7 @@ test('seeded proposals, live health and addressed references survive the pool-on
   await expect(page.getByText(/^2 of 2 · /)).toBeVisible()
   await expect(page.getByText('Pool proposal second', { exact: true })).toBeVisible()
 
-  // Existing task detail supplies the text, without migrating that screen.
+  // The pool-backed issue detail supplies the live reference text.
   await mutate(page, 'issues.update', {
     id: first.id,
     patch: { description: `Related to ${ref}. [Open reference](podium://issues/${ref}).` },

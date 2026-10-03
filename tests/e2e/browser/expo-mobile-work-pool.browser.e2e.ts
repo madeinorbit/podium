@@ -21,20 +21,11 @@ async function rpc<T>(request: APIRequestContext, proc: string, input: unknown =
   return (await result.json()).result.data as T
 }
 
-async function launchWork(page: Page, on: boolean, previousOn: boolean) {
-  await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
-  const toggle = page.getByLabel('MobX pilot', { exact: true })
-  // Pilot-on preferences arrive with the lazy pool. The screen's initial
-  // fallback is off, so wait for our last saved value before deciding to click.
-  await expect(toggle).toBeChecked({ checked: previousOn })
-  if (previousOn !== on) await toggle.click()
-  await expect(toggle).toBeChecked({ checked: on })
-  await page.waitForTimeout(2_000)
+async function launchWork(page: Page) {
   await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
 }
 
-test('production mobile work has equal off/on rows and styles, and a real press paints the mission', async ({ page, request }, testInfo) => {
+test('production mobile work has stable pool rows and styles, and a real press paints the mission', async ({ page, request }, testInfo) => {
   const errors: string[] = []
   const resourceReports: { message: string; path: string }[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -54,7 +45,7 @@ test('production mobile work has equal off/on rows and styles, and a real press 
   const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
   const row = () => page.getByRole('button', { name: new RegExp(`^${prefix} ${title} 1$`) })
   // Prime the normal mark-read write before comparing the same data in both arms.
-  await launchWork(page, false, false)
+  await launchWork(page)
   await expect(row()).toBeVisible({ timeout: 60_000 })
   await row().click()
   await expect(page.getByLabel('Mission actions', { exact: true })).toBeVisible({ timeout: 30_000 })
@@ -63,10 +54,8 @@ test('production mobile work has equal off/on rows and styles, and a real press 
   const heap = async () => { await cdp.send('HeapProfiler.collectGarbage'); return (await cdp.send('Runtime.getHeapUsage')).usedSize as number }
   const cells: unknown[] = []
   let expected: unknown
-  let savedOn = false
-  for (const on of [false, true, false, true]) {
-    await launchWork(page, on, savedOn)
-    savedOn = on
+  for (const on of [true, true]) {
+    await launchWork(page)
     await expect(row()).toBeVisible({ timeout: 60_000 })
     // Each hard navigation constructs the real principal-scoped provider and
     // pool again. This is startup-to-row readiness, not a mounted user switch.
@@ -120,7 +109,7 @@ test('production mobile work has equal off/on rows and styles, and a real press 
   mkdirSync(directory, { recursive: true })
   const path = resolve(directory, 'mobile-browser.json')
   writeFileSync(path, JSON.stringify({ browser: await page.context().browser()?.version(), differences: 0, resourceReports,
-    samples: cells, scope: 'Synthetic production Expo export; interleaved startup arms on one SHA; actual Chromium Paint after mission DOM.' }, null, 2) + '\n')
+    samples: cells, scope: 'Synthetic production Expo export; repeated pool-only startups on one SHA; actual Chromium Paint after mission DOM.' }, null, 2) + '\n')
   await testInfo.attach('Mobile pool browser comparison', { path, contentType: 'application/json' })
   console.info('[mobile browser]', JSON.stringify(cells))
 })

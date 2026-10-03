@@ -4,7 +4,7 @@ import { expect, type Page, test } from '@playwright/test'
 import { RELAY } from './_harness'
 
 /** Saved settings and stage folds through the actual phone web export, with
- * the isolated harness's synthetic principal. Reload applies the pool switch.
+ * the isolated harness's synthetic principal. Every reload attaches the pool.
  */
 test.skip(
   ({ isMobile, browserName }) => !isMobile || browserName !== 'chromium',
@@ -27,7 +27,7 @@ async function tasks(page: Page): Promise<void> {
   })
 }
 
-test('saved preferences survive the pool-on restart and return to the same legacy values', async ({
+test('saved preferences survive pool-only restarts and external changes', async ({
   page,
 }) => {
   const http = RELAY.replace(/^ws/, 'http')
@@ -56,14 +56,7 @@ test('saved preferences survive the pool-on restart and return to the same legac
     if (message.type() === 'error') console.log('[phone-preferences console]', message.text())
   })
   await settings(page)
-  await expect(page.getByLabel('MobX pilot', { exact: true })).not.toBeChecked()
-  await page.getByLabel('MobX pilot', { exact: true }).click()
-  await expect(page.getByText('Applies at the next app start. This launch: off.')).toBeVisible()
-  // Let the production AsyncStorage write-behind bridge reach durable storage.
-  await page.waitForTimeout(2_000)
-  await settings(page)
-  await expect(page.getByLabel('MobX pilot', { exact: true })).toBeChecked()
-  await expect(page.getByText('Applies at the next app start. This launch: on.')).toBeVisible()
+  await expect(page.getByLabel('MobX pilot', { exact: true })).toHaveCount(0)
 
   await tasks(page)
   const backlog = page.getByRole('button', { name: /^Backlog, \d+ tasks?$/ })
@@ -76,10 +69,7 @@ test('saved preferences survive the pool-on restart and return to the same legac
   await page.screenshot({ path: resolve(artifacts, 'pool-saved-fold.png') })
 
   await settings(page)
-  await page.getByLabel('MobX pilot', { exact: true }).click()
-  await expect(page.getByLabel('MobX pilot', { exact: true })).not.toBeChecked()
-  await expect(page.getByText('Applies at the next app start. This launch: on.')).toBeVisible()
-  await page.waitForTimeout(2_000)
+  await expect(page.getByLabel('MobX pilot', { exact: true })).toHaveCount(0)
   await tasks(page)
   await expect(backlog).toHaveAttribute('aria-expanded', 'false')
   await backlog.click()

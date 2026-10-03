@@ -81,14 +81,10 @@ async function observe(page: Page) {
   })
   return { errors, resource401: () => resource401 }
 }
-async function settings(page: Page, on: boolean) {
+async function settings(page: Page) {
   await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
-  const toggle = page.getByLabel('MobX pilot', { exact: true })
-  if ((await toggle.isChecked()) !== on) {
-    await toggle.click()
-    await page.waitForTimeout(2_000) // The production device storage write-behind.
-  }
+  await expect(page.getByLabel('MobX pilot', { exact: true })).toHaveCount(0)
 }
 async function conversation(page: Page, sessionId: string) {
   await page.goto(`/mobile/session/${sessionId}?server=${RELAY}&e2e=1`, {
@@ -121,20 +117,20 @@ async function counts(page: Page) {
   })
 }
 
-test('seeded production phone keeps session identity, draft and terminal attachment through the pool-on restart', async ({
+test('seeded production phone keeps session identity, draft and terminal attachment through pool-only restarts', async ({
   page,
 }) => {
   const observed = await observe(page),
     session = await seed(page)
-  await settings(page, false)
-  const legacy = await conversation(page, session.sessionId)
-  await legacy.fill(savedDraft)
+  await settings(page)
+  const first = await conversation(page, session.sessionId)
+  await first.fill(savedDraft)
   await page.waitForTimeout(2_000)
   const before = await counts(page)
-  expect(before.context).toBeGreaterThan(0)
-  expect(before.ports).toBeGreaterThan(0) // The legacy subscriber is the red arm.
-  await page.screenshot({ path: resolve(artifacts, 'conversation-legacy.png') })
-  await settings(page, true)
+  expect(before.context).toBe(0)
+  expect(before.ports).toBe(0)
+  await page.screenshot({ path: resolve(artifacts, 'conversation-first-pool.png') })
+  await settings(page)
   const enabled = await conversation(page, session.sessionId)
   await expect(enabled).toHaveValue(savedDraft)
   await enabled.fill(`${savedDraft} updated`)
@@ -330,7 +326,7 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
     session = await seed(page),
     corpus = await sizedBootstrap(page, session)
   // Verify the sized bootstrap before the capture-only lease is requested.
-  await settings(page, false)
+  await settings(page)
   await conversation(page, session.sessionId)
   expect(observed.errors, observed.errors.join('\n')).toEqual([])
   if (process.env.PODIUM_MOBILE_SESSION_PREFLIGHT_ONLY === '1') {
@@ -357,9 +353,9 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
     draftMs: number[]
     counts: Awaited<ReturnType<typeof counts>>
   }[] = []
-  for (const on of [false, true, false, true]) {
-    await settings(page, on)
-    const replicaCache = arms.length < 2 ? 'cold' : 'warm'
+  for (const on of [true, true]) {
+    await settings(page)
+    const replicaCache = arms.length === 0 ? 'cold' : 'warm'
     if (replicaCache === 'cold') {
       // Keep the device preference and auth cookie; close the app's handles
       // before clearing both first arms' replica homes. Bootstrap interception
@@ -407,17 +403,13 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
       )
     }
     const reads = await counts(page)
-    if (on) expect(reads).toMatchObject({ context: 0, ports: 0 })
-    else {
-      expect(reads.context).toBeGreaterThan(0)
-      expect(reads.ports).toBeGreaterThan(0)
-    }
+    expect(reads).toMatchObject({ context: 0, ports: 0 })
     arms.push({ pool: on, replicaCache, navigationMs, draftMs, counts: reads })
   }
   expect(corpus.installations()).toBeGreaterThan(0)
   expect(observed.errors).toEqual([])
   writeFileSync(
     resolve(artifacts, 'browser-measurement.json'),
-    `${JSON.stringify({ corpus: corpus.size, bootstrapInstallations: corpus.installations(), browser: 'chromium-pixel', httpCache: 'Disabled by bootstrap interception in every arm', method: 'Document navigation start to settled conversation, and input event to two animation frames; cold replica legacy/pool, then warm replica legacy/pool. Cold arms clear IndexedDB, warm arms retain it. Not the web speed gate.', arms, errors: observed.errors.length, resource401: observed.resource401() }, null, 2)}\n`,
+    `${JSON.stringify({ corpus: corpus.size, bootstrapInstallations: corpus.installations(), browser: 'chromium-pixel', httpCache: 'Disabled by bootstrap interception in every arm', method: 'Document navigation start to settled conversation, and input event to two animation frames; cold then warm pool-only replica. The cold launch clears IndexedDB, the warm launch retains it. Not the web speed gate.', arms, errors: observed.errors.length, resource401: observed.resource401() }, null, 2)}\n`,
   )
 })

@@ -27,13 +27,7 @@ import {
 } from '@podium/protocol'
 import { Linking } from 'react-native'
 
-export {
-  findLinkedIssue,
-  findLinkedSession,
-  type LinkIssueLike,
-  type LinkSessionLike,
-  mobilePodiumRoute,
-} from './podium-route'
+
 
 /**
  * TWO SLOTS, NOT ONE LIST. The paired profiles and the active server are

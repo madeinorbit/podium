@@ -38,11 +38,8 @@ test('the production phone Settings preserves diagnostic rows after the pool att
     'Needs recovery',
   ]
   const before = await Promise.all(labels.map((label) => value(page, label)))
-  await page.getByLabel('MobX pilot', { exact: true }).click()
-  await expect(page.getByLabel('MobX pilot', { exact: true })).toBeChecked()
-  await page.waitForTimeout(2000) // Flush the device-local preference before a full app restart.
+  await expect(page.getByLabel('MobX pilot', { exact: true })).toHaveCount(0)
   await launch(page)
-  await expect(page.getByText('Applies at the next app start. This launch: on.')).toBeVisible()
   await expect.poll(() => value(page, 'Sync cursor'), { timeout: 30_000 }).not.toBe('none')
   await expect
     .poll(() => Promise.all(labels.map((label) => value(page, label))), { timeout: 30_000 })

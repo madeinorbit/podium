@@ -1,3 +1,4 @@
+import { poolRouteFixture } from '../../test/pool-routes'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { render, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
@@ -7,7 +8,12 @@ import { STAGE_COLOR, STAGE_UNKNOWN } from '../theme/stage'
 import { color } from '../theme/theme'
 
 let issues: IssueViewModel[] = []
-vi.mock('../client/hooks', () => ({ useIssues: () => issues }))
+vi.mock('../client/use-inbox-data', () => ({
+  usePoolRefChip: (token: string, kind: 'issue' | 'session', prefix: string) => {
+    const fixture = poolRouteFixture({ issues, sessions: [] })
+    try { return fixture.views.chip(token, kind, prefix) } finally { fixture.dispose() }
+  },
+}))
 
 // The web build resolves react-native-svg's `.web.js` entry through Metro's
 // platform extensions; this lane resolves the native one, which is Flow-typed

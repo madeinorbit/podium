@@ -1,3 +1,5 @@
+import { poolRouteFixture } from '../../test/pool-routes'
+import type { PodiumTarget } from '@podium/protocol'
 // @vitest-environment happy-dom
 import { PODIUM_SCHEME, formatPodiumLink } from '@podium/protocol'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -35,9 +37,21 @@ vi.mock('react-native', async (importOriginal) => {
 vi.mock('../client/auth-context', () => ({ useAuthStatus: () => seams.authStatus }))
 vi.mock('../client/hooks', () => ({
   useHttpOrigin: () => seams.httpOrigin,
-  useIssues: () => seams.issues,
-  useSessions: () => seams.sessions,
-  useBooting: () => seams.booting,
+}))
+vi.mock('../client/use-inbox-data', () => ({
+  usePoolLinkData: (target: PodiumTarget | null) => {
+    const fixture = poolRouteFixture({ issues: seams.issues, sessions: seams.sessions })
+    const route = target ? fixture.route(target) : null
+    const session = target?.kind === 'session' ? fixture.views.session(target.session) : undefined
+    fixture.dispose()
+    return { booting: seams.booting, route,
+      sessions: session && typeof session !== 'symbol' ? [session] : [],
+      resolveRoute: (next: PodiumTarget) => {
+        const current = poolRouteFixture({ issues: seams.issues, sessions: seams.sessions })
+        try { return current.route(next) } finally { current.dispose() }
+      },
+    }
+  },
 }))
 vi.mock('../client/server-profile-context', () => ({
   useServerProfile: () => seams.serverProfile,
@@ -119,7 +133,7 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('PodiumLinkHost mobile handoff integration', () => {
-  it('routes an OS-delivered issue through mobilePodiumRoute', async () => {
+  it('routes an OS-delivered issue through the pool route', async () => {
     seams.issues = [{ id: 'iss-1710', displayRef: 'POD-1710' }]
     render(<PodiumLinkHost />)
 

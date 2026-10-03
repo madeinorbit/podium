@@ -12,7 +12,7 @@ const views = 'packages/client-graph/src/mobile-inbox-views.ts',
   links = 'apps/mobile/src/lib/podium-link.ts'
 const controls = [
   [
-    'rendered phone',
+    'preserves rendered phone',
     views,
     'outboxSize: window?.outboxSize ?? 0',
     'outboxSize: (window?.outboxSize ?? 0) + 7',
@@ -21,13 +21,13 @@ const controls = [
     'zero legacy selectors',
     hooks,
     'export function useInboxData(): InboxData {',
-    'export function useInboxData(): InboxData { useIssues()',
+    "import { useStoreSelector } from '@podium/client-core/react'; export function useInboxData(): InboxData { useStoreSelector(s => s.sessions)",
   ],
   [
     'compares every card',
-    'packages/client-graph/diagnostics/mobile-inbox-check.ts',
-    'differences: result.differences',
-    'differences: 0',
+    'apps/mobile/test/pool-snapshots.ts',
+    "'seq', 'title', 'stage'",
+    "'seq', 'id', 'stage'",
   ],
   [
     'compares every card',
@@ -57,7 +57,7 @@ const controls = [
   ],
   ['original outbox pending', views, 'outboxSize: window?.outboxSize ?? 0', 'outboxSize: 0'],
   [
-    'switch-off link activator',
+    'link activator',
     links,
     'const answer = activator?.(link.target)',
     'const answer = Promise.resolve(activator?.(link.target))',
@@ -112,7 +112,7 @@ const controls = [
     'before a later resident claimant',
     views,
     'if (/^#0\\d+$/.test(target.issue.trim())) return null',
-    '// planted: normalize a bare alias that legacy matches literally',
+    '// planted: normalize a bare alias that the accepted output matches literally',
   ],
 ] as const
 const fromArg = process.argv.indexOf('--from')

@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -36,6 +37,14 @@ const ui = vi.hoisted(() => {
 
 vi.mock('../client/hooks', () => ({ useUiState: () => ui.state }))
 
+// Only the addressed pool projection is stubbed; ui.state remains the write owner.
+vi.mock('../client/mobile-pool', () => ({
+  useMobilePoolProjection: (read: (pool: unknown) => readonly (string | null)[]) => {
+    const subscribe = (wake: () => void) => ui.state.subscribe(wake)
+    const revision = useSyncExternalStore(subscribe, () => JSON.stringify([...ui.values]))
+    return useMemo(() => read({ row: (_entity: string, key: string) => ({ value: ui.state.get(key) }) }), [read, revision])
+  },
+}))
 const { useCollapsedSet } = await import('./useCollapsedSet')
 
 const storageKeyFor = (key: string) => `fold:${key}`

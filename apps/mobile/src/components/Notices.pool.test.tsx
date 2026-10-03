@@ -153,7 +153,7 @@ function expectPoolReadersOnly(runtime: ClientRuntime) {
   expect(pendingInteractionCards).not.toHaveBeenCalled()
 }
 
-it('renders identical banners with the startup switch off and on', async () => {
+it('preserves the accepted banners through pool attachment', async () => {
   const reactErrors = vi.spyOn(console, 'error')
   const enabled = await mount(true)
   expect(enabled.seen[0]).toBeNull()
@@ -203,7 +203,10 @@ it('keeps chat, settings, dismiss and typed-answer actions on the existing owner
   enabled.answer.mockResolvedValueOnce({ ok: false, reason: 'Synthetic answer refusal' } as never)
   fireEvent.click(enabled.view.getByTestId('pending-interaction-action-approve'))
   await waitFor(() => expect(enabled.view.getAllByText('Synthetic answer refusal').length).toBeGreaterThan(0))
+  await act(async () => { await Promise.resolve() })
+  await waitFor(() => expect(enabled.view.getByTestId('pending-interaction-action-approve').getAttribute('aria-disabled')).not.toBe('true'))
   fireEvent.click(enabled.view.getByTestId('pending-interaction-action-approve'))
+  await waitFor(() => expect(enabled.answer).toHaveBeenCalledTimes(2))
   await waitFor(() => expect(enabled.view.queryByText('Synthetic plan')).toBeNull())
   expect(enabled.answer).toHaveBeenLastCalledWith({
     id: 'notice-ask-7', answer: { kind: 'plan-approval', decision: 'approve' },

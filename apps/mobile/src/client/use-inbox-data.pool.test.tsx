@@ -277,7 +277,7 @@ it('preserves rendered phone inbox, proposal, pulse and reference values through
   expect(on.errors).toEqual([])
 })
 
-it('has zero legacy selectors and issue derivations at mount and on relevant updates, with an active off control', async () => {
+it('has zero legacy selectors and issue derivations at mount and on relevant updates', async () => {
   const on = await mount(true)
   await painted(on)
   expect(readRuntimeStoreStats(on.runtime)?.selectorRuns ?? 0).toBe(0)
@@ -295,7 +295,7 @@ it('has zero legacy selectors and issue derivations at mount and on relevant upd
   expect(readRuntimeStoreStats(on.runtime)?.rowBuilds ?? 0).toBe(0)
 })
 
-it('compares every card, triage bucket, screening ancestor and addressed route using the sidebar pattern', async () => {
+it('compares every card, triage bucket, screening ancestor and addressed route against the last green pilot outputs', async () => {
   const app = await mount(true)
   await painted(app)
   const input = {
@@ -483,7 +483,7 @@ it('shows the original outbox pending count and optimistically renamed card', as
   })
 })
 
-it('keeps the switch-off link activator synchronous with the same single OS fallback', () => {
+it('keeps the link activator synchronous with the same single OS fallback', () => {
   const open = vi.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
   setActivePodiumOrigin('http://offline.invalid')
   setPodiumTargetActivator(() => false)

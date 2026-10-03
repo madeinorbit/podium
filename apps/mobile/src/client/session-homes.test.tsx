@@ -9,7 +9,7 @@ import {
   fixtureSessionHomes,
   stripSessionLegacy,
 } from '../../../../packages/worklist-proto/harness/src/fixture/session-homes'
-import { mobilePodiumRoute } from '../lib/podium-link'
+import { poolRouteFixture } from '../../test/pool-routes'
 import { useSession, useSessions } from './hooks'
 import { renderWithMobileStore } from './test-support'
 
@@ -132,6 +132,7 @@ it('has zero session-value, shared-card and mobile-route differences across the 
   const before = sessionViews(homes.sessions, homes)
   const after = sessionViews(homes.sessions.map(stripSessionLegacy), homes)
   expect(before.length).toBe(4304)
+  const addresses = poolRouteFixture({ issues: [], sessions: after })
   let routes = 0
   for (const [index, withLegacy] of before.entries()) {
     const stripped = after[index]
@@ -145,8 +146,8 @@ it('has zero session-value, shared-card and mobile-route differences across the 
     routes++
     const target = { kind: 'session' as const, session: ref }
     const expected = `/session/${encodeURIComponent(withLegacy.sessionId)}`
-    expect(mobilePodiumRoute(target, { issues: [], sessions: [stripped] })).toBe(expected)
-    expect(mobilePodiumRoute(target, { issues: [], sessions: [withLegacy] })).toBe(expected)
+    expect(addresses.route(target)).toBe(expected)
   }
+  addresses.dispose()
   expect(routes).toBe(4304)
 })

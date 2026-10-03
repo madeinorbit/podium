@@ -221,7 +221,7 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
 
 })
 
-it('keeps server controls and logout on their existing owners in both arms', async () => {
+it('keeps server controls and logout on their existing owners', async () => {
   vi.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
     buttons?.find((button) => button.style === 'destructive')?.onPress?.()
   })
