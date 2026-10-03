@@ -301,9 +301,11 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
     test.setTimeout(2_160_000)
     const started = Date.now()
     writeFileSync(resolve(artifacts, 'measurement-ready.json'), '{"ready":true}\n')
-    await expect.poll(() => existsSync(resolve(artifacts, 'capture-granted')), {
-      timeout: 1_800_000,
-    }).toBe(true)
+    await expect
+      .poll(() => existsSync(resolve(artifacts, 'capture-granted')), {
+        timeout: 1_800_000,
+      })
+      .toBe(true)
     test.setTimeout(Date.now() - started + 360_000)
   }
   const arms: {
