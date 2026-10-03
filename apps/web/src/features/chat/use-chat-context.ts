@@ -110,11 +110,12 @@ function useLegacyArtifactIssue(session: Pick<SessionView, 'sessionId' | 'issueI
   return issues.find(i => i.id === session.issueId) ?? issues.find(i => i.memberSessionIds?.includes(session.sessionId))
 }
 function usePoolArtifactIssue(session: Pick<SessionView, 'sessionId' | 'issueId'>) {
+  const { issueId, sessionId } = session
   const read = useCallback((pool: MobxPool) => {
     const reader = pool.row('chatContextReader', 'reader')
-    const issue = reader && !pending(reader) ? reader.artifactIssue(session) : undefined
+    const issue = reader && !pending(reader) ? reader.artifactIssue({ issueId, sessionId }) : undefined
     return pending(issue) ? undefined : issue
-  }, [session.issueId, session.sessionId])
+  }, [issueId, sessionId])
   return useWorklistPoolProjection(read, undefined)
 }
 export function useChatArtifactIssue(session: Pick<SessionView, 'sessionId' | 'issueId'>) {
@@ -162,6 +163,7 @@ function usePoolPorts(id: SessionId, _store: UseChatSendOptions['store']): Ports
   }, [id])
   const data = useWorklistPoolProjection(read, EMPTY_INPUT)
   if (data.ready && initial.current?.id !== id) initial.current = { id, draft: data.draft }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: One bridge per addressed conversation; layout updates its borrowed rows without replacing listener ownership.
   const bridge = useMemo(() => {
     let records: readonly MessageRecordWire[] = data.records, sends = data.sends
     const recordListeners = new Set<() => void>(), heldListeners = new Set<() => void>()

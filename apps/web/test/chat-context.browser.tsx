@@ -26,6 +26,7 @@ import '../src/styles.css'
 initializeChatContextDataLayer({ get: () => null })
 initializeSessionPaneDataLayer({ get: () => null })
 const rows = Number(new URLSearchParams(location.search).get('rows') ?? 5600)
+const omitArtifactStrip = new URLSearchParams(location.search).get('omitArtifactStrip') === '1'
 const fixture = createHeaderFixture(rows)
 const notice = noticeFixture(), id = asSessionId('synthetic-session-0')
 for (const row of notice.messages) fixture.records.set(`messageRecord:${row.id}`, { entity: 'messageRecord', entityId: row.id, value: row, provenance: { seq: 1 } })
@@ -82,7 +83,7 @@ function Surface() {
       turnRunning={false} canInterrupt={false} onInterrupt={noop} interruptError={null} offer={null}
       onOfferAction={async () => {}} onOfferDismiss={async () => {}} session={session} turnError={null}
       transcriptFreshness="saved" offlineAsOf={null} autoFocusKey={id} transcriptSettled />
-    {session && <OfferArtifactStrip session={session} offer={{ message: 'Synthetic concept ready', at: '2026-10-01T12:00:01Z', artifacts: ['concept.html'], actions: [] } as never} />}
+    {!omitArtifactStrip && session && <OfferArtifactStrip session={session} offer={{ message: 'Synthetic concept ready', at: '2026-10-01T12:00:01Z', artifacts: ['concept.html'], actions: [] } as never} />}
   </main>
 }
 const root = createRoot(document.getElementById('root')!)

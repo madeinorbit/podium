@@ -2,11 +2,12 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chromium } from '@playwright/test'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type {} from './chat-context.browser'
 
 const rows = 5600, updates = 12, origin = 'http://127.0.0.1:45173', output = resolve('.artifacts/chat-context')
+const candidate = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 await mkdir(output, { recursive: true })
 const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.sidebar-pool-perf.config.ts', '--port', '45173'], { stdio: ['ignore', 'ignore', 'inherit'] })
 const exited = new Promise<void>((resolve, reject) => { server.once('exit', () => resolve()); server.once('error', reject) })
@@ -20,7 +21,7 @@ try {
     await sleep(200)
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
-  const results: Record<string, unknown> = {}
+  const results: Record<string, Awaited<ReturnType<Window['__chatContextFixture']['stats']>> & { legacyDerivations: number; parity: unknown; nullPoolAttachmentObserved: boolean }> = {}
   const snapshots: unknown[] = []
   for (const mode of ['legacy', 'pool'] as const) {
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, reducedMotion: 'reduce' })
@@ -69,7 +70,24 @@ try {
     await writeFile(`${output}/results.json`, JSON.stringify({ rows, updates, renderedDifferences: names.length, fields: names, ...results }, null, 2))
     throw new Error(`Rendered conversation input fields differed: ${names.join(',')}`)
   }
-  const report = { rows, updates, renderedDifferences: 0, ...results }
+  // Omit one of the only two remaining selector subscribers. Its exact delta
+  // attributes the full count without adding instrumentation to production.
+  const attributionPage = await browser.newPage({ viewport: { width: 1400, height: 900 }, reducedMotion: 'reduce' })
+  await attributionPage.goto(`${origin}/test/chat-context.browser.html?rows=${rows}&mobxChatContext=1&mobxSessionPane=0&omitArtifactStrip=1`)
+  await attributionPage.waitForFunction(() => window.__chatContextFixture?.ready(), null, { timeout: 60000 })
+  await attributionPage.evaluate(() => window.__chatContextFixture.reset())
+  for (let step = 1; step <= updates; step++) {
+    await attributionPage.evaluate(value => window.__chatContextFixture.update(value), step)
+    await attributionPage.waitForFunction(value => document.querySelector('textarea')?.value === `Saved synthetic draft ${value}`, step)
+    await attributionPage.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  }
+  const fileMentionCalls = (await attributionPage.evaluate(() => window.__chatContextFixture.stats())).selectorRuns
+  const artifactCalls = results.pool!.selectorRuns - fileMentionCalls
+  if (fileMentionCalls !== updates * 4 || artifactCalls !== updates * 4) throw new Error('Stable selector attribution failed')
+  await attributionPage.evaluate(() => window.__chatContextFixture.close())
+  await attributionPage.close()
+  const report = { candidate, rows, updates, renderedDifferences: 0, ...results,
+    stableSelectors: { useFileMentionsTrpc: fileMentionCalls, OfferArtifactStripActions: artifactCalls } }
   await writeFile(`${output}/results.json`, JSON.stringify(report, null, 2))
   console.log(JSON.stringify(report))
 } finally { await browser?.close(); server.kill(); await exited }
