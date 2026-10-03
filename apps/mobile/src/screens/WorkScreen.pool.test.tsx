@@ -13,6 +13,7 @@ import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import { createKernelReplica, createSideCache, entityForKind, rowKey, memoryStorage, type ReplicaKind, type ReplicaRows } from '@podium/client-core/replica'
 import type { EntityRecord } from '@podium/sync/replica'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
+import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
 import { renderWithMobileStore } from '../client/test-support'
 
 const state = vi.hoisted(() => ({ host: null as MobilePool | null, pool: null as MobxPool | null, on: false,
@@ -179,6 +180,48 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); state.counts.clear() })
 afterAll(() => vi.unstubAllEnvs())
 
 describe('mobile WorkScreen pool consumer', () => {
+  it('bounds derivation runs and row reads per scripted click by the visible neighbourhood at 1x and 4x', async () => {
+    const cells: { scale: number; click: string; neighbours: number; rowReads: number; derivations: number }[] = []
+    for (const scale of [1, 4] as const) {
+      const census = startCensus()
+      const { view } = await mount(true, scale)
+      await drainNativeLoads()
+      const pool = state.pool!
+      const original = pool.row.bind(pool)
+      let rowReads = 0
+      const spy = vi.spyOn(pool, 'row').mockImplementation(((...args: Parameters<typeof pool.row>) => {
+        rowReads++
+        return original(...args)
+      }) as typeof pool.row)
+      const neighbours = Math.max(1, view.container.querySelectorAll('[data-label]').length)
+      const click = async (name: string, gesture: () => void) => {
+        rowReads = 0
+        census.enter(name)
+        await act(async () => { gesture(); await new Promise(resolve => setTimeout(resolve, 30)) })
+        await drainNativeLoads()
+        census.exit()
+        const phase = census.snapshot().phases[name]!
+        cells.push({ scale, click: name, neighbours, rowReads, derivations: phase.computedRuns + phase.reactionRuns })
+        expect(state.sliceReads, name).toBe(0)
+        expect(state.rowDerivations, name).toBe(0)
+      }
+      try {
+        const band = state.sections[0]!
+        await click('fold visible band', () => fireEvent.click(screen.getByLabelText(`${band.label} · ${band.total}`)))
+        await click('open launch choices', () => fireEvent.click(screen.getByLabelText('New work')))
+        await click('close launch choices', () => fireEvent.click(screen.getByLabelText('Close sheet')))
+      } finally { spy.mockRestore(); view.unmount(); census.stop() }
+    }
+    for (const base of cells.filter(cell => cell.scale === 1)) {
+      const larger = cells.find(cell => cell.scale === 4 && cell.click === base.click)!
+      const ratio = larger.neighbours / base.neighbours
+      for (const metric of ['rowReads', 'derivations'] as const) {
+        expect(larger[metric], `${base.click}: 4x/1x ${metric} exceeds visible-neighbourhood ratio ${ratio}`).toBeLessThanOrEqual(base[metric] * ratio)
+      }
+    }
+    console.info('[mobile click work]', JSON.stringify(cells))
+  }, 240_000)
+
   it('a hidden navigation target stays cold and a press reads the current session', async () => {
     state.on = true; state.counts.clear(); state.errors.length = 0
     state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
