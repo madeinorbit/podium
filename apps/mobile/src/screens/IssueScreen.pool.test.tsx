@@ -1,4 +1,5 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, entityForKind, rowKey, memoryStorage, type ReplicaKind, type ReplicaRows } from '@podium/client-core/replica'
+import type { EntityRecord } from '@podium/sync/replica'
 import {
   asIssueId,
   asSessionId,
@@ -18,9 +19,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import type { MobileTrpc } from '../client/trpc'
 import type { MobilePool } from '../client/mobile-pool'
 import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
-import { issueRowFixture } from '../../../server/src/test-support/issue-row'
+import { afterEach, expect, it, vi } from 'vitest'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const state = vi.hoisted(() => ({ host: null as MobilePool | null, pool: null as MobxPool | null,
@@ -212,14 +211,23 @@ const git = {
   updatedAt: '2026-09-30T10:00:00Z',
 } as IssueGitStateProjection
 const repo = { id: 'repo', prefix: 'POD', repoPath: '/normalized/podium' } as RepoProjection
-const fixture = {
-  issues: [],
-  issueProjections: [projection],
-  issueUserStates: [markers],
-  issueGitStates: [git],
-  repoProjections: [repo],
-}
 
+function pageReplica(issues: IssueProjection[]) {
+  const records = new Map<string, EntityRecord>()
+  const install = <K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]) => {
+    const entity = entityForKind(kind)
+    for (const value of rows) {
+      const entityId = rowKey(kind, value)
+      records.set(`${entity}:${entityId}`, { entity, entityId, value, provenance: { seq: 1 } })
+    }
+  }
+  install('issueProjections', issues); install('issueUserStates', [markers])
+  install('issueGitStates', [git]); install('repos', [repo])
+  return createKernelReplica({ cache: {
+    readCursor: () => ({ seq: 1 }), readEntities: () => [...records.values()],
+    read: (entity, id) => records.get(`${entity}:${id}`), durability: () => 'durable',
+  }, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
+}
 function OpenPage() {
   state.runtime = useStoreHandle<MobileTrpc>() as ClientRuntime<MobileTrpc>
   useMobilePool()
@@ -246,7 +254,7 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
       createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
     }))
     const mounted = await renderWithMobileStore(<OpenPage />, {
-      ...fixture, issueProjections: [projection, ...history],
+      replica: pageReplica([projection, ...history]),
       attachRuntime: runtime => state.host!.host.attach(runtime, error => state.errors.push(error.message)),
     })
     await waitFor(() => expect(state.pool).not.toBeNull(), { timeout: 30_000 })
@@ -266,6 +274,7 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0)
       expect(screen.getByText('Ship normalized mobile?')).toBeTruthy()
       expect(screen.queryByTestId('page-sheet')).toBeNull()
+      console.info('[accepted closed task]', scale, fingerprint(mounted.container))
       expect(fingerprint(mounted.container)).toMatchSnapshot(`accepted closed task at ${scale}x`)
       census.exit()
       const phase = census.snapshot().phases['open task']!
