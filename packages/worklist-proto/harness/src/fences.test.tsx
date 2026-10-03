@@ -283,7 +283,7 @@ describe('wall-clock independence of the #9 steps', () => {
  * POD-4572 (Mb4), which put the pool on the roster; the hand pool's, from
  * POD-4585, by POD-4934, which put it on the roster as a measured arm.)
  */
-const PENDING_ROSTER: Readonly<Record<string, string>> = {}
+const PENDING_ROSTER: Readonly<Record<string, string>> = { lean: 'POD-5353' }
 
 describe('roster', () => {
   it('names exactly the arm folders that carry a fence manifest, less the named pending ones', () => {

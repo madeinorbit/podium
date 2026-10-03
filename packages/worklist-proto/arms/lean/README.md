@@ -4,6 +4,11 @@ Measurement only for POD-5153. This arm is never imported by a product entry.
 It follows the same kernel row and local feeds as the hand pool and borrows
 their rows. The shared schema decides residency and relations.
 
+`src/derive.ts` is the single enumeration module declared by `fence.json`.
+It evaluates resident issue tables and declared cold summaries for filing;
+`src/pool.ts` owns the store and `src/window.tsx` owns the row components.
+The runtime fence roster entry remains tracked by POD-5353.
+
 `src/pool.ts` holds plain tables and resident relation indexes. There is one
 bare MobX atom per table/relation, plus local and mounted-window signals.
 One filing computed runs the hand arm's plain rule tables. Its temporary
