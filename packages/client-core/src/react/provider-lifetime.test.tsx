@@ -31,6 +31,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
   }
   const mounts: string[] = [],
     unmounts: string[] = []
+  const blur = vi.fn()
   function Reader() {
     const owner = useStoreHandle()
     const principal = useCurrentPrincipal()!
@@ -55,6 +56,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
           aria-label="draft"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
+          onBlur={blur}
         />
         <button type="button" onClick={closeAtMount}>
           Close
@@ -93,11 +95,14 @@ it('retires account-owned callbacks and state on principal changes while preserv
   expect(view.container.querySelector('output')?.textContent).toBe('alice:current')
 
   for (const name of ['bob', 'alice']) {
+    view.getByLabelText<HTMLInputElement>('draft').focus()
+    expect(document.activeElement).toBe(view.getByLabelText('draft'))
     const next = runtime()
     fixture.handle = next
     view.rerender(frame(asClientPrincipal(asUserId(name))))
     expect(previous.destroy).toHaveBeenCalledOnce()
     expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('')
+    expect(document.activeElement).not.toBe(view.getByLabelText('draft'))
     expect(view.container.querySelector('output')?.textContent).toBe(`${name}:current`)
     fireEvent.click(view.getByText('Close'))
     expect(next.action).toHaveBeenCalledWith('file-1')
@@ -105,10 +110,13 @@ it('retires account-owned callbacks and state on principal changes while preserv
   }
   expect(mounts).toEqual(['alice', 'bob', 'alice'])
   expect(unmounts).toEqual(['alice', 'bob'])
+  expect(blur).toHaveBeenCalledTimes(2)
 
   // Reconnection or endpoint changes may rebuild a runtime for the SAME account.
   // They must preserve local UI state rather than remounting the whole app.
   fireEvent.change(view.getByLabelText('draft'), { target: { value: 'new draft' } })
+  const focused = view.getByLabelText<HTMLInputElement>('draft')
+  focused.focus()
   for (const tree of [
     frame(alice, { ...config }),
     frame(alice, config, true),
@@ -119,6 +127,8 @@ it('retires account-owned callbacks and state on principal changes while preserv
     view.rerender(tree)
     expect(previous.destroy).toHaveBeenCalledOnce()
     expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('new draft')
+    expect(document.activeElement).toBe(focused)
+    expect(blur).toHaveBeenCalledTimes(2)
     expect(mounts).toEqual(['alice', 'bob', 'alice'])
     previous = replacement
   }

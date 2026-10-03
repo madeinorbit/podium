@@ -83,6 +83,7 @@ import {
   type ReactNode,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useSyncExternalStore,
 } from 'react'
@@ -335,10 +336,23 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         key={principalKey(principal)}
         value={runtime as unknown as StoreHandle<PodiumClientApi>}
       >
-        {children}
+        <AccountLifetime>{children}</AccountLifetime>
       </Ctx.Provider>
     </PrincipalCtx.Provider>
   )
+}
+
+/** Clear the browser/React focus owner while the departing DOM is still attached.
+ * Removing a focused input alone can leave React's selection-event cache holding
+ * its old DOM tree and observer props. Layout cleanup runs before child deletion;
+ * the principal key preserves focus during same-account runtime rebuilds. */
+function AccountLifetime({ children }: { children: ReactNode }): JSX.Element {
+  useLayoutEffect(() => () => {
+    if (typeof document === 'undefined') return
+    const focused = document.activeElement
+    if (focused && 'blur' in focused && typeof focused.blur === 'function') focused.blur()
+  }, [])
+  return <>{children}</>
 }
 
 /**
