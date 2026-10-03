@@ -1,6 +1,7 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import { lastUsedMaps, reposToViews, spawnTargetForRepo, type RepoNavView } from '@podium/client-core/viewmodels'
+import type { CommandLaunchData } from '@podium/client-graph/command-launch-views'
 import { EMPTY_SESSIONS, EMPTY_FILES, readLaunch, readPalette, readGuardSessions, readOpen, readFiles } from './command-launch-readers'
 import { LOADING } from '@podium/client-graph'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'

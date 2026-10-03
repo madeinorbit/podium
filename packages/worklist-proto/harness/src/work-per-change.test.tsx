@@ -120,7 +120,7 @@ describe('pool screens work ratios', () => {
     const exceptions = screenWorkExceptions.flatMap(({ issue, readers }) =>
       readers.flatMap(({ reader, actions }) =>
         Object.entries(actions).flatMap(([action, kinds]) =>
-          (kinds ?? []).map((kind) => ({ action, kind, reader, issue })),
+          (kinds ?? []).map((kind: string) => ({ action, kind, reader, issue })),
         ),
       ),
     )
