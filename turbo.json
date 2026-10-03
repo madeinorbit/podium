@@ -232,6 +232,7 @@
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
         "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/apps/web/src/features/setup/**",
+        "$TURBO_ROOT$/apps/web/src/features/superagent/fixture.ts",
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**"
       ],
       "outputs": ["*.tsbuildinfo"]
