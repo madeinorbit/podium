@@ -308,6 +308,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     })
   }
   function progress(id: string, now: number) {
+    if (pool.graph.many('issue', id, 'treeChildren').size === 0) return null
     return memo(`progress:${id}:${now}`, () => {
       let total = 0, done = 0, liveAgents = 0
       const seen = new Set([id]), stack = [...pool.graph.many('issue', id, 'treeChildren')]
@@ -358,7 +359,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       const scopeIds = new Set(choices.scope)
       const rootIds = new Set(boardIssues.map(row => row.id))
       for (const root of models.values()) {
-        if (scopeIds.has(root.id)) {
+        if (scopeIds.has(root.id) && root.childIds.length) {
           const counts = new Map<string, number>()
           for (const childId of pool.graph.many('issue', root.id, 'treeChildren')) if (childId !== root.id && scopeIds.has(childId)) {
             const child = facts(childId)
