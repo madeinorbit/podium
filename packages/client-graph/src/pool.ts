@@ -618,8 +618,8 @@ export class MobxPool {
    *
    * In memory: the server row with the write layer's pending edits overlaid
    * (`WriteSeam`), or the server object itself when nothing is pending (same
-   * identity, so an idle write layer adds no commit). The overlaid object is
-   * transient, never stored. Resident readers subscribe to the table slot
+   * identity, so an idle write layer adds no commit). The overlaid view is
+   * weakly memoised and never installed in a table. Resident readers subscribe to the table slot
    * and overlay entry; cold summary readers share the residency key when
    * the write seam supplies pending-change notifications.
    *
