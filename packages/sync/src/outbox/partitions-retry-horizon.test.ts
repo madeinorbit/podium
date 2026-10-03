@@ -102,7 +102,6 @@ async function harness(
     idPrefix?: string
     maxAgeMs?: number
     commandMaxAgeMs?: Readonly<Record<string, number>>
-    parkedYieldsPartition?: ReadonlySet<string>
   } = {},
 ): Promise<Harness> {
   const store = init.store ?? new InMemoryOutboxStore()
@@ -116,7 +115,6 @@ async function harness(
     now: clock.now,
     maxAgeMs: init.maxAgeMs ?? OUTBOX_MAX_AGE_MS,
     ...(init.commandMaxAgeMs ? { commandMaxAgeMs: init.commandMaxAgeMs } : {}),
-    ...(init.parkedYieldsPartition ? { parkedYieldsPartition: init.parkedYieldsPartition } : {}),
     newMutationId: sequentialMutationIds(init.idPrefix ?? 'm'),
     onStoreUnreadable: (error) => {
       throw error
@@ -224,7 +222,7 @@ describe('D12 — a blocked aggregate never stalls another, and never stalls ano
 })
 
 // ───────────────────────────────────────────────────────────────────────────────
-describe('POD-4762 — a parked entry of a yielding command stops holding its partition', () => {
+describe('POD-4762 under R1 — a parked chat send stops holding its partition, with no per-command list', () => {
   const chat = (text: string): EnqueueRequest => ({
     command: CHAT,
     input: { sessionId: 's1', text },
@@ -233,10 +231,8 @@ describe('POD-4762 — a parked entry of a yielding command stops holding its pa
   })
 
   it('drains the next message past one the authority refused, in order among the rest', async () => {
-    const { outbox, authority } = await harness(
-      (envelope) =>
-        (envelope.input as { text: string }).text === 'refused' ? poison : applied,
-      { parkedYieldsPartition: new Set([CHAT.name]) },
+    const { outbox, authority } = await harness((envelope) =>
+      (envelope.input as { text: string }).text === 'refused' ? poison : applied,
     )
     const refused = await outbox.enqueue(chat('refused'))
     const next = await outbox.enqueue(chat('next'))
@@ -257,7 +253,6 @@ describe('POD-4762 — a parked entry of a yielding command stops holding its pa
     let online = false
     const { outbox, clock } = await harness(() => (online ? applied : unreachable), {
       commandMaxAgeMs: { [CHAT.name]: 60_000 },
-      parkedYieldsPartition: new Set([CHAT.name]),
     })
     const old = await outbox.enqueue(chat('old'))
     await outbox.drain()
@@ -273,23 +268,8 @@ describe('POD-4762 — a parked entry of a yielding command stops holding its pa
     expect(stateOf(outbox, fresh.mutationId)).toBe('applied')
   })
 
-  it('keeps D12 for every other command: a parked write still holds its partition', async () => {
-    const { outbox } = await harness(
-      (envelope) =>
-        (envelope.input as { text: string }).text === 'refused' ? poison : applied,
-      { parkedYieldsPartition: new Set(['some.other']) },
-    )
-    await outbox.enqueue(chat('refused'))
-    const next = await outbox.enqueue(chat('next'))
-    await outbox.drain()
-
-    expect(stateOf(outbox, next.mutationId)).toBe('queued')
-  })
-
   it('still holds the partition behind an entry that is only IN FLIGHT', async () => {
-    const { outbox } = await harness(() => accepted, {
-      parkedYieldsPartition: new Set([CHAT.name]),
-    })
+    const { outbox } = await harness(() => accepted)
     await outbox.enqueue(chat('first'))
     const second = await outbox.enqueue(chat('second'))
     await outbox.drain()
@@ -318,17 +298,13 @@ describe('D10 — an entry that can never succeed dead-letters without wedging i
     expect(outbox.deadLetters()[0]?.reason).toEqual({ code: 'unauthorized' })
     expect(outbox.deadLetters()[0]?.recovery.retry).toBe('rights-fix')
     expect(clock.now() - head.queuedAt).toBeLessThan(OUTBOX_MAX_AGE_MS)
-    // Its partition is held (D12) — but by a RESOLVED entry with a user
-    // affordance, not by an entry still trying.
-    expect(stateOf(outbox, behind.mutationId)).toBe('queued')
-    expect(stateOf(outbox, elsewhere.mutationId)).toBe('applied')
-
-    // And the wedge is undone by the user action D9 invariant 3 offers, with no
-    // further drains needed to notice it.
-    await outbox.discard(head.mutationId)
-    await outbox.drain()
+    // A refusal releases its partition (ADR 3 amendment 2, R1): the entry behind
+    // it is sent on its own merits, and the Authority refuses it too — the
+    // server, not the client, judges a dependant. Each refusal is parked once.
+    expect(authority.attempts(behind.mutationId)).toBe(1)
     expect(stateOf(outbox, behind.mutationId)).toBe('dead-letter')
-    expect(outbox.deadLetters().map((d) => d.reason.code)).toEqual(['unauthorized'])
+    expect(stateOf(outbox, elsewhere.mutationId)).toBe('applied')
+    expect(outbox.deadLetters().map((d) => d.reason.code)).toEqual(['unauthorized', 'unauthorized'])
   })
 
   it('dead-letters VALIDATION POISON the same way, and never retries it', async () => {

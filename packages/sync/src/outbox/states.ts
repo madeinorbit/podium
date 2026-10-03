@@ -131,6 +131,21 @@ export const OUTBOX_TRANSITION_TABLE: {
   cancelled: {},
 }
 
+/**
+ * R1 (ADR 3 amendment 2, POD-5430): does an entry in this state let the entries
+ * behind it in its partition go?
+ *
+ * Ordering exists so that two of the user's intents on one thing land in the
+ * order they were made. An entry holds only while its outcome is UNKNOWN —
+ * `sending`, `accepted` (taken, not yet applied), or `queued` (its own turn, or
+ * backing off after a transient failure). A DEFINITIVE outcome releases at once,
+ * for every command: `applied` landed; `rejected`, `expired` and `dead-letter`
+ * will never land in their original position, because a retry goes to the back
+ * of the partition (R3); `cancelled` will never land at all.
+ */
+export const releasesPartition = (state: OutboxState): boolean =>
+  state === 'applied' || isTerminalOutboxState(state)
+
 /** The states a drain pass may pick up. `accepted` is absent: it is resolved by
  *  an apply notification or returned to `queued` by `transport-failed` first. */
 export const isDrainable = (state: OutboxState): boolean => state === 'queued'

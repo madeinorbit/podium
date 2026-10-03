@@ -31,8 +31,8 @@
  * three-line way.
  */
 
-import { describe, expect, it } from 'vitest'
 import { actorUser, asUserId, type MutationId } from '@podium/model'
+import { describe, expect, it } from 'vitest'
 import type { OutboxStoreMutation, OutboxStorePort } from '../outbox/ports'
 import { SyncCommitConflict } from '../outbox/ports'
 import type { OutboxAttribution, OutboxCommand, OutboxRecord } from '../outbox/records'
@@ -105,13 +105,15 @@ const abortingSpan = async (
   unitOfWork: { transact: <T>(body: (span: SyncSpan) => Promise<T>) => Promise<T> },
   body: (span: SyncSpan) => Promise<void>,
 ): Promise<unknown> =>
-  await unitOfWork.transact(async (span) => {
-    await body(span)
-    throw ABORTED
-  }).then(
-    () => undefined,
-    (error: unknown) => error,
-  )
+  await unitOfWork
+    .transact(async (span) => {
+      await body(span)
+      throw ABORTED
+    })
+    .then(
+      () => undefined,
+      (error: unknown) => error,
+    )
 
 export function describeStoreFidelity(instantiation: SyncInstantiation): void {
   describe(`store fidelity — ${instantiation.name}`, () => {
@@ -165,6 +167,36 @@ export function describeStoreFidelity(instantiation: SyncInstantiation): void {
       expect(await outbox.apply(putting(rec('m1', 'sending'), 'queued'))).toEqual({ ok: true })
       expect(ids(await outbox.read())).toEqual(['m1', 'm2', 'm3'])
       expect((await outbox.read())[0]?.state).toBe('sending')
+    })
+
+    it('moves a record to the END when one mutation removes and re-puts it', async () => {
+      // ADR 3 amendment 2, R3: a retry goes to the back of its partition, and the
+      // kernel expresses that as a remove and a put of the same id in ONE
+      // mutation. Removes apply before puts, so the put is a first put again and
+      // appends. An adapter that kept the old ordinal would replay the retry
+      // ahead of entries the user wrote before retrying, after a reload.
+      const { outbox } = await openStore()
+      for (const name of ['m1', 'm2', 'm3']) {
+        await outbox.apply(putting(rec(name), 'absent'))
+      }
+      expect(
+        await outbox.apply({
+          remove: [id('m1')],
+          put: [rec('m1', 'queued', 'b')],
+          expect: [{ mutationId: id('m1'), expect: 'queued' }],
+        }),
+      ).toEqual({ ok: true })
+      expect(ids(await outbox.read())).toEqual(['m2', 'm3', 'm1'])
+      expect(shape(await outbox.read())).toBe(
+        JSON.stringify([
+          ['m2', 'queued', 'a'],
+          ['m3', 'queued', 'a'],
+          ['m1', 'queued', 'b'],
+        ]),
+      )
+      // A first put after the move still appends behind it.
+      await outbox.apply(putting(rec('m4'), 'absent'))
+      expect(ids(await outbox.read())).toEqual(['m2', 'm3', 'm1', 'm4'])
     })
 
     it('returns a stale precondition as a conflict VALUE and writes nothing', async () => {

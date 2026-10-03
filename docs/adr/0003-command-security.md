@@ -6,6 +6,7 @@
 - **Issue:** POD-749 (leaf of POD-359 item 3; supersedes the six-ADR scope of POD-354 for this topic)
 - **Consumers:** Phase 1 walking skeleton POD-351; Phase 2 Outbox POD-306 / POD-369–373 / POD-372; Phase 3 command framework POD-311, security POD-315, offline/outbox UX POD-316, secrets split POD-352 (and children POD-418–421)
 - **Amended by:** [Amendment 1 — user, agent, machine and system principals](0003-command-security-amendment-1.md) (POD-1073, 2026-07-29): D14–D22 extend D2, D4, D7 and D8 for multi-user; base decisions D1–D13 keep their numbers and their numeric ownership (D10/D11)
+- **Amended by:** [Amendment 2 — a definitive answer releases the partition](0003-command-security-amendment-2.md) (POD-5430, 2026-10-03): D23 replaces D12's last sentence; an entry holds its partition only while its outcome is unknown, and a retry goes to the back
 
 **D14 operator amendment (2026-08-11):** Multi-user reopened the host-local mint decision. The accepted interim boundary makes `mint-session` fail closed before writing when an instance contains more than one account, and retires the deliberately red schema tripwire in favor of direct guard coverage. This does not claim identity binding: a same-OS-user process can still write the database directly, so full containment requires OS/process separation.
 - **Related ADRs:** ADR 1 (authority/ownership matrix — conflict rules & secret classification), ADR 2 (sync protocol — mutation identity, feed/receipt horizons, heal-keeps-outbox, `expectedRevision` token), ADR 4 (representation — optimistic overlay is not a representation role), ADR 5 (peer topology — role-specific auth strategies), ADR 6 (replica storage — outbox durability bounds; shared transactional store with cursor/overlay), ADR 7 (plane inventory — command as control-plane request/reply class), ADR 8 (package topology — `packages/commands` placement)
@@ -430,7 +431,9 @@ partitions.
   PTY); that is a different queue with the same partition idea.
 
 A blocked / dead-lettered entry blocks **only its partition** until recovery
-or cancel.
+or cancel. *(Superseded by [Amendment 2, D23](0003-command-security-amendment-2.md): an
+entry holds its partition only while its outcome is unknown; a dead-lettered entry holds
+nothing, and its retry goes to the back.)*
 
 ### D13 — `expectedRevision` on the command envelope
 

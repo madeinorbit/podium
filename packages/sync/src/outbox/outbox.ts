@@ -35,8 +35,11 @@
  * ## Ordering
  *
  * FIFO **within** an ordering partition, concurrent **across** partitions
- * (D12). Global head-of-line blocking is forbidden; a blocked or dead-lettered
- * entry blocks only its own partition, until recovery or cancel.
+ * (D12). Global head-of-line blocking is forbidden. Within a partition an
+ * entry holds the ones behind it only while its outcome is unknown (in flight,
+ * taken but not applied, or backing off); a definitive outcome — applied,
+ * refused, expired, cancelled — releases it at once, for every command, and a
+ * retry goes to the back (ADR 3 amendment 2, R1 and R3).
  *
  * ## One writer, and it stages before it commits
  *
@@ -106,7 +109,12 @@ import {
   revisionOfValue,
   type UserRef,
 } from './records'
-import { applyOutboxTransition, nextOutboxState, type OutboxTransition } from './states'
+import {
+  applyOutboxTransition,
+  nextOutboxState,
+  type OutboxTransition,
+  releasesPartition,
+} from './states'
 
 export interface EnqueueRequest extends EnvelopeConfirmation {
   readonly command: OutboxCommand
@@ -244,6 +252,8 @@ class OutboxDraft {
   /** Ids this draft inserted or replaced, and ids it removed. */
   private readonly touched = new Set<MutationId>()
   private readonly removed = new Set<MutationId>()
+  /** Ids this draft moved to the end of the order (`putAtBack`). */
+  private readonly moved = new Set<MutationId>()
   private records: OutboxRecord[]
 
   constructor(private readonly before: readonly OutboxRecord[]) {
@@ -267,11 +277,29 @@ class OutboxDraft {
     this.removed.delete(record.mutationId)
   }
 
+  /**
+   * Replace a record AND move it to the end of the record order (R3, ADR 3
+   * amendment 2): a retry is the user's latest act, so it drains behind every
+   * entry already queued. Not a removal — the record stays — so it needs no
+   * licence. The delta carries the id in both `remove` and `put`; every store
+   * applies removes before puts, so the put appends with a fresh position, and
+   * a reload reads the same order (`store-fidelity.ts` pins that per adapter).
+   */
+  putAtBack(record: OutboxRecord): void {
+    if (!this.records.some((r) => r.mutationId === record.mutationId)) {
+      throw new OutboxInvariantError(`cannot move absent record ${record.mutationId} to the back`)
+    }
+    this.records = [...this.records.filter((r) => r.mutationId !== record.mutationId), record]
+    this.touched.add(record.mutationId)
+    this.moved.add(record.mutationId)
+  }
+
   remove(mutationId: MutationId, licence: RemovalLicence): void {
     this.licensed.set(mutationId, licence)
     this.records = this.records.filter((r) => r.mutationId !== mutationId)
     this.removed.add(mutationId)
     this.touched.delete(mutationId)
+    this.moved.delete(mutationId)
   }
 
   /**
@@ -304,7 +332,9 @@ class OutboxDraft {
       // port field would keep being emitted with nothing going red. An empty array
       // is semantically identical to an absent one for both `put` and `remove`.
       put,
-      remove: [...this.removed],
+      // A moved record is removed and re-put in one mutation: removes apply
+      // first, so its put appends (`putAtBack`).
+      remove: [...this.removed, ...[...this.moved].filter((id) => this.touched.has(id))],
       // Built HERE rather than by the caller, so a mutation cannot be assembled
       // without its preconditions — the hole the reviewer asked to close.
       expect: this.expectations(),
@@ -576,7 +606,7 @@ export class Outbox {
    * so what the first pass already sent is not sent again.
    *
    * Partitions run concurrently; each partition is strictly FIFO and stops at
-   * its first unresolved entry (D12).
+   * its first entry whose outcome is unknown (D12 as amended: R1).
    */
   async drain(): Promise<void> {
     if (this.draining) {
@@ -614,23 +644,22 @@ export class Outbox {
       // may have moved this record on.
       const record = this.find(snapshot.mutationId)
       if (!record) continue
-      if (record.state === 'applied' || record.state === 'cancelled') continue
-      if (record.state === 'dead-letter' && this.yieldsWhenParked(record)) continue
+      // R1 (ADR 3 amendment 2): a definitive outcome — applied, refused,
+      // expired, parked, cancelled — releases the partition, for every command.
+      // A parked entry waits for the user's recovery OFF the queue: its retry or
+      // edit goes to the back (R3), so letting the next entry go cannot reorder
+      // anything that will actually land.
+      if (releasesPartition(record.state)) continue
       if (record.state !== 'queued') {
-        // `accepted` awaits its apply; `dead-letter` waits for recovery or
-        // cancel (D12: it blocks its OWN partition, and only that). Either way
-        // nothing behind it in this partition may overtake it.
+        // `sending` / `accepted`: the Authority has the envelope and its outcome
+        // is unknown, so nothing behind it in this partition may overtake it.
         return
       }
       if (this.isAgedOut(record)) {
+        // The aged entry is parked, and that is a definitive outcome (D10:
+        // never wedge the partition), so the entries behind it go on now.
         await this.expire(record)
-        // The aged entry is parked; D10 forbids wedging, and the entries behind
-        // it in this partition are not implicated by its age. But the parked
-        // record now blocks the partition per D12, so stop here — the next pass
-        // continues once the user recovers or discards it. Unless its command
-        // yields when parked (POD-4762): then the rest goes on now.
-        if (this.yieldsWhenParked(record)) continue
-        return
+        continue
       }
       if (!this.isDue(record)) {
         // D10 backoff: this entry's next attempt is not due yet. The whole
@@ -752,9 +781,8 @@ export class Outbox {
       // entry stops holding the head of its partition and stops burning the age
       // limit on an attempt that can never succeed.
       await this.reject(sending, normalizeRefusal(outcome.refusal))
-      // Parked, it holds the partition (D12) — unless its command yields when
-      // parked (POD-4762), and then what was written after it goes on now.
-      return this.yieldsWhenParked(sending)
+      // Refused is definitive (R1): what was written after it goes on now.
+      return true
     }
     // Transport failure — D9 invariant 4: this is NOT a rejection. Back to
     // `queued`, for unlimited attempts, until the age limit converts it to
@@ -991,7 +1019,10 @@ export class Outbox {
 
   /**
    * D9 invariant 3 — **retry**: put the SAME input back in flight, once its
-   * precondition is satisfied. The precondition comes from the reason code
+   * precondition is satisfied. It goes to the BACK of its partition (R3, ADR 3
+   * amendment 2): the retry is the user's latest act, and a parked entry no
+   * longer holds the entries behind it (R1), so keeping its old position would
+   * let an older intent overwrite one the user made after it. The precondition comes from the reason code
    * (`recoveryPlanFor`), and a mismatch is refused: an authorization denial
    * cannot be waved through with a rebase, which is precisely the distinction
    * D16.4 requires the record to preserve.
@@ -1023,13 +1054,18 @@ export class Outbox {
       // new id.
       const now = this.config.now()
       if (now - record.queuedAt + this.maxAgeFor(record) <= this.config.maxAgeMs) {
-        return await this.transition(record, 'user-retried', {
-          reason: undefined,
-          deadLetteredAt: undefined,
-          parkedFrom: undefined,
-          nextAttemptAt: undefined,
-          reissuedAt: now,
-        })
+        return await this.transition(
+          record,
+          'user-retried',
+          {
+            reason: undefined,
+            deadLetteredAt: undefined,
+            parkedFrom: undefined,
+            nextAttemptAt: undefined,
+            reissuedAt: now,
+          },
+          'back',
+        )
       }
       // Past it, a receipt for the old id may be gone: mint a new one. The old
       // record leaves the recovery surface by the user's own action (invariant
@@ -1045,16 +1081,21 @@ export class Outbox {
       ),
       ...('confirmed' in satisfaction ? CONFIRMED : {}),
     }
-    return await this.transition(record, 'user-retried', {
-      ...patch,
-      reason: undefined,
-      deadLetteredAt: undefined,
-      parkedFrom: undefined,
-      // A user retry is immediate: the backoff schedule belonged to the transport
-      // failures that preceded the parking, and a person who has just fixed their
-      // rights should not wait out a machine's spacing.
-      nextAttemptAt: undefined,
-    })
+    return await this.transition(
+      record,
+      'user-retried',
+      {
+        ...patch,
+        reason: undefined,
+        deadLetteredAt: undefined,
+        parkedFrom: undefined,
+        // A user retry is immediate: the backoff schedule belonged to the transport
+        // failures that preceded the parking, and a person who has just fixed their
+        // rights should not wait out a machine's spacing.
+        nextAttemptAt: undefined,
+      },
+      'back',
+    )
   }
 
   /**
@@ -1194,12 +1235,6 @@ export class Outbox {
     )
   }
 
-  /** Whether a PARKED entry of this command lets its partition drain on
-   *  (`parkedYieldsPartition`, POD-4762) instead of holding it per D12. */
-  private yieldsWhenParked(record: OutboxRecord): boolean {
-    return this.config.parkedYieldsPartition?.has(record.command.name) === true
-  }
-
   /** The horizon for ONE entry: the configured base, or the per-command override
    *  when the contract asked for a shorter one (D10). */
   private maxAgeFor(record: OutboxRecord): number {
@@ -1307,6 +1342,7 @@ export class Outbox {
     subject: OutboxRecord,
     transition: OutboxTransition,
     patch: Partial<OutboxRecord> & { reason?: OutboxRejectionReason | undefined },
+    placement: 'in-place' | 'back' = 'in-place',
   ): Promise<OutboxRecord> {
     return await this.mutate((draft) => {
       // Read the record from the REBASED draft, not from the caller's snapshot:
@@ -1336,7 +1372,8 @@ export class Outbox {
       const cleaned = Object.fromEntries(
         Object.entries(next).filter(([, v]) => v !== undefined),
       ) as unknown as OutboxRecord
-      draft.put(cleaned)
+      if (placement === 'back') draft.putAtBack(cleaned)
+      else draft.put(cleaned)
       for (const event of eventsForTransition(cleaned, transition)) draft.emit(event)
       return cleaned
     })

@@ -52,7 +52,9 @@ describe('describeQueuedChange', () => {
       label: 'Issue visibility',
       summary: 'Hidden from the list',
     })
-    expect(describeQueuedChange('issueSetLabels', { id: 'i1', labels: ['design', 'mobile'] })).toEqual({
+    expect(
+      describeQueuedChange('issueSetLabels', { id: 'i1', labels: ['design', 'mobile'] }),
+    ).toEqual({
       label: 'Issue labels',
       summary: 'design, mobile',
     })
@@ -76,18 +78,21 @@ describe('recovery copy', () => {
   it('names a single failed change in the dialog header', () => {
     expect(recoveryDialogCopy(1)).toEqual({
       title: 'Couldn’t save this change',
-      detail: 'It didn’t reach the server.',
+      detail: 'Your other changes don’t wait for it. Sent again, it goes after them.',
     })
     expect(recoveryDialogCopy(2).title).toBe('Couldn’t save 2 changes')
+    // Nothing queued behind a refusal (R1), and a retry goes to the back (R3).
+    expect(recoveryDialogCopy(2).detail).toContain('don’t wait for them')
+    expect(recoveryDialogCopy(2).detail).toContain('goes after them')
   })
 
   it('names the change in the toast, not the raw kind', () => {
     expect(couldNotSaveNotice('issueUpdate', { id: 'SECRET', patch: { stage: 'review' } })).toBe(
       'Couldn’t save issue stage',
     )
-    expect(couldNotSaveNotice('issueUpdate', { id: 'SECRET', patch: { stage: 'review' } })).not.toContain(
-      'SECRET',
-    )
+    expect(
+      couldNotSaveNotice('issueUpdate', { id: 'SECRET', patch: { stage: 'review' } }),
+    ).not.toContain('SECRET')
   })
 
   it('finds typed words and ignores bookkeeping fields', () => {

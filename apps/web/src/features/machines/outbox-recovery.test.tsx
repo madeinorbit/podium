@@ -1,4 +1,3 @@
-import { asMutationId } from '@podium/model'
 // @vitest-environment happy-dom
 /**
  * POD-316 — the dead-letter recovery surface, driven at RUNTIME.
@@ -19,6 +18,7 @@ import { asMutationId } from '@podium/model'
  */
 import { shouldParkDeadLetter } from '@podium/client-core/engine'
 import { createOutbox, type Outbox } from '@podium/client-core/outbox'
+import { asMutationId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -50,6 +50,16 @@ const storeState = () => ({
 
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: unknown) => unknown) => select(storeState()),
+}))
+// The card reads its recovery actions through the store handle; the indicator's
+// legacy reader records its work against the same owner.
+vi.mock('@podium/client-core/react', () => ({
+  useStoreHandle: () => ({ getSnapshot: () => storeState() }),
+}))
+
+const copied = vi.hoisted(() => [] as { text: string; label: string | undefined }[])
+vi.mock('@/lib/clipboard', () => ({
+  copyToClipboard: (text: string, label?: string) => copied.push({ text, label }),
 }))
 
 // eslint-disable-next-line import/first
@@ -84,6 +94,7 @@ afterEach(() => {
   outbox.dispose()
   cleanup()
   vi.clearAllMocks()
+  copied.length = 0
 })
 
 describe('dead-letter recovery, at runtime', () => {
@@ -104,6 +115,17 @@ describe('dead-letter recovery, at runtime', () => {
     // The recoverable intent: the user's own input, verbatim.
     expect(screen.getByText(/my careful title/)).toBeTruthy()
     expect(screen.getByTestId('outbox-change-label').textContent).toBe('Session rename')
+  })
+
+  it('COPIES the author’s own words, verbatim, from the rolled-back change', async () => {
+    await parkOne('words I do not want to retype')
+    render(<OutboxRecoveryIndicator />)
+    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
+    await waitFor(() => expect(screen.getByTestId('outbox-copy')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('outbox-copy'))
+
+    expect(copied).toEqual([{ text: 'words I do not want to retype', label: 'Copied your text' }])
   })
 
   it('says NOTHING about the target — no id, no title, no existence claim', async () => {

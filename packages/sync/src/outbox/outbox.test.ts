@@ -1064,9 +1064,15 @@ describe('D12 — ordering partitions', () => {
     expect(outbox.all().map((r) => r.state)).toEqual(['applied', 'applied'])
   })
 
-  it('blocks only its own partition when an entry dead-letters, and unblocks on recovery', async () => {
+  it('releases its partition when an entry dead-letters, and the parked entry stays recoverable', async () => {
+    // ADR 3 amendment 2, R1: a refusal is a definitive outcome, so it no longer
+    // holds what was written after it (POD-5415). The original D12 text held the
+    // partition "until recovery or cancel"; that is what this test used to pin.
     const { outbox, authority } = await harness((envelope) =>
-      (envelope.input as { issueId: string }).issueId === 'POD-1' ? conflicted : applied,
+      (envelope.input as { issueId: string }).issueId === 'POD-1' &&
+      envelope.mutationId === asMutationId('m1')
+        ? conflicted
+        : applied,
     )
     const head = await outbox.enqueue(close('POD-1'))
     const behind = await outbox.enqueue(close('POD-1'))
@@ -1075,47 +1081,40 @@ describe('D12 — ordering partitions', () => {
     await outbox.drain()
 
     expect(state(outbox, head.mutationId)).toBe('dead-letter')
-    // Blocked, not wedged: never submitted, still queued, no reason attached.
-    expect(state(outbox, behind.mutationId)).toBe('queued')
-    expect(authority.attempts(behind.mutationId)).toBe(0)
-    // The unrelated aggregate drained regardless (no global head-of-line block).
+    expect(state(outbox, behind.mutationId)).toBe('applied')
+    // FIFO within the partition; POD-2 drains concurrently, so it is left out.
+    expect(
+      authority.envelopes.map((e) => e.mutationId).filter((id) => id !== other.mutationId),
+    ).toEqual([head.mutationId, behind.mutationId])
     expect(state(outbox, other.mutationId)).toBe('applied')
-
-    // Still blocked on every LATER pass, for as long as the head sits in
-    // dead-letter — D12: "a blocked / dead-lettered entry blocks only its
-    // partition UNTIL RECOVERY OR CANCEL". Draining again must not let the
-    // successor overtake a decision the user has not made yet.
-    authority.reprogram(() => applied)
-    await outbox.drain()
-    await outbox.drain()
-    expect(state(outbox, behind.mutationId)).toBe('queued')
-    expect(authority.attempts(behind.mutationId)).toBe(0)
+    // Parked, not dropped: the author's input waits for the user's decision.
+    expect(outbox.deadLetters().map((d) => d.mutationId)).toEqual([head.mutationId])
 
     await outbox.discard(head.mutationId)
-    await outbox.drain()
-    expect(state(outbox, behind.mutationId)).toBe('applied')
+    expect(state(outbox, head.mutationId)).toBe('cancelled')
   })
 
-  it('unblocks a partition when the head is RECOVERED rather than cancelled', async () => {
+  it('sends a RECOVERED entry after everything queued before the recovery (R3)', async () => {
     const { outbox, authority } = await harness((envelope) =>
       (envelope.input as { issueId: string }).issueId === 'POD-1' && envelope.expectedRevision === 1
         ? conflicted
         : applied,
     )
     const head = await outbox.enqueue(close('POD-1', { expectedRevision: 1 }))
-    const behind = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
-    expect(state(outbox, behind.mutationId)).toBe('queued')
+    expect(state(outbox, head.mutationId)).toBe('dead-letter')
 
+    // Written after the refusal and before the retry: the retry is the later act.
+    const written = await outbox.enqueue(close('POD-1'))
     await outbox.retry(head.mutationId, { expectedRevision: 2 })
     await outbox.drain()
 
-    // FIFO held: the head applied first, and only then the entry behind it.
     expect(state(outbox, head.mutationId)).toBe('applied')
-    expect(state(outbox, behind.mutationId)).toBe('applied')
-    expect(authority.envelopes.map((e) => e.mutationId).slice(-2)).toEqual([
+    expect(state(outbox, written.mutationId)).toBe('applied')
+    expect(authority.envelopes.map((e) => e.mutationId)).toEqual([
       head.mutationId,
-      behind.mutationId,
+      written.mutationId,
+      head.mutationId,
     ])
   })
 

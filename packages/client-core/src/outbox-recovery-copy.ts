@@ -113,16 +113,23 @@ export function recoveryCopyFor(code: OutboxRejectionCode): RecoveryCopy {
   }
 }
 
+/**
+ * The recovery list's header. Under ADR 3 amendment 2 a change that could not
+ * be saved holds nothing: the user's later changes send without it (R1), and
+ * sending it again puts it after them (R3). The copy says both, because the
+ * second is the one a person would not guess: a retry is their latest act.
+ */
 export function recoveryDialogCopy(count: number): { title: string; detail: string } {
   if (count === 1) {
     return {
       title: 'Couldn’t save this change',
-      detail: 'It didn’t reach the server.',
+      detail: 'Your other changes don’t wait for it. Sent again, it goes after them.',
     }
   }
   return {
     title: `Couldn’t save ${count} changes`,
-    detail: 'They didn’t reach the server. Decide what to do with each one.',
+    detail:
+      'Your other changes don’t wait for them. One sent again goes after them. Decide what to do with each one.',
   }
 }
 
@@ -393,7 +400,9 @@ function describeIssueUpdate(input: unknown): QueuedChangeView {
     const key = keys[0]!
     return describeSinglePatchField(key, patch[key])
   }
-  const nouns = keys.map((key) => PATCH_FIELD_NOUNS[key]).filter((noun): noun is string => Boolean(noun))
+  const nouns = keys
+    .map((key) => PATCH_FIELD_NOUNS[key])
+    .filter((noun): noun is string => Boolean(noun))
   return {
     label: 'Issue update',
     summary: nouns.length > 0 ? capitalize(listEnglish(nouns)) : null,
@@ -455,7 +464,8 @@ function describeSinglePatchField(key: string, value: unknown): QueuedChangeView
     case 'color':
       return {
         label: 'Issue color',
-        summary: value == null ? 'Color cleared' : typeof value === 'string' ? `Set to ${value}` : null,
+        summary:
+          value == null ? 'Color cleared' : typeof value === 'string' ? `Set to ${value}` : null,
       }
     case 'dueAt':
       return { label: 'Issue due date', summary: formatWhen(value) }

@@ -161,9 +161,8 @@ describe('a send stopped before it reached the server', () => {
     // The control arm: only the stop's own reply is a resolution. A send the
     // server refused for a reason the operator did not choose keeps its words
     // recoverable as a parked entry. It no longer holds the session behind it:
-    // a chat message that visibly failed does not hold the next one the user
-    // writes (POD-4762, `OUTBOX_PARKED_YIELDS_PARTITION`), which replaced the
-    // D12 hold this arm used to pin.
+    // a refused entry releases its partition for every command (R1, ADR 3
+    // amendment 2, which generalised POD-4762's chat-only rule).
     const { api, sends } = authority({
       ok: false,
       reason: 'session archived',

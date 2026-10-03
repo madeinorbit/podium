@@ -129,9 +129,8 @@ describe('a send to a session that no longer exists', () => {
     // The control arm: only the "session is gone" reply resolves. A send
     // refused for a reason the operator can still act on keeps its words
     // recoverable as a parked entry. It no longer holds that session's next
-    // message: a chat message that visibly failed does not hold the next one
-    // (POD-4762, `OUTBOX_PARKED_YIELDS_PARTITION`), which replaced the D12 hold
-    // this arm used to pin.
+    // message: a refused entry releases its partition for every command (R1,
+    // ADR 3 amendment 2, which generalised POD-4762's chat-only rule).
     const { api, sends } = authority({
       ok: false,
       reason: 'session archived',

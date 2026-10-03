@@ -45,7 +45,6 @@ import {
   type EngineOutboxCallbacks,
   OUTBOX_COMMAND_MAX_AGE_MS,
   OUTBOX_COMMANDS,
-  OUTBOX_PARKED_YIELDS_PARTITION,
   type OutboxExecutorHooks,
   type OutboxKinds,
   outboxExecutors,
@@ -344,6 +343,10 @@ class KernelEngineOutbox implements EngineOutbox {
     await this.kernel.discard(mutationId as MutationId)
     await this.kernel.purgeCancelled(mutationId as MutationId)
     this.metadata.delete(mutationId)
+    // A cancelled entry releases its partition (R1, ADR 3 amendment 2). When it
+    // was a queued head backing off, what was written behind it goes now rather
+    // than at the next unrelated drain trigger.
+    if (this.isOnline()) void this.drain()
   }
 
   /** A send resolved undelivered because its session was deleted (POD-4660):
@@ -473,6 +476,11 @@ class KernelEngineOutbox implements EngineOutbox {
         this.expiryTimer = null
         void this.kernel
           .sweepExpired()
+          .then((expired) => {
+            // An expired entry is parked, a definitive outcome that releases
+            // its partition (R1): drain what was waiting behind it.
+            if (expired.length > 0 && this.isOnline()) void this.drain()
+          })
           .catch(this.onDegraded)
           .finally(() => this.scheduleExpiry())
       },
@@ -577,7 +585,6 @@ export async function openKernelEngineOutbox(
     now,
     maxAgeMs: OUTBOX_MAX_AGE_MS,
     commandMaxAgeMs: OUTBOX_COMMAND_MAX_AGE_MS,
-    parkedYieldsPartition: OUTBOX_PARKED_YIELDS_PARTITION,
     newMutationId: mintMutationId,
     onStoreUnreadable: options.onDegraded,
     onEvent: (event) => adapter?.onEvent(event),

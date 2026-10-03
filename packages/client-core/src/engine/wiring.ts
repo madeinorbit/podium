@@ -398,8 +398,9 @@ export function shouldParkDeadLetter(kind: string, input: unknown): boolean {
  * of the same kind makes it redundant.
  *
  * Both halves used to be one constant. Every client write went into a single
- * `client-outbox` partition, and ADR 3 D12 stops a partition at its first
- * unresolved entry — so ONE dead-lettered write (a rename refused after a share
+ * `client-outbox` partition, and ADR 3 D12 then stopped a partition at its first
+ * unresolved entry (amendment 2 now releases it on any definitive answer, POD-5430)
+ * — so ONE dead-lettered write (a rename refused after a share
  * was revoked, say) wedged the whole queue for ever, while the app kept queueing
  * read receipts behind it at ~361 B each. Measured: 500 receipts behind one
  * parked entry, 0 delivered after three drains. Per-target keys, same workload:
@@ -654,14 +655,6 @@ export const OUTBOX_COMMAND_MAX_AGE_MS: Readonly<Record<string, number>> = {
   [OUTBOX_COMMANDS.sendText.name]: CHAT_SEND_MAX_AGE_MS,
   [OUTBOX_COMMANDS.resumeAndSend.name]: CHAT_SEND_MAX_AGE_MS,
 }
-
-/** The contracts whose parked entries let their partition drain on (the
- *  kernel's `parkedYieldsPartition`): a chat message that visibly failed does
- *  not hold the next one the user writes (POD-4762). */
-export const OUTBOX_PARKED_YIELDS_PARTITION: ReadonlySet<string> = new Set([
-  OUTBOX_COMMANDS.sendText.name,
-  OUTBOX_COMMANDS.resumeAndSend.name,
-])
 
 /** The contract behind one queued kind, or `undefined` for a kind with no
  *  executor. */

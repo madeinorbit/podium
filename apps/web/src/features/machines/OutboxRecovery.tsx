@@ -29,7 +29,7 @@
  *    So the buttons are derived from `recoveryPlanFor(code)` and the words from
  *    `recoveryCopyFor(code)` — both functions of the code alone.
  */
-import { useStoreHandle } from '@podium/client-core/react'
+
 import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import {
@@ -41,10 +41,11 @@ import {
   replaceAuthoredText,
   unsatisfiableConfirmationDetail,
 } from '@podium/client-core/outbox-recovery-copy'
+import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
-import { AlertTriangle, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Copy, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -59,9 +60,10 @@ import {
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
 import { noticesDataLayer, recordLegacyNoticeWork } from '@/features/chat/notice-data-layer'
 import { usePoolRecovery } from '@/features/chat/use-pool-notices'
+import { copyToClipboard } from '@/lib/clipboard'
+import { cn } from '@/lib/utils'
 
 function DeadLetterRow({
   parked,
@@ -153,7 +155,9 @@ function DeadLetterRow({
         size="sm"
         variant={lone ? 'outline' : 'ghost'}
         className={cn(
-          lone ? 'text-muted-foreground hover:text-destructive' : 'ml-auto text-muted-foreground hover:text-destructive',
+          lone
+            ? 'text-muted-foreground hover:text-destructive'
+            : 'ml-auto text-muted-foreground hover:text-destructive',
         )}
         onClick={() => recover.discard(parked.entry.mutationId)}
       >
@@ -171,16 +175,38 @@ function DeadLetterRow({
         </Button>
       )}
       {canEdit && (
-        <Button size="sm" variant={copy.retryLabel ? 'secondary' : 'default'} onClick={() => setEditing(true)}>
+        <Button
+          size="sm"
+          variant={copy.retryLabel ? 'secondary' : 'default'}
+          onClick={() => setEditing(true)}
+        >
           <Pencil size={14} aria-hidden="true" />
           Edit
+        </Button>
+      )}
+      {/* The refused change is rolled back on screen; its words live only here,
+          so they can always be taken elsewhere (POD-5430, spec step 2). */}
+      {canEdit && (
+        <Button
+          size="sm"
+          variant="ghost"
+          data-testid="outbox-copy"
+          onClick={() => copyToClipboard(authored, 'Copied your text')}
+        >
+          <Copy size={14} aria-hidden="true" />
+          Copy
         </Button>
       )}
     </>
   )
 
   return (
-    <li className={cn('flex flex-col', lone ? 'min-w-0' : 'gap-3 border-border/70 border-t px-5 py-4 first:border-t-0')}>
+    <li
+      className={cn(
+        'flex flex-col',
+        lone ? 'min-w-0' : 'gap-3 border-border/70 border-t px-5 py-4 first:border-t-0',
+      )}
+    >
       <div className={cn('min-w-0', lone && 'px-5 pt-4')}>
         <h3 className="font-medium text-sm" data-testid="outbox-change-label">
           {change.label}
@@ -206,16 +232,16 @@ function DeadLetterRow({
           </>
         )}
         {failed && (
-          <p className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-destructive text-xs">{failed}</p>
+          <p className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-destructive text-xs">
+            {failed}
+          </p>
         )}
       </div>
 
       <div
         className={cn(
           'flex flex-wrap items-center gap-2',
-          lone
-            ? 'mt-5 justify-end border-border/70 border-t bg-muted/50 px-5 py-3'
-            : 'pt-1',
+          lone ? 'mt-5 justify-end border-border/70 border-t bg-muted/50 px-5 py-3' : 'pt-1',
         )}
       >
         {actions}
@@ -243,7 +269,11 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
  * interruption when it is real.
  */
 export function OutboxRecoveryIndicator({ compact }: { compact?: boolean }): JSX.Element | null {
-  return noticesDataLayer() === 'pool' ? <PoolRecoveryIndicator compact={compact} /> : <LegacyRecoveryIndicator compact={compact} />
+  return noticesDataLayer() === 'pool' ? (
+    <PoolRecoveryIndicator compact={compact} />
+  ) : (
+    <LegacyRecoveryIndicator compact={compact} />
+  )
 }
 function PoolRecoveryIndicator({ compact }: { compact?: boolean }) {
   const deadLetters = usePoolRecovery()
@@ -251,13 +281,19 @@ function PoolRecoveryIndicator({ compact }: { compact?: boolean }) {
 }
 function LegacyRecoveryIndicator({ compact }: { compact?: boolean }) {
   const owner = useStoreHandle<Trpc>()
-  const { deadLetters } = useStoreSelector(s => {
+  const { deadLetters } = useStoreSelector((s) => {
     recordLegacyNoticeWork(owner, 'recoverySelectors')
     return { deadLetters: s.outboxDeadLetters }
   }, shallowEqual)
   return <RecoveryIndicatorBody deadLetters={deadLetters} compact={compact} />
 }
-function RecoveryIndicatorBody({ deadLetters, compact }: { deadLetters: readonly OutboxDeadLetterEntry[]; compact?: boolean }): JSX.Element | null {
+function RecoveryIndicatorBody({
+  deadLetters,
+  compact,
+}: {
+  deadLetters: readonly OutboxDeadLetterEntry[]
+  compact?: boolean
+}): JSX.Element | null {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     if (deadLetters.length === 0) setOpen(false)
