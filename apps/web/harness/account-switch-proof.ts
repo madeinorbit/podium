@@ -104,13 +104,15 @@ await build({
           // Use a registered worktree; the seed retains legacy session display
           // paths which normal startup would replace with its canonical fallback.
           const worktree = lifetimeReposToViews(owner!.getSnapshot().repos).flatMap(repo => repo.worktrees)[0];
-          owner!.getSnapshot().setSelectedWorktree(worktree!.path);
           owner!.getSnapshot().openSessionTab(lifetimeSessionId(targets.phaseSessionId));
           const s = owner!.getSnapshot(), ws = s.workspaces[s.workspaceKey()];
           s.splitWorkspacePane(ws.focusedPaneId, 'row', { tabId: targets.heartbeatSessionId });
           s.setSessionDraft(lifetimeSessionId(targets.phaseSessionId), 'Alice unsent chat draft');
           s.uiState.set('podium.firstTaskActivation.draft', JSON.stringify({ title: 'Alice first task', description: 'Unsent first task draft' }));
           s.uiState.set(lifetimeThemeKeys[0], 'light');
+          // Opening a session follows its legacy cwd; select the registered
+          // worktree after that action so this control starts in valid state.
+          s.setSelectedWorktree(worktree!.path);
         });
       }, __accountUiState: () => {
         const s = owner!.getSnapshot();
