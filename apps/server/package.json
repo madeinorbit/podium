@@ -41,6 +41,7 @@
     "@libsql/client": "^0.18.0",
     "@types/ws": "^8.5.13",
     "typescript": "^6.0.3",
-    "vitest": "5.0.0-beta.6"
+    "vitest": "5.0.0-beta.6",
+    "@podium/api-types": "workspace:*"
   }
 }

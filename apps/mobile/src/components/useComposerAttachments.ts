@@ -140,9 +140,12 @@ export function useComposerAttachments(
           mimeType: file.mimeType,
           dataBase64: file.dataBase64,
         })
+        if (!result || !('path' in result)) throw new Error('upload refused')
         // An empty path is a refusal wearing a success shape — the daemon
         // answers `{ path: '' }` when nothing answered in time.
-        if (!result?.path) throw new Error(result?.error ?? 'upload refused')
+        if (!result.path) {
+          throw new Error(('error' in result ? result.error : undefined) ?? 'upload refused')
+        }
         setAttachments((prev) =>
           prev.map((a) => (a.id === id ? { ...a, path: result.path, state: 'ready' } : a)),
         )

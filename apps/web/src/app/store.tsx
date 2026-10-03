@@ -4,8 +4,7 @@ import { sessionById } from '@podium/client-core/store'
  * Web binding for the shared client store (arch-v2 P3, issue #192): the
  * provider + optimistic actions moved to @podium/client-core/react, generic
  * over the structural PodiumClientApi seam. This shim binds it to the web's
- * AppRouter-typed tRPC client (built here — the type-only apps/web →
- * @podium/server edge stays in this app), sonner toasts, and formatAppError,
+ * AppRouter-typed tRPC client (from @podium/api-types), sonner toasts, and formatAppError,
  * and re-exports the typed hooks so existing `./store` imports keep working.
  */
 

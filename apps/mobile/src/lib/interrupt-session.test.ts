@@ -4,7 +4,7 @@ import { interruptSession } from './interrupt-session'
 
 describe('interruptSession', () => {
   it('passes the controller-selected durable message id to the mutation', async () => {
-    const mutate = vi.fn(async () => ({ ok: true }))
+    const mutate = vi.fn(async () => ({ ok: true as const, requested: 'protocol' as const }))
     await interruptSession({ interrupt: { mutate } }, asSessionId('session-1'), 'msg-durable')
     expect(mutate).toHaveBeenCalledWith({
       sessionId: asSessionId('session-1'),

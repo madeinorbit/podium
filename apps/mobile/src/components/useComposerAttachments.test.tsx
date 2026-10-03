@@ -16,6 +16,24 @@ const picked = (name: string): PickedFile => ({
 })
 
 describe('composer attachment session boundary', () => {
+  it('keeps a server refusal on the failed attachment chip', async () => {
+    const uploadImage = vi.fn(async () => ({
+      refusal: { reason: 'busy', detail: 'The session is still starting.' },
+    }))
+    let api: ComposerAttachmentsApi | undefined
+    function Harness() {
+      api = useComposerAttachments(asSessionId('session:attachments'))
+      return null
+    }
+    await renderWithMobileStore(<Harness />, {
+      api: { sessions: { uploadImage: { mutate: uploadImage } } },
+    })
+    act(() => api?.accept([picked('one.png')]))
+    await waitFor(() => expect(api?.attachments[0]?.state).toBe('failed'))
+    expect(api?.attachments[0]?.error).toBe('upload refused')
+    expect(api?.attachments[0]?.path).toBeUndefined()
+  })
+
   it('shares one target and serializes uploads across overlapping picker batches', async () => {
     let release: ((sessionId: ReturnType<typeof asSessionId>) => void) | undefined
     let releaseFirstUpload: (() => void) | undefined

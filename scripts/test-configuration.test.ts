@@ -995,6 +995,31 @@ describe('test lane configuration', () => {
     }
   })
 
+  it('refreshes the shared API declarations before checking their consumers', () => {
+    const api = JSON.parse(readFileSync(new URL('../packages/api-types/package.json', import.meta.url), 'utf8'))
+    const turbo = JSON.parse(readFileSync(new URL('../turbo.json', import.meta.url), 'utf8'))
+    expect(api.exports['.'].types).toBe('./src/index.d.ts')
+    expect(Object.keys(api.exports['.']).sort()).toEqual(['@podium/source', 'types'])
+    expect(turbo.tasks['@podium/api-types#typecheck'].dependsOn).toContain('build')
+    expect(turbo.tasks['@podium/api-types#build'].outputs).toEqual(['src/index.d.ts'])
+    expect(turbo.tasks['@podium/api-types#build'].inputs).toEqual(expect.arrayContaining([
+      '$TURBO_ROOT$/apps/server/src/**',
+      '$TURBO_ROOT$/apps/server/tsconfig.json',
+      '$TURBO_ROOT$/packages/*/src/**',
+      '!$TURBO_ROOT$/packages/api-types/src/**',
+    ]))
+    for (const app of ['mobile', 'web']) {
+      const pkg = JSON.parse(readFileSync(new URL(`../apps/${app}/package.json`, import.meta.url), 'utf8'))
+      expect(pkg.dependencies['@podium/api-types']).toBe('workspace:*')
+      expect(pkg.dependencies['@podium/server']).toBeUndefined()
+      expect(turbo.tasks[`@podium/${app}#typecheck`].dependsOn).toContain('^typecheck')
+    }
+    // preserveSymlinks keeps the client at the app's logical path, so its
+    // server peer must be visible there for conditional procedure inference.
+    const mobile = JSON.parse(readFileSync(new URL('../apps/mobile/package.json', import.meta.url), 'utf8'))
+    expect(mobile.devDependencies['@trpc/server']).toBeTruthy()
+  })
+
   it('keeps every typecheck cache key over the sources that task actually reads [POD-2807]', () => {
     // A check that cannot say NO is worse than no check. Turbo hashes
     // `$TURBO_DEFAULT$` — the package's own tracked files — plus the task hashes

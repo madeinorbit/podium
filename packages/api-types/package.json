@@ -1,0 +1,28 @@
+{
+  "name": "@podium/api-types",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@podium/source": "./src/index.d.ts",
+      "types": "./src/index.d.ts"
+    }
+  },
+  "dependencies": {
+    "@podium/model": "workspace:*",
+    "@podium/protocol": "workspace:*",
+    "@trpc/server": "^11.0.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "rollup": "^4.34.8",
+    "rollup-plugin-dts": "^6.1.1"
+  },
+  "scripts": {
+    "build": "bun build.ts",
+    "typecheck": "bun ../../scripts/typecheck-project.ts"
+  }
+}

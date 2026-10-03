@@ -164,7 +164,8 @@
     "docs:harness-matrix": "bun --conditions=@podium/source scripts/harness-matrix.ts",
     "docs:harness-matrix:check": "bun --conditions=@podium/source scripts/harness-matrix.ts --check",
     "harness:descriptors": "bun --conditions=@podium/source scripts/harness-descriptors.ts",
-    "harness:descriptors:check": "bun --conditions=@podium/source scripts/harness-descriptors.ts --check"
+    "harness:descriptors:check": "bun --conditions=@podium/source scripts/harness-descriptors.ts --check",
+    "api:types": "bun run --cwd packages/api-types build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",

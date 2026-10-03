@@ -12,7 +12,7 @@ import {
   type ServerOrigin,
 } from '@podium/client-core/transport'
 import { createLogger } from '@podium/logger'
-import type { AppRouter } from '@podium/server'
+import type { AppRouter } from '@podium/api-types'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { workspaceRequestInit, workspaceSocketUrl } from '@/lib/workspace-request'
 

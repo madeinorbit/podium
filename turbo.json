@@ -27,6 +27,8 @@
         "!.sourcemaps/**",
         "$TURBO_ROOT$/apps/server/package.json",
         "$TURBO_ROOT$/apps/server/src/**",
+        "$TURBO_ROOT$/packages/api-types/package.json",
+        "$TURBO_ROOT$/packages/api-types/src/**",
         "$TURBO_ROOT$/packages/client-core/package.json",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/package.json",
@@ -64,6 +66,8 @@
         "$TURBO_DEFAULT$",
         "!dist/**",
         "!.expo/**",
+        "$TURBO_ROOT$/packages/api-types/package.json",
+        "$TURBO_ROOT$/packages/api-types/src/**",
         "$TURBO_ROOT$/packages/client-core/package.json",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/package.json",
@@ -107,6 +111,32 @@
         "$TURBO_ROOT$/tooling/tsconfig/*.json"
       ],
       "outputs": []
+    },
+    "@podium/api-types#build": {
+      "dependsOn": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!src/**",
+        "$TURBO_ROOT$/apps/server/src/**",
+        "$TURBO_ROOT$/apps/server/tsconfig.json",
+        "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/apps/cli/src/**",
+        "$TURBO_ROOT$/packages/*/package.json",
+        "$TURBO_ROOT$/packages/*/src/**",
+        "!$TURBO_ROOT$/packages/api-types/src/**"
+      ],
+      "outputs": [
+        "src/index.d.ts"
+      ]
+    },
+    "@podium/api-types#typecheck": {
+      "dependsOn": [
+        "build",
+        "^typecheck"
+      ],
+      "outputs": [
+        "*.tsbuildinfo"
+      ]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],
@@ -173,6 +203,8 @@
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
         "$TURBO_ROOT$/drizzle.config.ts",
+        "$TURBO_ROOT$/packages/api-types/package.json",
+        "$TURBO_ROOT$/packages/api-types/src/**",
         "$TURBO_ROOT$/packages/client-core/package.json",
         "$TURBO_ROOT$/packages/client-core/src/**"
       ],

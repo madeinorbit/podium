@@ -7,8 +7,8 @@
  *
  *  - apps/web passes its AppRouter-typed tRPC client (assignability to this
  *    interface is checked by web's tsc, so drift fails the web typecheck);
- *  - apps/mobile's hand-written MobileTrpc intersects this interface with its
- *    mobile-only extras.
+ *  - apps/mobile passes the same generated AppRouter-typed client, keeping
+ *    the full server surface on the app's richer client type.
  *
  * The store is generic over `TApi extends PodiumClientApi`, so an app keeps
  * its own richer procedure types on `store.trpc` while the shared code only
