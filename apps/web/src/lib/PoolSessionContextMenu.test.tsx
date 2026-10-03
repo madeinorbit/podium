@@ -1,7 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
-import { asSessionId } from '@podium/model/browser'
+import { asMachineId, asSessionId } from '@podium/model/browser'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { PoolSessionContextMenu } from './PoolSessionContextMenu'
@@ -69,6 +69,11 @@ const row = (id: string): SessionView =>
     name: null,
     agentKind: 'codex',
     status: 'exited',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    origin: { kind: 'spawn' },
     archived: true,
     issueId: null,
     createdAt: stamp,
@@ -100,7 +105,7 @@ function open(scale: number) {
     {
       kind: 'machine',
       id: 'menu-machine',
-      value: { id: 'menu-machine', name: 'Menu machine', online: true },
+      value: { id: asMachineId('menu-machine'), name: 'Menu machine', online: true },
     },
   ])
   return { pool, load }
