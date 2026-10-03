@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { dirname } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
 const config = require('../../metro.config.js')
 const worker = require(config.transformerPath)
-const projectRoot = fileURLToPath(new URL('../../', import.meta.url))
-const source = readFileSync(new URL('./trpc.ts', import.meta.url), 'utf8')
+const projectRoot = dirname(require.resolve('../../package.json'))
+const source = readFileSync(require.resolve('./trpc.ts'), 'utf8')
 
 describe('the mobile API type import at the Metro boundary', () => {
   it.each(['ios', 'web'])('erases the API import and client generics on %s', async (platform) => {
