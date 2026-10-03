@@ -37,13 +37,14 @@ describe('mobile pool values', () => {
     const ctx = await startScenarioEngine(scale)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
-    const stop = reaction(() => poolMobileSnapshot(handle.pool), () => {}, { fireImmediately: true })
+    const nativeState: MobileWorkState = {}
+    const stop = reaction(() => poolMobileSnapshot(handle.pool, nativeState), () => {}, { fireImmediately: true })
     const checks: unknown[] = []
     let previous: readonly MobileWorkSection[] | undefined
     let retained = 0
     const check = (scenario: string) => {
       feeds.flush(); settle(handle.pool)
-      const native = tracked(() => handle.pool.mobileWork.sections().sections)
+      const native = tracked(() => handle.pool.mobileWork.sections(nativeState).sections)
       if (previous) for (const section of native) {
         const old = previous.find(band => band.key === section.key)
         if (!old) continue
