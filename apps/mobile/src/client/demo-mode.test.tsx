@@ -1,17 +1,7 @@
-/**
- * DEMO MODE STILL WORKS — AND NOW WORKS THROUGH THE PRODUCT'S OWN PATH (POD-332).
- *
- * `?demo=1` used to be a second hand-written `MobileClientValue`: fixtures and
- * no-ops implementing the same 55 fields. That is exactly the shape that lets a
- * design surface and a product surface diverge without anyone noticing — port a
- * screen to a slice and it renders from the slice in the product and from the
- * fixture object in demo, and only one of the two is ever looked at.
- *
- * So the fixtures are ROWS in a memory replica now, under the ordinary
- * `StoreProvider`. This file asserts the thing that makes that worth doing: what
- * demo mode paints comes out of the PUBLISHED SLICE, not out of a fixture
- * object — the same derivation the product and the desktop run.
- */
+/** Demo uses the same pool host and provider-owned fixture replica as the
+ * product. These literal counts and connectivity expectations are the final
+ * green demo controls, with only their legacy read arm retired. */
+
 import type { MobxPool } from '@podium/client-graph/pool'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
@@ -106,10 +96,7 @@ describe('demo fixtures under the real store', () => {
     expect(screen.getByTestId('issues').textContent).toBe(String(DEMO_ISSUES.length))
   })
 
-  it('and the WORKLIST SLICE derives over them — the fixture is data, not a stand-in value', async () => {
-    // The discriminating assertion. Counts alone would pass against a provider
-    // that handed the screens a fixture list directly; a non-empty published
-    // slice can only come from the slice running over replica rows.
+  it('paints the fixture rows through the pool', async () => {
     await mountDemo()
     expect(Number(screen.getByTestId('slice-rows').textContent)).toBeGreaterThan(0)
   })

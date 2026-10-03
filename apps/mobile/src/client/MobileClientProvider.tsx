@@ -20,9 +20,8 @@ import { seedIssueFixtures } from './issue-fixtures'
  * 55-field object rebuilt in one `useMemo` with a 27-entry dependency array,
  * re-exporting store fields under mobile-local names and re-deriving on the
  * phone what the web read from a published slice. It is deleted. Screens read
- * `@podium/client-core/react` (`useStore`, `useSlice`) through the thin typing
- * seam in `./hooks`, so a slice fixed once is fixed on both platforms and the
- * two can no longer disagree about the same list.
+ * the existing pool through `./hooks` and the screen readers. Store handles
+ * still supply the original actions and transport ownership.
  *
  * Three facts survive that a store cannot answer — a fatal error, a storage
  * degradation notice, and this principal's local erase. They live in `./shell`,
@@ -30,7 +29,7 @@ import { seedIssueFixtures } from './issue-fixtures'
  *
  * Demo mode (`?demo=1`) is now a REAL store over an in-memory replica seeded
  * with the fixtures, rather than a second hand-written value object: the design
- * surface therefore exercises the same slices as the product.
+ * surface therefore exercises the same pool readers as the product.
  */
 
 import {
@@ -319,7 +318,7 @@ export function MobileClientProvider({ children }: { children: ReactNode }) {
  *
  * Now the fixtures are ROWS. A memory-backed replica is seeded with them and the
  * ordinary `StoreProvider` runs over it, so every screen exercises the same
- * slices, the same derivations and the same store actions it does in the
+ * pool readers and the same store actions it does in the
  * product. What is stubbed is only the network: a tRPC surface that answers the
  * handful of reads the fixture flows make and resolves mutations without
  * changing the world.

@@ -8,7 +8,7 @@ function readInputs(pool: MobxPool) {
   return {
     repos: pool.headerViews.ids('repository').flatMap(id => {
       const row = pool.row('repository', id) as GitRepositoryWire | undefined
-      return row ? [row] : []
+      return row && typeof row !== 'symbol' ? [row] : []
     }),
     machines: pool.headerViews.machines(),
   }

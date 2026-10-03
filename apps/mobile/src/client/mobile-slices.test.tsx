@@ -1,24 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-/**
- * MOBILE READS THE SHARED SLICES (POD-332).
- *
- * `MobileClientValue` is deleted, and the deletion is only worth anything if
- * what replaced it is the SAME derivation the web reads. These cases mount a
- * real `StoreProvider` (see `test-support.tsx` for why nothing here is mocked)
- * and assert against the published `worklistSlice` — the one
- * `apps/web/src/features/worklist` renders from.
- *
- * WHAT EACH CASE COULD FAIL TO PROVE, and how that is closed:
- *
- *  - "the slice paints" passes trivially over an empty world, so every positive
- *    case is paired with the count it must NOT have, and the fixtures carry
- *    rows a local derivation and a published one would both produce. The
- *    discriminating case is the LAST one: the slice's `now` must be the store's
- *    coarse clock rather than a private interval, which is invisible to any
- *    assertion about row contents.
- *  - placement is asserted through the REFUSAL arm (a machine the principal may
- *    not use), because the grant arm passes identically with no gate at all.
- */
+/** Pool-only regressions for the final green mobile slice controls.
+ * The literal counts, titles, paths, shared clock and machine refusals are
+ * unchanged. The real provider owns the replica and all mutation handles. */
 
 import { useStoreHandle } from '@podium/client-core/react'
 import {
@@ -127,7 +110,7 @@ function readNow(pool: MobxPool) {
 }
 
 describe('mobile reads the resident pool worklist', () => {
-  it('paints rows the slice derived from the replica, not from a mobile-local derivation', async () => {
+  it('paints the accepted rows and paths through the pool', async () => {
     await renderWithMobileStore(<WorklistProbe />, {
       repos: [REPO],
       issues: [issue({ id: 'iss-open', title: 'Open work' })],
@@ -149,17 +132,7 @@ describe('mobile reads the resident pool worklist', () => {
     expect(screen.getByTestId('rows').textContent).toBe('')
   })
 
-  it('reads its clock FROM the store, which is what stops two surfaces disagreeing', async () => {
-    // The old screen ran a private `useNow(30_000)`, so its idea of "now" was
-    // unrelated to every other reader's and a snooze could lapse on one surface
-    // minutes before another. The slice carries the runtime's single coarse
-    // clock, and the screen renders that value.
-    //
-    // WHAT THIS DOES NOT PROVE, stated rather than implied: it is an assertion
-    // about the SLICE's clock, not about the absence of an interval in a
-    // component. What retires that mechanism is that `hooks/useNow.ts` is
-    // deleted — there is no longer a per-component clock on this platform to
-    // reach for.
+  it('uses the provider shared clock for the pool', async () => {
     await renderWithMobileStore(<WorklistProbe />, { repos: [REPO] })
     expect(screen.getByTestId('now').textContent).toBe(screen.getByTestId('store-now').textContent)
   })
@@ -209,7 +182,7 @@ describe('placement fails closed on the phone too (doc §3.1.4 M5)', () => {
   })
 })
 
-it('updates the narrow host metrics hook without waking whole-store readers', async () => {
+it('updates pool host metrics without waking stable action owners', async () => {
   let broadRenders = 0
   function BroadReader() {
     useStoreActions()
