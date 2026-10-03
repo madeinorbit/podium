@@ -21,6 +21,11 @@ function remove(start: string, end: string) {
 
 replace("const ACTIONS = [\n  'sidebar-issue',\n  'mission-switch',\n  'session-pane',\n  'issue-rename',\n  'background-update',\n] as const", "const ACTIONS = ['mission-switch'] as const")
 replace("resolve('.artifacts/speed-gate')", "resolve('.artifacts/header-session-speed')")
+// Four fresh-browser captures have the same bounded budget as the approved
+// four-capture pane proof; the shared gate itself stays untouched.
+replace('pairedPane ? 570 : 285', 'pairedPane ? 1140 : 285')
+replace('pairedPane ? 570_000 : 285_000', 'pairedPane ? 1140_000 : 285_000')
+replace("pairedPane ? '11m' : '6m'", "pairedPane ? '21m' : '6m'")
 remove("      await measure('sidebar-issue'", "      await measure('mission-switch'")
 remove('      await full.page.locator(row(targets.rename))', '      const actions = Object.fromEntries(')
 replace('&panelMode=chat${pane', '&panelMode=chat&headerScan=${pane === 0 ? 1 : 0}${pane')

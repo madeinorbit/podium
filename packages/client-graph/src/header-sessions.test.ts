@@ -10,10 +10,12 @@ import { LOADING } from './worklist/rollup'
 const NOW = Date.parse('2026-10-03T00:00:00Z')
 const HOSTS = ['header-host-a', 'header-host-b'] as MachineId[]
 const stamp = (ms = NOW) => new Date(ms).toISOString()
+const state = (phase: NonNullable<SessionView['agentState']>['phase'], at = NOW): NonNullable<SessionView['agentState']> =>
+  ({ phase, since: stamp(at), nativeSubagentCount: 0 })
 function session(id: string, patch: Partial<SessionView> = {}): SessionView {
   return { sessionId: id, title: id, name: `Name ${id}`, displayRef: `S-${id}`, agentKind: 'codex',
     status: 'live', cwd: '/synthetic/header', machineId: HOSTS[0], resumable: true,
-    lastActiveAt: stamp(), agentState: { phase: 'idle', since: stamp() }, ...patch } as SessionView
+    lastActiveAt: stamp(), agentState: state('idle'), ...patch } as SessionView
 }
 
 function fixture(coldCount = 0, writes?: WriteSeam) {
@@ -24,7 +26,7 @@ function fixture(coldCount = 0, writes?: WriteSeam) {
   }
   for (let index = 0; index < coldCount; index++) {
     const id = `cold-${index}`
-    rows.set(id, session(id, { status: 'exited', stoppedAt: stamp(NOW - 3 * 86_400_000) }))
+    rows.set(id, session(id, { status: 'exited', stoppedAt: stamp(NOW - 30 * 86_400_000) }))
   }
   const load = vi.fn((_entity: string, id: string) => rows.get(id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW }, undefined,
@@ -35,6 +37,8 @@ function fixture(coldCount = 0, writes?: WriteSeam) {
     pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: value as never }] })
   }
   pool.apply({ type: 'replace', rows: [...rows].map(([id, value]) => ({ kind: 'session', id, value: value as never })) })
+  expect(pool.tables.session.size).toBe(32)
+  expect(pool.residency!.ids('session')).toHaveLength(coldCount)
   // The old aggregate uses the header source's resident-only machine edges.
   const stopEdges = observe(pool.tables.session, change => pool.header.change('session', change.name,
     change.type === 'delete' ? undefined : pool.row('session', change.name) as object | undefined))
@@ -72,13 +76,13 @@ describe('incremental header sessions', () => {
     const check = (id: string, change: () => void) => {
       count.reset()
       change()
-      expect([...new Set(count.ids)]).toEqual([id])
       expect(count.ids.length).toBeLessThanOrEqual(16)
+      expect([...new Set(count.ids)]).toEqual([id])
     }
     try {
-      check('resident-0', () => f.change('resident-0', { agentState: { phase: 'working', since: stamp() } }))
+      check('resident-0', () => f.change('resident-0', { agentState: state('working') }))
       expect(working).toEqual(['resident-0'])
-      check('cold-0', () => f.change('cold-0', { status: 'live', agentState: { phase: 'compacting', since: stamp() } }))
+      check('cold-0', () => f.change('cold-0', { status: 'live', agentState: state('compacting') }))
       expect(f.pool.residency!.isCold('session', 'cold-0')).toBe(true)
       expect(working).toEqual(['cold-0', 'resident-0'])
       expect(f.load).not.toHaveBeenCalled()
@@ -101,11 +105,11 @@ describe('incremental header sessions', () => {
     const check = (id: string, change: () => void) => {
       count.reset()
       change()
-      expect([...new Set(count.ids)]).toEqual([id])
       expect(count.ids.length).toBeLessThanOrEqual(16)
+      expect([...new Set(count.ids)]).toEqual([id])
     }
     try {
-      check('resident-0', () => f.change('resident-0', { agentState: { phase: 'needs_user', since: stamp() } }))
+      check('resident-0', () => f.change('resident-0', { agentState: state('needs_user') }))
       expect(first).toMatchObject({ count: 32, phases: { waiting: 1, idle: 31 }, idleSplit: { idle: 32, parkable: 31, protected: 1 } })
       check('cold-0', () => f.change('cold-0', { status: 'live', resumable: false }))
       expect(first.idleSplit).toEqual({ idle: 33, parkable: 31, protected: 2 })
@@ -134,12 +138,12 @@ describe('incremental header sessions', () => {
     try {
       parity()
       for (const phase of ['working', 'compacting', 'needs_user', 'idle', 'ended', 'errored'] as const) {
-        f.change('resident-0', { agentState: { phase, since: stamp() } }); parity()
+        f.change('resident-0', { agentState: state(phase) }); parity()
       }
       for (const status of ['starting', 'reconnecting', 'hibernated', 'exited', 'live'] as const) {
-        f.change('resident-0', { status, agentState: { phase: 'working', since: stamp() } }); parity()
+        f.change('resident-0', { status, agentState: state('working') }); parity()
       }
-      f.change('cold-0', { status: 'live', agentState: { phase: 'working', since: stamp() }, machineId: HOSTS[1] }); parity()
+      f.change('cold-0', { status: 'live', agentState: state('working'), machineId: HOSTS[1] }); parity()
       f.change('resident-0', { title: 'Renamed', name: 'New name', displayRef: 'S-999', archived: true }); parity()
       f.change('resident-0', { archived: false, machineId: HOSTS[1] }); parity()
       f.pool.row('session', 'cold-0'); f.pool.hydrate(); parity()
@@ -151,8 +155,8 @@ describe('incremental header sessions', () => {
       f.apply('cold-0', returned); parity()
       expect(f.pool.residency!.isCold('session', 'cold-0')).toBe(true)
       f.rows.clear()
-      f.rows.set('z', session('z', { agentState: { phase: 'working', since: stamp() } }))
-      f.rows.set('a', session('a', { agentState: { phase: 'compacting', since: stamp() } }))
+      f.rows.set('z', session('z', { agentState: state('working') }))
+      f.rows.set('a', session('a', { agentState: state('compacting') }))
       f.pool.apply({ type: 'replace', rows: [...f.rows].map(([id, value]) => ({ kind: 'session', id, value: value as never })) }); parity()
       expect(f.pool.headerViews.working().map(row => row.sessionId)).toEqual(['a', 'z'])
     } finally { stop(); f.dispose() }
@@ -160,8 +164,8 @@ describe('incremental header sessions', () => {
 
   it('expires only affected evidence, preserves the inclusive boundary, and handles rewinds for resident and cold members', () => {
     const f = fixture(1)
-    f.change('resident-0', { agentState: { phase: 'working', since: stamp() } })
-    f.change('cold-0', { status: 'live', agentState: { phase: 'working', since: stamp(NOW + 1000) }, lastActiveAt: stamp(NOW + 1000) })
+    f.change('resident-0', { agentState: state('working') })
+    f.change('cold-0', { status: 'live', agentState: state('working', NOW + 1000), lastActiveAt: stamp(NOW + 1000) })
     let ids: string[] = []
     const stop = autorun(() => { ids = f.pool.headerViews.working().map(row => row.sessionId) })
     const count = visits(f.pool)
