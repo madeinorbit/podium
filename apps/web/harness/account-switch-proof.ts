@@ -104,7 +104,6 @@ await build({
             code +
             `
       import { THEME_UI_KEYS as lifetimeThemeKeys, asSessionId as lifetimeSessionId } from '@podium/model/browser';
-      import { reposToViews as lifetimeReposToViews } from '@podium/client-core/viewmodels';
       import { useCurrentPrincipal as lifetimeCurrentPrincipal } from '@podium/client-core/react';
       const lifetimeBlurWrites: { principal: string; writingPrincipal: string; actualPrincipal: string; destroyed: boolean; value: string }[] = [];
       function AccountBlurWriter() {
@@ -135,9 +134,10 @@ await build({
       }, __accountEdit: () => {
         flushSync(() => {
           owner!.getSnapshot().setSelectedIssueId(asIssueId(targets.visibleRootId));
-          // Use a registered worktree; the seed retains legacy session display
-          // paths which normal startup would replace with its canonical fallback.
-          const worktree = lifetimeReposToViews(owner!.getSnapshot().repos).flatMap(repo => repo.worktrees).find(row => !row.isMain);
+          // Durable homes use canonical paths. The discovery answer deliberately
+          // retains the corpus's older display paths, which startup normalizes.
+          const worktree = owner!.getSnapshot().issueProjections.find(row => row.worktreePath != null)?.worktreePath;
+          if (!worktree) throw new Error('No canonical worktree in synthetic kernel');
           owner!.getSnapshot().openSessionTab(lifetimeSessionId(targets.phaseSessionId));
           const s = owner!.getSnapshot(), ws = s.workspaces[s.workspaceKey()];
           s.splitWorkspacePane(ws.focusedPaneId, 'row', { tabId: targets.heartbeatSessionId });
@@ -146,7 +146,7 @@ await build({
           s.uiState.set(lifetimeThemeKeys[0], 'light');
           // Opening a session follows its legacy cwd; select the registered
           // worktree after that action so this control starts in valid state.
-          s.setSelectedWorktree(worktree!.path);
+          s.setSelectedWorktree(worktree);
         });
       }, __accountUiState: () => {
         const s = owner!.getSnapshot();
