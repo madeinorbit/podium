@@ -77,10 +77,14 @@ export function createIssuePageViews(pool: MobxPool) {
     const deadline = until == null ? NaN : Date.parse(until)
     return Number.isFinite(deadline) && !pool.clock.reached(deadline)
   }
-  function prefix(id: string): string | undefined {
+  function prefix(id: string, prefixes?: Map<string, string | undefined>): string | undefined {
     const repoId = pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
-    return repo?.prefix ?? undefined
+    if (!repoId) return undefined
+    if (prefixes?.has(repoId)) return prefixes.get(repoId)
+    const repo = pool.row('repo', repoId) as { prefix?: string } | undefined
+    const value = repo?.prefix ?? undefined
+    prefixes?.set(repoId, value)
+    return value
   }
   function readDependents(id: string): Loaded<IssueViewModel['dependents']> {
     const result: IssueViewModel['dependents'] = []
@@ -95,7 +99,7 @@ export function createIssuePageViews(pool: MobxPool) {
   function dependents(id: string): Loaded<IssueViewModel['dependents']> {
     return memo(`dependents:${id}`, () => readDependents(id))
   }
-  function readSummary(id: string): Loaded<IssueViewModel> {
+  function readSummary(id: string, prefixes?: Map<string, string | undefined>): Loaded<IssueViewModel> {
     // Menus need declared fields, not the worklist's computed presence bound.
     const row = pool.row('issue', id, 'summary-fields')
     if (!row || row === LOADING) return row
@@ -105,7 +109,7 @@ export function createIssuePageViews(pool: MobxPool) {
     const fields = Object.fromEntries(ISSUE_PAGE_SUMMARIES.issue.map(key => [key, value[key]]))
     const inverse = readDependents(id)
     if (inverse === LOADING) return LOADING
-    const p = prefix(id)
+    const p = prefix(id, prefixes)
     const isDeferred = deferred(value.deferUntil as string | null | undefined)
     return { ...fields, id, prefix: p, displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
       labels: value.labels ?? [], deps: value.deps ?? [], dependents: inverse ?? [], memberSessionIds: [], childIds: [],
@@ -117,13 +121,15 @@ export function createIssuePageViews(pool: MobxPool) {
   }
   function issues(): Loaded<IssueViewModel[]> {
     return memo('summaries', () => {
+      // One scalar read per repo in this pass; the next pass starts fresh.
+      const prefixes = new Map<string, string | undefined>()
       const result: IssueViewModel[] = []
       let pending = false
       for (const id of knownIssueIds(pool).sort(byId)) {
         // The world is already one tracked computed. Creating two more for
         // every menu row makes first-open pay for tens of thousands of nodes.
         // Only individually addressed summaries need their own computation.
-        const value = readSummary(id)
+        const value = readSummary(id, prefixes)
         if (value === LOADING) pending = true
         else if (value) result.push(value)
       }

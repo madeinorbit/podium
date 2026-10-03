@@ -84,6 +84,7 @@ describe('declared issue page', () => {
       deps: index === 1 ? [{ id: 'cold-0', type: 'relates' }] : [],
     })), [], true)
     const summaryReads = vi.spyOn(ctx.pool.residency!, 'summary')
+    const rowReads = vi.spyOn(ctx.pool, 'row')
     const snapshots: IssueViewModel[][] = []
     const stop = reaction(() => ctx.views.issues(), next => {
       if (!next || next === LOADING) throw new Error('Missing cold menu world')
@@ -94,12 +95,17 @@ describe('declared issue page', () => {
       expect(snapshots[0]?.find(row => row.id === 'cold-0')?.dependents).toEqual([{ id: 'cold-1', type: 'relates' }])
       // Count the screen read before apply() calculates its own cold bounds.
       expect(summaryReads.mock.calls.filter(([kind, , decorate]) => kind === 'issue' && decorate !== false)).toHaveLength(0)
+      expect(rowReads.mock.calls.filter(([kind]) => kind === 'repo')).toHaveLength(1)
       ctx.patch('issue', 'cold-1', task('cold-1', { seq: 2, archived: true, labels: ['changed'],
         deps: [{ id: 'cold-2', type: 'custom' }] }))
       expect(snapshots).toHaveLength(2)
       expect(snapshots[1]?.find(row => row.id === 'cold-1')?.labels).toEqual(['changed'])
       expect(snapshots[1]?.find(row => row.id === 'cold-0')?.dependents).toEqual([])
       expect(snapshots[1]?.find(row => row.id === 'cold-2')?.dependents).toEqual([{ id: 'cold-1', type: 'custom' }])
+      ctx.pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: '/synthetic',
+        value: { path: '/synthetic', repoId: 'R', repoName: 'Synthetic', repoPath: '/synthetic', prefix: 'NEW' } }] })
+      expect(snapshots).toHaveLength(3)
+      expect(snapshots[2]?.every(row => row.prefix === 'NEW')).toBe(true)
       expect(ctx.load).not.toHaveBeenCalled()
       expect(tracked(() => ctx.pool.row('issue', 'cold-0', 'mark'))).toBe(LOADING)
     } finally { stop() }
