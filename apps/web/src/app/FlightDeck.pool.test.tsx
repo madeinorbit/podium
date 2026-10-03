@@ -5,7 +5,9 @@ import { sessionViews, type SessionView } from '@podium/client-core/session-valu
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/viewmodels'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { missionView } from '@podium/client-graph/mission-view'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
@@ -19,7 +21,7 @@ import { missionLegacyCountsFor, resetMissionLegacyCounts } from './mission-pane
 const state = vi.hoisted(() => ({
   layer: 'legacy' as 'legacy' | 'pool', pool: null as unknown,
   issues: [] as unknown[], sessions: [] as unknown[], repos: [], machines: [],
-  selectedIssueId: null as string | null, paneA: null, paneB: null, split: false,
+  selectedIssueId: null as string | null, paneA: null as string | null, paneB: null as string | null, split: false,
   coarseNow: 0, uiState: { get: (_key: string): string | null => null, set: vi.fn(), subscribe: () => () => {} },
   replica: {} as unknown, trpc: {} as unknown, issueVisitBaseline: null,
   setSelectedWorktree: vi.fn(), setSelectedIssueId: vi.fn(), openSessionTab: vi.fn(), openSessionAtTranscript: vi.fn(),
@@ -38,12 +40,8 @@ vi.mock('@podium/client-core/react', async original => ({ ...await original<type
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => state.pool,
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => {
-    if (!state.pool) return empty
-    const projection = createPoolProjection(state.pool as MobxPool, read)
-    const stop = projection.subscribe(() => {})
-    const result = projection.getSnapshot()
-    stop()
-    return result
+    const projection = useMemo(() => state.pool ? createPoolProjection(state.pool as MobxPool, read) : null, [read, state.pool])
+    return useSyncExternalStore(projection?.subscribe ?? (() => () => {}), projection?.getSnapshot ?? (() => empty))
   },
 }))
 vi.mock('@/lib/pane-data-layer', () => ({ paneDataLayer: () => state.layer, initializePaneDataLayer: () => {} }))
@@ -62,6 +60,7 @@ beforeEach(() => {
     userId: 'operator', userStates: [...replica.rows('sessionUserStates')], machines: [...replica.rows('machines')], repos: [...replica.rows('repos')],
   }))
   state.layer = 'legacy'; state.issues = issues; state.sessions = sessions; state.coarseNow = corpus.fixedNow
+  state.paneA = null; state.paneB = null; state.split = false
   state.replica = replica
   state.trpc = { cost: { task: { query: async () => null }, tasks: { query: async () => [] } },
     issues: { events: { query: async () => [] } }, sessions: { transcriptRead: { query: async () => ({ items: [], hasMore: false }) } } }
@@ -79,9 +78,12 @@ afterEach(() => { cleanup(); pool.dispose(); state.pool = null; vi.useRealTimers
 function mount(view: FlightDeckView) {
   vi.setSystemTime(corpus.fixedNow)
   state.uiState.get = key => key === 'podium.flightDeck.mode' ? view : null
-  return render(<ConfirmProvider><OperatorFocusProvider missionId={state.selectedIssueId}>
+  return render(deck())
+}
+function deck() {
+  return <ConfirmProvider><OperatorFocusProvider missionId={state.selectedIssueId}>
     <IssueExplorerProvider><FlightDeck onCollapse={() => {}} /></IssueExplorerProvider>
-  </OperatorFocusProvider></ConfirmProvider>)
+  </OperatorFocusProvider></ConfirmProvider>
 }
 /** Text, labels, tag/order, CSS classes and authored layout styles. React/Base
  * UI's generated IDs and animation progress are not authored presentation. */
@@ -100,6 +102,22 @@ async function settled() {
 }
 
 describe('rendered mission pane parity', () => {
+  it('derives a mission once and retains its rows when only the selected session changes', async () => {
+    const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12 &&
+      sessions.some(session => session.issueId === issue.id && !session.archived && !session.headless && session.agentKind !== 'shell'))!
+    state.layer = 'pool'; state.selectedIssueId = root.id
+    const reader = missionView(pool)
+    const current = mount('full'); await settled()
+    expect(reader.stats.values).toBe(1)
+    const before = renderedOutput(current.container)
+    state.paneA = sessions.find(session => session.issueId === root.id)!.sessionId
+    current.rerender(deck()); await settled()
+    expect(reader.stats.values).toBe(1)
+    expect(current.container.querySelectorAll('[data-flight-issue]').length).toBeGreaterThan(1)
+    expect(renderedOutput(current.container).map(({ class: _class, ...node }) => node))
+      .toEqual(before.map(({ class: _class, ...node }) => node))
+  }, 120_000)
+
   for (const view of ['full', 'working', 'needs-you', 'waterfall', 'handoff'] as const) it(`preserves visible words, labels, order and layout in ${view}`, async () => {
     const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12)!
     state.selectedIssueId = root.id

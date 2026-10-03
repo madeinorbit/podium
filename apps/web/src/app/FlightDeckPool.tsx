@@ -4,6 +4,7 @@ import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionHandoff, readMissionView, readMissionActionInputs, type MissionHandoffValues, type MissionViewValues } from '@podium/client-graph/mission-view'
+import { observer } from '@podium/client-graph/react'
 import { useCallback, useMemo, type ComponentProps, type JSX } from 'react'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
@@ -21,7 +22,7 @@ interface PaneValues {
 
 /** The same pool and mutation owner as the sidebar. This module loads only
  * after the startup pane choice, and never subscribes to legacy entity slices. */
-export default function PoolFlightDeck(props: FlightDeckProps & { preferences: FlightDeckPreferences }): JSX.Element {
+export default observer(function PoolFlightDeck(props: FlightDeckProps & { preferences: FlightDeckPreferences }): JSX.Element {
   const { selectedIssueId, paneA, paneB, split } = useStoreSelector(store => ({
     selectedIssueId: store.selectedIssueId, paneA: store.paneA, paneB: store.paneB, split: store.split,
   }), shallowEqual)
@@ -49,7 +50,10 @@ export default function PoolFlightDeck(props: FlightDeckProps & { preferences: F
       : machines.filter(view => repo?.machines.some(machine => machine.machineId === view.machine.id))
     return { mission, handoff, hosts }
   }), [owner, selectedIssueId, paneA, paneB, split, mode, view])
-  const values = useWorklistPoolProjection(read, LOADING)
+  // Keep the mission's computed rows observed across pane selection changes.
+  // A layout projection first reads untracked, then repeats the full derivation
+  // when subscribing; rows belong in the observer that renders them.
+  const values = pool ? read(pool) : LOADING
   const source = useMemo<FlightDeckSource | null>(() => {
     if (!pool || values === LOADING) return null
     const reader = missionView(pool)
@@ -65,7 +69,7 @@ export default function PoolFlightDeck(props: FlightDeckProps & { preferences: F
     }
   }, [pool, values])
   return source ? <MissionSessionMenu.Provider value={PoolSessionContextMenu}><FlightDeckContent {...props} source={source} /></MissionSessionMenu.Provider> : <SettlingDeck />
-}
+})
 
 function PoolIssueContextMenu(props: ComponentProps<typeof IssueContextMenu>) {
   const owner = useStoreHandle()
