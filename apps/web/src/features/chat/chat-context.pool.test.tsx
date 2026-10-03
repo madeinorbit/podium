@@ -396,6 +396,7 @@ it('has identical rendered inputs and zero legacy derivations with chat ON and p
   f.guard = true
   const actual = render(<Inputs />)
   await waitFor(() => expect(actual.container.textContent).toBe(expected))
+  expect(actual.container.textContent).toMatchSnapshot('last green chat inputs')
   expect(
     Object.entries(readRuntimeStoreStats(f.fixture!.owner)?.slices ?? {}).filter(
       ([key]) => key.startsWith('chatContext.') || key.startsWith('sessionPane.'),
@@ -565,6 +566,7 @@ it('renders the real composer and artifact strip identically and keeps artifact 
   f.guard = true
   const actual = render(<Surface />)
   expect(visible(actual.container)).toEqual(expected)
+  expect(visible(actual.container)).toMatchSnapshot('last green composer and artifacts')
   fireEvent.click(actual.getByTestId('offer-artifact-thumb'))
   expect(f.seams.openArtifact).toHaveBeenCalledWith(
     expect.objectContaining({

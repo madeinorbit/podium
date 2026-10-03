@@ -56,6 +56,7 @@ it('renders the same thread, return marker, concierge and dock controls with bot
   legacy.view.unmount()
   const enabled = await mount('pool')
   expect(snapshot(enabled)).toEqual(expected)
+  expect(snapshot(enabled)).toMatchSnapshot('last green superagent controls')
   expect(enabled.errors).toEqual([])
   expect(enabled.before[0]).toBeNull()
   expect(enabled.pool).toBeTruthy()

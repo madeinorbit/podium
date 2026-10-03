@@ -82,8 +82,12 @@ it('retains recover and edited-send payloads on the existing mutation owner', as
 })
 
 it('counts the legacy fallback as a positive control', () => {
+  render()
+  const expected = container.textContent
   mock.mode = 'legacy'
   render()
+  expect(container.textContent).toBe(expected)
+  expect(container.textContent).toMatchSnapshot('last green notices and recovery')
   expect(mock.selectors.mock.calls.length).toBe(3)
   expect(noticeReadStats.read(mock.owner)).toMatchObject({ messageSelectors: 1, messageDerivations: 1, interactionSelectors: 1, interactionDerivations: 1, recoverySelectors: 1 })
 })
