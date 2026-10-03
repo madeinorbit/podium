@@ -49,8 +49,22 @@ Candidate `ee07a4c29b` passed four focused files on flatblock: 15 web tests and 
 
 After adding explicit types to test-only mock buttons, the reader, hook and comparison test passed focused lint at `b1065cf396`, with 20 non-null assertion warnings. Full-file AgentPanel lint still reports the pre-existing `pickModeWithTrace` dependency omission in its desktop shortcut effect. The same error was reproduced on integration baseline `0c19f9ca85`; this migration adds no lint error there. That separate work is recorded as Proposed POD-5346, and the legacy shortcut block is unchanged.
 
-## Remaining rollout evidence
+## Paired browser timing
 
-POD-4286 cleared this code to land with the switch off after the planted checks completed. POD-5091's generic `speed:gate --switch` option is now landed at `439580c135`. Same-SHA browser timing for session switching remains to be captured. The four interleaved captures will vary only `mobxSessionPane` (off, on, off, on), hold `bench:flatblock` for the timing run and keep pane navigation and the other screen switches fixed. No before/after timing claim is made here.
+The session-only pair is green. Four ordinary `speed:gate` captures ran on flatblock at frozen source `a747560f4d` (local tag `pod-5092-session-pair`), using POD-5091's generic URL overrides from `439580c135`. Every capture used the same source SHA, machine, browser, seed, targets and byte-identical minified production output. Only `mobxSessionPane` varied, in off/on/off/on order; `mobxPane=0` and `mobxSessionPaneCheck=0` stayed fixed. The fixed 4× fixture enforces at least 19,000 issues and 17,000 sessions. No operator RPC or feed call is permitted by the harness.
+
+Each arm has two fresh-browser captures and twelve measured session samples in total. The existing gate comparator applied its fixed 10% median guard to the session action:
+
+| Session input to actual Chromium Paint | Legacy | Pool |
+| --- | ---: | ---: |
+| Combined median | 1029.780 ms | 1018.880 ms |
+| Worst sample | 1204.847 ms | 1144.907 ms |
+| Capture 1 median | 1053.843 ms | 1027.626 ms |
+| Capture 2 median | 1014.317 ms | 1001.261 ms |
+| Spread between capture medians | 3.822% | 2.599% |
+
+The pool median is 1.059% lower, smaller than the spread between captures. This proves the requested guard; it does not establish a meaningful speed improvement. All four ordinary gates also passed their historical five-action baseline checks, but those historical reductions are not attributed to this screen migration. The paired summary and four raw capture reports are attached to the issue. The timing lease covered the capture batch and was released immediately after it completed.
+
+## Rollout
 
 After the operator enables the screen by default, its legacy path is due for deletion within about a week, under the app-wide migration plan.
