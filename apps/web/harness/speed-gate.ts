@@ -120,7 +120,8 @@ async function main() {
   )
     throw new Error('Invalid planted delay/mode')
   if (calibrate && promote) throw new Error('Choose calibration or promotion')
-  if (structuralOnly && (calibrate || promote || delayMs)) throw new Error('Structural-only cannot measure or promote timing')
+  if (structuralOnly && (calibrate || promote || delayMs))
+    throw new Error('Structural-only cannot measure or promote timing')
 
   // Structural work is a separate, untimed process: no instrumentation in the
   // production browser and no benchmark lease held across a focused test lane.
@@ -132,7 +133,9 @@ async function main() {
     })
     if (status !== 0) throw new Error(`Structural per-click guard failed (exit ${status})`)
     if (structuralOnly) {
-      console.log('STRUCTURAL WORK GATE GREEN — known failures retain their owning issues; no timings collected.')
+      console.log(
+        'STRUCTURAL WORK GATE GREEN — known failures retain their owning issues; no timings collected.',
+      )
       return
     }
   }
