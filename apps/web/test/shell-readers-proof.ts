@@ -59,7 +59,7 @@ try {
     await page.getByRole('button', { name: 'Open login page' }).waitFor()
     frames.push(await page.evaluate(() => window.__shellReaders.snapshot()))
     const popup = page.waitForEvent('popup')
-    await page.getByRole('button', { name: 'Open login page' }).click()
+    await page.getByRole('button', { name: 'Open', exact: true }).click()
     const opened = await popup
     await opened.waitForURL('https://synthetic.example.invalid/login')
     await opened.close()
@@ -72,9 +72,12 @@ try {
     const closed = await page.evaluate(() => window.__shellReaders.closeTab())
     const link = await page.evaluate(() => window.__shellReaders.activate())
     if (!closed || !link) throw new Error('Close-tab or Podium-link boundary did not activate')
+    if (switched && !await page.evaluate(() => window.__shellReaders.artifactCold())) throw new Error('Artifact was not cold before its click')
+    await page.getByTestId('cold-artifact-link').click()
+    await page.waitForFunction(() => window.__shellReaders.artifacts() === 1)
     snapshots.push(frames)
     await page.screenshot({ path: `${output}/${arm}.png` })
-    results[arm] = { ...stats, errors, parity, comparedFrames: frames.length, popupCount: 1, forwardedCallbacks: effects.callbacks, closedTabs: Number(closed), activatedLinks: Number(link) }
+    results[arm] = { ...stats, errors, parity, comparedFrames: frames.length, popupCount: 1, forwardedCallbacks: effects.callbacks, closedTabs: Number(closed), activatedLinks: Number(link), artifactTabs: 1 }
     await page.evaluate(() => window.__shellReaders.close())
     await page.close()
   }

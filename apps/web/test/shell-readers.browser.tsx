@@ -31,6 +31,13 @@ import '../src/styles.css'
 initializePoolScreens({ get: () => null } as never)
 const count = Number(new URLSearchParams(location.search).get('rows') ?? 5600)
 const fixture = createHeaderFixture(count, Math.min(count, 5014))
+const artifactIssueId = `synthetic-${count - 1}`, artifactRef = `SYN-${1000 + count - 1}`
+const artifactRecord = fixture.records.get(`issueProjection:${artifactIssueId}`)!
+fixture.records.set(`issueProjection:${artifactIssueId}`, { ...artifactRecord, value: { ...artifactRecord.value as object,
+  stage: 'done', archived: true, updatedAt: '2026-01-01T00:00:00Z', panel: { todos: [], artifacts: [{
+    artifactId: 'synthetic-artifact', path: 'review/index.html', entry: 'index.html', addedAt: '2026-01-01T00:00:00Z', files: [{ path: 'index.html', size: 3 }],
+  }] },
+} })
 // Exercise shipping values without a server or any shipping command.
 const orders = ['waiting', 'needs_you', 'in_progress', 'shipped'].map((humanState, index) => ({
   id: `synthetic-order-${index}`, issueId: `synthetic-${index}`, repoId: 'synthetic-repo', destination: 'main',
@@ -84,6 +91,8 @@ function Surfaces() {
   }, [owner, graph])
   return <div className="min-h-screen bg-background text-foreground">
     <Chrome />
+    <a href={`/issues/${artifactRef}/artifacts/synthetic-artifact/index.html`} data-testid="cold-artifact-link"
+      onClick={event => { if (activatePodiumHref(event.currentTarget.href)) event.preventDefault() }}>Open cold artifact</a>
     <div className="flex"><section data-proof="machines" className="w-1/2 p-4"><MachinesPanel /></section>
       <section data-proof="dock" className="w-1/2 min-h-[400px]"><RightDock tab="shipping" onClose={() => {}} /></section>
       <section data-proof="rail"><RightRail rightPanel="shipping" onPanelChange={() => {}} /></section></div>
@@ -150,6 +159,8 @@ const driver = {
   activate: () => activatePodiumHref('/issues/SYN-1003'),
   closeTab() { return (globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }).__PODIUM_CLOSE_TAB__?.() ?? false },
   state: () => ({ files: runtime!.getSnapshot().fileTabs.length, selected: runtime!.getSnapshot().selectedIssueId }),
+  artifacts: () => runtime!.getSnapshot().fileTabs.filter(file => file.scope.kind === 'artifact').length,
+  artifactCold: () => pool?.residency?.isCold('issue', artifactIssueId) ?? null,
 }
 Object.assign(window, { __shellReaders: driver })
 declare global { interface Window { __shellReaders: typeof driver } }
