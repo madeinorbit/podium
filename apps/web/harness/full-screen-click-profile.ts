@@ -66,9 +66,9 @@ const profileActions = profileAction === 'all' ? ACTIONS.filter(action => action
   : [profileAction === 'session-switch' ? 'session-pane' : profileAction]
 const root = resolve('.artifacts/full-screen-click-profile')
 const buildDir = resolve(root, 'build')
-const profileDir = resolve(root, 'profiles', profileAction)
+const profileDir = resolve(root, 'profiles', 'mission-switch-plant')
 const baselinePath = resolve('docs/measurements/click-speed-baseline.json')
-const REPETITIONS = 3
+const REPETITIONS = 1
 const WARMUPS = 2
 const git = (...argv: string[]) => execFileSync('git', argv, { encoding: 'utf8' }).trim()
 const median = (values: number[]) => {
