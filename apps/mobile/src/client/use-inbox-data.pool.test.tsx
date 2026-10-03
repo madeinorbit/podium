@@ -21,6 +21,7 @@ import { type ReactNode, useEffect } from 'react'
 import { Linking } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createInboxFixture } from '../../test/inbox-fixture'
+import { mobileInboxSnapshot } from '../../test/pool-snapshots'
 import {
   followPodiumLink,
   mobilePodiumRoute,
@@ -345,6 +346,7 @@ it('compares every card, triage bucket, screening ancestor and addressed route u
     }),
   )
   const expected = legacy(app)
+  expect(mobileInboxSnapshot(app.pool, input)).toMatchSnapshot('last green pilot-ON complete inbox output')
   expected.issues.find((issue) => issue.id === 'synthetic-0')!.title = 'Planted comparison error'
   const red = checkMobileInbox(app.pool, expected, input)
   expect(red.differences).toBeGreaterThan(0)

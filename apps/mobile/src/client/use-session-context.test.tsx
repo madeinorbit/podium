@@ -9,6 +9,7 @@ import type { SessionCardModel } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
 import { checkMobileSessionContext } from '@podium/client-graph/diagnostics/mobile-session-check'
+import { mobileSessionSnapshot } from '../../test/pool-snapshots'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import {
   MOBILE_SESSION_ENTITIES,
@@ -545,6 +546,7 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
   )
   await waitFor(() => expect(enabled.check()).toMatchObject({ differences: 0, pending: 0 }))
   const state = enabled.runtime.getSnapshot()
+  expect(mobileSessionSnapshot(enabled.pool(), [SID, 'synthetic-session-11', 'missing-session'], state.coarseNow)).toMatchSnapshot('last green pilot-ON complete session output')
   const wrong = { ...state, pendingSpawnPrompts: new Map([[SID, 'Planted wrong prompt']]) }
   expect(
     checkMobileSessionContext(enabled.pool(), wrong, allIssueViewModels(state.replica), [SID])
