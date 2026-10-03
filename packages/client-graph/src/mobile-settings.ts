@@ -21,8 +21,11 @@ export const MOBILE_SETTINGS_SOURCE_KEY = 'mobile-settings'
 export const MOBILE_SETTINGS_ENTITIES = ['mobileSettingsDiagnostics'] as const
 export const MOBILE_SETTINGS_SCHEMA = {
   mobileSettingsDiagnostics: {
-    key: 'diagnostics', source: 'runtime:diagnostics', residency: 'on-demand',
-    fields: ['issueCount', 'conversationCount', 'cursor'], relations: {},
+    key: 'diagnostics',
+    source: 'runtime:diagnostics',
+    residency: 'on-demand',
+    fields: ['issueCount', 'conversationCount', 'cursor'],
+    relations: {},
   },
 } as const
 
@@ -33,16 +36,21 @@ type DiagnosticsOwner = Pick<ClientRuntime, 'subscribe' | 'replica'> & {
 /** Demand batches one O(1) summary from the existing runtime. Array lengths are
  * already maintained by its replica binding; no issue models or table walks
  * are needed. Cursor-only feed frames also invalidate this declared summary. */
-export async function createMobileSettingsSource(owner: DiagnosticsOwner): Promise<
-  PoolSource<keyof MobileSettingsRows> & { counts: { batches: number } }
-> {
-  const [{ observable, runInAction, compareStructural }, { LOADING }] = await Promise.all([
-    import('mobx'), import('./worklist/rollup'),
+export async function createMobileSettingsSource(
+  owner: DiagnosticsOwner,
+): Promise<PoolSource<keyof MobileSettingsRows> & { counts: { batches: number } }> {
+  const [{ observable, runInAction, compareStructural }, rollup] = await Promise.all([
+    import('mobx'),
+    import('./worklist/rollup'),
   ])
+  const LOADING: typeof import('./worklist/rollup').LOADING = rollup.LOADING
   const value = observable.box<MobileSettingsDiagnostics | undefined>(undefined, {
-    deep: false, equals: compareStructural,
+    deep: false,
+    equals: compareStructural,
   })
-  let demanded = false, scheduled = false, disposed = false
+  let demanded = false,
+    scheduled = false,
+    disposed = false
   const counts = { batches: 0 }
   function schedule(): void {
     if (!demanded || scheduled || disposed) return
@@ -51,8 +59,11 @@ export async function createMobileSettingsSource(owner: DiagnosticsOwner): Promi
       scheduled = false
       if (disposed) return
       const state = owner.getSnapshot()
-      const next = { issueCount: state.issueProjections.length,
-        conversationCount: state.conversations.length, cursor: owner.replica.getCursor() }
+      const next = {
+        issueCount: state.issueProjections.length,
+        conversationCount: state.conversations.length,
+        cursor: owner.replica.getCursor(),
+      }
       runInAction(() => value.set(next))
       counts.batches++
     })
@@ -65,7 +76,10 @@ export async function createMobileSettingsSource(owner: DiagnosticsOwner): Promi
       if (id !== 'diagnostics') return undefined
       demanded = true
       const current = value.get()
-      if (current === undefined) { schedule(); return LOADING }
+      if (current === undefined) {
+        schedule()
+        return LOADING
+      }
       return current
     },
     dispose(): void {

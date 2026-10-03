@@ -14,8 +14,14 @@ export interface SettingsData extends MobileSettingsDiagnostics {
   outboxDeadLetters: Store['outboxDeadLetters']
 }
 const EMPTY_SETTINGS: SettingsData = {
-  machines: [], hosts: [], sessionCount: 0, issueCount: 0, conversationCount: 0,
-  cursor: null, outboxSize: 0, outboxDeadLetters: [],
+  machines: [],
+  hosts: [],
+  sessionCount: 0,
+  issueCount: 0,
+  conversationCount: 0,
+  cursor: null,
+  outboxSize: 0,
+  outboxDeadLetters: [],
 }
 const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
@@ -29,11 +35,13 @@ export function readSettingsData(pool: MobxPool): SettingsData {
   const window = pool.row('window', 'window') as Pick<Store, 'outboxSize'> | undefined
   const notices = pool.row('noticeCatalog', 'catalog')
   return {
-    machines: loaded(catalog) ? catalog.machines.flatMap(id => {
-      const row = pool.row('settingsMachine', id)
-      return loaded(row) ? [row] : []
-    }) : [],
-    hosts: (pool.header.orders.get('hostMetric') ?? []).flatMap(id => {
+    machines: loaded(catalog)
+      ? catalog.machines.flatMap((id) => {
+          const row = pool.row('settingsMachine', id)
+          return loaded(row) ? [row] : []
+        })
+      : [],
+    hosts: (pool.header.orders.get('hostMetric') ?? []).flatMap((id) => {
       const row = pool.row('hostMetric', id) as HostMetricsWire | undefined
       return row ? [row] : []
     }),
@@ -42,22 +50,40 @@ export function readSettingsData(pool: MobxPool): SettingsData {
     conversationCount: loaded(diagnostics) ? diagnostics.conversationCount : 0,
     cursor: loaded(diagnostics) ? diagnostics.cursor : null,
     outboxSize: window?.outboxSize ?? 0,
-    outboxDeadLetters: loaded(notices) ? notices.deadLetters.flatMap(id => {
-      const row = pool.row('outboxDeadLetter', id)
-      return loaded(row) ? [row] : []
-    }) : [],
+    outboxDeadLetters: loaded(notices)
+      ? notices.deadLetters.flatMap((id) => {
+          const row = pool.row('outboxDeadLetter', id)
+          return loaded(row) ? [row] : []
+        })
+      : [],
   }
 }
 
 function useLegacySettingsData(): SettingsData {
   const { conversations, machines, outboxDeadLetters, outboxSize, replica, sessions } =
-    useStoreSelector(s => ({ conversations: s.conversations, machines: s.machines,
-      outboxDeadLetters: s.outboxDeadLetters, outboxSize: s.outboxSize,
-      replica: s.replica, sessions: s.sessions }), shallowEqual)
+    useStoreSelector(
+      (s) => ({
+        conversations: s.conversations,
+        machines: s.machines,
+        outboxDeadLetters: s.outboxDeadLetters,
+        outboxSize: s.outboxSize,
+        replica: s.replica,
+        sessions: s.sessions,
+      }),
+      shallowEqual,
+    )
   const issues = useIssues()
   const hosts = useHostMetrics()
-  return { machines, hosts, outboxDeadLetters, outboxSize, sessionCount: sessions.length,
-    issueCount: issues.length, conversationCount: conversations.length, cursor: replica.getCursor() }
+  return {
+    machines,
+    hosts,
+    outboxDeadLetters,
+    outboxSize,
+    sessionCount: sessions.length,
+    issueCount: issues.length,
+    conversationCount: conversations.length,
+    cursor: replica.getCursor(),
+  }
 }
 function usePoolSettingsData(): SettingsData {
   return useMobilePoolProjection(readSettingsData, EMPTY_SETTINGS)

@@ -6,33 +6,63 @@ import { MobxPool } from '@podium/client-graph'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const stops: (() => void)[] = []
-afterEach(() => { for (const stop of stops.splice(0)) stop() })
+afterEach(() => {
+  for (const stop of stops.splice(0)) stop()
+})
 
 async function fixture() {
-  const runtimeListeners = new Set<() => void>(), replicaListeners = new Set<() => void>()
+  const runtimeListeners = new Set<() => void>(),
+    replicaListeners = new Set<() => void>()
   // A huge array-like inventory catches accidental payload iteration without
   // allocating it; the production seam only needs its maintained length.
-  const inventory = (length: number) => new Proxy({ length }, {
-    get(target, key) { if (key !== 'length') throw new Error(`payload walk: ${String(key)}`); return target.length },
-  })
+  const inventory = (length: number) =>
+    new Proxy(
+      { length },
+      {
+        get(target, key) {
+          if (key !== 'length') throw new Error(`payload walk: ${String(key)}`)
+          return target.length
+        },
+      },
+    )
   let state = { issueProjections: inventory(100_000), conversations: inventory(5) }
   let cursor: ReturnType<ClientRuntime['replica']['getCursor']> = null
   const read = vi.fn(() => state as unknown as Pick<Store, 'issueProjections' | 'conversations'>)
-  const source = await createMobileSettingsSource({ getSnapshot: read,
-    subscribe: wake => { runtimeListeners.add(wake); return () => { runtimeListeners.delete(wake) } },
-    replica: { getCursor: () => cursor, subscribeAddressedBatch: (wake: () => void) => {
-      replicaListeners.add(wake); return () => { replicaListeners.delete(wake) }
-    } } as unknown as ClientRuntime['replica'],
+  const source = await createMobileSettingsSource({
+    getSnapshot: read,
+    subscribe: (wake) => {
+      runtimeListeners.add(wake)
+      return () => {
+        runtimeListeners.delete(wake)
+      }
+    },
+    replica: {
+      getCursor: () => cursor,
+      subscribeAddressedBatch: (wake: () => void) => {
+        replicaListeners.add(wake)
+        return () => {
+          replicaListeners.delete(wake)
+        }
+      },
+    } as unknown as ClientRuntime['replica'],
   })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   pool.sources.register(['mobileSettingsDiagnostics'], source)
   stops.push(() => pool.dispose())
-  return { pool, source, read, runtimeListeners, replicaListeners,
+  return {
+    pool,
+    source,
+    read,
+    runtimeListeners,
+    replicaListeners,
     publish(issues: number, conversations: number) {
       state = { issueProjections: inventory(issues), conversations: inventory(conversations) }
       for (const wake of runtimeListeners) wake()
     },
-    cursor(next: typeof cursor) { cursor = next; for (const wake of replicaListeners) wake() },
+    cursor(next: typeof cursor) {
+      cursor = next
+      for (const wake of replicaListeners) wake()
+    },
   }
 }
 
@@ -44,16 +74,26 @@ it('batches declared diagnostics and maintains counts without iterating payloads
   expect(f.read).not.toHaveBeenCalled()
   await Promise.resolve()
   expect(f.read).toHaveBeenCalledTimes(1)
-  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toEqual({ issueCount: 100_000, conversationCount: 5, cursor: null })
-  f.publish(2, 9); f.publish(1, 10)
+  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toEqual({
+    issueCount: 100_000,
+    conversationCount: 5,
+    cursor: null,
+  })
+  f.publish(2, 9)
+  f.publish(1, 10)
   await Promise.resolve()
   expect(f.source.counts.batches).toBe(2)
-  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toMatchObject({ issueCount: 1, conversationCount: 10 })
+  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toMatchObject({
+    issueCount: 1,
+    conversationCount: 10,
+  })
 })
 
 it('tracks cursor-only frames and suppresses structurally equal diagnostics', async () => {
   const f = await fixture()
-  const view = createPoolProjection(f.pool, pool => pool.row('mobileSettingsDiagnostics', 'diagnostics'))
+  const view = createPoolProjection(f.pool, (pool) =>
+    pool.row('mobileSettingsDiagnostics', 'diagnostics'),
+  )
   const wake = vi.fn()
   stops.push(view.subscribe(wake))
   await Promise.resolve()
