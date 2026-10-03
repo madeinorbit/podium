@@ -3,7 +3,8 @@
 **Status:** implemented · POD-369 (Phase 2 / POD-289) · 2026-07-30
 **Implements:** [ADR 2](../adr/0002-sync-protocol.md) as amended by
 [ADR 2 Amendment 1](../adr/0002-sync-protocol-amendment-1.md) (D12–D17); storage port per
-[ADR 6](../adr/0006-replica-storage.md) D3; overlay locality per
+[ADR 6](../adr/0006-replica-storage.md) D3 as amended by
+[ADR 6 Amendment 1](../adr/0006-replica-storage-amendment-1.md); overlay locality per
 [ADR 4](../adr/0004-representation-policy.md) D7.
 **Code:** `packages/sync/src/replica/` · **Lint:** `scripts/check-boundaries.ts` rule 9
 
@@ -72,6 +73,12 @@ pipe rather than a second control message.
 | 4 | **Feed/epoch mismatch** | Discard entirely. Re-bootstrap. |
 | 5 | **Local corruption** | Clear the cache. Re-bootstrap cold. |
 | 6 | **Replica schema bump** | Discard. Re-bootstrap. |
+
+Every terminal rung clears the personal-row completeness marker through
+`Replica.rebootstrap` before starting its walk. Ordinary recovery keeps the previous
+rows and cursor visible; corruption and schema changes discard them there too.
+`discardCache()` and principal erasure clear the marker with their cache partition.
+Neither a rescope nor a principal switch can inherit the previous scope's certification.
 
 There are **no derived rows**. An earlier revision of this module carried two — absorbing a
 wholly re-delivered frame, and truncating a partially overlapping one to its uncovered tail —
@@ -199,7 +206,8 @@ D6's shape is unchanged; only *which rows the Authority reads* changed (D15).
    over ops, so watermarks and evicts are covered by construction rather than by remembering
    to list them.
 3. **Atomic install**: the staged slice replaces the cache (this *is* the D7 discard), the
-   buffered frames apply on top, and the cursor commits — one transaction. No half-installed
+   buffered frames apply on top, and the final cursor and personal-row completeness marker
+   commit with the rows — one transaction. No half-installed
    replica, and no window holding a mixture of two principals' slices.
 4. Failure discards staging and **restarts** (resumable bootstrap stays deferred). An
    exhausted bootstrap parks `stale` with the previous slice still visible.
@@ -208,11 +216,40 @@ The slice includes **per-user state rows** (POD-1076, keyed by `userId` and `ent
 The Replica does not interpret that key — they are ordinary entity kinds, which is exactly
 what D4's lenient-parsing rule buys.
 
+### 7.1 Personal row completeness on warm attach
+
+Sparse personal rows require a separate fact: absence is authoritative only when the
+principal's slice is complete. `ReplicaCacheStore.readPersonalRowsCompleteAt()` restores
+that fact as an optional cursor triple, after the adapter validates its scope fingerprint.
+The facade checks exact equality with the installed cursor before pool attach, so a
+certified warm cache computes missing read cursors and
+unread values on the first delivery. Reaching live does not revisit every session again.
+
+`CacheMutation.personalRowsCompleteAt` can certify only the cursor in that SAME batch;
+the adapters reject any other claim before staging. Certified deltas advance the marker
+with their rows and cursor. An uncertified row/cursor mutation clears it; explicit null
+clears it without deleting the stale slice. Bootstrap installation certifies the final
+buffered cursor atomically. A legacy resume becomes certified only after the range ends
+normally and all its frames have committed. An interrupted or rejected range does not
+upgrade an old cache.
+
+The marker is optional metadata in the existing store/table, with no layout version bump
+or boot migration. It carries an adapter-local `scopeFingerprint` also stored in the cursor
+metadata value, atomically with the rows. A complete snapshot creates a fresh fingerprint;
+certified deltas retain it. Older builds replace that cursor value with a fresh plain triple
+when installing a snapshot, so a marker left behind by a downgrade is untrusted even if
+rescope or rebootstrap reinstalls the identical triple (ADR 6 Amendment 1 D10).
+Old dev/mw caches with no marker, malformed markers, mismatched triples or missing/mismatched
+fingerprints remain readable and use the first-live fallback. Present personal rows work
+immediately in either case. Final live values are unchanged. The shared adapter
+completeness conformance probes and durable crash/reopen tests pin these rules; the
+facade parity test includes a deliberately incomplete personal slice.
+
 ## 8. Ports, and what is deliberately not here
 
 | Port | Owner |
 |---|---|
-| `ReplicaCacheStore` — entities + cursor, atomic batches, atomic install | ADR 6 D3; POD-374 (IndexedDB) / POD-375 (mobile SQLite) supply durable adapters |
+| `ReplicaCacheStore` — entities + cursor + personal-row completeness, atomic batches, atomic install | ADR 6 D3 / Amendment 1; POD-374 (IndexedDB) / POD-375 (mobile SQLite) supply durable adapters |
 | `AuthorityReadPort` — `changesSince`, chunked `bootstrap` | POD-305 (Authority), POD-1077 (scoping), POD-373 (wiring) |
 | `OptimisticOverlayPort` — `pending` / `reduce` / `retire` | Declared here; **consumed** by POD-372's projection. POD-351 ships the first real reducer through it, POD-311 populates the rest |
 | `KnownKindValidatorPort` — `knows` / `validate` | **Declared only.** POD-308's wire adapter / POD-351's contracts know the schemas; the kernel must not |

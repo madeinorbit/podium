@@ -8,7 +8,7 @@
  * shape:
  *
  *   `entities`  keyPath [principal, entity, entityId]  one row per cached entity
- *   `meta`      keyPath [principal, key]               the cursor, and nothing else yet
+ *   `meta`      keyPath [principal, key]               cursor and optional completeness
  *   `outbox`    keyPath [principal, mutationId]        the user's unsent writes
  *
  * THREE OBJECT STORES IN ONE DATABASE, and that is the D4.1 requirement rather
@@ -51,8 +51,10 @@ export const OUTBOX_STORE = 'outbox'
 /** Every store one transaction must be able to span. Order is irrelevant; completeness is not. */
 export const ALL_STORES: readonly string[] = [ENTITY_STORE, META_STORE, OUTBOX_STORE]
 
-/** The one `meta` key in use. Namespaced per principal by the compound key. */
+/** Metadata keys are namespaced per principal by the compound key. */
 export const CURSOR_KEY = 'cursor'
+/** Additive key: existing version-1 caches need no schema migration. */
+export const PERSONAL_ROWS_COMPLETE_AT_KEY = 'personal-rows-complete-at'
 
 /** A cached entity row, as it is stored. `value` rides through structured clone. */
 export interface StoredEntity {

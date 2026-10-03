@@ -42,7 +42,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
 import type { Cursor } from '../../replica/types'
 import type { IdbFactoryLike } from './idb'
-import { CURSOR_KEY, ENTITY_STORE, META_STORE, OUTBOX_STORE, REPLICA_DB_NAME } from './schema'
+import {
+  CURSOR_KEY,
+  ENTITY_STORE,
+  META_STORE,
+  OUTBOX_STORE,
+  PERSONAL_ROWS_COMPLETE_AT_KEY,
+  REPLICA_DB_NAME,
+} from './schema'
 import { type DurabilityDegradation, type IndexedDbStoreView, IndexedDbSyncStore } from './store'
 import { FaultyIdbFactory, freshFactory, readDurable } from './test-support'
 
@@ -108,12 +115,14 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
             },
           ],
           cursor: CURSOR_1,
+          personalRowsCompleteAt: CURSOR_1,
         },
         span,
       )
     })
     await store.settled()
     store.close()
+    preCertification = (await durableView()).personalRowsCompleteAt
     await expectPre()
   }
 
@@ -139,6 +148,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
             },
           ],
           cursor: CURSOR_2,
+          personalRowsCompleteAt: CURSOR_2,
         },
         span,
       )
@@ -148,6 +158,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
   const durableView = async (): Promise<{
     entity: unknown
     cursor: unknown
+    personalRowsCompleteAt: unknown
     outbox: string[]
   }> => {
     const rows = await readDurable(factory as IdbFactoryLike)
@@ -157,18 +168,40 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
     return {
       entity: entities.find((row) => row.entityId === 'ADA-1')?.value,
       cursor: meta.find((row) => row.key === CURSOR_KEY)?.value,
+      personalRowsCompleteAt: meta.find((row) => row.key === PERSONAL_ROWS_COMPLETE_AT_KEY)?.value,
       outbox: outbox.map((row) => row.mutationId),
     }
   }
 
-  /** All three regions at PRE. Checked together: one region alone passes on a tear. */
+  let preCertification: unknown
+
+  /** All three regions and their scope binding at PRE. */
   async function expectPre(): Promise<void> {
-    expect(await durableView()).toEqual({ entity: { v: 0 }, cursor: CURSOR_1, outbox: [M] })
+    expect(preCertification).toMatchObject({
+      ...CURSOR_1,
+      scopeFingerprint: expect.stringMatching(/.+/),
+    })
+    expect(await durableView()).toEqual({
+      entity: { v: 0 },
+      cursor: preCertification,
+      personalRowsCompleteAt: preCertification,
+      outbox: [M],
+    })
   }
 
   /** All three regions at POST. */
   async function expectPost(): Promise<void> {
-    expect(await durableView()).toEqual({ entity: { v: 1 }, cursor: CURSOR_2, outbox: [] })
+    const post = await durableView()
+    expect(post.personalRowsCompleteAt).toMatchObject({
+      ...CURSOR_2,
+      scopeFingerprint: expect.stringMatching(/.+/),
+    })
+    expect(post).toEqual({
+      entity: { v: 1 },
+      cursor: post.personalRowsCompleteAt,
+      personalRowsCompleteAt: post.personalRowsCompleteAt,
+      outbox: [],
+    })
   }
 
   it('POSITIVE CONTROL — with no fault the same transaction reaches POST in all three regions', async () => {
@@ -186,14 +219,15 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
    * `writes` is the number of write requests the transaction issues; it is
    * ASSERTED per case rather than assumed, so a change that makes the commit carry
    * fewer requests fails these cases instead of silently collapsing them onto the
-   * same instant. Three regions ⇒ three requests: the outbox delete, the entity
-   * put and the cursor put.
+   * same instant. Three regions plus completeness ⇒ four requests: the outbox delete, the entity
+   * put the cursor put and completeness put.
    */
   const BOUNDARIES = [
     { at: 0, mode: 'deny' as const, what: 'before the outbox removal reached the store' },
     { at: 1, mode: 'deny' as const, what: 'between the outbox removal and the entity upsert' },
     { at: 2, mode: 'deny' as const, what: 'between the entity upsert and the cursor advance' },
-    { at: 2, mode: 'after' as const, what: 'after every write was issued and before the commit' },
+    { at: 3, mode: 'deny' as const, what: 'between the cursor advance and completeness marker' },
+    { at: 3, mode: 'after' as const, what: 'after every write was issued and before the commit' },
   ]
 
   for (const boundary of BOUNDARIES) {
@@ -210,10 +244,10 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       // SURFACED, not swallowed: the kernel that opened the unit of work is told.
       await expect(commitAllThree(store.viewFor(PRINCIPAL), store)).rejects.toThrow(/power loss/)
 
-      // The transaction really did carry three write requests, so the boundary this
+      // The transaction really did carry four write requests, so the boundary this
       // case names is the boundary it hit. `deny` refuses its target, so one fewer
-      // reaches the engine; `after` lets all three through and then kills.
-      expect(factory.writesIssued - before).toBe(boundary.mode === 'after' ? 3 : boundary.at + 1)
+      // reaches the engine; `after` lets all four through and then kills.
+      expect(factory.writesIssued - before).toBe(boundary.mode === 'after' ? 4 : boundary.at + 1)
       expect(factory.denials).toBe(1)
 
       // THE KILL: the store object dies, IndexedDB does not.
@@ -226,6 +260,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       const view = reopened.viewFor(PRINCIPAL)
       expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 0 })
       expect(view.cache.readCursor()).toEqual(CURSOR_1)
+      expect(view.cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_1)
       expect((await view.outbox.read()).map((r) => r.mutationId)).toEqual([M])
       reopened.close()
     })
@@ -245,6 +280,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
     const view = reopened.viewFor(PRINCIPAL)
     expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 1 })
     expect(view.cache.readCursor()).toEqual(CURSOR_2)
+    expect(view.cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_2)
     expect(await view.outbox.read()).toEqual([])
     reopened.close()
   })
@@ -254,7 +290,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
     // (re-pull re-applies idempotent upserts) and FORBIDS the reverse, because a
     // cursor past rows that were never written is a gap no heal will ever notice.
     await seedPreState()
-    for (const at of [0, 1, 2]) {
+    for (const at of [0, 1, 2, 3]) {
       const store = await open()
       factory.denyWriteAt({ at, error: new Error('power loss') })
       await expect(commitAllThree(store.viewFor(PRINCIPAL), store)).rejects.toThrow()
@@ -263,6 +299,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       const cursorSeq = (durable.cursor as Cursor).seq
       const entityIsNew = JSON.stringify(durable.entity) === JSON.stringify({ v: 1 })
       expect(cursorSeq === CURSOR_2.seq && !entityIsNew).toBe(false)
+      expect(durable.personalRowsCompleteAt).toEqual(durable.cursor)
     }
   })
 

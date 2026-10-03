@@ -105,7 +105,9 @@ async function bootstrapped(
 /** Hold the authority reply while a test inspects the in-flight heal. */
 function holdHeal(authority: FakeAuthority): () => void {
   let release!: () => void
-  const barrier = new Promise<void>((resolve) => { release = resolve })
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve
+  })
   const changesRange = authority.changesRange.bind(authority)
   vi.spyOn(authority, 'changesRange').mockImplementation(async (cursor, signal, onTarget) => {
     await barrier
@@ -229,12 +231,12 @@ describe('D14 the removal family — evict is not remove', () => {
 
     // Delivered in separate frames so each row's own transition is observable:
     // a frame carrying both is classified by its most alarming member.
-    expect((await h.replica.receive(deltaFrame(0, 5, [removeChange(5, 'session', 'gone')]))).rowId).toBe(
-      'D5-REMOVE',
-    )
-    expect((await h.replica.receive(deltaFrame(5, 6, [evictChange(6, 'session', 'unshared')]))).rowId).toBe(
-      'D14-EVICT',
-    )
+    expect(
+      (await h.replica.receive(deltaFrame(0, 5, [removeChange(5, 'session', 'gone')]))).rowId,
+    ).toBe('D5-REMOVE')
+    expect(
+      (await h.replica.receive(deltaFrame(5, 6, [evictChange(6, 'session', 'unshared')]))).rowId,
+    ).toBe('D14-EVICT')
 
     expect(h.replica.view('session', 'gone')).toBeUndefined()
     expect(h.replica.view('session', 'unshared')).toBeUndefined()
@@ -254,7 +256,9 @@ describe('D14 the removal family — evict is not remove', () => {
     h.events.length = 0
 
     // Same revision 7: a grant does not move entity truth (D14 rejected-alternatives).
-    const outcome = await h.replica.receive(deltaFrame(5, 9, [session(9, 's1', 'mine', { revision: 7 })]))
+    const outcome = await h.replica.receive(
+      deltaFrame(5, 9, [session(9, 's1', 'mine', { revision: 7 })]),
+    )
 
     expect(outcome.rowId).toBe('D14-READMIT')
     expect(h.replica.view('session', 's1')).toEqual({ name: 'mine' })
@@ -573,8 +577,7 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
     {
       name: 'resync-required (backpressure — D9)',
       rung: 2,
-      drive: (h) =>
-        h.replica.receive({ kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH }),
+      drive: (h) => h.replica.receive({ kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH }),
     },
     {
       name: 'epoch mismatch (rung 4)',
@@ -725,10 +728,12 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
 
     // Everything that can arrive mid-walk, arrives mid-walk.
     expect((await h.replica.receive(watermark(20, 21))).rowId).toBe('D6-BUFFER')
-    expect((await h.replica.receive(deltaFrame(21, 22, [evictChange(22, 'session', 'a')]))).rowId).toBe(
+    expect(
+      (await h.replica.receive(deltaFrame(21, 22, [evictChange(22, 'session', 'a')]))).rowId,
+    ).toBe('D6-BUFFER')
+    expect((await h.replica.receive(deltaFrame(22, 23, [session(23, 'b', 'B')]))).rowId).toBe(
       'D6-BUFFER',
     )
-    expect((await h.replica.receive(deltaFrame(22, 23, [session(23, 'b', 'B')]))).rowId).toBe('D6-BUFFER')
     expect(h.replica.stats().bufferedFrames).toBe(3)
 
     channel.push(bootstrapChunk(20, [session(15, 'c', 'C')], true))
@@ -1388,7 +1393,7 @@ describe('the optimistic-overlay reducer seam', () => {
     queued(h, asMutationId('m-one'), 's1')
     queued(h, asMutationId('m-two'), 's2')
     const channel = h.authority.driveManually()
-    const before = h.store.transactions
+    const beforeRecovery = h.store.transactions
 
     await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [], false))
@@ -1405,6 +1410,11 @@ describe('the optimistic-overlay reducer seam', () => {
         session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: asMutationId('m-two') }),
       ]),
     )
+    // Recovery invalidates completeness once, before the walk installs anything.
+    // That independent cache-only commit cannot count as part of the atomic install.
+    expect(h.store.cache.readPersonalRowsCompleteAt()).toBeNull()
+    expect(h.store.transactions - beforeRecovery).toBe(1)
+    const beforeInstall = h.store.transactions
     channel.push(bootstrapChunk(10, [], true))
     await h.replica.settled()
 
@@ -1412,7 +1422,7 @@ describe('the optimistic-overlay reducer seam', () => {
     expect(h.overlay.handed[0]?.map((r) => r.mutationId)).toEqual(['m-one', 'm-two'])
     expect(h.outbox.list()).toHaveLength(0)
     // Snapshot swap + both buffered frames + cursor + both retirements: ONE publish.
-    expect(h.store.transactions - before).toBe(1)
+    expect(h.store.transactions - beforeInstall).toBe(1)
   })
 
   it('an install retires ONLY the frames it included, not every frame it buffered', async () => {
@@ -2249,7 +2259,9 @@ describe('every declared ADR route is driven, not merely declared', () => {
 describe('incremental range healing', () => {
   function latch() {
     let release!: () => void
-    const promise = new Promise<void>((resolve) => { release = resolve })
+    const promise = new Promise<void>((resolve) => {
+      release = resolve
+    })
     return { promise, release }
   }
 
@@ -2277,9 +2289,16 @@ describe('incremental range healing', () => {
     const second = latch()
     const atTarget = latch()
     const complete = latch()
-    const first = deltaFrame(10, 11, [session(11, 'one', 'one', { mutationId: asMutationId('m1') })])
+    const first = deltaFrame(10, 11, [
+      session(11, 'one', 'one', { mutationId: asMutationId('m1') }),
+    ])
     const last = deltaFrame(11, 12, [session(12, 'two', 'two')])
-    h.store.outbox.enqueue({ mutationId: asMutationId('m1'), entity: 'session', entityId: 'one', command: {} })
+    h.store.outbox.enqueue({
+      mutationId: asMutationId('m1'),
+      entity: 'session',
+      entityId: 'one',
+      command: {},
+    })
     let pulls = 0
     vi.spyOn(h.authority, 'changesRange').mockImplementation(async (_cursor, _signal, onTarget) => {
       onTarget?.(cursorAt(12))
@@ -2302,7 +2321,7 @@ describe('incremental range healing', () => {
     await h.entered.promise
     expect(pulls).toBe(1)
     expect(h.store.cache.readCursor()).toEqual(cursorAt(10))
-    expect(h.events.filter(e => e.type === 'heal-progress')).toEqual([])
+    expect(h.events.filter((e) => e.type === 'heal-progress')).toEqual([])
     h.commit.release()
     await between.promise
     expect(h.replica.posture).toBe('healing')
@@ -2317,8 +2336,12 @@ describe('incremental range healing', () => {
     expect(h.replica.cursor).toEqual(cursorAt(13))
     expect(h.replica.posture).toBe('live')
     expect(h.replica.stats().bufferedFrames).toBe(0)
-    expect(h.events.filter(e => e.type === 'upserted').map(e => e.record.entityId)).toEqual(['one', 'two', 'tail'])
-    expect(h.events.filter(e => e.type === 'heal-progress')).toEqual([
+    expect(h.events.filter((e) => e.type === 'upserted').map((e) => e.record.entityId)).toEqual([
+      'one',
+      'two',
+      'tail',
+    ])
+    expect(h.events.filter((e) => e.type === 'heal-progress')).toEqual([
       { type: 'heal-progress', framesCommitted: 1, seq: 11, targetSeq: 12 },
       { type: 'heal-progress', framesCommitted: 2, seq: 12, targetSeq: 12 },
     ])
@@ -2327,10 +2350,12 @@ describe('incremental range healing', () => {
   it('resumes an interrupted range from its last committed frame on the next live trigger', async () => {
     const h = harness()
     await bootstrapped(h, 10, [])
-    h.authority.changesRangeQueue = [(async function* () {
-      yield deltaFrame(10, 11, [session(11, 'kept', 'kept')])
-      throw new Error('truncated tail')
-    })()]
+    h.authority.changesRangeQueue = [
+      (async function* () {
+        yield deltaFrame(10, 11, [session(11, 'kept', 'kept')])
+        throw new Error('truncated tail')
+      })(),
+    ]
     h.replica.disconnect()
     h.replica.connect()
     await h.replica.settled()
@@ -2349,12 +2374,21 @@ describe('incremental range healing', () => {
   it('surfaces a refused frame commit while retaining the previous durable prefix', async () => {
     const h = delayedRetirement()
     await bootstrapped(h, 10, [])
-    h.store.outbox.enqueue({ mutationId: asMutationId('m1'), entity: 'session', entityId: 'denied', command: {} })
-    h.authority.changesRangeQueue = [(async function* () {
-      yield deltaFrame(10, 11, [])
-      yield deltaFrame(11, 12, [session(12, 'denied', 'denied', { mutationId: asMutationId('m1') })])
-      throw new Error('must not pull past a refused commit')
-    })()]
+    h.store.outbox.enqueue({
+      mutationId: asMutationId('m1'),
+      entity: 'session',
+      entityId: 'denied',
+      command: {},
+    })
+    h.authority.changesRangeQueue = [
+      (async function* () {
+        yield deltaFrame(10, 11, [])
+        yield deltaFrame(11, 12, [
+          session(12, 'denied', 'denied', { mutationId: asMutationId('m1') }),
+        ])
+        throw new Error('must not pull past a refused commit')
+      })(),
+    ]
     h.replica.disconnect()
     h.replica.connect()
     await h.entered.promise
@@ -2381,29 +2415,47 @@ describe('incremental range healing', () => {
     h.replica.connect()
     await h.replica.settled()
     expect(h.events).toContainEqual(expect.objectContaining({ type: 'upserted', readmitted: true }))
-    expect(h.replica.transitions).toContainEqual({ rowId: 'D14-READMIT', from: 'healing', to: 'healing' })
+    expect(h.replica.transitions).toContainEqual({
+      rowId: 'D14-READMIT',
+      from: 'healing',
+      to: 'healing',
+    })
   })
 
-  it.each(['non-chaining', 'invalid-payload', 'identity'] as const)('rejects a %s tail after a committed prefix', async (bad) => {
-    const h = harness({ validator: { knows: entity => entity === 'session', validate: change => change.payload === 'invalid' ? 'bad payload' : null } })
+  it.each([
+    'non-chaining',
+    'invalid-payload',
+    'identity',
+  ] as const)('rejects a %s tail after a committed prefix', async (bad) => {
+    const h = harness({
+      validator: {
+        knows: (entity) => entity === 'session',
+        validate: (change) => (change.payload === 'invalid' ? 'bad payload' : null),
+      },
+    })
     await bootstrapped(h, 10, [])
     h.authority.slice = { snapshotSeq: 20, rows: [] }
-    h.authority.changesRangeQueue = [(async function* () {
-      yield deltaFrame(10, 11, [session(11, 'kept', 'kept')])
-      expect(h.store.cache.readCursor()).toEqual(cursorAt(11))
-      if (bad === 'non-chaining') yield deltaFrame(12, 13, [])
-      else if (bad === 'identity') yield deltaFrame(11, 12, [], { epoch: 'other' })
-      else yield deltaFrame(11, 12, [upsertChange(12, 'session', 'bad', 'invalid')])
-    })()]
+    h.authority.changesRangeQueue = [
+      (async function* () {
+        yield deltaFrame(10, 11, [session(11, 'kept', 'kept')])
+        expect(h.store.cache.readCursor()).toEqual(cursorAt(11))
+        if (bad === 'non-chaining') yield deltaFrame(12, 13, [])
+        else if (bad === 'identity') yield deltaFrame(11, 12, [], { epoch: 'other' })
+        else yield deltaFrame(11, 12, [upsertChange(12, 'session', 'bad', 'invalid')])
+      })(),
+    ]
     h.replica.disconnect()
     h.replica.connect()
     await h.replica.settled()
     expect(h.replica.trace).toContain(bad === 'identity' ? 'D7-4-EPOCH' : 'D7-3-REPLY-MALFORMED')
-    expect(h.events.filter(e => e.type === 'cursor').map(e => e.cursor.seq)).toEqual([11])
+    expect(h.events.filter((e) => e.type === 'cursor').map((e) => e.cursor.seq)).toEqual([11])
     expect(h.replica.cursor).toEqual(cursorAt(20))
   })
 
-  it.each(['disconnect', 'rescope'] as const)('aborts the source on %s and ignores a late frame', async (cancel) => {
+  it.each([
+    'disconnect',
+    'rescope',
+  ] as const)('aborts the source on %s and ignores a late frame', async (cancel) => {
     const h = harness()
     await bootstrapped(h, 10, [])
     const waiting = latch()
@@ -2439,8 +2491,15 @@ describe('incremental range healing', () => {
   it('cancels a frame waiting for asynchronous retirement without committing either region', async () => {
     const h = delayedRetirement()
     await bootstrapped(h, 10, [])
-    h.store.outbox.enqueue({ mutationId: asMutationId('m1'), entity: 'session', entityId: 'late', command: {} })
-    h.authority.changesRangeQueue = [deltaFrame(10, 11, [session(11, 'late', 'late', { mutationId: asMutationId('m1') })])]
+    h.store.outbox.enqueue({
+      mutationId: asMutationId('m1'),
+      entity: 'session',
+      entityId: 'late',
+      command: {},
+    })
+    h.authority.changesRangeQueue = [
+      deltaFrame(10, 11, [session(11, 'late', 'late', { mutationId: asMutationId('m1') })]),
+    ]
     h.replica.disconnect()
     h.replica.connect()
     await h.entered.promise
@@ -2456,19 +2515,26 @@ describe('incremental range healing', () => {
   it('discards staging when a chunk source yields then throws, counting each failed attempt', async () => {
     const h = harness({ maxBootstrapAttempts: 2 })
     await bootstrapped(h, 10, [session(10, 'old', 'old')])
-    const source = vi.spyOn(h.authority, 'bootstrap').mockImplementation(() => (async function* () {
-      yield bootstrapChunk(20, [session(15, 'partial', 'partial')], false)
-      throw new Error('chunk tail missing')
-    })())
+    const source = vi.spyOn(h.authority, 'bootstrap').mockImplementation(() =>
+      (async function* () {
+        yield bootstrapChunk(20, [session(15, 'partial', 'partial')], false)
+        throw new Error('chunk tail missing')
+      })(),
+    )
     await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     await h.replica.settled()
     expect(source).toHaveBeenCalledTimes(2)
-    expect(h.replica.trace.filter(row => row === 'D6-RESTART')).toHaveLength(2)
+    expect(h.replica.trace.filter((row) => row === 'D6-RESTART')).toHaveLength(2)
     expect(h.replica.cursor).toEqual(cursorAt(10))
     expect(h.replica.view('session', 'partial')).toBeUndefined()
     expect(h.replica.view('session', 'old')).toEqual({ name: 'old' })
-    expect(h.events.filter(e => e.type === 'bootstrap-installed')).toHaveLength(1)
-    expect(h.events).toContainEqual({ type: 'bootstrap-failed', cause: 'rescope', attempts: 2, error: 'chunk tail missing' })
+    expect(h.events.filter((e) => e.type === 'bootstrap-installed')).toHaveLength(1)
+    expect(h.events).toContainEqual({
+      type: 'bootstrap-failed',
+      cause: 'rescope',
+      attempts: 2,
+      error: 'chunk tail missing',
+    })
   })
 
   it('drains frames received during the install transaction without another live frame', async () => {
@@ -2476,7 +2542,9 @@ describe('incremental range healing', () => {
     await bootstrapped(h, 5, [])
     const channel = h.authority.driveManually()
     await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
-    await h.replica.receive(deltaFrame(10, 11, [session(11, 'included', 'included', { mutationId: asMutationId('m1') })]))
+    await h.replica.receive(
+      deltaFrame(10, 11, [session(11, 'included', 'included', { mutationId: asMutationId('m1') })]),
+    )
     channel.push(bootstrapChunk(10, [], true))
     await h.entered.promise
     expect(h.replica.posture).toBe('bootstrapping')
@@ -2486,7 +2554,10 @@ describe('incremental range healing', () => {
     expect(h.replica.cursor).toEqual(cursorAt(12))
     expect(h.replica.view('session', 'during')).toEqual({ name: 'during' })
     expect(h.replica.stats().bufferedFrames).toBe(0)
-    expect(h.events.filter(e => e.type === 'upserted').map(e => e.record.entityId)).toEqual(['included', 'during'])
+    expect(h.events.filter((e) => e.type === 'upserted').map((e) => e.record.entityId)).toEqual([
+      'included',
+      'during',
+    ])
   })
 })
 

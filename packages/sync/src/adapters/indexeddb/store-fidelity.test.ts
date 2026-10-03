@@ -6,7 +6,10 @@
  * double permits that a real transaction forbids is a false green for the whole
  * conformance suite, and the double is what CI runs on every commit.
  */
+import { describePersonalRowCompleteness } from '../../conformance/personal-row-completeness'
 import { describeStoreFidelity } from '../../conformance/store-fidelity'
 import { indexedDbInstantiation } from './conformance'
 
 describeStoreFidelity(indexedDbInstantiation)
+
+describePersonalRowCompleteness(indexedDbInstantiation)

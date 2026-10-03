@@ -12,8 +12,16 @@ import type { OutboxRecord } from '../../outbox/records'
 import type { Cursor } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import { indexedDbInstantiation } from './conformance'
-import type { IdbFactoryLike, IdbOpenRequestLike } from './idb'
-import { ENTITY_STORE, OUTBOX_STORE, REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION } from './schema'
+import { type IdbFactoryLike, type IdbOpenRequestLike, requestAsPromise } from './idb'
+import {
+  CURSOR_KEY,
+  ENTITY_STORE,
+  META_STORE,
+  OUTBOX_STORE,
+  PERSONAL_ROWS_COMPLETE_AT_KEY,
+  REPLICA_DB_NAME,
+  REPLICA_SCHEMA_VERSION,
+} from './schema'
 import { type DurabilityDegradation, IndexedDbSyncStore } from './store'
 import { freshFactory, readDurable } from './test-support'
 
@@ -56,6 +64,167 @@ describe('IndexedDbSyncStore', () => {
     })
     expect(result).toEqual({ ok: true })
   }
+
+  it.each([
+    42,
+    { seq: 1 },
+    { feedId: 'feed', epoch: 'e1', seq: '1' },
+    CURSOR,
+  ])('invalid optional certification does not poison existing rows (%j)', async (marker) => {
+    const store = await open()
+    await store.unitOfWork.transact(async (span) =>
+      store.viewFor(PRINCIPAL).cache.applyAtomic(
+        {
+          operations: [
+            {
+              kind: 'upsert',
+              entity: 'sessionUserState',
+              entityId: 'personal',
+              value: { readAt: 'read' },
+              provenance: { seq: 1 },
+            },
+          ],
+          cursor: CURSOR,
+        },
+        span,
+      ),
+    )
+    store.close()
+    const db = await requestAsPromise(factory.open(REPLICA_DB_NAME, 1))
+    try {
+      const tx = db.transaction([META_STORE], 'readwrite')
+      const complete = new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve()
+        tx.onabort = () => reject(tx.error)
+      })
+      tx.objectStore(META_STORE).put({
+        principal: PRINCIPAL,
+        key: PERSONAL_ROWS_COMPLETE_AT_KEY,
+        value: marker,
+      })
+      await complete
+    } finally {
+      db.close()
+    }
+    const legacy = await open()
+    expect(legacy.viewFor(PRINCIPAL).cache.readCursor()).toEqual(CURSOR)
+    expect(legacy.viewFor(PRINCIPAL).cache.read('sessionUserState', 'personal')?.value).toEqual({
+      readAt: 'read',
+    })
+    expect(legacy.viewFor(PRINCIPAL).cache.readPersonalRowsCompleteAt()).toBeNull()
+    expect(degradations).toEqual([])
+    legacy.close()
+  })
+
+  it('opens a version-1 dev/mw cache without a marker or migration, then persists certification', async () => {
+    expect(REPLICA_SCHEMA_VERSION).toBe(1)
+    const store = await open()
+    await store.unitOfWork.transact(async (span) => {
+      store.viewFor(PRINCIPAL).cache.applyAtomic(
+        {
+          operations: [
+            {
+              kind: 'upsert',
+              entity: 'sessionUserState',
+              entityId: 'personal',
+              value: { readAt: 'read' },
+              provenance: { seq: 1 },
+            },
+          ],
+          cursor: CURSOR,
+        },
+        span,
+      )
+    })
+    store.close()
+    const legacy = await open()
+    const cache = legacy.viewFor(PRINCIPAL).cache
+    expect(cache.readCursor()).toEqual(CURSOR)
+    expect(cache.read('sessionUserState', 'personal')?.value).toEqual({ readAt: 'read' })
+    expect(cache.readPersonalRowsCompleteAt()).toBeNull()
+    expect(degradations).toEqual([])
+    await legacy.unitOfWork.transact(async (span) =>
+      cache.applyAtomic({ operations: [], cursor: CURSOR, personalRowsCompleteAt: CURSOR }, span),
+    )
+    legacy.close()
+    const warm = await open()
+    expect(warm.viewFor(PRINCIPAL).cache.readPersonalRowsCompleteAt()).toEqual(CURSOR)
+    await warm.erasePrincipal(PRINCIPAL)
+    warm.close()
+    const erased = await open()
+    expect(erased.viewFor(PRINCIPAL).cache.readPersonalRowsCompleteAt()).toBeNull()
+    expect(erased.viewFor(PRINCIPAL).cache.readCursor()).toBeNull()
+    erased.close()
+  })
+
+  it('rejects a downgrade’s surviving marker after a same-cursor snapshot replacement', async () => {
+    const store = await open()
+    await store.unitOfWork.transact(async (span) =>
+      store.viewFor(PRINCIPAL).cache.installSnapshot(
+        [
+          {
+            entity: 'sessionUserState',
+            entityId: 'personal',
+            value: { readAt: 'read' },
+            provenance: { seq: 1 },
+          },
+        ],
+        CURSOR,
+        [],
+        span,
+      ),
+    )
+    store.close()
+    const metaBefore = (await readDurable(factory))[META_STORE] as { key: string; value: unknown }[]
+    const survivingMarker = metaBefore.find(
+      (row) => row.key === PERSONAL_ROWS_COMPLETE_AT_KEY,
+    )?.value
+    expect(survivingMarker).toMatchObject({
+      ...CURSOR,
+      scopeFingerprint: expect.stringMatching(/.+/),
+    })
+
+    // Old installSnapshot replaces the cursor metadata VALUE and rows, but knows
+    // nothing about the additional key. Do the physical writes, not new port calls.
+    const db = await requestAsPromise(factory.open(REPLICA_DB_NAME, 1))
+    try {
+      const tx = db.transaction([ENTITY_STORE, META_STORE], 'readwrite')
+      const complete = new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve()
+        tx.onabort = () => reject(tx.error)
+      })
+      tx.objectStore(ENTITY_STORE).delete([PRINCIPAL, 'sessionUserState', 'personal'])
+      tx.objectStore(META_STORE).put({
+        principal: PRINCIPAL,
+        key: CURSOR_KEY,
+        value: { ...CURSOR },
+      })
+      await complete
+    } finally {
+      db.close()
+    }
+    const metaAfter = (await readDurable(factory))[META_STORE] as { key: string; value: unknown }[]
+    expect(metaAfter.find((row) => row.key === PERSONAL_ROWS_COMPLETE_AT_KEY)?.value).toEqual(
+      survivingMarker,
+    )
+    expect(metaAfter.find((row) => row.key === CURSOR_KEY)?.value).toEqual(CURSOR)
+
+    const upgraded = await open()
+    const cache = upgraded.viewFor(PRINCIPAL).cache
+    expect(cache.readCursor()).toEqual(CURSOR)
+    expect(cache.readEntities()).toEqual([])
+    expect(cache.readPersonalRowsCompleteAt()).toBeNull()
+    expect(degradations).toEqual([])
+    await upgraded.unitOfWork.transact(async (span) => cache.installSnapshot([], CURSOR, [], span))
+    upgraded.close()
+    const warm = await open()
+    expect(warm.viewFor(PRINCIPAL).cache.readPersonalRowsCompleteAt()).toEqual(CURSOR)
+    warm.close()
+    const metaFresh = (await readDurable(factory))[META_STORE] as { key: string; value: unknown }[]
+    expect(metaFresh.find((row) => row.key === PERSONAL_ROWS_COMPLETE_AT_KEY)?.value).not.toEqual(
+      survivingMarker,
+    )
+  })
 
   describe('ADR 3 D12 — insertion order survives a reload', () => {
     it('a re-opened store hands the queue back in INSERTION order, not key order', async () => {

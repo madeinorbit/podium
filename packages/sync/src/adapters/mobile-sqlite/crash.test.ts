@@ -49,6 +49,7 @@ import { actorUser, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
 import type { Cursor } from '../../replica/types'
+import { META_TABLE, PERSONAL_ROWS_COMPLETE_AT_KEY } from './schema'
 import { type DurabilityDegradation, type SqliteStoreView, SqliteSyncStore } from './store'
 import { FaultySqlDatabase, freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
@@ -128,11 +129,13 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
             },
           ],
           cursor: CURSOR_1,
+          personalRowsCompleteAt: CURSOR_1,
         },
         span,
       )
     })
     store.close()
+    preCertification = durableView().personalRowsCompleteAt
     expectPre()
   }
 
@@ -155,29 +158,67 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
             },
           ],
           cursor: CURSOR_2,
+          personalRowsCompleteAt: CURSOR_2,
         },
         span,
       )
     })
   }
 
-  const durableView = (): { entity: unknown; cursor: unknown; outbox: string[] } => {
+  const durableView = (): {
+    entity: unknown
+    cursor: unknown
+    personalRowsCompleteAt: unknown
+    outbox: string[]
+  } => {
     const rows = readDurable(file)
+    const db = sqliteEngine.open(file)
+    let personalRowsCompleteAt: unknown
+    try {
+      const row = db
+        .prepare(`SELECT value FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
+        .get(PRINCIPAL, PERSONAL_ROWS_COMPLETE_AT_KEY) as { value: string } | undefined
+      personalRowsCompleteAt = row ? JSON.parse(row.value) : undefined
+    } finally {
+      db.close()
+    }
     return {
       entity: rows.entities.find((row) => row.entityId === 'ADA-1')?.value,
       cursor: rows.cursors.find((row) => row.principal === PRINCIPAL)?.cursor,
+      personalRowsCompleteAt,
       outbox: rows.outbox.map((row) => row.mutationId),
     }
   }
 
-  /** All three regions at PRE. Checked together: one region alone passes on a tear. */
+  let preCertification: unknown
+
+  /** All three regions and their scope binding at PRE. */
   function expectPre(): void {
-    expect(durableView()).toEqual({ entity: { v: 0 }, cursor: CURSOR_1, outbox: [M] })
+    expect(preCertification).toMatchObject({
+      ...CURSOR_1,
+      scopeFingerprint: expect.stringMatching(/.+/),
+    })
+    expect(durableView()).toEqual({
+      entity: { v: 0 },
+      cursor: preCertification,
+      personalRowsCompleteAt: preCertification,
+      outbox: [M],
+    })
   }
 
   /** All three regions at POST. */
   function expectPost(): void {
-    expect(durableView()).toEqual({ entity: { v: 1 }, cursor: CURSOR_2, outbox: [] })
+    const post = durableView()
+    expect(post.personalRowsCompleteAt).toMatchObject({
+      ...CURSOR_2,
+      scopeFingerprint: expect.stringMatching(/.+/),
+    })
+    expect(post).toEqual({
+      entity: { v: 1 },
+      cursor: post.personalRowsCompleteAt,
+      personalRowsCompleteAt: post.personalRowsCompleteAt,
+      outbox: [],
+    })
   }
 
   it('POSITIVE CONTROL — with no fault the same transaction reaches POST in all three regions', async () => {
@@ -194,15 +235,16 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
    * `writes` is the number of write statements the transaction issues; it is ASSERTED
    * per case rather than assumed, so a change that makes the commit carry fewer
    * statements fails these cases instead of silently collapsing them onto the same
-   * instant. Three regions ⇒ three statements: the outbox delete, the entity upsert
-   * and the cursor upsert. (The in-transaction precondition `SELECT` is a read and is
+   * instant. Three regions plus completeness ⇒ four statements: the outbox delete, the entity upsert
+   * the cursor upsert and completeness upsert. (The in-transaction precondition `SELECT` is a read and is
    * not counted — see `FaultySqlDatabase`.)
    */
   const BOUNDARIES = [
     { at: 0, mode: 'deny' as const, what: 'before the outbox removal reached the store' },
     { at: 1, mode: 'deny' as const, what: 'between the outbox removal and the entity upsert' },
     { at: 2, mode: 'deny' as const, what: 'between the entity upsert and the cursor advance' },
-    { at: 2, mode: 'crash' as const, what: 'after every write was issued and before the commit' },
+    { at: 3, mode: 'deny' as const, what: 'between the cursor advance and completeness marker' },
+    { at: 3, mode: 'crash' as const, what: 'after every write was issued and before the commit' },
   ]
 
   for (const boundary of BOUNDARIES) {
@@ -215,10 +257,10 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       // SURFACED, not swallowed: the kernel that opened the unit of work is told.
       await expect(commitAllThree(store.viewFor(PRINCIPAL), store)).rejects.toThrow(/power loss/)
 
-      // The transaction really did carry three write statements, so the boundary this
+      // The transaction really did carry four write statements, so the boundary this
       // case names is the boundary it hit. `deny` refuses its target, so one fewer
-      // reaches the engine; `crash` lets all three through and then kills.
-      expect(faulty.writesIssued - before).toBe(boundary.mode === 'crash' ? 3 : boundary.at + 1)
+      // reaches the engine; `crash` lets all four through and then kills.
+      expect(faulty.writesIssued - before).toBe(boundary.mode === 'crash' ? 4 : boundary.at + 1)
       expect(faulty.denials).toBe(1)
       // A crash leaves a connection that CANNOT tidy up — the property that makes this
       // boundary unreachable by any `deny` index, asserted rather than described.
@@ -236,6 +278,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       const view = reopened.viewFor(PRINCIPAL)
       expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 0 })
       expect(view.cache.readCursor()).toEqual(CURSOR_1)
+      expect(view.cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_1)
       expect((await view.outbox.read()).map((r) => r.mutationId)).toEqual([M])
       reopened.close()
     })
@@ -255,6 +298,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
     const view = reopened.viewFor(PRINCIPAL)
     expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 1 })
     expect(view.cache.readCursor()).toEqual(CURSOR_2)
+    expect(view.cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_2)
     expect(await view.outbox.read()).toEqual([])
     reopened.close()
   })
@@ -276,6 +320,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       const cursorSeq = (durable.cursor as Cursor).seq
       const entityIsNew = JSON.stringify(durable.entity) === JSON.stringify({ v: 1 })
       expect(cursorSeq === CURSOR_2.seq && !entityIsNew).toBe(false)
+      expect(durable.personalRowsCompleteAt).toEqual(durable.cursor)
       fresh.cleanup()
     }
   })

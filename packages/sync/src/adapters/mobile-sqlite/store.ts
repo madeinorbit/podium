@@ -88,6 +88,16 @@ import type {
   OutboxStorePort,
 } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
+import {
+  certifyPersonalRowsCompleteAt,
+  cursorTriple,
+  decodePersonalRowsCompleteAt,
+  nextCacheCompleteness,
+  nextPersonalRowsCompleteAt,
+  type PersonalRowsCompleteness,
+  type ScopedCacheCursor,
+  trustedPersonalRowsCompleteAt,
+} from '../../replica/cache-completeness'
 import type {
   CacheMutation,
   OwnedSyncSpan,
@@ -108,6 +118,7 @@ import {
   ENTITY_TABLE,
   META_TABLE,
   OUTBOX_TABLE,
+  PERSONAL_ROWS_COMPLETE_AT_KEY,
   REPLICA_SCHEMA_VERSION,
   readSchemaVersion,
   type StoredOutboxRecord,
@@ -187,7 +198,8 @@ interface SqlOp {
 interface SpanDraft {
   /** principal → key → row. Absent principal means "untouched". */
   readonly entities: Map<string, Map<string, EntityRecord>>
-  readonly cursors: Map<string, Cursor | null>
+  readonly cursors: Map<string, ScopedCacheCursor | null>
+  readonly personalRowsCompleteAt: Map<string, PersonalRowsCompleteness | null>
   readonly outbox: Map<string, StoredOutboxRecord[]>
   readonly ops: SqlOp[]
   /** Re-checked inside the native transaction against durable rows (D4.6). */
@@ -199,6 +211,7 @@ interface SpanDraft {
 const newDraft = (): SpanDraft => ({
   entities: new Map(),
   cursors: new Map(),
+  personalRowsCompleteAt: new Map(),
   outbox: new Map(),
   ops: [],
   expectations: [],
@@ -281,7 +294,8 @@ export class SqliteSyncStore {
   /** Flipped by the corruption injector and by a hydrate that could not decode. */
   private corrupt = false
   private readonly entities = new Map<string, Map<string, EntityRecord>>()
-  private readonly cursors = new Map<string, Cursor | null>()
+  private readonly cursors = new Map<string, ScopedCacheCursor | null>()
+  private readonly personalRowsCompleteAt = new Map<string, PersonalRowsCompleteness | null>()
   private readonly outboxRows = new Map<string, StoredOutboxRecord[]>()
   private readonly views = new Map<string, SqliteStoreView>()
   private readonly drafts = new Map<SqlSpan, SpanDraft>()
@@ -410,6 +424,7 @@ export class SqliteSyncStore {
       )
       draft.entities.set(principal, new Map())
       draft.cursors.set(principal, null)
+      draft.personalRowsCompleteAt.set(principal, null)
       draft.outbox.set(principal, [])
       draft.touchedCache = true
       draft.touchedOutbox = true
@@ -739,7 +754,7 @@ export class SqliteSyncStore {
       this.entities.get(principal)?.set(key, { ...record, value: rewrite.value })
     }
     for (const rewrite of cursors.rewrites)
-      this.cursors.set(rewrite.row.principal, rewrite.value as Cursor | null)
+      this.cursors.set(rewrite.row.principal, rewrite.value as ScopedCacheCursor | null)
     for (const rewrite of outbox.rewrites) {
       const { principal, index, stored } = rewrite.row
       const slice = this.outboxRows.get(principal)
@@ -752,6 +767,8 @@ export class SqliteSyncStore {
   private applyDraftToMirror(draft: SpanDraft): void {
     for (const [principal, rows] of draft.entities) this.entities.set(principal, rows)
     for (const [principal, cursor] of draft.cursors) this.cursors.set(principal, cursor)
+    for (const [principal, marker] of draft.personalRowsCompleteAt)
+      this.personalRowsCompleteAt.set(principal, marker)
     for (const [principal, rows] of draft.outbox) this.outboxRows.set(principal, rows)
   }
 
@@ -769,6 +786,7 @@ export class SqliteSyncStore {
     applySchema(this.db)
     this.entities.clear()
     this.cursors.clear()
+    this.personalRowsCompleteAt.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
   }
@@ -799,6 +817,7 @@ export class SqliteSyncStore {
 
     this.entities.clear()
     this.cursors.clear()
+    this.personalRowsCompleteAt.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
     const excluded = entities.filter((row) => !this.retainsEntity(row.entity))
@@ -835,7 +854,19 @@ export class SqliteSyncStore {
       this.entities.set(row.principal, slice)
     }
     for (const row of meta) {
-      if (row.key === CURSOR_KEY) this.cursors.set(row.principal, JSON.parse(row.value) as Cursor)
+      if (row.key === CURSOR_KEY)
+        this.cursors.set(row.principal, JSON.parse(row.value) as ScopedCacheCursor)
+      if (row.key === PERSONAL_ROWS_COMPLETE_AT_KEY) {
+        // Optional certification cannot make an otherwise readable old cache poison.
+        try {
+          this.personalRowsCompleteAt.set(
+            row.principal,
+            decodePersonalRowsCompleteAt(JSON.parse(row.value)),
+          )
+        } catch {
+          this.personalRowsCompleteAt.set(row.principal, null)
+        }
+      }
     }
     this.adoptOutboxRows(outbox)
   }
@@ -890,6 +921,7 @@ export class SqliteSyncStore {
     }
     this.entities.clear()
     this.cursors.clear()
+    this.personalRowsCompleteAt.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
   }
@@ -904,8 +936,15 @@ export class SqliteSyncStore {
     return this.entities.get(principal) ?? new Map()
   }
 
-  cursorOf(principal: string): Cursor | null {
+  cursorOf(principal: string): ScopedCacheCursor | null {
     return this.cursors.get(principal) ?? null
+  }
+
+  personalRowsCompleteAtOf(principal: string): PersonalRowsCompleteness | null {
+    return trustedPersonalRowsCompleteAt(
+      this.cursorOf(principal),
+      this.personalRowsCompleteAt.get(principal) ?? null,
+    )
   }
 
   outboxOf(principal: string): readonly StoredOutboxRecord[] {
@@ -963,7 +1002,12 @@ class SqliteCacheStore implements ReplicaCacheStore {
 
   readCursor(): Cursor | null {
     this.store.guardReadable()
-    return this.store.cursorOf(this.principal)
+    return cursorTriple(this.store.cursorOf(this.principal))
+  }
+
+  readPersonalRowsCompleteAt(): Cursor | null {
+    this.store.guardReadable()
+    return cursorTriple(this.store.personalRowsCompleteAtOf(this.principal))
   }
 
   readEntities(): readonly EntityRecord[] {
@@ -1001,6 +1045,8 @@ class SqliteCacheStore implements ReplicaCacheStore {
     span?: SyncSpan,
   ): void {
     this.store.guardReadable()
+    // Reject invalid buffered certification before staging any snapshot writes.
+    for (const mutation of buffered) nextPersonalRowsCompleteAt(null, mutation)
     const install = (draft: SpanDraft): void => {
       // The atomic swap of ADR 2 D6.4: the staged slice REPLACES this principal's
       // rows, the buffered deltas apply on top, and the cursor commits — one
@@ -1022,7 +1068,9 @@ class SqliteCacheStore implements ReplicaCacheStore {
         this.applyOperations(draft, next, mutation)
         if (mutation.cursor !== undefined) head = mutation.cursor
       }
-      this.setCursor(draft, head)
+      const completeAt = certifyPersonalRowsCompleteAt(head)
+      this.setCursor(draft, completeAt)
+      this.setPersonalRowsCompleteAt(draft, completeAt)
     }
     if (span !== undefined) {
       install(this.store.draftFor(span))
@@ -1038,6 +1086,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
     this.store.autocommit((draft) => {
       draft.entities.set(this.principal, new Map())
       draft.cursors.set(this.principal, null)
+      this.setPersonalRowsCompleteAt(draft, null)
       draft.ops.push({
         sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
         params: [this.principal],
@@ -1055,9 +1104,17 @@ class SqliteCacheStore implements ReplicaCacheStore {
   }
 
   private stage(draft: SpanDraft, mutation: CacheMutation): void {
-    const slice = this.slice(draft)
-    this.applyOperations(draft, slice, mutation)
-    if (mutation.cursor !== undefined) this.setCursor(draft, mutation.cursor)
+    const cursor = draft.cursors.has(this.principal)
+      ? (draft.cursors.get(this.principal) ?? null)
+      : this.store.cursorOf(this.principal)
+    const previous = draft.personalRowsCompleteAt.has(this.principal)
+      ? (draft.personalRowsCompleteAt.get(this.principal) ?? null)
+      : this.store.personalRowsCompleteAtOf(this.principal)
+    const completeness = nextCacheCompleteness(cursor, previous, mutation)
+    if (mutation.operations.length > 0) this.applyOperations(draft, this.slice(draft), mutation)
+    if (mutation.cursor !== undefined && completeness.cursor !== null)
+      this.setCursor(draft, completeness.cursor)
+    this.setPersonalRowsCompleteAt(draft, completeness.marker)
   }
 
   /**
@@ -1099,7 +1156,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
     }
   }
 
-  private setCursor(draft: SpanDraft, cursor: Cursor): void {
+  private setCursor(draft: SpanDraft, cursor: ScopedCacheCursor): void {
     draft.cursors.set(this.principal, cursor)
     draft.touchedCache = true
     draft.ops.push({
@@ -1107,6 +1164,26 @@ class SqliteCacheStore implements ReplicaCacheStore {
             ON CONFLICT(principal, key) DO UPDATE SET value = excluded.value`,
       params: [this.principal, CURSOR_KEY, JSON.stringify(cursor)],
     })
+  }
+
+  private setPersonalRowsCompleteAt(
+    draft: SpanDraft,
+    marker: PersonalRowsCompleteness | null,
+  ): void {
+    draft.personalRowsCompleteAt.set(this.principal, marker)
+    draft.touchedCache = true
+    draft.ops.push(
+      marker === null
+        ? {
+            sql: `DELETE FROM ${META_TABLE} WHERE principal = ? AND key = ?`,
+            params: [this.principal, PERSONAL_ROWS_COMPLETE_AT_KEY],
+          }
+        : {
+            sql: `INSERT INTO ${META_TABLE} (principal, key, value) VALUES (?, ?, ?)
+                ON CONFLICT(principal, key) DO UPDATE SET value = excluded.value`,
+            params: [this.principal, PERSONAL_ROWS_COMPLETE_AT_KEY, JSON.stringify(marker)],
+          },
+    )
   }
 
   /** This principal's rows as the draft has them so far, copied on first touch. */

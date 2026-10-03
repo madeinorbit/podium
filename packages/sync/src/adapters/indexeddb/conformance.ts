@@ -54,6 +54,9 @@ class GatedCache implements ReplicaCacheStore {
   readCursor(): Cursor | null {
     return this.inner.readCursor()
   }
+  readPersonalRowsCompleteAt(): Cursor | null {
+    return this.inner.readPersonalRowsCompleteAt()
+  }
   readEntities(): readonly EntityRecord[] {
     return this.inner.readEntities()
   }
@@ -64,7 +67,12 @@ class GatedCache implements ReplicaCacheStore {
     return this.inner.beginSpan()
   }
   applyAtomic(mutation: CacheMutation, span?: SyncSpan): void {
-    this.refuseIfDenied()
+    // Invalidating optional metadata frees space, like discardCache.
+    const invalidation =
+      mutation.operations.length === 0 &&
+      mutation.cursor === undefined &&
+      mutation.personalRowsCompleteAt === null
+    if (!invalidation) this.refuseIfDenied()
     this.inner.applyAtomic(mutation, span)
     this.observe(mutation)
   }

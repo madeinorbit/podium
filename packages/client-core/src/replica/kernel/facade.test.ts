@@ -1,5 +1,5 @@
 import { asIssueId, asMutationId, asUserId, issueUserStateRowId } from '@podium/model'
-import type { EntityRecord, ReplicaEvent } from '@podium/sync/replica'
+import type { Cursor, EntityRecord, ReplicaEvent } from '@podium/sync/replica'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { sessionViews } from '../../session-values'
 import { FEED_TASK_BUDGET_MS } from '../../socket-transport'
@@ -12,7 +12,8 @@ import { createSideCache, OutboxNotDurableError } from './side-cache'
  *  one; this facade only ever READS, so a read-only double is the whole port. */
 class FakeCache implements KernelCacheRead {
   records: EntityRecord[] = []
-  cursor: { seq: number } | null = null
+  cursor: { seq: number; feedId?: string; epoch?: string } | null = null
+  completeAt: Cursor | null = null
   mode: 'durable' | 'degraded-memory' | 'unavailable' = 'durable'
   throwOnRead = false
   /** How many times the facade materialised the WHOLE store. The scaling guard
@@ -21,6 +22,9 @@ class FakeCache implements KernelCacheRead {
 
   readCursor() {
     return this.cursor
+  }
+  readPersonalRowsCompleteAt() {
+    return this.completeAt
   }
   readEntities(): readonly EntityRecord[] {
     this.readEntitiesCalls += 1
@@ -46,8 +50,7 @@ class FakeCache implements KernelCacheRead {
   }
 }
 
-function build() {
-  const cache = new FakeCache()
+function build(cache = new FakeCache()) {
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   return { cache, replica: createKernelReplica({ cache, side }), side }
 }
@@ -64,7 +67,8 @@ describe('replica-wide issue reference index', () => {
       [2, { archived: true }],
       [3, { stage: 'done', closedAt: '2026-01-01' }],
       [4, { deletedAt: '2026-01-01' }],
-    ] as const) cache.put('issueProjection', `i${seq}`, { id: `i${seq}`, seq, repoId: 'r', ...patch })
+    ] as const)
+      cache.put('issueProjection', `i${seq}`, { id: `i${seq}`, seq, repoId: 'r', ...patch })
     await replica.hydrate()
     expect(cache.readEntitiesCalls).toBe(1)
     const read = vi.spyOn(cache, 'read')
@@ -82,7 +86,11 @@ describe('replica-wide issue reference index', () => {
     const { cache, replica } = build()
     const admit = (entity: string, entityId: string, value: unknown) => {
       cache.put(entity, entityId, value)
-      replica.onKernelEvent({ type: 'upserted', record: cache.read(entity, entityId)!, readmitted: false })
+      replica.onKernelEvent({
+        type: 'upserted',
+        record: cache.read(entity, entityId)!,
+        readmitted: false,
+      })
     }
     admit('issueProjection', 'i', { id: 'i', seq: 7, repoId: 'r', archived: true })
     expect(replica.issueIdByRef('#007')).toBe('i')
@@ -119,11 +127,19 @@ describe('replica-wide issue reference index', () => {
     cache.put('issueProjection', 'b', { id: 'b', seq: 1, repoId: 'rb' })
     expect(replica.issueIdByRef('#1')).toBeUndefined()
     cache.put('repo', 'ra', { id: 'ra', prefix: 'POD' })
-    replica.onKernelEvent({ type: 'upserted', record: cache.read('repo', 'ra')!, readmitted: false })
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('repo', 'ra')!,
+      readmitted: false,
+    })
     expect(replica.issueIdByRef('POD-1')).toBe('a')
     expect(replica.issueIdByRef('#1')).toBe('b')
     cache.put('repo', 'rb', { id: 'rb', prefix: 'OTH' })
-    replica.onKernelEvent({ type: 'upserted', record: cache.read('repo', 'rb')!, readmitted: false })
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('repo', 'rb')!,
+      readmitted: false,
+    })
     expect(replica.issueIdByRef('OTH-1')).toBe('b')
     expect(replica.issueIdByRef('#1')).toBeUndefined()
     expect(cache.readEntitiesCalls).toBe(1)
@@ -137,8 +153,13 @@ describe('replica-wide issue reference index', () => {
     cache.records = []
     cache.put('repo', 'r', { id: 'r', prefix: 'NEW' })
     cache.put('issueProjection', 'new', { id: 'new', seq: 2, repoId: 'r' })
-    replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 2,
-      entityCount: 2, bufferedFramesApplied: 0 })
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'rescope',
+      snapshotSeq: 2,
+      entityCount: 2,
+      bufferedFramesApplied: 0,
+    })
     expect(replica.issueIdByRef('POD-1')).toBeUndefined()
     expect(replica.issueIdByRef('NEW-2')).toBe('new')
     expect(build().replica.issueIdByRef('NEW-2')).toBeUndefined()
@@ -187,7 +208,12 @@ describe('kind mapping', () => {
       condition: undefined,
       handoffTarget: undefined,
     }
-    expect(read()).toMatchObject({ ...empty, unread: false, queuedMessageCount: 2, offer: old.offer })
+    expect(read()).toMatchObject({
+      ...empty,
+      unread: false,
+      queuedMessageCount: 2,
+      offer: old.offer,
+    })
     // Before a slow bootstrap, stale cached read flags cannot flash unread.
     expect(replica.sessionUserStatesLoaded?.()).toBe(false)
     expect(replica.rows('sessions')[0]).toBe(old)
@@ -203,7 +229,13 @@ describe('kind mapping', () => {
       admit('machine', 'm1', { id: 'm1', name: 'Source', loggedOutHarnesses: [] })
       admit('machine', 'm2', { id: 'm2', name: 'Target', loggedOutHarnesses: [] })
     }
-    replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: 1, entityCount: 1, bufferedFramesApplied: 0 })
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'cold-start',
+      snapshotSeq: 1,
+      entityCount: 1,
+      bufferedFramesApplied: 0,
+    })
     expect(read()).toMatchObject(empty)
     for (const event of ['evicted', 'removed'] as const) {
       addHomes()
@@ -244,10 +276,14 @@ describe('kind mapping', () => {
     const raw = { sessionId: 's1', lastActiveAt: '2026-10-01T12:00:00Z', unread: false }
     cache.put('session', 's1', raw)
     cache.cursor = { seq: 10 }
-    const read = () => sessionViews(replica.rows('sessions'), {
-      userId: 'alice', userStatesLoaded: replica.sessionUserStatesLoaded?.(),
-      userStates: replica.rows('sessionUserStates'), repos: [], machines: [],
-    })[0]!
+    const read = () =>
+      sessionViews(replica.rows('sessions'), {
+        userId: 'alice',
+        userStatesLoaded: replica.sessionUserStatesLoaded?.(),
+        userStates: replica.rows('sessionUserStates'),
+        repos: [],
+        machines: [],
+      })[0]!
     const batches = vi.fn()
     replica.subscribeAddressedBatch!(batches)
     expect(read().unread).toBe(false)
@@ -259,6 +295,87 @@ describe('kind mapping', () => {
     replica.onKernelEvent({ type: 'posture', posture: 'live', previous: 'stale' })
     expect(batches).toHaveBeenCalledTimes(1)
     expect(build().replica.sessionUserStatesLoaded?.()).toBe(false)
+  })
+
+  it('a certified warm attach has live parity and sends no second sparse-session delivery', () => {
+    const records: EntityRecord[] = [
+      ...['unread', 'read', 'foreign', 'quiet'].map((sessionId) => ({
+        entity: 'session',
+        entityId: sessionId,
+        value: {
+          sessionId,
+          lastActiveAt: sessionId === 'quiet' ? undefined : '2026-10-01T12:00:00Z',
+        },
+        provenance: { seq: 1 },
+      })),
+      {
+        entity: 'sessionUserState',
+        entityId: 'alice-read',
+        value: { userId: 'alice', sessionId: 'read', readAt: '2026-10-02T12:00:00Z' },
+        provenance: { seq: 1 },
+      },
+      {
+        entity: 'sessionUserState',
+        entityId: 'bob-foreign',
+        value: { userId: 'bob', sessionId: 'foreign', readAt: '2026-10-02T12:00:00Z' },
+        provenance: { seq: 1 },
+      },
+    ]
+    const views = (replica: ReturnType<typeof build>['replica']) =>
+      sessionViews(replica.rows('sessions'), {
+        userId: 'alice',
+        userStatesLoaded: replica.sessionUserStatesLoaded?.(),
+        userStates: replica.rows('sessionUserStates'),
+        repos: [],
+        machines: [],
+      })
+    const cursor: Cursor = { feedId: 'feed', epoch: 'epoch', seq: 10 }
+    const legacy = new FakeCache()
+    legacy.cursor = cursor
+    legacy.records = records
+    const old = build(legacy).replica
+    expect(views(old).find((row) => row.sessionId === 'unread')?.unread).toBe(false)
+    old.onKernelEvent({ type: 'posture', posture: 'live', previous: 'healing' })
+    const expected = views(old)
+    expect(expected.find((row) => row.sessionId === 'unread')?.unread).toBe(true)
+    expect(expected.find((row) => row.sessionId === 'read')?.unread).toBe(false)
+    expect(expected.find((row) => row.sessionId === 'foreign')?.unread).toBe(true)
+
+    const certified = new FakeCache()
+    certified.records = records
+    certified.cursor = cursor
+    certified.completeAt = cursor
+    const warm = build(certified).replica
+    const delivery = vi.fn()
+    warm.subscribeAddressedBatch!(delivery)
+    const attached = views(warm)
+    expect(warm.sessionUserStatesLoaded?.()).toBe(true)
+    expect(attached).toEqual(expected)
+    warm.onKernelEvent({ type: 'posture', posture: 'live', previous: 'healing' })
+    expect(views(warm)).toEqual(attached)
+    for (const row of attached)
+      expect(views(warm).find((after) => after.sessionId === row.sessionId)).toBe(row)
+    expect(delivery).not.toHaveBeenCalled()
+
+    // Planted fault: a certified slice missing Alice's read row cannot pass parity.
+    const faulty = new FakeCache()
+    faulty.records = records.filter((row) => row.entityId !== 'alice-read')
+    faulty.cursor = cursor
+    faulty.completeAt = cursor
+    const incomplete = build(faulty).replica
+    expect(() => expect(views(incomplete)).toEqual(expected)).toThrow()
+    expect(views(incomplete).find((row) => row.sessionId === 'read')?.unread).toBe(true)
+  })
+
+  it.each([
+    { feedId: 'other', epoch: 'epoch', seq: 10 },
+    { feedId: 'feed', epoch: 'other', seq: 10 },
+    { feedId: 'feed', epoch: 'epoch', seq: 11 },
+  ])('an unmatched completeness triple remains unknown: %j', (marker) => {
+    const cache = new FakeCache()
+    cache.cursor = { feedId: 'feed', epoch: 'epoch', seq: 10 }
+    cache.completeAt = marker
+    expect(build(cache).replica.sessionUserStatesLoaded?.()).toBe(false)
   })
 
   it('maps and hydrates personal issue markers by their composite key and git observations by issue', async () => {

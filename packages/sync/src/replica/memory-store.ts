@@ -22,6 +22,15 @@
  */
 
 import type { MutationId } from '@podium/model'
+import {
+  certifyPersonalRowsCompleteAt,
+  cursorTriple,
+  nextCacheCompleteness,
+  nextPersonalRowsCompleteAt,
+  type PersonalRowsCompleteness,
+  type ScopedCacheCursor,
+  trustedPersonalRowsCompleteAt,
+} from './cache-completeness'
 import type { RetirementIntent } from './overlay'
 import type {
   CacheMutation,
@@ -111,12 +120,14 @@ export class InMemoryOutbox {
 /** The staged post-state of the cache region inside one span. */
 interface CacheDraft {
   rows: Map<string, EntityRecord>
-  cursor: Cursor | null
+  cursor: ScopedCacheCursor | null
+  personalRowsCompleteAt: PersonalRowsCompleteness | null
 }
 
 class InMemoryCache implements ReplicaCacheStore {
   private rows = new Map<string, EntityRecord>()
-  private cursorValue: Cursor | null = null
+  private cursorValue: ScopedCacheCursor | null = null
+  private personalRowsCompleteAt: PersonalRowsCompleteness | null = null
   private readonly drafts = new Map<SyncSpan, CacheDraft>()
   /** Flipped by tests to exercise D7 rung 5 / ADR 6 D4.5. */
   corrupt = false
@@ -128,7 +139,14 @@ class InMemoryCache implements ReplicaCacheStore {
 
   readCursor(): Cursor | null {
     this.guard()
-    return this.cursorValue
+    return cursorTriple(this.cursorValue)
+  }
+
+  readPersonalRowsCompleteAt(): Cursor | null {
+    this.guard()
+    return cursorTriple(
+      trustedPersonalRowsCompleteAt(this.cursorValue, this.personalRowsCompleteAt),
+    )
   }
 
   readEntities(): readonly EntityRecord[] {
@@ -153,18 +171,26 @@ class InMemoryCache implements ReplicaCacheStore {
     if (span === undefined) {
       // Build the post-state first and swap once: a throw part-way through leaves
       // the pre-operation snapshot, never a torn mix (ADR 6 D4.1).
+      const completeness = nextCacheCompleteness(
+        this.cursorValue,
+        this.personalRowsCompleteAt,
+        mutation,
+      )
       const next = new Map(this.rows)
       applyInto(next, mutation)
       this.rows = next
-      if (mutation.cursor !== undefined) this.cursorValue = mutation.cursor
+      this.cursorValue = completeness.cursor
+      this.personalRowsCompleteAt = completeness.marker
       this.physical.countTransaction()
       return
     }
     const draft = this.draftFor(span)
+    const completeness = nextCacheCompleteness(draft.cursor, draft.personalRowsCompleteAt, mutation)
     // EXTENDS the one draft. A second call must not restage from the live map, or
     // the first call's operations would be silently dropped at publish.
     applyInto(draft.rows, mutation)
-    if (mutation.cursor !== undefined) draft.cursor = mutation.cursor
+    draft.cursor = completeness.cursor
+    draft.personalRowsCompleteAt = completeness.marker
   }
 
   installSnapshot(
@@ -174,6 +200,8 @@ class InMemoryCache implements ReplicaCacheStore {
     span?: SyncSpan,
   ): void {
     this.guard()
+    // Reject invalid buffered certification before staging any snapshot writes.
+    for (const mutation of buffered) nextPersonalRowsCompleteAt(null, mutation)
     // The atomic swap of ADR 2 D6.4: the staged slice REPLACES the cache (this is
     // the D7 "discard the cache"), the buffered deltas apply on top, and the
     // cursor commits — one transaction, no half-installed replica, and no window
@@ -185,9 +213,11 @@ class InMemoryCache implements ReplicaCacheStore {
       applyInto(next, mutation)
       if (mutation.cursor !== undefined) head = mutation.cursor
     }
+    const completeAt = certifyPersonalRowsCompleteAt(head)
     if (span === undefined) {
       this.rows = next
-      this.cursorValue = head
+      this.cursorValue = completeAt
+      this.personalRowsCompleteAt = completeAt
       this.physical.countTransaction()
       return
     }
@@ -195,7 +225,8 @@ class InMemoryCache implements ReplicaCacheStore {
     // outright — the replacement IS the semantics, unlike applyAtomic's extension.
     const draft = this.draftFor(span)
     draft.rows = next
-    draft.cursor = head
+    draft.cursor = completeAt
+    draft.personalRowsCompleteAt = completeAt
   }
 
   discardCache(): void {
@@ -205,6 +236,7 @@ class InMemoryCache implements ReplicaCacheStore {
     // it cannot be composed into a transaction that also touches the outbox.
     this.rows = new Map()
     this.cursorValue = null
+    this.personalRowsCompleteAt = null
     this.physical.countTransaction()
   }
 
@@ -215,7 +247,11 @@ class InMemoryCache implements ReplicaCacheStore {
   private draftFor(span: SyncSpan): CacheDraft {
     const existing = this.drafts.get(span)
     if (existing !== undefined) return existing
-    const draft: CacheDraft = { rows: new Map(this.rows), cursor: this.cursorValue }
+    const draft: CacheDraft = {
+      rows: new Map(this.rows),
+      cursor: this.cursorValue,
+      personalRowsCompleteAt: this.personalRowsCompleteAt,
+    }
     this.drafts.set(span, draft)
     span.join({
       prepare: () => {
@@ -229,6 +265,7 @@ class InMemoryCache implements ReplicaCacheStore {
       publish: () => {
         this.rows = draft.rows
         this.cursorValue = draft.cursor
+        this.personalRowsCompleteAt = draft.personalRowsCompleteAt
         this.drafts.delete(span)
       },
       discard: () => {

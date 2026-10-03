@@ -21,6 +21,13 @@ import type { OutboxRecord } from '../../outbox/records'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
 import type { Cursor } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
+import {
+  CURSOR_KEY,
+  ENTITY_TABLE,
+  META_TABLE,
+  PERSONAL_ROWS_COMPLETE_AT_KEY,
+  REPLICA_SCHEMA_VERSION,
+} from './schema'
 import { type DurabilityDegradation, SqliteSyncStore } from './store'
 import { freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
@@ -64,6 +71,151 @@ describe('mobile SQLite adapter — store obligations', () => {
         degradations.push(degradation)
       },
     })
+
+  it.each([
+    undefined,
+    'not-json',
+    '{"seq":1}',
+    '{"feedId":"feed","epoch":"e1","seq":"1"}',
+    JSON.stringify(CURSOR_1),
+  ])('opens existing dev/mw data with absent or invalid optional certification (%s)', async (marker) => {
+    expect(REPLICA_SCHEMA_VERSION).toBe(1)
+    const store = await open()
+    await store.unitOfWork.transact(async (span) =>
+      store.viewFor(ADA).cache.applyAtomic(
+        {
+          operations: [
+            {
+              kind: 'upsert',
+              entity: 'sessionUserState',
+              entityId: 'personal',
+              value: { readAt: 'read' },
+              provenance: { seq: 1 },
+            },
+          ],
+          cursor: CURSOR_1,
+        },
+        span,
+      ),
+    )
+    store.close()
+    if (marker !== undefined) {
+      const db = sqliteEngine.open(file)
+      try {
+        db.prepare(`INSERT INTO ${META_TABLE} (principal, key, value) VALUES (?, ?, ?)`).run(
+          ADA,
+          PERSONAL_ROWS_COMPLETE_AT_KEY,
+          marker,
+        )
+      } finally {
+        db.close()
+      }
+    }
+    const legacy = await open()
+    const cache = legacy.viewFor(ADA).cache
+    expect(cache.readCursor()).toEqual(CURSOR_1)
+    expect(cache.read('sessionUserState', 'personal')?.value).toEqual({ readAt: 'read' })
+    expect(cache.readPersonalRowsCompleteAt()).toBeNull()
+    expect(degradations).toEqual([])
+    await legacy.unitOfWork.transact(async (span) =>
+      cache.applyAtomic(
+        { operations: [], cursor: CURSOR_1, personalRowsCompleteAt: CURSOR_1 },
+        span,
+      ),
+    )
+    legacy.close()
+    const warm = await open()
+    expect(warm.viewFor(ADA).cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_1)
+    await warm.erasePrincipal(ADA)
+    warm.close()
+    const erased = await open()
+    expect(erased.viewFor(ADA).cache.readPersonalRowsCompleteAt()).toBeNull()
+    expect(erased.viewFor(ADA).cache.readCursor()).toBeNull()
+    erased.close()
+  })
+
+  it('rejects a downgrade’s surviving marker after a same-cursor snapshot replacement', async () => {
+    const store = await open()
+    await store.unitOfWork.transact(async (span) =>
+      store.viewFor(ADA).cache.installSnapshot(
+        [
+          {
+            entity: 'sessionUserState',
+            entityId: 'personal',
+            value: { readAt: 'read' },
+            provenance: { seq: 1 },
+          },
+        ],
+        CURSOR_1,
+        [],
+        span,
+      ),
+    )
+    store.close()
+    const db = sqliteEngine.open(file)
+    let survivingMarker: string
+    try {
+      survivingMarker = (
+        db
+          .prepare(`SELECT value FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
+          .get(ADA, PERSONAL_ROWS_COMPLETE_AT_KEY) as { value: string }
+      ).value
+      expect(JSON.parse(survivingMarker)).toMatchObject({
+        ...CURSOR_1,
+        scopeFingerprint: expect.stringMatching(/.+/),
+      })
+      // Old installSnapshot replaces the cursor value without merging unknown
+      // fields. Its transaction leaves the unknown marker key alone.
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        db.prepare(`DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`).run(ADA)
+        db.prepare(`UPDATE ${META_TABLE} SET value = ? WHERE principal = ? AND key = ?`).run(
+          JSON.stringify(CURSOR_1),
+          ADA,
+          CURSOR_KEY,
+        )
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
+      expect(
+        (
+          db
+            .prepare(`SELECT value FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
+            .get(ADA, PERSONAL_ROWS_COMPLETE_AT_KEY) as { value: string }
+        ).value,
+      ).toBe(survivingMarker)
+    } finally {
+      db.close()
+    }
+
+    const upgraded = await open()
+    const cache = upgraded.viewFor(ADA).cache
+    expect(cache.readCursor()).toEqual(CURSOR_1)
+    expect(cache.readEntities()).toEqual([])
+    expect(cache.readPersonalRowsCompleteAt()).toBeNull()
+    expect(degradations).toEqual([])
+    await upgraded.unitOfWork.transact(async (span) =>
+      cache.installSnapshot([], CURSOR_1, [], span),
+    )
+    upgraded.close()
+    const warm = await open()
+    expect(warm.viewFor(ADA).cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_1)
+    warm.close()
+    const fresh = sqliteEngine.open(file)
+    try {
+      expect(
+        (
+          fresh
+            .prepare(`SELECT value FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
+            .get(ADA, PERSONAL_ROWS_COMPLETE_AT_KEY) as { value: string }
+        ).value,
+      ).not.toBe(survivingMarker)
+    } finally {
+      fresh.close()
+    }
+  })
 
   describe('D4.6 — preconditions are re-checked inside the transaction, against durable rows', () => {
     /**

@@ -35,6 +35,7 @@
  * `remove(seq 1)` then `upsert(seq 2)` for one entity left the entity absent.
  */
 
+import { sameCursor } from './cache-completeness'
 import type { OptimisticOverlayPort, RetirementIntent } from './overlay'
 import { computeOverlay, type OverlayRow } from './overlay-projection'
 import {
@@ -336,13 +337,13 @@ export class Replica {
   }
 
   requestRebootstrap(): void {
-    this.startRebootstrap('resync-required')
+    this.rebootstrap('resync-required')
   }
 
   connect(): TransitionOutcome {
     const from = this.state
     if (this.cursorValue === null) {
-      this.startRebootstrap('cold-start')
+      this.rebootstrap('cold-start')
       return this.outcome('D7-2-COLD', from)
     }
     this.startHeal()
@@ -364,9 +365,7 @@ export class Replica {
   /** ADR 2 D4 / D7 rung 6 — the local store layout moved; discard rather than migrate. */
   replicaSchemaChanged(): TransitionOutcome {
     const from = this.state
-    this.store.discardCache()
-    this.cursorValue = null
-    this.startRebootstrap('schema-version')
+    this.rebootstrap('schema-version')
     return this.outcome('D7-6-SCHEMA', from)
   }
 
@@ -390,11 +389,11 @@ export class Replica {
       // Amendment 1 D14.4 — always legal, from any posture, on the SAME path as
       // every other rung. Cause is recorded as authz, distinguishable in
       // telemetry from backpressure.
-      this.startRebootstrap('rescope')
+      this.rebootstrap('rescope')
       return this.outcome('D14-RESCOPE', from)
     }
     if (frame.kind === 'resync-required') {
-      this.startRebootstrap('resync-required')
+      this.rebootstrap('resync-required')
       return this.outcome('D7-2-RESYNC', from)
     }
 
@@ -408,7 +407,7 @@ export class Replica {
       this.cursorValue !== null &&
       (frame.feedId !== this.cursorValue.feedId || frame.epoch !== this.cursorValue.epoch)
     ) {
-      this.startRebootstrap('epoch-mismatch')
+      this.rebootstrap('epoch-mismatch')
       return this.outcome('D7-4-EPOCH', from)
     }
 
@@ -418,12 +417,12 @@ export class Replica {
       // rung 3 — the cursor advanced over a corrupt payload. Rung 3 must be
       // unavoidable on EVERY route into the store, not only the live one.
       if (this.rejects(frame) !== null) {
-        this.startRebootstrap('malformed')
+        this.rebootstrap('malformed')
         return this.outcome('D7-3-MALFORMED', from)
       }
       if (this.buffer.length >= DRAIN_BUFFER_LIMIT) {
         this.buffer = []
-        this.startRebootstrap('resync-required')
+        this.rebootstrap('resync-required')
         return this.outcome('D7-2-RESYNC', from)
       }
       this.buffer.push(frame)
@@ -432,12 +431,12 @@ export class Replica {
 
     if (this.state === 'cold' || this.cursorValue === null) {
       // Nothing to apply a delta onto.
-      this.startRebootstrap('cold-start')
+      this.rebootstrap('cold-start')
       return this.outcome('D7-2-COLD', from)
     }
 
     if (this.rejects(frame) !== null) {
-      this.startRebootstrap('malformed')
+      this.rebootstrap('malformed')
       return this.outcome('D7-3-MALFORMED', from)
     }
 
@@ -447,7 +446,7 @@ export class Replica {
       // retention floor already says the heal cannot succeed, which is the
       // long-offline case D5 advertises `minAvailableSeq` for.
       if (this.belowRetentionFloor(frame)) {
-        this.startRebootstrap('compacted')
+        this.rebootstrap('compacted')
         return this.outcome('D7-2-COMPACTED', from)
       }
       this.buffer.push(frame)
@@ -486,7 +485,7 @@ export class Replica {
       // been pruned, `changesSince` can only answer `bootstrap-required`, and
       // asking is a round trip whose answer is already known (ADR 2 D5).
       if (this.belowRetentionFloor(frame)) {
-        this.startRebootstrap('compacted')
+        this.rebootstrap('compacted')
         return this.outcome('D7-2-COMPACTED', from)
       }
       // Do NOT apply. Applying would make the cursor certify data we never
@@ -532,7 +531,12 @@ export class Replica {
           prepare()
           span?.join({ prepare, publish() {} })
         }
-        this.store.applyAtomic(toMutation(changes, nextCursor), span)
+        const mutation = toMutation(changes, nextCursor)
+        const complete = sameCursor(this.store.readPersonalRowsCompleteAt(), this.cursorValue)
+        this.store.applyAtomic(
+          complete ? { ...mutation, personalRowsCompleteAt: nextCursor } : mutation,
+          span,
+        )
       },
       () => {
         this.cursorValue = nextCursor
@@ -589,16 +593,16 @@ export class Replica {
     // Guaranteed present: the constructor refuses an overlay without one.
     const unitOfWork = this.unitOfWork as SyncUnitOfWork
     return unitOfWork.transact(async (span) => {
-        // The ASYNC enrolment first, and AWAITED. This is the line POD-1158 exists
-        // for: a durable outbox store cannot enrol synchronously, and `transact`'s
-        // body is the one place allowed to await. Doing it before the cache write also
-        // means a refusal costs nothing — no region has staged yet.
-        await overlay.retire(retirements, span)
-        write(span)
-        // Strictly AFTER durability, through the span's own protocol. Nothing the
-        // Replica observes — cursor, exits, public events — escapes before the commit,
-        // and an abort simply never runs this, so there is nothing to undo.
-        span.onCommit(adoptBatched)
+      // The ASYNC enrolment first, and AWAITED. This is the line POD-1158 exists
+      // for: a durable outbox store cannot enrol synchronously, and `transact`'s
+      // body is the one place allowed to await. Doing it before the cache write also
+      // means a refusal costs nothing — no region has staged yet.
+      await overlay.retire(retirements, span)
+      write(span)
+      // Strictly AFTER durability, through the span's own protocol. Nothing the
+      // Replica observes — cursor, exits, public events — escapes before the commit,
+      // and an abort simply never runs this, so there is nothing to undo.
+      span.onCommit(adoptBatched)
     })
   }
 
@@ -725,7 +729,7 @@ export class Replica {
       if (generation !== this.walkGeneration) return
       const cursor = this.cursorValue
       if (cursor === null) {
-        this.startRebootstrap('cold-start')
+        this.rebootstrap('cold-start')
         return
       }
       let targetSeq: number | undefined
@@ -750,7 +754,7 @@ export class Replica {
       if (generation !== this.walkGeneration) return
       if ('kind' in range) {
         this.note('D7-2-COMPACTED')
-        this.startRebootstrap('compacted')
+        this.rebootstrap('compacted')
         return
       }
       const iterator = range[Symbol.asyncIterator]()
@@ -773,16 +777,20 @@ export class Replica {
           const current = this.cursorValue as Cursor
           if (frame.feedId !== current.feedId || frame.epoch !== current.epoch) {
             this.note('D7-4-EPOCH')
-            this.startRebootstrap('epoch-mismatch')
+            this.rebootstrap('epoch-mismatch')
             return
           }
           if (this.rejects(frame) !== null || frame.fromSeq !== current.seq) {
             this.note('D7-3-REPLY-MALFORMED')
-            this.startRebootstrap('malformed')
+            this.rebootstrap('malformed')
             return
           }
           try {
-            const applied = this.commitChanges(frame.changes, { ...current, seq: frame.seq }, generation)
+            const applied = this.commitChanges(
+              frame.changes,
+              { ...current, seq: frame.seq },
+              generation,
+            )
             await applied.done
             if (generation !== this.walkGeneration) return
             this.note(applied.row)
@@ -801,10 +809,25 @@ export class Replica {
           // Cancellation also reaches an HTTP reader waiting for bytes. Closing
           // an abandoned iterator must not mask the original failure.
           if (this.walkAbort.signal === signal) this.walkAbort.abort()
-          try { await iterator.return?.() } catch { /* abandoned source */ }
+          try {
+            await iterator.return?.()
+          } catch {
+            /* abandoned source */
+          }
         }
       }
       if (generation !== this.walkGeneration) return
+      // Only normal range completion certifies an old cache. An interrupted
+      // range may have committed a prefix, but cannot upgrade completeness.
+      const head = this.cursorValue as Cursor
+      if (!sameCursor(this.store.readPersonalRowsCompleteAt(), head)) {
+        try {
+          this.store.applyAtomic({ operations: [], cursor: head, personalRowsCompleteAt: head })
+        } catch (error) {
+          this.setPosture('stale')
+          throw error
+        }
+      }
       this.counters.pendingGap = false
       this.note('D7-1-HEALED')
       this.setPosture('live')
@@ -847,7 +870,7 @@ export class Replica {
       const frame = this.buffer[0] as DeltaFrame
       const cursor = this.cursorValue as Cursor
       if (frame.feedId !== cursor.feedId || frame.epoch !== cursor.epoch) {
-        this.startRebootstrap('epoch-mismatch')
+        this.rebootstrap('epoch-mismatch')
         return
       }
       if (frame.seq <= cursor.seq) {
@@ -889,18 +912,47 @@ export class Replica {
    * front: rungs 2-6 must never blank the UI before the replacement state is
    * installed (D7 stale-visible + D6.4).
    */
-  private startRebootstrap(cause: RebootstrapCause): void {
+  private rebootstrap(cause: RebootstrapCause): void {
     // Bump first, then read: a superseded walk notices the mismatch and abandons
     // its staging rather than installing a slice the ladder has moved past.
     this.walkAbort.abort()
     this.walkAbort = new AbortController()
     this.walkGeneration += 1
     const generation = this.walkGeneration
+    // ONE recovery path owns invalidation for every rung. Ordinary walks keep
+    // the old slice visible, but it must no longer certify absent personal rows.
+    if (cause === 'local-corruption' || cause === 'schema-version') {
+      try {
+        this.store.discardCache()
+      } catch (error) {
+        if (cause !== 'local-corruption') throw error
+        // A store too broken to clear is still a store we re-bootstrap over.
+      }
+      this.cursorValue = null
+      this.buffer = []
+      this.exits.clear()
+    }
     this.counters.bootstraps += 1
     this.counters.pendingGap = false
     this.setPosture('bootstrapping')
     this.emit({ type: 'heal', rung: rungFor(cause), cause })
-    this.run(async () => await this.walk(cause, generation))
+    this.run(async () => {
+      if (generation !== this.walkGeneration) return
+      // After prior frame commits settle, before the new walk. Clearing eagerly
+      // while an older span is still staged would let its publication restore
+      // the old certification behind this recovery.
+      try {
+        if (this.store.readPersonalRowsCompleteAt() !== null) {
+          this.store.applyAtomic({ operations: [], personalRowsCompleteAt: null })
+        }
+      } catch (error) {
+        // An unreadable corruption walk must consume its bounded attempt budget,
+        // rather than resetting it by escalating before the walk can begin.
+        if (cause !== 'local-corruption' || !(error instanceof ReplicaStoreCorruptError))
+          throw error
+      }
+      await this.walk(cause, generation)
+    })
   }
 
   private async walk(cause: RebootstrapCause, generation: number): Promise<void> {
@@ -1104,18 +1156,18 @@ export class Replica {
 
         this.setPosture('live')
         if (gapAt >= 0 || this.transportGap) {
-          this.transportGap = false;
-      // DISCARD the unchainable remainder rather than re-buffering it. Keeping it
-      // is an infinite ladder: the frame demands a fromSeq the fresh snapshot
-      // cannot satisfy, so install -> heal -> (authority says re-bootstrap) ->
-      // install -> the same frame, forever. D7 requires every failure to resolve
-      // strictly DOWNWARD and terminate, and a bootstrap has just delivered
-      // authoritative truth — a stale frame buffered around the walk is not
-      // something to hold the ladder open for. One heal catches up, resolved
-      // against the authority instead of against our own stale buffer.
-      // Recorded against 'bootstrapping': the install transaction has already
-      // committed (which is why the posture reads live), but this row describes
-      // what the WALK found in its leftover buffer.
+          this.transportGap = false
+          // DISCARD the unchainable remainder rather than re-buffering it. Keeping it
+          // is an infinite ladder: the frame demands a fromSeq the fresh snapshot
+          // cannot satisfy, so install -> heal -> (authority says re-bootstrap) ->
+          // install -> the same frame, forever. D7 requires every failure to resolve
+          // strictly DOWNWARD and terminate, and a bootstrap has just delivered
+          // authoritative truth — a stale frame buffered around the walk is not
+          // something to hold the ladder open for. One heal catches up, resolved
+          // against the authority instead of against our own stale buffer.
+          // Recorded against 'bootstrapping': the install transaction has already
+          // committed (which is why the posture reads live), but this row describes
+          // what the WALK found in its leftover buffer.
           this.note('D6-INSTALL-GAP', 'bootstrapping')
           // Discarding here is deliberate and survives POD-1161: these frames are
           // UNCHAINABLE against the fresh snapshot, so keeping them is the infinite
@@ -1136,18 +1188,7 @@ export class Replica {
 
   private onCorruption(): TransitionOutcome {
     const from = this.state
-    // The store is unreadable, so the cache must go explicitly rather than at
-    // the swap. The outbox lives behind a port this method cannot name; if it
-    // is ALSO lost, that loss is surfaced by its own store, loudly (D7).
-    try {
-      this.store.discardCache()
-    } catch {
-      // A store too broken to clear is still a store we re-bootstrap over.
-    }
-    this.cursorValue = null
-    this.buffer = []
-    this.exits.clear()
-    this.startRebootstrap('local-corruption')
+    this.rebootstrap('local-corruption')
     return this.outcome('D7-5-CORRUPT', from)
   }
 
@@ -1266,7 +1307,7 @@ export class Replica {
     this.sealTransitions()
     this.trace.push(rowId)
     // `from` is the posture BEFORE this row's effect ran. Several effects
-    // (startHeal, startRebootstrap) change posture synchronously, so reading
+    // (startHeal, rebootstrap) change posture synchronously, so reading
     // this.state here would record the DESTINATION as the source and make the
     // table look wrong when it was right.
     this.transitions.push({ rowId, from, to: this.state })

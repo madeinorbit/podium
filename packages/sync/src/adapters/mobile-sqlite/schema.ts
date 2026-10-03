@@ -11,7 +11,7 @@
  * This is that shape:
  *
  *   `entities`        PK (principal, entity, entity_id)   one row per cached entity
- *   `meta`            PK (principal, key)                 the cursor, and nothing else yet
+ *   `meta`            PK (principal, key)                 cursor and optional completeness
  *   `outbox`          PK (principal, mutation_id)         the user's unsent writes
  *   `schema_version`  singleton row                       D5.1's adapter-local version
  *
@@ -73,8 +73,10 @@ export const ALL_TABLES: readonly string[] = [
   SCHEMA_VERSION_TABLE,
 ]
 
-/** The one `meta` key in use. Namespaced per principal by the compound key. */
+/** Metadata keys are namespaced per principal by the compound key. */
 export const CURSOR_KEY = 'cursor'
+/** Additive key: existing version-1 caches need no schema migration. */
+export const PERSONAL_ROWS_COMPLETE_AT_KEY = 'personal-rows-complete-at'
 
 /** A cached entity row, as it is stored. */
 export interface StoredEntity {

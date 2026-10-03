@@ -85,14 +85,26 @@ export interface CacheMutation {
   readonly operations: readonly CacheOperation[]
   /** The cursor must never be ahead of the data it claims (ADR 2 D10). */
   readonly cursor?: Cursor
+  /**
+   * Certify sparse personal rows at this batch's cursor (ADR 6 Amendment 1).
+   * Non-null requires an identical `cursor` in this batch. Null clears the claim.
+   * Changing rows/cursor without certification clears it too; an empty batch
+   * with neither field preserves it. There is no independent marker setter.
+   */
+  readonly personalRowsCompleteAt?: Cursor | null
 }
 
 /**
- * The replica CACHE: entities + cursor (+ overlay, once POD-370 lands it).
+ * The replica CACHE: entities + cursor + personal-row completeness.
  * Everything on this port has a home at the authority and is re-derivable at will.
  */
 export interface ReplicaCacheStore {
   readCursor(): Cursor | null
+  /**
+   * Optional certification after adapter scope-fingerprint validation (Amendment 1 D10).
+   * Consumers still require an exact installed-cursor match; private metadata stays hidden.
+   */
+  readPersonalRowsCompleteAt(): Cursor | null
   readEntities(): readonly EntityRecord[]
   read(entity: string, entityId: string): EntityRecord | undefined
   /**
@@ -122,7 +134,8 @@ export interface ReplicaCacheStore {
   /**
    * Atomic install of a bootstrap (ADR 2 D6.4 / Amendment 1 D15.3): swap staging
    * into place, apply buffered deltas in order, commit the cursor — one
-   * transaction, no half-installed replica, no window holding a mixture of two
+   * transaction, including personal-row completeness at the final buffered cursor;
+   * no half-installed replica, no window holding a mixture of two
    * principals' slices.
    *
    * Takes a `span` for the same reason `applyAtomic` does: a bootstrap install that
@@ -135,7 +148,7 @@ export interface ReplicaCacheStore {
     buffered: readonly CacheMutation[],
     span?: SyncSpan,
   ): void
-  /** Discard the cache. Reaches entities and cursor. Cannot reach the outbox. */
+  /** Discard entities, cursor and personal-row completeness. Cannot reach the outbox. */
   discardCache(): void
   /** ADR 6 D4 — surfaced, never silent. */
   durability(): 'durable' | 'degraded-memory' | 'unavailable'

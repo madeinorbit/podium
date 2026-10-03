@@ -85,7 +85,7 @@
  */
 
 import type { TranscriptItem } from '@podium/model'
-import type { EntityRecord, ExitKind, ReplicaEvent } from '@podium/sync/replica'
+import type { Cursor, EntityRecord, ExitKind, ReplicaEvent } from '@podium/sync/replica'
 import type { OutboxStorage } from '../../outbox'
 import type {
   Replica,
@@ -97,8 +97,8 @@ import type {
   UiState,
 } from '../contract'
 import { COLD_CURSOR, type FeedCursor } from '../feed'
-import { entityForKind, kindForEntity, rowKey } from './kinds'
 import { IssueRefIndex } from './issue-ref-index'
+import { entityForKind, kindForEntity, rowKey } from './kinds'
 import type { SideCache } from './side-cache'
 
 /**
@@ -110,7 +110,10 @@ import type { SideCache } from './side-cache'
  * adapter's real view satisfies this without a second class.
  */
 export interface KernelCacheRead {
-  readCursor(): { readonly seq: number } | null
+  readCursor(): { readonly seq: number; readonly feedId?: string; readonly epoch?: string } | null
+  /** Older read-only consumers can omit metadata and retain first-live fallback.
+   * The writable ReplicaCacheStore port requires this method on every adapter. */
+  readPersonalRowsCompleteAt?(): Cursor | null
   readEntities(): readonly EntityRecord[]
   /**
    * One row, by the kernel's own identity. `ReplicaCacheStore` has carried this
@@ -249,9 +252,37 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   /** Kinds touched since the outermost batch opened. */
   const pending = new Set<ReplicaKind>()
   let batchDepth = 0
-  // Old caches have no per-kind completeness marker. Present personal rows are
-  // usable immediately; absence becomes authoritative after the first catch-up.
-  let sessionMarkersLoaded = false
+  // Restore completeness BEFORE any pool attaches. Legacy caches keep the
+  // first-live fallback; a seq alone cannot certify another feed or epoch.
+  let sessionMarkersLoaded = cachedPersonalRowsComplete()
+
+  function cachedPersonalRowsComplete(): boolean {
+    try {
+      const cursor = cache.readCursor()
+      const marker = cache.readPersonalRowsCompleteAt?.() ?? null
+      return (
+        cursor !== null &&
+        marker !== null &&
+        cursor.feedId === marker.feedId &&
+        cursor.epoch === marker.epoch &&
+        cursor.seq === marker.seq
+      )
+    } catch {
+      return false
+    }
+  }
+
+  function revisitSessionMarkers(loaded: boolean): void {
+    if (sessionMarkersLoaded === loaded) return
+    sessionMarkersLoaded = loaded
+    const rows = project('sessions')
+    if (rows.length === 0) return
+    const ids = pendingAddresses.get('sessions') ?? new Set<string>()
+    for (const row of rows) ids.add(row.sessionId)
+    pendingAddresses.set('sessions', ids)
+    pending.add('sessions')
+    if (batchDepth === 0) drain()
+  }
 
   function touchRow(kind: ReplicaKind, entityId: string): void {
     if (kind === 'issueProjections') issueRefs?.issue(entityId, facade.row!(kind, entityId))
@@ -671,20 +702,10 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           touchAllKinds(event.cause === 'rescope' ? 'rescope' : 'bootstrap')
           return
         case 'posture':
-          if (event.posture === 'live' && !sessionMarkersLoaded) {
-            sessionMarkersLoaded = true
-            // A resumed cache can catch up without a bootstrap. Revisit the
-            // sessions once so missing personal rows acquire their null cursor.
-            // No raw row changes and no work on subsequent live/watermark events.
-            const rows = project('sessions')
-            if (rows.length > 0) {
-              const ids = pendingAddresses.get('sessions') ?? new Set<string>()
-              for (const row of rows) ids.add(row.sessionId)
-              pendingAddresses.set('sessions', ids)
-              pending.add('sessions')
-              if (batchDepth === 0) drain()
-            }
-          }
+          if (event.posture === 'bootstrapping') revisitSessionMarkers(false)
+          // Legacy caches revisit absence once; certified warm caches are
+          // already final at attach and do no work on the first live event.
+          if (event.posture === 'live') revisitSessionMarkers(true)
           return
         default:
           // `cursor`, `heal`, `bootstrap-failed` do not change the

@@ -28,12 +28,12 @@
  */
 
 import type { OutboxApplyResult, OutboxStoreMutation, OutboxStorePort } from '../outbox/ports'
-import { InMemoryOutboxStore, InMemoryUnitOfWork } from '../outbox/test-doubles'
 import type { OutboxRecord } from '../outbox/records'
+import { InMemoryOutboxStore, InMemoryUnitOfWork } from '../outbox/test-doubles'
 import { InMemoryReplicaStore, type StoreView } from '../replica/memory-store'
 import type { CacheMutation, ReplicaCacheStore } from '../replica/ports'
-import type { OwnedSyncSpan, SyncSpan, SyncUnitOfWork } from '../span'
 import type { Cursor, EntityRecord } from '../replica/types'
+import type { OwnedSyncSpan, SyncSpan, SyncUnitOfWork } from '../span'
 import type {
   ConformanceStorage,
   ConformanceStorageView,
@@ -67,6 +67,9 @@ class GatedCache implements ReplicaCacheStore {
   readCursor(): Cursor | null {
     return this.inner.readCursor()
   }
+  readPersonalRowsCompleteAt(): Cursor | null {
+    return this.inner.readPersonalRowsCompleteAt()
+  }
   readEntities(): readonly EntityRecord[] {
     return this.inner.readEntities()
   }
@@ -77,7 +80,12 @@ class GatedCache implements ReplicaCacheStore {
     return this.inner.beginSpan()
   }
   applyAtomic(mutation: CacheMutation, span?: SyncSpan): void {
-    this.refuseIfDenied()
+    // Invalidating optional metadata frees space, like discardCache.
+    const invalidation =
+      mutation.operations.length === 0 &&
+      mutation.cursor === undefined &&
+      mutation.personalRowsCompleteAt === null
+    if (!invalidation) this.refuseIfDenied()
     // Observed AFTER the denial check and BEFORE the write, so a refused operation is
     // not recorded as one the store was handed — the record is of what the port
     // accepted, not of what a caller attempted.
