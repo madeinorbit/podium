@@ -68,6 +68,15 @@ it('keeps an empty review with a discovered continuation out of Needs you', () =
   try { expect(source.queryIds({ kind: 'explorer', tab: 'needs' })).toEqual({ ids: [] }) }
   finally { stop() }
 })
+it('preserves an opaque parent reference without loading an absent parent', () => {
+  const { source, pool, load, stop } = setup([row('child', { parentId: 'absent-parent' })])
+  try {
+    expect(source.issue('child')).toMatchObject({ parentId: 'absent-parent' })
+    expect(source.queryIds({ kind: 'board' })).toEqual({ ids: ['child'] })
+    expect(pool.hydrate()).toBe(0)
+    expect(load).not.toHaveBeenCalled()
+  } finally { stop() }
+})
 it('updates overlays, parent scope, archive and replacement without a cold standing index', () => {
   const { source, pool, pending, stop } = setup([row('parent'), row('child', { audience: 'agent', parentId: 'parent' }), row('draft', { isDraftVessel: true })])
   let ids: string[] = []
