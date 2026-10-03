@@ -56,7 +56,7 @@ await build({
       // Observe identities through the fixture's existing WeakRefs. This probe
       // returns only scalars and never holds a runtime in a browser handle.
       return { code: code + `
-      import { THEME_UI_KEYS as lifetimeThemeKeys } from '@podium/model/browser';
+      import { THEME_UI_KEYS as lifetimeThemeKeys, asSessionId as lifetimeSessionId } from '@podium/model/browser';
       Object.assign(window, { __accountLifetime: () => ({
         principal: owner?.principal.userId,
         retired: retired.map(({ name, ref }) => {
@@ -66,10 +66,10 @@ await build({
       }), __accountEdit: () => {
         flushSync(() => {
           owner!.getSnapshot().setSelectedIssueId(asIssueId(targets.visibleRootId));
-          owner!.getSnapshot().openSessionTab(asSessionId(targets.phaseSessionId));
+          owner!.getSnapshot().openSessionTab(lifetimeSessionId(targets.phaseSessionId));
           const s = owner!.getSnapshot(), ws = s.workspaces[s.workspaceKey()];
           s.splitWorkspacePane(ws.focusedPaneId, 'row', { tabId: targets.heartbeatSessionId });
-          s.setSessionDraft(asSessionId(targets.phaseSessionId), 'Alice unsent chat draft');
+          s.setSessionDraft(lifetimeSessionId(targets.phaseSessionId), 'Alice unsent chat draft');
           s.uiState.set('podium.firstTaskActivation.draft', JSON.stringify({ title: 'Alice first task', description: 'Unsent first task draft' }));
           s.uiState.set(lifetimeThemeKeys[0], 'light');
         });
