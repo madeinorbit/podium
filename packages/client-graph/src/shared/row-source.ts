@@ -1196,14 +1196,10 @@ export function createRowSource(
   const source: RowSource = {
     snapshot,
     row,
-    ...(replica.issueIdByRef
-      ? {
-          issueIdByRef(ref: string): string | undefined {
-            if (disposed) throw new Error('createRowSource: issueIdByRef() on a disposed source')
-            return replica.issueIdByRef!(ref)
-          },
-        }
-      : {}),
+    ...(replica.issueIdByRef ? { issueIdByRef(ref: string): string | undefined {
+      if (disposed) throw new Error('createRowSource: issueIdByRef() on a disposed source')
+      return replica.issueIdByRef!(ref)
+    } } : {}),
     ...(replica.issueIdsByRef
       ? {
           issueIdsByRef(ref: string): readonly string[] {
