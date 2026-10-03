@@ -3,9 +3,12 @@
  *
  * The scale check (`scale-check.ts`) asks one question: does the work a change
  * does grow with the amount of data? It needs the work counted the same way
- * for every arm, with nothing in the arm's own code. This module counts two of
- * the three kinds (the third, rows read, is the feed's: `ReadStats.data`):
+ * for every arm, with nothing in the arm's own code. This module counts
+ * derivations and collection elements; a supplied pool also counts its row
+ * calls. Worklist arms continue to count feed reads through `ReadStats.data`.
  *
+ * - ROWS: every call to the supplied pool's single row reader, including
+ *   resident, summary, repeated and absent reads. Source callbacks count too.
  * - DERIVATIONS: derivation bodies run. Every MobX computed body
  *   (`ComputedValue.computeValue_`) and every reaction body (`Reaction.track`:
  *   autoruns, reactions and `observer` renders all run through it), and every

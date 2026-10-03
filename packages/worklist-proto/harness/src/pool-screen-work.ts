@@ -65,7 +65,8 @@ import {
   superagentQuestion,
   superagentState,
 } from '@podium/client-graph/superagent'
-import { workflowMachines } from '@podium/client-graph/workflow-views'
+import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
+import type { WorkflowRunWire } from '@podium/protocol'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { autorun, compareStructural, observable, runInAction } from 'mobx'
@@ -327,7 +328,11 @@ async function measureScreenCells(
     add('sidebar.sections', ['PoolSidebar', 'PoolSidebarRail', 'useSidebarProjectSections'], () =>
       pool.sidebar.sections(layout),
     )
-    add('sidebar.row', ['PoolRowSlot'], () => pool.issue(selected())?.sidebar)
+    const worktree = pool.tables.worktree.keys().next().value!
+    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => ({
+      issue: pool.sidebar.row(selected()), worktree: pool.sidebar.worktree(worktree, layout),
+      evicted: pool.sidebar.selectionEvicted(),
+    }))
     add('mobile-work.sections', ['PoolWorkScreen', 'GroupHeader'], () =>
       pool.mobileWork.sections(layout),
     )
@@ -348,6 +353,8 @@ async function measureScreenCells(
       quotas: pool.headerViews.quotas(),
       offline: pool.headerViews.offlineMachines(),
       reclaim: pool.headerViews.reclaimCounts(30),
+      working: pool.headerViews.working(), selected: pool.headerViews.selectedIssue(),
+      session: pool.headerViews.session(SESSION), occupancy: pool.headerViews.occupancyKey(),
     }))
     add('shell.chrome', ['AppBody', 'AppShell'], () => shell.chrome())
     add('shell.dock', ['AppShell', 'BrowserOpenOverlay'], () => shell.dock())
@@ -452,6 +459,7 @@ async function measureScreenCells(
       machines: pool.sessionPanes.machines(),
       window: pool.sessionPanes.window(),
       dock: pool.sessionPanes.dock('/synthetic', null),
+      confirmed: pool.sessionPanes.spawnConfirmed(SESSION),
       ownership: pool.sessionPanes.ownership(
         pool.sessionPanes.session(SESSION),
         (color) => color ?? undefined,
@@ -465,14 +473,26 @@ async function measureScreenCells(
     add('preferences', ['SettingsView', 'SettingsScreen', 'WorkScreen'], () =>
       pool.row('preference', 'podium:sidebar:pinned-fold'),
     )
-    add('references', ['IssueChipLiveness', 'RefChip'], () => pool.references.read('#999999'))
+    add('references', ['IssueChipLiveness', 'RefChip', 'RefMiniview'], () => ({
+      token: pool.references.read('#999999'), id: pool.references.id('#999999'), byId: pool.references.readById(ROOT),
+    }))
     const automations = automationViews(pool)
     add('automations', ['AutomationsView', 'SpecsView', 'AutomationForm'], () => ({
       list: automations.list(),
       targets: automations.targets(),
       session: automations.session(SESSION),
     }))
-    add('workflows', ['WorkflowsView', 'WorkflowForm'], () => workflowMachines(pool))
+    const workflowRun: WorkflowRunWire = {
+      id: 'guard-workflow-run', subjectKind: 'session', subjectId: SESSION,
+      coordinatorSessionId: asSessionId(SESSION), status: 'active', supersedesRunId: null,
+      revision: { id: 'guard-revision', workflowId: 'guard-workflow', version: 1, instructions: '',
+        steps: [], createdAt: new Date(ctx.corpus.fixedNow).toISOString(), publishedAt: null },
+      steps: [], history: [], startedAt: new Date(ctx.corpus.fixedNow).toISOString(), completedAt: null,
+    }
+    add('workflows', ['WorkflowsView', 'WorkflowForm', 'useWorkflowSubject'], () => ({
+      machines: workflowMachines(pool), session: workflowSubject(pool, workflowRun),
+      issue: workflowSubject(pool, { ...workflowRun, subjectKind: 'issue', subjectId: selected() }),
+    }))
     add('superagent', ['SuperagentView', 'SuperagentScreen'], () => ({
       state: superagentState(pool),
       feed: superagentFeed(pool),
@@ -522,8 +542,13 @@ async function measureScreenCells(
       const keys = [ROOT, CHILD, NEXT]
         .filter((id) => ctx.cache.read('issueProjection', id) !== undefined)
         .map((id) => `issue:${id}`)
+      if (pool.tables.worktree.has(worktree)) keys.push(`worktree:${worktree}`)
       for (const id of [SESSION, OTHER_SESSION])
         if (ctx.cache.read('session', id)) keys.push(`session:${id}`)
+      const state = window.get()
+      for (const id of [state.paneA, state.split ? state.paneB : null]) {
+        if (id && ctx.cache.read('session', id) && !keys.includes(`session:${id}`)) keys.push(`session:${id}`)
+      }
       return keys
     }
     const issuePatch = (patch: Record<string, unknown>) =>

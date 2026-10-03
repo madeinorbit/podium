@@ -69,6 +69,7 @@ import { legacyControlArmFor } from './legacy-control/arm'
 import { installMobxWarnTrap } from './mobx-trap'
 import { snapshotFromStore } from './oracle/index'
 import { poolScreenCellsAt } from './pool-screen-work'
+import screenWorkExceptions from './screen-work.expected-failures.json'
 import { ROUND_THREE_ARMS, type RosterAllowances, type RosterArm } from './roster'
 import {
   assertScaleInvariant,
@@ -83,6 +84,7 @@ import {
 } from './scale-check'
 import {
   assertScreenWork,
+  classifyScreenWork,
   SCREEN_ACTIONS,
   type ScreenWorkCell,
   type ScreenWorkVerdict,
@@ -102,33 +104,6 @@ import {
 
 const TRACE = process.env.POD_WORK_TRACE === '1'
 
-/** Current defects only. Every failed count retains its reader/action and owning issue.
- * Correctness never receives an allowance. A passing count is reported green as fixes land. */
-function screenFailureOwner(verdict: ScreenWorkVerdict): string | undefined {
-  const name = verdict.reader
-  if (name.startsWith('consumer:launcher.')) return 'POD-5406'
-  if (
-    name.startsWith('consumer:mission.') ||
-    name.startsWith('consumer:navigation.') ||
-    name.startsWith('consumer:header.folded')
-  )
-    return 'POD-5421'
-  if (name.startsWith('consumer:mobile-work.long-press') || name.startsWith('consumer:shell.links'))
-    return 'POD-5422'
-  if (
-    /^consumer:(shell\.|header\.(shipping|fleet)|settings|automations|chat\.|issue-page\.|board\.|mobile-inbox|mobile-session)/.test(
-      name,
-    )
-  )
-    return 'POD-5406'
-  if (
-    /^consumer:(sidebar\.|mobile-work\.)/.test(name) ||
-    /^(IssueModel@|SessionModel@|GroupNode@|Sidebar|MobileSections|\(arm code\))/.test(name)
-  )
-    return 'POD-5423'
-  return undefined
-}
-
 describe('pool screens work ratios', () => {
   it('counts every scripted click/delta for every pool screen and app reader at 1x/4x', async () => {
     const partial = { at1x: [] as ScreenWorkCell[], at4x: [] as ScreenWorkCell[] }
@@ -142,15 +117,12 @@ describe('pool screens work ratios', () => {
     expect(at4x.corpus.issues).toBeGreaterThan(at1x.corpus.issues * 3)
     expect(at4x.corpus.sessions).toBeGreaterThan(at1x.corpus.sessions * 3)
     const verdicts = screenWorkVerdicts(at1x.cells, at4x.cells)
-    const failures = verdicts.filter((verdict) => !verdict.passed)
-    const expectedFailures = failures.flatMap((verdict) => {
-      const issue = screenFailureOwner(verdict)
-      return issue ? [{ ...verdict, issue }] : []
-    })
-    const unexpected = failures.filter((verdict) => screenFailureOwner(verdict) === undefined)
-    writeCells('work-pool-screens.json', { at1x, at4x, verdicts, expectedFailures, unexpected })
+    const exceptions = screenWorkExceptions.flatMap(({ issue, counters }) =>
+      counters.map(counter => ({ ...counter, issue })))
+    const { expectedFailures, unexpected, resolved } = classifyScreenWork(verdicts, exceptions)
+    writeCells('work-pool-screens.json', { at1x, at4x, verdicts, expectedFailures, unexpected, resolved })
     console.info(
-      `[screen work] ${at1x.readers.length} readers × ${SCREEN_ACTIONS.length} clicks/deltas × 2 scales; ${verdicts.length} counters; ${expectedFailures.length} expected failures; ${unexpected.length} unexpected`,
+      `[screen work] ${at1x.readers.length} readers × ${SCREEN_ACTIONS.length} clicks/deltas × 2 scales; ${verdicts.length} counters; ${expectedFailures.length} expected failures; ${resolved.length} fixed counts green; ${unexpected.length} unexpected`,
     )
     for (const issue of new Set(expectedFailures.map((verdict) => verdict.issue))) {
       const owned = expectedFailures.filter((verdict) => verdict.issue === issue)
@@ -227,6 +199,22 @@ describe('pool screens work ratios', () => {
     positive[0]!.work.rowsBy!.newReader = 1
     expect(() => assertScreenWork(screenWorkVerdicts(zero, positive))).toThrow(/newReader/)
     expect(() => screenWorkVerdicts(zero.slice(1), positive)).toThrow(/every click/)
+  })
+
+  it('limits expected failures to exact issue-linked counts and reports fixed counts green', () => {
+    const bad: ScreenWorkVerdict = { action: 'select', kind: 'rows', reader: 'consumer:known',
+      at1x: 1, at4x: 4, neighbourhood1x: 1, neighbourhood4x: 1, passed: false }
+    const exception = { action: bad.action, kind: bad.kind, reader: bad.reader, issue: 'POD-5421' }
+    const classified = classifyScreenWork([bad, { ...bad, kind: 'derivations' },
+      { ...bad, action: 'open-menu' }, { ...bad, reader: `${bad.reader}/newScan` }], [exception])
+    expect(classified.expectedFailures).toEqual([{ ...bad, issue: exception.issue }])
+    expect(classified.unexpected).toHaveLength(3)
+    expect(() => assertScreenWork(classified.unexpected)).toThrow(/newScan/)
+    const fixed = classifyScreenWork([{ ...bad, at4x: 1, passed: true }], [exception])
+    expect(fixed.expectedFailures).toEqual([])
+    expect(fixed.resolved).toEqual([exception])
+    expect(() => classifyScreenWork([bad], [{ ...exception, issue: '' }])).toThrow(/Invalid/)
+    expect(() => classifyScreenWork([bad], [exception, exception])).toThrow(/duplicate/)
   })
 })
 

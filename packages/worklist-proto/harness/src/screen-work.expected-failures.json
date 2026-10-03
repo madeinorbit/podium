@@ -1,0 +1,2852 @@
+[
+  {
+    "issue": "POD-5406",
+    "counters": [
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child"
+      },
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-child\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:board.model/IssueBoard@catalog:false"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:issue-page.catalog/IssuePage@summaries"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:board.query/IssueBoard@query:{\"kind\":\"board\",\"showAgentTasks\":false}"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@query:{\"kind\":\"board\",\"filter\":{},\"showAgentTasks\":false}"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-child\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@catalog:false"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorer:{\"tab\":null,\"query\":\"\",\"windowed\":true}"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:issue-page.catalog/IssuePage@summaries"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:shell.close/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:board.model"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:chat.detail"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "IssueBoard@sessions:guard-root"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:board.explorer"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:superagent"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-child"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:board.card/IssueBoard@row:guard-child"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-child\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "IssueBoard@facts:guard-root"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:board.model/IssueBoard@catalog:false"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:issue-page.catalog/IssuePage@summaries"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:launcher.palette"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:shell.dock"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:shell.catalogs/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:shell.close/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.detail"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.panel"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.card"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.model"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:chat.detail"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.explorer/IssueBoard@explorer:{\"tab\":null,\"query\":\"\",\"windowed\":true}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.explorer"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.catalog"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.panel/IssuePage@panel:{\"issueId\":\"guard-child\",\"cwd\":\"/synthetic\"}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-child"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.card/IssueBoard@row:guard-child"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-child\",\"now\":#}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-child\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "IssueBoard@facts:guard-root"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.query/IssueBoard@query:{\"kind\":\"board\",\"showAgentTasks\":false}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.query"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.model/IssueBoard@query:{\"kind\":\"board\",\"filter\":{},\"showAgentTasks\":false}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.model/IssueBoard@catalog:false"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:shell.chrome"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.catalog/IssuePage@summaries"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:board.catalog"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:shell.close/ComputedValue@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "IssueBoard@sessions:guard-root"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorer:{\"tab\":null,\"query\":\"\",\"windowed\":true}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:superagent"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-child"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@row:guard-child"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-child\",\"now\":#}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-child\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "IssueBoard@facts:guard-root"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:board.query/IssueBoard@query:{\"kind\":\"board\",\"showAgentTasks\":false}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@query:{\"kind\":\"board\",\"filter\":{},\"showAgentTasks\":false}"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@catalog:false"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:issue-page.catalog/IssuePage@summaries"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:issue-page.catalog"
+      },
+      {
+        "action": "open-menu",
+        "kind": "rows",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "open-menu",
+        "kind": "rows",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "open-menu",
+        "kind": "elements",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "open-menu",
+        "kind": "elements",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "open-menu",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "open-menu",
+        "kind": "elements",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@members:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:superagent"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@members:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:issue-page.panel"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorer:{\"tab\":null,\"query\":\"\",\"windowed\":true}"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:superagent"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "IssueBoard@sessions:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:board.model/IssueBoard@catalog:false"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:board.model/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:board.model"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@members:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@summaries"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:launcher.palette"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:board.model"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:board.card"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.detail"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.panel/IssuePage@panel:{\"issueId\":\"guard-root\",\"cwd\":\"/synthetic\"}"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.panel"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "IssueBoard@sessions:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.query/IssueBoard@query:{\"kind\":\"board\",\"showAgentTasks\":false}"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@query:{\"kind\":\"board\",\"filter\":{},\"showAgentTasks\":false}"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@catalog:false"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorer:{\"tab\":null,\"query\":\"\",\"windowed\":true}"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@members:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@summaries"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:settings/settings.sessions"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:settings/settings.setup"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:settings"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:automations/automations.targets:"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:automations"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:issue-page.panel"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:launcher.palette"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.card"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:board.model"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:board.explorer/IssueBoard@sessions:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@members:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@sessions:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorer:{\"tab\":null,\"query\":\"\",\"windowed\":true}"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:launcher.launch/ComputedValue@#"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@members:guard-root"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:board.model/IssueBoard@catalog:false"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:board.model/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:board.model"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:issue-page.detail/IssuePage@summaries"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:launcher.palette"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:board.model"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:board.card"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.detail"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.panel/IssuePage@panel:{\"issueId\":\"guard-root\",\"cwd\":\"/synthetic\"}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:issue-page.panel"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:launcher.palette/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.query/IssueBoard@query:{\"kind\":\"board\",\"showAgentTasks\":false}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@query:{\"kind\":\"board\",\"filter\":{},\"showAgentTasks\":false}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@catalog:false"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.model/IssueBoard@row:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorerCounts"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@explorer:{\"tab\":null,\"query\":\"\",\"windowed\":true}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.explorer/IssueBoard@query:{\"kind\":\"explorer\",\"tab\":\"needs\",\"query\":\"\"}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:shell.chrome/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:shell.dock/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox/ComputedValue@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:mobile-inbox"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@summaries"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:mobile-session"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:issue-page.catalog/IssuePage@explorer"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:chat.references"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:header.shipping/header.shipping"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:board.card/IssueBoard@row:guard-root"
+      }
+    ]
+  },
+  {
+    "issue": "POD-5420",
+    "counters": [
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:session-pane"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:session-pane"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:notices"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:notices"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:notices"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:notices"
+      }
+    ]
+  },
+  {
+    "issue": "POD-5421",
+    "counters": [
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:mission.pane/MissionNode@guard-child.missionPaneFull"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:mission.workspace/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "stage-change",
+        "kind": "rows",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:mission.workspace/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:mission.pane/MissionNode@guard-child.missionPaneFull"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:header.folded/IssueModel@guard-root.sidebar"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mission.pane/MissionNode@guard-child.missionPaneFull"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mission.workspace/MissionNode@guard-child.missionIssue"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:header.folded/IssueModel@guard-root.loaded"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:header.folded/IssueModel@guard-root.unitOwn"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "Mission@guard-root.topology"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:mission.workspace/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mission.workspace"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:navigation.mission"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/IssueModel@guard-root.sidebar"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mission.pane/MissionNode@guard-child.missionPaneFull"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mission.workspace/MissionNode@guard-child.missionIssue"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/IssueModel@guard-root.loaded"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/IssueModel@guard-root.unitsBelow"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/IssueModel@guard-root.unitOwn"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:header.folded"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "Mission@guard-root.topology"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mission.workspace/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mission.workspace"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mission.pane/MissionNode@guard-child.missionPaneFull"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mission.workspace/MissionNode@guard-child.missionIssue"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:header.folded/IssueModel@guard-root.unitsBelow"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:header.folded/IssueModel@guard-root.unitOwn"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:mission.workspace/MissionNode@guard-root.missionIssue"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:navigation.navigate-by-ref"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:navigation.navigate-by-ref/pool projection"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:header.folded/SessionModel@guard-history-#.activityMs"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:navigation.navigate-by-ref/IssueBoard@sessions:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:navigation.ref"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:navigation.mission"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/SessionModel@guard-history-#.activityMs"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:navigation.navigate-by-ref"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:navigation.navigate-by-ref/pool projection"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:navigation.navigate-by-ref/IssueModel@guard-root.members"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:header.folded/IssueModel@guard-root.sidebar"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:navigation.navigate-by-ref/IssueBoard@sessions:guard-root"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:navigation.navigate-by-ref/Reaction@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:navigation.ref"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:header.folded/IssueModel@guard-root.sidebar"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "pool projection"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:navigation.navigate-by-ref"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "consumer:navigation.navigate-by-ref/pool projection"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/IssueModel@guard-root.sidebar"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mission.workspace"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:navigation.mission"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:navigation.navigate-by-ref/pool projection"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:header.folded/IssueModel@guard-root.sidebar"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "pool projection"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:navigation.navigate-by-ref"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:header.folded"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:navigation.navigate-by-ref/pool projection"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "pool projection"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "pool projection"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:header.folded/IssueModel@guard-root.sidebar"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "pool projection"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:navigation.activity"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "consumer:header.folded/SessionModel@guard-history-#.activityMs"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/IssueModel@guard-root.sidebar"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mission.workspace"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "pool projection"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:header.folded/SessionModel@guard-history-#.activityMs"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:navigation.mission"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:header.folded/header.folded"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:header.folded/IssueModel@guard-root.sidebar"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:mission.pane"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "pool projection"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:mission.session-menu"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:mission.menu"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:navigation.activity"
+      }
+    ]
+  },
+  {
+    "issue": "POD-5422",
+    "counters": [
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:shell.links"
+      },
+      {
+        "action": "long-press",
+        "kind": "rows",
+        "reader": "consumer:mobile-work.long-press"
+      },
+      {
+        "action": "long-press",
+        "kind": "elements",
+        "reader": "consumer:mobile-work.long-press"
+      }
+    ]
+  },
+  {
+    "issue": "POD-5423",
+    "counters": [
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:mobile-work.sections/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.sections/ComputedValue@#"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:mobile-work.sections/ComputedValue@#"
+      },
+      {
+        "action": "stage-change",
+        "kind": "elements",
+        "reader": "Reaction@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "(arm code)"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.sidebar"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "IssueModel@guard-root.facts"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "Reaction@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.row"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "Reaction@#"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.sidebar"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.row/IssueModel@guard-child.mobileWork"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "derivations",
+        "reader": "IssueModel@guard-root.facts"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "IssueModel@guard-root.members"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "Reaction@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:mobile-work.sections/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.row"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.row/IssueModel@guard-root.mobileWork"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.sections/ComputedValue@#"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mobile-work.row"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:mobile-work.sections/ComputedValue@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "rows",
+        "reader": "(arm code)"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.row/IssueModel@guard-root.mobileWork"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.row"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.sections/WorklistGroups@#.latchedOpenId"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "IssueModel@guard-root.members"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "Reaction@#"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:sidebar.sections/WorklistGroups@#.latchedOpenId"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:mobile-work.row"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "rows",
+        "reader": "(arm code)"
+      },
+      {
+        "action": "machine-flip",
+        "kind": "elements",
+        "reader": "Reaction@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "rows",
+        "reader": "(arm code)"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.row/IssueModel@guard-root.mobileWork"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:mobile-work.row"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.sections/WorklistGroups@#.latchedOpenId"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "IssueModel@guard-root.members"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "Reaction@#"
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:sidebar.sections/WorklistGroups@#.latchedOpenId"
+      }
+    ]
+  }
+]
