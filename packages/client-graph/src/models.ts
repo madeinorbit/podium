@@ -179,6 +179,8 @@ import {
 export interface ModelHost {
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
   row(entity: EntityName, id: string, absent?: 'mark' | 'summary'): LoadedRow<object>
+  /** The declared parent key, tracked without reading the source or target payload. */
+  formalParent(id: string): string | null
   /** What the row view's parts read. */
   readonly inputs: ViewInputs
   /** What the visibility parts read. */
@@ -1048,9 +1050,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.standing?.finished
   }
 
-  /** Cycle walks need only the maintained parent key, including on cold ancestors. */
+  /** Cycle walks need only the tracked parent key, including on cold ancestors. */
   get formalParent(): string | null {
-    return this.host.visibleInputs.links.issue.parent(this.id)
+    return this.host.formalParent(this.id)
   }
 
   /** R-GROUP 3's "nothing in the subtree waits". */

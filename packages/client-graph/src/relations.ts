@@ -519,11 +519,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   /**
    * POD-4705 — the forward target `from:id` contributes on `relation`
-   * (maintenance only, call inside an action): the twin-aware slot read
+   * (untracked slot read): the twin-aware slot read
    * `one` starts from, without the target-presence check, the residency
    * observation or any fence count. Residency's lane rule resolves a
-   * member's lane through it (`LaneReader`); derivations keep reading
-   * `one`. Twins never linger for a resident source
+   * member's lane through it (`LaneReader`, inside an action). The pool's
+   * tracked formal-parent reader observes the source slot or residency
+   * address before calling this untracked; other derivations read `one`.
+   * Twins never linger for a resident source
    * (`promote` moves them on every residency gain), so the fallback cannot
    * return a stale entry post-flush.
    */

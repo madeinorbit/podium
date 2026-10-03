@@ -770,6 +770,14 @@ export class MobxPool {
     return this.model('issue', id)
   }
 
+  /** TRACKED: the declared parent key, without reading either row's fields.
+   * Only the source changes this relation: its table slot or cold residency
+   * address already reports those writes, including removal and promotion. */
+  formalParent(id: string): string | null {
+    if (this.tables.issue.get(id) === undefined) this.residency?.known('issue', id)
+    return untracked(() => this.graph.forwardTarget('issue', id, 'parent'))
+  }
+
   /**
    * TRACKED: where the row `entity:id` stands. A cold row answers `loading`
    * and is queued (first access); a reader renders that as loading, never as

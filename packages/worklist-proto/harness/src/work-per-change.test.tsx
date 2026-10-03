@@ -45,6 +45,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
+import { reaction } from 'mobx'
 import { IssueModel } from '@podium/client-graph/models'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 import type { Arm } from '../../shared/src/arm'
@@ -398,6 +399,75 @@ describe('MobX cold parent reads', () => {
 
   it('checks offscreen progress after a settled heartbeat without reading cold ancestor payloads', () => {
     assertNoLateReads(replayHeartbeat())
+  })
+
+  it('tracks declared parent changes through cold updates, removal and promotion', () => {
+    let value = issue('cold-parent', {
+      parentId: 'missing-parent', stage: 'done', closedAt: old, updatedAt: old,
+    })
+    const replay = createReplaySource({
+      issues: [{ kind: 'issue', id: value.id, value }], sessions: [], worktrees: [],
+    })
+    const read = vi.fn(replay.source.row!.bind(replay.source))
+    const locals = fixedLocals({ selectedIssueId: null, coarseNow: now })
+    const handle = harnessMobxPoolArm.create(
+      { ...replay.source, row: read }, locals.source, undefined, { schedule: () => () => {} },
+    )
+    const seen: (string | null)[] = []
+    const stop = reaction(
+      () => handle.pool.rollupInputs.rollupNode(value.id)?.formalParent ?? null,
+      parent => seen.push(parent),
+      { fireImmediately: true },
+    )
+    const update = (patch: Partial<SliceIssue>) => {
+      value = { ...value, ...patch }
+      replay.push({ type: 'update', rows: [{ kind: 'issue', id: value.id, value }] })
+    }
+    const remove = () => replay.push({
+      type: 'update', rows: [{ kind: 'issue', id: value.id, value: undefined }],
+    })
+    try {
+      expect(handle.pool.residency!.isCold('issue', value.id)).toBe(true)
+      expect(seen).toEqual(['missing-parent'])
+      read.mockClear()
+      update({ parentId: 'next-parent' })
+      update({ archived: true })
+      update({ archived: false })
+      update({ deletedAt: stamp })
+      update({ deletedAt: null })
+      expect(handle.pool.residency!.isCold('issue', value.id)).toBe(true)
+      expect(seen).toEqual([
+        'missing-parent', 'next-parent', null, 'next-parent', null, 'next-parent',
+      ])
+      remove()
+      expect(seen.at(-1)).toBeNull()
+      update({ parentId: 'readded-parent' })
+      expect(seen.at(-1)).toBe('readded-parent')
+      update({ stage: 'planning', closedAt: null, updatedAt: stamp })
+      expect(handle.pool.residency!.isCold('issue', value.id)).toBe(false)
+      update({ parentId: 'resident-parent' })
+      remove()
+      update({ stage: 'done', closedAt: old, updatedAt: old })
+      expect(handle.pool.residency!.isCold('issue', value.id)).toBe(true)
+      expect(seen.at(-1)).toBe('resident-parent')
+      update({ parentId: null })
+      update({ stage: 'planning', closedAt: null, updatedAt: stamp })
+      remove()
+      update({ stage: 'done', closedAt: old, updatedAt: old })
+      expect(handle.pool.residency!.isCold('issue', value.id)).toBe(true)
+      update({ parentId: 'cold-again-parent' })
+      expect(seen).toEqual([
+        'missing-parent', 'next-parent', null, 'next-parent', null, 'next-parent',
+        null, 'readded-parent', 'resident-parent', null, 'resident-parent', null,
+        'cold-again-parent',
+      ])
+      expect(handle.pendingLoads()).toBe(0)
+      expect(read.mock.calls).toEqual([])
+    } finally {
+      stop()
+      handle.dispose()
+      locals.dispose()
+    }
   })
 
   it('rejects the original standing-based parent getter when it is planted', () => {
