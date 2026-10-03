@@ -40,8 +40,9 @@ const reports: { name: string; status: number | null; assertion: boolean; restor
 // Formatting may change whitespace/semicolons. Locate the same exact token
 // sequence while preserving the original bytes for restoration.
 function planted(original: string, from: string, to: string) {
-  const chars = [...original], offsets = chars.flatMap((char, index) => /[\s;]/.test(char) ? [] : [index])
-  const compact = offsets.map(index => chars[index]).join(''), target = from.replace(/[\s;]/g, '')
+  const offsets: number[] = []
+  for (let index = 0; index < original.length; index++) if (!/[\s;]/.test(original[index]!)) offsets.push(index)
+  const compact = offsets.map(index => original[index]).join(''), target = from.replace(/[\s;]/g, '')
   const at = compact.indexOf(target)
   if (at < 0) throw new Error('Control target missing')
   const start = offsets[at]!, end = offsets[at + target.length - 1]! + 1
