@@ -1,3 +1,7 @@
+import '@/test-support/mock-core-store-handle'
+import '@/test-support/mock-pool-fixture'
+import { enableFixtureHeader } from '@/test-support/pool-fixture'
+enableFixtureHeader()
 // @vitest-environment happy-dom
 import { asIssueId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -76,6 +80,8 @@ vi.mock('./store', () => ({
     selector({
       ...fixture.store,
       sessions: fixture.sessions,
+      issues: [...(fixture.issue ? [fixture.issue] : []), ...fixture.extraIssues],
+      coarseNow: NOW,
       selectedIssueId: fixture.issue?.id,
     }),
 }))

@@ -57,7 +57,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
 
 const state = {
   selectedIssueId: null as string | null,
-  sessions: [] as never[],
+  sessions: [] as SliceSession[],
   issues: BASE_ISSUES,
   trpc: {
     issues: {

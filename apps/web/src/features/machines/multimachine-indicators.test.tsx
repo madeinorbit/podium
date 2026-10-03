@@ -1,3 +1,6 @@
+import '@/test-support/mock-pool-fixture'
+import { enableFixtureHeader } from '@/test-support/pool-fixture'
+enableFixtureHeader()
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**

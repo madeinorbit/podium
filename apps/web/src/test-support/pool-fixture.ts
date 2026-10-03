@@ -6,6 +6,7 @@ import { reposToViews } from '@podium/client-core/viewmodels'
 import { MobxPool } from '@podium/client-graph'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
+import { attachHeaderSource } from '@podium/client-graph/header-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
@@ -15,8 +16,17 @@ import { normalizedFixtureIssues } from './normalized-issues'
 let pool: MobxPool | null = null
 let signature: string | undefined
 let seededIssues: readonly unknown[] = []
+let headerFixture = false
+let stopHeader: (() => void) | undefined
+let fixtureState: Store
+const headerListeners = new Set<() => void>()
+
+export function enableFixtureHeader() { headerFixture = true }
 
 afterEach(() => {
+  stopHeader?.()
+  stopHeader = undefined
+  headerListeners.clear()
   pool?.dispose()
   pool = null
   signature = undefined
@@ -29,7 +39,8 @@ export function seedPoolFixture(issues: readonly unknown[]) {
 }
 
 function useFixturePool() {
-  const state = useStoreSelector((state) => state) as Store & { issues?: readonly unknown[] }
+  const state = useStoreSelector((state) => state) as Store & { issues?: readonly unknown[]; hostMetrics?: import('@podium/model/browser').HostMetricsWire[] }
+  fixtureState = { view: 'workspace', paneA: null, fileTabs: [], outboxSize: 0, ...state, machines: state.machines ?? [], repos: state.repos ?? [] } as Store
   const fixtureIssues = state.issues?.length ? state.issues : seededIssues
   const nextSignature = JSON.stringify([
     fixtureIssues,
@@ -40,6 +51,7 @@ function useFixturePool() {
     state.machines,
     state.selectedIssueId,
     state.coarseNow,
+    state.hostMetrics,
   ])
   if (!pool) {
     pool = new MobxPool({
@@ -97,6 +109,17 @@ function useFixturePool() {
       'repository',
       repositories.map((value) => value.id),
     )
+  }
+  if (headerFixture && !stopHeader) {
+    const subscribe = (listener: () => void) => { headerListeners.add(listener); return () => { headerListeners.delete(listener) } }
+    const owner = {
+      getSnapshot: () => fixtureState,
+      subscribe,
+      replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
+      hostMetrics: { getSnapshot: () => state.hostMetrics ?? [], subscribe },
+      hub: { connectionHealth: () => ({ status: 'ok', rttMs: null, since: Date.now() }), onConnectionHealth: () => () => {} },
+    }
+    stopHeader = attachHeaderSource(pool, owner as never)
   }
   return pool
 }

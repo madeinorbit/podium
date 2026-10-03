@@ -1,4 +1,4 @@
-import type { IssueReferenceSource } from '@podium/client-core/viewmodels'
+import '@/test-support/mock-pool-fixture'
 import { act, type JSX, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,7 +19,8 @@ const fixture = vi.hoisted(() => ({
 }))
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => fixture.issues as IssueReferenceSource[],
+  useStoreSelector: (select: (state: unknown) => unknown) => select({ issues: fixture.issues, sessions: [], repos: [], machines: [] }),
+  useReplicaIssues: () => { throw new Error('Legacy chip read') },
 }))
 
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => fixture }))
