@@ -3,6 +3,7 @@ import {
   REPLICA_KEY_PREFIX,
   type StorageApi,
 } from '@podium/client-core/replica'
+import type { FeedBroadcastChannel } from '@podium/client-core/live-connection'
 import { type SqlDatabaseLike, SqliteSyncStore } from '@podium/sync/adapters/mobile-sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,6 +22,7 @@ import {
   type MobileReplica,
   openMobileReplica,
 } from './MobileClientProvider'
+import { mobileAccountEraser } from './account-data'
 
 const principal = JSON.stringify(['installation-a', 'alice'])
 const opened: MobileReplica[] = []
@@ -66,6 +68,38 @@ afterEach(async () => {
 })
 
 describe('mobile shared assembly adapter', () => {
+  it('stops the cross-tab relay before the account owner erases private storage', async () => {
+    const storage = device()
+    const data = await store()
+    const channel: FeedBroadcastChannel = {
+      onmessage: null,
+      postMessage: vi.fn(),
+      close: vi.fn(),
+    }
+    const erase = data.erasePrincipal.bind(data)
+    const erased = vi.spyOn(data, 'erasePrincipal').mockImplementation(async (key) => {
+      expect(channel.close).toHaveBeenCalledOnce()
+      expect(channel.onmessage).toBeNull()
+      await erase(key)
+    })
+    const replica = await openMobileReplica({
+      api: {} as never,
+      principal,
+      storage,
+      enumerateKeys: storage.keys,
+      openStore: async () => data,
+      httpSync: httpSync(async () => new Response()),
+      onDegraded: () => {},
+      broadcastChannelFactory: () => channel,
+    })
+    opened.push(replica)
+    expect(channel.onmessage).toBeTypeOf('function')
+    await mobileAccountEraser.erase(principal)
+    expect(erased).toHaveBeenCalledExactlyOnceWith(principal)
+    await replica.dispose()
+    expect(channel.close).toHaveBeenCalledOnce()
+  })
+
   it.each([
     'unavailable',
     'degraded-memory',
