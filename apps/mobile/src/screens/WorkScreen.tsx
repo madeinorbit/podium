@@ -1,7 +1,5 @@
 import { useSlice } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MobileWorkRef, MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import {
@@ -39,6 +37,7 @@ import {
 } from 'react-native'
 import { useBooting, useIssues, useSessions, useStoreActions, useStoreSelector } from '../client/hooks'
 import { mobileDataLayer, useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
+import { resolvePoolWorkMenu, type PoolWorkMenuData } from '../lib/pool-work-menu'
 import { Icon } from '../components/Icon'
 import {
   ChevronDown,
@@ -635,31 +634,10 @@ export function PoolWorkScreen() {
     setPendingNav(rowKey)
     router.push(sessionHref(sessionId, '/work'))
   }, [router])
-  const [menu, setMenu] = useState<{ target: WorkIssueMenuTarget; issues: IssueViewModel[]; sessions: SessionView[] } | null>(null)
+  const [menu, setMenu] = useState<PoolWorkMenuData | null>(null)
   const openMenu = useCallback((issue: IssueNavigationModel, lane: WorkIssueMenuTarget['lane'] = 'live') => {
     if (!pool) return
-    const value = pool.mobileWork.row({ kind: 'issue', id: issue.id })
-    if (!value || typeof value === 'symbol' || !value.sidebar) return
-    // Menus acquire their full compatibility data only on the gesture. Every
-    // row still uses the pool's one reader; no legacy selector is subscribed.
-    const issues = [...pool.tables.issue.keys()].flatMap(id => {
-      const row = pool.mobileWork.row({ kind: 'issue', id })
-      if (!row || typeof row === 'symbol' || !row.sidebar) return []
-      const children = [...pool.graph.many('issue', id, 'treeChildren')]
-      return [{ ...row.sidebar.issue, memberSessionIds: [...pool.graph.many('issue', id, 'sessions')],
-        childIds: children, childCount: children.length,
-        childDoneCount: children.filter(child => {
-          const detail = pool.row('issue', child)
-          return detail && typeof detail !== 'symbol' && Reflect.get(detail, 'stage') === 'done'
-        }).length } as unknown as IssueViewModel]
-    })
-    const sessions = [...pool.tables.session.keys()].flatMap(id => {
-      const row = pool.model('session', id)?.verdict
-      return row && typeof row !== 'symbol' && row.sidebarSession ? [row.sidebarSession as unknown as SessionView] : []
-    })
-    const target = issues.find(row => row.id === issue.id)
-    if (!target) return
-    setMenu({ target: { issue: target, lane, canBringBack: value.sidebar.canBringBack }, issues, sessions })
+    setMenu(resolvePoolWorkMenu(pool, issue.id, lane))
   }, [pool])
   const openLiveMenu = useCallback((issue: IssueNavigationModel) => openMenu(issue), [openMenu])
   const tuck = useCallback((id: string) => void setIssueTucked(id, true), [setIssueTucked])
