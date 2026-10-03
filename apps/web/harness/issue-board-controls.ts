@@ -1,7 +1,7 @@
 /** Foreground, focused planted failures; private flatblock checkout only. */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { hostname } from 'node:os'
+import { hostname, loadavg } from 'node:os'
 import { resolve } from 'node:path'
 
 if (hostname() !== 'flatblock' || !process.cwd().endsWith('/podium-test-5080'))
@@ -253,7 +253,9 @@ function planted(original: string, from: string, to: string) {
     end = offsets[at + target.length - 1]! + 1
   return original.slice(0, start) + to + original.slice(end)
 }
-for (const control of cases) {
+const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice(7)
+for (const control of cases.filter((control) => !only || control.name === only)) {
+  while (loadavg()[0]! > 8) await new Promise((done) => setTimeout(done, 5000))
   const path = resolve(control.file),
     original = readFileSync(path, 'utf8'),
     aside = resolve(root, `${control.name}.aside`)

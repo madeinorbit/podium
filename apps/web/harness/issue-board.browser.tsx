@@ -94,32 +94,33 @@ function Fixture() {
   const runtime = useStoreHandle() as ClientRuntime
   initializePoolScreens(runtime.ui)
   owner = runtime
-  pool = useWorklistPool()
+  const currentPool = useWorklistPool()
+  pool = currentPool
   const [surface, setSurface] = useState<'closed' | 'board' | 'explorer'>('closed')
   useEffect(() => {
     void runtime
       .getSnapshot()
       .refreshRepos()
       .then(() => {
-        ready = pool !== null
+        ready = currentPool !== null
       })
     return () => {
       ready = false
     }
-  }, [runtime, pool])
+  }, [runtime, currentPool])
   return (
     <OperatorFocusProvider missionId={null}>
       <IssueExplorerProvider>
         <ToolbarSlotProvider>
           <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
             <div style={{ display: 'flex', minHeight: 42, gap: 12 }}>
-              <button data-board-open onClick={() => setSurface('board')}>
+              <button type="button" data-board-open onClick={() => setSurface('board')}>
                 Open board
               </button>
-              <button data-explorer-open onClick={() => setSurface('explorer')}>
+              <button type="button" data-explorer-open onClick={() => setSurface('explorer')}>
                 Open explorer
               </button>
-              <button data-board-close onClick={() => setSurface('closed')}>
+              <button type="button" data-board-close onClick={() => setSurface('closed')}>
                 Close
               </button>
               <ToolbarSlotTarget />
