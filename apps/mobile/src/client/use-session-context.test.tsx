@@ -7,6 +7,7 @@ import { allIssueViewModels } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SessionCardModel } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
+import { chatContextReadStats } from '@podium/client-graph/chat-context'
 import { checkMobileSessionContext } from '@podium/client-graph/diagnostics/mobile-session-check'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import {
@@ -27,12 +28,14 @@ import type { MobilePool } from './mobile-pool'
 
 type ComposerProps = ComponentProps<typeof import('../components/Composer').Composer>
 type TerminalDomProps = ComponentProps<typeof import('../terminal/TerminalDom').default>
+type TaskSheetProps = ComponentProps<typeof import('../components/TaskSheet').TaskSheet>
 
 const seams = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
   terminalInputs: [] as { enabled: boolean; initialGeometry?: { cols: number; rows: number } }[],
   nativeInputs: [] as TerminalDomProps[],
-  transcriptInputs: [] as { pendingTurns?: readonly PendingTurn[]; answerInteractionId?: string }[],
+  transcriptInputs: [] as { pendingTurns?: readonly PendingTurn[]; answerInteractionId?: string; onRefPress?: (ref: string) => void }[],
+  sheet: undefined as TaskSheetProps | undefined,
   route: 'synthetic-session-0',
   replace: vi.fn(),
 }))
@@ -131,12 +134,15 @@ vi.mock('../components/PullToRefreshBoundary', () => ({
 }))
 vi.mock('../components/SessionLifecycle', () => ({ MobileSessionLifecycle: () => null }))
 vi.mock('../components/TaskSheet', () => ({
-  TaskSheet: ({ issue }: { issue: IssueViewModel | null }) =>
-    issue ? (
+  TaskSheet: (props: TaskSheetProps) => {
+    seams.sheet = props
+    const { issue } = props
+    return issue ? (
       <aside>
         {issue.title}:{issue.description}
       </aside>
-    ) : null,
+    ) : null
+  },
 }))
 vi.mock('../components/PendingInteractionBand', () => ({ PendingInteractionBand: () => null }))
 vi.mock('../components/SessionCard', () => ({
@@ -201,6 +207,7 @@ vi.mock('@podium/terminal-client-react', () => ({
 const { createMobilePool, useMobilePool } = await import('./mobile-pool')
 const hooks = await import('./use-session-context')
 const { SessionScreen } = await import('../screens/SessionScreen')
+const { SessionConversation } = await import('../components/SessionConversation')
 const { SessionsScreen } = await import('../screens/SessionsScreen')
 const { TerminalPane: WebPane } = await import('../terminal/TerminalPane.web')
 const { TerminalPane: NativePane } = await import('../terminal/TerminalPane.native')
@@ -219,6 +226,7 @@ beforeEach(() => {
   seams.terminalInputs.length = 0
   seams.nativeInputs.length = 0
   seams.transcriptInputs.length = 0
+  seams.sheet = undefined
 })
 afterEach(() => {
   cleanup()
@@ -240,7 +248,12 @@ function rendered(node: Node): unknown {
   }
 }
 
-async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false) {
+async function mount(
+  on: boolean,
+  screen: 'all' | 'probe' | 'conversation' = 'all',
+  cold = false,
+  onOpenTerminalRef?: (issue: IssueViewModel) => void,
+) {
   const host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
   seams.host = host
   const data = createHeaderFixture(12),
@@ -343,12 +356,19 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
       </output>
     )
   }
+  function Conversation() {
+    const session = hooks.useSessionContextSession(SID)
+    const issue = hooks.useSessionContextIssue(session?.issueId)
+    return session ? <SessionConversation session={session} issue={issue} onOpenTerminalRef={onOpenTerminalRef} /> : null
+  }
   function Surface() {
     runtime = useStoreHandle() as ClientRuntime
     host.initialize(runtime.ui)
     seen.push(useMobilePool())
     return screen === 'probe' ? (
       <Probe />
+    ) : screen === 'conversation' ? (
+      <Conversation />
     ) : (
       <>
         <SessionScreen />
@@ -389,7 +409,7 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
       () => expect(seen.at(-1)?.row('mobileSessionReader', 'reader')).toBeTypeOf('object'),
       { timeout: 10000 },
     )
-  if (screen === 'all')
+  if (screen !== 'probe')
     await waitFor(
       () =>
         expect((view.getByLabelText('Draft') as HTMLInputElement).value).toBe(
@@ -418,6 +438,52 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
     },
   }
 }
+
+it('opens a conversation with zero mention reads, then matches the legacy reference and open-sheet catalogs', async () => {
+  const legacy = await mount(false, 'conversation')
+  await act(async () => seams.transcriptInputs.at(-1)!.onRefPress!('SYN-1001'))
+  await waitFor(() => expect(seams.sheet?.issue?.id).toBe('synthetic-1'))
+  const expected = {
+    issue: { id: seams.sheet!.issue!.id, title: seams.sheet!.issue!.title },
+    issues: seams.sheet!.issues.map(row => row.id),
+    sessions: seams.sheet!.sessions.map(row => row.sessionId),
+  }
+  legacy.view.unmount()
+  const enabled = await mount(true, 'conversation')
+  const counts = chatContextReadStats(enabled.pool())
+  expect(counts).toEqual({
+    mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
+  })
+  await act(async () => seams.transcriptInputs.at(-1)!.onRefPress!('SYN-1001'))
+  await waitFor(() => expect(seams.sheet?.issue?.id).toBe('synthetic-1'))
+  expect({
+    issue: { id: seams.sheet!.issue!.id, title: seams.sheet!.issue!.title },
+    issues: seams.sheet!.issues.map(row => row.id),
+    sessions: seams.sheet!.sessions.map(row => row.sessionId),
+  }).toEqual(expected)
+  expect(counts.mentionBuilds).toBeGreaterThan(0)
+  expect(counts.mentionIssueReads).toBeGreaterThan(0)
+  expect(counts.referenceSessionReads).toBeGreaterThan(0)
+  await act(async () => seams.sheet!.onClose())
+  const closedCounts = { ...counts }
+  await act(async () => enabled.data.patch('issueProjection', 'synthetic-0', { title: 'Conversation update' }))
+  expect(counts).toEqual(closedCounts)
+  expect(enabled.errors).toEqual([])
+}, 30_000)
+
+it('resolves a cold terminal reference without building either conversation catalog', async () => {
+  const onOpen = vi.fn()
+  const enabled = await mount(true, 'conversation', false, onOpen)
+  const counts = chatContextReadStats(enabled.pool())
+  await act(async () => seams.transcriptInputs.at(-1)!.onRefPress!('SYN-1001'))
+  await waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1))
+  expect(onOpen.mock.calls[0]![0]).toMatchObject({ id: 'synthetic-1' })
+  expect(seams.sheet?.issue).toBeNull()
+  expect(counts).toEqual({
+    mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
+  })
+  expect(enabled.errors).toEqual([])
+}, 30_000)
 
 it('renders the same six phone readers through real late attachment with no React errors', async () => {
   const legacy = await mount(false),

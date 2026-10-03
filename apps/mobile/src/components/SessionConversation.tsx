@@ -32,11 +32,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import { useHub } from '../client/hooks'
+import { mobileDataLayer } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextIssues as useIssues,
   useSessionContextMachines as useMachines,
   useSessionContextIssue,
+  useSessionContextReferenceIssue,
   useSessionContextQuestion,
   useSessionConversationPorts,
   useSessionContextDraft as useSessionDraft,
@@ -171,8 +173,19 @@ export function SessionConversation({
     }
   }, [storeHandle])
   const hub = useHub()
-  const issues = useIssues()
-  const allSessions = useSessions()
+  const [peekIssue, setPeekIssue] = useState<IssueViewModel | null>(null)
+  const [requestedRef, setRequestedRef] = useState<string | undefined>(undefined)
+  // Catalogs belong to the open inspector, not conversation startup.
+  const issues = useIssues(peekIssue !== null)
+  const allSessions = useSessions(peekIssue !== null)
+  const referencedIssue = useSessionContextReferenceIssue(requestedRef)
+  useEffect(() => {
+    if (requestedRef === undefined || referencedIssue === undefined) return
+    setRequestedRef(undefined)
+    if (referencedIssue === null) return
+    if (onOpenTerminalRef) onOpenTerminalRef(referencedIssue)
+    else setPeekIssue(referencedIssue)
+  }, [requestedRef, referencedIssue, onOpenTerminalRef])
   const machines = useMachines()
   const sessionId = session.sessionId
   const machineName = session.machineName
@@ -384,7 +397,6 @@ export function SessionConversation({
   // growing the field does not relayout the transcript under the operator.
   const [composerHeight, setComposerHeight] = useState(0)
   const [askHeight, setAskHeight] = useState(0)
-  const [peekIssue, setPeekIssue] = useState<IssueViewModel | null>(null)
   useEffect(() => {
     if (deferInitialTranscript) return
     void transcriptController.start()
@@ -710,6 +722,10 @@ export function SessionConversation({
               loadingOlder={transcript.loadingOlder}
               onFollowChange={followTranscript}
               onRefPress={(ref) => {
+                if (mobileDataLayer() === 'pool') {
+                  setRequestedRef(ref)
+                  return
+                }
                 const seq = Number(ref.slice(4))
                 const target = issues.find((i) => i.seq === seq)
                 if (!target) return

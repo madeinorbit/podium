@@ -9,20 +9,39 @@ import type { Loaded } from './worklist/rollup'
 
 // Loaded by the screen attachment only. Web hooks import the reader's type.
 export const loading = (row: unknown): row is symbol => typeof row === 'symbol'
+
+// Cumulative diagnostics only: no rows, observable state or subscriptions.
+const readCounts = new WeakMap<MobxPool, {
+  mentionBuilds: number
+  mentionIssueReads: number
+  referenceBuilds: number
+  referenceSessionReads: number
+}>()
+export function chatContextReadStats(pool: MobxPool) {
+  let counts = readCounts.get(pool)
+  if (!counts) {
+    counts = { mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0 }
+    readCounts.set(pool, counts)
+  }
+  return counts
+}
 export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
-  const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
+  const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
   if (!row || loading(row)) return row
   const repoId = pool.relations.one('issue', id, 'repo')
   const repo = repoId ? pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
   return { ...row, prefix: repo?.prefix, displayRef: repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}` }
 }
 export function chatMentionIssues(pool: MobxPool) {
+  const counts = chatContextReadStats(pool)
+  counts.mentionBuilds++
   const order = pool.row('chatIssueOrder', 'order')
   const issues: IssueViewModel[] = []
   let pending = loading(order) ? 1 : 0
   if (!order || loading(order)) return { issues, pending }
   const known = pool.queries.ids({ kind: 'mentionIssues' }), present = new Set(known)
   for (const id of new Set([...order.ids.filter(id => present.has(id)), ...known])) {
+    counts.mentionIssueReads++
     const row = chatIssue(pool, id)
     if (loading(row)) pending++
     else if (row && !row.deletedAt) issues.push(row)
@@ -69,13 +88,16 @@ export function chatArtifactIssue(pool: MobxPool, session: Pick<SessionView, 'is
   return issue && !loading(issue) && issue.deletedAt ? undefined : issue
 }
 export function chatReferenceSessions(pool: MobxPool) {
+  const counts = chatContextReadStats(pool)
+  counts.referenceBuilds++
   const order = pool.row('chatSessionOrder', 'order')
   const sessions: SessionView[] = []
   let pending = loading(order) ? 1 : 0
   if (!order || loading(order)) return { sessions, pending }
   const known = pool.queries.ids({ kind: 'referenceSessions' }), present = new Set(known)
   for (const id of new Set([...order.ids.filter(id => present.has(id)), ...known])) {
-    const row = pool.row('session', id, 'summary') as Loaded<SessionView>
+    counts.referenceSessionReads++
+    const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
     if (loading(row)) pending++
     else if (row) sessions.push(row)
   }

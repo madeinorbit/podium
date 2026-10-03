@@ -1,0 +1,86 @@
+import { afterEach, expect, it, vi } from 'vitest'
+import { chatContextReadStats, createChatContextReader } from './chat-context'
+import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
+import { MobxPool } from './pool'
+import { LOADING } from './worklist/rollup'
+
+const pools: MobxPool[] = []
+afterEach(() => {
+  for (const pool of pools.splice(0)) pool.dispose()
+  vi.restoreAllMocks()
+})
+
+function fixture() {
+  const issues = ['first', 'second', 'deleted'].map((id, index) => ({
+    id, seq: index + 1, title: 'Matching task', repoId: 'repo',
+    stage: 'done', archived: true, deletedAt: id === 'deleted' ? '2020-01-01T00:00:00Z' : undefined,
+    closedAt: '2020-01-01T00:00:00Z', createdAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
+  }))
+  const sessions = ['first-session', 'second-session'].map((sessionId, index) => ({
+    sessionId, issueId: issues[index]!.id, cwd: '/synthetic', title: sessionId,
+    agentKind: 'codex', status: 'exited', archived: true, headless: false,
+    lastActiveAt: '2020-01-01T00:00:00Z', stoppedAt: '2020-01-01T00:00:00Z',
+  }))
+  const load = vi.fn((entity: string, id: string) => entity === 'issue'
+    ? issues.find(row => row.id === id) : sessions.find(row => row.sessionId === id))
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-03T00:00:00Z') }, undefined, {
+    load, summaries: CHAT_CONTEXT_SUMMARIES, schedule: () => () => {},
+  })
+  pools.push(pool)
+  pool.apply({ type: 'replace', rows: [
+    { kind: 'repo', id: 'repo', value: { id: 'repo', path: '/synthetic', prefix: 'POD' } },
+    ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
+    ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
+  ] })
+  pool.sources.register(['chatIssueOrder', 'chatSessionOrder'], {
+    read: entity => ({ ids: entity === 'chatIssueOrder'
+      ? ['second', 'first', 'deleted'] : ['second-session', 'first-session'] }),
+    dispose() {},
+  })
+  return { pool, load }
+}
+
+it('constructs no mention candidates until demand, then preserves candidates and replica order using fields only', () => {
+  const { pool, load } = fixture()
+  const row = vi.spyOn(pool, 'row'), summary = vi.spyOn(pool.residency!, 'summary')
+  const reader = createChatContextReader(pool)
+  expect(chatContextReadStats(pool)).toEqual({
+    mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
+  })
+  expect(row).not.toHaveBeenCalled()
+  const mentions = reader.mentions()
+  expect(mentions.pending).toBe(0)
+  expect(mentions.issues.map(({ id, seq, title, archived, displayRef }) => ({ id, seq, title, archived, displayRef }))).toEqual([
+    { id: 'second', seq: 2, title: 'Matching task', archived: true, displayRef: 'POD-2' },
+    { id: 'first', seq: 1, title: 'Matching task', archived: true, displayRef: 'POD-1' },
+  ])
+  expect(reader.sessions()).toMatchObject({ pending: 0, sessions: [
+    { sessionId: 'second-session' }, { sessionId: 'first-session' },
+  ] })
+  expect(chatContextReadStats(pool)).toMatchObject({
+    mentionBuilds: 1, mentionIssueReads: 3, referenceBuilds: 1, referenceSessionReads: 2,
+  })
+  expect(summary.mock.calls.length).toBeGreaterThan(0)
+  expect(summary.mock.calls.every(([, , decorate]) => decorate === false)).toBe(true)
+  expect(row.mock.calls.filter(([entity]) => entity === 'issue' || entity === 'session')
+    .every(([, , purpose]) => purpose === 'summary-fields')).toBe(true)
+  expect(pool.tables.issue.size).toBe(0)
+  expect(pool.tables.session.size).toBe(0)
+  expect(pool.hydrate()).toBe(0)
+  expect(load).not.toHaveBeenCalled()
+})
+
+it('keeps a known missing mention summary pending and coalesces its batched load', () => {
+  const { pool, load } = fixture()
+  const reader = createChatContextReader(pool)
+  const summary = pool.residency!.summary.bind(pool.residency!)
+  vi.spyOn(pool.residency!, 'summary').mockImplementation((entity, id, decorate) =>
+    entity === 'issue' && id === 'first' ? undefined : summary(entity, id, decorate))
+  expect(reader.issue('first')).toBe(LOADING)
+  expect(reader.mentions()).toMatchObject({ pending: 1, issues: [{ id: 'second' }] })
+  expect(reader.mentions().pending).toBe(1)
+  expect(load).not.toHaveBeenCalled()
+  expect(pool.hydrate()).toBe(1)
+  expect(load).toHaveBeenCalledTimes(1)
+  expect(reader.mentions()).toMatchObject({ pending: 0, issues: [{ id: 'second' }, { id: 'first' }] })
+})

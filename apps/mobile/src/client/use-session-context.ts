@@ -84,29 +84,55 @@ export function useSessionContextIssue(id: string | undefined) {
   const useRead = mobileDataLayer() === 'pool' ? usePoolIssue : useLegacyIssue
   return useRead(id)
 }
+/** A clicked transcript reference uses the existing identity reader/load
+ * window. Undefined stays loading; null is a resolved missing reference. */
+export function useSessionContextReferenceIssue(ref: string | undefined) {
+  const read = useCallback(
+    (pool: MobxPool): IssueViewModel | null | undefined => {
+      if (ref === undefined) return undefined
+      const id = pool.references.id(ref)
+      if (pending(id) || id === undefined) return undefined
+      if (id === null) return null
+      const reader = pool.row('mobileSessionReader', 'reader')
+      if (!reader || pending(reader)) return undefined
+      const row = reader.issue(id)
+      return pending(row) ? undefined : (row ?? null)
+    },
+    [ref],
+  )
+  return useMobilePoolProjection(read, undefined)
+}
 function useLegacySessions() {
   useLegacyRead()
   return useSessions()
 }
 const sessionsRead = (reader: Reader) => reader.sessions().sessions
-function usePoolSessions() {
-  return useRead(sessionsRead, EMPTY_SESSIONS)
+function usePoolSessions(active = true) {
+  const read = useCallback(
+    (reader: Reader) => active ? sessionsRead(reader) : EMPTY_SESSIONS,
+    [active],
+  )
+  return useRead(read, EMPTY_SESSIONS)
 }
-export function useSessionContextSessions() {
+export function useSessionContextSessions(active = true) {
   const useRead = mobileDataLayer() === 'pool' ? usePoolSessions : useLegacySessions
-  return useRead()
+  return useRead(active)
 }
 function useLegacyIssues() {
   useLegacyRead()
   return useIssues()
 }
 const issuesRead = (reader: Reader) => reader.issues().issues
-function usePoolIssues() {
-  return useRead(issuesRead, EMPTY_ISSUES)
+function usePoolIssues(active = true) {
+  const read = useCallback(
+    (reader: Reader) => active ? issuesRead(reader) : EMPTY_ISSUES,
+    [active],
+  )
+  return useRead(read, EMPTY_ISSUES)
 }
-export function useSessionContextIssues() {
+export function useSessionContextIssues(active = true) {
   const useRead = mobileDataLayer() === 'pool' ? usePoolIssues : useLegacyIssues
-  return useRead()
+  return useRead(active)
 }
 function useLegacyMachines() {
   useLegacyRead()

@@ -18,6 +18,7 @@ import {
 import type { SessionView } from '@podium/client-core/session-values'
 import { missionLegacyStats } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { chatContextReadStats } from '@podium/client-graph/chat-context'
 import { asIssueId, asSessionId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -477,6 +478,9 @@ it.each([
     )
     const missions = missionLegacyStats.read()
     if (on) {
+      expect(chatContextReadStats(state.pool!), phase).toEqual({
+        mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
+      })
       expect(rows, phase).toBe(0)
       expect(missions.indexMissionSessions, phase).toBe(0)
       expect(missions.missionIssueIds, phase).toBe(0)
@@ -664,5 +668,8 @@ it('a cold conversation renders its declared joined machine name without loading
     ),
   )
   expect(state.pool!.tables.session.has(id)).toBe(false)
+  expect(chatContextReadStats(state.pool!)).toEqual({
+    mentionBuilds: 0, mentionIssueReads: 0, referenceBuilds: 0, referenceSessionReads: 0,
+  })
   expect(state.errors).toEqual([])
 }, 30_000)
