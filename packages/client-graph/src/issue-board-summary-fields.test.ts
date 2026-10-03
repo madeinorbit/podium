@@ -44,6 +44,7 @@ it('keeps existing worklist decoration and returns declared fields without copyi
     const decorated = pool.row('issue', 'cold', 'summary')
     const fields = pool.row('issue', 'cold', 'summary-fields')
     expect(decorated).toHaveProperty('flatUntil')
+    expect(pool.residency?.summary('issue', 'cold')).toHaveProperty('flatUntil')
     expect(fields).not.toHaveProperty('flatUntil')
     expect(fields).toMatchObject({ title: 'Declared title', archived: true })
     expect(fields).not.toHaveProperty('privateBody')

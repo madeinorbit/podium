@@ -266,7 +266,17 @@ const cases = [
 ]
 const git = (...args: string[]) =>
   execFileSync('git', ['-c', 'gc.auto=0', ...args], { stdio: 'pipe' })
-const reports: { name: string; status: number | null; assertion: boolean; restored: boolean }[] = []
+type Report = { name: string; status: number | null; assertion: boolean; restored: boolean }
+const from = process.argv.find((arg) => arg.startsWith('--from='))?.slice(7)
+const start = from ? cases.findIndex((control) => control.name === from) : 0
+if (start < 0) throw new Error('Unknown continuation control')
+const reports: Report[] = from
+  ? (JSON.parse(readFileSync(resolve(root, 'report.json'), 'utf8')) as Report[]).filter(
+      (report) => cases.findIndex((control) => control.name === report.name) < start,
+    )
+  : []
+if (from && (reports.length !== start || reports.some((report) => !report.assertion || !report.restored)))
+  throw new Error('Incomplete earlier controls')
 // Formatting may change whitespace/semicolons. Locate the same exact token
 // sequence while preserving the original bytes for restoration.
 function planted(original: string, from: string, to: string) {
@@ -287,7 +297,7 @@ function planted(original: string, from: string, to: string) {
   return original.slice(0, start) + to + original.slice(end)
 }
 const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice(7)
-for (const control of cases.filter((control) => !only || control.name === only)) {
+for (const control of cases.filter((control, index) => index >= start && (!only || control.name === only))) {
   while (loadavg()[0]! > 8) await new Promise((done) => setTimeout(done, 5000))
   const path = resolve(control.file),
     original = readFileSync(path, 'utf8'),
