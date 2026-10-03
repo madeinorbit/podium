@@ -54,10 +54,10 @@ vi.mock('@/features/chat/ChatView', () => ({ ChatView: () => <div>Existing trans
 vi.mock('./SessionWatchers', () => ({ SessionWatchers: () => null }))
 vi.mock('@/components/GitStamp', () => ({ GitStamp: () => null }))
 vi.mock('@/lib/ModelEffortPicker', () => ({
-  ModelPicker: ({ value }: { value: string }) => <button data-model={value}>{value}</button>,
-  EffortPicker: ({ value }: { value: string }) => <button data-effort={value}>{value}</button>,
+  ModelPicker: ({ value }: { value: string }) => <button type="button" data-model={value}>{value}</button>,
+  EffortPicker: ({ value }: { value: string }) => <button type="button" data-effort={value}>{value}</button>,
 }))
-vi.mock('@/lib/SnoozeControl', () => ({ SnoozeControl: () => <button>Snooze</button> }))
+vi.mock('@/lib/SnoozeControl', () => ({ SnoozeControl: () => <button type="button">Snooze</button> }))
 vi.mock('./use-terminal-appearance', () => ({
   useTerminalAppearance: () => ({ settings: {}, appearance: { theme: { background: '#000' } } }),
 }))
