@@ -1,8 +1,5 @@
 import { vi } from 'vitest'
-import { borrowPoolFixtureInputs } from '@/test-support/mock-screen-pool'
-import { fakeStoreHandle } from './fake-store-handle'
-
-borrowPoolFixtureInputs(() => fakeStoreHandle.getSnapshot() as never, fakeStoreHandle.subscribe)
+import './pool-fixture'
 
 // Focused ChatView suites replace the web store and mount no client-core
 // StoreProvider. Keep the production hooks strict while supplying the two

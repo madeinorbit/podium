@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import '@/test-support/model-catalog-mock'
 import '@/test-support/mock-core-store-handle'
+import '@/test-support/mock-command-launch'
 import { NewIssueDialog } from './NewIssueDialog'
 
 // Typed input so the assertions below can read back the payload create received.

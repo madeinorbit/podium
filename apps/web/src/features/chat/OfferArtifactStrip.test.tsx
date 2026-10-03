@@ -10,6 +10,7 @@ import {
 import { act, Profiler, useRef, useSyncExternalStore } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import '@/test-support/mock-screen-pool'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 
 // Offer evidence thumbnails [POD-120]: ≤3 thumbs + "+N", media click opens the

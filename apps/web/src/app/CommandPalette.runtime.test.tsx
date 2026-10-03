@@ -8,6 +8,7 @@ import { afterEach, expect, it } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { createSidebarFixture } from '../../test/sidebar-fixture'
 import { CommandPalette } from './CommandPalette'
+import { attachWorklistPool } from './store-worklist-pool'
 
 let runtime: ClientRuntime
 function Capture() {
@@ -26,6 +27,7 @@ it('settles palette renders and preserves hover until the commands change', asyn
       config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
       api={fixture.api}
       createReplicaFn={() => fixture.replica}
+      attachRuntime={attachWorklistPool}
       networkEnabled={false}
       onFatalError={(message) => {
         throw new Error(message)

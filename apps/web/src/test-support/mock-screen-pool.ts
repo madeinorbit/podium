@@ -18,6 +18,26 @@ let borrowed: { read(): Inputs; subscribe(wake: () => void): () => void } = {
   subscribe: none,
 }
 const useFixtureIssues = 'useReplicaIssues' in storeInputs ? storeInputs.useReplicaIssues : () => []
+const selectInputs = (state: Store): Inputs => ({
+  sessions: state.sessions,
+  machines: state.machines,
+  repos: state.repos,
+  drafts: state.drafts,
+  attachedSessionId: state.attachedSessionId,
+  transcriptReveal: state.transcriptReveal,
+  messageRecords: state.messageRecords,
+  pendingInteractions: state.pendingInteractions,
+  superThreads: state.superThreads,
+  superThreadId: state.superThreadId,
+  paneA: state.paneA,
+  selectedWorktree: state.selectedWorktree,
+  issueEvents: state.issueEvents,
+  readPosition: state.readPosition,
+  uiState: state.uiState,
+  replica: state.replica,
+  chatSendsFor: state.chatSendsFor,
+  settingsTab: state.settingsTab,
+})
 
 /** Provider-free component suites supply already-loaded, synthetic rows.
  * Production reader, batching and lifecycle coverage uses the real-provider
@@ -30,7 +50,7 @@ export function borrowPoolFixtureInputs(
 }
 
 function useFixturePool(): MobxPool {
-  const state = storeInputs.useStoreSelector((value) => value) as Inputs
+  const state = storeInputs.useStoreSelector(selectInputs, isDeepStrictEqual)
   const issues = useFixtureIssues()
   const live = useRef({ state, issues })
   live.current = { state: { ...state, ...borrowed.read() }, issues }
