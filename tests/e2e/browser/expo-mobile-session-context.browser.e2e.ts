@@ -242,8 +242,11 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
           title: `Synthetic phone agent ${index}`,
           archived: index >= 32,
           status: index >= 32 ? 'exited' : 'live',
-          lastActiveAt: '2020-01-01T00:00:00Z',
-          stoppedAt: '2020-01-01T00:00:00Z',
+          lastActiveAt: index >= 32 ? '2020-01-01T00:00:00Z' : new Date().toISOString(),
+          stoppedAt: index >= 32 ? '2020-01-01T00:00:00Z' : undefined,
+          ...(seat.value.resume && typeof seat.value.resume === 'object'
+            ? { resume: { ...seat.value.resume, value: `phone-synthetic-resume-${index}` } }
+            : {}),
         },
       })
     }
