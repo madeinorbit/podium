@@ -464,7 +464,13 @@ afterAll(() => vi.unstubAllEnvs())
 
 describe('mobile WorkScreen pool consumer', () => {
   it('keeps archived long-press payload reads absent and the raw delete count exact at 1x and 4x', async () => {
-    const cells: { scale: number; neighbours: number; rowReads: number; archivedReads: number; derivations: number }[] = []
+    const cells: {
+      scale: number
+      neighbours: number
+      rowReads: number
+      archivedReads: number
+      derivations: number
+    }[] = []
     for (const scale of [1, 4] as const) {
       const corpus = clickCorpus(scale)
       const member = corpus.sessions.find(
