@@ -88,6 +88,26 @@ const controls = [
     '.sort((a, b) => a > b ? -1 : a < b ? 1 : 0)',
     'packages/client-core/src/replica/kernel/issue-ref-index.test.ts',
   ],
+  [
+    'triage bucket',
+    views,
+    'summary.archived || summary.headless || summary.agentKind',
+    'summary.archived || false || summary.agentKind',
+  ],
+  ['screening ancestor', views, '!underProposal(issue)', 'true'],
+  [
+    'card, triage',
+    views,
+    'a.priority - b.priority || b.seq - a.seq',
+    'b.priority - a.priority || b.seq - a.seq',
+  ],
+  ['shares prefix work', views, 'prefixes.prefixes.includes(prefix)', 'true'],
+  [
+    'existing cursor subscription',
+    source,
+    'hasCursor = this.runtime.replica.getCursor() !== null',
+    'hasCursor = false',
+  ],
 ] as const
 const fromArg = process.argv.indexOf('--from')
 const from = fromArg < 0 ? 0 : controls.findIndex(([name]) => name === process.argv[fromArg + 1])
