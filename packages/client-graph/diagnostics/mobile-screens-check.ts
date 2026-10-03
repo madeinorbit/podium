@@ -48,8 +48,15 @@ export interface MobileScreenCheck {
   worktreePaths?: string[]
 }
 export interface MobileLegacyReads {
-  taskBoardSections(issues: IssueViewModel[], options: Omit<MobileTasksOptions, 'expanded'> & { expanded: ReadonlySet<string> }): MobileTasksData['board']
-  taskBoardProgress(issues: readonly IssueViewModel[], sections: MobileTasksData['board'], working: ReadonlyMap<string, number>): MobileTasksData['progressByIssue']
+  taskBoardSections(
+    issues: IssueViewModel[],
+    options: Omit<MobileTasksOptions, 'expanded'> & { expanded: ReadonlySet<string> },
+  ): MobileTasksData['board']
+  taskBoardProgress(
+    issues: readonly IssueViewModel[],
+    sections: MobileTasksData['board'],
+    working: ReadonlyMap<string, number>,
+  ): MobileTasksData['progressByIssue']
   buildScreeningQueue(issues: IssueViewModel[]): IssueViewModel[]
   mostRelevantSession(sessions: readonly SessionView[]): SessionView | undefined
 }
@@ -58,17 +65,27 @@ export function trackMobileScreenRead<T>(read: () => T): T {
   let value!: T
   let failure: { error: unknown } | undefined
   const stop = autorun(() => {
-    try { value = read() } catch (error) { failure = { error } }
+    try {
+      value = read()
+    } catch (error) {
+      failure = { error }
+    }
   })
   stop()
   if (failure) throw failure.error
   return value
 }
 export function observeMobileScreens(pool: MobxPool, input: MobileScreenCheck): () => void {
-  return reaction(() => poolMobileScreensSnapshot(pool, input), () => {}, { fireImmediately: true })
+  return reaction(
+    () => poolMobileScreensSnapshot(pool, input),
+    () => {},
+    { fireImmediately: true },
+  )
 }
 const fields = (value: object, keys: readonly string[]) =>
-  Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? (key === 'labels' ? [] : null)]))
+  Object.fromEntries(
+    keys.map((key) => [key, Reflect.get(value, key) ?? (key === 'labels' ? [] : null)]),
+  )
 const BOARD_FIELDS = [
   'seq',
   'displayRef',
@@ -264,10 +281,12 @@ export function legacyMobileScreensSnapshot(
 ): SidebarSnapshot {
   const { taskBoardSections, taskBoardProgress, buildScreeningQueue } = input.legacy
   issues = deadlineIssues(issues, now)
-  const board = input.tasks ? taskBoardSections(issues, {
-    ...input.tasks,
-    expanded: new Set(input.tasks.expanded),
-  }) : []
+  const board = input.tasks
+    ? taskBoardSections(issues, {
+        ...input.tasks,
+        expanded: new Set(input.tasks.expanded),
+      })
+    : []
   const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
   const root = input.selectedId ? missionRootFor(issues, asIssueId(input.selectedId)) : undefined
   const paths = input.worktreePaths ?? []

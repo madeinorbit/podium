@@ -7,10 +7,10 @@ import { missionRootFor, reposToViews } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
   checkMobileScreens,
-  observeMobileScreens,
-  trackMobileScreenRead as tracked,
   type MobileScreenCheck,
+  observeMobileScreens,
   poolMobileScreensSnapshot,
+  trackMobileScreenRead as tracked,
 } from '@podium/client-graph/diagnostics/mobile-screens-check'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'

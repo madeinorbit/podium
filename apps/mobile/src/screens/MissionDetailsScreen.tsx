@@ -54,7 +54,10 @@ export function MissionDetailsScreen() {
   const rawId = Array.isArray(params.missionId) ? params.missionId[0] : params.missionId
   const rawSession = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
   const missionId = asIssueId(decodeURIComponent(rawId ?? ''))
-  const { root, issues, sessions, missionSessions, resolved } = useMissionScreenData(missionId, 'details')
+  const { root, issues, sessions, missionSessions, resolved } = useMissionScreenData(
+    missionId,
+    'details',
+  )
   const store = useStoreActions()
   const router = useRouter()
   // The app latches this choice before mounting signed-in screens. An attaching

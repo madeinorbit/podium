@@ -21,7 +21,10 @@ import type { ComponentProps, ReactNode } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import type { MobilePool } from '../client/mobile-pool'
-import { ServerProfileContext, type ServerProfileContextValue } from '../client/server-profile-context'
+import {
+  ServerProfileContext,
+  type ServerProfileContextValue,
+} from '../client/server-profile-context'
 import { renderWithMobileStore } from '../client/test-support'
 import type { MobileTrpc } from '../client/trpc'
 
@@ -281,12 +284,31 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
 
 const off = new Map<string, (string | null)[]>()
 const profile: ServerProfileContextValue = {
-  profile: { id: 'fixture', name: 'Phone fixture', httpOrigin: 'http://127.0.0.1:0',
-    mode: 'open', transport: 'insecure-http', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
-  profiles: [], config: { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:0/client', override: true },
-  bearer: null, activation: 'verified', runtimeKey: 'phone-fixture', isEphemeralOverride: true,
-  beginAddServer: () => {}, switchProfile: async () => {}, renameProfile: async () => {},
-  removeProfile: async () => {}, updateCredential: async () => {}, recordUser: async () => {},
+  profile: {
+    id: 'fixture',
+    name: 'Phone fixture',
+    httpOrigin: 'http://127.0.0.1:0',
+    mode: 'open',
+    transport: 'insecure-http',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+  profiles: [],
+  config: {
+    httpOrigin: 'http://127.0.0.1:0',
+    wsClientUrl: 'ws://127.0.0.1:0/client',
+    override: true,
+  },
+  bearer: null,
+  activation: 'verified',
+  runtimeKey: 'phone-fixture',
+  isEphemeralOverride: true,
+  beginAddServer: () => {},
+  switchProfile: async () => {},
+  renameProfile: async () => {},
+  removeProfile: async () => {},
+  updateCredential: async () => {},
+  recordUser: async () => {},
   revalidateOfflineProfile: async () => {},
 }
 afterEach(() => {
@@ -343,7 +365,7 @@ it.each([
     const feed = kernelFixture(corpus)
     replicas.push(feed.replica)
     const view = await renderWithMobileStore(
-        <ServerProfileContext.Provider value={profile}>
+      <ServerProfileContext.Provider value={profile}>
         <div data-testid="tasks">
           <IssuesScreen />
         </div>
@@ -353,7 +375,7 @@ it.each([
         <div data-testid="details">
           <MissionDetailsScreen />
         </div>
-        </ServerProfileContext.Provider>,
+      </ServerProfileContext.Provider>,
       {
         replica: feed.replica,
         principal,

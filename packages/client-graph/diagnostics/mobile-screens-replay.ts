@@ -27,12 +27,16 @@ import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
 import { attachMobileScreens } from '../src/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '../src/mobile-screens-schema'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
-import type { MobileScreenCheck, MobileLegacyReads } from './mobile-screens-check'
+import type { MobileLegacyReads, MobileScreenCheck } from './mobile-screens-check'
 
 interface ReplayLoader {
   onLoad(options: { filter: RegExp }, load: () => { contents: string; loader: 'js' }): void
 }
-const { plugin } = (globalThis as unknown as { Bun: { plugin(options: { name: string; setup(build: ReplayLoader): void }): void } }).Bun
+const { plugin } = (
+  globalThis as unknown as {
+    Bun: { plugin(options: { name: string; setup(build: ReplayLoader): void }): void }
+  }
+).Bun
 
 let phase = 0
 async function main() {
@@ -51,12 +55,16 @@ async function main() {
   })
   const { checkMobileScreens, poolMobileScreensSnapshot } = await import('./mobile-screens-check')
   const [selection, screening, board] = await Promise.all(
-    ['mission-session', 'screening', 'task-board'].map(name =>
-      import(new URL(`../../../apps/mobile/src/lib/${name}.ts`, import.meta.url).href)),
+    ['mission-session', 'screening', 'task-board'].map(
+      (name) => import(new URL(`../../../apps/mobile/src/lib/${name}.ts`, import.meta.url).href),
+    ),
   )
-  const legacy: MobileLegacyReads = { mostRelevantSession: selection.mostRelevantSession,
-    buildScreeningQueue: screening.buildScreeningQueue, taskBoardSections: board.taskBoardSections,
-    taskBoardProgress: board.taskBoardProgress }
+  const legacy: MobileLegacyReads = {
+    mostRelevantSession: selection.mostRelevantSession,
+    buildScreeningQueue: screening.buildScreeningQueue,
+    taskBoardSections: board.taskBoardSections,
+    taskBoardProgress: board.taskBoardProgress,
+  }
   const origin =
     process.argv.find((arg) => arg.startsWith('--origin='))?.slice(9) ?? 'http://127.0.0.1:18787'
   phase = 1
@@ -174,7 +182,12 @@ async function main() {
       showAgentTasks: false,
     }
     const inputs: MobileScreenCheck[] = [null, ...roots].flatMap((selectedId) =>
-      (['full', 'working', 'needs-you'] as const).map((mode) => ({ legacy, tasks: selectedId === null ? tasks : null, selectedId, mode })),
+      (['full', 'working', 'needs-you'] as const).map((mode) => ({
+        legacy,
+        tasks: selectedId === null ? tasks : null,
+        selectedId,
+        mode,
+      })),
     )
     for (const option of [
       { ...tasks, showDone: true, expanded: roots.slice(0, 8), showAgentTasks: true },

@@ -46,7 +46,10 @@ async function setup(rows: ReturnType<typeof issue>[]) {
   })
   const scans = vi.spyOn(pool.residency!, 'ids')
   await attachMobileScreens(pool)
-  disposals.push(() => { scans.mockRestore(); pool.dispose() })
+  disposals.push(() => {
+    scans.mockRestore()
+    pool.dispose()
+  })
   const reader = pool.row('mobileScreenReader', 'reader')
   if (!reader || reader === LOADING) throw new Error('screen reader missing')
   return { pool, reader, load, scans }
@@ -111,7 +114,9 @@ it('a known cold mission remains LOADING until one batched load supplies its row
   expect(pool.hydrate()).toBe(1)
   expect(load).toHaveBeenCalledTimes(1)
   expect(reader.mission('cold')).toMatchObject({
-    root: { id: 'cold' }, missionSessions: [], progress: { total: 0, done: 0 },
+    root: { id: 'cold' },
+    missionSessions: [],
+    progress: { total: 0, done: 0 },
   })
 })
 it('an explicitly opened archived mission counts accepted formal children without counting its root', async () => {
@@ -122,7 +127,8 @@ it('an explicitly opened archived mission counts accepted formal children withou
   expect(reader.mission('cold')).toBe(LOADING)
   while (pool.hydrate()) {}
   expect(reader.mission('cold')).toMatchObject({
-    root: { id: 'cold' }, progress: { total: 1, done: 0, stall: 1 },
+    root: { id: 'cold' },
+    progress: { total: 1, done: 0, stall: 1 },
   })
   expect(reader.deck('cold', 'full')).toMatchObject({ rows: [], presence: null })
 })
