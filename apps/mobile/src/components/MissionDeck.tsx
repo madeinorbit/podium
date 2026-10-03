@@ -1,4 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
+import { recordSliceDerivation } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { type SessionView, sessionValues } from '@podium/client-core/session-values'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
@@ -32,6 +34,7 @@ import {
   treeGuides,
   writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
+import type { MissionRowPresentation, MissionViewValues } from '@podium/client-graph/mission-view'
 import type { IssueId, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { memo, useCallback, useEffect, useMemo } from 'react'
@@ -102,6 +105,7 @@ const hasPayload = flightDeckRowHasPayload
 const readMode = (raw: string | null): FlightDeckMode =>
   raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
 const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
+const useLegacyPresentation = (_id: string, _mode: FlightDeckMode): undefined => undefined
 
 export const MissionDeck = memo(function MissionDeck({
   root,
@@ -118,6 +122,7 @@ export const MissionDeck = memo(function MissionDeck({
   onFileRoot,
   onOpenDeparture,
   onContentHeight,
+  usePoolPresentation,
 }: {
   root: IssueViewModel
   issues: readonly IssueViewModel[]
@@ -138,6 +143,8 @@ export const MissionDeck = memo(function MissionDeck({
   /** The deck's natural height, re-reported whenever the rows it renders
    *  change — the mission screen sizes and animates the panel from it. */
   onContentHeight: (height: number) => void
+  /** Optional startup-selected data hook; local folds and all UI stay here. */
+  usePoolPresentation?: (id: string, mode: FlightDeckMode) => MissionViewValues
 }) {
   const [mode, setMode] = usePersistedUiState<FlightDeckMode>(
     FLIGHT_DECK_MODE_KEY,
@@ -150,12 +157,22 @@ export const MissionDeck = memo(function MissionDeck({
     writeFlightDeckFolds,
   )
 
-  const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
+  const usePresentation = usePoolPresentation ?? useLegacyPresentation
+  const presentation = usePresentation(root.id, mode)
+  const owner = useStoreHandle()
+  const byId = useMemo(
+    () => presentation?.byId ?? new Map(issues.map((i) => [i.id, i])),
+    [issues, presentation],
+  )
   // UNSPREAD ON PURPOSE: the engine memoizes per (issues, sessions) ARRAY
   // IDENTITY — copying here would mint fresh identities and defeat that cache.
   const rows = useMemo(
-    () => buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths),
-    [issues, sessions, root.id, mode, allWorktreePaths],
+    () => {
+      if (presentation) return presentation.rows
+      recordSliceDerivation(owner, 'mobileScreens.deck')
+      return buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths)
+    },
+    [issues, sessions, root.id, mode, allWorktreePaths, presentation, owner],
   )
   const shown = useMemo(() => applyFolds(rows, folds), [rows, folds])
   /**
@@ -292,14 +309,13 @@ export const MissionDeck = memo(function MissionDeck({
   )
   const allFolded =
     foldable.length > 0 && foldable.every((row) => flightDeckRowIsFolded(row, folds))
-  const rootEmptyNote = rootRow
-    ? presenceNote(rootRow.issue, rootRow.sessions, byId, sessions)
-    : null
+  const rootEmptyNote = presentation ? presentation.presence : rootRow
+    ? presenceNote(rootRow.issue, rootRow.sessions, byId, sessions) : null
   const rootRetired = rootEmptyNote?.kind === 'done'
-  const rootContinuation = issueContinuation(root, byId, sessions)
+  const rootContinuation = presentation ? presentation.continuation : issueContinuation(root, byId, sessions)
   const allDepartures = useMemo(
-    () => missionDepartures(issues, sessions, root.id, allWorktreePaths),
-    [allWorktreePaths, issues, root.id, sessions],
+    () => presentation ? presentation.departures : missionDepartures(issues, sessions, root.id, allWorktreePaths),
+    [allWorktreePaths, issues, root.id, sessions, presentation],
   )
   const continuationTargetId = rootContinuation?.target?.id
   const departures = useMemo(
@@ -478,6 +494,7 @@ export const MissionDeck = memo(function MissionDeck({
             childFollows={(spineRows[index + 1]?.depth ?? 0) > row.depth}
             mode={mode}
             byId={byId}
+            poolPresentation={presentation ? { value: presentation.rowPresentation.get(row.issue.id)! } : undefined}
             nameOf={nameOf}
             folded={flightDeckRowIsFolded(row, folds)}
             currentSessionId={currentSessionId}
@@ -544,6 +561,7 @@ function SpineRow({
   childFollows,
   mode,
   byId,
+  poolPresentation,
   nameOf,
   folded,
   currentSessionId,
@@ -563,6 +581,7 @@ function SpineRow({
   childFollows: boolean
   mode: FlightDeckMode
   byId: ReadonlyMap<string, IssueViewModel>
+  poolPresentation?: { value: MissionRowPresentation }
   nameOf: (sessionId: SessionId) => string | undefined
   folded: boolean
   currentSessionId: SessionId | undefined
@@ -571,16 +590,16 @@ function SpineRow({
   onOpenTaskMenu?: (i: IssueNavigationModel) => void
   onOpenSession: (s: SessionView) => void
 }) {
-  const state = deckIssueState(row.issue, row.sessions, byId)
+  const state = poolPresentation ? poolPresentation.value.state : deckIssueState(row.issue, row.sessions, byId)
   const context = mode !== 'full' && !row.matched
-  const note = context ? null : issueNote(row.issue, byId, row.sessions)
+  const note = context ? null : poolPresentation ? poolPresentation.value.note : issueNote(row.issue, byId, row.sessions)
   const bands = folded ? [] : deckSessions(row, mode)
   // The seat is held for work that could be picked up — never under a proposal,
   // and never to restate a dependency the strip has already named above it.
   const seat =
     context || row.issue.stage === 'proposed'
       ? null
-      : seatFor(presenceNote(row.issue, row.sessions, byId))
+      : seatFor(poolPresentation ? poolPresentation.value.presence : presenceNote(row.issue, row.sessions, byId))
   // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload:
   // "2 running" is the thing the fold is hiding, and `3 tasks` is printed on the
   // same line beside it.

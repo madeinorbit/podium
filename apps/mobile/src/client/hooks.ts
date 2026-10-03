@@ -10,9 +10,8 @@
  * What is left here is the small amount of typing and naming that is genuinely
  * mobile's: `MobileTrpc` is the phone's tRPC surface (`PodiumClientApi` plus the
  * hand-written extras Metro can afford), so every store read has to be
- * instantiated at that type. Nothing in this file derives anything — a
- * derivation with two or more consumers belongs in a published slice, and one
- * with a single consumer belongs in its screen.
+ * instantiated at that type. Converted screens select their latched pool
+ * reader here; their temporary OFF hooks retain the existing derivations.
  *
  * WHAT DOES NOT LIVE HERE, and where it went instead:
  *  - the worklist (sections/rows/pinned/groups) → `worklistSlice` [POD-331]
@@ -22,6 +21,7 @@
  *  - fatal errors, storage notices, sign-out erase → `./shell`
  */
 import type { Store } from '@podium/client-core/engine'
+import { recordSliceDerivation } from '@podium/client-core/perf'
 import {
   useAllIssueViewModels,
   useHostMetrics as useCoreHostMetrics,
@@ -34,10 +34,29 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import {
+  confirmedWorkingAgentCountsByIssue,
+  type FlightDeckMode,
+  missionProgress,
+  missionRootFor,
+  missionSessions,
+} from '@podium/client-core/viewmodels'
+import type { MissionViewValues } from '@podium/client-graph/mission-view'
+import {
+  EMPTY_MOBILE_MISSION,
+  EMPTY_MOBILE_TASKS,
+  type MobileMissionData,
+  type MobileTasksData,
+  type MobileTasksOptions,
+} from '@podium/client-graph/mobile-screens-schema'
+import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, HostMetricsWire, MachineWire, SessionId } from '@podium/model'
 import { asIssueId } from '@podium/model'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { buildScreeningQueue } from '../lib/screening'
+import { taskBoardProgress, taskBoardSections } from '../lib/task-board'
 import { demoEnabled } from './demoData'
+import { mobileDataLayer, useMobilePoolProjection } from './mobile-pool'
 import type { MobileTrpc, TranscriptPage } from './trpc'
 
 type MobileStore = Store<MobileTrpc>
@@ -286,6 +305,106 @@ export function useBooting(): boolean {
         s.sessions.length === 0 &&
         s.issueProjections.length === 0,
   )
+}
+
+function poolBooting(pool: MobxPool): boolean {
+  if (demoEnabled()) return false
+  const reader = pool.row('mobileSessionReader', 'reader')
+  return !reader || typeof reader === 'symbol' || reader.booting()
+}
+
+type TasksRead = MobileTasksData & { booting: boolean }
+const EMPTY_TASKS_READ: TasksRead = { ...EMPTY_MOBILE_TASKS, booting: true }
+function useLegacyTaskScreenData(options: MobileTasksOptions): TasksRead {
+  recordSliceDerivation(useStoreHandle<MobileTrpc>(), 'mobileScreens.tasks')
+  const issues = useIssues()
+  const sessions = useSessions()
+  const booting = useBooting()
+  const now = useCoarseNow()
+  return useMemo(() => {
+    const board = taskBoardSections(issues, { ...options, expanded: new Set(options.expanded) })
+    const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
+    return {
+      issues, sessions, booting, board, workingByIssue,
+      progressByIssue: taskBoardProgress(issues, board, workingByIssue),
+      proposals: buildScreeningQueue(issues).length,
+    }
+  }, [issues, sessions, booting, now, options])
+}
+function usePoolTaskScreenData(options: MobileTasksOptions): TasksRead {
+  const read = useCallback((pool: MobxPool): TasksRead => {
+    const reader = pool.row('mobileScreenReader', 'reader')
+    if (!reader || typeof reader === 'symbol') return EMPTY_TASKS_READ
+    const data = reader.tasks(options)
+    return typeof data === 'symbol' ? EMPTY_TASKS_READ : { ...data, booting: poolBooting(pool) }
+  }, [options])
+  return useMobilePoolProjection(read, EMPTY_TASKS_READ)
+}
+/** One startup choice, shared with the mobile pilot; no legacy fallback on ON. */
+export function useTaskScreenData(options: MobileTasksOptions): TasksRead {
+  const useRead = mobileDataLayer() === 'pool' ? usePoolTaskScreenData : useLegacyTaskScreenData
+  return useRead(options)
+}
+
+type MissionRead = MobileMissionData & { resolved: boolean }
+const EMPTY_MISSION_READ: MissionRead = { ...EMPTY_MOBILE_MISSION, resolved: false }
+function useLegacyMissionScreenData(id: string, screen: 'mission' | 'details'): MissionRead {
+  recordSliceDerivation(useStoreHandle<MobileTrpc>(), `mobileScreens.${screen}`)
+  const issues = useIssues()
+  const sessions = useSessions()
+  const booting = useBooting()
+  return useMemo(() => {
+    const root = missionRootFor(issues, id)
+    return {
+      root, issues, sessions,
+      missionSessions: root ? missionSessions(issues, sessions, root.id) : [],
+      progress: missionProgress(issues, sessions, root?.id),
+      resolved: root !== undefined || (!booting && issues.length > 0),
+    }
+  }, [issues, sessions, id, booting])
+}
+function usePoolMissionScreenData(id: string, _screen: 'mission' | 'details'): MissionRead {
+  const read = useCallback((pool: MobxPool): MissionRead => {
+    const reader = pool.row('mobileScreenReader', 'reader')
+    if (!reader || typeof reader === 'symbol') return EMPTY_MISSION_READ
+    const data = reader.mission(id)
+    return typeof data === 'symbol' ? EMPTY_MISSION_READ : {
+      ...data, resolved: data.root !== undefined || !poolBooting(pool),
+    }
+  }, [id])
+  return useMobilePoolProjection(read, EMPTY_MISSION_READ)
+}
+function useLegacyMissionDetailsData(id: string, _screen: 'mission' | 'details'): MissionRead {
+  recordSliceDerivation(useStoreHandle<MobileTrpc>(), 'mobileScreens.details')
+  const issues = useIssues()
+  const sessions = useSessions()
+  return useMemo(() => {
+    const root = missionRootFor(issues, id)
+    return { root, issues, sessions, missionSessions: root ? missionSessions(issues, sessions, root.id) : [],
+      progress: EMPTY_MOBILE_MISSION.progress, resolved: root !== undefined }
+  }, [issues, sessions, id])
+}
+export function useMissionScreenData(id: string, screen: 'mission' | 'details' = 'mission'): MissionRead {
+  const useRead = mobileDataLayer() === 'pool' ? usePoolMissionScreenData :
+    screen === 'details' ? useLegacyMissionDetailsData : useLegacyMissionScreenData
+  return useRead(id, screen)
+}
+
+const EMPTY_DECK: MissionViewValues = {
+  root: undefined, rows: [], members: new Set(), byId: new Map(), sessions: [], archived: [],
+  titles: new Map(), progress: EMPTY_MOBILE_MISSION.progress, departures: [], continuation: null,
+  note: null, presence: null, rowPresentation: new Map(),
+}
+/** The details deck's mode is local UI state; the addressed pool reader owns
+ * its rows, state words, notes, continuation and departures. */
+export function usePoolMissionDeckData(id: string, mode: FlightDeckMode): MissionViewValues {
+  const read = useCallback((pool: MobxPool) => {
+    const reader = pool.row('mobileScreenReader', 'reader')
+    if (!reader || typeof reader === 'symbol') return EMPTY_DECK
+    const data = reader.deck(id, mode)
+    return typeof data === 'symbol' ? EMPTY_DECK : data
+  }, [id, mode])
+  return useMobilePoolProjection(read, EMPTY_DECK)
 }
 
 /** One page of a session transcript, newest-first, as both transcript readers

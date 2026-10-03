@@ -1,9 +1,6 @@
 import { useSlice } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/store'
 import {
   type IssueNavigationModel,
-  missionRootFor,
-  missionSessions as missionSessionsOf,
   reposToViews,
   reposVisibleOnMachines,
   worklistSlice,
@@ -11,7 +8,7 @@ import {
 import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
-import { useIssues, useSessions, useStoreSelector } from '../client/hooks'
+import { useMissionScreenData, usePoolMissionDeckData, useStoreActions } from '../client/hooks'
 import { mobileDataLayer, useMobileLaunchData } from '../client/mobile-pool'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { MissionDeck } from '../components/MissionDeck'
@@ -56,12 +53,8 @@ export function MissionDetailsScreen() {
   const rawId = Array.isArray(params.missionId) ? params.missionId[0] : params.missionId
   const rawSession = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
   const missionId = asIssueId(decodeURIComponent(rawId ?? ''))
-  const issues = useIssues()
-  const sessions = useSessions()
-  const store = useStoreSelector(
-    (s) => ({ setIssueTucked: s.setIssueTucked, closeIssue: s.closeIssue }),
-    shallowEqual,
-  )
+  const { root, issues, sessions, missionSessions } = useMissionScreenData(missionId, 'details')
+  const store = useStoreActions()
   const router = useRouter()
   // The app latches this choice before mounting signed-in screens. An attaching
   // pool supplies loading paths; it must never fall back to the legacy slice.
@@ -70,16 +63,12 @@ export function MissionDetailsScreen() {
   const allWorktreePaths = useWorktreePaths()
   const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
   const [launchIssue, setLaunchIssue] = useState<(typeof issues)[number] | null>(null)
-  const root = useMemo(() => missionRootFor(issues, missionId), [issues, missionId])
-  const missionSessions = useMemo(
-    () => (root ? missionSessionsOf(issues, sessions, root.id) : []),
-    [issues, root, sessions],
-  )
 
   return (
     <Screen title="Mission details" onBack={() => router.back()} backAs="text" backLabel="Done">
       {root ? (
         <MissionDeck
+          usePoolPresentation={mobileDataLayer() === 'pool' ? usePoolMissionDeckData : undefined}
           root={root}
           issues={issues}
           sessions={sessions}

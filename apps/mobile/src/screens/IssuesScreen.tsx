@@ -1,10 +1,8 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { shallowEqual } from '@podium/client-core/store'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type BoardFilter,
   clearChip,
-  confirmedWorkingAgentCountsByIssue,
   filterChips,
   type IssueRow,
   readSharedIssuesDisplay as readMobileTaskDisplay,
@@ -24,7 +22,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useBooting, useIssues, useSessions, useStoreSelector } from '../client/hooks'
+import { useStoreActions, useTaskScreenData } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
@@ -47,8 +45,6 @@ import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { stageFoldKey } from '../lib/fold-keys'
 import { issueCloseBlockers } from '../lib/issue-close'
-import { buildScreeningQueue } from '../lib/screening'
-import { taskBoardProgress, taskBoardSections } from '../lib/task-board'
 import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -71,12 +67,7 @@ const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded']
  */
 export function IssuesScreen() {
   const router = useRouter()
-  const store = useStoreSelector(
-    (s) => ({ coarseNow: s.coarseNow, updateIssue: s.updateIssue, closeIssue: s.closeIssue }),
-    shallowEqual,
-  )
-  const issues = useIssues()
-  const sessions = useSessions()
+  const store = useStoreActions()
   const [showDone, setShowDone] = useState(false)
   /**
    * Which parents are showing their children — local, exactly as the desktop
@@ -110,7 +101,6 @@ export function IssuesScreen() {
     readMobileTaskDisplay,
     writeMobileTaskDisplay,
   )
-  const booting = useBooting()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('issues')
   const bottomInset = useContentBottomInset()
@@ -123,11 +113,10 @@ export function IssuesScreen() {
   const filterShowsDone =
     effectiveFilter.status === 'closed' ||
     (effectiveFilter.stage !== undefined && CLOSED_STATUSES.has(effectiveFilter.stage))
-  const board = useMemo(
-    () =>
-      taskBoardSections(issues, {
+  const options = useMemo(
+    () => ({
         showDone: showDone || filterShowsDone,
-        expanded,
+        expanded: [...expanded],
         filter: effectiveFilter,
         ordering: display.ordering,
         showAgentTasks: display.showAgentTasks,
@@ -138,24 +127,16 @@ export function IssuesScreen() {
       effectiveFilter,
       expanded,
       filterShowsDone,
-      issues,
       showDone,
     ],
   )
+  const { issues, sessions, booting, board, workingByIssue, progressByIssue, proposals } =
+    useTaskScreenData(options)
   const chips = useMemo(() => filterChips(filter), [filter])
-  const workingByIssue = useMemo(
-    () => confirmedWorkingAgentCountsByIssue(issues, sessions, store.coarseNow),
-    [issues, sessions, store.coarseNow],
-  )
-  const progressByIssue = useMemo(
-    () => taskBoardProgress(issues, board, workingByIssue),
-    [board, issues, workingByIssue],
-  )
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
   // flow is the fast way through them, so the board leads with it whenever any
   // are waiting (POD-277).
-  const proposals = useMemo(() => buildScreeningQueue(issues), [issues])
 
   return (
     <Screen
@@ -230,7 +211,7 @@ export function IssuesScreen() {
             minimizeOnScroll={minimizeOnScroll}
             bottomInset={bottomInset}
             booting={booting}
-            proposals={proposals.length}
+            proposals={proposals}
             chips={chips}
             onScreenProposals={() => router.push('/screen-proposed')}
             onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}

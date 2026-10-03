@@ -31,6 +31,7 @@ import {
   MOBILE_INBOX_VIEW_KEY,
 } from '@podium/client-graph/mobile-inbox-schema'
 import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
+import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
@@ -61,6 +62,16 @@ export function createMobilePool(
   const pilot = poolSwitches(storage)('mobxMobile')
   const host = createPoolHost({
     screens: [
+      {
+        id: 'mobile-screens',
+        initialize: (ui) => void pilot.initialize(ui),
+        enabled: () => pilot.layer() === 'pool',
+        options: () => ({ summaries: MOBILE_SCREEN_SUMMARIES }),
+        async attach(runtime, pool) {
+          const { attachMobileScreens } = await import('@podium/client-graph/mobile-screens')
+          await attachMobileScreens(pool, runtime)
+        },
+      },
       {
         id: 'mobile-work',
         initialize: (ui) => void pilot.initialize(ui),

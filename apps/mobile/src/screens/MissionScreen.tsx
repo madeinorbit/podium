@@ -1,14 +1,10 @@
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
 import {
   isSessionWorking,
   type MissionProgress,
   missionCrewLabel,
-  missionProgress,
-  missionRootFor,
-  missionSessions as missionSessionsOf,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, type SessionId } from '@podium/model'
@@ -17,7 +13,7 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useBooting, useIssues, useSessions, useStoreSelector } from '../client/hooks'
+import { useMissionScreenData, useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
@@ -63,28 +59,12 @@ export function MissionScreen() {
   const raw = Array.isArray(params.missionId) ? params.missionId[0] : (params.missionId ?? '')
   const selectedId = asIssueId(decodeURIComponent(raw))
   const router = useRouter()
-  const store = useStoreSelector(
-    (s) => ({
-      closeIssue: s.closeIssue,
-      setIssueTucked: s.setIssueTucked,
-      updateIssue: s.updateIssue,
-    }),
-    shallowEqual,
-  )
-  const booting = useBooting()
-  const issues = useIssues()
-  const sessions = useSessions()
+  const store = useStoreActions()
   // The mission is the whole subtree above and below the selected task, exactly
   // as the desktop resolves it — open a child from a notification and you land
   // on the same deck the sidebar would have given you.
-  const root = useMemo(() => missionRootFor(issues, selectedId), [issues, selectedId])
-  // Every session on the mission — the subtree's, not just the root's. The deck
-  // and this screen must agree about who is on it, so both read the mission
-  // module's own answer rather than each filtering the session world.
-  const missionSessions = useMemo(
-    () => (root ? missionSessionsOf(issues, sessions, root.id) : []),
-    [issues, root, sessions],
-  )
+  const { root, issues, sessions, missionSessions, progress, resolved } =
+    useMissionScreenData(selectedId)
 
   const requestedSessionId = Array.isArray(params.sessionId)
     ? params.sessionId[0]
@@ -116,10 +96,6 @@ export function MissionScreen() {
   )
   const headerIssue = currentIssue ?? root
 
-  const progress = useMemo(
-    () => missionProgress(issues, sessions, root?.id),
-    [issues, sessions, root?.id],
-  )
   const attention = missionSessions.filter(sessionNeedsHuman).length
   const live = missionSessions.filter((s) => !s.archived && s.status !== 'exited').length
   const working = missionSessions.filter(isSessionWorking).length
@@ -188,7 +164,6 @@ export function MissionScreen() {
     ]
   }, [current, headerIssue, root, router, store])
 
-  const resolved = root !== undefined || (!booting && issues.length > 0)
   const currentKind = current ? issueAgentKind(current.agentKind) : null
   const currentModel = current?.observedModel ?? current?.model
   // Served descriptors for the session's machine (POD-4475): the harness
