@@ -1,5 +1,5 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
-import { outboxChatSends } from '@podium/client-core/engine/chat-send'
+import { outboxChatSends } from '@podium/client-core/engine'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { asIssueId, asMutationId, asSessionId } from '@podium/model/browser'
 import { dedupeSessionsByResume } from '@podium/model'

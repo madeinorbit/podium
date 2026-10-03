@@ -31,7 +31,7 @@ export function checkChatContext(pool: MobxPool, state: Store, issues: readonly 
     compare(`pending:${id}`, { blocked: mine.length > 0, question: mine.find(row => row.kind === 'question') },
       { blocked: asks.blocked, question: asks.question }, asks.pending > 0)
     compare(`records:${id}`, (state.messageRecords ?? []).filter(row => row.sessionId === id), records.records, records.pending > 0)
-    const serialSends = (sends: ReturnType<Store['chatSendsFor']> | readonly import('@podium/client-core/engine/chat-send').OutboxChatSend[]) => sends.map(send => ({ ...send, failure: send.failure ? { message: send.failure.message, retryable: send.failure.retryable } : undefined }))
+    const serialSends = (sends: ReturnType<Store['chatSendsFor']> | readonly import('@podium/client-core/engine').OutboxChatSend[]) => sends.map(send => ({ ...send, failure: send.failure ? { message: send.failure.message, retryable: send.failure.retryable } : undefined }))
     compare(`outbox:${id}`, serialSends(state.chatSendsFor(id as never)), held && !loading(held) ? serialSends(held.sends) : [], loading(held))
     if (session) {
       const artifact = chatArtifactIssue(pool, session)

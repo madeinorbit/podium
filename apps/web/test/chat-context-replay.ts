@@ -14,8 +14,8 @@ import { CHAT_CONTEXT_ENTITIES, CHAT_CONTEXT_SUMMARIES } from '@podium/client-gr
 import { NoticeSource } from '@podium/client-graph/notice-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { createSuperagentSource, SUPERAGENT_ENTITIES, SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
-import { ScenarioCache } from '../../../../../packages/worklist-proto/shared/src/scenarios'
-import { checkChatContext } from './chat-context-check'
+import { ScenarioCache } from '../../../packages/worklist-proto/shared/src/scenarios'
+import { checkChatContext } from '../src/features/chat/chat-context-check'
 
 let phase = 0, httpStatus: number | undefined
 async function main() {
