@@ -5,14 +5,10 @@ import { mergePoolSummaries } from './source-registry'
 import { LOADING } from './worklist/rollup'
 
 // If hidden() becomes public again, the unused directive fails typecheck.
-function directHiddenControl(pool: MobxPool) {
+export function directHiddenControl(pool: MobxPool) {
   // @ts-expect-error Stored summaries are private; callers use row(..., 'summary').
   return pool.hidden('issue', 'cold')
 }
-
-it('keeps the direct-summary compile-time rejection referenced', () => {
-  expect(typeof directHiddenControl).toBe('function')
-})
 
 const now = Date.parse('2026-10-02T12:00:00Z')
 const row = (id: string, archived: boolean) => ({ id, seq: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
