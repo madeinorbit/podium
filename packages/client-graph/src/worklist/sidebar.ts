@@ -73,7 +73,7 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
     // Only a positive cold-lane summary reaches the old relation. No cold
     // id enters the resident roster index; pending seats queue one batch.
     for (const id of host.relations.many('worktree', path, 'sessions')) {
-      if (host.hidden('session', id) !== undefined) candidates.push(id)
+      if (host.row('session', id, 'mark') === LOADING) candidates.push(id)
     }
   }
   for (const id of candidates) {
@@ -81,12 +81,14 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
     if (session === undefined) {
       // Reason about a historical seat from declared summaries. Only a seat
       // the summaries cannot rule out requests a batch; no cold id is indexed.
-      const summary = host.hidden('session', id)
+      const summary = host.row('session', id, 'summary')
+      if (summary === LOADING) { pending += 1; continue }
       const retention = retentionOf(summary as SliceSession | undefined)
       if (retention === null || !retention.seat) continue
-      const owner = retention.issueId ? host.hidden('issue', retention.issueId) as HiddenIssue | undefined : undefined
-      if (owner && (issueExcluded(owner) || (owner.flatUntil !== undefined && input.passed(owner.flatUntil)))) continue
-      if (!owner && !retains(retention, undefined, undefined, input)) continue
+      const owner = retention.issueId && host.row('issue', retention.issueId, 'mark') === LOADING
+        ? host.row('issue', retention.issueId, 'summary') as HiddenIssue | typeof LOADING | undefined : undefined
+      if (owner && owner !== LOADING && (issueExcluded(owner) || (owner.flatUntil !== undefined && input.passed(owner.flatUntil)))) continue
+      if (owner === undefined && !retains(retention, undefined, undefined, input)) continue
       if (host.resident('session', id) === 'loading') pending += 1
       if (owner && retention.issueId) void host.resident('issue', retention.issueId)
       continue

@@ -177,15 +177,16 @@ export class SidebarRosterIndex {
     const path = this.pool.graph.forwardTarget('session', id, 'worktree')
     if (row === LOADING) {
       this.removeSeat(id)
-      const summary = this.pool.hidden('session', id)
-      const retention = retentionOf(summary as SliceSession | undefined)
-      const owner = retention?.issueId ? this.pool.hidden('issue', retention.issueId) as HiddenIssue | undefined : undefined
+      const summary = this.pool.row('session', id, 'summary')
+      const retention = summary === LOADING ? null : retentionOf(summary as SliceSession | undefined)
+      const owner = retention?.issueId && this.pool.row('issue', retention.issueId, 'mark') === LOADING
+        ? this.pool.row('issue', retention.issueId, 'summary') as HiddenIssue | typeof LOADING | undefined : undefined
       let deadline = Number.POSITIVE_INFINITY
       const passed = (at: number) => { deadline = Math.min(deadline, nextUp(at)); return this.pool.clock.current > at }
-      const possible = path !== null && retention !== null && retention.seat && !retention.shell &&
+      const possible = path !== null && (summary === LOADING || (retention !== null && retention.seat && !retention.shell &&
         !(retention.issueId && (this.owners.get(retention.issueId)?.represented || this.owners.get(retention.issueId)?.excluded)) &&
-        !(owner && (issueExcluded(owner) || (owner.flatUntil !== undefined && passed(owner.flatUntil)))) &&
-        (owner !== undefined || retains(retention, undefined, undefined, { passed }))
+        !(owner && owner !== LOADING && (issueExcluded(owner) || (owner.flatUntil !== undefined && passed(owner.flatUntil)))) &&
+        (owner !== undefined || retains(retention, undefined, undefined, { passed }))))
       this.setCold(id, path === null ? undefined : { path, possible })
       this.schedule(id, possible ? deadline : Number.POSITIVE_INFINITY)
       return

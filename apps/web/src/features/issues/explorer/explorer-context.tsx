@@ -103,14 +103,14 @@ export function poolExplorerTarget(pool: MobxPool, selectedId: string | null, fo
   if (root.isDraftVessel && !root.worktreePath && !root.sessionFacts?.headlessOccupied) {
     let occupied = false
     for (const id of pool.graph.many('issue', root.id, 'sessions')) {
-      const session = pool.hidden('session', id) ?? pool.row('session', id)
+      const session = pool.row('session', id, 'summary')
       if (session === LOADING) return LOADING
       if (session && (session as { archived?: boolean }).archived !== true) { occupied = true; break }
     }
     if (!occupied) return null
   }
   if (!focusedId) return root.id
-  const focused = pool.hidden('issue', focusedId) ?? pool.row('issue', focusedId)
+  const focused = pool.row('issue', focusedId, 'summary')
   if (focused === LOADING) return LOADING
   if (!focused || (focused as SliceIssue).deletedAt) return root.id
   const belongs = poolMissionContains(pool, root.id, focusedId)
@@ -118,7 +118,7 @@ export function poolExplorerTarget(pool: MobxPool, selectedId: string | null, fo
 }
 
 function poolPresence(pool: MobxPool, id: string): boolean | typeof LOADING {
-  const row = pool.hidden('issue', id) ?? pool.row('issue', id)
+  const row = pool.row('issue', id, 'summary')
   return row === LOADING ? LOADING : Boolean(row && !(row as SliceIssue).deletedAt)
 }
 

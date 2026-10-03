@@ -49,16 +49,12 @@ function fixture(coldCount = 0, writes?: WriteSeam) {
 
 function visits(pool: MobxPool) {
   const ids: string[] = []
-  const model = pool.model.bind(pool), hidden = pool.hidden.bind(pool), row = pool.row.bind(pool)
+  const model = pool.model.bind(pool), row = pool.row.bind(pool)
   const stops = [
     vi.spyOn(pool, 'model').mockImplementation(((kind: Parameters<typeof model>[0], id: string) => {
       if (kind === 'session') ids.push(id)
       return model(kind, id)
     }) as typeof pool.model),
-    vi.spyOn(pool, 'hidden').mockImplementation((kind, id) => {
-      if (kind === 'session') ids.push(id)
-      return hidden(kind, id)
-    }),
     vi.spyOn(pool, 'row').mockImplementation(((kind: string, id: string, absent?: string) => {
       if (kind === 'session') ids.push(id)
       return (row as Function)(kind, id, absent)

@@ -29,9 +29,9 @@ it('maintenance summary probes build no atoms and preserve an observed cold read
     runInAction(() => {
       for (let index = 0; index < 100; index += 1) {
         expect(pool.row('issue', `absent-${index}`, 'mark')).toBeUndefined()
-        expect(pool.hidden('issue', `absent-${index}`)).toBeUndefined()
+        expect(pool.row('issue', `absent-${index}`, 'summary')).toBeUndefined()
         expect(pool.row('issue', cold, 'mark')).toBe(LOADING)
-        void pool.hidden('issue', cold)
+        void pool.row('issue', cold, 'summary')
       }
     })
     expect(census.snapshot().entries.filter(entry => entry.kind === 'atom')).toEqual([])

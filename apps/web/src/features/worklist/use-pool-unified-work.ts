@@ -25,8 +25,9 @@ export function poolMissionRoot(pool: MobxPool, id: string | null): SliceIssue |
     seen.add(current.id)
     const parentId = pool.graph.one('issue', current.id, 'treeParent')
     if (!parentId) break
-    const hidden = pool.hidden('issue', parentId)
-    if (hidden?.archived || hidden?.deletedAt) break
+    const summary = pool.row('issue', parentId, 'summary') as SliceIssue | typeof LOADING | undefined
+    if (summary === LOADING) return LOADING
+    if (summary?.archived || summary?.deletedAt) break
     const parent = pool.row('issue', parentId) as SliceIssue | typeof LOADING | undefined
     if (parent === LOADING) return LOADING
     if (parent === undefined || parent.archived || parent.deletedAt) break
@@ -63,7 +64,7 @@ export function poolMissionContains(pool: MobxPool, rootId: string, id: string):
       issue.deps?.some(dep => dep.type === 'discovered-from')) return false
     const starter = pool.graph.one('issue', member, 'startedBy')
     if (!starter) return false
-    const sender = pool.hidden('session', starter) ?? pool.row('session', starter)
+    const sender = pool.row('session', starter, 'summary')
     if (sender === LOADING) return LOADING
     const owner = (sender as { issueId?: string } | undefined)?.issueId
     return owner ? visit(owner) : false

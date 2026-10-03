@@ -484,7 +484,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
       const grandparent = scenario === 'archived-grandparent'
       const ancestorId = grandparent ? 'synthetic-0' : 'synthetic-1'
       expect(pool!.tables.issue.has(ancestorId)).toBe(false)
-      expect(pool!.hidden('issue', ancestorId)).toMatchObject(
+      expect(pool!.row('issue', ancestorId, 'summary')).toMatchObject(
         scenario === 'deleted-parent'
           ? { deletedAt: new Date(NOW - 1000).toISOString() }
           : { archived: true },

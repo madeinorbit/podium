@@ -7,6 +7,7 @@ import {
   type HeaderAggregate, type WorkingSession,
 } from './header-session'
 import type { MobxPool } from './pool'
+import { LOADING } from './worklist/rollup'
 
 type HostSession = ReturnType<typeof headerHostSession>
 type Contribution = {
@@ -74,9 +75,13 @@ export class HeaderSessions {
   private cold(id: string): void {
     this.coldDeadlines.get(id)?.()
     this.coldDeadlines.delete(id)
-    const summary = untracked(() => this.pool.hidden('session', id)) as unknown as SessionView | undefined
-    const read = () => headerWorkingSession(this.pool.hidden('session', id) as unknown as SessionView | undefined,
-      at => this.pool.clock.passed(at))
+    const coldSummary = () => {
+      if (this.pool.row('session', id, 'mark') !== LOADING) return undefined
+      const value = this.pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
+      return value === LOADING ? undefined : value
+    }
+    const summary = untracked(coldSummary)
+    const read = () => headerWorkingSession(coldSummary(), at => this.pool.clock.passed(at))
     const working = summary?.status === 'live' && !summary.archived ? untracked(read) : null
     this.file(id, working, contribution(headerHostSession(summary)))
     if (summary?.status === 'live' && !summary.archived) {

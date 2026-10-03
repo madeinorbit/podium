@@ -42,10 +42,14 @@ export function createHeaderViews(pool: MobxPool) {
     return pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
   }
   function issueSummary(id: string): (Partial<SliceIssue> & { machineId?: MachineId }) | undefined {
-    return (pool.hidden('issue', id) ?? pool.row('issue', id)) as (Partial<SliceIssue> & { machineId?: MachineId }) | undefined
+    const value = pool.row('issue', id, 'summary')
+    return value === LOADING ? undefined : value as (Partial<SliceIssue> & { machineId?: MachineId }) | undefined
   }
   function sessionSummary(id: string): (Partial<SliceSession> & { machineId?: MachineId }) | undefined {
-    return (pool.hidden('session', id) ?? pool.model('session', id)?.headerDock) as (Partial<SliceSession> & { machineId?: MachineId }) | undefined
+    const model = pool.model('session', id)
+    if (model) return model.headerDock
+    const value = pool.row('session', id, 'summary')
+    return value === LOADING ? undefined : value as (Partial<SliceSession> & { machineId?: MachineId }) | undefined
   }
   function selectedIssue() {
     return memo('selectedIssue', () => {
@@ -69,9 +73,12 @@ export function createHeaderViews(pool: MobxPool) {
       const member = pool.model('session', id)?.headerHost
       return member ? [member.cwd] : []
     }), ...coldSessionIds(pool).flatMap((id) => {
-      const summary = pool.hidden('session', id)
-      const member = summary && ['live', 'starting', 'reconnecting'].includes(summary.status as string)
-        ? memo(`coldHost:${id}`, () => headerHostSession(pool.hidden('session', id) as unknown as SessionView)) : null
+      const summary = pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
+      const member = summary && summary !== LOADING && ['live', 'starting', 'reconnecting'].includes(summary.status)
+        ? memo(`coldHost:${id}`, () => {
+          const value = pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
+          return headerHostSession(value === LOADING ? undefined : value)
+        }) : null
       return member ? [member.cwd] : []
     })].sort().join('\n'))
   }
