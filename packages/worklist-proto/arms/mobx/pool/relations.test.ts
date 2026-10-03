@@ -14,14 +14,14 @@
  * - the resume-twin collapse (`session.collapse`) in both directions;
  * - the doc's §4.5 worked example, verbatim;
  * - the reads fence: a lookup costs one read, and each change kind writes
- *   exactly the relation slots it touches (`lastWrites`);
+ *   exactly the relation slots it touches (external MobX observation);
  * - a fixture schema with one EXTRA relation, maintained with no arm code;
  * - seeded random sequences over a small id universe (collisions on
  *   purpose), compared with the scan after every step.
  */
 
 import { dedupeSessions } from '@podium/client-core/engine'
-import { autorun, observable, runInAction } from 'mobx'
+import { autorun, observable, observe, runInAction, type ObservableMap, type ObservableSet } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'
@@ -757,7 +757,57 @@ describe('docs/plans/pod-4545-round-three-schema.md §4.5, verbatim', () => {
 
 // ------------------------------------------------------------ the fence
 
-describe('the reads fence and the write record', () => {
+/** Observable storage identities only; never a product-maintained write counter. */
+type ObservedLink = {
+  collection: string
+  forward: ObservableMap<string, string>
+  forwardMany: ObservableMap<string, ReadonlySet<string>> | null
+  buckets: ObservableMap<string, ObservableSet<string>>
+  subsets: { name: string; sets: ObservableMap<string, ObservableSet<string>> }[]
+}
+
+function relationLinks(pool: MobxPool): Map<string, ObservedLink> {
+  return (pool.graph as unknown as { links: Map<string, ObservedLink> }).links
+}
+
+/** Observe actual map/set mutations, including a write followed by its undo.
+ * New buckets are populated before their map insertion, so the insertion is
+ * itself a write to that slot; subsequent element writes use its set observer. */
+function observedRelationWrites(pool: MobxPool, change: () => void): string[] {
+  const writes = new Set<string>()
+  const stops: (() => void)[] = []
+  const buckets = (collection: string, map: ObservedLink['buckets']) => {
+    const watch = (id: string, set: ObservableSet<string>) => {
+      stops.push(observe(set, () => writes.add(`${collection}:${id}`)))
+    }
+    for (const [id, set] of map) watch(id, set)
+    stops.push(observe(map, event => {
+      writes.add(`${collection}:${event.name}`)
+      if (event.type !== 'delete') watch(event.name, event.newValue)
+    }))
+  }
+  try {
+    tracked(() => {
+      for (const [name, link] of relationLinks(pool)) {
+        stops.push(observe(link.forward, event => writes.add(`${name}→${event.name}`)))
+        if (link.forwardMany)
+          stops.push(observe(link.forwardMany, event => writes.add(`${name}→${event.name}`)))
+        buckets(link.collection, link.buckets)
+        for (const subset of link.subsets) buckets(`${link.collection}.${subset.name}`, subset.sets)
+      }
+    })
+    change()
+    return [...writes].sort()
+  } finally {
+    for (const stop of stops) stop()
+  }
+}
+
+function assertRelationWrites(actual: string[], expected: string[]): void {
+  expect(actual, 'externally observed relation slots written').toEqual([...expected].sort())
+}
+
+describe('the reads fence and externally observed relation writes', () => {
   const rows = [
     lane('/repo'),
     lane('/repo/.worktrees/a'),
@@ -799,7 +849,11 @@ describe('the reads fence and the write record', () => {
     {
       name: 'session moves issue',
       change: [session('S2', { issueId: 'I4', cwd: '/repo/y' })],
-      writes: ['issue.sessions:I1', 'issue.sessions:I4', 'session.issue→S2'],
+      writes: [
+        'issue.sessions:I1', 'issue.sessions:I4', 'session.issue→S2',
+        'issue.missionSessions:I1', 'issue.missionSessions:I4', 'session.missionIssue→S2',
+        'issue.pageSessions:I1', 'issue.pageSessions:I4', 'session.pageIssue→S2',
+      ],
     },
     {
       name: 'session moves lane',
@@ -813,7 +867,10 @@ describe('the reads fence and the write record', () => {
     {
       name: 'deps change',
       change: [issue('I3', { parentId: 'I1', deps: [{ id: 'I4', type: 'discovered-from' }] })],
-      writes: ['issue.discoveredFrom→I3', 'issue.spinOffs:I2', 'issue.spinOffs:I4'],
+      writes: [
+        'issue.discoveredFrom→I3', 'issue.spinOffs:I2', 'issue.spinOffs:I4',
+        'issue.pageDependencies→I3', 'issue.pageDependents:I2', 'issue.pageDependents:I4',
+      ],
     },
     {
       name: 'new session',
@@ -821,6 +878,10 @@ describe('the reads fence and the write record', () => {
       writes: [
         'issue.sessions:I4',
         'session.issue→S9',
+        'issue.missionSessions:I4',
+        'session.missionIssue→S9',
+        'issue.pageSessions:I4',
+        'session.pageIssue→S9',
         'session.worktree→S9',
         'worktree.sessions:/repo',
       ],
@@ -831,6 +892,10 @@ describe('the reads fence and the write record', () => {
       writes: [
         'issue.sessions:I4',
         'session.issue→S3',
+        'issue.missionSessions:I4',
+        'session.missionIssue→S3',
+        'issue.pageSessions:I4',
+        'session.pageIssue→S3',
         'session.worktree→S3',
         'worktree.sessions:/repo/.worktrees/a',
       ],
@@ -863,13 +928,36 @@ describe('the reads fence and the write record', () => {
     it(`${kind.name} writes only the slots it touches`, () => {
       const r = rig(rows)
       try {
-        r.push(...kind.change)
+        const writes = observedRelationWrites(r.pool, () => r.push(...kind.change))
+        assertRelationWrites(writes, kind.writes)
         r.check({ issue: ['I1'] })
       } finally {
         r.dispose()
       }
     })
   }
+
+  it('catches a planted needless slot rewrite that final relation parity cannot see', () => {
+    const r = rig(rows)
+    try {
+      const heartbeat = KINDS.find(kind => kind.name === 'heartbeat')!
+      const forward = relationLinks(r.pool).get('session.issue')!.forward
+      const writes = observedRelationWrites(r.pool, () => {
+        r.push(...heartbeat.change)
+        runInAction(() => {
+          forward.delete('S2')
+          forward.set('S2', 'I1')
+        })
+      })
+      r.check()
+      expect(writes).toEqual(['session.issue→S2'])
+      expect(() => assertRelationWrites(writes, heartbeat.writes)).toThrow(
+        'externally observed relation slots written',
+      )
+    } finally {
+      r.dispose()
+    }
+  })
 
   it('a bucket the change does not touch is not notified; a touched one once; a cancelled move not at all', () => {
     const r = rig(rows)

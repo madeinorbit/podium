@@ -26,13 +26,16 @@ import {
   asRepoId,
   asSessionId,
   asUserId,
+  sessionUserStateRowId,
   type GitRepositoryWire,
   type IssueProjection,
+  type SessionUserStateWire,
 } from '@podium/model'
 import { reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { corpusFromLive, type LiveCollections } from '../../../harness/src/fixture/live-snapshot'
 import { fixtureProjection } from '../../../harness/src/fixture/normalized-issues'
+import { stripSessionLegacy } from '../../../harness/src/fixture/session-homes'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { sidebarReplayStore } from '../../../harness/src/oracle/sidebar-replay'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
@@ -41,6 +44,7 @@ installMobxWarnTrap({ errors: true })
 const NOW = Date.parse('2026-09-30T12:00:00.000Z')
 const STAMP = new Date(NOW - 60_000).toISOString()
 const ROOT = '/synthetic/repo'
+const USER_ID = asUserId('synthetic-operator')
 const REPO = {
   path: ROOT,
   repoId: 'synthetic-repo',
@@ -139,17 +143,38 @@ function collections(
 }
 /** Same app-owned replica/row-source seam as offline replay, with tiny inputs.
  * Keep observed payloads alive across publications to catch stale derivations. */
-function replay(data: LiveCollections) {
+function replay(data: LiveCollections, sessionUserId = USER_ID) {
   const corpus = corpusFromLive(data, NOW)
-  const cache = seedCacheFromCorpus(corpus)
+  const cache = seedCacheFromCorpus({
+    ...corpus,
+    sessions: corpus.sessions.map(stripSessionLegacy),
+  })
+  const userState = (row: SessionView): SessionUserStateWire => ({
+    userId: sessionUserId,
+    sessionId: row.sessionId,
+    readAt: row.readAt ?? null,
+    ...(row.snoozedUntil !== undefined ? { snoozedUntil: row.snoozedUntil } : {}),
+  })
+  cache.install(corpus.sessions.map(row => ({
+    entity: 'sessionUserState' as const,
+    entityId: sessionUserStateRowId(sessionUserId, row.sessionId),
+    value: userState(row),
+  })))
   const replica = createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
   initializeIssueViewCache(replica)
-  let store = sidebarReplayStore(corpus, replica)
+  // The oracle retains the fixture's expected read views independently of the
+  // raw replica rows and their personal companions, in replica transport order.
+  const expectedSessions = new Map(corpus.sessions.map(row => [row.sessionId, row]))
+  const legacySessions = () => dedupeSessions(replica.rows('sessions').map(row =>
+    required(expectedSessions.get(row.sessionId)),
+  ))
+  let store = { ...sidebarReplayStore(corpus, replica), sessions: legacySessions() }
   const subscribers = new Set<() => void>()
   const runtime = {
+    principal: asClientPrincipal(USER_ID),
     getSnapshot: () => store,
     subscribe: (listener: () => void) => {
       subscribers.add(listener)
@@ -237,7 +262,7 @@ function replay(data: LiveCollections) {
     runtimeRow: (id: string) => {
       // Use the real hydrate-first legacy runtime, without starting any I/O.
       const app = createClientRuntime({
-        principal: asClientPrincipal(asUserId('synthetic-operator')),
+        principal: asClientPrincipal(USER_ID),
         config: { httpOrigin: 'http://synthetic.invalid', wsClientUrl: 'ws://synthetic.invalid' },
         api: {} as PodiumClientApi,
         onFatalError: () => {},
@@ -259,13 +284,19 @@ function replay(data: LiveCollections) {
       }
     },
     updateSession: (row: SessionView) => {
-      cache.put('session', row.sessionId, row)
-      replica.onKernelEvent({
-        type: 'upserted',
-        record: { entity: 'session', entityId: row.sessionId, value: row, provenance: { seq: 1 } },
-        readmitted: false,
-      })
-      store = { ...store, sessions: dedupeSessions(replica.rows('sessions') as SessionView[]) }
+      expectedSessions.set(row.sessionId, row)
+      for (const [entity, entityId, value] of [
+        ['session', row.sessionId, stripSessionLegacy(row)],
+        ['sessionUserState', sessionUserStateRowId(sessionUserId, row.sessionId), userState(row)],
+      ] as const) {
+        cache.put(entity, entityId, value)
+        replica.onKernelEvent({
+          type: 'upserted',
+          record: { entity, entityId, value, provenance: { seq: 1 } },
+          readmitted: false,
+        })
+      }
+      store = { ...store, sessions: legacySessions() }
       publish()
       rows.flush()
       settle()
@@ -278,6 +309,41 @@ function replay(data: LiveCollections) {
     },
   }
 }
+
+describe('session read-state fixtures after S6', () => {
+  it('matches personal read timestamps on seed and update', () => {
+    const task = issue('synthetic-read-state')
+    const seat = session('synthetic-read-seat', task.id)
+    const ctx = replay(collections([task], [seat]))
+    try {
+      expect(ctx.row(task.id).actual.aggregateSessions[0]?.readAt).toBe(STAMP)
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+      const readAt = new Date(NOW).toISOString()
+      ctx.updateSession({ ...seat, readAt })
+      expect(ctx.row(task.id).actual.aggregateSessions[0]?.readAt).toBe(readAt)
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+    } finally {
+      ctx.dispose()
+    }
+  })
+
+  it('catches a planted read cursor seeded for another user', () => {
+    const task = issue('synthetic-wrong-user')
+    const ctx = replay(
+      collections([task], [session('synthetic-wrong-user-seat', task.id)]),
+      asUserId('another-operator'),
+    )
+    try {
+      expect(ctx.row(task.id).actual.aggregateSessions[0]?.readAt).toBeNull()
+      const result = ctx.check()
+      expect(result.pending).toBe(0)
+      expect(result.differences).toBeGreaterThan(0)
+      expect(result.first?.field).toBe('sessions[0].readAt')
+    } finally {
+      ctx.dispose()
+    }
+  })
+})
 
 describe('POD-5179 reciprocal provenance in the sidebar check corpus', () => {
   it.each([
