@@ -6,6 +6,7 @@ import { createServer } from 'node:http'
 import { arch, cpus, hostname, loadavg, platform } from 'node:os'
 import { extname, resolve } from 'node:path'
 import { chromium, type Browser, type Page } from '@playwright/test'
+import type { UserConfig } from 'vite'
 import { paintOf } from './browser-paint'
 import {
   installCommitObserver,
@@ -504,7 +505,8 @@ async function main() {
       'Building the gate’s ordinary minified production fixture, with measurement entry and hidden maps…',
     )
     const { build } = await import('../node_modules/vite/dist/node/index.js')
-    const { default: config } = await import('./sidebar-acceptance.vite')
+    const configPath = resolve('apps/web/harness/sidebar-acceptance.vite.ts')
+    const { default: config } = await import(configPath) as { default: UserConfig }
     await build({
       ...config,
       configFile: false,

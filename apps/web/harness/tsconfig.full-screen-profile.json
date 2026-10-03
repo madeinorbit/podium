@@ -4,6 +4,7 @@
     "tsBuildInfoFile": "../tsconfig.full-screen-profile.tsbuildinfo"
   },
   "include": [
+    "../src/vite-env.d.ts",
     "full-screen-click-profile.ts",
     "full-screen-click-profile.browser.ts",
     "full-screen-profile.ts",
