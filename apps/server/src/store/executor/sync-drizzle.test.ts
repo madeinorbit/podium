@@ -2,6 +2,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { eq, sql } from 'drizzle-orm'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy'
+import { types } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createBunSqliteDriver } from './bun-driver'
 import { queryClientOver, type Statement } from './driver'
@@ -109,6 +110,66 @@ describe('builder-declared statement intent', () => {
     await db.all(sql`select * from intent_notes`)
     await db.get(sql`select * from intent_notes`)
     expect(statements.map(({ intent }) => intent)).toEqual(['write', 'write', 'write'])
+  })
+
+  it('returns native raw arrays with named data cells and unchanged array iteration', async () => {
+    const { db } = await fixture()
+    await db.insert(notes).values({ id: 1, body: 'search result' }).run()
+    type RawRow = unknown[] & { id: number; note_body: string }
+    const row = await db.get<RawRow>(sql`select * from intent_notes`)
+    const rows = await db.all<RawRow>(sql`select * from intent_notes`)
+    for (const result of [row!, rows[0]!]) {
+      expect(types.isProxy(result)).toBe(false)
+      expect(Array.isArray(result)).toBe(true)
+      expect(result.id).toBe(1)
+      expect(result.note_body).toBe('search result')
+      expect('note_body' in result).toBe(true)
+      expect(Object.getOwnPropertyDescriptor(result, 'note_body')?.value).toBe('search result')
+      expect(Object.keys(result)).toEqual(['0', '1'])
+      expect([...result]).toEqual([1, 'search result'])
+      expect(result.map(String)).toEqual(['1', 'search result'])
+      expect(JSON.stringify(result)).toBe('[1,"search result"]')
+    }
+    expect(await db.get(sql`select * from intent_notes where id = 2`)).toBeUndefined()
+    const reserved = await db.get<unknown[]>(sql`select 'column' as length, null as map`)
+    expect(reserved?.length).toBe(2)
+    expect(typeof reserved?.map).toBe('function')
+    expect([...reserved!]).toEqual(['column', null])
+  })
+
+  it('keeps prepared builder values positional without constructing named properties', async () => {
+    const { db } = await fixture()
+    await db.insert(notes).values({ id: 1, body: 'builder' }).run()
+    const prepared = db.select({ body: notes.body, id: notes.id }).from(notes).prepare()
+    const values = await prepared.values()
+    expect(values).toEqual([['builder', 1]])
+    expect(types.isProxy(values[0])).toBe(false)
+    expect(Object.hasOwn(values[0]!, 'note_body')).toBe(false)
+    expect(Object.hasOwn(values[0]!, 'id')).toBe(false)
+    expect(await prepared.get()).toEqual({ body: 'builder', id: 1 })
+  })
+
+  it('captures named cells once instead of retaining a live source-row lookup', async () => {
+    let reads = 0
+    let current = 'first'
+    const row = {
+      id: 1,
+      get note_body() {
+        reads += 1
+        return current
+      },
+    }
+    const client = queryClientOver(
+      async () => ({ rows: [row] }),
+      async () => [],
+    )
+    const db = storeQueriesOver(client, async (fn) => await fn(client)).rootDb
+    const result = await db.get<unknown[] & { note_body: string }>(sql`select id, note_body`)
+    current = 'changed'
+    expect(result?.[1]).toBe('first')
+    expect(result?.note_body).toBe('first')
+    expect(reads).toBe(1)
+    expect(types.isProxy(result)).toBe(false)
   })
 
   it('carries per-item intent through read-only and mixed atomic batches', async () => {

@@ -52,38 +52,31 @@ export function currentTransaction(): StoreDrizzle | undefined {
 }
 
 /**
- * BOTH SHAPES AT ONCE, because drizzle's remote callback cannot tell us which is
- * wanted. A builder read (`select()...all()`) decodes POSITIONALLY through
- * drizzle's field mapper, while a raw read (`db.all(sql\`…\`)`) has no fields and
- * hands whatever we return straight to the caller, which reads it BY NAME. Both
- * arrive at this callback as method 'all' -- rc.4's sqlite-proxy session maps its
- * `values` primitive onto 'all' too -- so there is no flag to branch on.
+ * Builder reads decode positionally; raw reads also expose column names
+ * (POD-3680). Drizzle rc.4 drops the declared result mode at its remote callback,
+ * so StoreRemoteSession selects the shape while preparing the query.
  *
- * The previous implementation was Object.values(), which is correct for the
- * builder path and silently destroys the names for the raw one: every field read
- * back undefined, so conversation and transcript SEARCH returned nothing and
- * MemorySearchService dropped every row for want of a machineId (POD-3680).
- *
- * A Proxy over the values array satisfies both: indices and array methods hit the
- * array, and anything else falls through to the original named row. Array.isArray
- * and spreading still see an array, which is what drizzle's mapper needs.
- *
- * One known shadow: a column literally named `length`, or a numeric name, is
- * taken by the array. No column in this schema is either.
+ * Raw results keep both shapes in one ordinary array. Named cells are copied
+ * once as non-enumerable data properties, preserving iteration and JSON output.
+ * Builder results need only the positional cells and skip those properties.
+ * Array members retain precedence over column names, as in the old adapter.
  */
-function proxyRowValues(row: unknown): unknown[] {
+function rowValues(row: unknown, namedColumns: boolean): unknown[] {
   if (Array.isArray(row)) return row
   if (row !== null && typeof row === 'object') {
     const named = row as Record<string, unknown>
     const values = Object.values(named)
-    return new Proxy(values, {
-      get: (target, prop, receiver) =>
-        !Reflect.has(target, prop) && typeof prop === 'string' && prop in named
-          ? named[prop]
-          : Reflect.get(target, prop, receiver),
-      has: (target, prop) =>
-        Reflect.has(target, prop) || (typeof prop === 'string' && prop in named),
-    })
+    if (namedColumns) {
+      for (const [index, name] of Object.keys(named).entries()) {
+        if (Reflect.has(values, name)) continue
+        Object.defineProperty(values, name, {
+          value: values[index],
+          writable: true,
+          configurable: true,
+        })
+      }
+    }
+    return values
   }
   return [row]
 }
@@ -99,23 +92,40 @@ type PrepareArguments = Parameters<SQLiteRemoteSession<EmptyRelations>['prepareQ
  */
 class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
   private readonly readingSession: SQLiteRemoteSession<EmptyRelations>
+  private readonly arrayReadingSession: SQLiteRemoteSession<EmptyRelations>
+  private readonly arrayWritingSession: SQLiteRemoteSession<EmptyRelations>
   private readonly intents = new WeakMap<object, StatementIntent>()
+  private readonly arrayQueries = new WeakSet<object>()
 
   constructor(
     private readonly queryClient: QueryClient,
     dialect: SQLiteDialect,
   ) {
-    super(remoteCallback(queryClient, 'write'), dialect, {})
-    this.readingSession = new SQLiteRemoteSession(remoteCallback(queryClient, 'read'), dialect, {})
+    super(remoteCallback(queryClient, 'write', true), dialect, {})
+    this.readingSession = new SQLiteRemoteSession(
+      remoteCallback(queryClient, 'read', true), dialect, {},
+    )
+    this.arrayReadingSession = new SQLiteRemoteSession(
+      remoteCallback(queryClient, 'read', false), dialect, {},
+    )
+    this.arrayWritingSession = new SQLiteRemoteSession(
+      remoteCallback(queryClient, 'write', false), dialect, {},
+    )
   }
 
   override prepareQuery<T extends Omit<PreparedQueryConfig, 'run'>>(...args: PrepareArguments) {
     const intent = args[5]?.type === 'select' ? 'read' : 'write'
+    const arrays = args[1] === 'arrays'
     const prepared =
-      intent === 'read'
-        ? this.readingSession.prepareQuery<T>(...args)
-        : super.prepareQuery<T>(...args)
+      arrays
+        ? (intent === 'read'
+            ? this.arrayReadingSession
+            : this.arrayWritingSession).prepareQuery<T>(...args)
+        : intent === 'read'
+          ? this.readingSession.prepareQuery<T>(...args)
+          : super.prepareQuery<T>(...args)
     this.intents.set(prepared, intent)
+    if (arrays) this.arrayQueries.add(prepared)
     return prepared
   }
 
@@ -130,7 +140,7 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
       )._prepare(),
     )
     const delegate = new SQLiteRemoteSession(
-      remoteCallback(this.queryClient, 'write'),
+      remoteCallback(this.queryClient, 'write', true),
       this.dialect,
       {},
       async (batch) => {
@@ -142,15 +152,18 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
             intent: this.intents.get(prepared[index]!) ?? 'write',
           })),
         )
-        return results.map((result, index) => ({
-          rows:
-            batch[index]?.method === 'get'
-              ? result.rows.length === 0
-                ? (undefined as unknown as unknown[])
-                : proxyRowValues(result.rows[0])
-              : result.rows.map(proxyRowValues),
-          ...result.run,
-        }))
+        return results.map((result, index) => {
+          const namedColumns = !this.arrayQueries.has(prepared[index]!)
+          return {
+            rows:
+              batch[index]?.method === 'get'
+                ? result.rows.length === 0
+                  ? (undefined as unknown as unknown[])
+                  : rowValues(result.rows[0], namedColumns)
+                : result.rows.map((row) => rowValues(row, namedColumns)),
+            ...result.run,
+          }
+        })
       },
     )
     // The upstream batch API types builders, but uses only their _prepare hook.
@@ -160,7 +173,11 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
   }
 }
 
-function remoteCallback(client: QueryClient, intent: StatementIntent): AsyncRemoteCallback {
+function remoteCallback(
+  client: QueryClient,
+  intent: StatementIntent,
+  namedColumns: boolean,
+): AsyncRemoteCallback {
   return async (sql, params, method) => {
     if (method === 'run') {
       // QueryClient.run declares write. A SELECT executed as run must still read.
@@ -173,11 +190,15 @@ function remoteCallback(client: QueryClient, intent: StatementIntent): AsyncRemo
     if (method === 'get') {
       const row =
         intent === 'read' ? await client.get(sql, ...params) : await client.writeGet(sql, ...params)
-      return { rows: row === undefined ? (undefined as unknown as unknown[]) : proxyRowValues(row) }
+      return {
+        rows: row === undefined
+          ? (undefined as unknown as unknown[])
+          : rowValues(row, namedColumns),
+      }
     }
     const rows =
       intent === 'read' ? await client.all(sql, ...params) : await client.writeAll(sql, ...params)
-    return { rows: rows.map(proxyRowValues) }
+    return { rows: rows.map((row) => rowValues(row, namedColumns)) }
   }
 }
 
