@@ -1,5 +1,5 @@
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { useStoreHandle } from '@podium/client-core/react'
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   discoveredPlacement,
   type ProposalPlacement,
@@ -25,8 +25,6 @@ import { Fragment, type JSX, type ReactNode, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import type { Trpc } from '@/app/trpc'
-import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
-import { useIssuePageData } from './issue-page/issue-page-data'
 import { IssueColorSwatches } from '@/components/IssueColorSwatches'
 import { useConfirm } from '@/lib/hooks/use-confirm'
 import { issueAgentIcon } from '@/lib/issue-agents'
@@ -75,6 +73,8 @@ import {
   issueMenuEntryLabel,
 } from './issue-menu-config'
 import { issueMenuIcon } from './issue-menu-icons'
+import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
+import { useIssuePageData } from './issue-page/issue-page-data'
 import { isIssueStartable } from './issue-startable'
 
 /** Regions get named in mono micro-caps, the way the colour picker names its
@@ -128,7 +128,11 @@ export function IssueContextMenu({
 }): JSX.Element | null {
   const page = useIssuePageData()
   const menuIssues = page?.views.menuIssues()
-  const allIssues = page ? menuIssues && typeof menuIssues !== 'symbol' ? menuIssues : page.data.issues : suppliedIssues
+  const allIssues = page
+    ? menuIssues && typeof menuIssues !== 'symbol'
+      ? menuIssues
+      : page.data.issues
+    : suppliedIssues
   const {
     trpc,
     markIssueRead,

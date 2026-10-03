@@ -127,10 +127,15 @@ const uiState = {
 }
 
 const owner = {
-  getSnapshot: () => fixtureStoreSnapshot(
-    selectFixtureSnapshot(state => state),
-    () => syncPoolFixture(selectFixtureSnapshot(state => state), true),
-  ),
+  getSnapshot: () =>
+    fixtureStoreSnapshot(
+      selectFixtureSnapshot((state) => state),
+      () =>
+        syncPoolFixture(
+          selectFixtureSnapshot((state) => state),
+          true,
+        ),
+    ),
   subscribe: () => () => {},
 }
 vi.mock('@podium/client-core/react', async (original) => ({
@@ -262,7 +267,9 @@ function DeckHarness() {
 const deck = async (): Promise<ReturnType<typeof render>> => {
   let view!: ReturnType<typeof render>
   // The real pool imports preferences in a batch after the initial render.
-  await act(async () => { view = render(<DeckHarness />) })
+  await act(async () => {
+    view = render(<DeckHarness />)
+  })
   return view
 }
 
@@ -594,13 +601,21 @@ describe('mission brief cutoff interaction', () => {
     await measuredBrief()
     const rule = separator()
 
-    await act(async () => { fireEvent.keyDown(rule, { key: 'ArrowDown' }) })
+    await act(async () => {
+      fireEvent.keyDown(rule, { key: 'ArrowDown' })
+    })
     expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4300')
-    await act(async () => { fireEvent.keyDown(rule, { key: 'Home' }) })
+    await act(async () => {
+      fireEvent.keyDown(rule, { key: 'Home' })
+    })
     expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.3400')
-    await act(async () => { fireEvent.keyDown(rule, { key: 'End' }) })
+    await act(async () => {
+      fireEvent.keyDown(rule, { key: 'End' })
+    })
     expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.5200')
-    await act(async () => { fireEvent.keyDown(rule, { key: 'Escape' }) })
+    await act(async () => {
+      fireEvent.keyDown(rule, { key: 'Escape' })
+    })
     expect(harness.ui.has(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe(false)
     expect(rule.getAttribute('aria-valuetext')).toBe('Automatic cutoff at 40% of the Flight Deck')
   })
@@ -1001,7 +1016,9 @@ describe('the developer Flight Deck views', () => {
       'Waterfall',
       'Timeline',
     ])
-    await act(async () => { fireEvent.click(views[4] as HTMLElement) })
+    await act(async () => {
+      fireEvent.click(views[4] as HTMLElement)
+    })
 
     expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
     expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()

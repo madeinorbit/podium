@@ -35,7 +35,12 @@ function readers(before) {
       )
         counts.storeSelectors++
       if (ts.isIdentifier(node) && node.text === 'useReplicaIssues') counts.legacyIssueChoices++
-      if (ts.isVariableDeclaration(node) && node.initializer && /\blegacy(?:Sessions|Repos|Machines)\b/.test(node.initializer.getText())) counts.legacyDataFallbacks++
+      if (
+        ts.isVariableDeclaration(node) &&
+        node.initializer &&
+        /\blegacy(?:Sessions|Repos|Machines)\b/.test(node.initializer.getText())
+      )
+        counts.legacyDataFallbacks++
       if (
         ts.isPropertySignature(node) &&
         node.name.getText() === 'poolInputs' &&
@@ -117,7 +122,11 @@ for (const path of files) {
       !node.attributes.properties.some(
         (prop) => ts.isJsxAttribute(prop) && prop.name.getText() === 'poolInputs',
       )
-    ) missingIssueMenuInputs.push({ path, line: current.getLineAndCharacterOfPosition(node.getStart()).line + 1 })
+    )
+      missingIssueMenuInputs.push({
+        path,
+        line: current.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+      })
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
@@ -138,7 +147,26 @@ const writerContracts = [
   [guard, 'guardedArchive'],
   [menu, 'run'],
   [menu, 'handoff'],
-  ...['run', 'handoffTo', 'setStage', 'setPriority', 'setColor', 'toggleLabel', 'assignAgent', 'close', 'defer', 'undefer', 'rename', 'duplicateOf', 'del', 'archive', 'restore', 'movePlacement', 'runAction', 'runSubmenu'].map(name => [issueMenu, name]),
+  ...[
+    'run',
+    'handoffTo',
+    'setStage',
+    'setPriority',
+    'setColor',
+    'toggleLabel',
+    'assignAgent',
+    'close',
+    'defer',
+    'undefer',
+    'rename',
+    'duplicateOf',
+    'del',
+    'archive',
+    'restore',
+    'movePlacement',
+    'runAction',
+    'runSubmenu',
+  ].map((name) => [issueMenu, name]),
 ].map(([path, name]) => {
   const before = writerHash(path, name, true),
     after = writerHash(path, name, false)

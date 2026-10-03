@@ -1,6 +1,6 @@
-import type { SessionView } from '@podium/client-core/session-values'
-import { useStoreHandle } from '@podium/client-core/react'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
+import { useStoreHandle } from '@podium/client-core/react'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
   FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
@@ -15,7 +15,7 @@ import {
   sessionSettled,
   sessionUnreadEmphasized,
 } from '@podium/client-core/viewmodels'
-import type { IssueId} from '@podium/model/browser'
+import type { IssueId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ChevronDown,
@@ -46,8 +46,8 @@ import { useClickIntent } from './click-intent'
 import type { FlightDeckDisplay } from './flight-deck-display'
 import {
   fitWaterfallViewport,
-  followWaterfallViewport,
   foldWaterfallSegments,
+  followWaterfallViewport,
   formatWaterfallClock,
   formatWaterfallDuration,
   panWaterfallViewport,

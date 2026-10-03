@@ -16,13 +16,13 @@ export function readIssueMenuPoolInputs(
 ): IssueMenuPoolInputs | typeof LOADING {
   const sessions: SessionView[] = []
   let pending = false
-  for (const id of new Set(issues.flatMap(issue => issue.memberSessionIds ?? []))) {
+  for (const id of new Set(issues.flatMap((issue) => issue.memberSessionIds ?? []))) {
     const row = pool.row('session', id) as SessionView | typeof LOADING | undefined
     if (row === LOADING) pending = true
     else if (row) sessions.push(row)
   }
   if (pending) return LOADING
-  const repos = pool.headerViews.ids('repository').flatMap(id => {
+  const repos = pool.headerViews.ids('repository').flatMap((id) => {
     const repo = pool.headerViews.row('repository', id)
     return repo ? [repo] : []
   })
@@ -30,8 +30,13 @@ export function readIssueMenuPoolInputs(
 }
 
 /** Mounted on menu open; the content never borrows store reader inputs. */
-export function PoolIssueContextMenu(props: Omit<ComponentProps<typeof IssueContextMenu>, 'poolInputs'>) {
-  const read = useCallback((pool: MobxPool) => readIssueMenuPoolInputs(pool, props.issues), [props.issues])
+export function PoolIssueContextMenu(
+  props: Omit<ComponentProps<typeof IssueContextMenu>, 'poolInputs'>,
+) {
+  const read = useCallback(
+    (pool: MobxPool) => readIssueMenuPoolInputs(pool, props.issues),
+    [props.issues],
+  )
   const inputs = useWorklistPoolProjection(read, LOADING)
   return inputs === LOADING ? null : <IssueContextMenu {...props} poolInputs={inputs} />
 }

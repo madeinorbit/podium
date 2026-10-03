@@ -12,19 +12,29 @@ const addSessionMutate = vi.fn(async () => ({}))
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ getSnapshot: () => ({
-    trpc: {
-      issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },
-    },
-    markIssueRead: vi.fn(),
-    markIssueUnread: vi.fn(),
-    get sessions() { throw new Error('Task menu read legacy sessions') },
-    get repos() { throw new Error('Task menu read legacy repos') },
-    get machines() { throw new Error('Task menu read legacy machines') },
-  }) }),
+  useStoreHandle: () => ({
+    getSnapshot: () => ({
+      trpc: {
+        issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },
+      },
+      markIssueRead: vi.fn(),
+      markIssueUnread: vi.fn(),
+      get sessions() {
+        throw new Error('Task menu read legacy sessions')
+      },
+      get repos() {
+        throw new Error('Task menu read legacy repos')
+      },
+      get machines() {
+        throw new Error('Task menu read legacy machines')
+      },
+    }),
+  }),
 }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: () => { throw new Error('Task menu used a legacy selector') },
+  useStoreSelector: () => {
+    throw new Error('Task menu used a legacy selector')
+  },
 }))
 
 // The menu's Archive and Delete confirms are the app-wide dialog (POD-1077), so
@@ -33,16 +43,16 @@ function open(issue: ReturnType<typeof makeIssue>, primaryStart = false): void {
   render(
     <ConfirmProvider>
       <IssuePageWorldContext.Provider value={{ issues: [issue], sessions: [] }}>
-      <IssueContextMenu
-        issues={[issue]}
-        allIssues={[issue]}
-        poolInputs={{ sessions: [], repos: [], machines: [] }}
-        anchor={{ x: 10, y: 10 }}
-        primaryStart={primaryStart}
-        onClose={vi.fn()}
-        onOpen={vi.fn()}
-        onRename={vi.fn()}
-      />
+        <IssueContextMenu
+          issues={[issue]}
+          allIssues={[issue]}
+          poolInputs={{ sessions: [], repos: [], machines: [] }}
+          anchor={{ x: 10, y: 10 }}
+          primaryStart={primaryStart}
+          onClose={vi.fn()}
+          onOpen={vi.fn()}
+          onRename={vi.fn()}
+        />
       </IssuePageWorldContext.Provider>
     </ConfirmProvider>,
   )

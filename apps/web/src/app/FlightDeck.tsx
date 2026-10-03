@@ -2928,7 +2928,9 @@ export interface FlightDeckSource {
   session: (id: string) => SessionView | undefined
   rootFor: (id: string) => string | null
   attached: (id: string) => readonly SessionView[]
-  IssueMenu: import('react').ComponentType<Omit<import('react').ComponentProps<typeof IssueContextMenu>, 'poolInputs'>>
+  IssueMenu: import('react').ComponentType<
+    Omit<import('react').ComponentProps<typeof IssueContextMenu>, 'poolInputs'>
+  >
 }
 
 export function FlightDeck(props: FlightDeckProps): JSX.Element {

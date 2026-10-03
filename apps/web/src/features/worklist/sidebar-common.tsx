@@ -670,11 +670,7 @@ function PanelRowInner({
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
-  const { guardedEnd } = useSessionGuard(
-    session.sessionId,
-    guardWorking,
-    [session],
-  )
+  const { guardedEnd } = useSessionGuard(session.sessionId, guardWorking, [session])
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)

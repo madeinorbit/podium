@@ -1,6 +1,6 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
+import type { SessionView } from '@podium/client-core/session-values'
 import { pickPaneSession } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
@@ -10,7 +10,8 @@ import {
   asSessionId,
   type IssueColorSlot,
   type IssueId,
-  type SessionId} from '@podium/model/browser'
+  type SessionId,
+} from '@podium/model/browser'
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { readIssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
@@ -18,15 +19,26 @@ import { navigationIssue } from './pool-row-data'
 
 /** Addressed mission target seam shared with the explorer. It reads the raw
  * parent relation so an archived ancestor stops the walk, as in navigation. */
-export function poolMissionRoot(pool: MobxPool, id: string | null): SliceIssue | typeof LOADING | undefined {
+export function poolMissionRoot(
+  pool: MobxPool,
+  id: string | null,
+): SliceIssue | typeof LOADING | undefined {
   if (!id) return undefined
   let current = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
   const seen = new Set<string>()
-  while (current !== undefined && current !== LOADING && current.parentId && !seen.has(current.id)) {
+  while (
+    current !== undefined &&
+    current !== LOADING &&
+    current.parentId &&
+    !seen.has(current.id)
+  ) {
     seen.add(current.id)
     const parentId = pool.graph.one('issue', current.id, 'treeParent')
     if (!parentId) break
-    const summary = pool.row('issue', parentId, 'summary') as SliceIssue | typeof LOADING | undefined
+    const summary = pool.row('issue', parentId, 'summary') as
+      | SliceIssue
+      | typeof LOADING
+      | undefined
     if (summary === LOADING) return LOADING
     if (summary?.archived || summary?.deletedAt) break
     const parent = pool.row('issue', parentId) as SliceIssue | typeof LOADING | undefined
@@ -40,7 +52,11 @@ export function poolMissionRoot(pool: MobxPool, id: string | null): SliceIssue |
 /** Resolve one focus through formal parents and sender provenance. The sender
  * may be headless (outside R2) or cold; its declared owner summary still names
  * the issue, without a second membership index or an enumeration. */
-export function poolMissionContains(pool: MobxPool, rootId: string, id: string): boolean | typeof LOADING {
+export function poolMissionContains(
+  pool: MobxPool,
+  rootId: string,
+  id: string,
+): boolean | typeof LOADING {
   const seen = new Set<string>()
   const visit = (member: string): boolean | typeof LOADING => {
     if (member === rootId) return true
@@ -61,8 +77,12 @@ export function poolMissionContains(pool: MobxPool, rootId: string, id: string):
       if (!ancestor) break
       parent = pool.graph.one('issue', parent, 'parent')
     }
-    if (issue.stage !== 'proposed' && issue.stage !== 'backlog' &&
-      issue.deps?.some(dep => dep.type === 'discovered-from')) return false
+    if (
+      issue.stage !== 'proposed' &&
+      issue.stage !== 'backlog' &&
+      issue.deps?.some((dep) => dep.type === 'discovered-from')
+    )
+      return false
     const starter = pool.graph.one('issue', member, 'startedBy')
     if (!starter) return false
     const sender = pool.row('session', starter, 'summary')
@@ -76,14 +96,18 @@ export function poolMissionContains(pool: MobxPool, rootId: string, id: string):
 /** Navigation includes the formal mission at every depth and tasks filed by
  * its explicitly attached sessions. Display nesting is narrower than this:
  * hidden descendants and unstarted spin-offs can still supply a pane. */
-function sessionMembership(pool: MobxPool, issueIds?: ReadonlySet<string>): Map<string, SessionView[]> {
+function sessionMembership(
+  pool: MobxPool,
+  issueIds?: ReadonlySet<string>,
+): Map<string, SessionView[]> {
   const byIssue = new Map<string, SessionView[]>()
   // Navigation already has the mission. R2 supplies its retained, non-headless
   // candidates without reading or grouping every other session's row.
   const retained = issueIds ? new Set<string>() : undefined
-  if (issueIds && retained) for (const id of issueIds) {
-    for (const sessionId of pool.graph.many('issue', id, 'sessions')) retained.add(sessionId)
-  }
+  if (issueIds && retained)
+    for (const id of issueIds) {
+      for (const sessionId of pool.graph.many('issue', id, 'sessions')) retained.add(sessionId)
+    }
   // Keep slice order for lastActiveAt ties, even when a relation bucket was
   // reordered by a move away and back. Non-candidates cost only an ID probe.
   for (const id of pool.tables.session.keys()) {

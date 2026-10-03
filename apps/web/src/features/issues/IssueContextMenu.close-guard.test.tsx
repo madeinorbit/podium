@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId, type IssueCloseReason } from '@podium/model/browser'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -5,7 +6,6 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssuePageWorldContext } from './issue-page/issue-page-data'
-import type { SessionView } from '@podium/client-core/session-values'
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
@@ -14,18 +14,28 @@ const state: { sessions: SessionView[] } = { sessions: [] }
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ getSnapshot: () => ({
-    trpc: { issues: { start: { mutate: vi.fn() } } },
-    markIssueRead: vi.fn(),
-    markIssueUnread: vi.fn(),
-    closeIssue,
-    get sessions() { throw new Error('Task menu read legacy sessions') },
-    get repos() { throw new Error('Task menu read legacy repos') },
-    get machines() { throw new Error('Task menu read legacy machines') },
-  }) }),
+  useStoreHandle: () => ({
+    getSnapshot: () => ({
+      trpc: { issues: { start: { mutate: vi.fn() } } },
+      markIssueRead: vi.fn(),
+      markIssueUnread: vi.fn(),
+      closeIssue,
+      get sessions() {
+        throw new Error('Task menu read legacy sessions')
+      },
+      get repos() {
+        throw new Error('Task menu read legacy repos')
+      },
+      get machines() {
+        throw new Error('Task menu read legacy machines')
+      },
+    }),
+  }),
 }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: () => { throw new Error('Task menu used a legacy selector') },
+  useStoreSelector: () => {
+    throw new Error('Task menu used a legacy selector')
+  },
 }))
 
 const working = (): SessionView =>
@@ -51,17 +61,19 @@ function open(over: { onRequestClose?: (reason: IssueCloseReason) => void } = {}
     // POD-1077: the menu's cascade confirms read the ConfirmProvider context
     // AppShell supplies in the real tree.
     <ConfirmProvider>
-      <IssuePageWorldContext.Provider value={{ issues: [issue], sessions: state.sessions as SessionView[] }}>
-      <IssueContextMenu
-        issues={[issue]}
-        allIssues={[issue]}
-        poolInputs={{ sessions: state.sessions, repos: [], machines: [] }}
-        anchor={{ x: 10, y: 10 }}
-        onClose={onClose}
-        onOpen={vi.fn()}
-        surface="sidebar"
-        {...over}
-      />
+      <IssuePageWorldContext.Provider
+        value={{ issues: [issue], sessions: state.sessions as SessionView[] }}
+      >
+        <IssueContextMenu
+          issues={[issue]}
+          allIssues={[issue]}
+          poolInputs={{ sessions: state.sessions, repos: [], machines: [] }}
+          anchor={{ x: 10, y: 10 }}
+          onClose={onClose}
+          onOpen={vi.fn()}
+          surface="sidebar"
+          {...over}
+        />
       </IssuePageWorldContext.Provider>
     </ConfirmProvider>,
   )

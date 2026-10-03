@@ -15,7 +15,8 @@ import {
   issueStatusMenuEntries,
   issueStatusOf,
   issueStatusValueOf,
-  parseIssueStatusValue} from '@podium/model/browser'
+  parseIssueStatusValue,
+} from '@podium/model/browser'
 import {
   ArrowUpRight,
   Check,
@@ -30,7 +31,6 @@ import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
-import { useIssuePageIssues, useIssuePageSessions } from './issue-page/issue-page-data'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -44,9 +44,10 @@ import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
-import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
 import { StatusGlyph } from './issue-glyphs'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
+import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
+import { useIssuePageIssues, useIssuePageSessions } from './issue-page/issue-page-data'
 import { issueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
 
 // The right-click menu exists only after a right-click; loading it on demand
@@ -340,10 +341,7 @@ export function IssueSessionRow({
  * session that asked (see {@link IssueSessionRow}), inside the scroll.
  */
 export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Element | null {
-  const { trpc } = useStoreSelector(
-    (s) => ({ trpc: s.trpc }),
-    shallowEqual,
-  )
+  const { trpc } = useStoreSelector((s) => ({ trpc: s.trpc }), shallowEqual)
   const sessions = useIssuePageSessions()
   const active = issueSessions(issue, sessions).filter(isOpenSession)
   if (!issueNeedsHuman(issue, active)) return null

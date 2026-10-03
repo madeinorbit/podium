@@ -19,7 +19,9 @@ import { IssuePageWorldContext } from './issue-page/issue-page-data'
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ getSnapshot: () => fixtureStoreSnapshot(selectFixtureSnapshot(state => state)) }),
+  useStoreHandle: () => ({
+    getSnapshot: () => fixtureStoreSnapshot(selectFixtureSnapshot((state) => state)),
+  }),
 }))
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))

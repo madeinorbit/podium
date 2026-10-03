@@ -15,27 +15,28 @@ import {
   rowUnreadEmphasized,
   type UnifiedIssueRow as UnifiedIssueRowView,
 } from '@podium/client-core/viewmodels'
+import { LOADING } from '@podium/client-graph'
+import { observer } from '@podium/client-graph/react'
 import {
   asSessionId,
   type IssueId,
   isIssueDeferred,
   issueReturnedFromDefer,
-  type SessionId} from '@podium/model/browser'
+  type SessionId,
+} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { LOADING } from '@podium/client-graph'
-import { observer } from '@podium/client-graph/react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { lazy, memo, Suspense, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { idSquareLabel } from '@/components/IdSquare'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
+import type { IssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
-import type { IssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
 import type { PoolIssueDisplay } from './pool-row-data'
 import { RowProgressMeter } from './row-progress'
 import { measureSidebarRow } from './sidebar-measurements'
@@ -261,24 +262,25 @@ export function UnifiedIssueRowInner({
   // MENU DATA IS BUILT ON OPEN ONLY (POD-4421): the row holds no issue array,
   // so the `issues.map` below runs only while the menu is open, never per row
   // per publish.
-  const menu = menuAnchor && resolveMenuData ? (
-    <Suspense fallback={null}>
-      <ResolvedIssueMenu
-        resolve={resolveMenuData}
-        surface="sidebar"
-        anchor={menuAnchor}
-        onClose={() => setMenuAnchor(null)}
-        onOpen={(id) => {
-          setMenuAnchor(null)
-          onOpenIssue(id)
-        }}
-        onRename={() => {
-          setMenuAnchor(null)
-          rename.begin()
-        }}
-      />
-    </Suspense>
-  ) : null
+  const menu =
+    menuAnchor && resolveMenuData ? (
+      <Suspense fallback={null}>
+        <ResolvedIssueMenu
+          resolve={resolveMenuData}
+          surface="sidebar"
+          anchor={menuAnchor}
+          onClose={() => setMenuAnchor(null)}
+          onOpen={(id) => {
+            setMenuAnchor(null)
+            onOpenIssue(id)
+          }}
+          onRename={() => {
+            setMenuAnchor(null)
+            rename.begin()
+          }}
+        />
+      </Suspense>
+    ) : null
   // WHERE THE LIFECYCLE STAMP GOES, BY PHASE (3a). A working row's clock and a
   // waiting row's "how long has this sat there" belong in line 1's meta column,
   // where they tabulate. A finished row's `67:44 total` does not: it is the tail
@@ -476,23 +478,31 @@ function fallbackEmptyProgress(): MissionProgress {
   return { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
 }
 
-const ResolvedIssueMenu = observer(function ResolvedIssueMenu({ resolve, ...props }: {
+const ResolvedIssueMenu = observer(function ResolvedIssueMenu({
+  resolve,
+  ...props
+}: {
   resolve: () => UnifiedIssueRowMenuData
-} & Omit<import('react').ComponentProps<typeof IssueContextMenu>, 'issues' | 'allIssues' | 'poolInputs'>) {
+} & Omit<
+  import('react').ComponentProps<typeof IssueContextMenu>,
+  'issues' | 'allIssues' | 'poolInputs'
+>) {
   const data = resolve()
   if (data.poolInputs === LOADING) return null
-  return <IssueContextMenu
-    {...props}
-    poolInputs={data.poolInputs}
-    issues={data.single.map((candidate) => ({
+  return (
+    <IssueContextMenu
+      {...props}
+      poolInputs={data.poolInputs}
+      issues={data.single.map((candidate) => ({
         ...candidate,
         memberSessionIds: candidate.memberSessionIds?.map(asSessionId),
       }))}
-    allIssues={data.all.map((candidate) => ({
+      allIssues={data.all.map((candidate) => ({
         ...candidate,
         memberSessionIds: candidate.memberSessionIds?.map(asSessionId),
       }))}
-  />
+    />
+  )
 })
 
 /**

@@ -198,7 +198,11 @@ function FixedList({
         const id = row.issue.id
         let resolve = fixedResolvers.get(id)
         if (!resolve) {
-          resolve = () => ({ single: [], all: issues, poolInputs: { sessions: [], repos: [], machines: [] } })
+          resolve = () => ({
+            single: [],
+            all: issues,
+            poolInputs: { sessions: [], repos: [], machines: [] },
+          })
           fixedResolvers.set(id, resolve)
         }
         const origin =

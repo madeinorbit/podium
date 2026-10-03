@@ -63,38 +63,42 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 const stamp = '2026-10-01T12:00:00Z'
-const row = (id: string, issueId: string): SessionView =>
-  ({
-    sessionId: asSessionId(id),
-    cwd: '/synthetic/menu',
-    title: 'Pool session',
-    agentKind: 'codex',
-    status: 'exited',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
-    origin: { kind: 'spawn' },
-    archived: true,
-    readAt: null,
-    unread: false,
-    issueId: asIssueId(issueId),
-    createdAt: stamp,
-    lastActiveAt: stamp,
-  })
+const row = (id: string, issueId: string): SessionView => ({
+  sessionId: asSessionId(id),
+  cwd: '/synthetic/menu',
+  title: 'Pool session',
+  agentKind: 'codex',
+  status: 'exited',
+  controllerId: null,
+  geometry: { cols: 80, rows: 24 },
+  epoch: 0,
+  clientCount: 0,
+  origin: { kind: 'spawn' },
+  archived: true,
+  readAt: null,
+  unread: false,
+  issueId: asIssueId(issueId),
+  createdAt: stamp,
+  lastActiveAt: stamp,
+})
 function open(scale: number) {
   const chosen = row('chosen-session', 'chosen-issue')
-  const seats = [chosen, ...Array.from({ length: 64 * scale - 1 }, (_, i) => row(`unrelated-${i}`, 'background-issue'))]
-  const issues = ['chosen-issue', 'background-issue'].map(id => makeIssue({
-    id,
-    audience: 'agent',
-    stage: 'done',
-    closedAt: '2026-09-20T12:00:00Z',
-    updatedAt: '2026-09-20T12:00:00Z',
-  }))
+  const seats = [
+    chosen,
+    ...Array.from({ length: 64 * scale - 1 }, (_, i) => row(`unrelated-${i}`, 'background-issue')),
+  ]
+  const issues = ['chosen-issue', 'background-issue'].map((id) =>
+    makeIssue({
+      id,
+      audience: 'agent',
+      stage: 'done',
+      closedAt: '2026-09-20T12:00:00Z',
+      updatedAt: '2026-09-20T12:00:00Z',
+    }),
+  )
   const input = new Map<string, object>([
-    ...seats.map(seat => [`session:${seat.sessionId}`, seat] as const),
-    ...issues.map(issue => [`issue:${issue.id}`, issue] as const),
+    ...seats.map((seat) => [`session:${seat.sessionId}`, seat] as const),
+    ...issues.map((issue) => [`issue:${issue.id}`, issue] as const),
   ])
   const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
   const pool = new MobxPool({ coarseNow: Date.parse(stamp), selectedIssueId: null }, undefined, {
@@ -106,7 +110,7 @@ function open(scale: number) {
   pool.apply({
     type: 'replace',
     rows: [
-      ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
+      ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
       ...seats.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
     ],
   })
@@ -141,7 +145,14 @@ const props = {
 
 function MenuClick() {
   const [open, setOpen] = useState(false)
-  return <><button type="button" onClick={() => setOpen(true)}>Session actions</button>{open && <PoolSessionContextMenu {...props} />}</>
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Session actions
+      </button>
+      {open && <PoolSessionContextMenu {...props} />}
+    </>
+  )
 }
 
 it('batches the addressed cold session and supplies pool inputs with equal click work at 1x and 4x', async () => {
@@ -165,7 +176,10 @@ it('batches the addressed cold session and supplies pool inputs with equal click
       expect(pool.hydrate()).toBe(1)
     })
     expect(screen.getByTestId('pool-session-menu').textContent).toBe('Pool session')
-    expect(load.mock.calls).toEqual([['session', 'chosen-session'], ['issue', 'chosen-issue']])
+    expect(load.mock.calls).toEqual([
+      ['session', 'chosen-session'],
+      ['issue', 'chosen-issue'],
+    ])
     expect(
       read.mock.calls
         .filter(([entity]) => entity === 'session')

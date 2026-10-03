@@ -2,8 +2,8 @@
 
 import type { Store } from '@podium/client-core/engine'
 import { allIssueViewModels } from '@podium/client-core/replica'
-import { reposToViews } from '@podium/client-core/viewmodels'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { reposToViews } from '@podium/client-core/viewmodels'
 import type { RowSourceEvent } from '@podium/client-graph'
 import { MobxPool } from '@podium/client-graph'
 import { attachHeaderSource } from '@podium/client-graph/header-source'

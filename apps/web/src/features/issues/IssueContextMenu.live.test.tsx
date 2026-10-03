@@ -1,13 +1,21 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { asIssueId, asMachineId, asRepoId, asSessionId, type GitRepositoryWire, type MachineId, type MachineWire } from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asRepoId,
+  asSessionId,
+  type GitRepositoryWire,
+  type MachineId,
+  type MachineWire,
+} from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
-import { IssuePageWorldContext } from './issue-page/issue-page-data'
 import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
+import { IssuePageWorldContext } from './issue-page/issue-page-data'
 
 const featureEnabled = vi.hoisted(() => ({ value: true }))
 vi.mock('@/lib/use-feature', () => ({
@@ -24,17 +32,27 @@ const handoffMutate = vi.fn(async () => ({ ok: true }))
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ getSnapshot: () => ({
-    trpc: { sessions: { handoff: { mutate: handoffMutate } } },
-    markIssueRead: vi.fn(),
-    markIssueUnread: vi.fn(),
-    get sessions() { throw new Error('Task menu read legacy sessions') },
-    get repos() { throw new Error('Task menu read legacy repos') },
-    get machines() { throw new Error('Task menu read legacy machines') },
-  }) }),
+  useStoreHandle: () => ({
+    getSnapshot: () => ({
+      trpc: { sessions: { handoff: { mutate: handoffMutate } } },
+      markIssueRead: vi.fn(),
+      markIssueUnread: vi.fn(),
+      get sessions() {
+        throw new Error('Task menu read legacy sessions')
+      },
+      get repos() {
+        throw new Error('Task menu read legacy repos')
+      },
+      get machines() {
+        throw new Error('Task menu read legacy machines')
+      },
+    }),
+  }),
 }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: () => { throw new Error('Task menu used a legacy selector') },
+  useStoreSelector: () => {
+    throw new Error('Task menu used a legacy selector')
+  },
 }))
 
 const LUD = asMachineId('ludovico')
@@ -87,16 +105,18 @@ function open(issue: IssueViewModel & { memberSessionIds?: string[] }): void {
   // the ConfirmProvider context AppShell supplies in the real tree.
   render(
     <ConfirmProvider>
-      <IssuePageWorldContext.Provider value={{ issues: [viewIssue], sessions: state.sessions as SessionView[] }}>
-      <IssueContextMenu
-        issues={[viewIssue]}
-        allIssues={[viewIssue]}
-        poolInputs={state}
-        anchor={{ x: 10, y: 10 }}
-        onClose={vi.fn()}
-        onOpen={vi.fn()}
-        onRename={vi.fn()}
-      />
+      <IssuePageWorldContext.Provider
+        value={{ issues: [viewIssue], sessions: state.sessions as SessionView[] }}
+      >
+        <IssueContextMenu
+          issues={[viewIssue]}
+          allIssues={[viewIssue]}
+          poolInputs={state}
+          anchor={{ x: 10, y: 10 }}
+          onClose={vi.fn()}
+          onOpen={vi.fn()}
+          onRename={vi.fn()}
+        />
       </IssuePageWorldContext.Provider>
     </ConfirmProvider>,
   )
