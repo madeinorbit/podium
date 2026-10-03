@@ -54,12 +54,12 @@ let owner: ClientRuntime,
 storeStats.enable()
 function Pulse() {
   const data = usePulseFeed()
-  pulseReady = data.machines.length === 3 && data.hosts.length === 3 && data.quota.length > 0
+  pulseReady = data.machines.length === 3 && data.hosts.length === 3 && (data.quota?.length ?? 0) > 0
   return (
     <aside data-testid="pulse">
       {data.machines.map((machine) => machine.name).join(' · ')}
       <br />
-      {data.hosts.length} live hosts · {data.quota.length} quota accounts
+      {data.hosts.length} live hosts · {data.quota?.length ?? 0} quota accounts
     </aside>
   )
 }
