@@ -97,7 +97,7 @@ The collector also releases its startup wait handle and clears Playwright 1.60's
 
 ## Evidence and controls
 
-POD-5093 issue artifacts retain the aligned private counts, morning/current replay comparison, candidate browser manifest, and source-name-only account retaining path. Full synthetic traces, maps and collector sources will accompany the final report; private rows and heap snapshots are not publication evidence.
+POD-5093 issue artifacts retain the aligned private counts, morning/current replay comparison, candidate browser manifest, and source-name-only account retaining path. Artifact 23, `frozen-switch-baselines.tgz`, contains all 240 synthetic CPU profiles, timelines and records, their manifests/analyses, compiled assets/maps and exact baseline collectors. Its 75,791,677 bytes have SHA256 `b587809fe389c42c250bcee21fc626ade9f10fec7d3d87c3bd45a58fcf9edd64`; artifact 24 records that provenance. Private rows and heap snapshots are excluded.
 
 Eleven focused report guards accept clean input and reject planted startup, legacy-entry, selection, parity, pending, survivor, principal, CPU coverage, CPU partition, p50 and p95 faults. These run on flatblock with an exact cp-aside/restore check, without a timing lease. The guards are falsifiability evidence, not measured acceptance results.
 
