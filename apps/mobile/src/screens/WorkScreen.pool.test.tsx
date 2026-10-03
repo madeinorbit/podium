@@ -195,13 +195,14 @@ describe('mobile WorkScreen pool consumer', () => {
       }) as typeof pool.row)
       const click = async (name: string, gesture: () => void, observe: () => Promise<unknown>) => {
         const neighbours = Math.max(1, view.container.querySelectorAll('[data-label]').length)
+        const before = rowReads
         census.enter(name)
         await act(async () => { gesture(); await new Promise(resolve => setTimeout(resolve, 30)) })
         await observe()
         await drainNativeLoads()
         census.exit()
         const phase = census.snapshot().phases[name]!
-        cells.push({ scale, click: name, neighbours, rowReads: phase.sampled.rowReads ?? 0, derivations: phase.computedRuns + phase.reactionRuns })
+        cells.push({ scale, click: name, neighbours, rowReads: (phase.sampled.rowReads ?? before) - before, derivations: phase.computedRuns + phase.reactionRuns })
         expect(state.sliceReads, name).toBe(0)
         expect(state.rowDerivations, name).toBe(0)
       }

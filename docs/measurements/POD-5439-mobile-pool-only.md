@@ -73,5 +73,11 @@ those final results or physical-device verification.
 
 The scripted 1x/4x work guard includes fold, launch open/close and row-menu
 gestures. Row reads and derivation runs must stay within the measured visible
-neighbourhood ratio. The whole-corpus long-press bridge is also tracked in
-POD-5422; it is being measured rather than excluded from the guard.
+neighbourhood ratio. The whole-corpus long-press bridge is assigned to internal
+POD-5450. Before its fix, source `d6d55b214a` read 65,392 rows and ran 5,599
+derivations for one menu press at 1x; at 4x it read 358,849 rows and ran 21,175
+derivations. The guard rejected that growth against the visible 18/14
+neighbourhood ratio. All 28 action controls were green, with 91 action-state
+expectations and 33 exact menu outputs frozen before narrowing the reader.
+Later click row-read counts are deltas; the first press's recorded counts
+start from zero.

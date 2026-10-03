@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import { discoveredPlacement } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { WorkIssueMenuTarget } from './work-menu'
 
@@ -9,10 +10,9 @@ export interface PoolWorkMenuData {
   sessions: SessionView[]
 }
 
-/** Acquire menu inputs on the gesture, through the pool's one row reader.
- * R2 is the displayed roster: it collapses resume twins and excludes headless
- * agents. Delete's cascade count needs the declared raw page membership,
- * with the same shell exclusion as the legacy issue view. */
+/** Acquire only the pressed issue's neighbourhood through the pool reader.
+ * Close warnings include its headless and archived senders. Delete's cascade
+ * count separately uses raw, non-shell membership before resume collapse. */
 export function resolvePoolWorkMenu(
   pool: MobxPool,
   id: string,
@@ -20,33 +20,33 @@ export function resolvePoolWorkMenu(
 ): PoolWorkMenuData | null {
   const value = pool.mobileWork.row({ kind: 'issue', id })
   if (!value || typeof value === 'symbol' || !value.sidebar) return null
-  const sessions = [...pool.tables.session.keys()].flatMap((key) => {
+  const sessions: SessionView[] = []
+  for (const key of pool.graph.many('issue', id, 'missionSessions')) {
     const verdict = pool.model('session', key)?.verdict
-    return verdict && typeof verdict !== 'symbol' && verdict.sidebarSession
-      ? [verdict.sidebarSession as unknown as SessionView]
-      : []
-  })
-  const issues = [...pool.tables.issue.keys()].flatMap((key) => {
-    const row = pool.mobileWork.row({ kind: 'issue', id: key })
-    if (!row || typeof row === 'symbol' || !row.sidebar) return []
-    const children = [...pool.graph.many('issue', key, 'treeChildren')]
-    return [
-      {
-        ...row.sidebar.issue,
-        memberSessionIds: [...pool.graph.many('issue', key, 'pageSessions')],
-        childIds: children,
-        childCount: children.length,
-        childDoneCount: children.filter((child) => {
-          const detail = pool.row('issue', child)
-          return detail && typeof detail !== 'symbol' && Reflect.get(detail, 'stage') === 'done'
-        }).length,
-        unread: row.sidebar.issue.unread,
-        deferred: row.sidebar.deferred,
-      } as unknown as IssueViewModel,
-    ]
-  })
-  const issue = issues.find((row) => row.id === id)
-  return issue
-    ? { target: { issue, lane, canBringBack: value.sidebar.canBringBack }, issues, sessions }
-    : null
+    if (typeof verdict === 'symbol') return null
+    if (verdict?.sidebarSession) sessions.push(verdict.sidebarSession as unknown as SessionView)
+  }
+  const children = [...pool.graph.many('issue', id, 'treeChildren')]
+  let childDoneCount = 0
+  for (const child of children) {
+    const detail = pool.row('issue', child)
+    if (typeof detail === 'symbol') return null
+    if (detail && Reflect.get(detail, 'stage') === 'done') childDoneCount++
+  }
+  const issue = {
+    ...value.sidebar.issue,
+    memberSessionIds: [...pool.graph.many('issue', id, 'pageSessions')],
+    childIds: children,
+    childCount: children.length,
+    childDoneCount,
+    deferred: value.sidebar.deferred,
+  } as unknown as IssueViewModel
+  const issues = [issue]
+  const originId = discoveredPlacement(issue)?.originId
+  if (originId && originId !== id) {
+    const origin = pool.missionViews.catalogIssue(originId)
+    if (typeof origin === 'symbol') return null
+    if (origin) issues.push(origin as IssueViewModel)
+  }
+  return { target: { issue, lane, canBringBack: value.sidebar.canBringBack }, issues, sessions }
 }
