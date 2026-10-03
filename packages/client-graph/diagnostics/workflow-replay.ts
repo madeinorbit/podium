@@ -74,7 +74,8 @@ async function main() {
   try {
     if (process.argv.includes('--red-control')) {
       // An in-memory absent reference masquerades as a visible pool issue.
-      const value = { ...issues[0] as unknown as SliceIssue, id: 'planted-workflow-subject' }
+      const value = { ...issues[0] as unknown as SliceIssue, id: 'planted-workflow-subject',
+        archived: true, stage: 'done', repoPath: '/synthetic/replay' }
       handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: value.id, value }] })
       runs.push({ ...runs[0]!, id: 'planted-workflow-run', subjectKind: 'issue', subjectId: value.id })
     }
