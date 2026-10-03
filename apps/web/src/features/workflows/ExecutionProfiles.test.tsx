@@ -1,6 +1,7 @@
 import { EXECUTION_PROFILE_DEFAULT_HARNESS } from '@podium/runtime'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import '@/test-support/mock-screen-pool'
 import { ExecutionProfiles } from './ExecutionProfiles'
 
 vi.mock('@podium/client-core/react', async (original) => ({

@@ -199,6 +199,9 @@ describe('CommandPalette', () => {
   it('raises the close guard instead of closing the task outright', () => {
     fixture.issues = [
       makeIssue({ id: 'i1', title: 'Merge lock lease expiry', childCount: 3, childDoneCount: 1 }),
+      makeIssue({ id: 'child-open-1', parentId: 'i1', stage: 'in_progress' }),
+      makeIssue({ id: 'child-open-2', parentId: 'i1', stage: 'in_progress' }),
+      makeIssue({ id: 'child-done', parentId: 'i1', stage: 'done' }),
     ]
     fixture.store.openIssueId = 'i1'
     render(<CommandPalette />)

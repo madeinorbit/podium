@@ -54,7 +54,7 @@ it('settles palette renders and preserves hover until the commands change', asyn
   await act(async () => {
     runtime.getSnapshot().setPaletteOpen(true)
   })
-  expect(screen.getByRole('combobox')).toBeTruthy()
+  expect(await screen.findByRole('combobox')).toBeTruthy()
   const rows = screen.getAllByRole('option')
   expect(rows.length).toBeGreaterThan(1)
   fireEvent.mouseMove(rows[1]!)

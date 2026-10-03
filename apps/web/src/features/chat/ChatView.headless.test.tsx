@@ -100,6 +100,11 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     replica: fakeReplica,
     sessions: storeSessions,
+    superThreads: [
+      { id: 'global', kind: 'global', podiumSessionId: 'h1' },
+      { id: 'c1', kind: 'concierge', repoPath: '/repo', podiumSessionId: 'h1' },
+      { id: 'another-thread', kind: 'global', podiumSessionId: 'h1' },
+    ],
     drafts,
     setSessionDraft: (id: string, text: string) => {
       drafts = { ...drafts, [id]: text }
