@@ -27,7 +27,11 @@ it('settles palette renders and preserves hover until the commands change', asyn
       config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
       api={fixture.api}
       createReplicaFn={() => fixture.replica}
-      attachRuntime={(runtime) => attachWorklistPool(runtime, (error) => { throw error })}
+      attachRuntime={(runtime) =>
+        attachWorklistPool(runtime, (error) => {
+          throw error
+        })
+      }
       networkEnabled={false}
       onFatalError={(message) => {
         throw new Error(message)
