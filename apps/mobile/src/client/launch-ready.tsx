@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useRef } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef } from 'react'
 import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
 
 /**
@@ -24,10 +24,27 @@ export interface LaunchSplashStatus {
   readonly progress?: number | null | undefined
 }
 
+/**
+ * A live description of cold-start work, READ by the splash rather than pushed
+ * into it. `getSnapshot` must return the same value until `subscribe` fires.
+ *
+ * Pushing a fresh status from a descendant's effect on every progress tick
+ * cost one extra launch render per tick, queued below the sync lane that
+ * delivered the tick. A buffered bootstrap body publishes its frames with only
+ * microtasks between them, so those renders never ran and React counted each
+ * still-pending one as a nested update: the 51st frame threw "Maximum update
+ * depth exceeded" out of the progress publish, failing the walk. Read through
+ * `useSyncExternalStore`, one tick re-renders the splash in the same pass as
+ * its source. [POD-5390]
+ */
+export interface LaunchSplashStatusSource {
+  readonly subscribe: (listener: () => void) => () => void
+  readonly getSnapshot: () => LaunchSplashStatus | null
+}
+
 const LaunchSplashStatusContext = createContext<
-  ((status: LaunchSplashStatus | null) => void) | null
+  ((source: LaunchSplashStatusSource | null) => void) | null
 >(null)
-const NOOP_SPLASH_STATUS = (_status: LaunchSplashStatus | null) => {}
 
 export const LaunchReadyProvider = LaunchReadyContext.Provider
 export const LaunchSplashStatusProvider = LaunchSplashStatusContext.Provider
@@ -39,9 +56,17 @@ export function useLaunchReadySignal(): () => void {
   return signal ?? NOOP_READY_SIGNAL
 }
 
-/** Lets a descendant describe real cold-start work on the ONE launch surface. */
-export function useLaunchSplashStatusSignal(): (status: LaunchSplashStatus | null) => void {
-  return useContext(LaunchSplashStatusContext) ?? NOOP_SPLASH_STATUS
+/**
+ * Lets a descendant describe real cold-start work on the ONE launch surface.
+ * The source is registered once per identity, never per tick; keep it stable.
+ */
+export function useLaunchSplashStatus(source: LaunchSplashStatusSource): void {
+  const register = useContext(LaunchSplashStatusContext)
+  useEffect(() => {
+    if (register === null) return
+    register(source)
+    return () => register(null)
+  }, [register, source])
 }
 
 /**

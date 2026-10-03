@@ -1,13 +1,21 @@
 import { SplashScreen } from 'expo-router'
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { Animated, Easing, Platform, StyleSheet, View } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { color } from '../theme/theme'
 import {
   LaunchReadyProvider,
-  type LaunchSplashStatus,
   LaunchSplashStatusProvider,
+  type LaunchSplashStatusSource,
 } from './launch-ready'
 
 // The route-ready signal lives in `./launch-ready`, which does NOT import
@@ -43,7 +51,7 @@ export function LaunchBoundary({
   const reduceMotion = useReduceMotion()
   const [routeReady, setRouteReady] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
-  const [splashStatus, setSplashStatus] = useState<LaunchSplashStatus | null>(null)
+  const [statusSource, setStatusSource] = useState<LaunchSplashStatusSource | null>(null)
   const splashOpacity = useRef(new Animated.Value(1)).current
   const ready = fontsReady && routeReady
   const markRouteReady = useCallback(() => setRouteReady(true), [])
@@ -75,7 +83,7 @@ export function LaunchBoundary({
 
   const context = useMemo(() => markRouteReady, [markRouteReady])
   return (
-    <LaunchSplashStatusProvider value={setSplashStatus}>
+    <LaunchSplashStatusProvider value={setStatusSource}>
       <LaunchReadyProvider value={context}>
         <View style={styles.root}>
           {/* The content NEVER carries an animated opacity: a subtree under
@@ -93,13 +101,25 @@ export function LaunchBoundary({
               pointerEvents="auto"
               style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
             >
-              <BootSplash {...(splashStatus ?? {})} />
+              <LaunchSplash source={statusSource} />
             </Animated.View>
           ) : null}
         </View>
       </LaunchReadyProvider>
     </LaunchSplashStatusProvider>
   )
+}
+
+const NO_STATUS: LaunchSplashStatusSource = {
+  subscribe: () => () => {},
+  getSnapshot: () => null,
+}
+
+/** Subscribes on its own, so a progress tick re-renders only the splash. */
+function LaunchSplash({ source }: { source: LaunchSplashStatusSource | null }) {
+  const { subscribe, getSnapshot } = source ?? NO_STATUS
+  const status = useSyncExternalStore(subscribe, getSnapshot)
+  return <BootSplash {...(status ?? {})} />
 }
 
 const styles = StyleSheet.create({

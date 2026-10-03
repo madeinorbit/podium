@@ -2,12 +2,21 @@ import { COLD_SYNC_STALL_MS, watchReplicaBoot } from '@podium/client-core/replic
 
 export { COLD_SYNC_STALL_MS } from '@podium/client-core/replica-assembly'
 
-import { type ReactNode, useEffect, useState, useSyncExternalStore } from 'react'
+import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { color, font, mono, radius, space } from '../theme/theme'
-import { LaunchReadyView, useLaunchSplashStatusSignal } from './launch-ready'
-import type { MobileSyncPhase, MobileSyncProgressStore } from './mobile-sync-progress'
+import {
+  LaunchReadyView,
+  type LaunchSplashStatus,
+  type LaunchSplashStatusSource,
+  useLaunchSplashStatus,
+} from './launch-ready'
+import type {
+  MobileSyncPhase,
+  MobileSyncProgressStore,
+  MobileSyncSnapshot,
+} from './mobile-sync-progress'
 
 function coldLabel(phase: MobileSyncPhase): string {
   switch (phase) {
@@ -40,6 +49,40 @@ function warmLabel(phase: MobileSyncPhase): string {
 const count = (value: number): string => value.toLocaleString('en-US')
 export const WARM_SYNC_STATUS_DELAY_MS = 400
 
+function coldStatus(sync: MobileSyncSnapshot): LaunchSplashStatus | null {
+  if (!sync.blocking) return null
+  return {
+    label: coldLabel(sync.phase),
+    detail:
+      sync.rowsSeen === 0
+        ? undefined
+        : sync.totalRows === null
+          ? `${count(sync.rowsSeen)} items received`
+          : `${count(sync.rowsSeen)} of ${count(sync.totalRows)} items`,
+    progress:
+      sync.totalRows !== null && sync.totalRows > 0
+        ? Math.min(1, sync.rowsSeen / sync.totalRows)
+        : null,
+  }
+}
+
+/** The cold-start splash's view of the store: one status per published snapshot. */
+function coldStatusSource(store: MobileSyncProgressStore): LaunchSplashStatusSource {
+  let read: MobileSyncSnapshot | undefined
+  let status: LaunchSplashStatus | null = null
+  return {
+    subscribe: store.subscribe,
+    getSnapshot: () => {
+      const sync = store.getSnapshot()
+      if (sync !== read) {
+        read = sync
+        status = coldStatus(sync)
+      }
+      return status
+    },
+  }
+}
+
 /**
  * Cold starts have no trustworthy content to operate on, so the launch surface
  * intentionally owns input until the first world is durable. Warm catch-up is
@@ -60,26 +103,12 @@ export function MobileSyncBoundary({
   stallAfterMs?: number | undefined
 }) {
   const sync = useSyncExternalStore(store.subscribe, store.getSnapshot)
-  const reportLaunchStatus = useLaunchSplashStatusSignal()
+  useLaunchSplashStatus(useMemo(() => coldStatusSource(store), [store]))
   const warmStatusActive = !sync.blocking && sync.phase !== 'ready'
   const activelySyncing = warmStatusActive && sync.phase !== 'offline'
   const [showWarmStatus, setShowWarmStatus] = useState(false)
   const [coldStalled, setColdStalled] = useState(false)
-  const detail =
-    sync.rowsSeen === 0
-      ? undefined
-      : sync.totalRows === null
-        ? `${count(sync.rowsSeen)} items received`
-        : `${count(sync.rowsSeen)} of ${count(sync.totalRows)} items`
-  const progress =
-    sync.totalRows !== null && sync.totalRows > 0
-      ? Math.min(1, sync.rowsSeen / sync.totalRows)
-      : null
 
-  useEffect(() => {
-    reportLaunchStatus(sync.blocking ? { label: coldLabel(sync.phase), detail, progress } : null)
-  }, [detail, progress, reportLaunchStatus, sync.blocking, sync.phase])
-  useEffect(() => () => reportLaunchStatus(null), [reportLaunchStatus])
   useEffect(() => {
     if (!warmStatusActive) {
       setShowWarmStatus(false)
