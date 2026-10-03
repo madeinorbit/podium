@@ -1698,8 +1698,16 @@ export function createTerminalRuntime(
       }
       // Every other watch this prompt came after has been passed by it
       // (POD-4840). Under the same floor as the credit: an older record a
-      // re-read carries passes nothing.
+      // re-read carries passes nothing. Entries provably belonging to another
+      // Podium send are not evidence the history moved past this watch
+      // (POD-5436): a Podium frame id for a different message, or an entry
+      // credited to another open watch. The 30-minute bound still applies.
+      const itemFrameId = podiumFrameId(typed)
       for (const waiter of after) {
+        if (waiter !== credited) {
+          if (itemFrameId !== null && itemFrameId !== waiter.frameId) continue
+          if (credited !== undefined) continue
+        }
         waiter.seenPrompts.set(item.id, item)
         if (waiter !== credited && waiter.seenPrompts.size >= LATER_PROMPT_LIMIT) {
           waiter.pass()
