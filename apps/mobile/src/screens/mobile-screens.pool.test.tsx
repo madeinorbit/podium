@@ -2,6 +2,7 @@
  * and retain counts across updates, gestures, idle and provider rebuilds.
  * All data is synthetic. The real slice hooks/publisher are never mocked. */
 
+import { createHash } from 'node:crypto'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import {
@@ -485,9 +486,18 @@ it.each([
     }
     expect(state.errors).toEqual([])
     if (parity) {
-      const text = ['tasks', 'mission', 'details'].map((id) => screen.getByTestId(id).textContent)
-      if (on) expect(text, phase).toEqual(off.get(phase))
-      else off.set(phase, text)
+      const ids = ['tasks', 'mission', 'details']
+      const text = ids.map((id) => screen.getByTestId(id).textContent)
+      if (on) {
+        expect(text, phase).toEqual(off.get(phase))
+        // Capture only after the actual OFF/ON output comparison passes. The
+        // pool-only regression keeps these values without updating snapshots.
+        for (const [index, id] of ids.entries()) {
+          expect(createHash('sha256').update(text[index] ?? '').digest('hex')).toMatchSnapshot(
+            `${phase} ${id}`,
+          )
+        }
+      } else off.set(phase, text)
     }
     phases.push({ phase, legacy, rows })
   }

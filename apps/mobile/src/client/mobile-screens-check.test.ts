@@ -1,6 +1,7 @@
 /** Actual phone derivations against the shared pool, over the same feed and
  * focused change gates used by POD-4954. Synthetic values stay in this test. */
 
+import { createHash } from 'node:crypto'
 import type { Store } from '@podium/client-core/engine'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { missionRootFor, reposToViews } from '@podium/client-core/viewmodels'
@@ -31,6 +32,16 @@ import { buildScreeningQueue } from '../lib/screening'
 import { taskBoardProgress, taskBoardSections } from '../lib/task-board'
 
 const legacy = { mostRelevantSession, buildScreeningQueue, taskBoardProgress, taskBoardSections }
+
+function fingerprint(value: unknown) {
+  const normalized = JSON.stringify(value, (_key, item) =>
+    item !== null && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]))
+      : item,
+  )
+  if (normalized === undefined) throw new Error('Phone pool output is not settled')
+  return createHash('sha256').update(normalized).digest('hex')
+}
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -84,13 +95,18 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
           first: null,
           pending: 0,
         })
+        // Freeze normalized pool output after the differential is green, so
+        // retiring its legacy arm cannot silently change accepted values.
+        expect(fingerprint(tracked(() => poolMobileScreensSnapshot(pool, input)))).toMatchSnapshot(
+          `${label} ${selectedId} ${mode}`,
+        )
         positions += result.rows
       } finally {
         stop()
       }
     }
   }
-  for (const options of [
+  for (const [optionIndex, options] of [
     { ...tasks, showDone: true, expanded: roots.slice(0, 5), showAgentTasks: true },
     {
       ...tasks,
@@ -99,7 +115,7 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
       ordering: 'updated' as const,
     },
     { ...tasks, filter: { archived: true }, showDone: true },
-  ]) {
+  ].entries()) {
     const input: MobileScreenCheck = {
       legacy,
       tasks: options,
@@ -112,6 +128,9 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
       tracked(() => checkMobileScreens(pool, issues, store.sessions, input)),
       `${label} board options`,
     ).toMatchObject({ differences: 0, first: null, pending: 0 })
+    expect(fingerprint(tracked(() => poolMobileScreensSnapshot(pool, input)))).toMatchSnapshot(
+      `${label} board options ${optionIndex}`,
+    )
   }
   return positions
 }
