@@ -125,3 +125,30 @@ scope has been sent to POD-4286 before any shared-query or picker change.
 The long-press fix also retires this issue's exact `rows` and `elements`
 exceptions in the shared structural speed guard. Other issues' exceptions
 remain unchanged; the candidate must satisfy those two comparisons outright.
+
+## Integrated structural checkpoint is red
+
+Source `5fd5a2369d` ran the foreground structural-only gate on flatblock:
+47 readers × nine clicks/deltas × two scales, 1,614 individual comparisons.
+The run has 700 known failures owned by other issues, 25 resolved counts and
+16 unexpected comparisons; it is not a green speed gate. Fifteen focused
+checks passed, including the real legacy and planted scan negative controls,
+and the per-action correctness/parity assertions completed.
+
+Two unexpected comparisons belong to the menu: row calls and elements are
+35/131 for the same six visible neighbours. This fixture grows archived
+history under the pressed task, which the earlier two-session native control
+does not. `issueCloseConcerns` already drops archived sessions, but the menu
+input builder reads their payloads first. The fix must retain live headless
+and shell concerns and the raw non-shell delete count. Its old exceptions
+remain removed; the gate reports this regression directly.
+
+Fourteen heartbeat-only zero-to-positive mission/inbox comparisons are tracked
+in blocking internal POD-5458 for ownership or a deterministic correction.
+No allowances were widened. POD-5425 was closed, so mail to it was refused;
+POD-4286 received the complete measured evidence and scope questions.
+
+The current branch is rebased onto `264dc412cf`, including the already-landed
+transaction changes. This removal still has no own write-path changes. The
+structural result above remains attached to its measured source; the rebased
+candidate has not yet run its final gate.
