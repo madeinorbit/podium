@@ -132,8 +132,9 @@ export function createShellViews(pool: MobxPool) {
     return memo('chrome', () => {
       const state = window(), crew = sessions(), repos = repositories()
       if (!state || state === LOADING || crew === LOADING) return LOADING
-      const missionRoot = missionView(pool).selectedRoot(state.selectedIssueId)
-      if (missionRoot === LOADING) return LOADING
+      const root = missionView(pool).selectedRoot(state.selectedIssueId)
+      if (root === LOADING) return LOADING
+      const missionRoot = root ? { id: root.id, title: root.title, type: root.type, childCount: root.childCount } : undefined
       const colors: ShellIssue[] = [], seen = new Set<string>()
       let target = state.selectedIssueId ? issue(state.selectedIssueId) : undefined
       if (target === LOADING) return LOADING
