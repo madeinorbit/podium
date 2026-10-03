@@ -11,7 +11,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { retainReplicaEntity } from '@podium/client-core/replica'
 import { SocketHub } from '@podium/client-core/socket-transport'
 import { asUserId } from '@podium/model'
-import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import { IndexedDbSyncStore, type IdbFactoryLike } from '@podium/sync/adapters/indexeddb'
 import { openKernelAssembly } from '../../apps/web/src/lib/kernelReplica'
 import { openMobileReplica } from '../../apps/mobile/src/client/MobileClientProvider'
 import { mobileVersionObservers } from '../../apps/mobile/src/client/mobile-live-connection'
@@ -23,6 +23,7 @@ const app = params.get('app') === 'mobile' ? 'mobile' : 'web'
 const tab = params.get('tab') ?? 'one'
 const databaseName = `connection-proof-${app}`
 const principal = JSON.stringify(['fixture-installation', 'alice'])
+const factory = indexedDB as unknown as IdbFactoryLike
 const state = {
   app,
   tab,
@@ -39,6 +40,7 @@ const render = () => {
 // Cache seeded exactly as the cross-tab regression: the durable cursor must not
 // make a later tab miss the update to its separate in-memory replica.
 const seed = await IndexedDbSyncStore.open({
+  factory,
   databaseName,
   retainEntity: retainReplicaEntity,
   onDegraded: () => {},
@@ -71,6 +73,7 @@ const assembly =
         evidence: { kind: 'single-account', principal: 'default' },
         openStore: () =>
           IndexedDbSyncStore.open({
+            factory,
             databaseName,
             retainEntity: retainReplicaEntity,
             onDegraded: () => {},
