@@ -76,8 +76,8 @@ function PodiumLinkHostView({
   const { issues, sessions, artifactIssue } = useShellLinks()
   // Manifests use the existing batched loader. A click accepted while its row
   // is cold is retried locally; native URLs retain their acknowledgement queue.
-  const [artifactDemands, setArtifactDemands] = useState<readonly string[]>([])
-  const demandedArtifacts = artifactDemands.map(artifactIssue)
+  const [artifactDemands, setArtifactDemands] = useState<readonly { id: string; expiresAt: number }[]>([])
+  const demandedArtifacts = artifactDemands.map(demand => artifactIssue(demand.id))
   const nativeResolution = useRef(false)
   const browserArtifacts = useRef<{ target: PodiumTarget; expiresAt: number }[]>([])
   const pendingHrefs = useRef<PendingPodiumHref[]>(
@@ -115,7 +115,10 @@ function PodiumLinkHostView({
         const linked = findLinkedIssue(target.issue, issues)
         const full = linked ? artifactIssue(linked.id) : undefined
         if (linked && !full) {
-          setArtifactDemands(ids => ids.includes(linked.id) ? ids : [...ids, linked.id])
+          if (artifactDemands.length >= PODIUM_LINK_QUEUE_CAPACITY * 2) return false
+          setArtifactDemands(demands => demands.some(demand => demand.id === linked.id) ? demands : [...demands, {
+            id: linked.id, expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS,
+          }])
           if (nativeResolution.current) return false
           if (browserArtifacts.current.length >= PODIUM_LINK_QUEUE_CAPACITY) return false
           browserArtifacts.current.push({ target, expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS })
@@ -228,6 +231,16 @@ function PodiumLinkHostView({
       return () => window.clearTimeout(retry)
     }
   }, [issues, sessions, pendingRevision, replicaReady, demandedArtifacts])
+
+  useEffect(() => {
+    const now = Date.now()
+    const waiting = artifactDemands.filter((demand, index) => !demandedArtifacts[index] && demand.expiresAt > now)
+    if (waiting.length !== artifactDemands.length) { setArtifactDemands(waiting); return }
+    if (!waiting.length) return
+    const deadline = Math.min(...waiting.map(demand => demand.expiresAt))
+    const retry = window.setTimeout(() => setArtifactDemands(demands => demands.filter(demand => demand.expiresAt > Date.now())), Math.max(0, deadline - now))
+    return () => window.clearTimeout(retry)
+  }, [artifactDemands, demandedArtifacts])
 
   // Native capture and window focus belong to POD-1710. This is the narrow web
   // half of that contract: one raw URL event, validated and routed through the
