@@ -12,21 +12,32 @@ const source = 'packages/client-graph/src/issue-board-source.ts'
 const test = 'packages/client-graph/src/issue-board-source.test.ts'
 const cases = [
   {
-    name: 'browser-rendered', file: source, browserError: 'Rendered board/explorer parity differs',
-    from: 'issue: row, sessions: roster ?? [],', to: "issue: { ...row, title: 'Planted incorrect title' }, sessions: roster ?? [],",
+    name: 'browser-rendered',
+    file: source,
+    browserError: 'Rendered board/explorer parity differs',
+    from: 'issue: row, sessions: roster ?? [],',
+    to: "issue: { ...row, title: 'Planted incorrect title' }, sessions: roster ?? [],",
   },
   {
-    name: 'browser-legacy', file: 'apps/web/src/features/issues/board-pool-data.ts', browserError: 'Enabled board entered legacy derivation',
+    name: 'browser-legacy',
+    file: 'apps/web/src/features/issues/board-pool-data.ts',
+    browserError: 'Enabled board entered legacy derivation',
     from: 'function usePoolData(options: BoardOptions): PoolBoardData {',
     to: 'function usePoolData(options: BoardOptions): PoolBoardData { useLegacyData(options, useLegacyBase())',
   },
   {
-    name: 'browser-residency', file: source, browserError: 'promoted cold issues',
-    from: 'pool.tables.issue.has(id) ? memo', to: "pool.resident('issue', id) === 'resident' ? memo",
+    name: 'browser-residency',
+    file: source,
+    browserError: 'promoted cold issues',
+    from: 'pool.tables.issue.has(id) ? memo',
+    to: "pool.resident('issue', id) === 'resident' ? memo",
   },
   {
-    name: 'browser-diagnostic', file: source, browserError: 'Board diagnostic differs',
-    from: 'return { ...fields, id: asIssueId(id), description:', to: 'return { ...fields, priority: 99, id: asIssueId(id), description:',
+    name: 'browser-diagnostic',
+    file: source,
+    browserError: 'Board diagnostic differs',
+    from: 'return { ...fields, id: asIssueId(id), description:',
+    to: 'return { ...fields, priority: 99, id: asIssueId(id), description:',
   },
   {
     name: 'summary-fields-legacy',
@@ -291,14 +302,20 @@ for (const control of cases.filter((control) => !only || control.name === only))
     const run = spawnSync(
       process.execPath,
       'browserError' in control
-        ? ['--conditions=@podium/source', 'apps/web/harness/issue-board-proof.ts', `--label=red-${control.name}`, '--counts-only']
+        ? [
+            '--conditions=@podium/source',
+            'apps/web/harness/issue-board-proof.ts',
+            `--label=red-${control.name}`,
+            '--counts-only',
+          ]
         : ['run', 'test:file', '--', control.test, '-t', control.title],
       { encoding: 'utf8', timeout: 120_000, maxBuffer: 12_000_000 },
     )
     const output = `${run.stdout ?? ''}\n${run.stderr ?? ''}`
-    const assertion = 'browserError' in control
-      ? output.includes(control.browserError) && /\bError:/.test(output)
-      : /AssertionError/.test(output) && /[1-9]\d* failed/.test(output)
+    const assertion =
+      'browserError' in control
+        ? output.includes(control.browserError) && /\bError:/.test(output)
+        : /AssertionError/.test(output) && /[1-9]\d* failed/.test(output)
     reports.push({ name: control.name, status: run.status, assertion, restored: false })
     if (run.status !== 1 || !assertion) {
       writeFileSync(resolve(root, `${control.name}.log`), output)
