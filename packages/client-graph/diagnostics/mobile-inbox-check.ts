@@ -150,7 +150,8 @@ export function checkMobileInbox(
   const pending =
     Number(inbox.booting && !legacy.booting) +
     Number(screening.booting && !legacy.booting) +
-    Number(rows.loading)
+    Number(rows.loading) +
+    actual.reduce((total, section) => total + section.rows.filter(row => row.pending).length, 0)
   const result = compareSidebarSnapshots(
     { sections: expected, pending: 0 },
     { sections: actual, pending },
