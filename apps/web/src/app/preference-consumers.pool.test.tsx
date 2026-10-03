@@ -78,7 +78,6 @@ describe('pool-only preference consumers', () => {
       },
     } as RoutedUiState
     pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
-      preferences: true,
       schedule: () => () => {},
     })
     pool.attachPreferences(ui)
