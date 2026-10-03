@@ -1,7 +1,7 @@
 import type { Store } from '@podium/client-core/engine'
 import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/viewmodels'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
-import { computed } from 'mobx'
+import { autorun } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import { workflowMachines, workflowSubject } from '../src/workflow-views'
 import { LOADING } from '../src/worklist/rollup'
@@ -47,9 +47,12 @@ export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs
 }
 
 export function checkWorkflows(pool: MobxPool, state: WorkflowCheckStore, inputs: WorkflowCheckInputs) {
-  // One transient computation shares the observed session-summary derivation
-  // across all run cards in this snapshot; it suspends as soon as get returns.
-  const actual = computed(() => poolWorkflowSnapshot(pool, inputs)).get()
+  // A synchronous observed scope shares the session-summary computation across
+  // this snapshot's run targets. Disposing immediately releases every observer;
+  // the diagnostic keeps no source, computed cache or second row collection.
+  let actual!: SidebarSnapshot
+  const stop = autorun(() => { actual = poolWorkflowSnapshot(pool, inputs) })
+  stop()
   const result = compareSidebarSnapshots(legacyWorkflowSnapshot(state, inputs), actual)
   // The machine option payload may contain hostnames: report positions only.
   return { differences: result.differences, pending: result.pending, sections: result.sections, positions: result.rows,
