@@ -342,6 +342,7 @@ export function AppShell({
                 makeSocket={makeSocket}
                 onServerRelocation={browserServerRelocation(window.location)}
               >
+                <PoolScreenLatch>
                 <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
                 <ReplicaReadyPodiumLinkHost
                   syncProgress={kernel.assembly.progress}
@@ -362,6 +363,7 @@ export function AppShell({
                     </ToolbarSlotProvider>
                   </ConfirmProvider>
                 </RoutedDensityProvider>
+                </PoolScreenLatch>
               </StoreProvider>
             </ErrorBoundary>
           )}
@@ -387,11 +389,18 @@ export function AppShell({
   return <SetupGate>{shell}</SetupGate>
 }
 
+/** Hydrated principal-local state is available inside StoreProvider. Freeze
+ * every screen's data-layer choice here, ABOVE every reader, so no mounted
+ * reader changes hook order. It once ran inside RoutedDensityProvider, after
+ * PodiumLinkHost had already rendered with the default: with the MobX pilot on,
+ * that host's next render switched hooks and crashed the app on start. */
+function PoolScreenLatch({ children }: { children: ReactNode }): ReactNode {
+  initializePoolScreens(useStoreHandle().getSnapshot().uiState)
+  return children
+}
+
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
   const uiState = useStoreHandle().getSnapshot().uiState
-  // Hydrated principal-local state is available now. Freeze every screen's
-  // choice before its first render so mounted readers never change hook order.
-  initializePoolScreens(uiState)
   const densityEnabled = useFeature('shell-density')
   return (
     <DensityProvider uiState={uiState} densityEnabled={densityEnabled}>
