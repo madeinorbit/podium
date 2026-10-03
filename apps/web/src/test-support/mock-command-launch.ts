@@ -25,7 +25,7 @@ const EMPTY_SETTINGS = { repoOrder: [] }
  * Runtime attachment, LOADING and publication coverage uses the separate
  * command-launch-data.pool suite with a real StoreProvider. */
 function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
-  const state = useStoreSelector(value => value)
+  const state = useStoreSelector((value) => value)
   const issues = useReplicaIssues()
   const fixture = useMemo(() => {
     let current: Store
@@ -51,8 +51,12 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
           paletteOpen: input.paletteOpen ?? false,
         } as Store
         const rows = [
-          ...issueRows.map(value => ({ kind: 'issue' as const, id: value.id, value })),
-          ...current.sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
+          ...issueRows.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+          ...current.sessions.map((value) => ({
+            kind: 'session' as const,
+            id: value.sessionId,
+            value,
+          })),
         ]
         if (!isDeepStrictEqual(previousRows, rows)) {
           pool.apply({ type: 'replace', rows })
@@ -63,7 +67,9 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
             getSnapshot: () => current,
             subscribe(wake: () => void) {
               listeners.add(wake)
-              return () => { listeners.delete(wake) }
+              return () => {
+                listeners.delete(wake)
+              }
             },
           } as unknown as ClientRuntime
           source = new CommandLaunchSource(pool, owner)
@@ -77,8 +83,8 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
   return read(fixture.pool)
 }
 
-vi.mock('@/app/command-launch-data', async original => ({
-  ...await original<typeof import('@/app/command-launch-data')>(),
+vi.mock('@/app/command-launch-data', async (original) => ({
+  ...(await original<typeof import('@/app/command-launch-data')>()),
   useCommandLaunchData: () => useCommandFixture(readLaunch),
   useCommandPaletteData: () => useCommandFixture(readPalette),
   useCommandPaletteOpen: () => useCommandFixture(readOpen),
