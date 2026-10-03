@@ -93,9 +93,11 @@ ordering after resume collapse, the startup switch, attachment, close guards,
 and existing board/list/explorer behavior. The real StoreProvider and pool host
 also transition from pending to ready with the shell's startup initialization,
 without React errors or legacy derivations. This is a focused result.
+That attachment check also remains green after the shell-screen registration
+landed at `de74a6cfd5`; the board uses the same host and startup initialization.
 
-The focused typecheck for client-core, client-graph and web is green (15 tasks,
-11 cached). The changed graph files pass the MobX/read-boundary ESLint fence.
+The focused typecheck for client-core, client-graph and web is green (15 tasks).
+The changed graph files pass the MobX/read-boundary ESLint fence.
 Biome passes the 25 new files, with warnings limited to test/harness assertions
 and fixture typing conventions.
 
@@ -106,8 +108,8 @@ diagnostic values. The remaining focused controls cover virtual/addressed rows,
 child counts and progress, fleet order, projection lifetime, declared summaries,
 both internal and external old-summary compatibility, summary identity,
 overlays, loading, index scaling/release, parent scope, attention, mismatch
-detection, legacy-read counters, the real startup attachment, supplied close sessions and the default-off
-switch. Each case copies the file aside, commits the plant, runs its exact
+detection, legacy-read counters, the real startup attachment, supplied close
+sessions and the default-off switch. Each case copies the file aside, commits the plant, runs its exact
 check, copies the original back and verifies byte equality.
 
 The ludovico-only read-only replay compares 6,045 operator issues and 5,160
