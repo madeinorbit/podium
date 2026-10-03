@@ -119,7 +119,7 @@ function drawnRows(el: Element): string[] {
  * Keep `id` out of memory beside the declared rule, from the harness side
  * (POD-4945): the product has no out-of-memory knob. The row is evicted,
  * then re-applied while the residency's own rule answers cold for it, and
- * tracked by hand with its hidden verdict forced off — the two things the
+ * tracked by hand with its cold marker forced off — the two things the
  * pool did for such a row. Only existing public methods are driven; no
  * second tracking path is added. Returns the restore (call inside an
  * action): the rule answers by the schema again and the hand tracking ends.
@@ -132,14 +132,18 @@ function forceCold(pool: MobxPool, replay: ReplaySource, id: string): () => void
   const coldRule = residency.coldRule.bind(residency)
   residency.coldRule = (entity, row) =>
     entity === 'issue' && (row as { id?: unknown }).id === id ? true : coldRule(entity, row)
-  const hidden = residency.hidden.bind(residency)
-  residency.hidden = (entity, rowId) =>
-    entity === 'issue' && rowId === id ? false : hidden(entity, rowId)
+  const row = pool.row.bind(pool)
+  // Visibility uses the one reader's non-loading marker to distinguish cold
+  // rows. Only this held-out fixture bypasses that marker; drawing still
+  // requests the real row through the ordinary loading mode below.
+  pool.row = ((entity: string, rowId: string, absent?: string) =>
+    entity === 'issue' && rowId === id && absent === 'mark' ? undefined :
+      (row as Function)(entity, rowId, absent)) as typeof pool.row
   pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value }] })
   runInAction(() => pool.worklist.track(id))
   return () => {
     residency.coldRule = coldRule
-    residency.hidden = hidden
+    pool.row = row
     pool.worklist.untrack(id)
   }
 }
