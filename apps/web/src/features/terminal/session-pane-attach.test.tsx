@@ -90,8 +90,18 @@ const errors: (Error | string)[] = []
 function replicaFactory() {
   const cache = new ScenarioCache()
   for (const row of [live, shell, offline]) cache.put('session', row.sessionId, row)
-  cache.put('machine', 'machine-a', { id: 'machine-a', name: 'Host', online: true })
-  cache.put('machine', 'machine-b', { id: 'machine-b', name: 'Offline host', online: false })
+  cache.put('machine', 'machine-a', {
+    id: 'machine-a',
+    name: 'Host',
+    online: true,
+    loggedOutHarnesses: [],
+  })
+  cache.put('machine', 'machine-b', {
+    id: 'machine-b',
+    name: 'Offline host',
+    online: false,
+    loggedOutHarnesses: [],
+  })
   return createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
