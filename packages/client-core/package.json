@@ -50,6 +50,11 @@
       "types": "./src/outbox.ts",
       "import": "./src/outbox.ts"
     },
+    "./command-reducers": {
+      "@podium/source": "./src/command-reducers.ts",
+      "types": "./src/command-reducers.ts",
+      "import": "./src/command-reducers.ts"
+    },
     "./outbox-recovery-copy": {
       "@podium/source": "./src/outbox-recovery-copy.ts",
       "types": "./src/outbox-recovery-copy.ts",

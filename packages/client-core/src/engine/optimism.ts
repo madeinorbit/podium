@@ -84,7 +84,7 @@ import {
   patchedCellsMovedPast,
   pruneAwaiting,
   rowFingerprint,
-} from './overlay'
+} from '../command-reducers'
 import type { EngineState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'

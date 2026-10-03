@@ -144,7 +144,7 @@ import {
   foldRowOverlays,
   type OverlayTarget,
   type PendingOverlay,
-} from '@podium/client-core/engine'
+} from '@podium/client-core/command-reducers'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
 import {
