@@ -389,7 +389,7 @@ describe('POD-5263 empty reciprocal parents in the sidebar check corpus', () => 
     const ctx = replay(collections(reversed ? [b, a] : [a, b]))
     try {
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 0 })
-      ctx.updateIssue({ ...a, parentId: null })
+      ctx.updateIssue({ ...a, parentId: undefined })
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 0 })
       ctx.updateIssue(a)
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 0 })
