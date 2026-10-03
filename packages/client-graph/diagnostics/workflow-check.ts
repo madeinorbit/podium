@@ -1,7 +1,7 @@
 import type { Store } from '@podium/client-core/engine'
 import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/viewmodels'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
-import { autorun } from 'mobx'
+import { Reaction } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import { workflowMachines, workflowSubject } from '../src/workflow-views'
 import { LOADING } from '../src/worklist/rollup'
@@ -51,8 +51,11 @@ export function checkWorkflows(pool: MobxPool, state: WorkflowCheckStore, inputs
   // this snapshot's run targets. Disposing immediately releases every observer;
   // the diagnostic keeps no source, computed cache or second row collection.
   let actual!: SidebarSnapshot
-  const stop = autorun(() => { actual = poolWorkflowSnapshot(pool, inputs) })
-  stop()
+  let failure: unknown
+  const scope = new Reaction('workflow-check', () => {}, error => { failure = error })
+  try { scope.track(() => { actual = poolWorkflowSnapshot(pool, inputs) }) }
+  finally { scope.dispose() }
+  if (failure) throw failure
   const result = compareSidebarSnapshots(legacyWorkflowSnapshot(state, inputs), actual)
   // The machine option payload may contain hostnames: report positions only.
   return { differences: result.differences, pending: result.pending, sections: result.sections, positions: result.rows,
