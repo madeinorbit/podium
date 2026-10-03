@@ -3,12 +3,14 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { asUserId } from '@podium/model/browser'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HeaderHostIndicators } from '../src/features/machines/HostIndicators'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { createHeaderFixture } from './header-fixture'
+import { AgentConcurrencyHistory } from '../src/app/AgentConcurrencyHistory'
+import { useHeaderActions, useHeaderStatus } from '../src/app/header-data'
 
 // Only the startup switch changes. Both arms use the real runtime, header
 // source/projections, hooks and components against the same synthetic inputs.
@@ -44,12 +46,17 @@ function renderedHeader(element: Element): unknown {
   return { tag: element.tagName, class: element.getAttribute('class'), children }
 }
 
-async function mount(mode: 'legacy' | 'pool') {
+async function mount(mode: 'legacy' | 'pool', roster = false) {
   choice.mode = mode
   const fixture = createHeaderFixture(6, 6)
   const failures: string[] = []
   let ready = false
   let runtime: ClientRuntime | undefined
+  function Working() {
+    const { workingSessions } = useHeaderStatus()
+    const { trpc } = useHeaderActions()
+    return <AgentConcurrencyHistory workingSessions={workingSessions} trpc={trpc} />
+  }
   function Header() {
     const owner = useStoreHandle() as ClientRuntime
     const pool = useWorklistPool()
@@ -57,7 +64,7 @@ async function mount(mode: 'legacy' | 'pool') {
       runtime = owner
       ready = mode === 'legacy' || pool !== null
     }, [owner, pool])
-    return <HeaderHostIndicators />
+    return <><HeaderHostIndicators />{roster && <Working />}</>
   }
   const view = render(
     <StoreProvider principal={asClientPrincipal(asUserId(`header-parity-${mode}`))}
@@ -84,6 +91,43 @@ async function mount(mode: 'legacy' | 'pool') {
 }
 
 describe('old and pool header rendering', () => {
+  it('preserves the working sentence, roster names, refs, order and machine numbers after addressed changes', async () => {
+    const capture = async (mode: 'legacy' | 'pool') => {
+      const header = await mount(mode, true)
+      await act(async () => {
+        header.fixture.patch('session', 'synthetic-session-0', { name: 'First agent', displayRef: 'S-101', status: 'live',
+          lastActiveAt: new Date().toISOString(), agentState: { phase: 'working', since: new Date().toISOString() } })
+        header.fixture.patch('session', 'synthetic-session-2', { name: 'Second agent', displayRef: 'S-102', status: 'live',
+          lastActiveAt: new Date().toISOString(), agentState: { phase: 'compacting', since: new Date().toISOString() } })
+      })
+      const snapshot = async () => {
+        const trigger = header.getByTestId('status-strip-working')
+        fireEvent.click(trigger)
+        await waitFor(() => expect(header.getByTestId('status-strip-roster')).toBeTruthy())
+        const value = {
+          sentence: trigger.textContent,
+          roster: renderedHeader(header.getByTestId('status-strip-roster')),
+          machines: renderedHeader(header.container.querySelector('.header-host-indicators')!),
+        }
+        fireEvent.click(trigger)
+        await waitFor(() => expect(header.queryByTestId('status-strip-roster')).toBeNull())
+        return value
+      }
+      const before = await snapshot()
+      await act(async () => {
+        header.fixture.patch('session', 'synthetic-session-0', { agentState: { phase: 'needs_user', since: new Date().toISOString() } })
+        header.fixture.patch('session', 'synthetic-session-2', { name: 'Renamed agent', displayRef: 'S-202' })
+      })
+      const changed = await snapshot()
+      header.unmount()
+      return { before, changed }
+    }
+    const legacy = await capture('legacy')
+    expect(await capture('pool')).toEqual(legacy)
+    expect(legacy.before.sentence).toBe('2 agents working')
+    expect(legacy.changed.sentence).toBe('1 agent working')
+  }, 30000)
+
   it('preserves visible names, QUOTA, labels and element order across both paths', async () => {
     const old = await mount('legacy')
     const before = renderedHeader(old.container.querySelector('.header-host-indicators')!)

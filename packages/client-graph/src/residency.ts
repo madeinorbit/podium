@@ -166,6 +166,8 @@ export class Residency {
   private readonly summaryFields: Partial<Readonly<Record<EntityName, readonly string[]>>>
   /** `entity:id` → the declared summary of a cold row (entities that declare one). */
   private readonly summaries = new Map<string, Readonly<Record<string, unknown>>>()
+  /** Consumers of declared cold summaries follow individual registry deltas. */
+  private readonly coldListeners = new Set<(entity: EntityName, id: string) => void>()
   /** Entities whose rows can keep an `unlessShown` row resident (the schema's `keptBy`). */
   private readonly keeperKinds: ReadonlySet<EntityName>
   /** Per `members` source: owner id → member id → how long it keeps the owner shown, for EVERY known member row. */
@@ -271,6 +273,11 @@ export class Residency {
   /** The pool's batch runner, called when a window closes. */
   onDue(run: () => void): void {
     this.due = run
+  }
+
+  onColdChange(listener: (entity: EntityName, id: string) => void): () => void {
+    this.coldListeners.add(listener)
+    return () => { this.coldListeners.delete(listener) }
   }
 
   /** Whether rows of `entity` can be cold at all. */
@@ -958,6 +965,7 @@ export class Residency {
     // A relink is a new value too: a derivation that read the cold row by id
     // (`MobxPool.row` in `peek`, POD-4569) must see it.
     this.atoms.get(`${entity}:${id}`)?.reportChanged()
+    for (const listener of this.coldListeners) listener(entity, id)
   }
 
   private unregister(entity: EntityName, id: string): void {
@@ -974,6 +982,7 @@ export class Residency {
     if (this.queue.get(entity as LoadableEntity)?.size === 0)
       this.queue.delete(entity as LoadableEntity)
     this.atoms.get(`${entity}:${id}`)?.reportChanged()
+    for (const listener of this.coldListeners) listener(entity, id)
   }
 
   /** Make "is `id` cold" a tracked read: an atom for this id, on first question. */

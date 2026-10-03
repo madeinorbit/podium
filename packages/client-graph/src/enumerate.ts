@@ -34,6 +34,12 @@ export function seedIssueReferences(tables: Pick<PoolTables, 'issue'>, track: (i
   for (const id of tables.issue.keys()) track(id)
 }
 
+/** Header attachment seeds once; all subsequent session upkeep is by id. */
+export function seedHeaderSessions(pool: MobxPool, resident: (id: string) => void, cold: (id: string) => void): void {
+  for (const id of pool.tables.session.keys()) resident(id)
+  for (const id of pool.residency?.ids('session') ?? []) cold(id)
+}
+
 /**
  * Replace the pool's contents with `rows`, atomically (call inside one
  * action). Routed through the same ingest as an update, into plain tables

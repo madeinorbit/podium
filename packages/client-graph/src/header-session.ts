@@ -4,6 +4,12 @@ import { measureHeader } from '@podium/client-core/perf'
 
 export type WorkingSession = Pick<SessionView, 'sessionId' | 'title' | 'name' | 'displayRef' | 'agentKind'>
 
+export const EMPTY_HOST_AGGREGATE = {
+  count: 0, idleSplit: { idle: 0, parkable: 0, protected: 0 },
+  phases: { working: 0, idle: 0, waiting: 0, other: 0 },
+}
+export type HeaderAggregate = typeof EMPTY_HOST_AGGREGATE
+
 /** Each resident session contributes independently. The deadline atom changes
  * only when evidence expires, so a minute tick never scans the idle fleet. */
 export function headerWorkingSession(row: SessionView | undefined, passed: (at: number) => boolean): WorkingSession | null {

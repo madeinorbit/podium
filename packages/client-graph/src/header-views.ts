@@ -10,13 +10,9 @@ import type { HeaderEntity, HeaderRows } from './header-schema'
 import { LOADING } from './worklist/rollup'
 import type { SliceIssue, SliceSession } from './shared/slice-types'
 import { isSessionWorking } from './worklist/rollup'
-import { headerHostSession, headerWorkingSession } from './header-session'
-
-export const EMPTY_HOST_AGGREGATE = {
-  count: 0, idleSplit: { idle: 0, parkable: 0, protected: 0 },
-  phases: { working: 0, idle: 0, waiting: 0, other: 0 },
-}
-export type HeaderAggregate = typeof EMPTY_HOST_AGGREGATE
+import { headerHostSession, type HeaderAggregate } from './header-session'
+import { HeaderSessions } from './header-sessions'
+export { EMPTY_HOST_AGGREGATE, type HeaderAggregate } from './header-session'
 const sessionPresentOnTask = (session: SessionView) => !session.archived && session.status !== 'exited'
 const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
 const contains = (cwd: string, root: string) => cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
@@ -25,6 +21,10 @@ const contains = (cwd: string, root: string) => cwd === root || cwd.startsWith(r
  * the last subscriber leaves. No raw row mirror, second clock, or peek read. */
 export function createHeaderViews(pool: MobxPool) {
   const cache = new Map<string, IComputedValue<unknown>>()
+  let sessions: HeaderSessions | undefined
+  function sessionIndex() {
+    return sessions ??= new HeaderSessions(pool)
+  }
   function memo<T>(key: string, read: () => T): T {
     if (!_isComputingDerivation()) return measureHeader(`pool.${key.split(':')[0]}`, read)
     let value = cache.get(key)
@@ -59,40 +59,10 @@ export function createHeaderViews(pool: MobxPool) {
     })
   }
   function workingRoster() {
-    return memo('workingRoster', () => memo('sessionKeys', () => knownSessionIds(pool)).flatMap((id) => {
-      const cold = pool.hidden('session', id)
-      const member = cold ? (cold.status === 'live' && cold.archived !== true
-        ? memo(`coldWorking:${id}`, () => headerWorkingSession(pool.hidden('session', id) as unknown as SessionView, (at) => pool.clock.passed(at))) : null)
-        : pool.model('session', id)?.headerWorking
-      return member ? [member] : []
-    }))
+    return memo('workingRoster', () => sessionIndex().working())
   }
   function aggregate(machineId: MachineId | undefined): HeaderAggregate {
-    return memo(`aggregate:${machineId ?? ''}`, () => {
-      const result: HeaderAggregate = structuredClone(EMPTY_HOST_AGGREGATE)
-      if (!machineId) return result
-      const members = pool.header.members('machine', machineId, 'sessions').map((id) => pool.model('session', id)?.headerHost)
-      // Cold rows contribute through their declared summary, never a second
-      // machine index over unloaded payloads.
-      for (const id of coldSessionIds(pool)) {
-        const summary = pool.hidden('session', id)
-        if (summary?.machineId === machineId) members.push(memo(`coldHost:${id}`, () => headerHostSession(pool.hidden('session', id) as unknown as SessionView)))
-      }
-      for (const member of members) {
-        if (!member || member.archived) continue
-        result.count++
-        const phase = member.phase
-        if (phase === 'working' || phase === 'compacting') result.phases.working++
-        else if (phase === 'idle' || phase === 'ended') result.phases.idle++
-        else if (phase === 'needs_user') result.phases.waiting++
-        else result.phases.other++
-        if (member.status !== 'live' || !['idle', 'ended', 'needs_user'].includes(phase ?? '')) continue
-        result.idleSplit.idle++
-        if (phase === 'needs_user' || !member.resumable) result.idleSplit.protected++
-        else result.idleSplit.parkable++
-      }
-      return result
-    })
+    return memo(`aggregate:${machineId ?? ''}`, () => sessionIndex().aggregate(machineId))
   }
   function occupancyKey(): string {
     return memo('occupancy', () => [...residentSessionIds(pool).flatMap((id) => {
@@ -291,6 +261,6 @@ export function createHeaderViews(pool: MobxPool) {
     connection: () => row('connection', 'server'),
     working: workingRoster,
     session: (id: string) => pool.row('session', id) as SessionView | typeof LOADING | undefined,
-    clear: () => cache.clear(),
+    clear: () => { sessions?.dispose(); sessions = undefined; cache.clear() },
   }
 }
