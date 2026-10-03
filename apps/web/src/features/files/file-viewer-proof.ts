@@ -70,7 +70,7 @@ try {
       ),
   )
   const boot = await page.evaluate(() => window.__fileViewers.stats())
-  if ((boot.selectors || boot.legacyDerivations))
+  if (boot.selectors || boot.legacyDerivations)
     throw new Error('Legacy file/Git reader executed during mount')
   const evidence = (stats: typeof boot) => {
     const { commitMs: _duration, ...counts } = stats
@@ -98,14 +98,14 @@ try {
           }
         : {}),
     }
-    if ((stats.selectors || stats.legacyDerivations))
+    if (stats.selectors || stats.legacyDerivations)
       throw new Error('Legacy file/Git reader executed')
     if (stats.failures.length || stats.calls.write)
       throw new Error('Viewer owner failure or unsolicited file write')
   }
   await page.waitForFunction(() => document.querySelector('[data-testid="diff-sheet"]'))
   const check = await page.evaluate(() => window.__fileViewers.check())
-  if ((!check || check.differences || check.pending || check.positions !== 7))
+  if (!check || check.differences || check.pending || check.positions !== 7)
     throw new Error(`File-mode comparison failed: ${JSON.stringify(check)}`)
   result.check = check
   await page.evaluate(() => window.__fileViewers.closeUtilities())

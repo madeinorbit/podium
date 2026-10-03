@@ -1,8 +1,8 @@
-import type { MobxPool } from '@podium/client-graph'
-import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { useCallback, useMemo } from 'react'
 import { useStoreHandle } from '@podium/client-core/react'
+import type { RoutedUiState } from '@podium/client-core/ui-state'
+import type { MobxPool } from '@podium/client-graph'
+import { useCallback, useMemo } from 'react'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
 /**
  * SUBSCRIBE to a persisted ui-state key — never seed it into local state.
@@ -37,12 +37,15 @@ export function usePersistedUiValue<T>(key: string, parse: (raw: string | null) 
 }
 
 function usePoolPreference(key: string): string | null {
-  const read = useCallback((pool: MobxPool) => {
-    const row = pool.row('preference', key)
-    // LOADING paints the parsed default until the shared batch arrives. Never
-    // fall through to a legacy preference read while the pool imports/loads.
-    return typeof row === 'object' && row !== null ? row.value : null
-  }, [key])
+  const read = useCallback(
+    (pool: MobxPool) => {
+      const row = pool.row('preference', key)
+      // LOADING paints the parsed default until the shared batch arrives. Never
+      // fall through to a legacy preference read while the pool imports/loads.
+      return typeof row === 'object' && row !== null ? row.value : null
+    },
+    [key],
+  )
   return useWorklistPoolProjection(read, null)
 }
 

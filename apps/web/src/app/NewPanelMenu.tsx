@@ -1,5 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
+import { LOADING } from '@podium/client-graph'
 import {
   type AgentKind,
   agentCapabilityRejection,
@@ -38,12 +39,15 @@ import {
 } from '@/lib/agent-capability'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useResolvedDescriptors } from '@/lib/harness-descriptors'
-import { issueAgentDescriptors } from '@/lib/issue-agents'
+import type { issueAgentDescriptors } from '@/lib/issue-agents'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_SECTION } from '@/lib/menu-surface'
 import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
-import { LOADING } from '@podium/client-graph'
-import { useCommandLaunchActions, useCommandLaunchData, useCommandRecentFiles } from './command-launch-data'
+import {
+  useCommandLaunchActions,
+  useCommandLaunchData,
+  useCommandRecentFiles,
+} from './command-launch-data'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
 
@@ -118,9 +122,16 @@ const MACHINE_DOT = 'mx-[4px] size-1.5 flex-none'
  * and this file only says what is particular to it — its width, its header, its
  * search field, and the sections it names.
  */
-export function NewPanelMenu(props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>): JSX.Element {
+export function NewPanelMenu(
+  props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>,
+): JSX.Element {
   const data = useCommandLaunchData()
-  if (!data || data === LOADING) return <Button variant="ghost" size="icon" disabled aria-label="Loading launch choices"><SquarePlus className="size-4" /></Button>
+  if (!data || data === LOADING)
+    return (
+      <Button variant="ghost" size="icon" disabled aria-label="Loading launch choices">
+        <SquarePlus className="size-4" />
+      </Button>
+    )
   return <NewPanelMenuBody {...props} data={data} />
 }
 
@@ -195,11 +206,7 @@ function NewPanelMenuBody({
     ...repoView.machines.map((m) => m.machineId),
   ])
 
-  async function create(
-    agentKind: AgentKind,
-    machineId?: MachineId,
-    requestedDriverId?: string,
-  ) {
+  async function create(agentKind: AgentKind, machineId?: MachineId, requestedDriverId?: string) {
     const cwd = cwdFor(machineId)
     // A concrete driver id is an explicit per-session selection (the
     // experimental driver row passes its id); absent is the manifest's headed
@@ -458,11 +465,7 @@ function HeadlessDriverItems({
   agents,
 }: {
   machine: MachineWire
-  onCreate: (
-    kind: AgentKind,
-    machineId: MachineId,
-    requestedDriverId?: string,
-  ) => Promise<void>
+  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => Promise<void>
   agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element | null {
   const drivers = headlessRuntimeDrivers(machine)
@@ -503,11 +506,7 @@ function MachineSubmenu({
   agents,
 }: {
   machine: MachineWire
-  onCreate: (
-    kind: AgentKind,
-    machineId: MachineId,
-    requestedDriverId?: string,
-  ) => Promise<void>
+  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => Promise<void>
   runtimeDriversEnabled: boolean
   agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element {

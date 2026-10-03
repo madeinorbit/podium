@@ -1,5 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import { type PendingInteractionCard } from '@podium/client-core/viewmodels'
+import type { PendingInteractionCard } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { OctagonAlert } from 'lucide-react'
@@ -44,7 +44,13 @@ export function PendingInteractionBar({ sessionId, compact }: BarProps): JSX.Ele
   const cards = usePoolInteractionCards(sessionId)
   return <InteractionBarBody cards={cards} compact={compact} />
 }
-function InteractionBarBody({ cards, compact }: { cards: readonly PendingInteractionCard[]; compact?: boolean }): JSX.Element | null {
+function InteractionBarBody({
+  cards,
+  compact,
+}: {
+  cards: readonly PendingInteractionCard[]
+  compact?: boolean
+}): JSX.Element | null {
   const { trpc } = useStoreHandle<Trpc>().getSnapshot()
   // Keyed by `${interactionId}:${actionId}` so two bars for one session (chat
   // mode keeps the native dock mounted) cannot disable each other's buttons.

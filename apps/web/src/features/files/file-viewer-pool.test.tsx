@@ -177,7 +177,6 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
   storeStats.enable()
   storeStats.reset()
 
-
   const view = render(
     <StoreProvider
       principal={asClientPrincipal(asUserId('file-reader'))}
@@ -242,7 +241,9 @@ it('keeps scoped read and write ownership, base hashes, and immutable artifact d
           value={doc.content}
           onChange={(event) => doc.setContent(event.target.value)}
         />
-        <button type="button" onClick={() => void doc.save()}>Save document</button>
+        <button type="button" onClick={() => void doc.save()}>
+          Save document
+        </button>
         <span>{doc.saveFeedback?.message}</span>
       </>
     )

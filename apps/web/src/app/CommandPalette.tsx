@@ -1,10 +1,11 @@
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import type { SpawnTarget } from '@podium/client-core'
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   issueReferenceModel,
   panelLabel,
   resolveDefaultAgent,
 } from '@podium/client-core/viewmodels'
+import { LOADING } from '@podium/client-graph'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
 import { resolveRole } from '@podium/runtime'
@@ -58,6 +59,12 @@ import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
+  useCommandGuardSessions,
+  useCommandLaunchActions,
+  useCommandPaletteData,
+  useCommandPaletteOpen,
+} from './command-launch-data'
+import {
   defaultHighlight,
   filterCommands,
   flattenGroups,
@@ -76,11 +83,12 @@ import {
   type RightPanelTab,
   rightPanelAllowed,
 } from './shell-state'
-import { type IssueViewModel, type MainView } from './store'
-import { LOADING } from '@podium/client-graph'
-import { useCommandLaunchActions, useCommandPaletteData, useCommandPaletteOpen, useCommandGuardSessions } from './command-launch-data'
+import type { IssueViewModel, MainView } from './store'
 
-type PaletteIssue = Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'color' | 'parentId'>
+type PaletteIssue = Pick<
+  IssueViewModel,
+  'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'color' | 'parentId'
+>
 
 const SEARCH_DEBOUNCE_MS = 150
 const SEARCH_MIN_QUERY_LEN = 2
@@ -94,7 +102,10 @@ const SEARCH_MIN_QUERY_LEN = 2
  * runs the braille spinner while — and only while — a search is genuinely in
  * flight, which is the same predicate the agent-state grammar gates on.
  */
-function useIssueSearch(query: string, enabled: boolean): { hits: PaletteIssue[]; pending: boolean } {
+function useIssueSearch(
+  query: string,
+  enabled: boolean,
+): { hits: PaletteIssue[]; pending: boolean } {
   const { trpc } = useCommandLaunchActions()
   const [hits, setHits] = useState<PaletteIssue[]>([])
   const [pending, setPending] = useState(false)
@@ -215,11 +226,15 @@ const GROUP_LABEL: Record<PaletteGroupId, string> = {
 
 function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data'>): JSX.Element {
   const data = useCommandPaletteData()
-  if (!data || data === LOADING) return (
-    <Dialog open onOpenChange={open => !open && props.onClose()}>
-      <DialogContent><DialogTitle>Command palette</DialogTitle><p>Loading commands…</p></DialogContent>
-    </Dialog>
-  )
+  if (!data || data === LOADING)
+    return (
+      <Dialog open onOpenChange={(open) => !open && props.onClose()}>
+        <DialogContent>
+          <DialogTitle>Command palette</DialogTitle>
+          <p>Loading commands…</p>
+        </DialogContent>
+      </Dialog>
+    )
   return <PaletteDialogBody {...props} data={data} />
 }
 
@@ -236,12 +251,48 @@ function PaletteDialogBody({
   onAddRepo: () => void
   onRequestClose: (issue: IssueNavigationModel, reason: IssueCloseReason) => void
 }): JSX.Element {
-  const { repos, sessions, machines, pins, paneA, openIssueId, selectedIssueId, issues, spawnTargets } = data
-  const { trpc, markIssueRead, markIssueUnread, updateIssue, deleteIssue, closeIssue, deferIssue, undeferIssue,
-    setIssueLabels, restoreIssue, markSessionRead, markSessionUnread, setPane, setView, setSettingsTab,
-    setSelectedWorktree, setSelectedIssueId, setOpenIssueId, setSnooze, clearSnooze,
-    hibernateSession, resurrectSession, startBtw, spawnDraftAgent } = useCommandLaunchActions()
-  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined, sessions)
+  const {
+    repos,
+    sessions,
+    machines,
+    pins,
+    paneA,
+    openIssueId,
+    selectedIssueId,
+    issues,
+    spawnTargets,
+  } = data
+  const {
+    trpc,
+    markIssueRead,
+    markIssueUnread,
+    updateIssue,
+    deleteIssue,
+    closeIssue,
+    deferIssue,
+    undeferIssue,
+    setIssueLabels,
+    restoreIssue,
+    markSessionRead,
+    markSessionUnread,
+    setPane,
+    setView,
+    setSettingsTab,
+    setSelectedWorktree,
+    setSelectedIssueId,
+    setOpenIssueId,
+    setSnooze,
+    clearSnooze,
+    hibernateSession,
+    resurrectSession,
+    startBtw,
+    spawnDraftAgent,
+  } = useCommandLaunchActions()
+  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(
+    undefined,
+    undefined,
+    sessions,
+  )
   const repoViews = data.repoViews
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')

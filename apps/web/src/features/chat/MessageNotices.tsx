@@ -8,7 +8,7 @@
  * the composer. Appears only when there is something to say.
  */
 import { useStoreHandle } from '@podium/client-core/react'
-import { type MessageNotice } from '@podium/client-core/viewmodels'
+import type { MessageNotice } from '@podium/client-core/viewmodels'
 import { MessageSquareWarning } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -25,13 +25,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { usePoolMessageNotices } from './use-pool-notices'
 
-function NoticeRow({
-  notice,
-  onOpen,
-}: {
-  notice: MessageNotice
-  onOpen: () => void
-}): JSX.Element {
+function NoticeRow({ notice, onOpen }: { notice: MessageNotice; onOpen: () => void }): JSX.Element {
   const { trpc, openSessionTab } = useStoreHandle<Trpc>().getSnapshot()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -78,7 +72,13 @@ export function MessageNoticeIndicator({ compact }: { compact?: boolean }): JSX.
   const notices = usePoolMessageNotices()
   return <NoticeIndicatorBody notices={notices} compact={compact} />
 }
-function NoticeIndicatorBody({ notices, compact }: { notices: readonly MessageNotice[]; compact?: boolean }): JSX.Element | null {
+function NoticeIndicatorBody({
+  notices,
+  compact,
+}: {
+  notices: readonly MessageNotice[]
+  compact?: boolean
+}): JSX.Element | null {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     if (notices.length === 0) setOpen(false)
@@ -114,7 +114,10 @@ function NoticeIndicatorBody({ notices, compact }: { notices: readonly MessageNo
         </TooltipContent>
       </Tooltip>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent aria-label={label} className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogContent
+          aria-label={label}
+          className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md"
+        >
           <DialogHeader className="gap-1.5 px-5 pt-5 pr-12">
             <DialogTitle>{label}</DialogTitle>
             <DialogDescription>

@@ -1,4 +1,5 @@
 import type { RepoView } from '@podium/client-core/viewmodels'
+import { LOADING } from '@podium/client-graph'
 import {
   agentCapabilityRejection,
   agentLoginCondition,
@@ -14,7 +15,6 @@ import { resolveRole } from '@podium/runtime'
 import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
-import { LOADING } from '@podium/client-graph'
 import { useCommandLaunchActions, useCommandLaunchData } from '@/app/command-launch-data'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -206,13 +206,19 @@ function MachineMenu({
   )
 }
 
-export function NewIssueDialog(props: Omit<Parameters<typeof NewIssueDialogBody>[0], 'data'>): JSX.Element {
+export function NewIssueDialog(
+  props: Omit<Parameters<typeof NewIssueDialogBody>[0], 'data'>,
+): JSX.Element {
   const data = useCommandLaunchData()
-  if (!data || data === LOADING) return (
-    <Dialog open onOpenChange={open => !open && props.onClose()}>
-      <DialogContent><DialogTitle>New task</DialogTitle><p>Loading launch choices…</p></DialogContent>
-    </Dialog>
-  )
+  if (!data || data === LOADING)
+    return (
+      <Dialog open onOpenChange={(open) => !open && props.onClose()}>
+        <DialogContent>
+          <DialogTitle>New task</DialogTitle>
+          <p>Loading launch choices…</p>
+        </DialogContent>
+      </Dialog>
+    )
   return <NewIssueDialogBody {...props} data={data} />
 }
 

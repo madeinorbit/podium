@@ -38,10 +38,13 @@ vi.mock('@podium/client-core/react', () => ({
 vi.mock('@/app/store-worklist-pool', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
-    useWorklistPoolProjection: (read: (pool: unknown) => unknown) => useSyncExternalStore(
-      store.available.value ? store.uiState.subscribe : () => () => {},
-      () => read({ row: (_entity: string, key: string) => store.available.value ? { value: store.uiState.get(key) } : undefined }),
-    ),
+    useWorklistPoolProjection: (read: (pool: unknown) => unknown) =>
+      useSyncExternalStore(store.available.value ? store.uiState.subscribe : () => () => {}, () =>
+        read({
+          row: (_entity: string, key: string) =>
+            store.available.value ? { value: store.uiState.get(key) } : undefined,
+        }),
+      ),
   }
 })
 

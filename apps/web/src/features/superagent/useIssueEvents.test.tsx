@@ -15,13 +15,20 @@ import { useIssueEvents } from './useIssueEvents'
 const rows: IssueEventWire[] = []
 let position = { lastEventId: 0, seenAt: null }
 vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPoolProjection: (read: (pool: unknown) => unknown) => read({
-    row: (entity: string, id: string) => {
-      if (entity === 'superagentReadPosition') return position
-      if (entity === 'superagentEventTail') return { ids: [...rows].sort((a, b) => a.eventId - b.eventId).slice(-40).map(row => row.id) }
-      if (entity === 'superagentEvent') return rows.find(row => row.id === id)
-    },
-  }),
+  useWorklistPoolProjection: (read: (pool: unknown) => unknown) =>
+    read({
+      row: (entity: string, id: string) => {
+        if (entity === 'superagentReadPosition') return position
+        if (entity === 'superagentEventTail')
+          return {
+            ids: [...rows]
+              .sort((a, b) => a.eventId - b.eventId)
+              .slice(-40)
+              .map((row) => row.id),
+          }
+        if (entity === 'superagentEvent') return rows.find((row) => row.id === id)
+      },
+    }),
 }))
 
 const row = (eventId: number, subject = 'POD-13'): IssueEventWire => ({

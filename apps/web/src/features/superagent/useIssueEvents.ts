@@ -1,8 +1,8 @@
+import { superagentCursor, superagentFeed } from '@podium/client-graph/superagent'
 import { FEED_EVENT_KINDS } from '@podium/model'
 import { useEffect, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { superagentCursor, superagentFeed } from '@podium/client-graph/superagent'
 
 /** Re-exported for the surfaces that name the vocabulary. It is `@podium/model`'s
  *  list now (POD-1772): the server publishes exactly these kinds onto the feed,
@@ -22,7 +22,10 @@ export interface FeedEvent {
 
 function usePoolFeed(_readPosition: Store['readPosition']) {
   const feed = useWorklistPoolProjection(superagentFeed, { events: [], loading: true })
-  const position = useWorklistPoolProjection(superagentCursor, { cursor: { lastEventId: 0, seenAt: null }, loading: true })
+  const position = useWorklistPoolProjection(superagentCursor, {
+    cursor: { lastEventId: 0, seenAt: null },
+    loading: true,
+  })
   return { events: feed.events, cursor: position.cursor, loading: feed.loading || position.loading }
 }
 
@@ -51,7 +54,6 @@ export function useIssueEvents(
   readPosition: Store['readPosition'],
   visible: boolean,
 ): { events: FeedEvent[]; unread: boolean; dividerId: number; dividerTs: string | null } {
-
   const { events, cursor, loading } = usePoolFeed(readPosition)
   const maxId = events.length > 0 ? (events[events.length - 1]?.id ?? 0) : 0
 
