@@ -196,9 +196,10 @@ new exceptions without direct operator authorization. The strict manifest
 therefore remains unchanged for heartbeat; those failures stay visible. This
 report does not relabel the old red structural run as green.
 
-The current branch is rebased onto landed POD-5438 at `7f952ac170`, including
-POD-5437's optional host screen fields and the already-landed transaction
-changes. The shared host files are untouched by this issue. POD-5081 has not landed; its
+The current branch is rebased onto integration `b890298e4d`, including landed
+POD-5438, POD-5437's optional host screen fields and the other lane's transaction
+ownership changes. The shared host and write files are untouched by this issue.
+POD-5081 has not landed; its
 session context/conversation files, generic hooks and final mobile switch and
 setting remain held. This removal still has no own write-path changes. The
 structural result above remains attached to its measured source; the rebased
@@ -225,3 +226,15 @@ The pending production-phone proof enables the existing reader counter when
 its module publishes it, before runtime construction, and asserts zero
 selectors as well as zero row builds and derivations. Its screenshots and
 always-on run still await POD-5081 and final pilot retirement.
+
+The complete structural-only rerun at `a6f7b86df3` on integration `b890298e4d`
+has 1,614 comparisons, 700 expected failures owned by other issues, 25 resolved
+counts and fourteen unexpected heartbeat comparisons. Those fourteen values
+are exactly unchanged from the earlier checkpoint assigned to POD-5423. The
+long-press reader now passes without its old exceptions: rows 3/3, derivations
+1/1 and elements 8/8 for six neighbours at both scales. Fifteen other focused
+checks are green, including the real legacy and planted-scan negative controls;
+eleven unrelated cases were filtered. The strict gate exits 2 on the heartbeat
+comparisons and remains red. No new exceptions or output values were added,
+and this count-only run collected no timings. The full matrix is attached in
+`mobile-structural-after-menu.json`.
