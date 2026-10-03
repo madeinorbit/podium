@@ -817,7 +817,7 @@ describe('mobile pool work-list actions', () => {
       pool().hydrate()
     })
     expect(
-      (loads!.mock.calls as Parameters<Fixture['replica']['row']>[]).filter(
+      (loads!.mock.calls as Parameters<NonNullable<Fixture['replica']['row']>>[]).filter(
         ([kind, id]) => kind === 'issueProjections' && id === 'synthetic-5',
       ),
     ).toHaveLength(1)
