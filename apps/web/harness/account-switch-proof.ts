@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { hostname } from 'node:os'
 import { extname, resolve } from 'node:path'
-import { chromium, type Page } from '@playwright/test'
+import { chromium, expect, type Page } from '@playwright/test'
 import { build } from 'vite'
 import config from './sidebar-acceptance.vite'
 import type {} from '../test/sidebar-acceptance.browser'
@@ -57,6 +57,7 @@ await build({
       // returns only scalars and never holds a runtime in a browser handle.
       return { code: code + `
       import { THEME_UI_KEYS as lifetimeThemeKeys, asSessionId as lifetimeSessionId } from '@podium/model/browser';
+      import { reposToViews as lifetimeReposToViews } from '@podium/client-core/viewmodels';
       Object.assign(window, { __accountLifetime: () => ({
         principal: owner?.principal.userId,
         retired: retired.map(({ name, ref }) => {
@@ -66,8 +67,10 @@ await build({
       }), __accountEdit: () => {
         flushSync(() => {
           owner!.getSnapshot().setSelectedIssueId(asIssueId(targets.visibleRootId));
-          const session = owner!.getSnapshot().sessions.find(row => row.sessionId === targets.phaseSessionId);
-          owner!.getSnapshot().setSelectedWorktree(session!.worktreePath);
+          // Use a registered worktree; the seed retains legacy session display
+          // paths which normal startup would replace with its canonical fallback.
+          const worktree = lifetimeReposToViews(owner!.getSnapshot().repos).flatMap(repo => repo.worktrees)[0];
+          owner!.getSnapshot().setSelectedWorktree(worktree!.path);
           owner!.getSnapshot().openSessionTab(lifetimeSessionId(targets.phaseSessionId));
           const s = owner!.getSnapshot(), ws = s.workspaces[s.workspaceKey()];
           s.splitWorkspacePane(ws.focusedPaneId, 'row', { tabId: targets.heartbeatSessionId });
@@ -141,6 +144,9 @@ try {
         await page.evaluate(name => window.__acceptance.show(name), principal)
         await page.waitForFunction(() => window.__acceptance.ready())
         await settle(page)
+        // Playwright 1.60 keeps the last locator targets in its injected script.
+        // Mark an empty set so collector-owned DOM cannot retain retired props.
+        await expect(page.locator('[data-acceptance-no-such-target]')).toHaveCount(0)
         const beforeGc = await page.evaluate(() => window.__accountLifetime())
         if (beforeGc.principal !== principal) throw new Error('Actual principal did not change')
         if (beforeGc.retired.some(row => row.name.endsWith('.runtime') && row.present && !row.destroyed))
@@ -166,7 +172,7 @@ try {
   }
   await writeFile(resolve(out, 'report.json'), JSON.stringify({ sourceSha, browser: browser.version(),
     host: hostname(), seed: 4443, issues: 4867, sessions: 4302, switches, planted, sharedScopePlant, unkeyedPlant, preserveState, records, failures }, null, 2) + '\n')
-  if (failures.length) throw new Error(`Account survivors guard failed:\n${failures.join('\n')}`)
+  if (failures.length) throw new Error(`Account lifetime/state guard failed:\n${failures.join('\n')}`)
   console.log(`Account-switch proof passed: zero retired survivors in startup arms ${pilots.join(', ')}`)
 } finally {
   await browser.close()
