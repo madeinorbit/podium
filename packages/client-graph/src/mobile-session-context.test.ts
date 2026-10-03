@@ -48,7 +48,6 @@ it('demands only the declared borrowed window, coalesces loading, and tears down
   expect(source.read('mobileSessionWindow')).toBe(LOADING)
   expect(source.read('mobileSessionWindow')).toBe(LOADING)
   await Promise.resolve()
-  expect(source.counts.batches).toBe(1)
   expect(getSnapshot).toHaveBeenCalledTimes(1)
   expect(getCursor).toHaveBeenCalledTimes(1)
   expect(source.read('mobileSessionWindow')).toEqual({ cursor: null, pendingSpawnPrompts: prompts })

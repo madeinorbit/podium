@@ -103,7 +103,6 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
   let demanded = false,
     scheduled = false,
     disposed = false
-  const counts = { batches: 0 }
   function schedule() {
     if (!demanded || scheduled || disposed) return
     scheduled = true
@@ -120,13 +119,11 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
           previous.pendingSpawnPrompts !== pendingSpawnPrompts
         )
           window.set({ cursor, pendingSpawnPrompts })
-        counts.batches++
       })
     })
   }
   const stops = [owner.subscribe(schedule), owner.replica.subscribeAddressedBatch!(schedule)]
   return {
-    counts,
     read(entity: keyof MobileSessionRows): Loaded<MobileSessionRows[keyof MobileSessionRows]> {
       if (disposed) return LOADING
       if (entity === 'mobileSessionReader') return reader

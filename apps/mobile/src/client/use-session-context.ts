@@ -45,10 +45,8 @@ function useRead<T>(read: (reader: Reader) => T, empty: T): T {
   return useMobilePoolProjection(project, empty)
 }
 function useLegacyRead() {
-  useStoreSelector((s) => {
-    recordSliceDerivation(s.replica, 'mobileSession.context')
-    return 0
-  })
+  // Account this existing hook read without installing a counter subscription.
+  recordSliceDerivation(useStoreHandle<MobileTrpc>(), 'mobileSession.context')
 }
 function useLegacySession(id: SessionId | undefined) {
   useLegacyRead()
