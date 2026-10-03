@@ -1,4 +1,12 @@
-import { createAtom, type IAtom, observable, runInAction } from 'mobx'
+import {
+  compareStructural,
+  computed,
+  createAtom,
+  type IAtom,
+  type IComputedValue,
+  observable,
+  runInAction,
+} from 'mobx'
 import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { type ColdIndex, type ColdQueries, createColdIndex } from './shared/cold-index'
@@ -15,6 +23,10 @@ export class ReaderQueries {
   private readonly sessionsChanged = observable.box(0)
   private readonly standalone: ColdIndex | undefined
   private sessionVersion = -1
+  private readonly activityRows = new Map<
+    string,
+    IComputedValue<{ cwd: string; at: number; collapsed: boolean } | undefined>
+  >()
   private readonly observed = new Map<
     string,
     { atom: IAtom; version: number; revision(index: ColdQueries): number }
@@ -47,6 +59,11 @@ export class ReaderQueries {
   }
   publish(event: RowSourceEvent): void {
     this.standalone?.apply(event)
+    if (event.type === 'replace') this.activityRows.clear()
+    for (const row of event.rows) {
+      if (row.kind === 'session' && !this.pool.tables.session.has(row.id))
+        this.activityRows.delete(row.id)
+    }
     const index = this.index()
     for (const state of this.observed.values()) {
       const version = state.revision(index)
@@ -109,12 +126,29 @@ export class ReaderQueries {
     })
     const excluded = new Set(question.excluded)
     for (const id of resident) {
-      if (excluded.has(id) || this.collapsed(id)) continue
-      const row = this.pool.row('session', id, 'summary') as
-        | { cwd: string; lastActiveAt?: string }
-        | typeof LOADING
-        | undefined
-      if (!row || row === LOADING) continue
+      if (excluded.has(id)) continue
+      let input = this.activityRows.get(id)
+      if (!input) {
+        input = computed(
+          () => {
+            const row = this.pool.row('session', id, 'summary-fields') as
+              | { cwd: string; lastActiveAt?: string }
+              | typeof LOADING
+              | undefined
+            return !row || row === LOADING
+              ? undefined
+              : {
+                  cwd: row.cwd,
+                  at: Date.parse(row.lastActiveAt ?? '') || 0,
+                  collapsed: this.collapsed(id),
+                }
+          },
+          { equals: compareStructural },
+        )
+        this.activityRows.set(id, input)
+      }
+      const row = input.get()
+      if (!row || row.collapsed) continue
       if (
         !question.roots.some(
           (root) =>
@@ -122,7 +156,7 @@ export class ReaderQueries {
         )
       )
         continue
-      latest = Math.max(latest, Date.parse(row.lastActiveAt ?? '') || 0)
+      latest = Math.max(latest, row.at)
     }
     return latest
   }
@@ -137,5 +171,6 @@ export class ReaderQueries {
   dispose(): void {
     this.listeners.clear()
     this.observed.clear()
+    this.activityRows.clear()
   }
 }
