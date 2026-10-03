@@ -3,6 +3,9 @@ import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { SESSION_PANE_SCHEMA } from './session-pane-schema'
 
+const { issue: issuePageFields } = ISSUE_PAGE_SUMMARIES
+const { issue: chatIssueFields } = CHAT_CONTEXT_SUMMARIES
+
 /** Phone session chrome and conversation context borrow the existing owners.
  * Transcript payloads and controller state are outside this declaration. */
 export interface MobileSessionRows {
@@ -50,8 +53,8 @@ export const MOBILE_SESSION_SCHEMA = {
     source: 'pool:issue',
     addressed: 'full row for the selected task; summaries for roster and references',
     summary: [
-      ...ISSUE_PAGE_SUMMARIES.issue,
-      ...CHAT_CONTEXT_SUMMARIES.issue,
+      ...issuePageFields,
+      ...chatIssueFields,
       'priority',
       'linearIdentifier',
       'pinned',
