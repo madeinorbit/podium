@@ -49,6 +49,10 @@
     "background-update": {
       "medianMs": 3257.451,
       "worstMs": 3454.444
+    },
+    "issue-page-open": {
+      "medianMs": 538.107,
+      "worstMs": 814.717
     }
   },
   "noise": {
@@ -64,5 +68,21 @@
   },
   "scenario": "Canonical session homes; mobxPane=0",
   "noiseSourceSha": "5d34d1bdf990b53cd9129d878604f36988486d5f",
-  "noiseNote": "Historical calibration from the previous fixture; not recalibrated by the OFF/ON pair. The failure margin remains 10%."
+  "noiseNote": "Historical calibration from the previous fixture; not recalibrated by the OFF/ON pair. The failure margin remains 10%.",
+  "issuePageOpening": {
+    "sourceSha": "f32efe9ee692f3d151420e92f37813980252a71b",
+    "captures": 2,
+    "samplesPerCapture": 6,
+    "metric": "trusted pointerdown (background: feed delivery) to actual Chromium Paint after expected DOM",
+    "scenario": "Canonical targets, mobxPane=0, interleaved OFF/ON/OFF/ON",
+    "captureMediansMs": [
+      581.575,
+      486.047
+    ],
+    "medianSpreadPercent": 17.895,
+    "firstOpensMs": [
+      838.458,
+      858.573
+    ]
+  }
 }
