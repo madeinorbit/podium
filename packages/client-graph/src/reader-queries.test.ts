@@ -49,6 +49,7 @@ function fixture(scale = 1) {
   rows.push(session('host', { status: 'live', issueId: 'cold-issue-0', machineId: 'query-host', lastActiveAt: '2026-10-02T12:00:00Z', agentState: { phase: 'working', since: '2026-10-03T12:00:00Z' } }))
   rows.push(session('a-twin', { resume: { kind: 'codex-thread', value: 'query-twin' } }))
   rows.push(session('z-twin', { status: 'hibernated', resume: { kind: 'codex-thread', value: 'query-twin' }, lastActiveAt: '2020-01-02T00:00:00Z' }))
+  rows.push({ kind: 'worktree', id: '/query', value: { path: '/query', repoId: 'query-repo', repoPath: '/query', repoName: 'Query', prefix: 'Q' } })
   const values = new Map(rows.map(row => [`${row.kind}:${row.id}`, row.value]))
   const index = createColdIndex(SCHEMA)
   index.apply({ type: 'replace', rows })
@@ -181,5 +182,17 @@ describe('readers behind declared cold questions', () => {
       expect(f.pool.hydrate()).toBeGreaterThan(0)
       expect(f.load.mock.calls.filter(([, id]) => id === 'cold-session-0')).toHaveLength(1)
     } finally { missing.mockRestore(); f.pool.dispose() }
+  })
+
+  it('counts source history and an independently resident row without enumerating history', () => {
+    const index = createColdIndex(SCHEMA)
+    index.apply({ type: 'replace', rows: [{ kind: 'session', id: 'history', value: {
+      sessionId: 'history', cwd: '/history', lastActiveAt: old, status: 'exited', stoppedAt: old,
+    } }] })
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, { cold: () => index, load: () => undefined, schedule: () => () => {} })
+    pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'resident', value: { sessionId: 'resident', cwd: '/resident', status: 'live', lastActiveAt: old } }] })
+    const census = vi.spyOn(pool.residency!, 'ids')
+    try { expect(pool.queries.count('session')).toBe(2); expect(census).not.toHaveBeenCalled() }
+    finally { census.mockRestore(); pool.dispose() }
   })
 })

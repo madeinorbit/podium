@@ -62,7 +62,8 @@ export class ReaderQueries {
   }
   count(entity: 'issue' | 'session'): number {
     const question: ReaderQuestion = { kind: entity === 'issue' ? 'commandIssues' : 'commandSessions' }
-    return Math.max(this.watch(`count:${entity}`, value => value.readerRevision(question)).count(entity), this.pool.tables[entity].size)
+    const index = this.watch(`count:${entity}`, value => value.readerRevision(question))
+    return index.count(entity) + residentIds(this.pool, entity).filter(id => !index.known(entity, id)).length
   }
   repoIds(): string[] { return this.watch('repos', value => value.issueRepoRevision).issueRepoIds() }
   collapsed(id: string): boolean { this.sessionsChanged.get(); return this.index().sessionCollapsed(id) }

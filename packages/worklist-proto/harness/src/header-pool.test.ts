@@ -16,6 +16,7 @@ import {
   evict,
   startScenarioEngine,
   upsert,
+  upsertIssue,
   writeArchiveIssue,
   writeBurst50,
   writeClockTick,
@@ -254,12 +255,16 @@ describe('header pool values', () => {
         worktreePath: '/synthetic/cold-header-added',
         machineId: machine,
       }
-      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value }] })
+      // History identities are owned by the row source. Publish through its
+      // authority instead of injecting a row only into the pool registry.
+      upsertIssue(f.ctx, id, value)
+      await new Promise(resolve => setTimeout(resolve, f.ctx.settleMs))
       expect(f.pool.residency?.isCold('issue', id)).toBe(true)
       expect(count).toBe(initial + 1)
       expect(f.pool.tables.issue.has(id)).toBe(false)
       expect(f.pool.hydrate()).toBe(0)
-      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
+      evict(f.ctx, 'issueProjection', id)
+      await new Promise(resolve => setTimeout(resolve, f.ctx.settleMs))
       expect(count).toBe(initial)
     } finally {
       stop()
