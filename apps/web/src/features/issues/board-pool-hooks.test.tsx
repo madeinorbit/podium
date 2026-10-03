@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import { issueBoardStats, storeStats } from '@podium/client-core/perf'
-import { cleanup, renderHook } from '@testing-library/react'
+import { cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { EMPTY_BOARD, useBoardBase, useBoardData } from './board-pool-data'
 import { useExplorerData } from './explorer/explorer-pool-data'
-import { useIssueCloseGuard } from './issue-lifecycle'
+import { IssueBulkCloseDialog, useIssueCloseGuard } from './issue-lifecycle'
+import { makeIssue } from '@/lib/test-issue'
 import { DEFAULT_DISPLAY } from './issues-display'
 
 const state = vi.hoisted(() => ({ pool: true, attached: false, issueReads: vi.fn(), sessionReads: vi.fn() }))
@@ -38,4 +39,9 @@ it('records actual legacy derivations as the switch-off positive control', () =>
   expect(state.sessionReads).toHaveBeenCalled()
   expect(issueBoardStats.read()['legacy.board']).toBeGreaterThan(0)
   expect(issueBoardStats.read()['legacy.explorer']).toBeGreaterThan(0)
+})
+it('keeps the pool bulk-close dialog off the legacy session collection', () => {
+  render(<IssueBulkCloseDialog issues={[makeIssue({ id: 'a' }), makeIssue({ id: 'b' })]} sessions={[]}
+    reason="done" onOpenChange={() => {}} onConfirm={() => {}} />)
+  expect(state.sessionReads).not.toHaveBeenCalled()
 })

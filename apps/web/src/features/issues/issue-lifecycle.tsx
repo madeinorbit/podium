@@ -89,6 +89,11 @@ function useCloseSessions(supplied?: readonly SessionView[]) {
   const useRead = supplied === undefined ? useLegacyCloseSessions : useSuppliedCloseSessions
   return useRead(supplied)
 }
+function useLegacyBulkCloseSessions(_supplied?: readonly SessionView[]) { return useStoreSelector(store => store.sessions) ?? [] }
+function useBulkCloseSessions(supplied?: readonly SessionView[]) {
+  const useRead = supplied === undefined ? useLegacyBulkCloseSessions : useSuppliedCloseSessions
+  return useRead(supplied)
+}
 export function useIssueCloseGuard(suppliedSessions?: readonly SessionView[]): (issue: IssueNavigationModel) => boolean {
   const sessions = useCloseSessions(suppliedSessions)
   return (issue) =>
@@ -259,7 +264,7 @@ export function IssueBulkCloseDialog({
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element | null {
-  const sessions = useCloseSessions(suppliedSessions)
+  const sessions = useBulkCloseSessions(suppliedSessions)
   const summary = issueBulkCloseSummary(issues, sessions)
   const first = issues[0]
   if (!first) return null
