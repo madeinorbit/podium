@@ -19,6 +19,10 @@ resident rows, but an unchanged match sequence allocates no replacement row
 array. Removing a title match changes its band only; the strict native
 identity checks cover both scales, and a planted copy of every filtered array
 fails on an untouched band at both scales.
+The test drains the real batched loader after entering search, as the mobile
+row's paint can request more input than section placement. Its initial 4×
+attempt observed late matching-row hydration; after settling those requests,
+both restored identity checks are green with the same strict assertions.
 
 Each native slot reads through `pool.mobileWork.row`. Its equality-filtered
 projection contains paint and navigation facts, excluding full issue/session
@@ -123,8 +127,11 @@ The **lean gate is green: 154 tests in 4/1769 files (0.2%)**, comprising boot
 the isolated checkout's `.toolchain/node` link to its pinned Bun restored
 that command. No global toolchain or cache was changed.
 
-The final active-search restored checks and changed mobile typecheck/lints
-are running. Production seeded-issue export acceptance is blocked by POD-5370
+The final active-search checks are **2 passed, 6 unchanged tests deselected**;
+the changed search/fold/menu case passed separately before the readiness-only
+fixture correction. The final mobile-only uncached typecheck is green, and
+shadowing reports no shadowed declarations in 5,859 files. The changed-input
+span-effect run is finishing. Production seeded-issue export acceptance is blocked by POD-5370
 and tracked by internal POD-5374. The three-row
 off/on style comparison and interleaved Chrome Paint/heap capture are prepared
 for the landed root fix; no production timing result is claimed yet.
