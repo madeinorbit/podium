@@ -242,3 +242,15 @@ it('defers the cold not-found OS fallback until the addressed lookup settles and
   await act(async () => { app.data.activity(1) })
   expect(open).toHaveBeenCalledTimes(1)
 })
+
+it('holds an early reference tap through null-to-pool attachment without opening the OS', async () => {
+  const open = vi.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
+  function FirstTap() {
+    useEffect(() => { followPodiumLink('podium://issues/SYN-1018') }, [])
+    return <PodiumLinkHost />
+  }
+  const app = await mount(true, <FirstTap />)
+  expect(app.seen[0]).toBeNull()
+  await waitFor(() => expect(state.router.push).toHaveBeenCalledWith('/issue/synthetic-18'))
+  expect(open).not.toHaveBeenCalled()
+})

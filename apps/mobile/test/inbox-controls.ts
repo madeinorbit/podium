@@ -19,6 +19,7 @@ const controls = [
   ['original outbox pending', views, 'outboxSize: window?.outboxSize ?? 0', 'outboxSize: 0'],
   ['switch-off link activator', links, 'const answer = activator?.(link.target)', 'const answer = Promise.resolve(activator?.(link.target))'],
   ['cold not-found OS fallback', links, 'if (answer instanceof Promise) {', 'if (answer instanceof Promise) { fallback()'],
+  ['early reference tap', hooks, 'waiting.current.add({ target: next, resolve })', 'resolve(null)'],
 ] as const
 for (const [name, path, needle, fault] of controls) {
   const original = await readFile(path, 'utf8')

@@ -5,7 +5,7 @@ import type { HostMetricsWire, IssueId, MachineWire } from '@podium/model'
 import type { PodiumTarget } from '@podium/protocol'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import type { MobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { buildScreeningQueue } from '../lib/screening'
 import { demoEnabled } from './demoData'
 import { useBooting, useHostMetrics, useIssues, useMachines, useOutboxSize, useSessions } from './hooks'
@@ -67,6 +67,9 @@ export function usePulseLive() {
  * same current pool at dispatch and asynchronously wait only for LOADING. */
 export function usePoolLinkData(target: PodiumTarget | null) {
   const pool = useMobilePool()
+  const current = useRef(pool)
+  current.current = pool
+  const waiting = useRef(new Set<{ target: PodiumTarget; resolve: (route: string | null) => void }>())
   const read = useCallback((current: Pool) => {
     const views = mobileInboxViews(current)
     const route = target && views ? views.route(target) : null
@@ -76,7 +79,25 @@ export function usePoolLinkData(target: PodiumTarget | null) {
       sessions: session && typeof session !== 'symbol' ? [session] : [] }
   }, [target])
   const data = useMobilePoolProjection(read, EMPTY_LINK)
-  const resolveRoute = useCallback((next: PodiumTarget) => pool ? mobileInboxViews(pool)?.resolveRoute(next) ?? null : null, [pool])
+  useEffect(() => {
+    const views = pool && mobileInboxViews(pool)
+    if (!views) return
+    for (const request of waiting.current) {
+      waiting.current.delete(request)
+      void Promise.resolve(views.resolveRoute(request.target)).then(request.resolve)
+    }
+  }, [pool, data.booting])
+  useEffect(() => () => {
+    for (const request of waiting.current) request.resolve(null)
+    waiting.current.clear()
+  }, [])
+  // Keep the activator stable while null becomes a pool: an early tap waits
+  // for this owner, and teardown cancels it through the host's active guard.
+  const resolveRoute = useCallback((next: PodiumTarget) => {
+    const views = current.current && mobileInboxViews(current.current)
+    if (views) return views.resolveRoute(next)
+    return new Promise<string | null>(resolve => { waiting.current.add({ target: next, resolve }) })
+  }, [])
   return { ...data, resolveRoute }
 }
 
