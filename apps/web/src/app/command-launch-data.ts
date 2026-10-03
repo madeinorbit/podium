@@ -1,8 +1,7 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import { lastUsedMaps, reposToViews, spawnTargetForRepo, type RepoNavView } from '@podium/client-core/viewmodels'
-import type { CommandLaunchData } from '@podium/client-graph/command-launch-views'
-import { readLaunch, readPalette, readGuardSessions, readOpen, readFiles } from './command-launch-readers'
+import { EMPTY_SESSIONS, EMPTY_FILES, readLaunch, readPalette, readGuardSessions, readOpen, readFiles } from './command-launch-readers'
 import { LOADING } from '@podium/client-graph'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
 import { useMemo } from 'react'
@@ -59,14 +58,12 @@ export function useCommandPaletteOpen() {
   const useRead = commandLaunchDataLayer() === 'pool' ? usePoolOpen : useLegacyOpen
   return useRead()
 }
-const EMPTY_SESSIONS: CommandLaunchData['sessions'] = []
 function usePoolGuardSessions() { return useWorklistPoolProjection(readGuardSessions, EMPTY_SESSIONS) }
 function useLegacyGuardSessions() { return undefined }
 export function useCommandGuardSessions() {
   const useRead = commandLaunchDataLayer() === 'pool' ? usePoolGuardSessions : useLegacyGuardSessions
   return useRead()
 }
-const EMPTY_FILES: Store['recentFiles'] = []
 function usePoolFiles() { return useWorklistPoolProjection(readFiles, EMPTY_FILES) }
 function useLegacyFiles() { return useStoreSelector(s => s.recentFiles) }
 export function useCommandRecentFiles() {
