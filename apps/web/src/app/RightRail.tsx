@@ -10,11 +10,14 @@ import {
   shippingPanelModel,
 } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
+import { observer } from 'mobx-react-lite'
 import { useMemo } from 'react'
 import { useFeature } from '@/lib/use-feature'
 import { RIGHT_PANELS } from './RightDock'
 import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
+import { useShellDock } from './shell-data'
+import { shellDataLayer } from './shell-pool-screen'
 
 /**
  * The 44px right rail (handoff §2.5): one cell per dock panel — Tasks,
@@ -43,7 +46,7 @@ import { useReplicaIssues, useStoreSelector } from './store'
  * Files, Shell and Messages alongside the task cell, so a tint pulled from the
  * selected issue asserted a relationship most of these cells do not have.
  */
-export function RightRail({
+export const RightRail = observer(function RightRail({
   rightPanel,
   onPanelChange,
 }: {
@@ -54,7 +57,7 @@ export function RightRail({
   const messagesPanelEnabled = useFeature('messages-panel')
   const mergeQueueEnabled = useFeature('merge-queue')
   const shippingEnabled = useFeature('shipping')
-  const useRead = headerDataLayer() === 'pool' ? usePoolShipping : useLegacyShipping
+  const useRead = shellDataLayer() === 'pool' ? useShellShipping : headerDataLayer() === 'pool' ? usePoolShipping : useLegacyShipping
   const shipping = useRead()
   const panelAllowed = (panel: RightPanelTab): boolean =>
     rightPanelAllowed(panel, {
@@ -111,7 +114,9 @@ export function RightRail({
       })}
     </nav>
   )
-}
+})
+
+function useShellShipping() { return useShellDock().shipping }
 
 function useLegacyShipping() {
   const {

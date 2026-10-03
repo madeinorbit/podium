@@ -1,8 +1,9 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { observer } from 'mobx-react-lite'
 import type { MainView } from '@podium/client-core/ui-state'
 import type { ArtifactId } from '@podium/model/browser'
+import { podiumTargetPath, type PodiumTarget } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useShellActions, useShellLinks } from '@/app/shell-data'
 import {
   PODIUM_NATIVE_OPEN_EVENT,
   activatePodiumHref,
@@ -12,12 +13,13 @@ import {
   hasUnsupportedTypedDetail,
   setKnownPodiumOrigins,
   setPodiumTargetActivator,
+  systemBrowserPodiumHref,
 } from '@/lib/podium-link'
 import {
   handlePodiumLinkAuxClick,
   handlePodiumLinkContextMenu,
 } from '@/lib/podium-link-click'
-import { resolvePodiumTarget } from '@/lib/podium-link-open'
+import { findLinkedIssue, resolvePodiumTarget } from '@/lib/podium-link-open'
 
 export const PODIUM_LINK_RESOLUTION_TIMEOUT_MS = 5_000
 export const PODIUM_LINK_QUEUE_CAPACITY = 32
@@ -53,7 +55,7 @@ function pendingPodiumHref(
  *    render so the activator always closes over the current issue rows —
  *    resolving `POD-1606` needs live data, exactly like the ref activator.
  */
-export function PodiumLinkHost({
+export const PodiumLinkHost = observer(function PodiumLinkHost({
   initialHref = null,
   onInitialHrefConsumed,
   replicaReady = true,
@@ -64,25 +66,19 @@ export function PodiumLinkHost({
 }): null {
   const {
     httpOrigin,
-    sessions,
     setOpenIssueId,
     setView,
     navigateToSession,
     openArtifact,
     openFileInWorktree,
-  } = useStoreSelector(
-    (s) => ({
-      httpOrigin: s.httpOrigin,
-      sessions: s.sessions,
-      setOpenIssueId: s.setOpenIssueId,
-      setView: s.setView,
-      navigateToSession: s.navigateToSession,
-      openArtifact: s.openArtifact,
-      openFileInWorktree: s.openFileInWorktree,
-    }),
-    shallowEqual,
-  )
-  const issues = useReplicaIssues()
+  } = useShellActions()
+  const { issues, sessions, artifactIssue } = useShellLinks()
+  // Manifests use the existing batched loader. A click accepted while its row
+  // is cold is retried locally; native URLs retain their acknowledgement queue.
+  const [artifactDemands, setArtifactDemands] = useState<readonly string[]>([])
+  const demandedArtifacts = artifactDemands.map(artifactIssue)
+  const nativeResolution = useRef(false)
+  const browserArtifacts = useRef<{ target: PodiumTarget; expiresAt: number }[]>([])
   const pendingHrefs = useRef<PendingPodiumHref[]>(
     initialHref ? [pendingPodiumHref(initialHref, () => onInitialHrefConsumed?.())] : [],
   )
@@ -113,7 +109,20 @@ export function PodiumLinkHost({
 
   useEffect(() => {
     setPodiumTargetActivator((target) => {
-      const open = resolvePodiumTarget(target, { issues, sessions })
+      let targets = issues
+      if (target.kind === 'artifact') {
+        const linked = findLinkedIssue(target.issue, issues)
+        const full = linked ? artifactIssue(linked.id) : undefined
+        if (linked && !full) {
+          setArtifactDemands(ids => ids.includes(linked.id) ? ids : [...ids, linked.id])
+          if (nativeResolution.current) return false
+          if (browserArtifacts.current.length >= PODIUM_LINK_QUEUE_CAPACITY) return false
+          browserArtifacts.current.push({ target, expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS })
+          return true
+        }
+        if (full) targets = [full]
+      }
+      const open = resolvePodiumTarget(target, { issues: targets, sessions })
       // FALSE, NOT SILENCE. Everything below reports whether it opened
       // something; the caller cancels the anchor only on true, so an address
       // this client cannot answer falls back to an ordinary navigation.
@@ -159,6 +168,29 @@ export function PodiumLinkHost({
     return () => setPodiumTargetActivator(null)
   })
 
+  useEffect(() => {
+    const waiting = browserArtifacts.current
+    if (!waiting.length) return
+    let deadline = Infinity
+    for (const pending of [...waiting]) {
+      const issue = pending.target.kind === 'artifact' ? findLinkedIssue(pending.target.issue, issues) : undefined
+      const full = issue ? artifactIssue(issue.id) : undefined
+      if (!full && pending.expiresAt > Date.now()) { deadline = Math.min(deadline, pending.expiresAt); continue }
+      waiting.splice(waiting.indexOf(pending), 1)
+      const href = podiumTargetPath(pending.target)
+      // A missing manifest has the same browser fallback as a resident invalid
+      // link, rather than disappearing after we accepted its initial click.
+      nativeResolution.current = true
+      let activated: boolean
+      try { activated = activatePodiumHref(href) } finally { nativeResolution.current = false }
+      if (!activated) window.location.assign(systemBrowserPodiumHref(href) ?? href)
+    }
+    if (Number.isFinite(deadline)) {
+      const retry = window.setTimeout(() => setPendingRevision(value => value + 1), Math.max(0, deadline - Date.now()))
+      return () => window.clearTimeout(retry)
+    }
+  }, [issues, demandedArtifacts, pendingRevision, artifactIssue])
+
   // Startup addresses are captured before createRouter can normalize its
   // unknown path to /workspace. Keep retrying while replica rows arrive: refs,
   // sessions and artifact panel entries all need live data to resolve. Stop at
@@ -176,8 +208,11 @@ export function PodiumLinkHost({
     while (pendingHrefs.current.length > 0) {
       const pending = pendingHrefs.current[0]
       if (pending === undefined) break
+      nativeResolution.current = true
+      let activated: boolean
+      try { activated = activatePodiumHref(pending.href) } finally { nativeResolution.current = false }
       if (
-        activatePodiumHref(pending.href) ||
+        activated ||
         (pending.expiresAt !== null && pending.expiresAt <= now)
       ) {
         pendingHrefs.current.shift()
@@ -191,7 +226,7 @@ export function PodiumLinkHost({
       )
       return () => window.clearTimeout(retry)
     }
-  }, [issues, sessions, pendingRevision, replicaReady])
+  }, [issues, sessions, pendingRevision, replicaReady, demandedArtifacts])
 
   // Native capture and window focus belong to POD-1710. This is the narrow web
   // half of that contract: one raw URL event, validated and routed through the
@@ -240,7 +275,7 @@ export function PodiumLinkHost({
   }, [])
 
   return null
-}
+})
 
 /** The one view this build would show for a plain in-app path, or null when it
  *  has none — which is the answer for every backend route and every file the

@@ -16,6 +16,7 @@ import { panePoolScreen } from './pane-pool-screen'
 import { commandLaunchScreen } from '@/lib/command-launch-data-layer'
 import { missionPanePoolScreen } from './mission-pane-pool-screen'
 import { workflowPoolScreen } from '@/features/workflows/workflow-pool-screen'
+import { shellPoolScreen } from './shell-pool-screen'
 
 /** Latch with hydrated UI state before rendering any screen, including settings.
  * Provider attachments and principal rebuilds reuse the same app-load choices. */
@@ -35,6 +36,7 @@ export const poolBackedScreens: readonly PoolScreen[] = [
   superagentPoolScreen,
   missionPanePoolScreen,
   workflowPoolScreen,
+  shellPoolScreen,
   { optional: true, initialize: initializeSettingsDataLayer, enabled: () => settingsDataLayer() === 'pool',
     options: () => ({ settings: true }),
     async attach(runtime, pool) {

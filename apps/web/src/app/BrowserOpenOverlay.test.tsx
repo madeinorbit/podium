@@ -36,6 +36,11 @@ vi.mock('./store', () => ({
     }),
 }))
 
+vi.mock('@podium/client-core/react', async (load) => ({
+  ...await load<typeof import('@podium/client-core/react')>(),
+  useStoreHandle: () => ({ getSnapshot: () => ({ hub: h.hub }) }),
+}))
+
 vi.mock('sonner', () => ({ toast: h.toast }))
 
 const { BrowserOpenOverlay } = await import('./BrowserOpenOverlay')

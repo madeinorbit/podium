@@ -6,6 +6,9 @@ import { asMachineId } from '@podium/model'
 import type { MachineWire, UpdateChannel } from '@podium/model/browser'
 import type { Operation } from '@podium/protocol'
 import { ChevronLeft } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
+import { useShellMachines } from './shell-data'
+import { shellDataLayer } from './shell-pool-screen'
 import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
@@ -149,14 +152,15 @@ function useFleetConvergence(trpc: Store['trpc']): {
  * Lists registered machines with inline rename + revoke, and an "Add machine"
  * flow that mints a pairing code and shows the daemon command to run.
  */
-export function MachinesPanel({
+function MachinesPanelView({
   showOwnershipTransfer = false,
 }: {
   /** Dormant until multi-user machine ownership ships. */
   showOwnershipTransfer?: boolean
 } = {}): JSX.Element {
   const { trpc, setSettingsTab } = useSettingsClient()
-  const { machines } = useSettingsCatalog()
+  const useRead = shellDataLayer() === 'pool' ? useShellMachines : useSettingsMachines
+  const machines = useRead()
   const [now, setNow] = useState(() => Date.now())
   const [addOpen, setAddOpen] = useState(false)
   const [recommendServer, setRecommendServer] = useState(false)
@@ -442,6 +446,10 @@ export function MachinesPanel({
  * scrolls, and Escape means "back to the list" rather than "throw the whole
  * Settings sheet away mid-pairing".
  */
+export const MachinesPanel = observer(MachinesPanelView)
+
+function useSettingsMachines() { return useSettingsCatalog().machines }
+
 function AddMachineFlow({
   onBack,
   intro,

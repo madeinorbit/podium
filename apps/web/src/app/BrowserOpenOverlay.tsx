@@ -1,9 +1,10 @@
 import type { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from '@podium/protocol'
 import { ExternalLink, X } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { useStoreSelector } from './store'
+import { useShellActions, useShellSessions } from './shell-data'
 
 interface PendingOpen {
   request: SessionOpenUrlMessage
@@ -56,9 +57,9 @@ function openNewTab(url: string): void {
  * loopback execution; this component only forwards explicit user actions.
  * [spec:SP-a43e]
  */
-export function BrowserOpenOverlay(): JSX.Element | null {
-  const hub = useStoreSelector((store) => store.hub)
-  const sessions = useStoreSelector((store) => store.sessions)
+export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.Element | null {
+  const { hub } = useShellActions()
+  const sessions = useShellSessions()
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
   const [pending, setPending] = useState<Map<string, PendingOpen>>(() => new Map())
@@ -244,4 +245,4 @@ export function BrowserOpenOverlay(): JSX.Element | null {
       })}
     </aside>
   )
-}
+})

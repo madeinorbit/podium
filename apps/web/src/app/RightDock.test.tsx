@@ -90,6 +90,7 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   return {
     ...actual,
+    useStoreHandle: () => ({ getSnapshot: () => state }),
     useRepoLocks: (repoPath: string | null) => {
       repoLocks.query(repoPath)
       return { ...repoLocks.state, refresh: repoLocks.refresh }

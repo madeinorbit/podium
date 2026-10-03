@@ -1,4 +1,4 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -10,22 +10,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useStoreSelector } from './store'
+import { useShellActions, useShellWindow } from './shell-data'
 
 /**
  * One-time opt-in shown the first time the user clicks Continue on an errored
  * agent. Either choice records `promptDismissed: true` so it never re-appears;
  * "Enable" also flips the global `autoContinue.enabled` switch on.
  */
-export function AutoContinueDialog(): JSX.Element | null {
-  const { trpc, autoContinuePromptSessionId, closeAutoContinuePrompt } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      autoContinuePromptSessionId: s.autoContinuePromptSessionId,
-      closeAutoContinuePrompt: s.closeAutoContinuePrompt,
-    }),
-    shallowEqual,
-  )
+export const AutoContinueDialog = observer(function AutoContinueDialog(): JSX.Element | null {
+  const { trpc, closeAutoContinuePrompt } = useShellActions()
+  const autoContinuePromptSessionId = useShellWindow()?.autoContinuePromptSessionId ?? null
   const [pendingAction, setPendingAction] = useState<'dismiss' | 'enable' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const busy = pendingAction !== null
@@ -101,4 +95,4 @@ export function AutoContinueDialog(): JSX.Element | null {
       </DialogContent>
     </Dialog>
   )
-}
+})

@@ -1,10 +1,4 @@
-import { shallowEqual } from '@podium/client-core/store'
-import {
-  cwdInWorktree,
-  issueForCwd,
-  reposToViews,
-  resolveActiveWorktree,
-} from '@podium/client-core/viewmodels'
+import { observer } from 'mobx-react-lite'
 import {
   FolderTree,
   GitBranch,
@@ -26,7 +20,7 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useOperatorFocus } from './operator-focus'
 import type { RightPanelTab } from './shell-state'
-import { useReplicaIssues, useStoreSelector } from './store'
+import { useShellActions, useShellDock } from './shell-data'
 
 const WorktreeFileTree = lazy(() =>
   throughRestarts(() => import('@/features/files/WorktreeFileTree')).then((module) => ({
@@ -104,43 +98,16 @@ export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon 
 
 /** The right dock panel: Files / Git / Issue / Superagent for the active worktree. Opened
  *  from the thin icon rail on the shell's right edge; one panel at a time. */
-export function RightDock({
+export const RightDock = observer(function RightDock({
   tab,
   onClose,
 }: {
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const {
-    paneA,
-    fileTabs,
-    sessions,
-    repos,
-    shipOrders,
-    shipLanes,
-    coarseNow,
-    setSelectedIssueId,
-    trpc,
-  } = useStoreSelector(
-    (s) => ({
-      paneA: s.paneA,
-      fileTabs: s.fileTabs,
-      sessions: s.sessions,
-      repos: s.repos,
-      shipOrders: s.shipOrders,
-      shipLanes: s.shipLanes,
-      coarseNow: s.coarseNow,
-      setSelectedIssueId: s.setSelectedIssueId,
-      trpc: s.trpc,
-    }),
-    shallowEqual,
-  )
-  const issues = useReplicaIssues()
+  const { trpc, setSelectedIssueId } = useShellActions()
+  const { active, scope: mergeQueueScope, gitIssue, mailIssueId, issues, shipOrders, shipLanes, coarseNow } = useShellDock()
   const { setFocusedIssueId } = useOperatorFocus()
-  const active = useMemo(
-    () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
-    [paneA, fileTabs, sessions],
-  )
   const shippingCommands = useMemo<ShippingPanelCommands>(
     () => ({
       resolveHold: (input) => trpc.issues.resolveShipHold.mutate(input),
@@ -158,38 +125,6 @@ export function RightDock({
   // with controls of its own portals them in here instead of growing a second
   // bar with a second name under this one.
   const [headerActions, setHeaderActions] = useState<HTMLElement | null>(null)
-  const mergeQueueScope = useMemo(() => {
-    if (!active) return null
-
-    for (const repo of reposToViews(repos)) {
-      const worktree = repo.worktrees
-        .filter(
-          (candidate) =>
-            (!active.machineId ||
-              !candidate.machineId ||
-              candidate.machineId === active.machineId) &&
-            cwdInWorktree(active.cwd, candidate.path),
-        )
-        .sort((a, b) => b.path.length - a.path.length)[0]
-      if (worktree) {
-        return {
-          repoId: repo.repoId ?? worktree.repoId ?? null,
-          repoPath: worktree.repoPath,
-        }
-      }
-    }
-
-    // Repository discovery may lag behind the issue replica during startup.
-    // An explicitly attached issue still carries the canonical repository root.
-    const activeIssueId =
-      active.issueId ?? sessions.find((session) => session.sessionId === active.sessionId)?.issueId
-    const activeIssue = activeIssueId
-      ? issues.find((issue) => issue.id === activeIssueId)
-      : issueForCwd(issues, active.cwd)
-    return activeIssue
-      ? { repoId: activeIssue.repoId ?? null, repoPath: activeIssue.repoPath }
-      : null
-  }, [active, issues, repos, sessions])
 
   return (
     <DockHeaderSlotProvider value={headerActions}>
@@ -246,9 +181,7 @@ export function RightDock({
                 cwd={active.cwd}
                 machineId={active.machineId}
                 issue={
-                  (active.issueId ? issues.find((i) => i.id === active.issueId) : undefined) ??
-                  issueForCwd(issues, active.cwd) ??
-                  undefined
+                  gitIssue
                 }
               />
             ) : (
@@ -260,8 +193,7 @@ export function RightDock({
                 key={active.sessionId ?? active.cwd}
                 sessionId={active.sessionId}
                 issueId={
-                  sessions.find((s) => s.sessionId === active.sessionId)?.issueId ??
-                  issueForCwd(issues, active.cwd)?.id
+                  mailIssueId
                 }
               />
             ) : (
@@ -311,4 +243,4 @@ export function RightDock({
       </div>
     </DockHeaderSlotProvider>
   )
-}
+})

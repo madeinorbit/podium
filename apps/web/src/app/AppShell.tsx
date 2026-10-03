@@ -5,13 +5,12 @@ import {
   observeLiveConnection,
 } from '@podium/client-core/live-connection'
 import { useStoreHandle } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/store'
 import {
   FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
-import { selectedMissionRoot } from '@podium/client-core/viewmodels'
 import { ChevronLeft } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
@@ -102,7 +101,8 @@ import {
   SUPERAGENT_MODE_KEY,
 } from './shell-state'
 import { describeWireSkew, reportSkew } from './skew-notice'
-import { type MainView, StoreProvider, useReplicaIssues, useStoreSelector } from './store'
+import { type MainView, StoreProvider, useStoreSelector } from './store'
+import { useShellActions, useShellChrome } from './shell-data'
 import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
@@ -404,36 +404,11 @@ function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Eleme
  *  arrow would hand `RightRail` a new callback every render (POD-540). */
 const writeRightPanel = (panel: RightPanelTab | null): string => panel ?? ''
 
-function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Element {
-  const {
-    repos,
-    reposLoaded,
-    selectedIssueId,
-    setSelectedIssueId,
-    superOpen,
-    setSuperOpen,
-    paletteOpen,
-    setPaletteOpen,
-    uiState,
-  } = useStoreSelector(
-    (s) => ({
-      repos: s.repos,
-      reposLoaded: s.reposLoaded,
-      selectedIssueId: s.selectedIssueId,
-      setSelectedIssueId: s.setSelectedIssueId,
-      superOpen: s.superOpen,
-      setSuperOpen: s.setSuperOpen,
-      paletteOpen: s.paletteOpen,
-      setPaletteOpen: s.setPaletteOpen,
-      uiState: s.uiState,
-    }),
-    shallowEqual,
-  )
+function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Element {
+  const { setSelectedIssueId, setSuperOpen, setPaletteOpen, setView, uiState, trpc } = useShellActions()
+  const { reposLoaded, superOpen, paletteOpen, view, repoCount, worktreeCount, sessionCount, colorIssue, colors, selectedIssueId, missionRoot: flightDeckMission } = useShellChrome()
   initializeSidebarMeasurements()
-  const view = useStoreSelector((s) => s.view)
-  const setView = useStoreSelector((s) => s.setView)
   const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
-  const issues = useReplicaIssues()
   // Settings and Usage are utilities layered OVER a mode, not modes themselves
   // (POD-365). The shell keeps rendering the mode underneath, and closing the
   // sheet returns you to the one you actually came from rather than always
@@ -445,10 +420,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   }, [view])
   const closeOverlay = (): void => setView(baseView)
   const workspaceActive = baseView === 'workspace'
-  const sessions = useStoreSelector((s) => s.sessions)
-  const flightDeckMission = selectedMissionRoot(issues, sessions, selectedIssueId)
   const flightDeckMissionId = flightDeckMission?.id ?? 'empty'
-  const trpc = useStoreSelector((s) => s.trpc)
   const {
     state: activationState,
     setupInProgress,
@@ -463,16 +435,16 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     shouldStartRemoteClientAtHandoff({
       launchMode: nativeDesktopBridge()?.launchMode,
       loaded: reposLoaded,
-      repoCount: repos.length,
-      sessionCount: sessions.length,
+      repoCount,
+      sessionCount,
       route: activationState.route,
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
     })
   const activationEligible = isActivationEligible({
     loaded: reposLoaded,
-    repoCount: repos.length,
-    sessionCount: sessions.length,
+    repoCount,
+    sessionCount,
     setupInProgress,
     hasActivationCheckpoint,
     hasVpsCheckpoint: vpsActivation.state !== null,
@@ -882,8 +854,8 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
           <SyncLoader
             store={syncProgress}
             reposLoaded={reposLoaded}
-            repoCount={repos.length}
-            worktreeCount={repos.reduce((n, repo) => n + repo.worktrees.length, 0)}
+            repoCount={repoCount}
+            worktreeCount={worktreeCount}
           />
         ) : (
           <LoadingScreen />
@@ -926,16 +898,13 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     )
   }
 
-  const selectedIssue = selectedIssueId
-    ? issues.find((issue) => issue.id === selectedIssueId && !issue.archived && !issue.deletedAt)
-    : undefined
   // The one reactive colour source (§4.2): the selected issue's flow colour —
   // own palette slot, else the nearest coloured ancestor's (an uncoloured
   // sub-issue runs its parent's context) — scoped as --issue on the shell
   // root. data-issue-colored drives the quieter slate percentages, and
   // .issue-scope derives the text ramp and the .4s crossfade (index.css).
-  const effectiveHex = effectiveIssueColorHex(selectedIssue, (id) =>
-    issues.find((issue) => issue.id === id),
+  const effectiveHex = effectiveIssueColorHex(colorIssue, (id) =>
+    colors.find((issue) => issue.id === id),
   )
   const issueAccent = effectiveHex ?? FLOW_CSS
   const issueStyle = { '--issue': issueAccent } as CSSProperties
@@ -1143,3 +1112,5 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     </OperatorFocusProvider>
   )
 }
+
+const AppBody = observer(AppBodyView)

@@ -1,9 +1,9 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { observer } from 'mobx-react-lite'
 import { describeApprovalOp, formatLong, issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { useStoreSelector } from './store'
+import { useShellActions, useShellApprovals } from './shell-data'
 
 /**
  * Approval broker popup [spec:SP-edbb] (#410): an agent asked to run a
@@ -18,11 +18,9 @@ import { useStoreSelector } from './store'
  * There is no dismissal either — the card stays until an explicit approve or
  * deny; an approval must never be decided by an accidental escape/click-away.
  */
-export function ApprovalDialog(): JSX.Element | null {
-  const { trpc, approvals, navigateToSession } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, approvals: s.approvals, navigateToSession: s.navigateToSession }),
-    shallowEqual,
-  )
+export const ApprovalDialog = observer(function ApprovalDialog(): JSX.Element | null {
+  const { trpc, navigateToSession } = useShellActions()
+  const approvals = useShellApprovals()
   const [pendingAction, setPendingAction] = useState<'approve' | 'deny' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const busy = pendingAction !== null
@@ -115,4 +113,4 @@ export function ApprovalDialog(): JSX.Element | null {
       </div>
     </div>
   )
-}
+})
