@@ -91,8 +91,10 @@ function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, a
       const workspace = tracked(() => readWorkspaceMission(missionView(pool), id, focused))
       expect(workspace).not.toBe(LOADING)
       if (workspace !== LOADING) {
-        expect(workspace.missionRoot?.id ?? null).toBe(id)
-        expect(workspace.issue?.id ?? null).toBe(focused ?? id)
+        const selected = issues.find((issue) => issue.id === id && !issue.archived && !issue.deletedAt)
+        const root = selected ? missionRootFor(issues, selected.id)?.id : null
+        expect(workspace.missionRoot?.id ?? null).toBe(root ?? null)
+        expect(workspace.issue?.id ?? null).toBe(focused && workspace.missionIds.has(focused) ? focused : root ?? null)
       }
       for (const mode of ['full', 'working', 'needs-you'] as const) {
         expectPoolOutput(
