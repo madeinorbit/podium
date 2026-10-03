@@ -314,15 +314,32 @@ export interface PendingRows {
  *   hide a remote value for a locally pending field and rewind a rejection
  *   twice.
  * - `pooled`: server truth with the pool's own transactions folded over it
- *   (`write/transactions.ts`, POD-5431). The ledger is never read; the log
- *   names its rows through `repaint`, and a runtime publication alone is a
- *   signal only for discovery, as in `truth`.
+ *   (`write/transactions.ts`, POD-5431) for the row kinds the pool OWNS, and
+ *   the ledger's overlays for the rest (POD-5432: issues own first, then
+ *   sessions; one painter per kind). For an owned kind the ledger is never
+ *   read and the log names its rows through `repaint`. With every kind owned
+ *   a runtime publication alone is a signal only for discovery, as in `truth`.
  */
 export type RowSourceMode = 'overlaid' | 'truth'
 
+/** The row kinds the pool's transaction log can own (POD-5432). */
+export type PoolOwnedKind = 'issue' | 'session'
+
 export type RowSourceOptions =
   | { readonly mode: RowSourceMode }
-  | { readonly mode: 'pooled'; readonly pending: PooledPending }
+  | {
+      readonly mode: 'pooled'
+      readonly pending: PooledPending
+      /** The kinds the log paints; the ledger paints the others. Default: both. */
+      readonly owned?: ReadonlySet<PoolOwnedKind>
+    }
+
+const KIND_OF_TARGET: Record<OverlayTarget, PoolOwnedKind> = {
+  sessions: 'session',
+  sessionUserStates: 'session',
+  issueProjections: 'issue',
+  issueUserStates: 'issue',
+}
 
 export function createRowSource(
   runtime: RowSourceRuntime,
@@ -336,6 +353,10 @@ export function createRowSource(
     )
   }
   const pooled = options.mode === 'pooled' ? options.pending : null
+  const owned: ReadonlySet<PoolOwnedKind> =
+    options.mode === 'pooled' ? (options.owned ?? new Set(['issue', 'session'])) : new Set()
+  /** Some kind still reads the ledger: every runtime publication may move it. */
+  const ledgerRead = mode === 'overlaid' || (pooled !== null && owned.size < 2)
   const rowOf = replica.row?.bind(replica)
   const addressedOf = replica.subscribeAddressedBatch?.bind(replica)
   if (rowOf === undefined || addressedOf === undefined) {
@@ -563,11 +584,15 @@ export function createRowSource(
   function readPending(): PendingByRow {
     if (mode === 'truth') return NO_PENDING
     if (pooled !== null) {
+      const from = (target: OverlayTarget): PendingRows =>
+        owned.has(KIND_OF_TARGET[target])
+          ? pooled.byRow(target)
+          : runtime.pendingOverlaysByRow(target)
       return {
-        sessions: pooled.byRow('sessions'),
-        sessionUserStates: pooled.byRow('sessionUserStates'),
-        issueUserStates: pooled.byRow('issueUserStates'),
-        issueProjections: pooled.byRow('issueProjections'),
+        sessions: from('sessions'),
+        sessionUserStates: from('sessionUserStates'),
+        issueUserStates: from('issueUserStates'),
+        issueProjections: from('issueProjections'),
       }
     }
     return {
@@ -1299,10 +1324,11 @@ export function createRowSource(
 
   const offs: Array<() => void> = []
   offs.push(subscribeAddressed(onAddressed))
-  // Truth mode reads nothing the runtime publishes but discovery: kernel
-  // addresses name its rows, so only a moved `repos` array is a signal.
+  // Truth mode, and a pooled feed that owns every kind, read nothing the
+  // runtime publishes but discovery: kernel addresses and the log's repaint
+  // name their rows, so only a moved `repos` array is a signal.
   heldFrom = currentRepos()
-  offs.push(runtime.subscribe(mode === 'overlaid' ? onRuntimePublication : onTruthPublication))
+  offs.push(runtime.subscribe(ledgerRead ? onRuntimePublication : onTruthPublication))
 
   function repaint(
     rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,

@@ -1,5 +1,6 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asSessionId } from '@podium/model'
+import { observable } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { createMobileSessionReader, createMobileSessionSource } from './mobile-session-context'
 import { MobxPool } from './pool'
@@ -115,4 +116,27 @@ it('keeps spawn confirmation loading until the shared pane source is attached an
   })
   expect(reader.booting()).toBe(false)
   pool.dispose()
+})
+
+it('answers spawn prompts from the pool log while it owns sessions (POD-5432)', () => {
+  for (const ownsSessions of [true, false]) {
+    const pool = new MobxPool({ coarseNow: 0, selectedIssueId: null }),
+      reader = createMobileSessionReader(pool)
+    const spawnPrompts = observable.map<string, string | null>([
+      ['from-log', 'Log prompt'],
+      ['no-prompt', null],
+    ])
+    pool.attachTransactions({ mutate: vi.fn(), spawnPrompts } as never, ownsSessions)
+    pool.sources.register(['mobileSessionWindow'], {
+      read: () => ({
+        cursor: null,
+        pendingSpawnPrompts: new Map([[asSessionId('from-ledger'), 'Ledger prompt']]),
+      }),
+      dispose: () => {},
+    } as never)
+    expect(reader.spawnPrompt('from-log')).toBe(ownsSessions ? 'Log prompt' : undefined)
+    expect(reader.spawnPrompt('no-prompt')).toBeUndefined()
+    expect(reader.spawnPrompt('from-ledger')).toBe(ownsSessions ? undefined : 'Ledger prompt')
+    pool.dispose()
+  }
 })

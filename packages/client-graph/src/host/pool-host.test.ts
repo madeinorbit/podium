@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { MobxPool } from '../pool'
-import { createPoolHost } from './pool-host'
+import { createPoolHost, POOL_OWNED_KINDS } from './pool-host'
 import type { PoolScreen, PoolScreenOptions } from './screens'
 
 const graph = vi.hoisted(() => ({ log: [] as string[], pool: {} as object }))
@@ -61,7 +61,7 @@ it('latches, starts, prepares, creates with merged options, plugs in screens, an
     'start',
     'prepare header',
     'prepare preferences',
-    'create {"header":true,"preferences":true}',
+    'create {"owns":["issue","session"],"header":true,"preferences":true}',
     'attach header true',
     'attach preferences true',
   ])
@@ -119,9 +119,28 @@ it('one pool per runtime: a user switch gets its own pool and the old one is dis
   await settle()
   second()
   expect(graph.log.filter((line) => line.startsWith('create') || line === 'dispose')).toEqual([
-    'create {"header":true}',
+    'create {"owns":["issue","session"],"header":true}',
     'dispose',
-    'create {"header":true}',
+    'create {"owns":["issue","session"],"header":true}',
     'dispose',
+  ])
+})
+
+it('owns POOL_OWNED_KINDS by default; the app options hand them back (POD-5432 revert path)', async () => {
+  for (const options of [undefined, () => ({ owns: [] }) as PoolScreenOptions]) {
+    const host = createPoolHost({
+      screens: [screen('header', true)],
+      dev: false,
+      ...(options ? { options } : {}),
+    })
+    const stop = host.attach(runtime(), (error) => {
+      throw error
+    })
+    await settle()
+    stop()
+  }
+  expect(graph.log.filter((line) => line.startsWith('create'))).toEqual([
+    `create {"owns":${JSON.stringify(POOL_OWNED_KINDS)},"header":true}`,
+    'create {"owns":[],"header":true}',
   ])
 })

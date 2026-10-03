@@ -1,7 +1,9 @@
 /**
  * POD-5431 — `PoolTransactions`: the pool owns optimism, Linear's shape
- * (`docs/plans/pod-4286-optimism-and-refusals.md` §4, migration step 4). OFF by
- * default: `createRuntimeWorklistPool(runtime, { transactions: true })`.
+ * (`docs/plans/pod-4286-optimism-and-refusals.md` §4, migration step 4).
+ * Built by `createRuntimeWorklistPool(runtime, { owns })`; the pool host owns
+ * `POOL_OWNED_KINDS` by default (POD-5432, steps 5 and 6), and the runtime's
+ * queued actions reach `write` through `attachPoolWriter`.
  *
  * A CHANGE (`pool.mutate(kind, input)`, and the model setters through it) runs
  * ONE MobX action: the command's pure reducer (`overlaysForOutboxEntry`, shared
@@ -154,6 +156,9 @@ export interface PoolTransactions {
   bind(source: RowSourceRepaint): void
   /** One change: reduce, record, repaint, enqueue. Returns its mutation id. */
   mutate<K extends AnyKind>(kind: K, input: OutboxKinds[K]): MutationId
+  /** The same change for the runtime's actions (`PoolWriter`, POD-5432):
+   *  settles with the durable enqueue and rejects when it fails. */
+  write<K extends AnyKind>(kind: K, input: OutboxKinds[K]): Promise<void>
   /** Fires after a refused or failed change's models rebased. */
   onRejected(listener: (rejection: PoolRejection) => void): () => void
   /** TRACKED: sessions painted as spawn placeholders, and their first turns. */
@@ -671,6 +676,94 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     )
   }
 
+  /** One change: reduce, record, repaint, enqueue (§4.2). */
+  function begin<K extends AnyKind>(
+    kind: K,
+    input: OutboxKinds[K],
+  ): { mutationId: MutationId; committed: Promise<void> } {
+    if (disposed) throw new Error('PoolTransactions: mutate after dispose')
+    const mutationId = mintId()
+    const queuedAt = now()
+    let t!: Transaction
+    runInAction(() => {
+      // The ledger's enqueue, step for step: probe the patches, fingerprint
+      // their truth rows as the baseline, mark a change chained behind a
+      // same-row one, then reduce for real with both.
+      const probe = reduce({ mutationId, kind, input, queuedAt }).filter(isPatch)
+      let baseline: string | undefined
+      let chained = false
+      if (probe.length > 0) {
+        const rows = probe
+          .flatMap((o) => [
+            ...(o.entity === 'sessionUserStates' ? [truthRow('sessions', o.id)] : []),
+            truthRow(o.entity, o.id),
+          ])
+          .filter((row): row is OverlayRow => row !== undefined)
+        if (rows.length > 0) baseline = rowFingerprint(Object.assign({}, ...rows))
+        const sameRow = (o: PendingOverlay): boolean =>
+          o.op === 'patch' && probe.some((p) => o.entity === p.entity && o.id === p.id)
+        chained =
+          awaiting.some((a) => sameRow(a.overlay)) ||
+          [...txns.values()].some(
+            (other) =>
+              (other.position !== undefined || other.unqueued) && other.overlays.some(sameRow),
+          )
+      }
+      const overlays =
+        probe.length === 0
+          ? []
+          : reduce({
+              mutationId,
+              kind,
+              input,
+              queuedAt,
+              ...(baseline !== undefined ? { baseline } : {}),
+              ...(chained ? { chained } : {}),
+            })
+      t = { mutationId, kind, input, overlays, position: undefined, unqueued: true, seq: ++seq }
+      add(t)
+      commit(rowsOf(overlays))
+    })
+    const committed = ports.enqueue(kind, input, { mutationId, queuedAt })
+    committed.then(
+      () => {
+        if (disposed || txns.get(mutationId) !== t) return
+        t.unqueued = false
+        // Committed, and the queue already let it go (applied or dropped
+        // before this settled): nothing carries the paint any more.
+        if (t.position === undefined) {
+          runInAction(() => {
+            remove(t)
+            commit(rowsOf(t.overlays))
+          })
+        }
+      },
+      (error: unknown) => {
+        if (disposed || txns.get(mutationId) !== t) return
+        t.unqueued = false
+        runInAction(() => {
+          if (t.position !== undefined) {
+            // The record reached the queue before the throw: it still owes an
+            // answer, and paints as the queue holds it.
+            const entry = ports.outbox.pending().find((e) => e.mutationId === mutationId)
+            if (entry !== undefined) {
+              const rows = rowsOf(t.overlays)
+              reproject(t, entry)
+              commit(rowsOf(t.overlays, rows))
+            }
+            return
+          }
+          remove(t)
+          commit(rowsOf(t.overlays))
+        })
+        if (t.position === undefined) {
+          announce({ mutationId, kind, input, parked: false, error })
+        }
+      },
+    )
+    return { mutationId, committed }
+  }
+
   return {
     pending,
     spawnPrompts,
@@ -681,86 +774,11 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     },
 
     mutate(kind, input) {
-      if (disposed) throw new Error('PoolTransactions: mutate after dispose')
-      const mutationId = mintId()
-      const queuedAt = now()
-      let t!: Transaction
-      runInAction(() => {
-        // The ledger's enqueue, step for step: probe the patches, fingerprint
-        // their truth rows as the baseline, mark a change chained behind a
-        // same-row one, then reduce for real with both.
-        const probe = reduce({ mutationId, kind, input, queuedAt }).filter(isPatch)
-        let baseline: string | undefined
-        let chained = false
-        if (probe.length > 0) {
-          const rows = probe
-            .flatMap((o) => [
-              ...(o.entity === 'sessionUserStates' ? [truthRow('sessions', o.id)] : []),
-              truthRow(o.entity, o.id),
-            ])
-            .filter((row): row is OverlayRow => row !== undefined)
-          if (rows.length > 0) baseline = rowFingerprint(Object.assign({}, ...rows))
-          const sameRow = (o: PendingOverlay): boolean =>
-            o.op === 'patch' && probe.some((p) => o.entity === p.entity && o.id === p.id)
-          chained =
-            awaiting.some((a) => sameRow(a.overlay)) ||
-            [...txns.values()].some(
-              (other) =>
-                (other.position !== undefined || other.unqueued) && other.overlays.some(sameRow),
-            )
-        }
-        const overlays =
-          probe.length === 0
-            ? []
-            : reduce({
-                mutationId,
-                kind,
-                input,
-                queuedAt,
-                ...(baseline !== undefined ? { baseline } : {}),
-                ...(chained ? { chained } : {}),
-              })
-        t = { mutationId, kind, input, overlays, position: undefined, unqueued: true, seq: ++seq }
-        add(t)
-        commit(rowsOf(overlays))
-      })
-      ports.enqueue(kind, input, { mutationId, queuedAt }).then(
-        () => {
-          if (disposed || txns.get(mutationId) !== t) return
-          t.unqueued = false
-          // Committed, and the queue already let it go (applied or dropped
-          // before this settled): nothing carries the paint any more.
-          if (t.position === undefined) {
-            runInAction(() => {
-              remove(t)
-              commit(rowsOf(t.overlays))
-            })
-          }
-        },
-        (error: unknown) => {
-          if (disposed || txns.get(mutationId) !== t) return
-          t.unqueued = false
-          runInAction(() => {
-            if (t.position !== undefined) {
-              // The record reached the queue before the throw: it still owes an
-              // answer, and paints as the queue holds it.
-              const entry = ports.outbox.pending().find((e) => e.mutationId === mutationId)
-              if (entry !== undefined) {
-                const rows = rowsOf(t.overlays)
-                reproject(t, entry)
-                commit(rowsOf(t.overlays, rows))
-              }
-              return
-            }
-            remove(t)
-            commit(rowsOf(t.overlays))
-          })
-          if (t.position === undefined) {
-            announce({ mutationId, kind, input, parked: false, error })
-          }
-        },
-      )
-      return mutationId
+      return begin(kind, input).mutationId
+    },
+
+    write(kind, input) {
+      return begin(kind, input).committed
     },
 
     onRejected(listener) {

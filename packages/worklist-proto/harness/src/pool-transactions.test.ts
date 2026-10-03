@@ -4,7 +4,7 @@
  *
  * Two pools ride the same `ClientRuntime` over the scenario corpus, with the
  * production kernel outbox: one as today (the ledger paints, `overlaid` feed),
- * one with `transactions: true` (the pool's log paints, `pooled` feed). Every
+ * one with `owns` (the pool's log paints those kinds, `pooled` feed). Every
  * write reaches both: a pool change enqueues through the ledger's own enqueue
  * path, and a legacy or other-tab write is adopted from the outbox. After each
  * scripted step the two must show the same thing: every issue and session row,
@@ -16,6 +16,7 @@
  * visible neighbourhood (`neighbourhood.ts`).
  */
 
+import { types } from 'node:util'
 import { overlaysForOutboxEntry } from '@podium/client-core/command-reducers'
 import type { OutboxKinds } from '@podium/client-core/engine'
 import { LOADING } from '@podium/client-graph'
@@ -25,7 +26,7 @@ import { missions } from '@podium/client-graph/mission'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { createEngineLocals, localsOfEngine } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource, type PoolOwnedKind } from '@podium/client-graph/shared/row-source'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import {
   asIssueId,
@@ -90,9 +91,9 @@ async function boot(scale: 1 | 4, opts: { online: boolean; server?: ScenarioServ
   return { ctx, net }
 }
 
-function pair(ctx: ScenarioEngine) {
+function pair(ctx: ScenarioEngine, owns: readonly PoolOwnedKind[]) {
   const ledger = createRuntimeWorklistPool(ctx.engine)
-  const pooled = createRuntimeWorklistPool(ctx.engine, { transactions: true })
+  const pooled = createRuntimeWorklistPool(ctx.engine, { owns })
   const handles = { ledger, pooled }
   cleanups.push(() => {
     handles.pooled.dispose()
@@ -181,10 +182,18 @@ function sessionsOf(ctx: ScenarioEngine): string[] {
     .map((s) => s.sessionId)
 }
 
-describe('pool transactions against the ledger (POD-5431)', () => {
+/**
+ * POD-5432: the suite runs once per ownership step: issues owned (plan step 5;
+ * the ledger still paints sessions) and both owned (step 6). Each step must
+ * show exactly what the ledger shows, row by row and screen by screen.
+ */
+describe.each([
+  ['issues owned', ['issue']],
+  ['issues and sessions owned', ['issue', 'session']],
+] as const)('pool transactions against the ledger (POD-5431), %s', (_step, owns) => {
   it('paints every painting command kind exactly as the ledger does, queued offline', async () => {
     const { ctx } = await boot(1, { online: false })
-    const { ledger, pooled } = pair(ctx)
+    const { ledger, pooled } = pair(ctx, owns)
     const t = ctx.targets
     const [s1, s2] = sessionsOf(ctx)
     expect(s1 && s2).toBeTruthy()
@@ -298,7 +307,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
         new Promise((resolve, reject) => answers.push({ input, resolve, reject })),
     }
     const { ctx } = await boot(1, { online: true, server })
-    const { ledger, pooled } = pair(ctx)
+    const { ledger, pooled } = pair(ctx, owns)
     const id = ctx.targets.visibleRootId
     const check = () => expect(differences(ctx, ledger.pool, pooled.pool, [id])).toEqual([])
     const refusals: { title: unknown; parked: boolean; shown: unknown }[] = []
@@ -350,7 +359,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
 
   it('holds an applied change until truth covers it, and lets a competing write win', async () => {
     const { ctx } = await boot(1, { online: true, server: { issueUpdate: async () => ({}) } })
-    const { ledger, pooled } = pair(ctx)
+    const { ledger, pooled } = pair(ctx, owns)
     const t = ctx.targets
     const check = (id: string) =>
       expect(differences(ctx, ledger.pool, pooled.pool, [id])).toEqual([])
@@ -382,7 +391,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
 
   it('paints a per-user row the server never wrote (absent means nothing set)', async () => {
     const { ctx } = await boot(1, { online: false })
-    const { ledger, pooled } = pair(ctx)
+    const { ledger, pooled } = pair(ctx, owns)
     const t = ctx.targets
     const [s1] = sessionsOf(ctx)
     const user = asUserId('u-bench')
@@ -405,7 +414,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
 
   it('repaints the durable queue after an offline reload', async () => {
     const { ctx } = await boot(1, { online: false })
-    let handles = pair(ctx)
+    let handles = pair(ctx, owns)
     const t = ctx.targets
     const [s1] = sessionsOf(ctx)
     handles.pooled.pool.mutate('issueUpdate', {
@@ -422,7 +431,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
     handles.pooled.dispose()
     handles.ledger.dispose()
     await ctx.reload()
-    handles = pair(ctx)
+    handles = pair(ctx, owns)
     await settle(ctx)
     expect(
       differences(ctx, handles.ledger.pool, handles.pooled.pool, [t.visibleRootId, t.markReadId]),
@@ -438,7 +447,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
         ),
     }
     const { ctx } = await boot(1, { online: true, server })
-    const { ledger, pooled } = pair(ctx)
+    const { ledger, pooled } = pair(ctx, owns)
     const repo = ctx.targets.newIssueRepo
     const spawned = ctx.engine.getSnapshot().spawnDraftAgent({
       target: { path: repo.repoPath, repoPath: repo.repoPath, repoId: repo.repoId as never },
@@ -449,16 +458,28 @@ describe('pool transactions against the ledger (POD-5431)', () => {
     expect(ctx.engine.getSnapshot().pendingSpawnIds.has(spawned.sessionId)).toBe(true)
     expect(differences(ctx, ledger.pool, pooled.pool, [spawned.issueId])).toEqual([])
     expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeDefined()
+    // POD-5432 step 6: owning sessions, pool screens read the placeholders
+    // (adapters 4 and 12) from the log; the ledger's copy answers otherwise.
+    const ownsSessions = owns.includes('session' as never)
+    // Which map answers is fixed at attachment; only its entries are tracked.
+    const placeholders = () => pooled.pool.spawnPlaceholders()
+    expect(placeholders() !== null).toBe(ownsSessions)
+    if (ownsSessions) {
+      expect(tracked(() => placeholders()!.has(spawned.sessionId))).toBe(true)
+      expect(tracked(() => placeholders()!.get(spawned.sessionId))).toBe('Start here')
+      expect(ctx.engine.getSnapshot().pendingSpawnPrompts.get(spawned.sessionId)).toBe('Start here')
+    }
     expect(await spawned.settled).toBe(false)
     await settle(ctx)
     expect(ctx.engine.getSnapshot().pendingSpawnIds.has(spawned.sessionId)).toBe(false)
+    if (ownsSessions) expect(tracked(() => placeholders()!.has(spawned.sessionId))).toBe(false)
     expect(differences(ctx, ledger.pool, pooled.pool)).toEqual([])
     expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeUndefined()
   }, 120_000)
 
   it("adopts another tab's and the legacy screens' writes from the outbox", async () => {
     const { ctx } = await boot(1, { online: false })
-    const { ledger, pooled } = pair(ctx)
+    const { ledger, pooled } = pair(ctx, owns)
     const t = ctx.targets
     // Another tab: a record lands in the shared queue without this runtime's paint.
     await ctx.engine.outbox.enqueue('issueSetTucked', { id: t.stageMoveId, tucked: true })
@@ -481,7 +502,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
 
   it('keeps a change on an evicted row and repaints it on readmission, and across a rescope', async () => {
     const { ctx } = await boot(1, { online: false })
-    const { ledger, pooled } = pair(ctx)
+    const { ledger, pooled } = pair(ctx, owns)
     const t = ctx.targets
     pooled.pool.mutate('issueUpdate', { id: t.evictId, patch: { title: 'Survives eviction' } })
     pooled.pool.mutate('issueUpdate', { id: t.visibleRootId, patch: { title: 'Survives rescope' } })
@@ -506,7 +527,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
     const { ctx } = await boot(1, { online: false })
     const ledger = createRuntimeWorklistPool(ctx.engine)
     cleanups.push(() => ledger.dispose())
-    // The production wiring of `transactions: true`, with one wrong reducer.
+    // The production wiring of `owns`, with one wrong reducer.
     const engine = ctx.engine
     const transactions = createPoolTransactions({
       userId: engine.principal.userId,
@@ -525,6 +546,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
     const rows = createRowSource(engine, engine.replica, {
       mode: 'pooled',
       pending: transactions.pending,
+      owned: new Set(owns),
     })
     const locals = createEngineLocals(engine)
     const planted: WorklistPoolHandle = createWorklistPool(rows.source, locals.source)
@@ -560,7 +582,7 @@ describe('pool transactions against the ledger (POD-5431)', () => {
         if (counting) reads += 1
         return original(...args)
       }
-      const pooled = createRuntimeWorklistPool(ctx.engine, { transactions: true })
+      const pooled = createRuntimeWorklistPool(ctx.engine, { owns })
       cleanups.push(() => pooled.dispose())
       const pool = pooled.pool
       // A mounted sidebar: the layout and each visible row's displayed cells.
@@ -611,6 +633,210 @@ describe('pool transactions against the ledger (POD-5431)', () => {
     expect(
       four.derivations / Math.max(1, one.derivations),
       `derivations ${one.derivations} → ${four.derivations}, neighbourhood ×${ratio}`,
+    ).toBeLessThanOrEqual(ratio)
+  }, 240_000)
+})
+
+/**
+ * POD-5432 — what owning a kind adds on top of the comparison above: the
+ * runtime's actions (every screen's write) paint the pool's rows in the press's
+ * tick through the log, an owned kind never asks the ledger, a refusal rewinds
+ * once, and a row is one plain object, the same on every read.
+ */
+describe.each([
+  ['issues owned', ['issue']],
+  ['issues and sessions owned', ['issue', 'session']],
+] as const)('pool-owned kinds on pool screens (POD-5432), %s', (_step, owns) => {
+  it('paints a runtime action in the press tick through the log; legacy screens still see it', async () => {
+    const { ctx } = await boot(1, { online: false })
+    const { ledger, pooled } = pair(ctx, owns)
+    const t = ctx.targets
+    const [s1] = sessionsOf(ctx)
+    const store = ctx.engine.getSnapshot()
+    void store.updateIssue(asIssueId(t.visibleRootId), { title: 'Routed' } as never)
+    void store.renameSession(asSessionId(s1!), 'Routed session')
+    // The same tick: nothing is durable yet, the log already painted.
+    expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Routed')
+    expect(pooled.transactions!.size()).toBe(2)
+    await settle(ctx)
+    // One record per press: the log enqueued through the ledger, never twice.
+    expect(ctx.engine.outbox.pending().map((e) => e.kind)).toEqual(['issueUpdate', 'rename'])
+    const legacy = ctx.engine.getSnapshot()
+    expect(legacy.issueProjections.find((row) => row.id === t.visibleRootId)?.title).toBe('Routed')
+    expect(legacy.sessions.find((row) => row.sessionId === s1)?.name).toBe('Routed session')
+    expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId])).toEqual([])
+  }, 120_000)
+
+  it('arms the press-tick check: a log the actions do not reach paints only after the commit (planted)', async () => {
+    const { ctx } = await boot(1, { online: false })
+    const engine = ctx.engine
+    // The production wiring of `owns`, minus `attachPoolWriter`.
+    const transactions = createPoolTransactions({
+      userId: engine.principal.userId,
+      outbox: engine.outbox,
+      outcomes: engine.subscribeOutboxOutcomes,
+      enqueue: engine.enqueueOverlayed,
+      addressed: ctx.replica.subscribeAddressedBatch!.bind(ctx.replica),
+      spawns: { current: engine.spawnPlaceholders, subscribe: engine.subscribeSpawnPlaceholders },
+    })
+    const rows = createRowSource(engine, engine.replica, {
+      mode: 'pooled',
+      pending: transactions.pending,
+      owned: new Set(owns),
+    })
+    const locals = createEngineLocals(engine)
+    const planted = createWorklistPool(rows.source, locals.source)
+    transactions.bind(rows)
+    planted.pool.attachTransactions(transactions)
+    cleanups.push(() => {
+      planted.dispose()
+      transactions.dispose()
+      locals.dispose()
+      rows.dispose()
+    })
+    const id = ctx.targets.visibleRootId
+    const before = tracked(() => planted.pool.issue(id)?.title)
+    void engine.getSnapshot().updateIssue(asIssueId(id), { title: 'Routed' } as never)
+    expect(tracked(() => planted.pool.issue(id)?.title)).toBe(before)
+    await settle(ctx)
+    // Adopted from the durable record, one commit late.
+    expect(tracked(() => planted.pool.issue(id)?.title)).toBe('Routed')
+  }, 120_000)
+
+  it('never asks the ledger for an owned kind (one painter per kind)', async () => {
+    const { ctx } = await boot(1, { online: false })
+    const asked = new Map<string, number>()
+    const runtime = ctx.engine as unknown as {
+      pendingOverlaysByRow: (entity: string) => unknown
+    }
+    const original = runtime.pendingOverlaysByRow
+    runtime.pendingOverlaysByRow = (entity: string) => {
+      asked.set(entity, (asked.get(entity) ?? 0) + 1)
+      return original(entity)
+    }
+    cleanups.push(() => {
+      runtime.pendingOverlaysByRow = original
+    })
+    const drive = async (pool: MobxPool) => {
+      const t = ctx.targets
+      const [s1] = sessionsOf(ctx)
+      const store = ctx.engine.getSnapshot()
+      void store.updateIssue(asIssueId(t.visibleRootId), { title: 'One painter' } as never)
+      void store.setIssueTucked(asIssueId(t.stageMoveId), true)
+      void store.renameSession(asSessionId(s1!), 'One painter')
+      await settle(ctx)
+      void tracked(() => pool.issue(t.visibleRootId)?.title)
+    }
+    // Armed: the ledger's own feed asks for every kind.
+    const control = createRuntimeWorklistPool(ctx.engine)
+    await drive(control.pool)
+    control.dispose()
+    expect(asked.get('issueProjections') ?? 0).toBeGreaterThan(0)
+    asked.clear()
+    const pooled = createRuntimeWorklistPool(ctx.engine, { owns })
+    cleanups.push(() => pooled.dispose())
+    await drive(pooled.pool)
+    expect(asked.get('issueProjections') ?? 0).toBe(0)
+    expect(asked.get('issueUserStates') ?? 0).toBe(0)
+    const sessionsOwned = owns.includes('session' as never)
+    expect((asked.get('sessions') ?? 0) > 0).toBe(!sessionsOwned)
+    expect((asked.get('sessionUserStates') ?? 0) > 0).toBe(!sessionsOwned)
+  }, 120_000)
+
+  it('rewinds a refusal once, and serves one plain row object per value', async () => {
+    const answers: { reject: (e: unknown) => void }[] = []
+    const server: ScenarioServer = {
+      issueUpdate: () => new Promise((_resolve, reject) => answers.push({ reject })),
+    }
+    const { ctx } = await boot(1, { online: true, server })
+    const { ledger, pooled } = pair(ctx, owns)
+    const id = ctx.targets.visibleRootId
+    const original = tracked(() => pooled.pool.issue(id)?.title)
+    const seen: unknown[] = []
+    const stop = autorun(() => {
+      seen.push(pooled.pool.row('issue', id))
+    })
+    cleanups.push(stop)
+    void ctx.engine.getSnapshot().updateIssue(asIssueId(id), { title: 'Refused' } as never)
+    const painted = tracked(() => pooled.pool.row('issue', id))
+    // One plain object, the table's own, on every read: no read-time overlay.
+    expect(tracked(() => pooled.pool.row('issue', id))).toBe(painted)
+    expect(types.isProxy(painted)).toBe(false)
+    expect((painted as { title: string }).title).toBe('Refused')
+    await settle(ctx)
+    expect(tracked(() => pooled.pool.row('issue', id))).toBe(painted)
+    const runs = seen.length
+    answers
+      .shift()!
+      .reject(Object.assign(new Error('conflict'), { data: { code: 'CONFLICT', httpStatus: 409 } }))
+    await settle(ctx)
+    expect(tracked(() => pooled.pool.issue(id)?.title)).toBe(original)
+    // Exactly one rewind: one new row object after the refusal, never a
+    // second fold of the same refusal from the ledger.
+    expect(seen.length - runs).toBe(1)
+    expect(differences(ctx, ledger.pool, pooled.pool, [id])).toEqual([])
+  }, 120_000)
+
+  it('costs a runtime action the same keyed reads and derivations at 1x and 4x', async () => {
+    const cell = async (scale: 1 | 4) => {
+      const { ctx } = await boot(scale, { online: false })
+      const replica = ctx.replica as unknown as { row: (...args: unknown[]) => unknown }
+      const original = replica.row.bind(ctx.replica)
+      let counting = false
+      let reads = 0
+      replica.row = (...args: unknown[]) => {
+        if (counting) reads += 1
+        return original(...args)
+      }
+      const pooled = createRuntimeWorklistPool(ctx.engine, { owns })
+      cleanups.push(() => pooled.dispose())
+      const pool = pooled.pool
+      const stop = autorun(() => {
+        void pool.groups.layout
+        for (const id of visibleOrderOf(pool)) {
+          const model = pool.issue(id)
+          void model?.title
+          void model?.stage
+        }
+      })
+      cleanups.push(stop)
+      await settle(ctx)
+      const id = ctx.targets.visibleRootId
+      const state = (): NeighbourhoodState => {
+        const store = ctx.engine.getSnapshot()
+        return {
+          issues: store.issueProjections,
+          sessions: store.sessions,
+          order: snapshotFromStore(store, localsOfEngine(ctx.engine)).order,
+        }
+      }
+      const before = state()
+      const { work } = await measureWork(async () => {
+        counting = true
+        try {
+          void ctx.engine
+            .getSnapshot()
+            .updateIssue(asIssueId(id), { title: `Action at ${scale}x` } as never)
+        } finally {
+          counting = false
+        }
+      })
+      await settle(ctx)
+      expect(tracked(() => pool.issue(id)?.title)).toBe(`Action at ${scale}x`)
+      const neighbourhood = neighbourhoodOf(before, state(), [`issue:${id}`], [id]).members.size
+      return { reads, derivations: work.derivations, neighbourhood }
+    }
+    const one = await cell(1)
+    const four = await cell(4)
+    const ratio = Math.max(1, four.neighbourhood / one.neighbourhood)
+    console.info(
+      `[POD-5432 meter ${owns.join('+')}] one action: 1x ${JSON.stringify(one)}; 4x ${JSON.stringify(four)}`,
+    )
+    expect(one.reads).toBeGreaterThan(0)
+    expect(four.reads / one.reads, `reads ${one.reads} → ${four.reads}`).toBeLessThanOrEqual(ratio)
+    expect(
+      four.derivations / Math.max(1, one.derivations),
+      `derivations ${one.derivations} → ${four.derivations}`,
     ).toBeLessThanOrEqual(ratio)
   }, 240_000)
 })

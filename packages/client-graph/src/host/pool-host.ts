@@ -6,6 +6,7 @@ import { useMemo, useRef, useSyncExternalStore } from 'react'
 import type { WorklistPoolHandle } from '../create'
 import type { MobxPool } from '../pool'
 import type { createPoolProjection } from '../runtime-pool'
+import type { PoolOwnedKind } from '../shared/row-source'
 import {
   attachPoolScreens,
   type PoolScreen,
@@ -23,9 +24,18 @@ export interface PoolHostOptions {
    * screen. Its stop runs first at teardown. */
   start?(runtime: ClientRuntime): (() => void) | void
   /** Pool-wide options that belong to no screen (POD-5431: the transaction
-   * log). Read when a pool is built; never builds one by itself. */
+   * log). Read when a pool is built; never builds one by itself. They win
+   * over the host's defaults ({@link POOL_OWNED_KINDS}). */
   options?(runtime: ClientRuntime): PoolScreenOptions
 }
+
+/**
+ * The row kinds whose optimism the pool owns on every app's pool screens
+ * (POD-5432, plan steps 5 and 6): its transaction log paints them and the
+ * runtime's actions write through it. Web and mobile share it; an app's
+ * `options` may name fewer (`owns: []` is the ledger, the revert path).
+ */
+export const POOL_OWNED_KINDS: readonly PoolOwnedKind[] = ['issue', 'session']
 
 export interface PoolHost {
   /** The store provider's attachRuntime: it owns this teardown, including
@@ -126,10 +136,12 @@ export function createPoolHost({
     void import('../runtime-pool')
       .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
         if (disposed) return
-        const options = { ...screenOptions(screens, runtime), ...hostOptions?.(runtime) }
-        slot.handle = Object.keys(options).length
-          ? createRuntimeWorklistPool(runtime, options)
-          : createRuntimeWorklistPool(runtime)
+        const options = {
+          owns: POOL_OWNED_KINDS,
+          ...screenOptions(screens, runtime),
+          ...hostOptions?.(runtime),
+        }
+        slot.handle = createRuntimeWorklistPool(runtime, options)
         stopScreens = attachPoolScreens(screens, runtime, slot.handle.pool, fail)
         slot.project = createPoolProjection
         notify(slot)

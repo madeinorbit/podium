@@ -1,7 +1,7 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineWire } from '@podium/model/browser'
-import { autorun } from 'mobx'
+import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { checkSessionPanes } from '../diagnostics/session-pane-check'
 import { sessionPaneFixture, SESSION_PANE_NOW } from '../diagnostics/session-pane-fixture'
@@ -148,4 +148,23 @@ it('inherits the selected issue tint through summary fields and stops on a paren
       id === 'child' ? issue('child', null, { parentId: 'root' }) : issue('root', null, { parentId: 'child' }) } as unknown as MobxPool
     expect(paneIssueColor(cycle, 'child', hex)).toBeUndefined()
   } finally { pool.dispose() }
+})
+
+it('reads spawn placeholders from the pool log while it owns sessions, else the ledger window (POD-5432)', () => {
+  for (const ownsSessions of [true, false]) {
+    const f = fixture()
+    try {
+      const spawnPrompts = observable.map<string, string | null>()
+      f.pool.attachTransactions({ mutate: vi.fn(), spawnPrompts } as never, ownsSessions)
+      const seen: boolean[] = []
+      const stop = autorun(() => seen.push(paneSpawnConfirmed(f.pool, 'pane-3')))
+      // The ledger window marks pane-11 pending; the log knows nothing yet.
+      expect(paneSpawnConfirmed(f.pool, 'pane-11')).toBe(ownsSessions)
+      runInAction(() => spawnPrompts.set('pane-3', 'First turn'))
+      expect(seen).toEqual(ownsSessions ? [true, false] : [true])
+      runInAction(() => spawnPrompts.delete('pane-3'))
+      expect(seen).toEqual(ownsSessions ? [true, false, true] : [true])
+      stop()
+    } finally { f.pool.dispose() }
+  }
 })

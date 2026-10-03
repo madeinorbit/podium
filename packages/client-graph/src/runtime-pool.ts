@@ -6,7 +6,12 @@ import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import type { MobxPool } from './pool'
 import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
-import { createRowSource, type RowSourceReplica, type RowSourceRuntime } from './shared/row-source'
+import {
+  createRowSource,
+  type PoolOwnedKind,
+  type RowSourceReplica,
+  type RowSourceRuntime,
+} from './shared/row-source'
 import { createPoolTransactions, type PoolTransactions, type PoolTransactionsPorts } from './write/transactions'
 import { measureWorklistPoolDelivery, observeWorklistPoolPerf } from './sidebar-perf'
 import type { PoolSummaryFields } from './source-registry'
@@ -139,14 +144,18 @@ type TransactionsRuntime = WorklistRuntime & {
   readonly enqueueOverlayed: PoolTransactionsPorts['enqueue']
   readonly spawnPlaceholders: NonNullable<PoolTransactionsPorts['spawns']>['current']
   readonly subscribeSpawnPlaceholders: NonNullable<PoolTransactionsPorts['spawns']>['subscribe']
+  /** Routes the runtime's queued actions through the log (POD-5432). */
+  readonly attachPoolWriter: (writer: Pick<PoolTransactions, 'write'>) => () => void
 }
 
-function transactionsFor(runtime: WorklistRuntime): PoolTransactions {
+/** The transaction log over the app's runtime, as `owns` builds it (harnesses
+ * reuse this exact wiring). */
+export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransactions {
   const rt = runtime as Partial<TransactionsRuntime>
   const subscribeAddressed = runtime.replica.subscribeAddressedBatch?.bind(runtime.replica)
   if (!rt.principal || !rt.outbox || !rt.subscribeOutboxOutcomes || !rt.enqueueOverlayed ||
-    !rt.spawnPlaceholders || !rt.subscribeSpawnPlaceholders || !subscribeAddressed) {
-    throw new Error('Pool transactions require the runtime outbox, outcome, enqueue and spawn seams')
+    !rt.spawnPlaceholders || !rt.subscribeSpawnPlaceholders || !rt.attachPoolWriter || !subscribeAddressed) {
+    throw new Error('Pool transactions require the runtime outbox, outcome, enqueue, spawn and writer seams')
   }
   return createPoolTransactions({
     userId: rt.principal.userId,
@@ -158,24 +167,33 @@ function transactionsFor(runtime: WorklistRuntime): PoolTransactions {
   })
 }
 
+/** Route the runtime's queued actions through the log; returns the detach. */
+export function attachRuntimeWriter(runtime: WorklistRuntime, transactions: PoolTransactions): () => void {
+  return (runtime as TransactionsRuntime).attachPoolWriter(transactions)
+}
+
 /**
- * The pool over the app's runtime. By default a read-only attachment:
- * optimism and every write still belong to the runtime's ledger. With
- * `transactions` (POD-5431, OFF by default) the pool owns its optimism: its
- * transaction log paints pool screens (`pooled` feed) and `pool.mutate` and
- * the model setters write through it; the ledger keeps painting legacy screens
- * from the same outbox records.
+ * The pool over the app's runtime. Without `owns` a read-only attachment:
+ * optimism and every write still belong to the runtime's ledger (`overlaid`
+ * feed). With `owns` (POD-5432; the pool host's default) the pool owns the
+ * optimism of those row kinds: its transaction log (POD-5431) paints them
+ * (`pooled` feed), the ledger paints the rest, and every queued action of the
+ * runtime routes through the log (`attachPoolWriter`), as `pool.mutate` and
+ * the model setters do. The ledger keeps painting legacy screens from the
+ * same outbox records.
  */
-export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { preferences?: boolean; settings?: boolean; header?: boolean; summaries?: PoolSummaryFields; transactions?: boolean } = {}): WorklistPoolHandle & { readonly transactions?: PoolTransactions } {
-  const transactions = options.transactions === true ? transactionsFor(runtime) : null
+export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { preferences?: boolean; settings?: boolean; header?: boolean; summaries?: PoolSummaryFields; owns?: readonly PoolOwnedKind[] } = {}): WorklistPoolHandle & { readonly transactions?: PoolTransactions } {
+  const owned = new Set(options.owns ?? [])
+  const transactions = owned.size > 0 ? createRuntimeTransactions(runtime) : null
   let rows: ReturnType<typeof createRowSource>
   try {
     rows = createRowSource(runtime, runtime.replica,
-      transactions === null ? { mode: 'overlaid' } : { mode: 'pooled', pending: transactions.pending })
+      transactions === null ? { mode: 'overlaid' } : { mode: 'pooled', pending: transactions.pending, owned })
   } catch (error) {
     transactions?.dispose()
     throw error
   }
+  let stopWriter: (() => void) | undefined
   let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
   let stopHeader: (() => void) | undefined
@@ -213,9 +231,11 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
     stopPerf = observeWorklistPoolPerf(runtime, handle.pool)
     if (transactions !== null) {
       transactions.bind(rows)
-      handle.pool.attachTransactions(transactions)
+      handle.pool.attachTransactions(transactions, owned.has('session'))
+      stopWriter = attachRuntimeWriter(runtime, transactions)
     }
   } catch (error) {
+    stopWriter?.()
     stopHeader?.()
     handle?.dispose()
     locals?.dispose()
@@ -231,6 +251,8 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
     dispose(): void {
       if (disposed) return
       disposed = true
+      // First: no action may reach a log that is going away.
+      stopWriter?.()
       stopHeader?.()
       stopPerf?.()
       try {

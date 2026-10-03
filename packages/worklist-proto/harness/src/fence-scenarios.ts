@@ -55,7 +55,9 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
+import { POOL_OWNED_KINDS } from '@podium/client-graph/host'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { attachRuntimeWriter, createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
 import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
 import {
   createRowSource,
@@ -63,6 +65,7 @@ import {
   type RowSourceMode,
 } from '@podium/client-graph/shared/row-source'
 import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import type { PoolTransactions } from '@podium/client-graph/write/transactions'
 import { act } from 'react'
 import type { ArmHandle, LazyArmHandle, LocalsSource, RowSource } from '../../shared/src/arm'
 import {
@@ -154,14 +157,38 @@ export interface FenceFeeds {
    * last call, then forgets them: a step's changed items.
    */
   takeNamed(): string[]
+  /** `owned` feeds: the log, which `attachPool` hands the arm's pool. */
+  readonly transactions?: PoolTransactions
+  /** `owned` feeds: attach the log to the arm's pool as the host does. */
+  attachPool(pool: MobxPool): void
   dispose(): void
 }
 
 /** The feeds behind a `flush` handed to `runFenceStep`: how a step finds `rowReads` (none: refused, N9). */
 const FEEDS_OF_FLUSH = new WeakMap<() => void, FenceFeeds>()
 
-export function openFenceFeeds(ctx: ScenarioEngine, mode: RowSourceMode): FenceFeeds {
-  const raw = createRowSource(ctx.engine, ctx.replica, { mode })
+/**
+ * `owned` (POD-5432): the production wiring of the pool owning optimism — the
+ * runtime's transaction log paints the host's `POOL_OWNED_KINDS` (`pooled`
+ * feed) and the runtime's actions route through it. The arm's pool takes the
+ * log through `attachPool`.
+ */
+export type FenceFeedMode = RowSourceMode | 'owned'
+
+export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceFeeds {
+  const transactions = mode === 'owned' ? createRuntimeTransactions(ctx.engine) : null
+  const raw = createRowSource(
+    ctx.engine,
+    ctx.replica,
+    transactions === null
+      ? { mode: mode as RowSourceMode }
+      : { mode: 'pooled', pending: transactions.pending, owned: new Set(POOL_OWNED_KINDS) },
+  )
+  let stopWriter = (): void => {}
+  if (transactions !== null) {
+    transactions.bind(raw)
+    stopWriter = attachRuntimeWriter(ctx.engine, transactions)
+  }
   const rawLocals = createEngineLocals(ctx.engine)
   let rowReads = 0
   let named = new Set<string>()
@@ -170,8 +197,9 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: RowSourceMode): FenceF
   // (`work-meter.ts`). No-ops when no work is being measured.
   const source: RowSource = {
     snapshot: (kind) => outsideArm(() => raw.source.snapshot(kind)),
-    ...(raw.source.issueIdByRef ? { issueIdByRef: (ref: string) =>
-      outsideArm(() => raw.source.issueIdByRef!(ref)) } : {}),
+    ...(raw.source.issueIdByRef
+      ? { issueIdByRef: (ref: string) => outsideArm(() => raw.source.issueIdByRef!(ref)) }
+      : {}),
     subscribe: (listener) =>
       raw.source.subscribe((event) => {
         for (const record of event.rows) named.add(`${record.kind}:${record.id}`)
@@ -210,6 +238,11 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: RowSourceMode): FenceF
   const feeds: FenceFeeds = {
     rows,
     locals,
+    ...(transactions === null ? {} : { transactions }),
+    attachPool(pool: MobxPool): void {
+      if (transactions !== null)
+        pool.attachTransactions(transactions, POOL_OWNED_KINDS.includes('session'))
+    },
     flush(): void {
       rows.flush()
       locals.flush()
@@ -221,6 +254,8 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: RowSourceMode): FenceF
       return taken
     },
     dispose(): void {
+      stopWriter()
+      transactions?.dispose()
       rows.dispose()
       locals.dispose()
     },

@@ -45,7 +45,12 @@ export function createMobileSessionReader(pool: MobxPool) {
     spawnPrompt(id: string | undefined): Loaded<string> {
       if (id === undefined) return undefined
       const row = pool.row('mobileSessionWindow', 'window')
-      return !row || row === LOADING ? LOADING : row.pendingSpawnPrompts.get(id as never)
+      if (!row || row === LOADING) return LOADING
+      // POD-5432: the pool's log holds the placeholders while it owns sessions.
+      const placeholders = pool.spawnPlaceholders()
+      return placeholders !== null
+        ? (placeholders.get(id) ?? undefined)
+        : row.pendingSpawnPrompts.get(id as never)
     },
     exit(id: string | undefined) {
       if (id === undefined) return undefined

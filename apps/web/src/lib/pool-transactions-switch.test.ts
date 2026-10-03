@@ -12,23 +12,23 @@ const ui = (values: Record<string, string>): UiState => ({
   subscribe: vi.fn(() => () => {}),
 })
 
-it('stays off by default, even where the shared pool setting is on', async () => {
+it('is on by default once latched, whatever the shared pool setting says', async () => {
   const { initializePoolTransactions, poolTransactionsEnabled } = await import(
     './pool-transactions-switch'
   )
   expect(poolTransactionsEnabled()).toBe(false)
-  initializePoolTransactions(ui({ [MOBX_SIDEBAR_KEY]: '1' }))
-  expect(poolTransactionsEnabled()).toBe(false)
+  initializePoolTransactions(ui({ [MOBX_SIDEBAR_KEY]: '0' }))
+  expect(poolTransactionsEnabled()).toBe(true)
 })
 
-it('turns on only through its URL override, latched for the app load', async () => {
-  history.replaceState(null, '', '/?poolTransactions=1')
+it('reverts to the ledger only through its URL override, latched for the app load', async () => {
+  history.replaceState(null, '', '/?poolTransactions=0')
   const { initializePoolTransactions, poolTransactionsEnabled } = await import(
     './pool-transactions-switch'
   )
   initializePoolTransactions(ui({}))
-  expect(poolTransactionsEnabled()).toBe(true)
-  history.replaceState(null, '', '/?poolTransactions=0')
+  expect(poolTransactionsEnabled()).toBe(false)
+  history.replaceState(null, '', '/?poolTransactions=1')
   initializePoolTransactions(ui({}))
-  expect(poolTransactionsEnabled()).toBe(true)
+  expect(poolTransactionsEnabled()).toBe(false)
 })

@@ -199,6 +199,8 @@ export interface WriteSeam {
 /** The transaction log as the pool sees it (`write/transactions.ts`). */
 export interface PoolMutator {
   mutate<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): TxId
+  /** TRACKED: sessions painted as spawn placeholders, and their first turns. */
+  readonly spawnPrompts: ReadonlyMap<string, string | null>
 }
 
 /**
@@ -285,6 +287,8 @@ export class MobxPool {
    * tables, so the one reader has nothing to lay over them.
    */
   private transactions: PoolMutator | null = null
+  /** The log whose spawn placeholders pool screens read (it owns sessions). */
+  private spawnLog: PoolMutator | null = null
   private readonly stopPending: (() => void) | undefined
   /** The one object per row, by entity: built on first request, never twice. */
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
@@ -556,6 +560,7 @@ export class MobxPool {
       | 'release'
       | 'hidden'
       | 'transactions'
+      | 'spawnLog'
     >(this, {
       sidebar: false,
       mobileWork: false,
@@ -605,7 +610,9 @@ export class MobxPool {
       release: false,
       edit: false,
       transactions: false,
+      spawnLog: false,
       attachTransactions: false,
+      spawnPlaceholders: false,
       mutate: false,
       row: false,
       rosterCandidates: false,
@@ -806,12 +813,24 @@ export class MobxPool {
     return this.writes.edit(entity, id, patch)
   }
 
-  /** Attach the transaction log (POD-5431); one per pool, before any change. */
-  attachTransactions(transactions: PoolMutator): void {
+  /** Attach the transaction log (POD-5431); one per pool, before any change.
+   * `ownsSessions` (POD-5432, plan step 6): the log, not the ledger, paints
+   * session rows, so the spawn placeholders are read from it too. */
+  attachTransactions(transactions: PoolMutator, ownsSessions = true): void {
     if (this.writes !== null || this.transactions !== null) {
       throw new WriteContractError('the pool already has a write layer')
     }
     this.transactions = transactions
+    this.spawnLog = ownsSessions ? transactions : null
+  }
+
+  /**
+   * TRACKED: the sessions painted as spawn placeholders and their first turns
+   * (null when none), while the pool owns session optimism (POD-5432); null
+   * otherwise, and readers keep the ledger's `pendingSpawnIds`.
+   */
+  spawnPlaceholders(): ReadonlyMap<string, string | null> | null {
+    return this.spawnLog?.spawnPrompts ?? null
   }
 
   /**

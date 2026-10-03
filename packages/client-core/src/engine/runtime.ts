@@ -171,6 +171,16 @@ export type OutboxOutcome =
     }
   | { readonly type: 'superseded'; readonly mutationId: MutationId; readonly entry?: OutboxEntry }
 
+/**
+ * The pool's transaction log as the runtime's actions reach it (POD-5432).
+ * `write` paints the pool's rows in the caller's tick, then takes the ledger's
+ * enqueue path; its promise is that enqueue's: it settles when the record is
+ * durable and rejects when the commit fails, as an unrouted action does.
+ */
+export interface PoolWriter {
+  write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
+}
+
 const LOCAL_ONLY_ONLINE_EVENTS: OnlineEvents = {
   add: () => {},
   remove: () => {},
@@ -677,6 +687,26 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     input: OutboxKinds[K],
     opts?: { mutationId?: MutationId; queuedAt?: number },
   ): Promise<void> => this.optimism.enqueueOverlayed(kind, input, opts)
+
+  /** The pool's transaction log while it owns optimism for pool screens
+   *  (POD-5432); null otherwise. */
+  private poolWriter: PoolWriter | null = null
+
+  /**
+   * Route every queued action through the pool's transaction log (POD-5432,
+   * plan step 5): the log paints the pool's rows in the press's action, then
+   * enqueues through {@link enqueueOverlayed}, so the ledger still paints the
+   * legacy screens from the same record. One writer per runtime; the returned
+   * stop detaches it. Direct callers of `enqueueOverlayed` (the log itself, a
+   * harness) are not routed.
+   */
+  readonly attachPoolWriter = (writer: PoolWriter): (() => void) => {
+    if (this.poolWriter !== null) throw new Error('A pool writer is already attached to this runtime')
+    this.poolWriter = writer
+    return () => {
+      if (this.poolWriter === writer) this.poolWriter = null
+    }
+  }
 
   /** The ledger's spawn placeholders now, for a reader that adopts them
    *  (POD-5431: the pool's transaction layer). */
@@ -1801,7 +1831,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       batch: (fn) => this.batch(fn),
       subscribe: (listener) => this.subscribe(listener),
       enqueueOverlayed: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
-        this.optimism.enqueueOverlayed(kind, input),
+        this.poolWriter !== null
+          ? this.poolWriter.write(kind, input)
+          : this.optimism.enqueueOverlayed(kind, input),
       revealFileTab: (args) => this.revealFileTab(args),
       spawnDraftAgent: (args: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]) =>
         this.optimism.spawnDraftAgent(args),

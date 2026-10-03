@@ -22,7 +22,11 @@ export function paneHasSessions(pool: MobxPool): boolean {
 }
 export function paneSpawnConfirmed(pool: MobxPool, id: string): boolean {
   const window = paneWindow(pool)
-  return !!window && window !== LOADING && !window.pendingSpawnIds.has(id as SessionView['sessionId'])
+  if (!window || window === LOADING) return false
+  // POD-5432: while the pool owns session optimism its log holds the spawn
+  // placeholders; the window's ledger copy is for the ledger's feed only.
+  const placeholders = pool.spawnPlaceholders()
+  return placeholders !== null ? !placeholders.has(id) : !window.pendingSpawnIds.has(id as SessionView['sessionId'])
 }
 
 export interface PaneIssue {

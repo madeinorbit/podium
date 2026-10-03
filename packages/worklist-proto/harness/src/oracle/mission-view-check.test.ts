@@ -115,32 +115,35 @@ function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, a
 }
 
 describe('mission pane value differential', () => {
-  for (const scale of [1, 4] as const)
-    it(`${scale === 1 ? 'all' : 'representative'} synthetic missions and focused change gates at ${scale}x`, async () => {
-      const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
-      const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
-        summaries: MISSION_VIEW_SUMMARIES,
-      })
-      try {
-        compare(handle.pool, ctx.engine.getSnapshot(), 'corpus', scale === 1)
-        for (const scenario of FENCE_SCENARIOS) {
-          await scenario.write(ctx)
+  // POD-5432: 'owned' is the pool owning optimism, against the same oracle.
+  for (const mode of ['overlaid', 'owned'] as const)
+    for (const scale of [1, 4] as const)
+      it(`${scale === 1 ? 'all' : 'representative'} synthetic missions and focused change gates at ${scale}x${mode === 'owned' ? ' (pool owns optimism)' : ''}`, async () => {
+        const ctx = await startScenarioEngine(scale)
+        const feeds = openFenceFeeds(ctx, mode)
+        const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
+          summaries: MISSION_VIEW_SUMMARIES,
+        })
+        feeds.attachPool(handle.pool)
+        try {
+          compare(handle.pool, ctx.engine.getSnapshot(), 'corpus', scale === 1)
+          for (const scenario of FENCE_SCENARIOS) {
+            await scenario.write(ctx)
+            feeds.flush()
+            compare(handle.pool, ctx.engine.getSnapshot(), scenario.scenario, false)
+          }
+          await writeRescopeGrow(ctx)
           feeds.flush()
-          compare(handle.pool, ctx.engine.getSnapshot(), scenario.scenario, false)
+          compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeGrowth', false)
+          await writeRescopeBack(ctx)
+          feeds.flush()
+          compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeBack', false)
+        } finally {
+          handle.dispose()
+          feeds.dispose()
+          ctx.engine.destroy()
         }
-        await writeRescopeGrow(ctx)
-        feeds.flush()
-        compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeGrowth', false)
-        await writeRescopeBack(ctx)
-        feeds.flush()
-        compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeBack', false)
-      } finally {
-        handle.dispose()
-        feeds.dispose()
-        ctx.engine.destroy()
-      }
-    }, 600_000)
+      }, 600_000)
 
   for (const seed of [1, 2, 3])
     it(`generated publications including overlays, scope and reload, seed ${seed}`, async () => {

@@ -10,7 +10,8 @@ const host = createPoolHost({
     runtime.enablePoolRuntimeWork?.()
     if (runtime.ui) initializePoolTransactions(runtime.ui)
   },
-  options: () => (poolTransactionsEnabled() ? { transactions: true } : {}),
+  // The host's default owns optimism; the revert override hands it back.
+  options: () => (poolTransactionsEnabled() ? {} : { owns: [] }),
 })
 
 /** StoreProvider owns this teardown, including while the import is in flight. */

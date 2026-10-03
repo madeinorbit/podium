@@ -420,56 +420,64 @@ describe('sidebar readiness', () => {
 })
 
 describe('sidebar differential replay', () => {
-  for (const scale of [1, 4] as const)
-    it(`corpus and every methodology change at ${scale}x`, async () => {
-      const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
-      const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
-      const stop = reaction(
-        () => poolSidebarSnapshot(handle.pool),
-        () => {},
-        { fireImmediately: true },
-      )
-      const checks: Array<{ scenario: string; rows: number; pending: number }> = []
-      const check = (scenario: string): void => {
-        feeds.flush()
-        settle(handle.pool)
-        const store = ctx.engine.getSnapshot()
-        const state: SidebarState = {
-          pinnedRepos: store.pins.repos,
-          pinnedWorktrees: store.pins.worktrees,
-          projectOrder: store.sidebarSettings.repoOrder,
-        }
-        const result = tracked(() => poolSidebarSnapshot(handle.pool, state))
-        expect(result.pending, scenario).toBe(0)
-        expectPoolOutput(
-          tracked(() => poolSidebarSnapshot(handle.pool, state)),
-          scenario,
+  // POD-5432: 'owned' is the pool owning optimism (its log paints, the
+  // runtime's actions route through it), against the same legacy oracle.
+  for (const mode of ['overlaid', 'owned'] as const)
+    for (const scale of [1, 4] as const)
+      it(`corpus and every methodology change at ${scale}x${mode === 'owned' ? ' (pool owns optimism)' : ''}`, async () => {
+        const ctx = await startScenarioEngine(scale)
+        const feeds = openFenceFeeds(ctx, mode)
+        const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
+        feeds.attachPool(handle.pool)
+        const stop = reaction(
+          () => poolSidebarSnapshot(handle.pool),
+          () => {},
+          { fireImmediately: true },
         )
-        checks.push({
-          scenario,
-          rows: result.sections.reduce((sum, section) => sum + section.rows.length, 0),
-          pending: result.pending,
-        })
-      }
-      try {
-        check('corpus')
-        for (const scenario of FENCE_SCENARIOS) {
-          await scenario.write(ctx)
-          check(scenario.scenario)
+        const checks: Array<{ scenario: string; rows: number; pending: number }> = []
+        const check = (scenario: string): void => {
+          feeds.flush()
+          settle(handle.pool)
+          const store = ctx.engine.getSnapshot()
+          const state: SidebarState = {
+            pinnedRepos: store.pins.repos,
+            pinnedWorktrees: store.pins.worktrees,
+            projectOrder: store.sidebarSettings.repoOrder,
+          }
+          const result = tracked(() => poolSidebarSnapshot(handle.pool, state))
+          expect(result.pending, scenario).toBe(0)
+          expectPoolOutput(
+            tracked(() => poolSidebarSnapshot(handle.pool, state)),
+            scenario,
+          )
+          checks.push({
+            scenario,
+            rows: result.sections.reduce((sum, section) => sum + section.rows.length, 0),
+            pending: result.pending,
+          })
         }
-        await writeRescopeGrow(ctx)
-        check('rescopeGrowth')
-        await writeRescopeBack(ctx)
-        check('rescopeBack')
-        writeResult(`sidebar-check-${scale}x`, { issue: 'POD-5437', scale, checks })
-      } finally {
-        stop()
-        handle.dispose()
-        feeds.dispose()
-        ctx.engine.destroy()
-      }
-    }, 600_000)
+        try {
+          check('corpus')
+          for (const scenario of FENCE_SCENARIOS) {
+            await scenario.write(ctx)
+            check(scenario.scenario)
+          }
+          await writeRescopeGrow(ctx)
+          check('rescopeGrowth')
+          await writeRescopeBack(ctx)
+          check('rescopeBack')
+          writeResult(`sidebar-check-${scale}x${mode === 'owned' ? '-owned' : ''}`, {
+            issue: 'POD-5437',
+            scale,
+            checks,
+          })
+        } finally {
+          stop()
+          handle.dispose()
+          feeds.dispose()
+          ctx.engine.destroy()
+        }
+      }, 600_000)
 
   it('cold bootstrap and a fresh principal compare after batched loading', async () => {
     for (const principal of ['checker-one', 'checker-two']) {
