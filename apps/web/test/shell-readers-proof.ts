@@ -39,7 +39,7 @@ try {
     await page.evaluate(() => window.__shellReaders.activity(200))
     const stats = await page.evaluate(() => window.__shellReaders.stats())
     if (stats.runtimeCount !== 1 || stats.publishes !== 200 || stats.failures || errors) throw new Error(`Shell runtime mismatch: ${JSON.stringify({ ...stats, errors })}`)
-    if (arm === 'after' && (stats.selectors || stats.legacyDerivations)) throw new Error(`Enabled shell executed legacy reads: ${JSON.stringify(stats)}`)
+    if (arm === 'after' && (stats.selectors || stats.legacyDerivations || stats.dropped)) throw new Error(`Enabled shell executed legacy reads: ${JSON.stringify(stats)}`)
     if (arm === 'before' && !stats.selectors) throw new Error('Legacy baseline was not exercised')
     const frames: SidebarSnapshot[] = []
     for (const id of ['synthetic-1', 'synthetic-3', 'synthetic-5', null]) {

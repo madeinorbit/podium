@@ -104,10 +104,18 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('operator'))}
 const driver = {
   ready: () => ready, close: () => root.unmount(), failures: () => failures.length,
   reset() { storeStats.reset(); capture = storeStats.begin('feed') },
-  async activity(steps: number) { for (let step = 0; step < steps; step++) { fixture.activity(step); await frame() } if (capture) { storeStats.end(capture); capture = undefined } },
+  async activity(steps: number) {
+    for (let step = 0; step < steps; step++) {
+      fixture.patch('session', `synthetic-session-${step % 12}`, { lastActiveAt: new Date(Date.now() + step + 1).toISOString(),
+        agentState: { phase: Math.floor(step / 12) % 2 ? 'working' : 'idle', since: new Date(Date.now() + step + 1).toISOString() } })
+      await frame()
+    }
+    if (capture) { storeStats.end(capture); capture = undefined }
+  },
   stats() {
     const all = storeStats.snapshot(), runtimes = all.windows.at(-1)?.runtimes ?? all.runtimes
-    return { runtimeCount: runtimes.length, publishes: runtimes.reduce((sum, row) => sum + row.publishes, 0),
+    return { runtimeCount: runtimes.filter(row => row.publishes > 0).length, diagnosticOwners: runtimes.length, dropped: all.dropped,
+      publishes: runtimes.reduce((sum, row) => sum + row.publishes, 0),
       selectors: runtimes.reduce((sum, row) => sum + row.selectorRuns, 0), wakes: runtimes.reduce((sum, row) => sum + row.subscriberWakes, 0),
       legacyDerivations: runtimes.reduce((sum, row) => sum + Object.values(row.slices).reduce((total, value) => total + value, 0), 0), failures: failures.length }
   },

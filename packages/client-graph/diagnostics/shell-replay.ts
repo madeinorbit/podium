@@ -75,7 +75,7 @@ async function main() {
     },
   } as unknown as Store
   const listeners = new Set<() => void>()
-  const runtime = { replica, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(),
+  const runtime = { replica, principal: { userId: users[0]?.userId ?? '' }, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(),
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     hostMetrics: { getSnapshot: () => [], subscribe: () => () => {} }, hub: { connectionHealth: () => ({}), onConnectionHealth: () => () => {} } }
   const handle = createRuntimeWorklistPool(runtime as never, { header: true, summaries: {
