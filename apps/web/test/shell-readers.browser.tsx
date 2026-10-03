@@ -81,13 +81,13 @@ function Surfaces() {
   const owner = useStoreHandle() as ClientRuntime, graph = useWorklistPool()
   useEffect(() => {
     runtime = owner; pool = graph
-    if (!started) {
+    if (!started && graph) {
       started = true
       owner.getSnapshot().setSelectedIssueId(asIssueId('synthetic-3'))
       owner.getSnapshot().openFileInWorktree({ root: '/synthetic/project', path: 'readme.md' })
       owner.getSnapshot().setSuperOpen(true)
     }
-    ready = shellDataLayer() === 'legacy' || Boolean(graph?.row('shellWindow', 'window'))
+    ready = started && Boolean(graph) && (shellDataLayer() === 'legacy' || Boolean(graph?.row('shellWindow', 'window')))
   }, [owner, graph])
   return <div className="min-h-screen bg-background text-foreground">
     <Chrome />

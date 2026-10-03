@@ -29,7 +29,7 @@ try {
     }, { clock })
     await page.context().route('https://synthetic.example.invalid/**', route => route.fulfill({ body: 'Synthetic login destination' }))
     const switched = arm === 'after' && red !== 'legacy'
-    await page.goto(`${origin}/test/shell-readers.browser.html?mobxSidebar=1&mobxCommands=1&mobxHeader=0&mobxSettings=0&mobxShell=${switched ? 1 : 0}&rows=5600`)
+    await page.goto(`${origin}/test/shell-readers.browser.html?mobxSidebar=1&mobxPane=1&mobxCommands=1&mobxHeader=0&mobxSettings=0&mobxShell=${switched ? 1 : 0}&rows=5600`)
     await page.waitForFunction(() => window.__shellReaders?.ready(), null, { timeout: 60000 })
     await page.getByText('Synthetic task 0', { exact: true }).first().waitFor()
     await page.getByText('Host 3', { exact: true }).first().waitFor()
