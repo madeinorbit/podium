@@ -191,6 +191,9 @@ it.each([
   // The first render precedes the host's lazy import, even with persisted rows.
   expect(pools[0]).toBeNull()
   await waitFor(() => {
+    expect(
+      consoleErrors.mock.calls.filter((args) => /hooks|react error.*311/i.test(args.join(' '))),
+    ).toEqual([])
     expect(mounted.getByTestId('attach-inputs').textContent).toBe(
       `${live.title}|2|chat|true|${shell.sessionId}|null`,
     )
