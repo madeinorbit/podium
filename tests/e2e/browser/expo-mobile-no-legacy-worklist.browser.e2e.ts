@@ -180,8 +180,9 @@ test('production mobile never derives worklist with the pilot on, including miss
       writeFileSync(`${captureGate}.${arm}.ready`, 'ready\n')
       const deadline = Date.now() + 180_000
       while (!existsSync(`${captureGate}.${arm}.go`)) {
-        if (Date.now() > deadline) throw new Error('Benchmark lease was not granted within three minutes')
-        await new Promise(resolve => setTimeout(resolve, 200))
+        if (Date.now() > deadline)
+          throw new Error('Benchmark lease was not granted within three minutes')
+        await new Promise((resolve) => setTimeout(resolve, 200))
       }
     }
     const before = parityOnly ? undefined : await heap()
