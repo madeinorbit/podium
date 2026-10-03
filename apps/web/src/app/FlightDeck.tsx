@@ -1657,6 +1657,7 @@ const TaskRow = memo(
           would read as "answer me".
           The band's own HEIGHT transitions, so a task leaving `proposed` grows
           into its full strip rather than snapping (§7c). */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the strip; its buttons provide keyboard actions. */}
         <div
           className={cn(
             'deck-strip group/task relative flex items-center gap-1 rounded-row border pr-1.5 transition-[border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
@@ -2613,7 +2614,7 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
           toggle takes the RIGHT end rather than the left, where a word would
           push the line off the datum the title and the text share. */}
       <div ref={endRef} className="deck-brief-end" data-resizable={resizable ? 'true' : undefined}>
-        {/* biome-ignore lint/a11y/useSemanticElements: the visible divider is a keyboard-operable resize handle */}
+        {/* biome-ignore lint/a11y/useSemanticElements lint/a11y/useAriaPropsSupportedByRole: the separator role and its ARIA values are enabled together for the resize handle */}
         <span
           className="deck-brief-rule"
           role={resizable ? 'separator' : undefined}
@@ -3080,10 +3081,7 @@ export function FlightDeckContent({
     const issue = source.issue(id)
     if (issue) rowStatus.pick(issue, value)
   }
-  const computedRows = useMemo(
-    () => poolValues.rows,
-    [issues, sessions, root, mode, allWorktreePaths, poolValues],
-  )
+  const computedRows = poolValues.rows
   const stableRowsRef = useRef<FlightDeckRow[]>([])
   const rows = useMemo(() => {
     const stable = reuseFlightDeckRows(stableRowsRef.current, computedRows)
@@ -3097,7 +3095,7 @@ export function FlightDeckContent({
       ),
     [allWorktreePaths, rows, sessions, poolValues],
   )
-  const byId = useMemo(() => poolValues.byId, [issues, poolValues])
+  const byId = poolValues.byId
   /**
    * The session the operator is ACTUALLY in.
    *
@@ -3115,15 +3113,12 @@ export function FlightDeckContent({
   // Resolved against the UNFILTERED mission membership, exactly as RightDock
   // does: resolving against the mode-filtered rows let a switch to "Needs you"
   // silently move the highlight — and the Task dock with it — to the root.
-  const missionMembers = useMemo(() => poolValues.members, [issues, root, sessions, poolValues])
+  const missionMembers = poolValues.members
   const focused = resolveFocus(focusedIssueId, missionMembers, root?.id)
   const progress = poolValues.progress
   // What this mission discovered and no longer owns. Derived beside the rows
   // from the same membership set, so a departure can never also be a strip.
-  const allDepartures = useMemo(
-    () => poolValues.departures,
-    [issues, sessions, root, allWorktreePaths, poolValues],
-  )
+  const allDepartures = poolValues.departures
   const liveCount = rows[0]?.liveAgentCount ?? 0
   const workingCount = rows[0]?.workingAgentCount ?? 0
   // NO COUNT ON "Needs you" (POD-1072). A mission is almost always ONE issue with
@@ -3736,6 +3731,7 @@ export function FlightDeckContent({
               growth now changes content height, never the scrollport itself. */}
           {/* z-10: the waterfall's own layers (axis, bars, tools) reach z-6,
               and rows bleeding through this chrome was a filed defect. */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the mission header; its buttons provide keyboard actions. */}
           <div className="deck-chrome sticky top-0 z-10 flex-none">
             {/* THE MISSION HEADER IS THE ROOT OF THE TREE (round 3 §2, §4, §10).
               Roomy because it is read once where the strips below are scanned.

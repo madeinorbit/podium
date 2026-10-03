@@ -37,6 +37,7 @@ function PoolIssueReference({ token, ...props }: ChipProps): JSX.Element {
     [owner, token],
   )
   const model = useWorklistPoolProjection(read, undefined)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Count committed changes to the reference model.
   useLayoutEffect(() => {
     recordChipWork(owner, 'redraws')
   }, [owner, model])

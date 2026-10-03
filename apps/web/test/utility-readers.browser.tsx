@@ -79,7 +79,7 @@ function Surface() {
       <section data-utility-surface="ledger"><MessageLedgerView issueId={issue.id} sessionId={session.sessionId} /></section>
       <section data-utility-surface="cost"><MissionCostChip issueId={issue.id} onOpenInExplorer={() => {}} /></section>
       <section data-utility-surface="handoff"><FlightDeckHandoff rootIssue={issue} issues={[issue]} sessions={[session]}
-        visitReadAt={null} proposed={null} onOpenTranscript={() => {}} onOpenSession={() => {}} onOpenIssue={() => {}} /></section>
+        poolValues={{ crew: [session], current: [{ kind: 'review', issueId: issue.id, text: 'Ready for review.' }], next: [] }} visitReadAt={null} proposed={null} onOpenTranscript={() => {}} onOpenSession={() => {}} onOpenIssue={() => {}} /></section>
       <History />
     </main>
   </Profiler>

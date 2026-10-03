@@ -264,6 +264,7 @@ export function FlightDeckHandoff({
   const [nextLimit, setNextLimit] = useState(INITIAL_ROWS)
   const displayedCurrent = useMemo(() => current.slice(0, currentLimit), [current, currentLimit])
   const returns = useReviewReturns(displayedCurrent, issues)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Reset visible limits when the mission changes.
   useEffect(() => {
     setCurrentLimit(INITIAL_ROWS)
     setNextLimit(INITIAL_ROWS)

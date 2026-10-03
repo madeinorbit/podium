@@ -1,6 +1,7 @@
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
 import { allIssueViewModels } from '@podium/client-core/replica'
+import type { Store } from '@podium/client-core/engine'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import { MobxPool } from '@podium/client-graph'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
@@ -28,7 +29,7 @@ export function seedPoolFixture(issues: readonly unknown[]) {
 }
 
 function useFixturePool() {
-  const state = useStoreSelector((state) => state)
+  const state = useStoreSelector((state) => state) as Store & { issues?: readonly unknown[] }
   const fixtureIssues = state.issues?.length ? state.issues : seededIssues
   const nextSignature = JSON.stringify([
     fixtureIssues,
@@ -46,7 +47,7 @@ function useFixturePool() {
       coarseNow: state.coarseNow ?? Date.now(),
     })
     pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
-    pool.sources.register(['issueExit'], { read: () => ({ kind: undefined }) })
+    pool.sources.register(['issueExit'], { read: () => ({ kind: undefined }), dispose() {} })
   }
   if (signature !== nextSignature) {
     signature = nextSignature
@@ -87,7 +88,7 @@ function useFixturePool() {
       (state.machines ?? []).map((value) => value.id),
     )
     const repositories = (state.repos ?? []).map((value) => ({
-      kind: 'repository',
+      kind: 'repository' as const,
       id: JSON.stringify([value.machineId ?? '', value.path]),
       value,
     }))

@@ -181,6 +181,7 @@ function PodiumLinkHostView({
     return () => setPodiumTargetActivator(null)
   })
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Retry addressed targets when demand or pending rows change.
   useEffect(() => {
     const waiting = browserArtifacts.current
     if (!waiting.length) return
@@ -225,6 +226,7 @@ function PodiumLinkHostView({
   // untrusted input cannot wedge every later native activation. The deadline
   // begins only after the initial replica is ready: cold data transfer can take
   // longer than the eviction window without making a valid target look absent.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Retry pending startup targets after pool publications.
   useEffect(() => {
     if (!replicaReady) return
     const now = Date.now()

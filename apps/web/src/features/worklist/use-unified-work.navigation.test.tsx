@@ -95,7 +95,7 @@ describe('issue navigation gesture', () => {
     expect(fixture.store.markIssueRead).toHaveBeenCalledExactlyOnceWith(child.id)
     expect(fixture.store.markSessionRead).toHaveBeenCalledExactlyOnceWith('member')
     expect(fixture.store.deferIssue).toHaveBeenCalledExactlyOnceWith(child.id, null)
-    act(() => result.current.work.selectPanelForIssue(child, asSessionId('member')))
+    act(() => result.current.work.selectPanelForIssue(child.id, asSessionId('member')))
     expect(fixture.store.markIssueRead).toHaveBeenCalledTimes(1)
     expect(fixture.store.markSessionRead).toHaveBeenCalledTimes(1)
     expect(fixture.store.deferIssue).toHaveBeenCalledTimes(1)
@@ -105,7 +105,7 @@ describe('issue navigation gesture', () => {
     vi.mocked(fixture.store.navigateWorkspace as () => boolean)
       .mockReset()
       .mockReturnValue(false)
-    const { result } = renderHook(() => ({ work: useUnifiedWork(), focus: useOperatorFocus() }), {
+    const { result } = renderHook(() => ({ work: usePoolUnifiedWork(useWorklistPool()!), focus: useOperatorFocus() }), {
       wrapper: ({ children }) => (
         <OperatorFocusProvider missionId={root.id}>{children}</OperatorFocusProvider>
       ),
@@ -125,12 +125,12 @@ describe('issue navigation gesture', () => {
       .mockImplementation(() => {
         throw new Error('invalid plan')
       })
-    const { result } = renderHook(() => ({ work: useUnifiedWork(), focus: useOperatorFocus() }), {
+    const { result } = renderHook(() => ({ work: usePoolUnifiedWork(useWorklistPool()!), focus: useOperatorFocus() }), {
       wrapper: ({ children }) => (
         <OperatorFocusProvider missionId={root.id}>{children}</OperatorFocusProvider>
       ),
     })
-    expect(() => result.current.work.selectIssue(child)).toThrow('invalid plan')
+    expect(() => result.current.work.selectIssue(child.id)).toThrow('invalid plan')
     expect(result.current.focus.focusedIssueId).toBe(root.id)
     expect(fixture.store.markIssueRead).not.toHaveBeenCalled()
     expect(fixture.store.deferIssue).not.toHaveBeenCalled()

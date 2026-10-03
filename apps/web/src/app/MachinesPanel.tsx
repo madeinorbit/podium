@@ -114,6 +114,7 @@ function useFleetConvergence(trpc: Store['trpc']): {
   const [nonce, setNonce] = useState(0)
   const active = [...rows.values()].some((row) => CONVERGENCE_IN_FLIGHT.has(row.state))
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The nonce requests a manual fleet refresh.
   useEffect(() => {
     let cancelled = false
     const read = async (): Promise<void> => {

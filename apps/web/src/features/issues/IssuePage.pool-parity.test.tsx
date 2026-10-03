@@ -547,8 +547,8 @@ describe('issue page rendered pool parity', () => {
     }
     const next = await closeFromList()
     expect(next.text).toContain('still working')
-    expect(old.text).toContain('A synthetic decision?')
-    expect(old.text).toContain('awaiting delivery')
+    expect(next.text).toContain('A synthetic decision?')
+    expect(next.text).toContain('awaiting delivery')
     expectPoolOutput(next.tree, 'close dialog')
     expect(next.reads).toBe(0)
   })

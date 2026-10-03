@@ -50,7 +50,8 @@ function Surfaces() {
     }
   }, [owner, graph])
   const record = (id: string, _phase: string, duration: number) => {
-    const entry = commits[id] ?? (commits[id] = { commits: 0, ms: 0 })
+    const entry = commits[id] ?? { commits: 0, ms: 0 }
+    commits[id] = entry
     entry.commits++
     entry.ms += duration
   }

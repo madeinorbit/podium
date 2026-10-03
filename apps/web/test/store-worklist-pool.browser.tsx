@@ -82,10 +82,11 @@ function replica() {
       records.find((row) => row.entity === entity && row.entityId === entityId),
     durability: () => 'durable' as const,
   }
-  return (currentReplica = createKernelReplica({
+  currentReplica = createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
-  }))
+  })
+  return currentReplica
 }
 
 function Probe(): null {
@@ -120,7 +121,7 @@ function ReferenceProbe() {
   return (
     <>
       <div id="offline-reference-host" ref={setHost}>
-        <a className="ref-link--issue" data-ref="POD-0">
+        <a href="#POD-0" className="ref-link--issue" data-ref="POD-0">
           Watcher ready
         </a>
       </div>

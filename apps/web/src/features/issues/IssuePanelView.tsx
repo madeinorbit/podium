@@ -873,7 +873,7 @@ export function IssuePanelBody({
   // apply and its close guard are shared by all of them, once, here.
   const rowStatus = useIssueStatusApply(pooled.sessions)
   const { setFocusedIssueId } = useOperatorFocus()
-  const issue = useMemo(() => pooled.issue, [pooled, issues, sessions, cwd, sessionId, issueId])
+  const issue = pooled.issue
   // WHAT THIS TASK COST. Read here rather than inside the section so the hook
   // sits above this component's own early return for an unresolvable id — and
   // so the section stays a pure render of a view, which is what lets the task
@@ -882,16 +882,16 @@ export function IssuePanelBody({
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   // The same derivation the Flight Deck makes from the same slice — every
   // worktree root the shell knows, for `issueDisplayTitle` below.
-  const allWorktreePaths = useMemo(() => pooled.worktreePaths, [pooled])
+  const allWorktreePaths = pooled.worktreePaths
   // DIRECT children only — the artifact's Subtasks section is one tier deep
   // with a completed fold, not a flattened recursive subtree. The meter counts
   // exactly this list and nothing else (POD-516 r3 #4): it used to walk the
   // whole subtree AND count the issue itself, which is how a childless task
   // came to wear a progress bar reading "0 of 1 done".
-  const children = useMemo(() => pooled.children, [pooled, issues, issue])
+  const children = pooled.children
   // Typed relations (POD-85): the compact disclosure surface — the sidebar
   // whispers (⤷ tick), this panel names every edge.
-  const relations = useMemo(() => pooled.relations, [pooled, issue])
+  const relations = pooled.relations
   const [showCompleted, setShowCompleted] = useState(false)
   const [showRetired, setShowRetired] = useState(false)
 

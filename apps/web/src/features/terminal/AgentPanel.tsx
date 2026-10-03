@@ -700,7 +700,7 @@ export function AgentPanel({
       if (globals.__PODIUM_TOGGLE_SESSION_VIEW__ === toggleView)
         delete globals.__PODIUM_TOGGLE_SESSION_VIEW__
     }
-  }, [active, focused, gates.terminalActive, gates.modeSwitchOffered, effectiveMode, mountedRef])
+  }, [active, focused, gates.terminalActive, gates.modeSwitchOffered, effectiveMode, mountedRef, pickModeWithTrace])
 
   // Keep later appearance changes on the shared, eligibility-gated path. The
   // initial mount is handled directly above because the hook's first appearance

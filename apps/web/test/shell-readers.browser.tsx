@@ -20,7 +20,6 @@ import { DesktopCloseTab } from '../src/app/use-desktop-close-tab'
 import { initializePoolScreens } from '../src/app/pool-screens'
 import { isComplexFlightDeckMission } from '../src/app/flight-deck-display'
 import { useShellChrome, useShellClose, useShellDock } from '../src/app/shell-data'
-import { shellDataLayer } from '../src/app/shell-pool-screen'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { PodiumLinkHost } from '../src/components/PodiumLinkHost'
 import { activatePodiumHref } from '../src/lib/podium-link'
@@ -100,7 +99,7 @@ function Surfaces() {
       owner.getSnapshot().openFileInWorktree({ root: '/synthetic/project', path: 'readme.md' })
       owner.getSnapshot().setSuperOpen(true)
     }
-    ready = started && Boolean(graph) && (shellDataLayer() === 'legacy' || Boolean(graph?.row('shellWindow', 'window')))
+    ready = started && Boolean(graph) && Boolean(graph?.row('shellWindow', 'window'))
   }, [owner, graph])
   return <div className="min-h-screen bg-background text-foreground">
     <section data-proof="chrome" className="p-4 border-b space-y-2">
