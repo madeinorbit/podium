@@ -24,7 +24,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     },
     missionRoot(id) {
       const root = missions(pool).rootFor(id)
-      return root === LOADING ? NAVIGATION_LOADING : root === undefined ? undefined : asIssueId("PLANTED")
+      return root === LOADING ? NAVIGATION_LOADING : root === undefined ? undefined : asIssueId(root)
     },
     missionMembers(rootId) {
       const ids = missions(pool).members(rootId)

@@ -16,7 +16,7 @@ export function useHeaderActions() {
 }
 
 const readStatus = (pool: MobxPool) => ({
-  workingSessions: pool.headerViews.working().slice(0, 0),
+  workingSessions: pool.headerViews.working(),
   issue: pool.headerViews.selectedIssue(),
 })
 const EMPTY_STATUS = { workingSessions: [], issue: undefined }

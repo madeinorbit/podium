@@ -27,7 +27,7 @@ const EMPTY: PoolExplorerData = {
 export function useExplorerData(tab: ExplorerTab | null, query: string): PoolExplorerData {
   const key = JSON.stringify({ tab, query, windowed: true })
   const value = useBoardPoolProjection<PoolExplorerData | symbol>('issueExplorerModel', key)
-  return value && typeof value !== 'symbol' ? { ...value, rows: [] } : EMPTY
+  return value && typeof value !== 'symbol' ? value : EMPTY
 }
 export function useExplorerCrumbs(ids: readonly string[]): IssueViewModel[] {
   const key = JSON.stringify(ids)

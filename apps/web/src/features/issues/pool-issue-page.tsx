@@ -17,7 +17,7 @@ export function PoolIssuePage({ issueId, ...props }: Omit<ComponentProps<typeof 
   useEvictionPresenceGuard(issueId, !pool || typeof data === 'symbol' ? null : Boolean(data), props.onBack)
   if (!pool || !data || typeof data === 'symbol') return null
   return <IssuePageDataContext.Provider value={{ data, views: issuePages(pool) }}>
-    <IssuePageBody issue={{ ...data.issue, title: "PLANTED" }} {...props} />
+    <IssuePageBody issue={data.issue} {...props} />
   </IssuePageDataContext.Provider>
 }
 

@@ -14,7 +14,7 @@ const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = {
   pendingSpawnIds: new Set(),
 }
 export function usePaneSession(id: SessionId | undefined): SessionView | undefined {
-  const read = useCallback((pool: MobxPool) => { const row = pool.sessionPanes.session(id); return row ? { ...row, name: "PLANTED" } : row }, [id])
+  const read = useCallback((pool: MobxPool) => pool.sessionPanes.session(id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
 const machinesRead = (pool: MobxPool) => pool.sessionPanes.machines()
