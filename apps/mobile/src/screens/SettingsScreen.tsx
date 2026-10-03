@@ -1,4 +1,3 @@
-import { shallowEqual } from '@podium/client-core/store'
 import {
   connectedDeviceViews,
   type MachineOperationsView,
@@ -10,7 +9,7 @@ import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from '
 import { logout } from '../client/auth'
 import { useConnectedDevices } from '../client/connected-devices'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
-import { useConnected, useHostMetrics, useIssues, useStoreSelector } from '../client/hooks'
+import { useConnected, useHttpOrigin } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
@@ -23,6 +22,7 @@ import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useBuildStamp } from '../lib/build-stamp'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { useSettingsData } from './settings-readers'
 
 function openDesktop() {
   // The web shell is the default at / for every device now [spec:SP-902c]; /desktop is
@@ -37,28 +37,9 @@ export function SettingsScreen() {
   // The modal sheet reaches the physical bottom edge, so the last row still has
   // to clear the home indicator (the hook is the plain safe-area inset here).
   const bottomInset = useContentBottomInset()
-  const {
-    conversations,
-    machines,
-    outboxDeadLetters,
-    outboxSize,
-    replica,
-    sessions,
-    httpOrigin,
-  } = useStoreSelector(
-    (s) => ({
-      conversations: s.conversations,
-      machines: s.machines,
-      outboxDeadLetters: s.outboxDeadLetters,
-      outboxSize: s.outboxSize,
-      replica: s.replica,
-      sessions: s.sessions,
-      httpOrigin: s.httpOrigin,
-    }),
-    shallowEqual,
-  )
-  const issues = useIssues()
-  const hostMetrics = useHostMetrics()
+  const { machines, hosts, sessionCount, issueCount, conversationCount,
+    outboxDeadLetters, outboxSize, cursor } = useSettingsData()
+  const httpOrigin = useHttpOrigin()
   const connected = useConnected()
   const { eraseLocalData } = useMobileShell()
   const {
@@ -82,9 +63,9 @@ export function SettingsScreen() {
     () =>
       visibleFleetOperations({
         machines: demo ? DEMO_MACHINES : machines,
-        hosts: demo ? DEMO_HOST_METRICS : hostMetrics,
+        hosts: demo ? DEMO_HOST_METRICS : hosts,
       }),
-    [demo, hostMetrics, machines],
+    [demo, hosts, machines],
   )
   const devices = useMemo(
     () => connectedDeviceViews(deviceFeed.sessions ?? [], Date.now()),
@@ -224,7 +205,7 @@ export function SettingsScreen() {
           <Row label="Server" value={httpOrigin} />
           <Row label="Status" value={connected ? 'live' : 'offline, showing saved data'} />
           <Row label="Platform" value={Platform.OS} />
-          <Row label="Sync cursor" value={String(replica.getCursor() ?? 'none')} />
+          <Row label="Sync cursor" value={String(cursor ?? 'none')} />
         </View>
 
         <SectionHeader label="Operations" />
@@ -363,9 +344,9 @@ export function SettingsScreen() {
 
         <SectionHeader label="Data" />
         <View style={styles.panel}>
-          <Row label="Sessions" value={String(sessions.length)} />
-          <Row label="Tasks" value={String(issues.length)} />
-          <Row label="Conversations" value={String(conversations.length)} />
+          <Row label="Sessions" value={String(sessionCount)} />
+          <Row label="Tasks" value={String(issueCount)} />
+          <Row label="Conversations" value={String(conversationCount)} />
           <Row label="Queued sends" value={String(outboxSize)} />
           <Row label="Needs recovery" value={String(outboxDeadLetters.length)} />
         </View>

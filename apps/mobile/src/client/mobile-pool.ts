@@ -49,9 +49,13 @@ export function createMobilePool(
         enabled: () => pilot.layer() === 'pool',
         options: () => ({
           header: true,
+          settings: true,
           summaries: { session: [...SUPERAGENT_SUMMARIES.session, ...NOTICE_SUMMARIES.session] },
         }),
         async attach(runtime, pool) {
+          const { createMobileSettingsSource, MOBILE_SETTINGS_SOURCE_KEY, MOBILE_SETTINGS_ENTITIES } =
+            await import('@podium/client-graph/mobile-settings')
+          await pool.sources.ensure(MOBILE_SETTINGS_SOURCE_KEY, MOBILE_SETTINGS_ENTITIES, () => createMobileSettingsSource(runtime))
           await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => createSuperagentSource(runtime))
           const [{ NoticeSource, NOTICE_SOURCE_KEY }, { NOTICE_ENTITIES }] = await Promise.all([
             import('@podium/client-graph/notice-source'), import('@podium/client-graph/notice-schema'),
