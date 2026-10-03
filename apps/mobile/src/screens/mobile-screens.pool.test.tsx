@@ -256,7 +256,7 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
   install('repos', corpus.repoProjections)
   install('issueDeps', corpus.issueDeps)
   install('sessions', corpus.sessions)
-  install('machines', corpus.machines)
+  install('machines', corpus.machines.map((machine) => ({ ...machine, loggedOutHarnesses: machine.loggedOutHarnesses ?? [] })))
   const replica = createKernelReplica({
     cache: {
       readCursor: () => ({ seq }),
