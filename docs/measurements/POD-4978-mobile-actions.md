@@ -51,8 +51,9 @@ and the pool's resulting order without adding a new mobile control.
 
 All **28 action checks** rejected planted faults before their restored result
 counted. The final full action file passed on `integrate/4286-pilot` base
-`173041f73c`, including its cold-index, cycle-parent reader, search-cache reset
-and principal-scoped provider lifetime changes. Candidate `ccaeb20a78` observed
+`cf84b0e6be`, including its cold-index, cycle-parent reader, search-cache reset,
+principal-scoped provider lifetime and certified cache changes. Candidate
+`3f18ddc700` observed
 **91 clean mobile side-by-side comparisons**, with zero differences or pending
 rows. Guards reject a mounted legacy slice subscription or legacy row
 derivation; only the explicit independent diagnostic oracle may evaluate the
@@ -82,8 +83,8 @@ flatblock checkout. No assertions are weakened.
 ## Production phone and final gates
 
 The required uncached mobile and E2E typechecks are green on the final
-integration runtime and phone driver: 2/2 tasks, zero cache hits, 5.95 seconds
-on candidate `c1dfa7abdb`. The initial
+integration runtime and phone driver: 2/2 tasks, zero cache hits, 11.55 seconds
+on candidate `a2ee8282db`. The initial
 mobile run found unsupported
 `exact` options in Testing Library role queries and an untyped replica-call
 capture. Removing the ignored options and declaring the existing call types
@@ -118,10 +119,12 @@ proxy for the new principal-scoped provider becoming usable, including driver
 attachment; rename timing uses the actual Chromium Paint after the title's DOM
 mutation. These four samples over one seeded issue establish the interaction
 and measurement boundary. They do not establish a pool performance improvement.
-The capture predates the later principal-lifetime landing. Its action source
-is unchanged; the final native action file and uncached typechecks were run
-again against that new provider. The phone measurements remain attributed to
-the captured candidate rather than the later integration revision.
+The capture predates the later principal-lifetime and certified-cache landings.
+Its action source is unchanged; the final native action file and uncached
+typechecks were run again against both integration changes. The phone
+measurements remain attributed to the captured candidate rather than the later
+revision. The certified-cache landing has its own separate
+[production phone and web proof](POD-5403-warm-cache-completeness.md).
 
 The corrected production phone fault control is valid: changing the menu's
 submitted title to `Planted wrong mobile title` fails the requested optimistic
@@ -155,9 +158,9 @@ The driver waits for a stable virtualized row, holds real Chromium touch input, 
 original row gesture when the modal owns input, and taps the native sheet
 controls.
 
-The final lean gate is green on candidate `a778614865`: **154 checks in four
+The final lean gate is green on candidate `cd55f5d344`: **154 checks in four
 of 1,785 collected node files (0.2%)**. Its workspace typecheck reports 28/28
-successful tasks, with 16 cache hits; span-effect lint reports 162 bodies,
+successful tasks, with 14 cache hits; span-effect lint reports 162 bodies,
 seven accepted observable effects, zero unclassified effects and eight opaque
 bodies. The first lean run correctly rejected two uncovered
 imports from the new mobile test. `turbo.json` now declares the shared action
@@ -168,9 +171,9 @@ A later rebase brought in the session-stop fix from `dev/mw`; the lane check
 correctly failed because its new `stop-dispatched.test.ts` was unregistered.
 Blocking child **POD-5427** tracked this. The coordinator registered it with
 the generator in `173041f73c` and closed that child. This branch made no shard
-edit. The requested final lean run includes the registration and provider
-lifetime landing. Subsequent integration changes only edit the optimism spec;
-they do not change the checked runtime inputs.
+edit. The final lean run includes the registration, provider lifetime and
+certified-cache landings. Native actions, uncached scoped types and the lean
+gate were each checked once for the newly changed replica inputs.
 
 The three added source files pass scoped Biome lint with no errors (34
 warnings and one informational diagnostic). Root shadowing passes across
