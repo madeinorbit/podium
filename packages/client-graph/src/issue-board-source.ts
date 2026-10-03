@@ -361,8 +361,8 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       }
       const rollup = progress(row.id, options.now)
       if (rollup === LOADING) return LOADING
-      const members = new Set(row.memberSessionIds)
-      return { issue: row, sessions: roster ?? [], fleet: (roster ?? []).filter(seat => members.has(seat.sessionId)), byId,
+      const seatsById = new Map((roster ?? []).map(seat => [seat.sessionId as string, seat]))
+      return { issue: row, sessions: roster ?? [], fleet: row.memberSessionIds.flatMap(id => { const seat = seatsById.get(id); return seat ? [seat] : [] }), byId,
         stageCounts: ISSUE_STAGES.map(stage => ({ stage, count: counts.get(stage) ?? 0 })).filter(value => value.count), progress: rollup }
     })
   }
