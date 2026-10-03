@@ -69,6 +69,15 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
 }, testInfo) => {
   const errors: string[] = []
   const resourceReports: { message: string; path: string }[] = []
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/trpc/')) console.info('[mobile action request]', request.method(), path)
+  })
+  page.on('response', async (response) => {
+    const path = new URL(response.url()).pathname
+    if (!path.startsWith('/trpc/') || response.ok()) return
+    console.info('[mobile action refusal]', path, response.status(), await response.text())
+  })
   page.on('pageerror', (error) => errors.push(error.message))
   page.on('console', (message) => {
     if (message.type() !== 'error') return
