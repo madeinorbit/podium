@@ -38,15 +38,16 @@ describe('mobile pool values', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
     const nativeState: MobileWorkState = {}
-    const stop = reaction(() => poolMobileSnapshot(handle.pool, nativeState), () => {}, { fireImmediately: true })
     const checks: unknown[] = []
     let previous: readonly MobileWorkSection[] | undefined
     let retained = 0
-    const check = (scenario: string) => {
-      feeds.flush(); settle(handle.pool)
-      const native = tracked(() => handle.pool.mobileWork.sections(nativeState).sections)
-      if (previous) for (const section of native) {
-        const old = previous.find(band => band.key === section.key)
+    let identityFailure: unknown
+    const inspectNative = (scenario: string) => {
+      const native = handle.pool.mobileWork.sections(nativeState).sections
+      const before = previous
+      previous = native
+      if (before) for (const section of native) {
+        const old = before.find(band => band.key === section.key)
         if (!old) continue
         const refs = (rows: MobileWorkSection['data']) => rows.map(row => `${row.kind}:${row.listKey}`)
         if (JSON.stringify(refs(old.data)) === JSON.stringify(refs(section.data))) {
@@ -58,7 +59,20 @@ describe('mobile pool values', () => {
         }
         if (JSON.stringify(old) === JSON.stringify(section)) expect(section, `${scenario} ${section.key}: section identity`).toBe(old)
       }
-      previous = native
+    }
+    // Evicting a rescue child can move its parent into and back out of a band
+    // within one scenario. Check consecutive publications, not historical
+    // versions of a lane whose membership really changed in between.
+    const stop = reaction(() => {
+      const snapshot = poolMobileSnapshot(handle.pool, nativeState)
+      try { inspectNative('observed publication') }
+      catch (cause) { identityFailure ??= cause }
+      return snapshot
+    }, () => {}, { fireImmediately: true })
+    const check = (scenario: string) => {
+      feeds.flush(); settle(handle.pool)
+      if (identityFailure) throw identityFailure
+      tracked(() => inspectNative(scenario))
       const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), handle.pool.clock.current)
       for (const searching of [false, true]) {
         const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...derivation.slice.groups.map(group => group.key)]
