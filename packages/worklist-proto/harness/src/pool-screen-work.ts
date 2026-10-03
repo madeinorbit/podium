@@ -45,7 +45,7 @@ import {
   noticeMessages,
   noticeRecovery,
 } from '@podium/client-graph/notice-views'
-import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import {
   SESSION_PANE_ENTITIES,
   SESSION_PANE_SUMMARIES,
@@ -92,7 +92,7 @@ import {
   upsertIssue,
 } from '../../shared/src/scenarios'
 import { SCREEN_ACTIONS, type ScreenAction, type ScreenWorkCell } from './screen-work-ratios'
-import { insideReader, measureWork } from './work-meter'
+import { countedStructuralEqual, insideReader, measureWork } from './work-meter'
 
 const ROOT = 'guard-root',
   CHILD = 'guard-child',
@@ -546,12 +546,16 @@ async function measureScreenCells(
     add('mobile-settings', ['SettingsScreen'], () =>
       pool.row('mobileSettingsDiagnostics', 'diagnostics'),
     )
-    for (const reader of readers)
-      stops.push(
-        autorun(() => values.set(reader.name, insideReader(reader.name, reader.read)), {
-          name: `consumer:${reader.name}`,
-        }),
-      )
+    for (const reader of readers) {
+      const projection = createPoolProjection(pool, () => insideReader(reader.name, reader.read), {
+        name: `consumer:${reader.name}`,
+        equals: (before, next) => insideReader(`${reader.name}.compare`, () =>
+          countedStructuralEqual(before, next)),
+      })
+      const paint = () => values.set(reader.name, projection.getSnapshot())
+      paint()
+      stops.push(projection.subscribe(paint))
+    }
     progress('readers mounted')
     await drain(pool)
     assertObservedParity(readers, values)

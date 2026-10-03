@@ -74,7 +74,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { computed, Reaction } from 'mobx'
+import { compareStructural, computed, isObservableMap, isObservableSet, Reaction } from 'mobx'
 import { CellGraph } from '../../arms/hand/pool/cells'
 
 type Side = 'arm' | 'outside'
@@ -166,6 +166,62 @@ export function insideReader<T>(name: string, read: () => T): T {
   } finally {
     running.pop()
   }
+}
+
+/** The app's structural comparer uses plain array index loops. Delegate its
+ * equality decision to MobX, observing those reads through lazy, test-only
+ * shadows. One proxy per object preserves shared references and cycles; the
+ * empty targets also preserve access to frozen row/array values. */
+export function countedStructuralEqual(before: unknown, next: unknown): boolean {
+  if (tally === null || before === next) return compareStructural(before, next)
+  const proxies = new WeakMap<object, object>()
+  function wrap(value: unknown): unknown {
+    if (value === null || typeof value !== 'object') return value
+    return outsideArm(() => {
+      const cached = proxies.get(value)
+      if (cached) return cached
+      const array = Array.isArray(value)
+      const shadow = array ? new Array(value.length) : {}
+      const native = value instanceof Map || value instanceof Set || value instanceof Date ||
+        value instanceof Number || value instanceof String || value instanceof Boolean ||
+        isObservableMap(value) || isObservableSet(value)
+      const proxy = new Proxy(shadow, {
+        get(_target, key) {
+          const item = Reflect.get(value, key, value)
+          if (array && typeof key === 'string' && /^(0|[1-9]\d*)$/.test(key)) {
+            const walk = startWalk()
+            if (walk) visit(walk, identity(item, value, Number(key)))
+          }
+          if (typeof item === 'function' && native && key !== 'constructor') {
+            if (key === 'entries' || key === 'values' || key === 'keys' || key === Symbol.iterator)
+              return (...args: unknown[]) => {
+                const iterator = item.apply(value, args) as Iterator<unknown>
+                return {
+                  next() {
+                    const result = iterator.next()
+                    return result.done ? result : { done: false, value: wrap(result.value) }
+                  },
+                  [Symbol.iterator]() { return this },
+                }
+              }
+            return item.bind(value)
+          }
+          // MobX administration symbols must keep their original receiver.
+          return typeof key === 'symbol' ? item : wrap(item)
+        },
+        ownKeys: () => Reflect.ownKeys(value),
+        getPrototypeOf: () => Reflect.getPrototypeOf(value),
+        getOwnPropertyDescriptor(_target, key) {
+          if (array && key === 'length') return Reflect.getOwnPropertyDescriptor(shadow, key)
+          const descriptor = Reflect.getOwnPropertyDescriptor(value, key)
+          return descriptor && { ...descriptor, configurable: true }
+        },
+      })
+      proxies.set(value, proxy)
+      return proxy
+    })
+  }
+  return compareStructural(wrap(before), wrap(next))
 }
 
 function countDerivation(by: string): void {

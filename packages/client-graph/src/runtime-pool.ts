@@ -13,8 +13,9 @@ import type { PoolSummaryFields } from './source-registry'
 /** React's scalar/layout readers share MobX tracking without eagerly loading
  * the graph in legacy mode. Rows use observer directly; this seam is for the
  * palette and project controls, which need only a small section projection. */
-export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) => T) {
-  const state = projectionState(pool, read)
+export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) => T,
+  options: { name?: string; equals?: (before: T, next: T) => boolean } = {}) {
+  const state = projectionState(pool, read, options)
   const view = {
     getSnapshot(nextRead = state.read): T {
       if (state.read !== nextRead) {
@@ -54,6 +55,8 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
 
 interface ProjectionState<T> {
   readonly pool: MobxPool
+  readonly name: string
+  readonly equals: (before: T, next: T) => boolean
   read: (pool: MobxPool) => T
   snapshot: { value: T } | null
   error: { cause: unknown } | null
@@ -65,9 +68,12 @@ interface ProjectionState<T> {
 
 // These helpers stay outside createPoolProjection: reaction closures must not
 // share a context with the view, or they would retain the finalization target.
-function projectionState<T>(pool: MobxPool, read: (pool: MobxPool) => T): ProjectionState<T> {
+function projectionState<T>(pool: MobxPool, read: (pool: MobxPool) => T,
+  options: { name?: string; equals?: (before: T, next: T) => boolean }): ProjectionState<T> {
   return {
     pool,
+    name: options.name ?? 'pool projection',
+    equals: options.equals ?? compareStructural,
     read,
     snapshot: null,
     error: null,
@@ -81,7 +87,7 @@ function projectionState<T>(pool: MobxPool, read: (pool: MobxPool) => T): Projec
 function observeProjection<T>(state: ProjectionState<T>): boolean {
   if (state.reaction !== null) return false
   state.dirty = true
-  state.reaction = new Reaction('pool projection', () => {
+  state.reaction = new Reaction(state.name, () => {
     state.dirty = true
     state.version++
     // Filter before notifying React or imperative consumers: equal projections
@@ -108,7 +114,7 @@ function refreshProjection<T>(state: ProjectionState<T>): void {
       state.error = { cause }
     }
   })
-  if (state.error === null && (state.snapshot === null || !compareStructural(state.snapshot.value, next)))
+  if (state.error === null && (state.snapshot === null || !state.equals(state.snapshot.value, next)))
     state.snapshot = { value: next }
 }
 

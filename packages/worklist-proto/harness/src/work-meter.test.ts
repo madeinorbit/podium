@@ -6,10 +6,11 @@
  */
 
 import { MobxPool } from '@podium/client-graph/pool'
-import { autorun, computed, ObservableMap, ObservableSet, observable, runInAction } from 'mobx'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { autorun, compareStructural, computed, ObservableMap, ObservableSet, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { assertScreenWork, SCREEN_ACTIONS, screenWorkVerdicts } from './screen-work-ratios'
-import { ARM_CODE, insideArm, insideReader, measureWork, outsideArm } from './work-meter'
+import { ARM_CODE, countedStructuralEqual, insideArm, insideReader, measureWork, outsideArm } from './work-meter'
 
 const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `i${i}`)
 
@@ -180,6 +181,62 @@ describe('derivations', () => {
 })
 
 describe('pool reader windows', () => {
+  it('catches the app projection walking pre-cached equal arrays, with no row reads or extra derivations', async () => {
+    async function measured(scale: number) {
+      const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+      const tick = observable.box(false)
+      const first = Object.freeze({ ids: Object.freeze(ids(scale)) })
+      const second = Object.freeze({ ids: Object.freeze(ids(scale)) })
+      const projection = createPoolProjection(pool, () => insideReader('cached', () =>
+        tick.get() ? second : first), {
+        name: 'consumer:cached',
+        equals: (a, b) => insideReader('cached.compare', () => countedStructuralEqual(a, b)),
+      })
+      const initial = projection.getSnapshot()
+      let wakes = 0
+      const stop = projection.subscribe(() => { wakes++ })
+      try {
+        const { work } = await measureWork(async () => runInAction(() => tick.set(true)), { pool })
+        expect(projection.getSnapshot()).toBe(initial)
+        expect(wakes).toBe(0)
+        expect(work.rows).toBe(0)
+        return work
+      } finally {
+        stop()
+        pool.dispose()
+      }
+    }
+    const first = await measured(1), second = await measured(4)
+    expect(second.derivations).toBe(first.derivations)
+    expect(second.elementsBy['consumer:cached.compare']).toBeGreaterThan(first.elementsBy['consumer:cached.compare']!)
+    const cells = (work: typeof first) => SCREEN_ACTIONS.map(action => ({
+      action, neighbourhood: ['issue:drawn'], work,
+    }))
+    expect(() => assertScreenWork(screenWorkVerdicts(cells(first), cells(second)))).toThrow(/cached.compare/)
+  })
+
+  it('preserves MobX comparison decisions for frozen values, native collections, aliases and cycles', async () => {
+    const child = Object.freeze({ id: 'shared' })
+    const cycleA: { self?: unknown } = {}, cycleB: { self?: unknown } = {}
+    cycleA.self = cycleA
+    cycleB.self = cycleB
+    const pairs: [unknown, unknown][] = [
+      [Object.freeze({ rows: Object.freeze([child, child]) }), Object.freeze({ rows: Object.freeze([child, child]) })],
+      [new Map([['rows', Object.freeze(['a', 'b'])]]), new Map([['rows', Object.freeze(['a', 'b'])]])],
+      [new Set(['a', 'b']), new Set(['a', 'b'])],
+      [new Date(1), new Date(1)],
+      [cycleA, cycleB],
+      [Object.freeze(['a', 'b']), Object.freeze(['a', 'c'])],
+      [{ value: 1 }, { value: 2 }],
+      [null, undefined],
+    ]
+    for (const [a, b] of pairs) {
+      const expected = compareStructural(a, b)
+      const { value } = await measureWork(async () => insideReader('comparison', () => countedStructuralEqual(a, b)))
+      expect(value).toBe(expected)
+    }
+  })
+
   it('rejects a planted real pool scan through row, derivation and collection counters', async () => {
     async function measured(scale: number, scan: boolean) {
       const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
