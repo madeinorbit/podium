@@ -1,22 +1,21 @@
 import { type EngineState, workspaceKeyForState } from '@podium/client-core/engine'
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import { emptyWorkspace, openTab } from '@podium/client-core/viewmodels'
-import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import type { MobxPool } from '@podium/client-graph'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { mergePoolSummaries } from '@podium/client-graph/source-registry'
 import { computed } from '@podium/client-graph/react'
 import { asIssueId } from '@podium/model/browser'
 import { cleanup, render, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { planNavigation } from '../../../../packages/client-core/src/engine/navigation'
 import { startScenarioEngine } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 import { NAVIGATION_SUMMARIES } from './pane-pool-screen'
 
-const binding = vi.hoisted(() => ({ state: {} as EngineState, issues: [] as IssueViewModel[], pool: null as MobxPool | null, missionReady: false }))
+const binding = vi.hoisted(() => ({ state: {} as EngineState, pool: null as MobxPool | null, missionReady: false }))
 vi.mock('./store', () => ({
   useStoreSelector: (select: (state: EngineState) => unknown) => select(binding.state),
   useReplicaIssues: () => { throw new Error('Workspace read legacy issue collection') },
@@ -24,7 +23,8 @@ vi.mock('./store', () => ({
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => binding.pool,
   useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T, empty: T) => {
-    const value = binding.pool ? read(binding.pool) : empty
+    const projection = useMemo(() => binding.pool ? createPoolProjection(binding.pool, read) : null, [read])
+    const value = useSyncExternalStore(projection?.subscribe ?? (() => () => {}), projection?.getSnapshot ?? (() => empty))
     if (value && typeof value === 'object' && 'loading' in value && value.loading === false)
       binding.missionReady = true
     return value
@@ -55,7 +55,7 @@ const output = (container: HTMLElement) => Array.from(container.querySelectorAll
 it('renders identical workspace labels, tab order and layout after pool navigation', async () => {
   const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
   const runtime = ctx.engine
-  const handle = createRuntimeWorklistPool(runtime, { summaries: mergePoolSummaries([NAVIGATION_SUMMARIES, MISSION_VIEW_SUMMARIES]) })
+  const handle = createRuntimeWorklistPool(runtime, { summaries: mergePoolSummaries(NAVIGATION_SUMMARIES, MISSION_VIEW_SUMMARIES) })
   binding.pool = handle.pool
   const provider = createPoolNavigationProvider(handle.pool)
   try {
@@ -70,7 +70,6 @@ it('renders identical workspace labels, tab order and layout after pool navigati
     let legacy: EngineState = { ...initial, workspaces: { [key]: layout } }
     let pool: EngineState = { ...legacy, navigation: provider }
     let route = routeDefaults('issues')
-    binding.issues = initial.issueProjections as unknown as IssueViewModel[]
     const screen = async (state: EngineState) => {
       binding.state = { ...state, workspaceKey: () => workspaceKeyForState(state) } as EngineState
       binding.missionReady = false
