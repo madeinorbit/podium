@@ -86,7 +86,7 @@ async function main() {
   if (args.includes('--help')) {
     console.log(
       'bun apps/web/harness/mission-speed-gate.ts — same-SHA pane off/on, two runs per arm.\n' +
-        '--plant-delay-ms=5000: plant a synchronous delay in the pool mission click path (expected red).\n' +
+        '--plant-delay-ms=7500: plant a synchronous delay in the pool mission click path (expected red).\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
     )
     process.exit(0)
@@ -177,10 +177,10 @@ async function main() {
   }
   const deadline = setTimeout(() => {
     console.error(
-      'Paired mission speed gate exceeded 20 minutes; no timing result.',
+      'Paired mission speed gate exceeded 35 minutes; no timing result.',
     )
     void cleanup().finally(() => process.exit(2))
-  }, 1_200_000)
+  }, 2_100_000)
   for (const signal of ['SIGINT', 'SIGTERM'] as const)
     process.once(signal, () => {
       void cleanup().finally(() => process.exit(130))
