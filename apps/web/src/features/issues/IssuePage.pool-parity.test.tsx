@@ -27,6 +27,7 @@ let layer: 'legacy' | 'pool' = 'legacy'
 let forbidden = false, legacyReads = 0
 let pool: MobxPool
 let startupHost: PoolHost | undefined
+const poolReads = vi.fn()
 let legacyIssues: IssueViewModel[] = [], visibleSessions: SessionView[] = []
 const STAMP = '2026-09-01T12:00:00.000Z', NOW = Date.parse('2026-10-01T12:00:00Z')
 const exits: Record<string, 'evicted' | 'removed'> = { invisible: 'evicted', removed: 'removed' }
@@ -63,7 +64,11 @@ vi.mock('@/app/store', () => ({
 }))
 vi.mock('@/lib/pane-data-layer', () => ({ paneDataLayer: () => layer }))
 vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPool: () => startupHost ? startupHost.usePool() : pool,
+  useWorklistPool: () => {
+    const current = startupHost ? startupHost.usePool() : pool
+    poolReads(current)
+    return current
+  },
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => startupHost
     ? startupHost.usePoolProjection(read, empty) : createPoolProjection(pool, read).getSnapshot(),
 }))
@@ -243,8 +248,8 @@ describe('issue page rendered pool parity', () => {
       return <IssuePage issue={issue} orderedIds={[]} onBack={back} onNavigate={navigate} />
     }
     const view = render(wrap(<AttachAfterRender />))
-    // Resolve the page's lazy import while the real host still has no pool.
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    // Observe the page itself after its lazy import, before attaching the host.
+    await waitFor(() => expect(poolReads).toHaveBeenCalledWith(null))
     expect(view.container.textContent).toBe('')
     expect(initial).toHaveBeenCalledExactlyOnceWith(null)
     await act(async () => { attach!(); await new Promise(resolve => setTimeout(resolve, 0)) })
