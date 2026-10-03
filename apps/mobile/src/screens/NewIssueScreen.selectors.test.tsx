@@ -57,12 +57,14 @@ it('keeps new-task repository order literal and per-open row reads flat at 1x an
       sessionId: `repository-history-${index}`, agentKind: 'claude-code', status: 'exited',
       archived: true, cwd: `/work/${['z', 'a', 'm'][index % 3]}/nested`,
       lastActiveAt: new Date(now - (index % 3) * 60_000 - 86_400_000).toISOString(),
+      stoppedAt: new Date(now - 86_400_000).toISOString(),
     })) as unknown as SessionView[]
     fixture.pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
       load: (_kind, id) => sessions.find(session => session.sessionId === id),
       summaries: { session: ['sessionId', 'cwd', 'lastActiveAt', 'archived', 'status'] },
     })
     fixture.pool.apply({ type: 'replace', rows: sessions.map(session => ({ kind: 'session', id: session.sessionId, value: session })) })
+    expect(fixture.pool.tables.session.size, 'historical sessions stay cold').toBe(0)
     fixture.pool.header.apply(repositories.map(value => ({ kind: 'repository', id: value.path, value })))
     fixture.pool.header.order('repository', repositories.map(value => value.path))
     fixture.sessions = sessions.map(session => new Proxy(session, {
