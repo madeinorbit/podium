@@ -1,0 +1,1423 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`compares roster, addressed context, read state, geometry and ports with a planted mismatch > last green pilot-ON complete session output 1`] = `
+{
+  "booting": false,
+  "contexts": [
+    {
+      "draft": "Saved synthetic draft",
+      "exit": undefined,
+      "held": [],
+      "id": "synthetic-session-0",
+      "issue": {
+        "activityNotes": undefined,
+        "branch": "main",
+        "color": undefined,
+        "description": "",
+        "gitState": undefined,
+        "id": "synthetic-0",
+        "isDraftVessel": false,
+        "needsHuman": false,
+        "notesUpdatedAt": undefined,
+        "panel": undefined,
+        "pinned": true,
+        "priority": 2,
+        "ref": "SYN-1000",
+        "relations": [],
+        "stage": "in_progress",
+        "title": "Synthetic task 0",
+        "worktreePath": "/synthetic/project",
+      },
+      "prompt": undefined,
+      "question": {
+        "blocked": true,
+        "pending": 0,
+        "question": {
+          "answerable": "structured",
+          "askedAt": "2026-10-01T12:00:18Z",
+          "fingerprint": "synthetic",
+          "id": "notice-ask-2",
+          "kind": "question",
+          "payload": {
+            "questions": [
+              {
+                "options": [
+                  {
+                    "label": "One",
+                  },
+                  {
+                    "label": "Two",
+                  },
+                ],
+                "question": "Synthetic choice?",
+              },
+            ],
+            "v": 1,
+          },
+          "sessionId": "synthetic-session-0",
+          "source": "protocol",
+          "status": "asked",
+        },
+      },
+      "ready": true,
+      "records": [
+        {
+          "body": "  careful careful careful careful careful careful careful careful careful careful careful careful careful careful careful 
+second line",
+          "createdAt": "2026-10-01T12:00:00Z",
+          "id": "notice-message-0",
+          "reason": "delivery-failed",
+          "senderUserId": "synthetic-user",
+          "sessionId": "synthetic-session-0",
+          "status": "failed",
+        },
+        {
+          "body": "Synthetic typed words",
+          "createdAt": "2026-10-01T12:00:03Z",
+          "id": "notice-message-3",
+          "reason": undefined,
+          "senderUserId": "synthetic-user",
+          "sessionId": "synthetic-session-0",
+          "status": "typed",
+        },
+        {
+          "body": "Synthetic confirmed words",
+          "createdAt": "2026-10-01T12:00:04Z",
+          "id": "notice-message-4",
+          "reason": undefined,
+          "senderUserId": "synthetic-user",
+          "sessionId": "synthetic-session-0",
+          "status": "confirmed",
+        },
+      ],
+      "session": {
+        "agentColor": undefined,
+        "agentKind": "codex",
+        "agentState": {
+          "idle": {
+            "kind": "done",
+          },
+          "phase": "idle",
+          "since": "2026-10-02T23:00:00.000Z",
+        },
+        "archived": false,
+        "attachKinds": undefined,
+        "busy": false,
+        "condition": undefined,
+        "configureFields": undefined,
+        "controllerId": null,
+        "createdAt": "2026-10-02T00:00:00.000Z",
+        "cwd": "/synthetic/project",
+        "displayRef": undefined,
+        "draftSyncEngine": undefined,
+        "draftUpdatedAt": undefined,
+        "driverFamily": undefined,
+        "effort": undefined,
+        "exitCode": undefined,
+        "geometry": {
+          "cols": 80,
+          "rows": 24,
+        },
+        "handoffTarget": undefined,
+        "handoffTargetMachineId": undefined,
+        "harnessPromptModeHints": undefined,
+        "headless": undefined,
+        "issueId": "synthetic-0",
+        "lastActiveAt": "2026-10-02T23:00:00.000Z",
+        "lastInputAt": undefined,
+        "machineId": "host-one",
+        "machineName": "",
+        "model": undefined,
+        "name": undefined,
+        "neverBound": undefined,
+        "observedEffort": undefined,
+        "observedModel": undefined,
+        "offer": undefined,
+        "origin": {
+          "kind": "spawn",
+        },
+        "queuedMessageCount": undefined,
+        "readAt": "2026-10-03T00:00:00Z",
+        "refDraft": undefined,
+        "refIssueId": undefined,
+        "refLetter": undefined,
+        "refRepoId": undefined,
+        "refSeq": undefined,
+        "requestedEffort": undefined,
+        "requestedModel": undefined,
+        "resumable": undefined,
+        "resume": undefined,
+        "sessionId": "synthetic-session-0",
+        "snoozedUntil": null,
+        "spawnFailure": undefined,
+        "status": "live",
+        "stoppedAt": undefined,
+        "title": "Synthetic agent 0",
+        "transcriptAvailable": undefined,
+        "unread": false,
+        "workState": undefined,
+      },
+      "spawn": false,
+    },
+    {
+      "draft": "",
+      "exit": undefined,
+      "held": [],
+      "id": "synthetic-session-11",
+      "issue": {
+        "activityNotes": undefined,
+        "branch": "main",
+        "color": undefined,
+        "description": "",
+        "gitState": undefined,
+        "id": "synthetic-11",
+        "isDraftVessel": false,
+        "needsHuman": false,
+        "notesUpdatedAt": undefined,
+        "panel": undefined,
+        "pinned": false,
+        "priority": 2,
+        "ref": "SYN-1011",
+        "relations": [],
+        "stage": "done",
+        "title": "Only responsive target",
+        "worktreePath": "/synthetic/project",
+      },
+      "prompt": undefined,
+      "question": {
+        "blocked": false,
+        "pending": 0,
+        "question": undefined,
+      },
+      "ready": true,
+      "records": [],
+      "session": {
+        "agentColor": undefined,
+        "agentKind": "codex",
+        "agentState": {
+          "idle": {
+            "kind": "done",
+          },
+          "phase": "idle",
+          "since": "2026-10-02T23:00:00.000Z",
+        },
+        "archived": true,
+        "attachKinds": undefined,
+        "busy": false,
+        "condition": undefined,
+        "configureFields": undefined,
+        "controllerId": null,
+        "createdAt": "2026-10-02T00:00:00.000Z",
+        "cwd": "/synthetic/project",
+        "displayRef": undefined,
+        "draftSyncEngine": undefined,
+        "draftUpdatedAt": undefined,
+        "driverFamily": undefined,
+        "effort": undefined,
+        "exitCode": undefined,
+        "geometry": {
+          "cols": 132,
+          "rows": 37,
+        },
+        "handoffTarget": undefined,
+        "handoffTargetMachineId": undefined,
+        "harnessPromptModeHints": undefined,
+        "headless": undefined,
+        "issueId": "synthetic-11",
+        "lastActiveAt": "2020-01-01T00:00:00Z",
+        "lastInputAt": undefined,
+        "machineId": "host-three",
+        "machineName": "",
+        "model": undefined,
+        "name": undefined,
+        "neverBound": undefined,
+        "observedEffort": undefined,
+        "observedModel": undefined,
+        "offer": undefined,
+        "origin": {
+          "kind": "spawn",
+        },
+        "queuedMessageCount": undefined,
+        "readAt": null,
+        "refDraft": undefined,
+        "refIssueId": undefined,
+        "refLetter": undefined,
+        "refRepoId": undefined,
+        "refSeq": undefined,
+        "requestedEffort": undefined,
+        "requestedModel": undefined,
+        "resumable": undefined,
+        "resume": undefined,
+        "sessionId": "synthetic-session-11",
+        "snoozedUntil": undefined,
+        "spawnFailure": undefined,
+        "status": "exited",
+        "stoppedAt": "2020-01-01T00:00:00Z",
+        "title": "Synthetic agent 11",
+        "transcriptAvailable": undefined,
+        "unread": false,
+        "workState": undefined,
+      },
+      "spawn": false,
+    },
+    {
+      "draft": "",
+      "exit": undefined,
+      "held": [],
+      "id": "missing-session",
+      "issue": undefined,
+      "prompt": undefined,
+      "question": {
+        "blocked": false,
+        "pending": 0,
+        "question": undefined,
+      },
+      "ready": true,
+      "records": [
+        {
+          "body": "Synthetic unknown words",
+          "createdAt": "2026-10-01T12:00:02Z",
+          "id": "notice-message-2",
+          "reason": undefined,
+          "senderUserId": "synthetic-user",
+          "sessionId": "missing-session",
+          "status": "unknown",
+        },
+      ],
+      "session": undefined,
+      "spawn": false,
+    },
+  ],
+  "machines": [
+    {
+      "availability": {
+        "daemon": true,
+        "epoch": "one",
+        "server": false,
+        "supervisor": false,
+      },
+      "hostname": "host-0",
+      "id": "host-one",
+      "lastSeenAt": "2026-10-03T00:00:00.000Z",
+      "name": "Host 1",
+      "online": true,
+    },
+    {
+      "availability": {
+        "daemon": true,
+        "epoch": "one",
+        "server": false,
+        "supervisor": false,
+      },
+      "hostname": "host-1",
+      "id": "host-two",
+      "lastSeenAt": "2026-10-03T00:00:00.000Z",
+      "name": "Host 2",
+      "online": true,
+    },
+    {
+      "availability": {
+        "daemon": true,
+        "epoch": "one",
+        "server": false,
+        "supervisor": false,
+      },
+      "hostname": "host-2",
+      "id": "host-three",
+      "lastSeenAt": "2026-10-03T00:00:00.000Z",
+      "name": "Host 3",
+      "online": true,
+    },
+  ],
+  "pending": 0,
+  "referenceIssues": [
+    {
+      "color": undefined,
+      "id": "synthetic-0",
+      "ref": "SYN-1000",
+      "seq": 1000,
+      "stage": "in_progress",
+      "title": "Synthetic task 0",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-1",
+      "ref": "SYN-1001",
+      "seq": 1001,
+      "stage": "done",
+      "title": "Synthetic task 1",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-10",
+      "ref": "SYN-1010",
+      "seq": 1010,
+      "stage": "in_progress",
+      "title": "Synthetic task 10",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-11",
+      "ref": "SYN-1011",
+      "seq": 1011,
+      "stage": "done",
+      "title": "Only responsive target",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-2",
+      "ref": "SYN-1002",
+      "seq": 1002,
+      "stage": "in_progress",
+      "title": "Synthetic task 2",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-3",
+      "ref": "SYN-1003",
+      "seq": 1003,
+      "stage": "in_progress",
+      "title": "Synthetic task 3",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-4",
+      "ref": "SYN-1004",
+      "seq": 1004,
+      "stage": "in_progress",
+      "title": "Synthetic task 4",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-5",
+      "ref": "SYN-1005",
+      "seq": 1005,
+      "stage": "done",
+      "title": "Synthetic task 5",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-6",
+      "ref": "SYN-1006",
+      "seq": 1006,
+      "stage": "in_progress",
+      "title": "Synthetic task 6",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-7",
+      "ref": "SYN-1007",
+      "seq": 1007,
+      "stage": "in_progress",
+      "title": "Synthetic task 7",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-8",
+      "ref": "SYN-1008",
+      "seq": 1008,
+      "stage": "in_progress",
+      "title": "Synthetic task 8",
+    },
+    {
+      "color": undefined,
+      "id": "synthetic-9",
+      "ref": "SYN-1009",
+      "seq": 1009,
+      "stage": "in_progress",
+      "title": "Synthetic task 9",
+    },
+  ],
+  "roster": {
+    "idle": [
+      {
+        "dotTone": "neutral",
+        "group": "idle",
+        "issueLabel": "#1001 Synthetic task 1",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-1",
+        "subtitle": "Codex · exited · 2467d ago",
+        "summary": null,
+        "title": "Synthetic agent 1",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": null,
+        "queuedCount": undefined,
+        "sessionId": "synthetic-guest-0",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic guest 0",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": null,
+        "queuedCount": undefined,
+        "sessionId": "synthetic-guest-1",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic guest 1",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1000 Synthetic task 0",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-0",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 0",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1010 Synthetic task 10",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-10",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 10",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1002 Synthetic task 2",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-2",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 2",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1003 Synthetic task 3",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-3",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 3",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1004 Synthetic task 4",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-4",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 4",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1005 Synthetic task 5",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-5",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 5",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1006 Synthetic task 6",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-6",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 6",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1007 Synthetic task 7",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-7",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 7",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1008 Synthetic task 8",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-8",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 8",
+      },
+      {
+        "dotTone": "ready",
+        "group": "idle",
+        "issueLabel": "#1009 Synthetic task 9",
+        "queuedCount": undefined,
+        "sessionId": "synthetic-session-9",
+        "subtitle": "Codex · live · 1h ago",
+        "summary": null,
+        "title": "Synthetic agent 9",
+      },
+    ],
+    "needsYou": [],
+    "working": [],
+  },
+  "sessionOrder": [
+    "synthetic-guest-0",
+    "synthetic-guest-1",
+    "synthetic-session-0",
+    "synthetic-session-1",
+    "synthetic-session-10",
+    "synthetic-session-11",
+    "synthetic-session-2",
+    "synthetic-session-3",
+    "synthetic-session-4",
+    "synthetic-session-5",
+    "synthetic-session-6",
+    "synthetic-session-7",
+    "synthetic-session-8",
+    "synthetic-session-9",
+  ],
+}
+`;
+
+exports[`renders the same six phone readers through real late attachment with no React errors > last green pilot-ON session readers 1`] = `
+{
+  "attributes": [],
+  "children": [
+    {
+      "attributes": [],
+      "children": [
+        {
+          "attributes": [],
+          "children": [
+            "Synthetic task 0",
+          ],
+          "tag": "H1",
+        },
+        {
+          "attributes": [],
+          "children": [
+            "SYN-1000   Codex",
+          ],
+          "tag": "P",
+        },
+        {
+          "attributes": [],
+          "children": [
+            "codex",
+          ],
+          "tag": "SPAN",
+        },
+        {
+          "attributes": [
+            [
+              "aria-label",
+              "Open terminal",
+            ],
+            [
+              "type",
+              "button",
+            ],
+          ],
+          "children": [],
+          "tag": "BUTTON",
+        },
+        {
+          "attributes": [
+            [
+              "aria-label",
+              "Session actions",
+            ],
+            [
+              "type",
+              "button",
+            ],
+          ],
+          "children": [],
+          "tag": "BUTTON",
+        },
+        {
+          "attributes": [
+            [
+              "class",
+              "css-view-g5y9jx r-flex-13awgt0",
+            ],
+          ],
+          "children": [
+            {
+              "attributes": [
+                [
+                  "data-question",
+                  "notice-ask-2",
+                ],
+                [
+                  "data-testid",
+                  "transcript",
+                ],
+              ],
+              "children": [
+                {
+                  "attributes": [],
+                  "children": [
+                    "  careful careful careful careful careful careful careful careful careful careful careful careful careful careful careful 
+second line",
+                    ":",
+                    "not delivered · delivery failed",
+                  ],
+                  "tag": "P",
+                },
+                {
+                  "attributes": [],
+                  "children": [
+                    "Synthetic typed words",
+                    ":",
+                  ],
+                  "tag": "P",
+                },
+              ],
+              "tag": "DIV",
+            },
+            {
+              "attributes": [
+                [
+                  "class",
+                  "css-view-g5y9jx r-left-1d2f490 r-position-u8s1d r-right-zchlnj r-pointerEvents-12vffkv",
+                ],
+                [
+                  "style",
+                  "bottom: 0px;",
+                ],
+              ],
+              "children": [
+                {
+                  "attributes": [],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "aria-label",
+                          "Draft",
+                        ],
+                        [
+                          "value",
+                          "Saved synthetic draft",
+                        ],
+                      ],
+                      "children": [],
+                      "tag": "INPUT",
+                    },
+                    {
+                      "attributes": [
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "Send",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+              ],
+              "tag": "DIV",
+            },
+          ],
+          "tag": "DIV",
+        },
+      ],
+      "tag": "SECTION",
+    },
+    {
+      "attributes": [],
+      "children": [
+        {
+          "attributes": [],
+          "children": [
+            "Agents",
+          ],
+          "tag": "H1",
+        },
+        {
+          "attributes": [],
+          "children": [
+            "0 working · 13 idle",
+          ],
+          "tag": "P",
+        },
+        {
+          "attributes": [
+            [
+              "class",
+              "css-view-g5y9jx r-WebkitOverflowScrolling-150rngu r-flexDirection-eqz5dr r-flexGrow-16y2uox r-flexShrink-1wbh5a2 r-overflowX-11yh6sk r-overflowY-1rnoaur r-transform-agouwx",
+            ],
+          ],
+          "children": [
+            {
+              "attributes": [
+                [
+                  "class",
+                  "css-view-g5y9jx r-flexGrow-16y2uox",
+                ],
+                [
+                  "style",
+                  "padding-bottom: 16px;",
+                ],
+              ],
+              "children": [
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "class",
+                          "css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-gap-1cmwbt1 r-paddingBottom-1inuy60 r-paddingInline-gu64tb r-paddingTop-95jzfe",
+                        ],
+                      ],
+                      "children": [
+                        {
+                          "attributes": [
+                            [
+                              "class",
+                              "css-text-146c3p1 r-color-1tzk9qo r-fontFamily-hdfpnq r-fontSize-1gkfh8e r-letterSpacing-1gw5qj8 r-textTransform-tsynxw",
+                            ],
+                            [
+                              "dir",
+                              "auto",
+                            ],
+                          ],
+                          "children": [
+                            "IDLE",
+                          ],
+                          "tag": "DIV",
+                        },
+                        {
+                          "attributes": [
+                            [
+                              "class",
+                              "css-text-146c3p1 r-color-1qbupkp r-fontFamily-hdfpnq r-fontSize-1gkfh8e",
+                            ],
+                            [
+                              "dir",
+                              "auto",
+                            ],
+                          ],
+                          "children": [
+                            "13",
+                          ],
+                          "tag": "DIV",
+                        },
+                        {
+                          "attributes": [
+                            [
+                              "class",
+                              "css-view-g5y9jx r-backgroundColor-1u786zw r-flex-13awgt0 r-height-109y4c4",
+                            ],
+                          ],
+                          "children": [],
+                          "tag": "DIV",
+                        },
+                      ],
+                      "tag": "DIV",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-1",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-1","title":"Synthetic agent 1","subtitle":"Codex · exited · 2467d ago","issueLabel":"#1001 Synthetic task 1","summary":null,"group":"idle","dotTone":"neutral"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-guest-0",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-guest-0","title":"Synthetic guest 0","subtitle":"Codex · live · 1h ago","issueLabel":null,"summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-guest-1",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-guest-1","title":"Synthetic guest 1","subtitle":"Codex · live · 1h ago","issueLabel":null,"summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-0",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-0","title":"Synthetic agent 0","subtitle":"Codex · live · 1h ago","issueLabel":"#1000 Synthetic task 0","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-10",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-10","title":"Synthetic agent 10","subtitle":"Codex · live · 1h ago","issueLabel":"#1010 Synthetic task 10","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-2",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-2","title":"Synthetic agent 2","subtitle":"Codex · live · 1h ago","issueLabel":"#1002 Synthetic task 2","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-3",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-3","title":"Synthetic agent 3","subtitle":"Codex · live · 1h ago","issueLabel":"#1003 Synthetic task 3","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-4",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-4","title":"Synthetic agent 4","subtitle":"Codex · live · 1h ago","issueLabel":"#1004 Synthetic task 4","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-5",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-5","title":"Synthetic agent 5","subtitle":"Codex · live · 1h ago","issueLabel":"#1005 Synthetic task 5","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                    [
+                      "style",
+                      "height: 0px;",
+                    ],
+                  ],
+                  "children": [],
+                  "tag": "DIV",
+                },
+              ],
+              "tag": "DIV",
+            },
+          ],
+          "tag": "DIV",
+        },
+      ],
+      "tag": "SECTION",
+    },
+    {
+      "attributes": [],
+      "children": [
+        {
+          "attributes": [],
+          "children": [
+            "Synthetic agent 0",
+          ],
+          "tag": "H1",
+        },
+        {
+          "attributes": [],
+          "children": [
+            "Codex · Spectating",
+          ],
+          "tag": "P",
+        },
+        {
+          "attributes": [
+            [
+              "class",
+              "css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-gap-ojf8lh",
+            ],
+          ],
+          "children": [
+            {
+              "attributes": [
+                [
+                  "aria-label",
+                  "Task SYN-1000 — open",
+                ],
+                [
+                  "class",
+                  "css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73",
+                ],
+                [
+                  "role",
+                  "button",
+                ],
+                [
+                  "style",
+                  "transform: scale(1);",
+                ],
+                [
+                  "tabindex",
+                  "0",
+                ],
+                [
+                  "type",
+                  "button",
+                ],
+              ],
+              "children": [
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx r-alignItems-1awozwy r-justifyContent-1777fci",
+                    ],
+                    [
+                      "style",
+                      "width: 18px; height: 18px; background-color: rgba(37, 40, 48, 1.00); opacity: 1; border-width: 1px; border-color: rgba(141, 141, 154, 1.00); border-radius: 5px;",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "class",
+                          "css-text-146c3p1 r-maxWidth-dnmrzs r-overflow-1udh08x r-textOverflow-1udbk01 r-whiteSpace-3s2u2q r-wordWrap-1iln25a r-includeFontPadding-1rsjblm",
+                        ],
+                        [
+                          "dir",
+                          "auto",
+                        ],
+                        [
+                          "style",
+                          "font-family: GeistMono_600SemiBold; font-size: 4.5px; color: rgba(197, 197, 208, 1.00);",
+                        ],
+                      ],
+                      "children": [
+                        "SYN",
+                      ],
+                      "tag": "DIV",
+                    },
+                    {
+                      "attributes": [
+                        [
+                          "class",
+                          "css-text-146c3p1 r-maxWidth-dnmrzs r-overflow-1udh08x r-textOverflow-1udbk01 r-whiteSpace-3s2u2q r-wordWrap-1iln25a r-includeFontPadding-1rsjblm",
+                        ],
+                        [
+                          "dir",
+                          "auto",
+                        ],
+                        [
+                          "style",
+                          "font-family: GeistMono_600SemiBold; font-size: 4.5px; color: rgba(197, 197, 208, 1.00);",
+                        ],
+                      ],
+                      "children": [
+                        "1000",
+                      ],
+                      "tag": "DIV",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+              ],
+              "tag": "BUTTON",
+            },
+            {
+              "attributes": [],
+              "children": [
+                "codex",
+              ],
+              "tag": "SPAN",
+            },
+          ],
+          "tag": "DIV",
+        },
+        {
+          "attributes": [
+            [
+              "aria-label",
+              "Take control — resizes the shared terminal to fit this phone",
+            ],
+            [
+              "type",
+              "button",
+            ],
+          ],
+          "children": [],
+          "tag": "BUTTON",
+        },
+        {
+          "attributes": [
+            [
+              "class",
+              "css-view-g5y9jx r-flex-13awgt0",
+            ],
+            [
+              "style",
+              "background-color: rgba(27, 28, 32, 1.00);",
+            ],
+          ],
+          "children": [
+            {
+              "attributes": [
+                [
+                  "class",
+                  "css-view-g5y9jx",
+                ],
+                [
+                  "style",
+                  "min-height: 0px; overflow-x: hidden; overflow-y: hidden; flex-grow: 1; flex-shrink: 1; flex-basis: 0%;",
+                ],
+              ],
+              "children": [
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-text-146c3p1",
+                    ],
+                    [
+                      "dir",
+                      "auto",
+                    ],
+                    [
+                      "style",
+                      "font-family: Geist_400Regular; color: rgba(132, 138, 148, 1.00); font-size: 11px; padding: 6px 12px;",
+                    ],
+                  ],
+                  "children": [
+                    "Following the shared terminal — take control to fit this phone.",
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "data-terminal-crop-viewport",
+                      "true",
+                    ],
+                    [
+                      "style",
+                      "min-height: 0; width: 100%; overflow: auto; overscroll-behavior: contain; flex-grow: 1; flex-shrink: 1; flex-basis: 0%;",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "style",
+                          "display: inline-block; min-width: 100%; min-height: 100%;",
+                        ],
+                      ],
+                      "children": [],
+                      "tag": "DIV",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+              ],
+              "tag": "DIV",
+            },
+          ],
+          "tag": "DIV",
+        },
+      ],
+      "tag": "SECTION",
+    },
+    {
+      "attributes": [
+        [
+          "class",
+          "css-view-g5y9jx",
+        ],
+        [
+          "style",
+          "min-height: 0px; overflow-x: hidden; overflow-y: hidden; flex-grow: 1; flex-shrink: 1; flex-basis: 0%;",
+        ],
+      ],
+      "children": [
+        {
+          "attributes": [
+            [
+              "class",
+              "css-text-146c3p1",
+            ],
+            [
+              "dir",
+              "auto",
+            ],
+            [
+              "style",
+              "font-family: Geist_400Regular; color: rgba(132, 138, 148, 1.00); font-size: 11px; padding: 6px 12px;",
+            ],
+          ],
+          "children": [
+            "Following the shared terminal — take control to fit this phone.",
+          ],
+          "tag": "DIV",
+        },
+        {
+          "attributes": [
+            [
+              "data-terminal-crop-viewport",
+              "true",
+            ],
+            [
+              "style",
+              "min-height: 0; width: 100%; overflow: auto; overscroll-behavior: contain; flex-grow: 1; flex-shrink: 1; flex-basis: 0%;",
+            ],
+          ],
+          "children": [
+            {
+              "attributes": [
+                [
+                  "style",
+                  "display: inline-block; min-width: 100%; min-height: 100%;",
+                ],
+              ],
+              "children": [],
+              "tag": "DIV",
+            },
+          ],
+          "tag": "DIV",
+        },
+      ],
+      "tag": "DIV",
+    },
+    {
+      "attributes": [
+        [
+          "class",
+          "css-view-g5y9jx r-backgroundColor-bqke0d r-flex-13awgt0 r-minHeight-ifefl9 r-overflow-1udh08x",
+        ],
+      ],
+      "children": [
+        {
+          "attributes": [
+            [
+              "class",
+              "css-view-g5y9jx r-flex-13awgt0 r-minHeight-ifefl9",
+            ],
+          ],
+          "children": [
+            {
+              "attributes": [
+                [
+                  "data-cols",
+                  "80",
+                ],
+                [
+                  "data-rows",
+                  "24",
+                ],
+                [
+                  "data-spawn",
+                  "false",
+                ],
+                [
+                  "data-testid",
+                  "native-terminal",
+                ],
+              ],
+              "children": [],
+              "tag": "DIV",
+            },
+          ],
+          "tag": "DIV",
+        },
+      ],
+      "tag": "DIV",
+    },
+  ],
+  "tag": "DIV",
+}
+`;

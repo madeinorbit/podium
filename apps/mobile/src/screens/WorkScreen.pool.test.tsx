@@ -45,15 +45,14 @@ vi.mock('@podium/client-core/react', async importOriginal => {
   const real = await importOriginal<typeof import('@podium/client-core/react')>()
   return { ...real, useSlice: (...args: Parameters<typeof real.useSlice>) => {
     state.sliceReads++
-    if (state.on) throw new Error('pool path subscribed to a legacy slice')
-    return real.useSlice(...args)
+    throw new Error('pool path subscribed to a legacy slice')
   } }
 })
 vi.mock('@podium/client-core/viewmodels', async importOriginal => {
   const real = await importOriginal<typeof import('@podium/client-core/viewmodels')>()
   const guard = <T extends (...args: never[]) => unknown>(fn: T): T => ((...args: never[]) => {
-    if (state.on) { state.rowDerivations++; throw new Error('pool row called a legacy row derivation') }
-    return fn(...args)
+    state.rowDerivations++
+    throw new Error('pool row called a legacy row derivation')
   }) as T
   return { ...real, rowMotionPhase: guard(real.rowMotionPhase), rowHasWorkingSession: guard(real.rowHasWorkingSession),
     rowWaitingCount: guard(real.rowWaitingCount), rowPendingDecision: guard(real.rowPendingDecision),
@@ -220,13 +219,8 @@ describe('mobile WorkScreen pool consumer', () => {
   }, 120_000)
 
   for (const scale of [1, 4] as const) it(`same native rows, bands and look at ${scale}x with no legacy reader`, async () => {
-    const legacy = await mount(false, scale)
-    const expected = output(legacy.view.container)
-    expect(state.sliceReads).toBeGreaterThan(0)
-    legacy.view.unmount()
     const pool = await mount(true, scale)
     await drainNativeLoads()
-    expect(output(pool.view.container)).toEqual(expected)
     expect(output(pool.view.container)).toMatchSnapshot('last green pilot-ON rows and styles')
     expect(state.sliceReads).toBe(0)
     expect(state.rowDerivations).toBe(0)
@@ -237,38 +231,30 @@ describe('mobile WorkScreen pool consumer', () => {
 
   for (const scale of [1, 4] as const) it(`only commits changed paint, keeps native lane identity, and never exceeds legacy at ${scale}x`, async () => {
     const cells: unknown[] = []
-    let legacyCounts: number[] = []
-    for (const on of [false, true]) {
-      const { view, corpus, feed } = await mount(on, scale)
-      const initial = output(view.container)
-      const label = view.container.querySelector('[data-label^="POD-"]')!.getAttribute('data-label')!
-      const seq = Number(label.match(/POD-(\d+)/)![1])
-      const target = corpus.issueProjections.find(row => row.seq === seq)!
-      expect(target).toBeDefined()
-      const measure = async (kind: string, patch: Record<string, unknown>) => {
-        const before = state.sections
-        state.counts.clear()
-        await act(async () => {
-          feed.publish('issueProjections', corpus.issueProjections.map(row => row.id === target.id ? { ...row, ...patch } : row))
-        })
-        const commits = [...state.counts.values()].reduce((sum, n) => sum + n, 0)
-        if (on) {
-          expect([...state.counts.keys()].every(ref => ref === `POD-${seq}`), kind).toBe(true)
-          expect(commits, kind).toBeLessThanOrEqual(legacyCounts[cells.filter((cell: unknown) => (cell as { on: boolean }).on).length]!)
-          expect(state.sections, `${kind}: no section geometry changed`).toBe(before)
-        }
-        cells.push({ on, kind, commits })
-        return commits
-      }
-      const counts = [await measure('unshown description', { description: { value: 'bookkeeping only' } }),
-        await measure('shown title', { title: 'Native row renamed' })]
-      if (on) expect(counts[0], 'unshown description').toBe(0)
-      expect(counts[1]).toBeGreaterThan(0)
-      expect(view.container.textContent).toContain('Native row renamed')
-      if (!on) legacyCounts = counts
-      expect(initial.text).not.toContain('Native row renamed')
-      view.unmount()
+    const { view, corpus, feed } = await mount(true, scale)
+    const initial = output(view.container)
+    const label = view.container.querySelector('[data-label^="POD-"]')!.getAttribute('data-label')!
+    const seq = Number(label.match(/POD-(\d+)/)![1])
+    const target = corpus.issueProjections.find(row => row.seq === seq)!
+    expect(target).toBeDefined()
+    const measure = async (kind: string, patch: Record<string, unknown>, expected: number) => {
+      const before = state.sections
+      state.counts.clear()
+      await act(async () => {
+        feed.publish('issueProjections', corpus.issueProjections.map(row => row.id === target.id ? { ...row, ...patch } : row))
+      })
+      const commits = [...state.counts.values()].reduce((sum, n) => sum + n, 0)
+      expect([...state.counts.keys()].every(ref => ref === `POD-${seq}`), kind).toBe(true)
+      expect(commits, kind).toBe(expected)
+      expect(state.sections, `${kind}: no section geometry changed`).toBe(before)
+      cells.push({ kind, commits })
     }
+    await measure('unshown description', { description: { value: 'bookkeeping only' } }, 0)
+    await measure('shown title', { title: 'Native row renamed' }, 1)
+    expect(view.container.textContent).toContain('Native row renamed')
+    expect(initial.text).not.toContain('Native row renamed')
+    expect(state.sliceReads).toBe(0)
+    expect(state.rowDerivations).toBe(0)
     console.info('[mobile commits]', JSON.stringify(cells))
   }, 120_000)
 

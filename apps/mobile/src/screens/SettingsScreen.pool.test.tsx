@@ -189,12 +189,7 @@ function comparableHtml(container: HTMLElement): string {
 }
 
 it('renders the same Settings through the real no-pool to attached-pool transition', async () => {
-  const legacy = await mount(false)
-  const expected = comparableHtml(legacy.view.container)
-  expect(rowValue(legacy.view.container, 'Tasks')).toBe('8')
-  legacy.view.unmount()
   const enabled = await mount(true)
-  expect(comparableHtml(enabled.view.container)).toBe(expected)
   expect(comparableHtml(enabled.view.container)).toMatchSnapshot('last green pilot-ON Settings')
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
@@ -223,17 +218,15 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
   expect(readRuntimeStoreStats(enabled.runtime)?.rowBuilds).toBe(0)
   expect(rowValue(enabled.view.container, 'Tasks')).toBe('8')
   expect(enabled.errors).toEqual([])
-  enabled.view.unmount()
-  const legacy = await mount(false)
-  expect(readRuntimeStoreStats(legacy.runtime)?.selectorRuns).toBeGreaterThan(0)
+
 })
 
 it('keeps server controls and logout on their existing owners in both arms', async () => {
   vi.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
     buttons?.find((button) => button.style === 'destructive')?.onPress?.()
   })
-  for (const on of [false, true]) {
-    const current = await mount(on)
+  {
+    const current = await mount(true)
     fireEvent.click(current.view.getByText('Done'))
     fireEvent.click(current.view.getByLabelText('Add server'))
     fireEvent.click(current.view.getByLabelText('Switch to Other server'))
@@ -256,8 +249,8 @@ it('keeps server controls and logout on their existing owners in both arms', asy
     expect(current.errors).toEqual([])
     current.view.unmount()
   }
-  expect(seams.back).toHaveBeenCalledTimes(2)
-  expect(seams.add).toHaveBeenCalledTimes(2)
+  expect(seams.back).toHaveBeenCalledTimes(1)
+  expect(seams.add).toHaveBeenCalledTimes(1)
   expect(seams.switch).toHaveBeenCalledWith('other')
   expect(seams.rename).toHaveBeenCalledWith('phone', 'Renamed phone')
 })

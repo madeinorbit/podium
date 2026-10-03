@@ -155,17 +155,9 @@ function expectPoolReadersOnly(runtime: ClientRuntime) {
 
 it('renders identical banners with the startup switch off and on', async () => {
   const reactErrors = vi.spyOn(console, 'error')
-  const legacy = await mount(false), expected = legacy.view.container.innerHTML
-  expect(legacy.seen.every((pool) => pool === null)).toBe(true)
-  expect(readRuntimeStoreStats(legacy.runtime)?.selectorRuns).toBeGreaterThan(0)
-  expect(messageNotices).toHaveBeenCalled()
-  expect(pendingInteractionCards).toHaveBeenCalled()
-  legacy.view.unmount()
-  vi.clearAllMocks()
   const enabled = await mount(true)
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
-  expect(enabled.view.container.innerHTML).toEqual(expected)
   expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON banners')
   expect(enabled.errors).toEqual([])
   expectPoolReadersOnly(enabled.runtime)

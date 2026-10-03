@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renders the same phone session and question through the real no-pool to attached-pool transition > last green pilot-ON superagent 1`] = `"<div><button aria-label="Clear context — start the chat fresh"></button><div class="css-view-g5y9jx r-backgroundColor-50oc93 r-flex-13awgt0 r-minHeight-ifefl9"><div class="css-view-g5y9jx r-flex-13awgt0 r-minHeight-ifefl9" style="padding-bottom: 0px;"><div data-testid="transcript" data-session="synthetic-session-0" data-question="z-first-question">Existing transcript</div><button>Send</button></div></div></div>"`;

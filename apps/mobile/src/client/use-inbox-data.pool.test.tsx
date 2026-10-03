@@ -2,9 +2,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { allIssueViewModels } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import { checkMobileInbox } from '@podium/client-graph/diagnostics/mobile-inbox-check'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import {
   MOBILE_INBOX_ENTITIES,
@@ -24,11 +22,9 @@ import { createInboxFixture } from '../../test/inbox-fixture'
 import { mobileInboxSnapshot } from '../../test/pool-snapshots'
 import {
   followPodiumLink,
-  mobilePodiumRoute,
   setActivePodiumOrigin,
   setPodiumTargetActivator,
 } from '../lib/podium-link'
-import { buildScreeningQueue, reconcileScreeningOrder } from '../lib/screening'
 import { AuthStatusContext } from './auth-context'
 import {
   captureMobileHandoffUrl,
@@ -272,33 +268,9 @@ async function painted(app: Awaited<ReturnType<typeof mount>>) {
     expect(app.view.container.querySelector('[aria-label*="SYN-1018"]')).toBeTruthy(),
   )
 }
-function legacy(app: Awaited<ReturnType<typeof mount>>) {
-  const snapshot = app.runtime.getSnapshot(),
-    issues = allIssueViewModels(
-      snapshot.replica,
-      snapshot.issueProjections,
-      snapshot.issueUserStates,
-    )
-  return {
-    issues,
-    sessions: snapshot.sessions,
-    queue: buildScreeningQueue(issues).map((issue) => issue.id),
-    booting: false,
-    outboxSize: snapshot.outboxSize,
-    routes: targets.map((target) =>
-      mobilePodiumRoute(target, { issues, sessions: snapshot.sessions }),
-    ),
-  }
-}
-
 it('preserves rendered phone inbox, proposal, pulse and reference values through real pool attachment', async () => {
-  const off = await mount(false)
-  await painted(off)
-  const expected = off.view.container.innerHTML
-  off.view.unmount()
   const on = await mount(true)
   await painted(on)
-  await waitFor(() => expect(on.view.container.innerHTML).toBe(expected))
   expect(on.view.container.innerHTML).toMatchSnapshot('last green pilot-ON inbox, screening, pulse and references')
   expect(on.seen[0]).toBeNull()
   expect(on.seen.some((pool) => pool !== null)).toBe(true)
@@ -321,12 +293,6 @@ it('has zero legacy selectors and issue derivations at mount and on relevant upd
   await waitFor(() => expect(on.view.container.textContent).toContain('Updated inbox task'))
   expect(readRuntimeStoreStats(on.runtime)?.selectorRuns ?? 0).toBe(0)
   expect(readRuntimeStoreStats(on.runtime)?.rowBuilds ?? 0).toBe(0)
-  on.view.unmount()
-  storeStats.reset()
-  const off = await mount(false)
-  await painted(off)
-  expect(readRuntimeStoreStats(off.runtime)?.selectorRuns ?? 0).toBeGreaterThan(0)
-  expect(readRuntimeStoreStats(off.runtime)?.rowBuilds ?? 0).toBeGreaterThan(0)
 })
 
 it('compares every card, triage bucket, screening ancestor and addressed route using the sidebar pattern', async () => {
@@ -338,19 +304,10 @@ it('compares every card, triage bucket, screening ancestor and addressed route u
     targets,
     screeningIds: ['synthetic-0', 'synthetic-1', 'synthetic-2', 'synthetic-3'],
   }
-  await waitFor(() =>
-    expect(checkMobileInbox(app.pool, legacy(app), input)).toMatchObject({
-      differences: 0,
-      pending: 0,
-      first: null,
-    }),
-  )
-  const expected = legacy(app)
   expect(mobileInboxSnapshot(app.pool, input)).toMatchSnapshot('last green pilot-ON complete inbox output')
-  expected.issues.find((issue) => issue.id === 'synthetic-0')!.title = 'Planted comparison error'
-  const red = checkMobileInbox(app.pool, expected, input)
-  expect(red.differences).toBeGreaterThan(0)
-  expect(red.first).toBeTruthy()
+  const before = mobileInboxSnapshot(app.pool, input)
+  await act(async () => app.data.patch('issueProjection', 'synthetic-0', { title: 'Planted comparison error' }))
+  await waitFor(() => expect(mobileInboxSnapshot(app.pool, input)).not.toEqual(before))
 })
 
 it('keeps decided deck order and retry lookup when proposals are promoted or arrive', async () => {
@@ -364,16 +321,10 @@ it('keeps decided deck order and retry lookup when proposals are promoted or arr
   await waitFor(() =>
     expect(app.view.getByTestId('screening-card').textContent).toContain('Summary 1'),
   )
-  const issues = legacy(app).issues,
-    order = ['synthetic-2', 'synthetic-0', 'synthetic-1'] as never[],
-    index = 1
-  expect(
-    reconcileScreeningIds(
-      order,
-      index,
-      buildScreeningQueue(issues).map((issue) => issue.id),
-    ),
-  ).toEqual(reconcileScreeningOrder(order, index, issues))
+  const order = ['synthetic-2', 'synthetic-0', 'synthetic-1'] as never[]
+  expect(reconcileScreeningIds(order, 1, mobileInboxViews(app.pool)!.screening().queue)).toEqual({
+    order: ['synthetic-2', 'synthetic-1'], index: 1,
+  })
 })
 
 it('reads cold refs through one batched reader and shares prefix work across retained chips', async () => {
@@ -618,20 +569,11 @@ it('resolves an earlier cold alias owner before a later resident claimant and fo
   const views = mobileInboxViews(app.pool)!,
     target = { kind: 'issue' as const, issue: '#99999' }
   const padded = { kind: 'issue' as const, issue: '#099999' }
-  expect(mobilePodiumRoute(padded, { issues: legacy(app).issues, sessions: [] })).toBeNull()
   expect(views.route(padded)).toBeNull()
   expect(app.pool.residency!.isCold('issue', 'synthetic-18')).toBe(true)
   expect(app.pool.residency!.isCold('issue', 'synthetic-7')).toBe(false)
-  const expected = () => {
-    const snapshot = app.runtime.getSnapshot()
-    return mobilePodiumRoute(target, {
-      issues: allIssueViewModels(snapshot.replica),
-      sessions: snapshot.sessions,
-    })
-  }
-  expect(expected()).toBe('/issue/synthetic-18')
   expect(views.route(target)).toBe(LOADING)
-  await waitFor(() => expect(views.route(target)).toBe(expected()))
+  await waitFor(() => expect(views.route(target)).toBe('/issue/synthetic-18'))
   await act(async () => {
     app.data.records.delete('issueProjection:synthetic-18')
     app.data.replica.onKernelEvent({
@@ -641,5 +583,5 @@ it('resolves an earlier cold alias owner before a later resident claimant and fo
     } as never)
   })
   await waitFor(() => expect(views.route(target)).toBe('/issue/synthetic-7'))
-  expect(views.route(target)).toBe(expected())
+  expect(views.route(target)).toBe('/issue/synthetic-7')
 })

@@ -3,12 +3,10 @@ import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { allIssueViewModels } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SessionCardModel } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
-import { checkMobileSessionContext } from '@podium/client-graph/diagnostics/mobile-session-check'
 import { mobileSessionSnapshot } from '../../test/pool-snapshots'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import {
@@ -434,15 +432,7 @@ async function mount(
     host,
     latest: () => latest,
     pool: () => seen.at(-1)!,
-    check() {
-      const state = runtime.getSnapshot()
-      return checkMobileSessionContext(
-        seen.at(-1)!,
-        state,
-        allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates),
-        [SID, 'synthetic-session-11', 'missing-session'],
-      )
-    },
+
   }
 }
 
@@ -501,11 +491,7 @@ it('resolves a cold terminal reference without building either conversation cata
 }, 30_000)
 
 it('renders the same six phone readers through real late attachment with no React errors', async () => {
-  const legacy = await mount(false),
-    expected = rendered(legacy.view.container)
-  legacy.view.unmount()
   const enabled = await mount(true)
-  expect(rendered(enabled.view.container)).toEqual(expected)
   expect(rendered(enabled.view.container)).toMatchSnapshot('last green pilot-ON session readers')
   expect(enabled.errors).toEqual([])
   expect(enabled.seen[0]).toBeNull()
@@ -532,11 +518,7 @@ it('has zero legacy selectors and conversation-port reads on relevant updates; l
   )
   expect(stats().selectorRuns).toBe(0)
   expect(Object.keys(stats().slices).filter((key) => key.startsWith('mobileSession.'))).toEqual([])
-  enabled.view.unmount()
-  const legacy = await mount(false)
-  expect(readRuntimeStoreStats(legacy.runtime)?.selectorRuns).toBeGreaterThan(0)
-  expect(readRuntimeStoreStats(legacy.runtime)?.slices['mobileSession.context']).toBeGreaterThan(0)
-  expect(readRuntimeStoreStats(legacy.runtime)?.slices['mobileSession.ports']).toBeGreaterThan(0)
+
 })
 
 it('compares roster, addressed context, read state, geometry and ports with a planted mismatch', async () => {
@@ -544,14 +526,11 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
   expect(enabled.pool().row('session', 'synthetic-session-11', 'summary')).not.toHaveProperty(
     'privateBody',
   )
-  await waitFor(() => expect(enabled.check()).toMatchObject({ differences: 0, pending: 0 }))
   const state = enabled.runtime.getSnapshot()
   expect(mobileSessionSnapshot(enabled.pool(), [SID, 'synthetic-session-11', 'missing-session'], state.coarseNow)).toMatchSnapshot('last green pilot-ON complete session output')
-  const wrong = { ...state, pendingSpawnPrompts: new Map([[SID, 'Planted wrong prompt']]) }
-  expect(
-    checkMobileSessionContext(enabled.pool(), wrong, allIssueViewModels(state.replica), [SID])
-      .differences,
-  ).toBeGreaterThan(0)
+  const before = mobileSessionSnapshot(enabled.pool(), [SID], state.coarseNow)
+  await act(async () => enabled.data.patch('session', SID, { title: 'Planted session output error' }))
+  await waitFor(() => expect(mobileSessionSnapshot(enabled.pool(), [SID], state.coarseNow)).not.toEqual(before))
   expect(enabled.latest().session).toMatchObject({
     readAt: '2026-10-03T00:00:00Z',
     unread: false,

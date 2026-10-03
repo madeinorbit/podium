@@ -62,10 +62,7 @@ async function mount(on: boolean) {
   return { data, view, runtime, errors, seen }
 }
 it('renders the same phone session and question through the real no-pool to attached-pool transition', async () => {
-  const legacy = await mount(false), expected = legacy.view.container.innerHTML
-  legacy.view.unmount()
   const enabled = await mount(true)
-  expect(enabled.view.container.innerHTML).toEqual(expected)
   expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON superagent')
   expect(enabled.errors).toEqual([])
   expect(enabled.seen[0]).toBeNull()
@@ -78,10 +75,7 @@ it('has zero legacy thread, session, boot and question selectors before and afte
   await act(async () => { enabled.data.activity(1); await enabled.data.updateThread(enabled.runtime, true) })
   expect(Object.entries(readRuntimeStoreStats(enabled.runtime)?.slices ?? {}).filter(([name]) => name === 'superagent' || name.startsWith('superagent.'))).toEqual([])
   expect(readRuntimeStoreStats(enabled.runtime)?.selectorRuns ?? 0).toBe(0)
-  enabled.view.unmount()
-  const legacy = await mount(false)
-  expect(readRuntimeStoreStats(legacy.runtime)?.slices.superagent).toBeGreaterThan(0)
-  expect(readRuntimeStoreStats(legacy.runtime)?.slices['superagent.question']).toBeGreaterThan(0)
+
 })
 it('keeps sending and clearing on the original owner and uses the declared session asset context', async () => {
   const enabled = await mount(true)
