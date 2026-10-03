@@ -4,6 +4,9 @@
  */
 import { hostname } from 'node:os'
 import { runInAction } from 'mobx'
+import { dedupeSessions } from '@podium/client-core/engine'
+import { sessionViews } from '@podium/client-core/session-values'
+import { sessionUserStateRowId } from '@podium/model'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
@@ -18,13 +21,26 @@ import { checkMobile, legacyMobileSnapshot, poolMobileSnapshot } from './mobile'
 
 async function main(): Promise<void> {
   if (hostname() !== 'ludovico' || !process.argv.includes('--live')) throw new Error('Local live replay only')
-  const { raw } = await readLive('http://127.0.0.1:18787')
+  const { raw, sessionHomes } = await readLive('http://127.0.0.1:18787')
   const corpus = { ...corpusFromLive(raw, Date.now()), issueProjections: raw.issueProjections,
     issueUserStates: raw.issueUserStates ?? [], issueGitStates: raw.issueGitStates ?? [], repoProjections: raw.repoProjections }
-  const replica = createKernelReplica({ cache: seedCacheFromCorpus(corpus),
+  const cache = seedCacheFromCorpus(corpus)
+  cache.install([
+    ...sessionHomes.sessions.map(value => ({ entity: 'session' as const, entityId: value.sessionId, value })),
+    ...sessionHomes.userStates.map(value => ({ entity: 'sessionUserState' as const,
+      entityId: sessionUserStateRowId(value.userId, value.sessionId), value })),
+    ...sessionHomes.machines.map(value => ({ entity: 'machine' as const, entityId: value.id, value })),
+  ])
+  const replica = createKernelReplica({ cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const store = sidebarReplayStore(corpus, replica)
-  const runtime = { getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
+  // Same read view and resume-collapse order as ClientRuntime.readSessionViews.
+  store.sessions = dedupeSessions(sessionViews(replica.rows('sessions'), {
+    userId: sessionHomes.userId, userStatesLoaded: true, userStates: replica.rows('sessionUserStates'),
+    repos: replica.rows('repos'), machines: replica.rows('machines'),
+  }))
+  const runtime = { principal: { userId: sessionHomes.userId }, getSnapshot: () => store,
+    subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source)

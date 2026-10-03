@@ -122,6 +122,9 @@ const EXPORTED_ENTITIES = {
 
 export async function readLive(origin: string): Promise<{
   raw: LiveCollections
+  /** Verbatim current authority rows for in-memory normalized replays only.
+   * These are deliberately outside raw, which the export path anonymises. */
+  sessionHomes: { userId: string; sessions: SessionMeta[]; userStates: SessionUserStateWire[]; machines: MachineProjection[] }
   snapshotSeq: number
   bootstrapEntityCounts: Record<string, number>
 }> {
@@ -173,6 +176,8 @@ export async function readLive(origin: string): Promise<{
   raw.issues = fixtureViewModels(raw)
   return {
     raw,
+    sessionHomes: { userId: userStates[0]?.userId ?? '', sessions: rowsOf<SessionMeta>('session'),
+      userStates, machines: rowsOf<MachineProjection>('machine') },
     snapshotSeq,
     bootstrapEntityCounts,
   }
