@@ -13,12 +13,13 @@ export function createBoardProjection<T>(read: () => T, released: () => void): B
   const listeners = new Set<() => void>()
   let snapshot: T | undefined
   let stop: (() => void) | undefined
+  let disposed = false
   const clear = () => {
     stop?.(); stop = undefined; snapshot = undefined
     released()
   }
   const start = () => {
-    if (stop) return
+    if (stop || disposed) return
     stop = reaction(read, next => {
       snapshot = next
       for (const wake of listeners) wake()
@@ -31,6 +32,6 @@ export function createBoardProjection<T>(read: () => T, released: () => void): B
       listeners.add(wake); start()
       return () => { listeners.delete(wake); if (!listeners.size) clear() }
     },
-    dispose() { listeners.clear(); clear() },
+    dispose() { disposed = true; listeners.clear(); clear() },
   }
 }

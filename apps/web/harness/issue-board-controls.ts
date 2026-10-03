@@ -10,6 +10,9 @@ mkdirSync(root, { recursive: true })
 const source = 'packages/client-graph/src/issue-board-source.ts'
 const test = 'packages/client-graph/src/issue-board-source.test.ts'
 const cases = [
+  { name: 'initial-projection', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'derives once', from: 'getSnapshot() { start(); return snapshot }', to: 'getSnapshot() { start(); const value = snapshot; clear(); return value }' },
+  { name: 'abandoned-projection', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'releases an abandoned', from: 'queueMicrotask(() => { if (!listeners.size) clear() })', to: 'queueMicrotask(() => {})' },
+  { name: 'projection-release', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'derives once', from: 'stop?.(); stop = undefined; snapshot = undefined', to: 'stop = undefined; snapshot = undefined' },
   { name: 'unmount-release', file: source, test, title: 'releases demanded', from: 'onBecomeUnobserved(value, () => cache.delete(key))', to: 'onBecomeUnobserved(value, () => {})' },
   { name: 'summary-only', file: source, test, title: 'uses declared cold', from: "const row = pool.row('issue', id, 'summary')", to: "const row = pool.row('issue', id)" },
   { name: 'passive-membership', file: source, test, title: 'uses declared cold', from: 'pool.tables.issue.has(id) ? memo', to: "pool.resident('issue', id) === 'resident' ? memo" },
