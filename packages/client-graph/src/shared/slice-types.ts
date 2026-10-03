@@ -87,7 +87,7 @@ export interface SliceAgentState {
  * no `issueId` is owned by longest-prefix containment, never orphaned
  * (spec §2 R3).
  */
-export interface SliceSession extends Partial<Pick<SessionValues, 'displayRef' | 'snoozedUntil' | 'readAt' | 'unread' | 'busy'>> {
+export interface SliceSession extends Partial<Pick<SessionValues, 'displayRef' | 'snoozedUntil' | 'readAt' | 'unread'>> {
   sessionId: string
   issueId?: string | null
   cwd: string
@@ -98,6 +98,8 @@ export interface SliceSession extends Partial<Pick<SessionValues, 'displayRef' |
   draftUpdatedAt?: string
   headless?: boolean
   status?: string | null
+  /** Runtime activity, independent of the per-user SessionValues companion. */
+  busy?: boolean
   archived?: boolean
   lastActiveAt: string
   stoppedAt?: string | null
