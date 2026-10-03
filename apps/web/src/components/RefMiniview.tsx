@@ -8,6 +8,7 @@ import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
 import type { MobxPool } from '@podium/client-graph'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { chipsDataLayer } from '@/lib/chips-data-layer'
+import { useChatReferenceSessions, useChatReferenceMachines, useChatRepositoryKey } from '@/features/chat/use-chat-context'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import {
   ArchiveRestore,
@@ -78,7 +79,7 @@ function LegacyRefMiniviewHost(): JSX.Element {
 function PoolRefMiniviewHost(): JSX.Element {
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
   const pool = useWorklistPool()
-  const sessions = useStoreSelector(s => s.sessions)
+  const sessions = useChatReferenceSessions()
   const read = useCallback((pool: MobxPool) => {
     if (!state) return { issues: [] as RefIssueLike[], loading: false }
     const parsed = parseAnyRef(state.ref)
@@ -139,15 +140,15 @@ function RefMiniviewContents({ issues, resolveIssue, loading = false }: {
   resolveIssue: (ref: string) => ResolvedRef | null
   loading?: boolean
 }): JSX.Element | null {
-  const { trpc, sessions, setOpenIssueId, setView, navigateToSession, machines } =
+  const sessions = useChatReferenceSessions()
+  const machines = useChatReferenceMachines()
+  const { trpc, setOpenIssueId, setView, navigateToSession } =
     useStoreSelector(
       (s) => ({
         trpc: s.trpc,
-        sessions: s.sessions,
         setOpenIssueId: s.setOpenIssueId,
         setView: s.setView,
         navigateToSession: s.navigateToSession,
-        machines: s.machines,
       }),
       shallowEqual,
     )
@@ -570,17 +571,8 @@ function PoolRefPrefixSync(): JSX.Element {
 }
 
 function RefPrefixSyncContents({ issuePrefixKey }: { issuePrefixKey: string }): null {
-  const { trpc, repoKey } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      // Registered repos changing (add/remove) means the prefix set may have too.
-      repoKey: s.repos
-        .map((r) => r.path)
-        .sort()
-        .join('\n'),
-    }),
-    shallowEqual,
-  )
+  const trpc = useStoreSelector(s => s.trpc)
+  const repoKey = useChatRepositoryKey()
   const [repoPrefixes, setRepoPrefixes] = useState<string[]>([])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: repoKey is a deliberate refetch trigger — repos changing means the prefix set may have too.

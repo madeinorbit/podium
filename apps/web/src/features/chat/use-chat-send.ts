@@ -4,8 +4,6 @@ import {
   type ConversationPendingTurn,
   type ConversationTranscript,
   hubConnection,
-  storeConversationOutbox,
-  storeConversationRecords,
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import type {
@@ -22,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { Store } from '@/app/store'
 import type { PendingItem } from './chat'
 import type { UseHeadlessTurnResult } from './use-headless-turn'
+import { useChatConversationPorts } from './use-chat-context'
 
 interface TranscriptBridge {
   port: ConversationTranscript
@@ -66,12 +65,12 @@ export interface UseChatSendOptions {
    *  catches up on its own messages by id (POD-4811). */
   hub?: Store['hub']
   sendChat: Store['sendChat']
-  chatSendsFor: Store['chatSendsFor']
+  chatSendsFor?: Store['chatSendsFor']
   discardChat: Store['discardChat']
   dismissOffer: Store['dismissOffer']
   setPanelMode: Store['setPanelMode']
   setSessionDraft: Store['setSessionDraft']
-  initialDraft: string
+  initialDraft?: string
   getUserFocus: Store['getUserFocus']
   attachedSessionId: Store['attachedSessionId']
   clearAttachedSession: Store['clearAttachedSession']
@@ -103,6 +102,7 @@ export interface UseChatSendOptions {
 }
 
 export interface UseChatSendResult {
+  ready: boolean
   pending: PendingItem[]
   justSent: boolean
   ctxSeq: number | null
@@ -143,7 +143,6 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     trpc,
     hub,
     sendChat,
-    chatSendsFor,
     discardChat,
     dismissOffer: dismissOfferWrite,
     setPanelMode,
@@ -167,6 +166,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     initialPendingText,
     onInitialPendingSettled,
   } = opts
+  const ports = useChatConversationPorts(sessionId, store)
+  const heldSends = ports.held
 
   const transcriptItems = useMemo(() => blocks.map((block) => block.item), [blocks])
   // biome-ignore lint/correctness/useExhaustiveDependencies: one bridge per addressed conversation
@@ -193,7 +194,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       // A message the outbox already holds (a reloaded conversation following
       // it, or a retry of one that gave up) is waited on or re-issued as it is:
       // its command was chosen when it was written, whatever the route says now.
-      if (chatSendsFor(sessionId).some((held) => held.mutationId === turn.deliveryId)) {
+      if (!ports.ready) throw new Error('Conversation context is loading.')
+      if (heldSends(sessionId).some((held) => held.mutationId === turn.deliveryId)) {
         return await sendChat(
           { sessionId, text: turn.wire, wake: route.kind === 'resume' },
           asMutationId(turn.deliveryId),
@@ -246,7 +248,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       headlessTurn,
       clearAttachedSession,
       sendChat,
-      chatSendsFor,
+      heldSends,
+      ports.ready,
     ],
   )
 
@@ -280,7 +283,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     // sending (the controller waits on it again) or "not sent" with its retry.
     const held: ConversationPendingTurn[] = headless
       ? []
-      : chatSendsFor(sessionId).map((send, index) => ({
+      : heldSends(sessionId).map((send, index) => ({
           id: `outbox-${index}-${send.mutationId}`,
           deliveryId: send.mutationId,
           text: send.text,
@@ -322,8 +325,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       ...(headless
         ? { reconcile: 'next-user-item' as const }
         : {
-            records: storeConversationRecords(store, sessionId),
-            outbox: storeConversationOutbox(store, sessionId),
+            records: ports.records,
+            outbox: ports.outbox,
             lookupRecords: (ids: readonly string[]) =>
               operationsRef.current.trpc.messages.records
                 .query({ ids: [...ids] })
@@ -332,7 +335,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
               ? { connection: hubConnection(hub) }
               : {}),
           }),
-      initialDraft,
+      initialDraft: initialDraft ?? ports.draft,
       initialPending,
       initialJustSent: initialPendingText !== undefined && !headless,
       onDraftChange: (text) => setSessionDraft(sessionId, text),
@@ -357,7 +360,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       interrupt: (messageId) => interruptRef.current(messageId),
       optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
     })
-  }, [sessionId])
+  }, [sessionId, ports.ready])
 
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   useEffect(() => {
@@ -420,6 +423,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   )
 
   return {
+    ready: ports.ready,
     // The controller records a failed turn's reason as `error`; the bubble that
     // renders it calls the same fact `failure` (POD-2604). Bridged here, at the
     // one seam where a controller turn becomes a web pending item, rather than

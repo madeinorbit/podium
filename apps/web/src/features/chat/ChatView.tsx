@@ -6,7 +6,7 @@ import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useReplicaIssues, useSessionDraft, useStoreSelector } from '@/app/store'
+import { useChatDraft, useChatInteractions } from './use-chat-context'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
 import { cn } from '@/lib/utils'
 import { handleChatMdClick } from './chat-md-click'
@@ -108,7 +108,7 @@ function ScopedChatComposer({
   chat: ChatSurface
   quoteDraftRef: QuoteDraftRef
 }): JSX.Element {
-  const draft = useSessionDraft(sessionId)
+  const draft = useChatDraft(sessionId)
   const setDraft = chat.setDraft
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
   quoteDraftRef.current = (markdown) => {
@@ -214,12 +214,7 @@ export function ChatView({
    * replica whose `pendingInteraction` collection has not arrived is a partial
    * world, not an error.
    */
-  const blocked = useStoreSelector((s) =>
-    (s.pendingInteractions ?? []).some(
-      (row) => row.sessionId === sessionId && row.status === 'asked',
-    ),
-  )
-  const issues = useReplicaIssues()
+  const { blocked } = useChatInteractions(sessionId)
   const quoteDraftRef = useRef<((markdown: string) => void) | null>(null)
   const [issueLivenessRoot, setIssueLivenessRoot] = useState<HTMLDivElement | null>(null)
   const quoteIntoDraft = useCallback((markdown: string) => {

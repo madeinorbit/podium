@@ -4,11 +4,9 @@ import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X }
 import type { JSX, RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePanelVisible } from '@/app/panel-visible'
-import { useReplicaIssues } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
-import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { useFileMentions } from '@/lib/at-mention/useFileMentions'
 import { issueAgentKind } from '@/lib/issue-agents'
@@ -21,6 +19,7 @@ import type { UseAttachmentsResult } from './use-attachments'
 import { chordLabel, useComposerChord } from './use-composer-chord'
 import type { TranscriptFreshness } from './useTranscriptWindow'
 import { VoiceButton } from './VoiceButton'
+import { useChatMentions } from './use-chat-context'
 
 /**
  * The shared auto-grow, as a renderless child instead of a call in the body.
@@ -327,12 +326,8 @@ export function ChatComposer({
   // ---- @ context: issues from the replica, files from the session's checkout ----
   // Both lists are capped: the menu is a shortlist, and a menu long enough to
   // scroll past a screen is a search result, which is a different feature.
-  const issues = useReplicaIssues()
   const trigger = useAtTrigger({ taRef, enabled: deliverable })
-  const issueOptions = useMemo(
-    () => (trigger.query === null ? [] : issueMentions(issues, trigger.query, 5)),
-    [issues, trigger.query],
-  )
+  const issueOptions = useChatMentions(trigger.query)
   const fileOptions = useFileMentions({
     query: trigger.query,
     root: session?.cwd,

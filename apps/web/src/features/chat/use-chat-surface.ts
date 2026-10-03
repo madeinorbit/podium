@@ -36,7 +36,6 @@ import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId} from
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSessionExitKind, useStoreSelector } from '@/app/store'
-import { usePaneSession, usePaneMachines } from '../terminal/use-session-pane-inputs'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem } from './chat'
@@ -47,6 +46,7 @@ import { type TurnPreview, useTurnPreview } from './use-turn-preview'
 import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
 import { useTranscriptReveal } from './use-transcript-reveal'
 import { RENDER_WINDOW, type TranscriptFreshness, useTranscriptWindow } from './useTranscriptWindow'
+import { useChatContextWindow, useChatInteractions, useChatIssueSeq, useChatThreads, useChatSession, useChatMachines } from './use-chat-context'
 
 /**
  * THE CHAT SOURCE (POD-405) — the one place the chat surface's data is
@@ -226,7 +226,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     replica,
     setSessionDraft,
     sendChat,
-    chatSendsFor,
     discardChat,
     dismissOffer,
     setPanelMode,
@@ -234,10 +233,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     httpOrigin,
     tldrSession,
     getUserFocus,
-    attachedSessionId,
     clearAttachedSession,
-    superThreads,
-    transcriptReveal,
     clearTranscriptReveal,
   } = useStoreSelector(
     (s) => ({
@@ -246,7 +242,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       replica: s.replica,
       setSessionDraft: s.setSessionDraft,
       sendChat: s.sendChat,
-      chatSendsFor: s.chatSendsFor,
       discardChat: s.discardChat,
       dismissOffer: s.dismissOffer,
       setPanelMode: s.setPanelMode,
@@ -254,23 +249,18 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       httpOrigin: s.httpOrigin,
       tldrSession: s.tldrSession,
       getUserFocus: s.getUserFocus,
-      attachedSessionId: s.attachedSessionId,
       clearAttachedSession: s.clearAttachedSession,
-      superThreads: s.superThreads,
-      transcriptReveal: s.transcriptReveal,
       clearTranscriptReveal: s.clearTranscriptReveal,
     }),
     shallowEqual,
   )
-  const session = usePaneSession(sessionId)
-  const machines = usePaneMachines()
+  const session = useChatSession(sessionId)
+  const machines = useChatMachines()
   const sessionExitKind = useSessionExitKind(sessionId)
   const storeHandle = useStoreHandle()
-  const getIssueSeq = useCallback(
-    (issueId: string): number | null =>
-      storeHandle.getSnapshot().issueProjections?.find((issue) => issue.id === issueId)?.seq ?? null,
-    [storeHandle],
-  )
+  const getIssueSeq = useChatIssueSeq()
+  const { attachedSessionId, transcriptReveal } = useChatContextWindow()
+  const superThreads = useChatThreads()
 
   // The chat's referent, resolved over a PARTIAL world. `exitKind` is optional
   // on the replica CONTRACT (POD-1510) — test fakes and the legacy TanStack
@@ -551,12 +541,10 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     trpc,
     hub,
     sendChat,
-    chatSendsFor,
     discardChat,
     dismissOffer,
     setPanelMode,
     setSessionDraft,
-    initialDraft: storeHandle.getSnapshot().drafts?.[sessionId] ?? '',
     getUserFocus,
     attachedSessionId,
     clearAttachedSession,
@@ -657,9 +645,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // stable — ChatBlockView is memo'd and a fresh callback each render would
   // defeat that for every block. Who answered is the authority's to stamp
   // (doc §3.1.3 A3); the payload carries only the answer shape.
-  const currentQuestion = useStoreSelector((s) => (s.pendingInteractions ?? []).find(
-    (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
-  ))
+  const { question: currentQuestion } = useChatInteractions(sessionId)
   const answerAsk = useMemo(
     () => async (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => {
       if (currentQuestion && (answer.interactionId !== currentQuestion.id ||
@@ -730,7 +716,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // Scoped to the superagent's own chat: the store field is one field for the
   // app, and a chip on an ordinary session's composer would name context that
   // composer will never send.
-  const attachedSession = usePaneSession(attachedSessionId ?? undefined)
+  const attachedSession = useChatSession(attachedSessionId ?? undefined)
   const attached = useMemo(
     () =>
       superThread && attachedSessionId
@@ -787,7 +773,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     deepeningSearch,
 
     setDraft,
-    composer,
+    composer: send.ready ? composer : { ...composer, deliverable: false, sendable: false },
     attachments,
     isMobile,
     taRef,

@@ -4,7 +4,8 @@ import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmod
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useStoreSelector } from '@/app/store'
+import { useChatArtifactIssue } from './use-chat-context'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { resolveOfferArtifacts } from './offer-artifacts'
@@ -40,7 +41,7 @@ export function OfferArtifactStrip({
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
+  const issue = useChatArtifactIssue(session)
   const [lightbox, setLightbox] = useState<{
     kind: 'image' | 'video'
     src: string
@@ -49,10 +50,6 @@ export function OfferArtifactStrip({
 
   // The session's issue: direct issueId link first, then membership (sessions
   // grouped onto an issue by cwd carry no issueId of their own).
-  const issue =
-    issues.find((i) => i.id === session.issueId) ??
-    issues.find((i) => (i.memberSessionIds ?? []).includes(session.sessionId))
-
   const resolved = resolveOfferArtifacts({
     offer,
     issue,

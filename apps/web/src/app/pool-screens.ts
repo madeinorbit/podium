@@ -1,5 +1,6 @@
 import { issuePagePoolScreen } from '@/features/issues/issue-page/pool-screen'
 import { sessionPanePoolScreen } from '@/features/terminal/session-pane-pool-screen'
+import { chatContextPoolScreen } from '@/features/chat/chat-context-pool-screen'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import type { UiState } from '@podium/client-core/ui-state'
 import { initializeSettingsDataLayer, settingsDataLayer, settingsCheckRequested } from '@/features/settings/data-layer'
@@ -28,6 +29,7 @@ export const poolBackedScreens: readonly PoolScreen[] = [
   issuePagePoolScreen,
   panePoolScreen,
   sessionPanePoolScreen,
+  chatContextPoolScreen,
   commandLaunchScreen,
   noticePoolScreen,
   superagentPoolScreen,

@@ -1,0 +1,16 @@
+import { afterEach, expect, it, vi } from 'vitest'
+afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
+it('defaults OFF and latches the startup override once', async () => {
+  vi.stubGlobal('location', { search: '' })
+  const off = await import('./chat-context-data-layer')
+  off.initializeChatContextDataLayer({ get: () => null })
+  expect(off.chatContextDataLayer()).toBe('legacy')
+  vi.resetModules(); vi.stubGlobal('location', { search: '?mobxChatContext=1&mobxChatContextCheck=1' })
+  const on = await import('./chat-context-data-layer')
+  on.initializeChatContextDataLayer({ get: () => null })
+  expect(on.chatContextDataLayer()).toBe('pool')
+  expect(on.chatContextCheckRequested()).toBe(true)
+  vi.stubGlobal('location', { search: '?mobxChatContext=0' })
+  on.initializeChatContextDataLayer({ get: () => null })
+  expect(on.chatContextDataLayer()).toBe('pool')
+})
