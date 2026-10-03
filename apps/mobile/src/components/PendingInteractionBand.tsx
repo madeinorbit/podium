@@ -36,19 +36,6 @@ export function PendingInteractionBand({ sessionId }: { sessionId: SessionId }) 
   return <PendingInteractionBandBody cards={cards} />
 }
 
-: { sessionId: SessionId }) {
-  // `?? NO_ASKS` with a module-level constant: a replica whose
-  // `pendingInteraction` collection has not arrived is a partial world, not an
-  // error, and this band must never be why the conversation above it fails.
-  const rows = useStoreSelector<PendingInteractionWire[], MobileTrpc>(
-    (s) => s.pendingInteractions ?? NO_ASKS,
-  )
-  const cards = pendingInteractionCards(rows, sessionId).filter(
-    (card) => card.surface === 'aggregate',
-  )
-  return <PendingInteractionBandBody cards={cards} />
-}
-
 function PendingInteractionBandBody({ cards }: { cards: readonly PendingInteractionCard[] }) {
   const trpc = useTrpc()
   const [sending, setSending] = useState<string | null>(null)

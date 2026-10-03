@@ -14,12 +14,9 @@ const mobile = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('../client/hooks', () => ({
-  useStoreSelector: (select: (state: typeof mobile.state) => unknown) => select(mobile.state),
-}))
+vi.mock('../client/use-pool-notices', () => ({ usePoolRecovery: () => mobile.state.outboxDeadLetters }))
 
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => ({ getSnapshot: () => mobile.state }) }))
-vi.mock('../client/mobile-pool', () => ({ mobileDataLayer: () => 'legacy' }))
 
 import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'
 

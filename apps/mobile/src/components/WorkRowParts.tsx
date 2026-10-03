@@ -1,6 +1,4 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import {
-  deriveFleetPresence,
   deriveGitStamp,
   FLEET_KIND_LIMIT,
   type GitStampModel,
@@ -44,14 +42,9 @@ const FLEET_TILE = 19
  * phone used to filter hibernation out exactly as the sidebar did, so a fleet
  * the memory reaper had put to sleep read as an empty one.
  */
-export function FleetSummary({ sessions, display }: {
-  sessions: readonly SessionView[]
-  display?: MobileRowValues['fleet']
-}) {
-  const { present, tiles, nativeCount, label } = display
-    ? { present: { length: display.total }, tiles: display.tiles, nativeCount: display.nativeCount,
-        label: `${display.total} agent${display.total === 1 ? '' : 's'}${display.parkedCount ? ` · ${display.parkedCount} parked` : ''}${display.nativeCount ? ` · ${display.nativeCount} native children` : ''}` }
-    : deriveFleetPresence(sessions)
+export function FleetSummary({ display }: { display: MobileRowValues['fleet'] }) {
+  const present = { length: display.total }, tiles = display.tiles, nativeCount = display.nativeCount
+  const label = `${display.total} agent${display.total === 1 ? '' : 's'}${display.parkedCount ? ` · ${display.parkedCount} parked` : ''}${display.nativeCount ? ` · ${display.nativeCount} native children` : ''}`
   if (present.length === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)
   return (
@@ -93,8 +86,8 @@ export function GitStampLine({
   suppressAhead = false,
   display,
 }: {
-  branch: string | null | undefined
-  git: IssueGitState | null | undefined
+  branch?: string | null | undefined
+  git?: IssueGitState | null | undefined
   suppressAhead?: boolean
   display?: NativeGitStamp
 }) {

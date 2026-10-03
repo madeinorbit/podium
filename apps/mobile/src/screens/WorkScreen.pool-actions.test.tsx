@@ -7,9 +7,7 @@ import {
 } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { allIssueViewModels } from '@podium/client-core/replica'
 import { planReorderKeys } from '@podium/client-core/viewmodels'
-import { legacyDerivationFromStore } from '@podium/client-graph/diagnostics/legacy'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import {
@@ -21,7 +19,7 @@ import {
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
-import { checkMobile, poolMobileSnapshot } from '../../../../packages/worklist-proto/harness/src/oracle/mobile'
+import { poolMobileSnapshot } from '../../../../packages/worklist-proto/harness/src/oracle/mobile-snapshot'
 import { createHash } from 'node:crypto'
 import { createSidebarActionsFixture } from '../../../web/test/sidebar-actions-fixture'
 import type { MobilePool } from '../client/mobile-pool'
@@ -31,7 +29,6 @@ import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-men
 const state = vi.hoisted(() => ({
   host: null as MobilePool | null,
   pool: null as MobxPool | null,
-  diagnostic: false,
   errors: [] as string[],
   sections: [] as readonly MobileWorkSection[],
 }))
@@ -73,8 +70,7 @@ vi.mock('@podium/client-core/viewmodels', async (original) => {
   const real = await original<typeof import('@podium/client-core/viewmodels')>()
   const guard = <T extends (...args: never[]) => unknown>(fn: T): T =>
     ((...args: never[]) => {
-      if (!state.diagnostic) throw new Error('mobile pool action called a legacy row derivation')
-      return fn(...args)
+      throw new Error('mobile pool action called a legacy row derivation')
     }) as T
   return {
     ...real,
@@ -274,8 +270,7 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
   requests = []
   outcomes = []
   state.errors = []
-  state.diagnostic = false
-  router.push.mockClear()
+    router.push.mockClear()
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
   state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
   const fixture = createSidebarActionsFixture(6, NOW, true)
@@ -360,20 +355,10 @@ async function parity() {
     }
     await Promise.resolve()
   })
-  state.diagnostic = true
-  try {
-    const result = checkMobile(
-      pool(),
-      legacyDerivationFromStore(runtime.getSnapshot(), pool().clock.current),
-    )
-    expect(result.pending).toBe(0)
-    expect(result.first, JSON.stringify(result.first)).toBeNull()
-    expect(result.differences).toBe(0)
-    expect(createHash('sha256').update(JSON.stringify(poolMobileSnapshot(pool()))).digest('hex')).toMatchSnapshot('last green pilot-ON action output')
-    comparisons++
-  } finally {
-    state.diagnostic = false
-  }
+  const snapshot = poolMobileSnapshot(pool())
+  expect(snapshot.pending).toBe(0)
+  expect(createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')).toMatchSnapshot('last green pilot-ON action output')
+  comparisons++
   expect(state.errors).toEqual([])
 }
 async function request(procedure: string, id = TARGET) {
@@ -723,18 +708,6 @@ describe('mobile pool work-list actions', () => {
       f.patch('session', 'synthetic-session-5', { issueId: TARGET, agentKind: 'shell' })
     })
     const menu = resolvePoolWorkMenu(pool(), TARGET)!
-    state.diagnostic = true
-    try {
-      expect(menu.target.issue.memberSessionIds).toEqual(
-        allIssueViewModels(
-          runtime.replica,
-          runtime.getSnapshot().issueProjections,
-          runtime.getSnapshot().issueUserStates,
-        ).find((issue) => issue.id === TARGET)!.memberSessionIds,
-      )
-    } finally {
-      state.diagnostic = false
-    }
     expect(menu.target.issue.memberSessionIds).toEqual([
       'synthetic-session-3',
       'synthetic-session-4',
