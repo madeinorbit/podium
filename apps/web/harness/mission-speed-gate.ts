@@ -647,7 +647,7 @@ async function main() {
     if (report.passed && !delayMs)
       await writeFile(resolve(root, 'passed.json'), JSON.stringify(report, null, 2) + '\n')
     console.log(
-      `Measured same-code median spread: ${noise.maxPercent}% (${noise.runs} independent captures); fixed failure margin: 10%.`,
+      `Landed baseline calibration median spread: ${noise.maxPercent}% (${noise.runs} independent captures); fixed failure margin: 10%.`,
     )
     for (const action of ACTIONS)
       if (baseline)
