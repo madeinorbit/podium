@@ -226,6 +226,7 @@ export class MobxPool {
   readonly sessionPanes = createSessionPaneReader(this)
   private settingsSequence = 0
   private readonly settingsEnabled: boolean
+  private readonly setupOrders: ObservableMap<string, number> | undefined
   readonly settingsViews = createSettingsViews(this)
   private readonly firstTaskCount = observable.box(0)
   private readonly firstTaskPending = observable.box(0)
@@ -293,6 +294,9 @@ export class MobxPool {
   ) {
     this.issueIdByRef = lazy?.issueIdByRef
     this.settingsEnabled = lazy?.settings === true
+    this.setupOrders = this.settingsEnabled ? observable.map<string, number>(undefined, {
+      deep: false, name: debugName(() => 'pool.setupOrders'),
+    }) : undefined
     this.writes = writes ?? null
     this.tables = createObservableTables()
     const tables = this.tables
@@ -306,12 +310,7 @@ export class MobxPool {
               const row = this.row(entity, id, 'mark')
               return row === LOADING ? undefined : row
             },
-            load: (entity, id) => {
-              const row = lazy.load(entity, id)
-              if (!lazy.settings || entity !== 'session' || !row) return row
-              const order = this.residency?.summary('session', id)?.['setupOrder']
-              return overlayRow(row, { setupOrder: typeof order === 'number' ? order : ++this.settingsSequence })
-            },
+            load: lazy.load,
             // Read at ingest, after the constructor has built the clock.
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
@@ -513,6 +512,7 @@ export class MobxPool {
       | 'preferenceSource'
       | 'settingsSequence'
       | 'settingsEnabled'
+      | 'setupOrders'
       | 'firstTaskCount'
       | 'firstTaskPending'
       | 'firstTaskState'
@@ -546,6 +546,7 @@ export class MobxPool {
       sessionPanes: false,
       settingsSequence: false,
       settingsEnabled: false,
+      setupOrders: false,
       settingsViews: false,
       firstTaskCount: false,
       firstTaskPending: false,
@@ -644,7 +645,7 @@ export class MobxPool {
   row(entity: EntityName | HeaderEntity | SourceEntity | 'setupSession' | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
     if (entity === 'setupSession') {
       const row = this.row('session', id, 'summary')
-      return row && row !== LOADING ? setupSessionSummary(row as Readonly<Record<string, unknown>>) : row
+      return row && row !== LOADING ? setupSessionSummary(row as Readonly<Record<string, unknown>>, this.setupOrders?.get(id)) : row
     }
     if (entity === 'preference') return this.preferenceSource?.read(id) ?? LOADING
     if (isHeaderEntity(entity)) return this.header.get(entity, id)
@@ -863,17 +864,20 @@ export class MobxPool {
   apply(event: RowSourceEvent): void {
     const out = ingestOut()
     this.graph.begin()
-    if (this.settingsEnabled) {
-      if (event.type === 'replace') this.settingsSequence = 0
-      const rows = event.rows.map((record) => {
-        if (record.kind !== 'session' || !record.value) return record
-        const previous = event.type === 'replace' ? undefined : this.row('setupSession', record.id)
-        const order = previous && previous !== LOADING ? previous.setupOrder : undefined
-        return { ...record, value: overlayRow(record.value, { setupOrder: typeof order === 'number' ? order : ++this.settingsSequence }) }
-      })
-      event = { ...event, rows }
-    }
     runInAction(() => {
+      const orders = this.setupOrders
+      if (orders) {
+        if (event.type === 'replace') {
+          this.settingsSequence = 0
+          const present = new Set(event.rows.filter(row => row.kind === 'session' && row.value).map(row => row.id))
+          for (const id of orders.keys()) if (!present.has(id)) orders.delete(id)
+        }
+        for (const record of event.rows) {
+          if (record.kind !== 'session') continue
+          if (!record.value) orders.delete(record.id)
+          else if (event.type === 'replace' || !orders.has(record.id)) orders.set(record.id, ++this.settingsSequence)
+        }
+      }
       // Only this publication's ids are retained, until its action finishes.
       // Cold values come from the declared summary; no all-issue index.
       const before = new Map<string, Loaded<boolean>>()
@@ -969,6 +973,7 @@ export class MobxPool {
       this.sidebarRosters.clear()
       this.firstTaskCount.set(0)
       this.firstTaskPending.set(0)
+      this.setupOrders?.clear()
     })
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()

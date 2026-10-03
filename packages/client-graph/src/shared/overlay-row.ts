@@ -1,23 +1,37 @@
-/** A read-only view over one borrowed row and a small override record.
- * No full record is copied or retained alongside the borrowed input. */
+type Omissions = Pick<ReadonlySet<PropertyKey>, 'has'>
+
+// All three inputs are borrowed identities. Weak keys let a replaced or
+// evicted row (and its obsolete overlays) go without a pool-wide copy index.
+const overlays = new WeakMap<object, WeakMap<object, WeakMap<Omissions, object>>>()
+
+/** One frozen shallow view per row, override and omission identity.
+ * Call only for an addressed resident row or its declared cold summary. */
 export function overlayRow<T extends object, O extends object>(
   row: T,
   overrides: Readonly<O>,
-  omitted: Pick<ReadonlySet<PropertyKey>, 'has'> = NO_OMISSIONS,
+  omitted: Omissions = NO_OMISSIONS,
 ): T & O {
-  const read = (key: PropertyKey): unknown => omitted.has(key) ? undefined
-    : Reflect.get(Object.hasOwn(overrides, key) ? overrides : row, key)
-  const reject = (): never => { throw new TypeError('A pooled row overlay is read-only') }
-  return new Proxy({} as T & O, {
-    get: (_target, key) => read(key),
-    has: (_target, key) => !omitted.has(key) && (Reflect.has(overrides, key) || Reflect.has(row, key)),
-    ownKeys: () => [...new Set([...Reflect.ownKeys(row), ...Reflect.ownKeys(overrides)])].filter(key => !omitted.has(key)),
-    getOwnPropertyDescriptor: (_target, key) =>
-      omitted.has(key) || (!Object.hasOwn(row, key) && !Object.hasOwn(overrides, key)) ? undefined
-        : { enumerable: true, configurable: true, get: () => read(key) },
-    getPrototypeOf: () => Reflect.getPrototypeOf(row),
-    set: reject, deleteProperty: reject, defineProperty: reject, setPrototypeOf: reject,
-  })
+  let byOverride = overlays.get(row)
+  if (!byOverride) overlays.set(row, byOverride = new WeakMap())
+  let byOmission = byOverride.get(overrides)
+  if (!byOmission) byOverride.set(overrides, byOmission = new WeakMap())
+  const previous = byOmission.get(omitted)
+  if (previous) return previous as T & O
+
+  const value = Object.create(Object.getPrototypeOf(row)) as T & O
+  // The old overlay exposed every own key, including symbols and originally
+  // non-enumerable cells. Define data properties so setters (and __proto__)
+  // cannot intercept the copy and later reads run no lookup or getter.
+  for (const key of new Set([...Reflect.ownKeys(row), ...Reflect.ownKeys(overrides)])) {
+    if (omitted.has(key)) continue
+    Object.defineProperty(value, key, {
+      value: Reflect.get(Object.hasOwn(overrides, key) ? overrides : row, key),
+      enumerable: true, configurable: true, writable: true,
+    })
+  }
+  Object.freeze(value)
+  byOmission.set(omitted, value)
+  return value
 }
 
 const NO_OMISSIONS = Object.freeze({ has: () => false })
