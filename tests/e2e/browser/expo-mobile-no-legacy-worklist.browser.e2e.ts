@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
 import { paintOf, traceStart } from '../../../apps/web/harness/browser-paint'
@@ -10,11 +10,14 @@ test.skip(
   'Pixel Chromium proof',
 )
 test.use({ serviceWorkers: 'block' })
-test.setTimeout(480_000)
+test.setTimeout(720_000)
 const HTTP = RELAY.replace(/^ws/, 'http')
 // Fault controls exercise the same parity assertions without taking timing or
 // heap samples. Positive captures run under the shared benchmark lease.
 const parityOnly = process.env.POD4979_PARITY_ONLY === '1'
+// Optional coordination with the operator of bench:flatblock. Ready is emitted
+// only after the production build; done releases the lease before idle checks.
+const captureGate = process.env.POD4979_CAPTURE_GATE
 
 async function rpc<T>(
   request: APIRequestContext,
@@ -127,7 +130,7 @@ test('production mobile never derives worklist with the pilot on, including miss
   const cells: unknown[] = []
   let expected: unknown
   let savedOn = false
-  for (const on of [false, true, false, true]) {
+  for (const [arm, on] of [false, true, false, true].entries()) {
     await launchWork(page, on, savedOn)
     savedOn = on
     await expect(row()).toBeVisible({ timeout: 60_000 })
@@ -173,6 +176,14 @@ test('production mobile never derives worklist with the pilot on, including miss
     })
     await page.waitForTimeout(250)
     await checkpoint(on, 'incoming update')
+    if (captureGate && !parityOnly) {
+      writeFileSync(`${captureGate}.${arm}.ready`, 'ready\n')
+      const deadline = Date.now() + 180_000
+      while (!existsSync(`${captureGate}.${arm}.go`)) {
+        if (Date.now() > deadline) throw new Error('Benchmark lease was not granted within three minutes')
+        await new Promise(resolve => setTimeout(resolve, 200))
+      }
+    }
     const before = parityOnly ? undefined : await heap()
     const label = await row().getAttribute('aria-label')
     await page.evaluate((label) => {
@@ -226,6 +237,7 @@ test('production mobile never derives worklist with the pilot on, including miss
     await expect(page).toHaveURL(/\/mobile\/mission\/[^/]+\/details/)
     await expect(page.getByText('Mission details', { exact: true })).toBeVisible()
     await checkpoint(on, 'mission details')
+    if (captureGate && !parityOnly) writeFileSync(`${captureGate}.${arm}.done`, 'done\n')
     if (!parityOnly) {
       // One genuine scheduled clock publication per arm; no manually invoked
       // slice and no reset can erase a late eager derivation.
