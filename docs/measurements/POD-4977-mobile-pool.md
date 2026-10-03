@@ -14,6 +14,12 @@ affected section only. Payload changes do not map a complete row world into
 SectionList. A membership change can rebuild its affected lane; this does not
 promise constant-time membership maintenance inside that lane.
 
+Active search caches each filtered native band as well. Matching still reads
+resident rows, but an unchanged match sequence allocates no replacement row
+array. Removing a title match changes its band only; the strict native
+identity checks cover both scales, and a planted copy of every filtered array
+fails on an untouched band at both scales.
+
 Each native slot reads through `pool.mobileWork.row`. Its equality-filtered
 projection contains paint and navigation facts, excluding full issue/session
 records and bookkeeping. A missing payload renders loading and requests the
@@ -85,6 +91,7 @@ disabled.
 | Force legacy launch inputs | Legacy slice subscription guard fires |
 | Ignore a native fold | Collapsed pinned data remains nonempty |
 | Ignore search | Returned rows fail the independent title-match assertion |
+| Copy every filtered native data array | Untouched search-band object identity fails at both scales |
 | Return loading before the row hooks | React reports more hooks than the previous render |
 | Prefix the actual native status formatter | Mobile corpus reports 215/815 differences at 1×/4× |
 
@@ -95,17 +102,29 @@ All tests, typecheck and lint run on flatblock in the issue's isolated
 links. Commands are bounded and foreground. Only synthetic fixture/harness
 data is used; operator data is not copied or captured.
 
-Completed native checks: **22 passed across four named mobile files**. The
+Initial native checks: **22 passed across four named mobile files**. The
 mobile model's six existing loading/draft/key/random checks pass; its two
 revised corpus/publication checks pass separately, with six unchanged checks
-excluded from that second run. Uncached changed-project typecheck is **3/3
-green** before the preference/settings rebase. These are focused results, not
-a full-suite claim.
+excluded from that second run. Rebased integration checks are **17 passed**:
+six shared projection counts and eleven mobile consumer/provider checks in
+three named files. Uncached changed-project typecheck is **3/3 green** after
+the preference/settings rebase. These are focused results, not a full-suite
+claim.
 
-Rebased mobile integration and final static validation are in progress.
-POD-5375 owns the test-only projection callback repair: its factory lives
-outside the component, keeping the shared hook's fresh-reader counts without
-adding observer or lint exemptions. Production seeded-issue export acceptance
-is blocked by POD-5370 and tracked by internal POD-5374. The three-row
+Graph and prototype package lint, root shadowing and span-effect lint are
+green. The final plain projection fixture passed its six unchanged counting
+checks, uncached graph typecheck and graph lint. POD-5375 landed that exact
+test-only repair independently at `5a211c749d`; its callback factory lives
+outside the plain component, with no observer or lint exemption.
+
+The **lean gate is green: 154 tests in 4/1769 files (0.2%)**, comprising boot
+(16), router setup (41), daemon connection state (56) and lane configuration
+(41). The initial lean attempt could not spawn Turbo's node-shebang CLI;
+the isolated checkout's `.toolchain/node` link to its pinned Bun restored
+that command. No global toolchain or cache was changed.
+
+The final active-search restored checks and changed mobile typecheck/lints
+are running. Production seeded-issue export acceptance is blocked by POD-5370
+and tracked by internal POD-5374. The three-row
 off/on style comparison and interleaved Chrome Paint/heap capture are prepared
 for the landed root fix; no production timing result is claimed yet.
