@@ -220,6 +220,7 @@ async function main() {
           }
         if (checks % 100 === 0)
           console.log(JSON.stringify({ phase, checks, positions, differences, pending, first }))
+        if (result.differences || result.pending) break
       } finally {
         stop()
       }
@@ -231,6 +232,7 @@ async function main() {
         roots: roots.length,
         operatorWireVersion,
         checks,
+        plannedChecks: inputs.length,
         positions,
         differences,
         pending,
