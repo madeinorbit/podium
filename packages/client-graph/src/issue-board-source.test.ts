@@ -70,7 +70,7 @@ it('derives a virtual card child summary and progress through declared relations
 it('orders a virtual fleet by declared member IDs after resume collapse', () => {
   const { source, pool, stop } = setup([row('root')])
   const seat = (id: string, status: string, resume?: object) => ({ sessionId: id, issueId: 'root', agentKind: 'codex', status, resume, headless: false, archived: false, agentState: { phase: status === 'live' ? 'working' : 'ended' }, lastActiveAt: '2026-01-01T00:00:00Z' })
-  pool.apply({ type: 'update', rows: [seat('a', 'exited', { kind: 'codex', value: 'same' }), seat('m', 'live'), seat('z', 'live', { kind: 'codex', value: 'same' })].map(value => ({ kind: 'session' as const, id: value.sessionId, value })) })
+  pool.apply({ type: 'update', rows: [seat('a', 'exited', { kind: 'codex', value: 'same' }), seat('m', 'live'), { ...seat('z', 'exited', { kind: 'codex', value: 'same' }), lastActiveAt: '2026-02-01T00:00:00Z' }].map(value => ({ kind: 'session' as const, id: value.sessionId, value })) })
   try {
     const value = source.card({ id: 'root', now })
     expect(value && value !== LOADING && value.sessions.map(seat => seat.sessionId)).toEqual(['z', 'm'])
