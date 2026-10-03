@@ -266,7 +266,9 @@ export async function installProbe(page: Page, mobile: boolean, title: string) {
             document.body?.textContent?.includes(title)
           : !!document.querySelector('aside') &&
             !document.querySelector('.app-loading') &&
-            !!document.querySelector('[data-testid="unified-issue-row"]')
+            !!document.querySelector(
+              'aside [data-testid="unified-issue-row"], aside [data-testid="issue-id-square"]',
+            )
       const observer = new MutationObserver(() => {
         if (!proof.readyAt && ready()) {
           proof.readyAt = performance.now()
