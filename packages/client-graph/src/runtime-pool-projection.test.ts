@@ -99,7 +99,7 @@ it('re-arms after the last unsubscribe and preserves equal snapshot identity', (
 it('publishes lazy reference initialization when subscribing before the first snapshot', () => {
   const f = fixture()
   const issue = { id: 'one', seq: 1, prefix: 'POD', title: 'Task one', stage: 'review',
-    createdAt: '2026-01-01', updatedAt: '2026-01-01', archived: false }
+    createdAt: '2026-01-01', updatedAt: '2026-01-01', archived: false, repoPath: '/r', deps: [] }
   f.pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'one', value: issue as never }] })
   const read = vi.fn((current: MobxPool) => current.references.read('POD-1'))
   const view = createPoolProjection(f.pool, read)
