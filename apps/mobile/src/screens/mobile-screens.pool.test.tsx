@@ -321,7 +321,7 @@ it.each([
           (child) => child.parentId === issue.id && !child.archived && !child.isDraftVessel,
         ),
     )
-    .sort((a, b) => a.priority - b.priority || b.seq - a.seq)[0]!
+    .sort((a, b) => a.priority - b.priority || a.seq - b.seq)[0]!
   state.missionId = root.id
   let setting = on
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => setting }))
