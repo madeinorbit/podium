@@ -9,6 +9,9 @@ test.skip(({ isMobile, browserName }) => !isMobile || browserName !== 'chromium'
 test.use({ serviceWorkers: 'block' })
 test.setTimeout(240_000)
 const HTTP = RELAY.replace(/^ws/, 'http')
+// Fault controls exercise the same parity assertions without taking timing or
+// heap samples. Positive captures run under the shared benchmark lease.
+const parityOnly = process.env.POD4977_PARITY_ONLY === '1'
 
 async function rpc<T>(request: APIRequestContext, proc: string, input: unknown = {}, method: 'get' | 'post' = 'post'): Promise<T> {
   const result = method === 'get'
@@ -35,7 +38,8 @@ test('production mobile work has equal off/on rows and styles, and a real press 
   if (!repos[0]) throw new Error('isolated harness has no repo')
   const title = `Native pool ${Date.now().toString(36)}`
   for (let n = 1; n <= 3; n++) await rpc(request, 'issues.create', { repoPath: repos[0], title: `${title} ${n}`, startNow: true })
-  const row = () => page.getByRole('button', { name: new RegExp(`^[A-Z]+-\\d+ ${title} 1$`) })
+  const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
+  const row = () => page.getByRole('button', { name: new RegExp(`^${prefix} ${title} 1$`) })
   // Prime the normal mark-read write before comparing the same data in both arms.
   await launchWork(page, false)
   await expect(row()).toBeVisible({ timeout: 60_000 })
@@ -50,7 +54,7 @@ test('production mobile work has equal off/on rows and styles, and a real press 
     await launchWork(page, on)
     await expect(row()).toBeVisible({ timeout: 60_000 })
     await page.waitForTimeout(250)
-    const look = await page.getByRole('button', { name: new RegExp(`^[A-Z]+-\\d+ ${title} [123]$`) }).evaluateAll(nodes => nodes.map(node => ({
+    const look = await page.getByRole('button', { name: new RegExp(`^${prefix} ${title} [123]$`) }).evaluateAll(nodes => nodes.map(node => ({
       label: node.getAttribute('aria-label'), text: node.textContent,
       styles: [node, ...node.querySelectorAll('*')].map(element => {
         const style = getComputedStyle(element)
@@ -61,6 +65,7 @@ test('production mobile work has equal off/on rows and styles, and a real press 
     expect(look).toHaveLength(3)
     if (expected === undefined) expected = look
     else expect(look).toEqual(expected)
+    if (parityOnly) continue
     const before = await heap()
     const label = await row().getAttribute('aria-label')
     await page.evaluate(label => {
