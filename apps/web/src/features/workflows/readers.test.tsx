@@ -9,6 +9,7 @@ import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { getObserverTree, runInAction } from 'mobx'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
@@ -130,6 +131,25 @@ it('batches initial machine demand and returns LOADING before the shared source 
   await act(async () => { await Promise.resolve() })
   expect(workflowMachines(pool).pending).toBe(0)
   expect(workflowSubject(pool, fixture.runs[2]!)).toMatchObject({ state: 'pending' })
+})
+
+it('bounds diagnostic summary reads and releases its tracking scope even inside an action', async () => {
+  const { fixture, Wrapper } = setup()
+  const { result } = renderHook(() => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool() }), { wrapper: Wrapper })
+  await waitFor(() => expect(result.current.pool).toBeTruthy())
+  const pool = result.current.pool!
+  workflowMachines(pool)
+  await act(async () => { await Promise.resolve() })
+  const before = getObserverTree(pool.tables.session, 'synthetic-session-0')
+  const row = vi.spyOn(pool, 'row')
+  const inputs = { profiles: fixture.profiles,
+    runs: Array.from({ length: 500 }, (_, index) => ({ ...fixture.runs[3 + index % 3]!, id: `diagnostic-${index}` })),
+  }
+  const check = runInAction(() => checkWorkflows(pool, result.current.owner.getSnapshot(), inputs))
+  expect(check).toMatchObject({ differences: 0, pending: 0, positions: 508 })
+  const sessions = [...fixture.records.values()].filter(record => record.entity === 'session').length
+  expect(row.mock.calls.filter(call => String(call[0]) === 'setupSession')).toHaveLength(sessions)
+  expect(getObserverTree(pool.tables.session, 'synthetic-session-0')).toEqual(before)
 })
 
 it('executes zero legacy readers after feed activity and preserves one denied-write attempt', async () => {
