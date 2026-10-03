@@ -42,6 +42,11 @@ function useLegacyData(options: BoardOptions, base: ReturnType<typeof useBoardBa
   return { issues, sessions, projectPaths, view }
 }
 function usePoolData(options: BoardOptions): PoolBoardData {
+  // Facets belong to the mounted board, rather than a particular filter's
+  // projection. Retain that observation while React replaces the row reader.
+  const agents = String(options.display.showAgentTasks)
+  const readCatalog = useCallback((pool: MobxPool) => pool.row('issueBoardCatalog', agents), [agents])
+  useWorklistPoolProjection(readCatalog, undefined)
   const key = JSON.stringify(options)
   const read = useCallback((pool: MobxPool) => pool.row('issueBoardModel', key), [key])
   const value = useWorklistPoolProjection(read, undefined)

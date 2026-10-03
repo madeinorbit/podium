@@ -66,7 +66,10 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     const row = pool.row('issue', id, 'summary')
     if (!row || row === LOADING) return row
     const raw = row as Record<string, unknown>
-    const fields = Object.fromEntries(ISSUE_BOARD_SUMMARIES.issue.map(key => [key, raw[key]]))
+    // Cold input already IS the declared summary. Picking every field again
+    // allocates dozens of pairs per historical candidate. Resident facts keep
+    // only the declared fields, so no document is retained by this index.
+    const fields = pool.tables.issue.has(id) ? Object.fromEntries(ISSUE_BOARD_SUMMARIES.issue.map(key => [key, raw[key]])) : raw
     const repoId = pool.graph.one('issue', id, 'repo')
     const repo = repoId ? pool.row('repo', repoId) as Loaded<{ prefix?: string }> : undefined
     if (repo === LOADING) return LOADING
@@ -83,11 +86,11 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       branch: raw.branch ?? null, worktreePath: raw.worktreePath ?? null,
     } as IssueViewModel
   }
-  function scoped(row: IssueViewModel, agents: boolean, liveParents = false): boolean {
+  function scoped(row: IssueViewModel, agents: boolean, liveParents = false, id: string = row.id): boolean {
     if (row.isDraftVessel && !row.deletedAt) return false
     if (agents || row.deletedAt || row.audience !== 'agent') return true
-    const seen = new Set([row.id as string])
-    let parent = pool.graph.one('issue', row.id, 'treeParent')
+    const seen = new Set([id])
+    let parent = pool.graph.one('issue', id, 'treeParent')
     while (parent && !seen.has(parent)) {
       seen.add(parent)
       const value = facts(parent)
@@ -204,11 +207,11 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     }
     return result
   }
-  function matches(row: IssueViewModel, query: BoardQuery): boolean {
-    if (query.kind === 'board') return filterBoardIssues([row], query.filter ?? {}).length > 0 && scoped(row, query.showAgentTasks ?? false)
+  function matches(row: IssueViewModel, query: BoardQuery, id: string = row.id): boolean {
+    if (query.kind === 'board') return filterBoardIssues([row], query.filter ?? {}).length > 0 && scoped(row, query.showAgentTasks ?? false, false, id)
     const needle = query.query?.trim().toLowerCase()
     if (needle && !row.deletedAt && row.displayRef.toLowerCase() === needle) return true
-    if (row.archived || row.deletedAt || !scoped(row, false)) return false
+    if (row.archived || row.deletedAt || !scoped(row, false, false, id)) return false
     if (needle) return `${row.displayRef} ${row.title}`.toLowerCase().includes(needle)
     return query.tab === 'needs' ? actionable(row) : tabOf(row) === query.tab
   }
@@ -225,9 +228,14 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       const start = performance.now()
       const cold = pool.residency?.ids('issue', true) ?? []
       for (const id of cold) {
-        const row = facts(id)
+        // Stage, priority, path and ordinary status filters read only their
+        // declared scalar inputs. Build text/ready/deferred values on demand.
+        const f = query.filter
+        const scalarBoard = query.kind === 'board' && !f?.text?.trim() && f?.status !== 'ready' && f?.status !== 'deferred'
+        const scalarExplorer = query.kind === 'explorer' && !query.query?.trim() && query.tab !== 'needs'
+        const row = scalarBoard || scalarExplorer ? pool.row('issue', id, 'summary') as Loaded<IssueViewModel> : facts(id)
         if (row === LOADING) pending = true
-        else if (row && matches(row, query)) ids.push(id)
+        else if (row && matches(row, query, id)) ids.push(id)
       }
       countIssueBoard('coldSummaryVisits', cold.length)
       countIssueBoard('coldSummaryMs', performance.now() - start)
@@ -239,11 +247,11 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     return memo(`catalog:${agents}`, () => {
       const scope: string[] = [], paths = new Set<string>(), assignees = new Set<string>(), labels = new Set<string>()
       const visit = (id: string) => {
-        const row = facts(id)
+        const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
         if (row === LOADING) return false
         if (!row) return true
         if (row.repoPath) paths.add(row.repoPath)
-        if (!row.archived && !row.deletedAt && scoped(row, agents, true)) {
+        if (!row.archived && !row.deletedAt && scoped(row, agents, true, id)) {
           scope.push(id)
           if (row.assignee) assignees.add(row.assignee)
           for (const label of row.labels) labels.add(label)
