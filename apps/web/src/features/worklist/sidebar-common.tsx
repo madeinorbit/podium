@@ -49,9 +49,9 @@ import { measureSidebarRow } from './sidebar-measurements'
 
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
-const SessionContextMenu = lazy(() =>
-  throughRestarts(() => import('@/lib/SessionContextMenu')).then((module) => ({
-    default: module.SessionContextMenu,
+const PoolSessionContextMenu = lazy(() =>
+  throughRestarts(() => import('@/lib/PoolSessionContextMenu')).then((module) => ({
+    default: module.PoolSessionContextMenu,
   })),
 )
 
@@ -671,8 +671,9 @@ function PanelRowInner({
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
   const { guardedEnd } = useSessionGuard(
-    guardWorking === undefined ? undefined : session.sessionId,
+    session.sessionId,
     guardWorking,
+    [session],
   )
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
@@ -1030,8 +1031,8 @@ function PanelRowInner({
       {(attention || snoozed) && <SnoozeControl session={session} className="flex-none" />}
       {menuAnchor && (
         <Suspense fallback={null}>
-          <SessionContextMenu
-            session={session}
+          <PoolSessionContextMenu
+            sessionId={session.sessionId}
             anchor={menuAnchor}
             onClose={() => setMenuAnchor(null)}
             onRename={() => {

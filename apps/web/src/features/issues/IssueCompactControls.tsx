@@ -51,9 +51,9 @@ import { issueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
 
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
-const SessionContextMenu = lazy(() =>
-  throughRestarts(() => import('@/lib/SessionContextMenu')).then((module) => ({
-    default: module.SessionContextMenu,
+const PoolSessionContextMenu = lazy(() =>
+  throughRestarts(() => import('@/lib/PoolSessionContextMenu')).then((module) => ({
+    default: module.PoolSessionContextMenu,
   })),
 )
 
@@ -313,8 +313,8 @@ export function IssueSessionRow({
       </div>
       {menu && (
         <Suspense fallback={null}>
-          <SessionContextMenu
-            session={session}
+          <PoolSessionContextMenu
+            sessionId={session.sessionId}
             anchor={menu}
             onClose={() => setMenu(null)}
             onRename={() => {

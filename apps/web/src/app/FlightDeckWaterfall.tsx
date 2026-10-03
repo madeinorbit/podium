@@ -37,7 +37,7 @@ import type {
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
-import { SessionContextMenu } from '@/lib/SessionContextMenu'
+import { PoolSessionContextMenu } from '@/lib/PoolSessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
@@ -862,8 +862,8 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
         </div>
       ) : null}
       {menuAnchor ? (
-        <SessionContextMenu
-          session={session}
+        <PoolSessionContextMenu
+          sessionId={session.sessionId}
           anchor={menuAnchor}
           onClose={() => setMenuAnchor(null)}
           onRename={() => {

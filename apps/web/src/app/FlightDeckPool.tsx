@@ -6,7 +6,6 @@ import { missionView, readMissionActionInputs } from '@podium/client-graph/missi
 import { compareStructural, computed, observer } from '@podium/client-graph/react'
 import { type ComponentProps, type JSX, useCallback, useMemo } from 'react'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
-import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import {
   FlightDeckContent,
   type FlightDeckPreferences,
@@ -16,7 +15,6 @@ import {
 } from './FlightDeck'
 import { measurePoolMission } from './mission-pane-perf'
 import { readMissionPane } from './mission-pane-reader'
-import { MissionSessionMenu } from './mission-session-menu'
 import { useStoreSelector } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 
@@ -91,9 +89,7 @@ export default observer(function PoolFlightDeck(
     }
   }, [pool, values])
   return source ? (
-    <MissionSessionMenu.Provider value={PoolSessionContextMenu}>
-      <FlightDeckContent {...props} source={source} />
-    </MissionSessionMenu.Provider>
+    <FlightDeckContent {...props} source={source} />
   ) : (
     <SettlingDeck />
   )
@@ -115,18 +111,5 @@ function PoolIssueContextMenu(props: ComponentProps<typeof IssueContextMenu>) {
       allIssues={values.allIssues}
       poolInputs={values}
     />
-  )
-}
-function PoolSessionContextMenu(props: ComponentProps<typeof SessionContextMenu>) {
-  const owner = useStoreHandle()
-  const id = props.session.sessionId
-  const read = useCallback(
-    (pool: MobxPool) =>
-      measurePoolMission(owner, () => readMissionActionInputs(missionView(pool), [], id)),
-    [owner, id],
-  )
-  const values = useWorklistPoolProjection(read, LOADING)
-  return values === LOADING || !values.session ? null : (
-    <SessionContextMenu {...props} session={values.session} poolInputs={values} />
   )
 }

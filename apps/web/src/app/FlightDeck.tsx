@@ -106,7 +106,7 @@ import {
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
-import { SessionContextMenu } from '@/lib/SessionContextMenu'
+import { PoolSessionContextMenu } from '@/lib/PoolSessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
@@ -1347,8 +1347,8 @@ function SessionRow({
       )}
       <NativeRows session={session} onOpen={onOpenNative} />
       {menuAnchor && (
-        <SessionContextMenu
-          session={session}
+        <PoolSessionContextMenu
+          sessionId={session.sessionId}
           anchor={menuAnchor}
           onClose={() => setMenuAnchor(null)}
           onRename={() => {

@@ -1,4 +1,5 @@
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import type { MissionActionInputs } from '@podium/client-graph/mission-view'
 import { asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -9,8 +10,7 @@ vi.mock('@/lib/use-feature', () => ({
   useFeature: () => featureEnabled.value,
 }))
 
-// The store slices the menu reads. Mutated per test before render — the mock
-// closes over `state`, so each test sets the world it wants.
+// Pool inputs are supplied by the caller. The action owner cannot read them.
 const state: {
   repos: unknown[]
   machines: unknown[]
@@ -19,8 +19,8 @@ const state: {
 
 const handoffMutate = vi.fn(async () => ({ ok: true }))
 
-vi.mock('@/app/store', () => {
-  const useStore = () => ({
+vi.mock('@podium/client-core/react', () => ({
+  useStoreHandle: () => ({ getSnapshot: () => ({
     setPinned: vi.fn(),
     setSnooze: vi.fn(),
     clearSnooze: vi.fn(),
@@ -30,16 +30,15 @@ vi.mock('@/app/store', () => {
     markSessionRead: vi.fn(),
     markSessionUnread: vi.fn(),
     trpc: { sessions: { handoff: { mutate: handoffMutate } } },
-    repos: state.repos,
-    machines: state.machines,
-    issues: state.issues,
-  })
-  return {
-    useStore,
-    useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
-  }
-})
+    get repos() { throw new Error('Menu read legacy repositories') },
+    get machines() { throw new Error('Menu read legacy machines') },
+    get issues() { throw new Error('Menu read legacy issues') },
+  }) }),
+}))
+vi.mock('@/app/store', () => ({
+  useStoreSelector: () => { throw new Error('Menu subscribed to the old store') },
+  useReplicaIssues: () => { throw new Error('Menu enumerated legacy issues') },
+}))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
@@ -96,6 +95,11 @@ function open(session: SessionView = meta()): void {
       anchor={{ x: 10, y: 10 }}
       onClose={vi.fn()}
       onRename={vi.fn()}
+      poolInputs={{
+        repos: state.repos as MissionActionInputs['repos'],
+        machines: state.machines as MissionActionInputs['machines'],
+        issue: (state.issues as MissionActionInputs['issues']).find((issue) => issue.id === session.issueId),
+      }}
     />,
   )
 }
