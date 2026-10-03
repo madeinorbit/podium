@@ -1,38 +1,39 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { autorun, runInAction } from 'mobx'
-import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
-import { sessionUserStateRowId } from '@podium/model'
+
 import { storeStats } from '@podium/client-core/perf'
 import { repoUsageAt } from '@podium/client-core/viewmodels'
-import { createRuntimeWorklistPool } from './runtime-pool'
-import { attachCommandLaunchSource } from './command-launch-source'
-import { COMMAND_SUMMARIES } from './command-launch-schema'
-import { commandLaunchViews, createCommandLaunchViews } from './command-launch-views'
+import { sessionUserStateRowId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
+import { autorun, runInAction } from 'mobx'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  startScenarioEngine,
+  upsert,
+  writeArchiveIssue,
+  writeBurst50,
+  writeClockTick,
+  writeEvictIssue,
+  writeHeartbeat,
+  writeNewIssue,
+  writeParentReassignment,
+  writePhaseChange,
+  writeRescopeBack,
+  writeRescopeGrow,
+  writeSelectionClick,
+  writeStageMove,
+  writeTitleRename,
+} from '../../worklist-proto/shared/src/scenarios'
 import {
   checkCommandLaunch,
   compareCommandLaunchSnapshots,
   legacyCommandLaunchSnapshot,
   poolCommandLaunchSnapshot,
 } from '../diagnostics/command-launch-check'
+import { COMMAND_SUMMARIES } from './command-launch-schema'
+import { attachCommandLaunchSource } from './command-launch-source'
+import { commandLaunchViews, createCommandLaunchViews } from './command-launch-views'
+import { createRuntimeWorklistPool } from './runtime-pool'
 import { LOADING } from './worklist/rollup'
-import {
-  startScenarioEngine,
-  writeHeartbeat,
-  writePhaseChange,
-  writeSelectionClick,
-  writeTitleRename,
-  writeStageMove,
-  writeNewIssue,
-  writeArchiveIssue,
-  writeEvictIssue,
-  writeParentReassignment,
-  writeClockTick,
-  writeBurst50,
-  writeRescopeGrow,
-  writeRescopeBack,
-  upsert,
-} from '../../worklist-proto/shared/src/scenarios'
 
 afterEach(() => {
   vi.useRealTimers()
