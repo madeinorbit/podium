@@ -39,11 +39,14 @@ import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
 import { seedIssueFixtures } from './issue-fixtures'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { MobileShellProvider } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 import type { MobileTrpc } from './trpc'
 
 export interface MobileStoreFixture {
+  /** Exercise an app's real pool attachment on the provider-owned runtime. */
+  attachRuntime?: (runtime: ClientRuntime<MobileTrpc>, onError: (error: Error) => void) => () => void
   sessions?: SessionMeta[]
   sessionUserStates?: SessionUserStateWire[]
   machineProjections?: MachineProjection[]
@@ -198,6 +201,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
         principal={principal}
         createReplicaFn={createReplicaFn}
         routerWindow={routerWindow}
+        attachRuntime={fixture.attachRuntime}
       >
         {inner}
       </StoreProvider>

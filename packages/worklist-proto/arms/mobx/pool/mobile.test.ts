@@ -8,7 +8,7 @@ import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { MOBILE_ROW_FIELDS } from '@podium/client-graph/worklist/mobile-row'
-import type { MobileWorkState } from '@podium/client-graph/worklist/mobile'
+import type { MobileWorkSection, MobileWorkState } from '@podium/client-graph/worklist/mobile'
 import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { openFenceFeeds, FENCE_SCENARIOS } from '../../../harness/src/fence-scenarios'
@@ -39,8 +39,25 @@ describe('mobile pool values', () => {
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
     const stop = reaction(() => poolMobileSnapshot(handle.pool), () => {}, { fireImmediately: true })
     const checks: unknown[] = []
+    let previous: readonly MobileWorkSection[] | undefined
+    let retained = 0
     const check = (scenario: string) => {
       feeds.flush(); settle(handle.pool)
+      const native = tracked(() => handle.pool.mobileWork.sections().sections)
+      if (previous) for (const section of native) {
+        const old = previous.find(band => band.key === section.key)
+        if (!old) continue
+        const refs = (rows: MobileWorkSection['data']) => rows.map(row => `${row.kind}:${row.listKey}`)
+        if (JSON.stringify(refs(old.data)) === JSON.stringify(refs(section.data))) {
+          expect(section.data, `${scenario} ${section.key}: native data identity`).toBe(old.data)
+          retained++
+        }
+        for (const lane of ['snoozedIds', 'closedIds'] as const) if (JSON.stringify(old[lane]) === JSON.stringify(section[lane])) {
+          expect(section[lane], `${scenario} ${section.key}: ${lane} identity`).toBe(old[lane])
+        }
+        if (JSON.stringify(old) === JSON.stringify(section)) expect(section, `${scenario} ${section.key}: section identity`).toBe(old)
+      }
+      previous = native
       const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), handle.pool.clock.current)
       for (const searching of [false, true]) {
         const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...derivation.slice.groups.map(group => group.key)]
@@ -57,6 +74,7 @@ describe('mobile pool values', () => {
     try {
       check('corpus')
       for (const scenario of FENCE_SCENARIOS) { await scenario.write(ctx); check(scenario.scenario) }
+      expect(retained).toBeGreaterThan(0)
       writeResult(`mobile-${scale}x`, { issue: 'POD-4975', scale, checks })
     } finally { stop(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 600_000)

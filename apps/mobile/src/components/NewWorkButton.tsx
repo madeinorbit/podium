@@ -14,6 +14,7 @@ import {
   launchAgentKind,
   machineViewsFromWire,
   type RepoNavView,
+  type SidebarSections,
   resolveSpawnTargetMachine,
   spawnTargetForRepo,
   usableMachines,
@@ -26,6 +27,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from './icons'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useMachines, useSessions, useStoreActions } from '../client/hooks'
+import { mobileDataLayer, useMobileLaunchData } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { useHarnessDescriptors } from '@podium/client-core/react'
@@ -56,6 +58,30 @@ import { PressableScale } from './PressableScale'
 import { HeaderButton } from './Screen'
 
 type PickerStep = 'launch' | 'model' | 'effort' | 'machine' | 'repo' | null
+
+function useLegacyLaunchInputs() {
+  const sessions = useSessions()
+  const { sections } = useSlice(worklistSlice)
+  return { sessions, sections }
+}
+
+function usePoolLaunchInputs() {
+  const data = useMobileLaunchData()
+  return useMemo(() => {
+    const sessions = data?.sessions ?? []
+    const pins = data?.pins ?? { repos: [], worktrees: [] }
+    const projects = (data?.repoViews ?? []).map(repo => ({
+      ...repo,
+      worktrees: repo.worktrees.filter(tree => !pins.worktrees.includes(tree.path)),
+    }))
+    const sections = {
+      pinnedRepos: pins.repos.flatMap(path => projects.filter(repo => repo.path === path)),
+      repos: projects.filter(repo => !pins.repos.includes(repo.path) && repo.worktrees.length > 0),
+      pinnedWorktrees: (data?.repoViews ?? []).flatMap(repo => repo.worktrees.filter(tree => pins.worktrees.includes(tree.path))),
+    } as SidebarSections
+    return { sessions, sections }
+  }, [data])
+}
 
 /** The model pick that means "no agent at all" — a plain shell in the worktree.
  *  It lives in the model list rather than behind its own link: choosing what
@@ -98,8 +124,9 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
   const machines = useMachines()
-  const sessions = useSessions()
-  const { sections } = useSlice(worklistSlice)
+  // This choice is latched before the first signed-in screen mounts.
+  const useInputs = mobileDataLayer() === 'pool' ? usePoolLaunchInputs : useLegacyLaunchInputs
+  const { sessions, sections } = useInputs()
   const [step, setStep] = useState<PickerStep>(null)
   const [query, setQuery] = useState('')
   const [prompt, setPrompt] = useState('')

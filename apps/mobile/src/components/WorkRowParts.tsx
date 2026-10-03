@@ -3,9 +3,11 @@ import {
   deriveFleetPresence,
   deriveGitStamp,
   FLEET_KIND_LIMIT,
+  type GitStampModel,
   type MissionProgress,
 } from '@podium/client-core/viewmodels'
 import type { IssueGitState } from '@podium/model'
+import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, space } from '../theme/theme'
@@ -42,8 +44,14 @@ const FLEET_TILE = 19
  * phone used to filter hibernation out exactly as the sidebar did, so a fleet
  * the memory reaper had put to sleep read as an empty one.
  */
-export function FleetSummary({ sessions }: { sessions: readonly SessionView[] }) {
-  const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
+export function FleetSummary({ sessions, display }: {
+  sessions: readonly SessionView[]
+  display?: MobileRowValues['fleet']
+}) {
+  const { present, tiles, nativeCount, label } = display
+    ? { present: { length: display.total }, tiles: display.tiles, nativeCount: display.nativeCount,
+        label: `${display.total} agent${display.total === 1 ? '' : 's'}${display.parkedCount ? ` · ${display.parkedCount} parked` : ''}${display.nativeCount ? ` · ${display.nativeCount} native children` : ''}` }
+    : deriveFleetPresence(sessions)
   if (present.length === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)
   return (
@@ -83,12 +91,14 @@ export function GitStampLine({
   branch,
   git,
   suppressAhead = false,
+  display,
 }: {
   branch: string | null | undefined
   git: IssueGitState | null | undefined
   suppressAhead?: boolean
+  display?: NativeGitStamp
 }) {
-  const m = deriveGitStamp(branch, git)
+  const m = display ?? deriveGitStamp(branch, git)
   if (m.kind !== 'ready') return null
   const ahead = suppressAhead ? undefined : m.ahead
   // `merged` earns the line here for the same reason it does on the desktop
@@ -106,6 +116,8 @@ export function GitStampLine({
     </Text>
   )
 }
+
+export type NativeGitStamp = Pick<GitStampModel, 'kind' | 'mismatch' | 'merged' | 'dirty' | 'ahead'>
 
 /** Two tasks or nothing: a row that is one issue with one agent has no fraction
  *  — it is 0% until it is 100%, and a bar with two states says nothing the

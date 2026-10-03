@@ -26,6 +26,7 @@ const state = vi.hoisted(() => ({
   sqliteFile: '',
   /** Every pool the shared host built, with the runtime it was built over. */
   pools: [] as { runtime: unknown; disposed: boolean }[],
+  graphGate: null as Promise<void> | null,
 }))
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -60,6 +61,7 @@ vi.mock('./mobile-entity-store', async () => {
 vi.mock('../../../../packages/client-graph/src/runtime-pool', async (importOriginal) => {
   const real =
     await importOriginal<typeof import('../../../../packages/client-graph/src/runtime-pool')>()
+  if (state.graphGate) await state.graphGate
   return {
     ...real,
     createRuntimeWorklistPool: (...args: Parameters<typeof real.createRuntimeWorklistPool>) => {
@@ -109,7 +111,7 @@ const status = (member: string): AuthStatus =>
   }) as AuthStatus
 
 /** One app load: a fresh module graph (a fresh latch) over the device's storage. */
-async function launch(preferences = false) {
+async function launch(preferences = false, withRow = false) {
   vi.resetModules()
   // Everything that holds a React context or the latch comes from the new graph.
   const [
@@ -131,6 +133,9 @@ async function launch(preferences = false) {
     import('../hooks/useCollapsedSet'),
     import('../hooks/mobile-preferences'),
   ])
+  const { PoolWorkRowSlot } = withRow ? await import('../screens/WorkListRow') : { PoolWorkRowSlot: () => null }
+  const callbacks = { navPending: false, onOpenIssue: () => {}, onOpenSession: () => {}, onLongPress: () => {}, onTuck: () => {} }
+  const item = { id: 'attachment-probe-absent', kind: 'issue' as const, listKey: 'attachment-probe-absent' }
   if (preferences) mobilePreferenceReadStats.enable()
   const seen: { runtime?: ClientRuntime; pool?: MobxPool | null; attached: boolean[] } = {
     attached: [],
@@ -154,7 +159,7 @@ async function launch(preferences = false) {
     seen.attached.push(seen.pool !== null)
     return (
       <>
-        <div data-testid="app">{seen.pool ? 'pool' : 'no pool'}</div>
+        <div data-testid="app">{seen.pool ? 'pool' : 'no pool'}{withRow ? <PoolWorkRowSlot item={item} {...callbacks} /> : null}</div>
         {preferences ? <Preferences /> : null}
       </>
     )
@@ -217,6 +222,7 @@ beforeEach(() => {
   state.sqliteFile = join(dir, 'replica.db')
   state.device.clear()
   state.pools.length = 0
+  state.graphGate = null
 })
 afterEach(async () => {
   cleanup()
@@ -225,6 +231,22 @@ afterEach(async () => {
 })
 
 describe('mobile pool switch', () => {
+  it('attaches the real pool after an already-mounted native row without changing hook order', async () => {
+    const first = await launch()
+    toggleSetting(first.seen.runtime, true)
+    await first.quit()
+    let release!: () => void
+    state.graphGate = new Promise<void>(resolve => { release = resolve })
+    const app = await launch(false, true)
+    expect(app.layer()).toBe('pool')
+    expect(app.seen.pool).toBeNull()
+    expect(screen.getByLabelText('Loading work')).toBeTruthy()
+    await act(async () => { release(); await new Promise(resolve => setTimeout(resolve, 20)) })
+    await waitFor(() => expect(app.seen.pool).toBeTruthy())
+    await waitFor(() => expect(screen.queryByLabelText('Loading work')).toBeNull())
+    expect(state.pools.at(-1)?.runtime).toBe(app.seen.runtime)
+    await app.quit()
+  })
   it('is off by default: the app runs with no pool and no graph built', async () => {
     const app = await launch()
     await graphSettled()

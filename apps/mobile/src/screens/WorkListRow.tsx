@@ -30,15 +30,21 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
+import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import { issueDisplayRef } from '@podium/protocol'
-import { memo, useEffect, useState } from 'react'
+import { memo, useCallback, useMemo, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { Icon } from '../components/Icon'
 import { AlarmClock, ArrowDownToLine, Pin } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
+import type { NativeGitStamp } from '../components/WorkRowParts'
 import { WorkingMark } from '../components/WorkingMark'
-import { workRowId } from '../lib/work-sections'
+import { workRowId, mobileRowPaint, mobilePaintNow, type MobileRowPaint } from '../lib/work-sections'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
+import type { SessionView } from '@podium/client-core/session-values'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -99,6 +105,11 @@ export interface WorkListRowProps {
   onOpenIssue: (issue: IssueNavigationModel) => void
   onOpenSession: (sessionId: SessionId, rowKey: string) => void
   onLongPress: (issue: IssueNavigationModel) => void
+  /** Pool facts bypass the legacy row derivations; the markup stays shared. */
+  display?: Pick<MobileRowValues, 'working' | 'waitingCount' | 'decision' | 'unread' | 'draftOnly' | 'fleet'> & {
+    phase: MobileRowValues['timing']['phase']
+    gitStamp: NativeGitStamp
+  }
 }
 
 /**
@@ -121,6 +132,7 @@ export const WorkRow = memo(function WorkRow({
   onOpenIssue,
   onOpenSession,
   onLongPress,
+  display,
 }: WorkListRowProps) {
   const issue = row.kind === 'issue' ? row.issue : undefined
   const sessions = row.kind === 'issue' ? row.sessions : row.worktree.sessions
@@ -129,26 +141,26 @@ export const WorkRow = memo(function WorkRow({
   const fleetSessions = row.kind === 'issue' ? (row.aggregateSessions ?? sessions) : sessions
   const hex = issue ? issueColorHex(issue.color) : undefined
   const rowBg = hex ? flow.rowBg(hex) : color.engraved
-  const phase = rowMotionPhase(row)
+  const phase = display?.phase ?? rowMotionPhase(row)
   // An ask outranks work in the phase, so the phase alone cannot answer "is an
   // agent computing" — and on a one-row-per-mission list that left a running
   // fleet reading as stopped (POD-703). Every working texture gates on this.
-  const working = rowHasWorkingSession(row)
-  const waiting = rowWaitingCount(row)
+  const working = display?.working ?? rowHasWorkingSession(row)
+  const waiting = display?.waitingCount ?? rowWaitingCount(row)
   // The ask treatment follows the ROW, not the band it landed in: a waiting
   // row stays put when pinned (see ../lib/work-sections.ts), so the tint, the
   // count and the Answer/Review action must travel with the fact itself.
   const attention = waiting > 0
-  const decision = row.kind === 'issue' ? rowPendingDecision(row) : null
-  const rowUnread = rowUnreadEmphasized(row)
+  const decision = display ? display.decision : row.kind === 'issue' ? rowPendingDecision(row) : null
+  const rowUnread = display?.unread ?? rowUnreadEmphasized(row)
   // A draft vessel's only content is its agents — its row IS the agent, so it
   // clicks straight into the session (desktop POD-282).
-  const draftOnly = issue ? isDraftAgentVessel(issue, sessions) : false
+  const draftOnly = display?.draftOnly ?? (issue ? isDraftAgentVessel(issue, sessions) : false)
   // A freshly minted draft is not news to the person who just minted it: no
   // unread dot or bold until its agent actually reports runtime state — the
   // same gate the chats list applies (SessionCard's hidesDraftDot, round 2).
   const draftQuiet =
-    draftOnly && !sessions[0]?.busy && (sessions[0]?.agentState?.phase ?? 'unknown') === 'unknown'
+    !display && draftOnly && !sessions[0]?.busy && (sessions[0]?.agentState?.phase ?? 'unknown') === 'unknown'
   const unread = rowUnread && !draftQuiet
   // Native, theme-tinted, and DELAYED: feedback only when the open is actually
   // taking a beat, so a fast push never flashes a spinner (standard ~150ms).
@@ -207,7 +219,7 @@ export const WorkRow = memo(function WorkRow({
             {issue ? <Text style={rowStyles.rowRef}>{issueDisplayRef(issue)}</Text> : null}
             {attention ? <Text style={rowStyles.rowWaitCount}>{waiting}</Text> : null}
             {issue?.pinned ? <Icon as={Pin} size={9} color={color.textMicro} /> : null}
-            {draftOnly ? null : <FleetSummary sessions={fleetSessions} />}
+            {draftOnly ? null : <FleetSummary sessions={fleetSessions} display={display?.fleet} />}
             <Text
               style={[
                 rowStyles.status,
@@ -225,6 +237,7 @@ export const WorkRow = memo(function WorkRow({
                 branch={issue.branch}
                 git={issue.gitState}
                 suppressAhead={decision === 'merge'}
+                display={display?.gitStamp}
               />
             ) : null}
             <View style={rowStyles.spacer} />
@@ -494,3 +507,35 @@ const rowStyles = StyleSheet.create({
     opacity: 0.65,
   },
 })
+
+export const PoolWorkRowSlot = memo(function PoolWorkRowSlot({ item, onTuck, ...callbacks }: {
+  item: MobileWorkRef
+  navPending: boolean
+  onOpenIssue: (issue: IssueNavigationModel) => void
+  onOpenSession: (sessionId: SessionId, rowKey: string) => void
+  onLongPress: (issue: IssueNavigationModel) => void
+  onTuck: (id: string) => void
+}) {
+  const read = useCallback((pool: MobxPool): MobileRowPaint | 'loading' | null => {
+    const value = pool.mobileWork.row({ id: item.id, kind: item.kind })
+    if (typeof value === 'symbol') return 'loading'
+    return value ? mobileRowPaint(value, mobilePaintNow(pool)) : null
+  }, [item.id, item.kind])
+  const paint = useMobilePoolProjection(read, 'loading')
+  const tuck = useCallback(() => onTuck(item.id), [item.id, onTuck])
+  const row = useMemo((): UnifiedWorkRow | null => {
+    if (!paint || paint === 'loading') return null
+    const sessions = paint.firstSessionId ? [{ sessionId: paint.firstSessionId } as SessionView] : []
+    if (paint.kind === 'issue') return { kind: 'issue', issue: { id: paint.id, displayRef: paint.ref,
+      color: paint.color, audience: paint.internal ? 'agent' : 'human', pinned: paint.pinned,
+      branch: paint.branch } as IssueNavigationModel, sessions, activityAt: 0 }
+    return { kind: 'worktree', worktree: { path: paint.id, sessions } as Extract<UnifiedWorkRow, { kind: 'worktree' }>['worktree'], activityAt: 0 }
+  }, [paint])
+  if (paint === 'loading') return <View accessibilityLabel="Loading work" />
+  if (!paint || !row) return null
+  return <WorkRow row={row} label={paint.label} progress={paint.progress} originSeq={paint.originSeq}
+    statusLine={paint.statusLine} stamp={paint.stamp} snoozed={paint.snoozed} unsnoozed={paint.unsnoozed}
+    display={paint.display} onTuck={paint.tuckable ? tuck : undefined} {...callbacks} />
+}, (a, b) => a.item.id === b.item.id && a.item.kind === b.item.kind && a.item.listKey === b.item.listKey
+  && a.navPending === b.navPending && a.onTuck === b.onTuck && a.onOpenIssue === b.onOpenIssue
+  && a.onOpenSession === b.onOpenSession && a.onLongPress === b.onLongPress)

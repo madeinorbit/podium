@@ -12,6 +12,9 @@
  * Converted mobile screens share one app-wide entry and no per-screen switch.
  */
 import { debugFlagEnabled, MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
+import { COMMAND_ENTITIES, COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
+import type { commandLaunchViews, CommandLaunchData } from '@podium/client-graph/command-launch-views'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUPERAGENT_SUMMARIES, createSuperagentSource } from '@podium/client-graph/superagent'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import {
@@ -43,6 +46,21 @@ export function createMobilePool(
   const pilot = poolSwitches(storage)('mobxMobile')
   const host = createPoolHost({
     screens: [
+      {
+        id: 'mobile-work',
+        initialize: (ui) => void pilot.initialize(ui),
+        enabled: () => pilot.layer() === 'pool',
+        options: () => ({ summaries: COMMAND_SUMMARIES }),
+        async attach(runtime, pool) {
+          const [{ CommandLaunchSource }, { commandLaunchViews }] = await Promise.all([
+            import('@podium/client-graph/command-launch-source'),
+            import('@podium/client-graph/command-launch-views'),
+          ])
+          launchViews = commandLaunchViews
+          commandLaunchViews(pool)
+          await pool.sources.ensure('commands', COMMAND_ENTITIES, () => new CommandLaunchSource(pool, runtime))
+        },
+      },
       {
         id: 'mobile-pilot',
         initialize: (ui) => void pilot.initialize(ui),
@@ -82,3 +100,12 @@ export const useMobilePool = mobilePool.host.usePool
 /** Scalar screen reads share the host's tracking and attachment loading state. */
 export const useMobilePoolProjection = mobilePool.host.usePoolProjection
 export const mobileDataLayer = mobilePool.layer
+
+let launchViews: typeof commandLaunchViews | undefined
+const readLaunch = (pool: MobxPool): CommandLaunchData | null => {
+  const catalog = pool.row('commandCatalog', 'catalog')
+  if (!catalog || typeof catalog === 'symbol' || !launchViews) return null
+  const data = launchViews(pool).launch()
+  return data && typeof data !== 'symbol' ? data : null
+}
+export const useMobileLaunchData = () => useMobilePoolProjection(readLaunch, null)

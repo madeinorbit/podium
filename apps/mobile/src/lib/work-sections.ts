@@ -1,9 +1,19 @@
 import {
+  formatClock,
+  deriveGitStamp,
+  FLEET_KIND_LIMIT,
+  rowStatusLine,
   rowWaitingCount,
   type UnifiedIssueRow,
   type UnifiedWorkGroup,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
+import { relativeTime } from '@podium/client-core/focus'
+import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
+import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { issueStatusLabel } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 
 /**
  * THE WORK TAB'S SECTION PROJECTION — pinned first, then the asks, then the
@@ -180,4 +190,130 @@ export function foldWorkSections(
   return sections.map((band) =>
     collapsedKeys.has(band.key) ? { ...band, data: [], snoozedRows: [], closedRows: [] } : band,
   )
+}
+
+/** Only paint and navigation facts cross the row subscription. Feed records,
+ * bookkeeping and raw session payloads cannot invalidate the native row. */
+export function mobileRowPaint(value: MobileRowValues, now: number) {
+  const sidebar = value.sidebar
+  const issue = sidebar?.issue
+  const git = deriveGitStamp(value.branch, value.gitState)
+  const ahead = value.suppressAhead ? undefined : git.ahead
+  const gitShown = git.kind === 'ready' && (git.mismatch || git.merged || git.dirty !== undefined || ahead !== undefined)
+  return {
+    id: value.id,
+    kind: value.kind,
+    label: value.label,
+    ref: issue ? issueDisplayRef(issue) : null,
+    color: value.color,
+    internal: value.internal,
+    pinned: value.pinned,
+    branch: value.kind === 'worktree' ? value.branch : null,
+    progress: value.progress && value.progress.total >= 2 ? value.progress : null,
+    originSeq: value.originSeq,
+    statusLine: mobileRowStatus(value, now),
+    stamp: mobileRowStamp(value.timing, now),
+    snoozed: value.snoozed,
+    unsnoozed: value.unsnoozed,
+    tuckable: value.tuckable,
+    navigation: value.navigation,
+    firstSessionId: value.navigation?.kind === 'session' ? value.navigation.id : null,
+    display: {
+      phase: value.timing.phase,
+      working: value.working,
+      waitingCount: value.waitingCount,
+      decision: value.decision,
+      unread: value.unread,
+      draftOnly: value.draftOnly,
+      fleet: { ...value.fleet, tiles: value.fleet.tiles.slice(0, FLEET_KIND_LIMIT) },
+      gitStamp: { kind: gitShown ? 'ready' as const : 'hidden' as const,
+        mismatch: gitShown && git.mismatch, merged: gitShown && git.merged,
+        dirty: gitShown ? git.dirty : undefined, ahead: gitShown ? ahead : undefined },
+    },
+  }
+}
+export type MobileRowPaint = ReturnType<typeof mobileRowPaint>
+
+function mobileRowStatus(value: MobileRowValues, now: number): string {
+  const sidebar = value.sidebar
+  if (!sidebar) {
+    // The existing worktree formatter is pure and sees this roster alone.
+    return rowStatusLine({ kind: 'worktree', worktree: { sessions: value.sessions },
+      activityAt: value.activityAt } as unknown as UnifiedWorkRow, now, 0)
+  }
+  if (sidebar.awaitingFirstPrompt) return 'awaiting first prompt'
+  if (sidebar.statusFromChildren) {
+    const { total, done, run, review, stall, block, wait } = sidebar.progress
+    if (total === 0) return 'no active subtasks'
+    const progress = `${done}/${total} ${total === 1 ? 'subtask' : 'subtasks'} done`
+    if (done === total) return progress
+    const next = block > 0 ? `${block} blocked` : review > 0 ? `${review} in review`
+      : run > 0 ? `${run} underway` : stall > 0 ? `${stall} stalled` : wait > 0 ? `${wait} to go` : null
+    return next ? `${progress} · ${next}` : progress
+  }
+  if (value.decision === 'merge') return sidebar.mergeCommits > 0 ? `ready to merge · ${sidebar.mergeCommits}` : 'ready to merge'
+  if (value.decision === 'review') return 'needs review'
+  if (sidebar.continuation) return `${sidebar.continuation.kind} · ${sidebar.continuation.ref}`
+  if (sidebar.issue.blocked) return 'blocked'
+  return issueStatusLabel(sidebar.issue).toLowerCase()
+}
+
+export function mobileRowStamp(timing: MobileRowValues['timing'], now: number): string | null {
+  if (timing.phase === 'done') return timing.totalMs !== undefined ? `∑ ${formatClock(timing.totalMs)}` : null
+  if (!Number.isFinite(timing.sinceMs) || timing.sinceMs <= 0) return null
+  if (timing.phase === 'working') return formatClock(Math.max(0, now - timing.sinceMs) + (timing.baseMs ?? 0))
+  if (timing.phase === 'waiting') return relativeTime(new Date(timing.sinceMs).toISOString(), now)
+  return null
+}
+
+/** Pair the clock's plain current value with the next coarse tick. The
+ * equality-filtered reader wakes React only if its displayed stamp changed. */
+export function mobilePaintNow(pool: MobxPool): number {
+  const now = pool.clock.current
+  pool.clock.reached(now + 1)
+  return now
+}
+
+/** Search is opt-in work. Without a query the pool's stable native arrays go
+ * straight to SectionList, and row payload changes never rebuild them. */
+export function searchMobileSections(pool: MobxPool, sections: readonly MobileWorkSection[], query: string): readonly MobileWorkSection[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return sections
+  const matches = (id: string, kind: 'issue' | 'worktree', folded = false): boolean => {
+    const value = pool.mobileWork.row({ id, kind })
+    if (!value || typeof value === 'symbol') return false
+    const paint = mobileRowPaint(value, mobilePaintNow(pool))
+    const text = paint.kind === 'issue' ? `${paint.ref} ${paint.label}`
+      : `${paint.label.slice(0, paint.branch ? -(paint.branch.length + 3) : undefined)} ${paint.branch ?? ''}`
+    return `${text}${folded ? '' : ` ${paint.statusLine}`}`.toLowerCase().includes(needle)
+  }
+  return sections.map(section => {
+    const data = section.data.filter(ref => matches(ref.id, ref.kind))
+    return { ...section, data, total: data.length,
+      snoozedIds: section.snoozedIds.filter(id => matches(id, 'issue', true)),
+      closedIds: section.closedIds.filter(id => matches(id, 'issue', true)) }
+  }).filter(section => section.data.length + section.snoozedIds.length + section.closedIds.length > 0)
+}
+
+/** Native sections carry plain immutable arrays. Folding changes one section
+ * object; unchanged bands and their data keep identity across publications. */
+export class MobileNativeSections {
+  private readonly folded = new Map<string, { source: MobileWorkSection; section: MobileWorkSection }>()
+  private previous: readonly MobileWorkSection[] = []
+  update(sections: readonly MobileWorkSection[], collapsed: ReadonlySet<string>, searching: boolean): readonly MobileWorkSection[] {
+    const active = new Set<string>()
+    const next = sections.map(source => {
+      active.add(source.key)
+      if (searching || !collapsed.has(source.key)) return source
+      let saved = this.folded.get(source.key)
+      if (!saved || saved.source !== source) {
+        saved = { source, section: { ...source, data: [], snoozedIds: [], closedIds: [], collapsed: true } }
+        this.folded.set(source.key, saved)
+      }
+      return saved.section
+    })
+    for (const key of this.folded.keys()) if (!active.has(key)) this.folded.delete(key)
+    if (next.length !== this.previous.length || next.some((section, index) => section !== this.previous[index])) this.previous = next
+    return this.previous
+  }
 }
