@@ -142,3 +142,43 @@ it('retires account-owned callbacks and state on principal changes while preserv
   expect(view.container.textContent).toBe('')
   expect(unmounts).toEqual(['alice', 'bob', 'alice', 'alice'])
 })
+
+it('ends cached selection focus even when the focused field was removed before the account switch', () => {
+  const api = {} as PodiumClientApi
+  const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
+  function Reader() {
+    const [visible, setVisible] = useState(true)
+    return (
+      <>
+        {visible && <input aria-label="retired focus" />}
+        <button type="button" onClick={() => setVisible(false)}>
+          Remove field
+        </button>
+      </>
+    )
+  }
+  const frame = (user: string) => (
+    <StoreProvider
+      principal={asClientPrincipal(asUserId(user))}
+      config={config}
+      api={api}
+      networkEnabled={false}
+      onFatalError={() => {}}
+      createReplicaFn={() => {
+        throw new Error('fixture owns runtime')
+      }}
+    >
+      <Reader />
+    </StoreProvider>
+  )
+  fixture.handle = runtime()
+  const view = render(frame('alice'))
+  view.getByLabelText<HTMLInputElement>('retired focus').focus()
+  fireEvent.click(view.getByText('Remove field'))
+  const focusOut = vi.fn()
+  view.container.addEventListener('focusout', focusOut)
+  fixture.handle = runtime()
+  view.rerender(frame('bob'))
+  expect(focusOut).toHaveBeenCalledOnce()
+  expect(focusOut.mock.calls[0]![0].target).toBe(view.container)
+})

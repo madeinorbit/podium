@@ -51,6 +51,14 @@ declare global {
     __accountLifetime(): Lifetime
     __accountEdit(): void
     __accountUiState(): Record<string, string | null>
+    __accountArmBlurWriter(): boolean
+    __accountBlurWrites: {
+      principal: string
+      writingPrincipal: string
+      actualPrincipal: string
+      destroyed: boolean
+      value: string
+    }[]
     __PODIUM_CLOSE_TAB__?: () => boolean
   }
 }
@@ -84,6 +92,11 @@ await build({
           }
         }
         if (!id.endsWith('/test/sidebar-acceptance.browser.tsx')) return
+        if (preserveState) {
+          const marker = '{measured && <MeasurementBinding />}'
+          if (!code.includes(marker)) throw new Error('Blur writer control was not armed')
+          code = code.replace(marker, marker + '<AccountBlurWriter />')
+        }
         // Observe identities through the fixture's existing WeakRefs. This probe
         // returns only scalars and never holds a runtime in a browser handle.
         return {
@@ -92,13 +105,30 @@ await build({
             `
       import { THEME_UI_KEYS as lifetimeThemeKeys, asSessionId as lifetimeSessionId } from '@podium/model/browser';
       import { reposToViews as lifetimeReposToViews } from '@podium/client-core/viewmodels';
+      import { useCurrentPrincipal as lifetimeCurrentPrincipal } from '@podium/client-core/react';
+      const lifetimeBlurWrites: { principal: string; writingPrincipal: string; actualPrincipal: string; destroyed: boolean; value: string }[] = [];
+      function AccountBlurWriter() {
+        const principal = lifetimeCurrentPrincipal()!, handle = useStoreHandle();
+        const write = useStoreSelector(s => s.setSessionDraft);
+        return <input data-account-blur-writer tabIndex={-1} aria-hidden="true"
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
+          defaultValue={principal.userId + ' on-blur write attempt'} onBlur={event => {
+            write(lifetimeSessionId(targets.phaseSessionId), event.currentTarget.value);
+            lifetimeBlurWrites.push({ principal: principal.userId, writingPrincipal: handle.principal.userId,
+              actualPrincipal: owner!.principal.userId, destroyed: handle.isDestroyed, value: event.currentTarget.value });
+          }} />;
+      }
       Object.assign(window, { __accountLifetime: () => ({
         principal: owner?.principal.userId,
         retired: retired.map(({ name, ref }) => {
           const value = ref.deref();
           return { name, present: value !== undefined, destroyed: value?.destroyed };
         }),
-      }), __accountEdit: () => {
+      }), __accountBlurWrites: lifetimeBlurWrites, __accountArmBlurWriter: () => {
+        const input = document.querySelector<HTMLInputElement>('[data-account-blur-writer]');
+        if (!input) throw new Error('No blur writer input');
+        input.focus(); return document.activeElement === input;
+      }, __accountEdit: () => {
         flushSync(() => {
           owner!.getSnapshot().setSelectedIssueId(asIssueId(targets.visibleRootId));
           // Use a registered worktree; the seed retains legacy session display
@@ -180,6 +210,10 @@ try {
       const page = await context.newPage(),
         errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
+      page.on('console', (entry) => {
+        if (entry.type() === 'error' && !entry.text().startsWith('Failed to load resource:'))
+          errors.push(entry.text())
+      })
       await page.route('**/*', (route) =>
         new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
       )
@@ -224,6 +258,8 @@ try {
           Object.assign(window, { __plantedStaleCloseTab: window.__PODIUM_CLOSE_TAB__ })
         })
       for (const principal of ['acceptance-bob', 'acceptance-alice']) {
+        if (preserveState && !(await page.evaluate(() => window.__accountArmBlurWriter())))
+          throw new Error('Blur writer did not receive real DOM focus')
         await page.evaluate((name) => window.__acceptance.show(name), principal)
         await page.waitForFunction(() => window.__acceptance.ready())
         await settle(page)
@@ -250,7 +286,35 @@ try {
         const uiState = preserveState
           ? await page.evaluate(() => window.__accountUiState())
           : undefined
-        records.push({ pilot, principal, beforeGc, lifetime, survivors, state, initialUi, uiState })
+        const blurWrites = preserveState
+          ? await page.evaluate(() => window.__accountBlurWrites)
+          : undefined
+        records.push({
+          pilot,
+          principal,
+          beforeGc,
+          lifetime,
+          survivors,
+          state,
+          initialUi,
+          uiState,
+          blurWrites,
+        })
+        if (preserveState) {
+          const write = blurWrites!.at(-1),
+            retiredPrincipal =
+              principal === 'acceptance-bob' ? 'acceptance-alice' : 'acceptance-bob'
+          if (
+            !write ||
+            write.principal !== retiredPrincipal ||
+            write.writingPrincipal !== retiredPrincipal ||
+            write.actualPrincipal !== principal ||
+            !write.destroyed
+          )
+            failures.push(`pilot=${pilot}: retiring blur writer ownership guard failed`)
+          if (principal === 'acceptance-bob' && uiState!.draft !== '')
+            failures.push(`pilot=${pilot}: Alice's blur wrote into Bob's draft`)
+        }
         if (
           preserveState &&
           principal === 'acceptance-alice' &&
