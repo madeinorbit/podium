@@ -1,6 +1,7 @@
 import { withoutShells } from '@podium/client-core/focus'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { resolveIssueEdge, subIssuesOf } from '@podium/client-core/viewmodels'
+import { resolveIssueEdge } from '@podium/client-core/viewmodels'
 import {
   type IssueCloseReason,
   type IssueId,
@@ -15,16 +16,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import {
-  useBooting,
   useCoarseNow,
   useConnected,
-  useIssue,
-  useIssues,
-  useReplica,
-  useSessions,
   useStoreActions,
   useTrpc,
 } from '../client/hooks'
+import { useHasIssueMates, useIssueInputs, useIssueTargets } from '../client/use-issue-inputs'
+import { useSessionContextIssue as useIssue, useSessionContextBooting as useBooting } from '../client/use-session-context'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
@@ -175,6 +173,9 @@ type OpenSheet =
  *  deliberately absent: parentage has its own row and supersede/duplicate are
  *  lifecycle acts on the overflow menu, so offering them here would let the same
  *  fact be stated two ways. */
+const EMPTY_ISSUES: IssueViewModel[] = []
+const EMPTY_SESSIONS: SessionView[] = []
+
 const RELATION_TYPES = ['blocks', 'related', 'discovered-from'] as const
 
 function IssueContent({
@@ -192,14 +193,18 @@ function IssueContent({
   // field is identity-stable, so this subscription never re-renders the page.
   const actions = useStoreActions()
   const { sendChat } = actions
-  const replica = useReplica()
   const coarseNow = useCoarseNow()
-  const issues = useIssues()
-  const allSessions = useSessions()
+  const inputs = useIssueInputs(issue)
+  const issues = inputs?.issues ?? EMPTY_ISSUES
+  const allSessions = inputs?.sessions ?? EMPTY_SESSIONS
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sheet, setSheet] = useState<OpenSheet>(null)
+  const targetPickerOpen = sheet?.kind === 'parent' || sheet?.kind === 'relation-target' || sheet?.kind === 'supersede'
+  const targets = useIssueTargets(issue, targetPickerOpen)
+  const mates = targets ?? EMPTY_ISSUES
+  const hasMates = useHasIssueMates(issue, sheet?.kind === 'menu')
   const [detailsOpen, detailsCollapsed] = useDetailsFold()
   const keyboardLift = useKeyboardLift()
 
@@ -235,29 +240,8 @@ function IssueContent({
   // the task's checkout, not something computing on its behalf, so it belongs in
   // the roster and not in "who is working".
   const agents = useMemo(() => withoutShells(sessions), [sessions])
-  const children = useMemo(() => subIssuesOf(issues, issue.id), [issues, issue.id])
-  const parent = useMemo(
-    () => (issue.parentId ? issues.find((i) => i.id === issue.parentId) : undefined),
-    [issues, issue.parentId],
-  )
-  /**
-   * Repo-mates: sibling tasks in the same repo excluding self — the pool for
-   * parent, relations and supersede targets.
-   *
-   * NEWEST FIRST, where the desktop's `repoMatesOf` sorts ascending. The desktop
-   * pairs that list with a type-to-filter menu, so where a task sits in it barely
-   * matters; a phone sheet is a scroll with no filter, and the task you are
-   * relating this one to is overwhelmingly one you filed recently. Nothing is
-   * truncated — a silently capped picker is a picker that cannot reach the row
-   * you want and does not say so.
-   */
-  const mates = useMemo(
-    () =>
-      issues
-        .filter((i) => i.repoPath === issue.repoPath && i.id !== issue.id && !i.deletedAt)
-        .sort((a, b) => b.seq - a.seq),
-    [issues, issue.repoPath, issue.id],
-  )
+  const children = inputs?.children ?? EMPTY_ISSUES
+  const parent = inputs?.parent
   const openIssue = (id: string) => router.replace(`/issue/${encodeURIComponent(id)}`)
   const openSession = (id: SessionId) =>
     router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
@@ -282,9 +266,11 @@ function IssueContent({
         id,
         (targetId) => byId.get(targetId as IssueId),
         'opaque',
-        (targetId) => replica.exitKind?.('issue', targetId as IssueId),
+        (targetId) => inputs?.exits[targetId],
       )
-  }, [issues, replica])
+  }, [issues, inputs?.exits])
+
+  if (!inputs) return <DetailSkeleton />
 
   const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
   const breadcrumb = parent
@@ -479,8 +465,9 @@ function IssueContent({
         onClose={closeIf('type')}
       />
 
+      {targetPickerOpen && targets === null ? <DetailSkeleton /> : null}
       <IssueTargetSheet
-        visible={sheet?.kind === 'parent'}
+        visible={sheet?.kind === 'parent' && targets !== null}
         title="Parent"
         subtitle={mates.length === 0 ? 'No other task in this repo to nest under.' : undefined}
         issues={mates}
@@ -499,7 +486,7 @@ function IssueContent({
       />
 
       <IssueTargetSheet
-        visible={sheet?.kind === 'relation-target'}
+        visible={sheet?.kind === 'relation-target' && targets !== null}
         title={sheet?.kind === 'relation-target' ? sheet.type : ''}
         issues={mates}
         onPick={(target) => {
@@ -509,7 +496,7 @@ function IssueContent({
       />
 
       <IssueTargetSheet
-        visible={sheet?.kind === 'supersede'}
+        visible={sheet?.kind === 'supersede' && targets !== null}
         title="Supersede with"
         subtitle="This task is closed as replaced by the one you pick."
         issues={mates}
@@ -651,7 +638,7 @@ function IssueContent({
       })
       actions.push({ label: 'Flag for human…', onPress: () => setSheet({ kind: 'flag' }) })
     }
-    if (live && mates.length > 0) {
+    if (live && hasMates) {
       actions.push({
         label: 'Supersede with…',
         onPress: () => setSheet({ kind: 'supersede' }),
