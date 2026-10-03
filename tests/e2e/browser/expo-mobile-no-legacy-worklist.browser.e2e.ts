@@ -131,6 +131,15 @@ test('production mobile never derives worklist with the pilot on, including miss
   let expected: unknown
   let savedOn = false
   for (const [arm, on] of [false, true, false, true].entries()) {
+    if (captureGate && !parityOnly) {
+      writeFileSync(`${captureGate}.${arm}.ready`, 'ready\n')
+      const deadline = Date.now() + 180_000
+      while (!existsSync(`${captureGate}.${arm}.go`)) {
+        if (Date.now() > deadline)
+          throw new Error('Benchmark lease was not granted within three minutes')
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+    }
     await launchWork(page, on, savedOn)
     savedOn = on
     await expect(row()).toBeVisible({ timeout: 60_000 })
@@ -176,15 +185,6 @@ test('production mobile never derives worklist with the pilot on, including miss
     })
     await page.waitForTimeout(250)
     await checkpoint(on, 'incoming update')
-    if (captureGate && !parityOnly) {
-      writeFileSync(`${captureGate}.${arm}.ready`, 'ready\n')
-      const deadline = Date.now() + 180_000
-      while (!existsSync(`${captureGate}.${arm}.go`)) {
-        if (Date.now() > deadline)
-          throw new Error('Benchmark lease was not granted within three minutes')
-        await new Promise((resolve) => setTimeout(resolve, 200))
-      }
-    }
     const before = parityOnly ? undefined : await heap()
     const label = await row().getAttribute('aria-label')
     await page.evaluate((label) => {
