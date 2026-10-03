@@ -504,4 +504,24 @@ describe('readers behind declared cold questions', () => {
       pool.dispose()
     }
   })
+
+  it('combines indexed root maxima with current resident activity without a cold scan', () => {
+    const f = fixture()
+    const question = { kind: 'commandRootActivity', roots: ['/query'] } as const
+    const census = vi.spyOn(f.pool.residency!, 'ids')
+    const host = f.values.get('session:host') as object
+    try {
+      expect(f.pool.tables.session.has('host')).toBe(true)
+      expect(f.pool.queries.activity(question)).toBe(Date.parse('2026-10-02T12:00:00Z'))
+      // Resident edits are ahead of the row source. Excluding the stale source
+      // copy must reveal the cold runner-up, rather than returning zero.
+      f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'host', value: { ...host, lastActiveAt: old } } as RowRecord] })
+      const before = f.index.readerActivityVisits
+      expect(f.pool.queries.activity(question)).toBe(Date.parse('2020-01-02T00:00:00Z'))
+      expect(f.index.readerActivityVisits - before).toBeLessThanOrEqual(f.pool.tables.session.size + 1)
+      f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'host', value: { ...host, lastActiveAt: '2027-01-01T00:00:00Z' } } as RowRecord] })
+      expect(f.pool.queries.activity(question)).toBe(Date.parse('2027-01-01T00:00:00Z'))
+      expect(census).not.toHaveBeenCalled()
+    } finally { census.mockRestore(); f.pool.dispose() }
+  })
 })

@@ -3,10 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { autorun, runInAction } from 'mobx'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { storeStats } from '@podium/client-core/perf'
+import { repoUsageAt } from '@podium/client-core/viewmodels'
 import { createRuntimeWorklistPool } from './runtime-pool'
 import { attachCommandLaunchSource } from './command-launch-source'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
-import { commandLaunchViews } from './command-launch-views'
+import { commandLaunchViews, createCommandLaunchViews } from './command-launch-views'
 import { checkCommandLaunch, compareCommandLaunchSnapshots, legacyCommandLaunchSnapshot, poolCommandLaunchSnapshot } from '../diagnostics/command-launch-check'
 import { LOADING } from './worklist/rollup'
 import { startScenarioEngine, writeHeartbeat, writePhaseChange, writeSelectionClick, writeTitleRename, writeStageMove,
@@ -130,6 +131,52 @@ describe('declared command and launch targets', () => {
         expect(result.differences, fault).toBeGreaterThan(0)
         expect(result.first?.section, fault).toBe('issues')
       }
+    } finally { f.close() }
+  }, 120_000)
+
+  it('keeps global catalogs and field readers stable on mission, small issue and session clicks', async () => {
+    const f = await fixture(), views = commandLaunchViews(f.pool)
+    const fieldRuns = { open: 0, files: 0, sessions: 0 }
+    const stops = [autorun(() => { views.launch(); views.palette() }),
+      autorun(() => { views.window('paletteOpen'); fieldRuns.open++ }),
+      autorun(() => { views.window('recentFiles'); fieldRuns.files++ }),
+      autorun(() => { views.sessions(); fieldRuns.sessions++ })]
+    const census = vi.spyOn(f.pool.residency!, 'ids')
+    try {
+      f.parity()
+      expect(views.counts.coldSessionVisits).toBeGreaterThan(0)
+      const before = { ...views.counts }, beforeFields = { ...fieldRuns }
+      for (const id of [f.ctx.targets.visibleRootId, f.ctx.targets.stageMoveId]) {
+        await writeSelectionClick(f.ctx, id); f.parity(`click ${id}`)
+        expect(views.counts).toEqual(before)
+        expect(fieldRuns).toEqual(beforeFields)
+      }
+      f.ctx.engine.getSnapshot().setPane('A', asSessionId(f.ctx.targets.phaseSessionId))
+      await Promise.resolve(); f.parity('session click')
+      expect(views.counts).toEqual(before)
+      expect(fieldRuns).toEqual(beforeFields)
+      expect(census).not.toHaveBeenCalled()
+      // The counter observes real cold row iteration on a relevant publication.
+      await writeHeartbeat(f.ctx); f.parity('activity publication')
+      expect(views.counts.coldSessionVisits).toBeGreaterThan(before.coldSessionVisits)
+    } finally { census.mockRestore(); for (const stop of stops) stop(); f.close() }
+  }, 120_000)
+
+  it('matches independent repository activity and rejects a faulty indexed maximum', async () => {
+    const f = await fixture()
+    try {
+      f.parity()
+      const state = f.ctx.engine.getSnapshot(), views = createCommandLaunchViews(f.pool), data = views.launch()
+      expect(data && data !== LOADING).toBeTruthy()
+      if (!data || data === LOADING) throw new Error('Launcher did not settle')
+      const expected = Object.fromEntries(state.repos.map(repo => [JSON.stringify([repo.machineId ?? '', repo.path]), repoUsageAt(repo, state.sessions)]))
+      expect(data.usage).toEqual(expected)
+      expect(Object.values(expected).some(at => at > 0)).toBe(true)
+      const fault = vi.spyOn(f.pool.queries, 'activity').mockReturnValue(0)
+      try {
+        const broken = createCommandLaunchViews(f.pool).launch()
+        expect(broken && broken !== LOADING ? broken.usage : undefined).not.toEqual(expected)
+      } finally { fault.mockRestore() }
     } finally { f.close() }
   }, 120_000)
 })

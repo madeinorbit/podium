@@ -30,6 +30,7 @@ export type ReaderQuestion =
     }
   | { kind: 'headerRecentSession'; excluded?: readonly string[] }
   | { kind: 'sessionReference'; ref: string }
+  | { kind: 'commandIssueSessions'; issueId: string }
   | { kind: 'containingIssues'; cwd: string }
   | {
       kind: 'boardIssues'
@@ -122,6 +123,8 @@ export function createReaderIndex() {
       if (['live', 'starting', 'reconnecting'].includes(row.status as string))
         out.add('session:host')
       if (typeof row.displayRef === 'string') out.add(`session:ref:${row.displayRef}`)
+      if (typeof row.issueId === 'string' && row.agentKind !== 'shell')
+        out.add(`session:commandIssue:${row.issueId}`)
     }
     return out
   }
@@ -213,6 +216,9 @@ export function createReaderIndex() {
         case 'sessionReference':
           keys.push(`session:ref:${question.ref}`)
           break
+        case 'commandIssueSessions':
+          keys.push(`session:commandIssue:${question.issueId}`)
+          break
         case 'containingIssues':
           keys.push(`issue:root:${question.cwd}`)
           for (let at = question.cwd.indexOf('/'); at >= 0; at = question.cwd.indexOf('/', at + 1))
@@ -283,6 +289,8 @@ export function createReaderIndex() {
         }
         case 'sessionReference':
           return [...bucket(`session:ref:${question.ref}`)]
+        case 'commandIssueSessions':
+          return [...bucket(`session:commandIssue:${question.issueId}`)]
         case 'containingIssues': {
           const ids = new Set<string>()
           const add = (path: string) => {

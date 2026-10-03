@@ -65,6 +65,7 @@ import {
 } from './schema'
 import type { RowRecord, RowSourceEvent } from './source'
 import { createReaderIndex, type ReaderQuestion } from './reader-questions'
+import { createSessionActivityIndex, type SessionActivityQuestion } from './session-activity'
 
 type Row = Readonly<Record<string, unknown>>
 
@@ -93,6 +94,9 @@ export interface ColdQueries {
   issueRepoIds(): string[]
   sessionCollapsed(id: string): boolean
   sessionOrderKey(id: string): string
+  readerActivity(question: SessionActivityQuestion): number
+  readerActivityRevision(question: SessionActivityQuestion): number
+  readonly readerActivityVisits: number
 }
 
 export interface ColdIndex extends ColdQueries {
@@ -202,6 +206,8 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       orderKeys: new Map(),
     })
   }
+  const activity = createSessionActivityIndex(id => collapses.get('session')?.collapsed.has(id) ?? false)
+  const activityVisibility = new Set<string>()
 
   // `via` entities: target id → the ids naming it by the raw foreign key.
   const byTarget = new Map<EntityName, Map<string, Set<string>>>()
@@ -485,6 +491,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       }
     }
     for (const member of flipped) {
+      if (entity === 'session') activityVisibility.add(member)
       if (member === id) continue
       for (const lane of laneStates) if (lane.lane.member === entity) reseat(lane, member)
     }
@@ -670,6 +677,9 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
   }
 
   return {
+    readerActivity: question => activity.answer(question),
+    readerActivityRevision: question => activity.revision(question),
+    get readerActivityVisits() { return activity.visits },
     get readerVersion() { return readers.version + collapseVersion },
     readerRevision: question => readers.revision(question),
     get issueRepoRevision() { return readers.repoRevision },
@@ -697,9 +707,12 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
     },
     apply(event) {
       version += 1
-      if (event.type === 'replace') clear()
+      if (event.type === 'replace') { clear(); activity.clear() }
       for (const record of event.rows) ingest(record)
       readers.apply(event)
+      for (const record of event.rows) if (record.kind === 'session') activity.set(record.id, record.value as Row | undefined)
+      for (const id of activityVisibility) activity.visibilityChanged(id)
+      activityVisibility.clear()
     },
   }
 }

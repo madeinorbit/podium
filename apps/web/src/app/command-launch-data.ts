@@ -54,7 +54,7 @@ export function useCommandPaletteData(): Loaded<CommandLaunchData> | ReturnType<
   const useRead = commandLaunchDataLayer() === 'pool' ? usePoolPalette : useLegacyPalette
   return useRead()
 }
-const readOpen = (pool: MobxPool) => { const row = pool.row('commandWindow', 'window'); return row && row !== LOADING ? row.paletteOpen : false }
+const readOpen = (pool: MobxPool) => { const value = commandLaunchViews(pool).window('paletteOpen'); return value !== LOADING ? value ?? false : false }
 function usePoolOpen() { return useWorklistPoolProjection(readOpen, false) }
 function useLegacyOpen() { return useStoreSelector(s => s.paletteOpen) }
 export function useCommandPaletteOpen() {
@@ -62,7 +62,7 @@ export function useCommandPaletteOpen() {
   return useRead()
 }
 const EMPTY_SESSIONS: CommandLaunchData['sessions'] = []
-const readSessions = (pool: MobxPool) => { const data = readLaunch(pool); return data && data !== LOADING ? data.sessions : EMPTY_SESSIONS }
+const readSessions = (pool: MobxPool) => { const sessions = commandLaunchViews(pool).sessions(); return sessions && sessions !== LOADING ? sessions : EMPTY_SESSIONS }
 function usePoolGuardSessions() { return useWorklistPoolProjection(readSessions, EMPTY_SESSIONS) }
 function useLegacyGuardSessions() { return undefined }
 export function useCommandGuardSessions() {
@@ -70,7 +70,7 @@ export function useCommandGuardSessions() {
   return useRead()
 }
 const EMPTY_FILES: Store['recentFiles'] = []
-const readFiles = (pool: MobxPool) => { const row = pool.row('commandWindow', 'window'); return row && row !== LOADING ? row.recentFiles : EMPTY_FILES }
+const readFiles = (pool: MobxPool) => { const value = commandLaunchViews(pool).window('recentFiles'); return value && value !== LOADING ? value : EMPTY_FILES }
 function usePoolFiles() { return useWorklistPoolProjection(readFiles, EMPTY_FILES) }
 function useLegacyFiles() { return useStoreSelector(s => s.recentFiles) }
 export function useCommandRecentFiles() {
