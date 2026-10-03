@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
+import { IssuePageWorldContext } from './issue-page/issue-page-data'
 
 const featureEnabled = vi.hoisted(() => ({ value: true }))
 vi.mock('@/lib/use-feature', () => ({
@@ -85,6 +86,7 @@ function open(issue: IssueViewModel & { memberSessionIds?: string[] }): void {
   // the ConfirmProvider context AppShell supplies in the real tree.
   render(
     <ConfirmProvider>
+      <IssuePageWorldContext.Provider value={{ issues: [viewIssue], sessions: state.sessions as SessionView[] }}>
       <IssueContextMenu
         issues={[viewIssue]}
         allIssues={[viewIssue]}
@@ -93,6 +95,7 @@ function open(issue: IssueViewModel & { memberSessionIds?: string[] }): void {
         onOpen={vi.fn()}
         onRename={vi.fn()}
       />
+      </IssuePageWorldContext.Provider>
     </ConfirmProvider>,
   )
 }

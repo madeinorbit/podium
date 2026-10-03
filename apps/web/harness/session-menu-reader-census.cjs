@@ -7,7 +7,8 @@ const ts = createRequire(process.cwd() + '/scripts/package.json')('typescript')
 const baseline = '7f952ac170ef442e1825c16218979209bb38329f'
 const guard = 'apps/web/src/lib/hooks/use-session-guard.ts'
 const menu = 'apps/web/src/lib/SessionContextMenu.tsx'
-const paths = [guard, menu]
+const issueMenu = 'apps/web/src/features/issues/IssueContextMenu.tsx'
+const paths = [guard, menu, issueMenu]
 const source = (path, before) =>
   before
     ? execFileSync('git', ['show', `${baseline}:${path}`], { encoding: 'utf8' })
@@ -21,6 +22,7 @@ function readers(before) {
     storeSelectors: 0,
     legacyIssueChoices: 0,
     optionalPoolInputs: 0,
+    legacyDataFallbacks: 0,
   }
   for (const path of paths) {
     const visit = (node) => {
@@ -33,6 +35,7 @@ function readers(before) {
       )
         counts.storeSelectors++
       if (ts.isIdentifier(node) && node.text === 'useReplicaIssues') counts.legacyIssueChoices++
+      if (ts.isVariableDeclaration(node) && node.initializer && /\blegacy(?:Sessions|Repos|Machines)\b/.test(node.initializer.getText())) counts.legacyDataFallbacks++
       if (
         ts.isPropertySignature(node) &&
         node.name.getText() === 'poolInputs' &&
@@ -92,6 +95,7 @@ function walk(directory) {
 }
 walk('apps/web/src')
 const missingMenuInputs = [],
+  missingIssueMenuInputs = [],
   missingGuardInputs = []
 for (const path of files) {
   const current = tree(path, false)
@@ -107,6 +111,13 @@ for (const path of files) {
         path,
         line: current.getLineAndCharacterOfPosition(node.getStart()).line + 1,
       })
+    if (
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      node.tagName.getText() === 'IssueContextMenu' &&
+      !node.attributes.properties.some(
+        (prop) => ts.isJsxAttribute(prop) && prop.name.getText() === 'poolInputs',
+      )
+    ) missingIssueMenuInputs.push({ path, line: current.getLineAndCharacterOfPosition(node.getStart()).line + 1 })
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
@@ -127,6 +138,7 @@ const writerContracts = [
   [guard, 'guardedArchive'],
   [menu, 'run'],
   [menu, 'handoff'],
+  ...['run', 'handoffTo', 'setStage', 'setPriority', 'setColor', 'toggleLabel', 'assignAgent', 'close', 'defer', 'undefer', 'rename', 'duplicateOf', 'del', 'archive', 'restore', 'movePlacement', 'runAction', 'runSubmenu'].map(name => [issueMenu, name]),
 ].map(([path, name]) => {
   const before = writerHash(path, name, true),
     after = writerHash(path, name, false)
@@ -138,10 +150,11 @@ const report = {
   before: readers(true),
   after: readers(false),
   missingMenuInputs,
+  missingIssueMenuInputs,
   missingGuardInputs,
   writerContracts,
   scope:
-    'Shared guard/menu implementations and every product caller under apps/web/src; synthetic test controls excluded.',
+    'Shared guard/session/task menu implementations and every direct product caller under apps/web/src; synthetic controls excluded.',
 }
 const output = process.argv.find((arg) => arg.endsWith('.json'))
 if (output) writeFileSync(output, JSON.stringify(report, null, 2) + '\n')
@@ -150,6 +163,7 @@ if (
   !process.argv.includes('--record-before') &&
   (Object.values(report.after).some((value) => value !== 0) ||
     missingMenuInputs.length ||
+    missingIssueMenuInputs.length ||
     missingGuardInputs.length ||
     writerContracts.some((contract) => !contract.unchanged))
 )

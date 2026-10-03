@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
+import { IssuePageWorldContext } from './issue-page/issue-page-data'
+import type { SessionView } from '@podium/client-core/session-values'
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
@@ -49,6 +51,7 @@ function open(over: { onRequestClose?: (reason: IssueCloseReason) => void } = {}
     // POD-1077: the menu's cascade confirms read the ConfirmProvider context
     // AppShell supplies in the real tree.
     <ConfirmProvider>
+      <IssuePageWorldContext.Provider value={{ issues: [issue], sessions: state.sessions as SessionView[] }}>
       <IssueContextMenu
         issues={[issue]}
         allIssues={[issue]}
@@ -58,6 +61,7 @@ function open(over: { onRequestClose?: (reason: IssueCloseReason) => void } = {}
         surface="sidebar"
         {...over}
       />
+      </IssuePageWorldContext.Provider>
     </ConfirmProvider>,
   )
   return { onClose }

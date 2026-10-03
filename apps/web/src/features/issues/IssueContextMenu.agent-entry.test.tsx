@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
+import { IssuePageWorldContext } from './issue-page/issue-page-data'
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
@@ -31,6 +32,7 @@ vi.mock('@/app/store', () => {
 function open(issue: ReturnType<typeof makeIssue>, primaryStart = false): void {
   render(
     <ConfirmProvider>
+      <IssuePageWorldContext.Provider value={{ issues: [issue], sessions: [] }}>
       <IssueContextMenu
         issues={[issue]}
         allIssues={[issue]}
@@ -40,6 +42,7 @@ function open(issue: ReturnType<typeof makeIssue>, primaryStart = false): void {
         onOpen={vi.fn()}
         onRename={vi.fn()}
       />
+      </IssuePageWorldContext.Provider>
     </ConfirmProvider>,
   )
 }
