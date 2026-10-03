@@ -109,15 +109,18 @@ describe('rendered mission pane parity', () => {
   it('does not commit another roster render when the host catalog publishes equal values', async () => {
     const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12)
     if (!root) throw new Error('Missing mission fixture')
+    const renamed = { ...root, title: 'Changed mission catalog check' }
     state.layer = 'pool'; state.selectedIssueId = root.id
     const publishCatalog = (prefix: string) => pool.apply({ type: 'update', rows: [{ kind: 'repo', id: 'catalog-only', value: { id: 'catalog-only', prefix } }] })
     publishCatalog('before')
     vi.spyOn(pool.headerViews, 'machines').mockImplementation(() => { pool.row('repo', 'catalog-only'); return [] })
     const committed = vi.fn()
-    mount('full', committed); await settled()
+    const current = mount('full', committed); await settled()
     const before = committed.mock.calls.length
     await act(async () => { publishCatalog('after') })
     expect(committed).toHaveBeenCalledTimes(before)
+    await act(async () => { pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: renamed }] }) })
+    await waitFor(() => expect(current.container.querySelector('.deck-header')?.textContent).toContain(renamed.title))
   }, 120_000)
 
   it('derives a mission once and retains its rows when only the selected session changes', async () => {
