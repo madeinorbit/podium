@@ -227,6 +227,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   // object) is picked up without reconstructing anything.
   const latest = useRef({ onFatalError, formatError, notices, attachRuntime })
   latest.current = { onFatalError, formatError, notices, attachRuntime }
+  const runtimeGeneration = useRef(0)
   // ONE RUNTIME PER (principal, config, api) IDENTITY. The principal is the
   // load-bearing key: a change to it is a different person, so the previous
   // runtime is DESTROYED (irreversible — see ClientRuntime.destroy) before the
@@ -269,6 +270,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     }
   }
   if (principal !== null && runtimeRef.current === null) {
+    runtimeGeneration.current++
     runtimeRef.current = {
       principal,
       config,
@@ -327,7 +329,11 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   }
   return (
     <PrincipalCtx.Provider value={principal}>
-      <Ctx.Provider value={runtime as unknown as StoreHandle<PodiumClientApi>}>
+      {/* Account-owned hooks must retire with their runtime. Replacing only the
+          context value leaves mount-stable callbacks, refs and memoized readers
+          holding the previous account's render scope. Ordinary rerenders keep
+          this key, while every runtime reconstruction mounts a fresh subtree. */}
+      <Ctx.Provider key={runtimeGeneration.current} value={runtime as unknown as StoreHandle<PodiumClientApi>}>
         {children}
       </Ctx.Provider>
     </PrincipalCtx.Provider>

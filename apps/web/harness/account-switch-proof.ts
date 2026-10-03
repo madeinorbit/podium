@@ -1,6 +1,6 @@
 /** Focused Chromium proof over the ordinary synthetic full-screen fixture.
  * Run on flatblock: bun apps/web/harness/account-switch-proof.ts
- * --plant-stale-handler pins the first real close-tab closure and must fail. */
+ * --plant-stale-handler retains the first real close-tab closure and must fail. */
 import { execFileSync } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -14,6 +14,7 @@ import type {} from '../test/sidebar-acceptance.browser'
 const args = process.argv.slice(2)
 const planted = args.includes('--plant-stale-handler')
 const sharedScopePlant = args.includes('--plant-shared-scope-callback')
+const unkeyedPlant = args.includes('--plant-unkeyed-account')
 const pilotArg = args.find(arg => arg.startsWith('--pilot='))?.slice(8)
 if (pilotArg !== undefined && !['0', '1'].includes(pilotArg)) throw new Error('Invalid pilot arm')
 const pilots = pilotArg === undefined ? [0, 1] : [Number(pilotArg)]
@@ -34,12 +35,10 @@ await build({
   plugins: [...(config.plugins ?? []).filter((plugin: any) => plugin?.name !== 'acceptance-state-boundaries'), {
     name: 'account-lifetime-probe', enforce: 'pre',
     transform(code: string, id: string) {
-      if (planted && id.endsWith('/app/Workspace.tsx')) {
-        const registration = 'delete g.__PODIUM_CLOSE_TAB__\n    }\n  })'
-        if (!code.includes(registration)) throw new Error('Stale close-tab plant was not armed')
-        // A real mutation of the production effect: keep the first account's
-        // handler registered across every later render and principal change.
-        return { code: code.replace(registration, 'delete g.__PODIUM_CLOSE_TAB__\n    }\n  }, [])'), map: null }
+      if (unkeyedPlant && id.endsWith('/react/provider.tsx')) {
+        const key = 'key={runtimeGeneration.current}'
+        if (!code.includes(key)) throw new Error('Unkeyed account plant was not armed')
+        return { code: code.replace(key, ''), map: null }
       }
       if (sharedScopePlant && id.endsWith('/app/Workspace.tsx')) {
         const close = '  const closeTab = (tabId: string): void => {'
@@ -99,6 +98,11 @@ try {
         throw new Error('Startup/corpus guard failed')
       for (const key of switches) if (startup.switches[key] !== String(pilot)) throw new Error(`Missing startup switch ${key}`)
       const cdp = await context.newCDPSession(page)
+      if (planted) await page.evaluate(() => {
+        // Keep the actual installed handler, rather than planting a name in the
+        // report. Its captured account must make the survivor guard go red.
+        Object.assign(window, { __plantedStaleCloseTab: window.__PODIUM_CLOSE_TAB__ })
+      })
       for (const principal of ['acceptance-bob', 'acceptance-alice']) {
         await page.evaluate(name => window.__acceptance.show(name), principal)
         await page.waitForFunction(() => window.__acceptance.ready())
@@ -124,7 +128,7 @@ try {
     } finally { await context.close() }
   }
   await writeFile(resolve(out, 'report.json'), JSON.stringify({ sourceSha, browser: browser.version(),
-    host: hostname(), seed: 4443, issues: 4867, sessions: 4302, switches, planted, sharedScopePlant, records, failures }, null, 2) + '\n')
+    host: hostname(), seed: 4443, issues: 4867, sessions: 4302, switches, planted, sharedScopePlant, unkeyedPlant, records, failures }, null, 2) + '\n')
   if (failures.length) throw new Error(`Account survivors guard failed:\n${failures.join('\n')}`)
   console.log(`Account-switch proof passed: zero retired survivors in startup arms ${pilots.join(', ')}`)
 } finally {
