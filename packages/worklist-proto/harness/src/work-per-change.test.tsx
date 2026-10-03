@@ -43,8 +43,10 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
+import { IssueModel } from '@podium/client-graph/models'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 import type { Arm } from '../../shared/src/arm'
 import type { RowSourceMode } from '@podium/client-graph/shared/row-source'
 import {
@@ -52,8 +54,10 @@ import {
   type ScenarioEngine,
   startScenarioEngine,
 } from '../../shared/src/scenarios'
-import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
-import { mountArmForCounts } from './count-harness'
+import type { SliceIssue, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import { harnessMobxPoolArm } from './adapters/mobx-pool'
+import { createReplaySource, mountArmForCounts } from './count-harness'
+import { installMobxWarnTrap } from './mobx-trap'
 import {
   FENCE_SCENARIOS,
   type FenceFeeds,
@@ -321,4 +325,91 @@ describe('work per change: legacy control (the NO)', () => {
     ).toEqual([])
     expect(() => assertScaleInvariant(verdicts)).toThrow(/grew with the data/)
   }, 1_800_000)
+})
+
+describe('MobX cold parent reads', () => {
+  installMobxWarnTrap()
+
+  const now = Date.parse('2026-10-03T12:00:00.000Z')
+  const stamp = new Date(now - 60_000).toISOString()
+  const old = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const issue = (id: string, patch: Partial<SliceIssue> = {}): SliceIssue => ({
+    id,
+    seq: 1,
+    title: id,
+    stage: 'planning',
+    audience: 'human',
+    parentId: null,
+    repoPath: '/synthetic/repo',
+    createdAt: stamp,
+    updatedAt: stamp,
+    ...patch,
+  })
+
+  /** Offscreen progress has no row observer retaining its cold ancestors' facts. */
+  function replayHeartbeat() {
+    const archived = issue('archived-parent', { archived: true, stage: 'done', closedAt: old })
+    const cold = issue('cold-parent', {
+      parentId: archived.id, stage: 'done', closedAt: old, updatedAt: old,
+    })
+    const branch = issue('branch', { parentId: cold.id })
+    const leaf = issue('leaf', { parentId: branch.id })
+    const background = issue('background', { archived: true, stage: 'done', closedAt: old })
+    const replay = createReplaySource({
+      issues: [archived, cold, branch, leaf, background].map(value => ({
+        kind: 'issue', id: value.id, value,
+      })),
+      sessions: [],
+      worktrees: [],
+    })
+    const read = vi.fn(replay.source.row!.bind(replay.source))
+    const locals = fixedLocals({ selectedIssueId: null, coarseNow: now })
+    const handle = harnessMobxPoolArm.create(
+      { ...replay.source, row: read }, locals.source, undefined, { schedule: () => () => {} },
+    )
+    try {
+      const before = handle.snapshot()
+      expect(before.rowsById.branch?.progressTotal, 'the offscreen row has formal progress').toBe(1)
+      expect([...handle.pool.residency!.ids('issue')]).toEqual(
+        expect.arrayContaining([archived.id, cold.id]),
+      )
+      replay.push({ type: 'update', rows: [{
+        kind: 'issue', id: background.id,
+        value: { ...background, updatedAt: new Date(now).toISOString() },
+      }] })
+      handle.settleLoads()
+      expect(handle.pendingLoads()).toBe(0)
+      read.mockClear()
+      const after = handle.snapshot()
+      expect(after).toEqual(before)
+      expect([...handle.pool.residency!.ids('issue')]).toEqual(
+        expect.arrayContaining([archived.id, cold.id]),
+      )
+      return read.mock.calls.map(([kind, id]) => `${kind}:${id}`)
+    } finally {
+      handle.dispose()
+      locals.dispose()
+    }
+  }
+
+  function assertNoLateReads(reads: readonly string[]): void {
+    expect(reads, 'late row reads after the settled heartbeat').toEqual([])
+  }
+
+  it('checks offscreen progress after a settled heartbeat without reading cold ancestor payloads', () => {
+    assertNoLateReads(replayHeartbeat())
+  })
+
+  it('rejects the original standing-based parent getter when it is planted', () => {
+    const plant = vi.spyOn(IssueModel.prototype, 'formalParent', 'get').mockImplementation(
+      function (this: IssueModel) { return this.standing?.formalParent ?? null },
+    )
+    try {
+      const reads = replayHeartbeat()
+      expect(reads).toEqual(['issue:cold-parent', 'issue:archived-parent'])
+      expect(() => assertNoLateReads(reads)).toThrow(/late row reads after the settled heartbeat/)
+    } finally {
+      plant.mockRestore()
+    }
+  })
 })

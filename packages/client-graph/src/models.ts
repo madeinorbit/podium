@@ -123,7 +123,6 @@ import {
   type Aggregate,
   type Attention,
   attentionOf,
-  formalParentPartOf,
   LOADING,
   type Loaded as LoadedRow,
   type OwnAttention,
@@ -1049,8 +1048,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.standing?.finished
   }
 
+  /** Cycle walks need only the maintained parent key, including on cold ancestors. */
   get formalParent(): string | null {
-    return formalParentPartOf(this)
+    return this.host.visibleInputs.links.issue.parent(this.id)
   }
 
   /** R-GROUP 3's "nothing in the subtree waits". */
