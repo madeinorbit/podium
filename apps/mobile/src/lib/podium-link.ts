@@ -17,18 +17,17 @@
  * active replica. An address the phone cannot show also falls back externally.
  */
 
-import { type SessionValueInput, sessionValues } from '@podium/client-core/session-values'
 import {
   canonicalPodiumOrigin,
   formatExternalHttpLink,
   formatPodiumLinkFallback,
   type PodiumLink,
   type PodiumTarget,
-  parseIssueRef,
   parsePodiumLink,
-  parseSessionRef,
 } from '@podium/protocol'
 import { Linking } from 'react-native'
+
+export { findLinkedIssue, findLinkedSession, mobilePodiumRoute, type LinkIssueLike, type LinkSessionLike } from './podium-route'
 
 /**
  * TWO SLOTS, NOT ONE LIST. The paired profiles and the active server are
@@ -69,71 +68,6 @@ export function classifyPodiumLink(href: string): PodiumLink | null {
 export function internalPodiumTarget(href: string): PodiumTarget | null {
   const link = classifyPodiumLink(href)
   return link?.kind === 'internal' ? link.target : null
-}
-
-/** The fields of an issue row this module needs. */
-export interface LinkIssueLike {
-  id: string
-  prefix?: string
-  seq?: number
-  displayRef?: string
-}
-
-/** The fields of a session row this module needs. */
-export interface LinkSessionLike extends SessionValueInput {
-  sessionId: string
-}
-
-/**
- * The expo-router path for a target, or null when this app has no screen for it.
- *
- * The screens are singular (`/issue/:id`) while the address space is plural
- * (`/issues/:id`): the wire format is one thing and a client's route tree is
- * another, which is the reason the resolver hands back a target rather than a
- * path.
- */
-export function mobilePodiumRoute(
-  target: PodiumTarget,
-  context: { issues: readonly LinkIssueLike[]; sessions: readonly LinkSessionLike[] },
-): string | null {
-  if (target.kind === 'issue') {
-    if (target.search || target.hash) return null
-    const issue = findLinkedIssue(target.issue, context.issues)
-    return issue ? `/issue/${encodeURIComponent(issue.id)}` : null
-  }
-  if (target.kind === 'session') {
-    if (target.search || target.hash) return null
-    const session = findLinkedSession(target.session, context.sessions)
-    return session ? `/session/${encodeURIComponent(session.sessionId)}` : null
-  }
-  return null
-}
-
-/** An issue by internal id or by human ref — both appear in real addresses. */
-export function findLinkedIssue(
-  identifier: string,
-  issues: readonly LinkIssueLike[],
-): LinkIssueLike | undefined {
-  const trimmed = identifier.trim()
-  const direct = issues.find((issue) => issue.id === trimmed)
-  if (direct) return direct
-  const byDisplay = issues.find((issue) => issue.displayRef === trimmed)
-  if (byDisplay) return byDisplay
-  const ref = parseIssueRef(trimmed)
-  if (!ref) return undefined
-  return issues.find((issue) => issue.prefix === ref.prefix && issue.seq === ref.seq)
-}
-
-/** A session by internal id or by its permanent birth ref. */
-export function findLinkedSession(
-  identifier: string,
-  sessions: readonly LinkSessionLike[],
-): LinkSessionLike | undefined {
-  const trimmed = identifier.trim()
-  const direct = sessions.find((session) => session.sessionId === trimmed)
-  if (direct) return direct
-  if (!parseSessionRef(trimmed)) return undefined
-  return sessions.find((session) => sessionValues(session).displayRef === trimmed)
 }
 
 // --- Following a link ------------------------------------------------------

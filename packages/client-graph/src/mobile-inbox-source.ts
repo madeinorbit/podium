@@ -1,6 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import type { MobxPool } from './pool'
+import { knownIssueIds } from './enumerate'
 import type { MobileInboxRows } from './mobile-inbox-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -21,13 +22,11 @@ export class MobileInboxSource {
     this.prefixes = computed((): Loaded<MobileInboxRows['mobileReferencePrefixes']> => {
       this.counts.prefixReads++
       const used = new Set<string>()
-      // Resident membership comes from the declared inverse, never an issue
-      // walk or an index that includes cold payloads.
-      for (const id of pool.tables.repo.keys()) if (pool.graph.size('repo', id, 'issues') > 0) used.add(id)
-      // Cold history contributes only its explicitly declared repoId summary.
-      // This shared summary is cached once per pool, not once per chip/token.
+      // Visible tasks contribute only their declared repoId summary. This
+      // shared result is cached once per pool, not once per chip/token; it
+      // builds no issue index and retains no cold payloads.
       let loading = false
-      for (const id of pool.residency?.ids('issue', true) ?? []) {
+      for (const id of knownIssueIds(pool)) {
         const row = pool.row('issue', id, 'summary') as Loaded<{ repoId?: string }>
         if (row === LOADING) loading = true
         else if (row?.repoId) used.add(row.repoId)
