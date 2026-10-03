@@ -12,7 +12,7 @@ afterEach(() => {
 
 function fixture() {
   const issues = ['first', 'second', 'deleted'].map((id, index) => ({
-    id, seq: index + 1, title: 'Matching task', repoId: 'repo',
+    id, seq: index + 1, title: 'Matching task', repoId: 'repo', repoPath: '/synthetic',
     stage: 'done', archived: true, deletedAt: id === 'deleted' ? '2020-01-01T00:00:00Z' : undefined,
     closedAt: '2020-01-01T00:00:00Z', createdAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
   }))
@@ -28,7 +28,9 @@ function fixture() {
   })
   pools.push(pool)
   pool.apply({ type: 'replace', rows: [
-    { kind: 'repo', id: 'repo', value: { id: 'repo', path: '/synthetic', prefix: 'POD' } },
+    { kind: 'worktree', id: '/synthetic', value: {
+      path: '/synthetic', repoId: 'repo', repoPath: '/synthetic', repoName: 'Synthetic', prefix: 'POD',
+    } },
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
   ] })
