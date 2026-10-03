@@ -90,15 +90,20 @@ try {
     await page.goto(`${origin}/harness/issue-board.browser.html?mobxSidebar=1&mobxBoard=${arm === 'pool' ? 1 : 0}`)
     await page.waitForFunction(() => Reflect.get(window, '__boardHarness')?.ready(), undefined, { timeout: 120_000 })
     const initial = await page.evaluate(() => Reflect.get(window, '__boardHarness').state())
-    const open = await capture(page, '[data-board-open]', '[data-testid="issues-board"]', () => page.locator('[data-board-open]').click())
+    const open = await capture(page, '[data-board-open]', '[data-testid="issues-board"] [data-issue-id]', () => page.locator('[data-board-open]').click())
     const full = await rendered(page)
     const population = () => page.locator('[data-testid="issue-column"] h3 + span').evaluateAll(nodes => nodes.reduce((n, node) => n + Number(node.textContent), 0))
     const fullRows = await population()
     if (initial.issues !== 19468 || initial.sessions !== 17208) throw new Error('Wrong 4x fixture cardinality')
     await page.getByRole('button', { name: 'Filter', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Status', exact: true }).hover()
-    const choice = page.getByRole('menuitem', { name: 'Planning', exact: true })
-    await choice.waitFor()
+    await page.getByRole('menuitem', { name: 'Status', exact: true }).click()
+    const choice = page.locator('[data-slot="dropdown-menu-item"]').filter({ hasText: 'Planning' }).first()
+    try { await choice.waitFor() }
+    catch (error) {
+      console.log(JSON.stringify(await page.locator('[role^="menuitem"]').evaluateAll(nodes => nodes.map(node => ({ role: node.getAttribute('role'), text: node.textContent, slot: node.getAttribute('data-slot') })))))
+      await page.screenshot({ path: resolve(root, 'filter-driver.png') })
+      throw error
+    }
     const filter = await capture(page, '[role="menuitem"]', 'button[title="Remove filter"]', () => choice.click())
     await page.keyboard.press('Escape')
     const filtered = await rendered(page)
