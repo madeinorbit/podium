@@ -21,7 +21,10 @@ const controls = [
   ['cold not-found OS fallback', links, 'if (answer instanceof Promise) {', 'if (answer instanceof Promise) { fallback()'],
   ['early reference tap', hooks, 'waiting.current.add({ target: next, resolve })', 'resolve(null)'],
 ] as const
-for (const [name, path, needle, fault] of controls) {
+const fromArg = process.argv.indexOf('--from')
+const from = fromArg < 0 ? 0 : controls.findIndex(([name]) => name === process.argv[fromArg + 1])
+if (from < 0) throw new Error('Unknown starting control')
+for (const [name, path, needle, fault] of controls.slice(from)) {
   const original = await readFile(path, 'utf8')
   if (!original.includes(needle) || original.indexOf(needle) !== original.lastIndexOf(needle)) throw new Error(`Ambiguous control ${name}`)
   try {

@@ -179,9 +179,11 @@ it('routes issue and permanent session references and preserves scoped handoff d
 
 it('updates pulse machines and streamed health without rebuilding quota polling for unrelated rows', async () => {
   const app = await mount(true, <PulseProbe />)
-  await waitFor(() => expect(app.view.getByTestId('pulse').textContent).toContain('Host 1'))
+  const reading = () => JSON.parse(app.view.getByTestId('pulse').textContent!)
+  await waitFor(() => { expect(reading().machines).toHaveLength(3); expect(reading().hosts).toHaveLength(3) })
   const quota = vi.spyOn(app.data.api.quota.summary, 'query'), history = vi.spyOn((app.data.api.quota as never as { history: { query: () => Promise<unknown[]> } }).history, 'query')
   await act(async () => { app.data.activity(1); app.data.publishMetrics(2) })
+  await waitFor(() => expect(reading().hosts[0].load.one).toBe(0.5))
   expect(quota).not.toHaveBeenCalled(); expect(history).not.toHaveBeenCalled()
   expect(readRuntimeStoreStats(app.runtime)?.selectorRuns ?? 0).toBe(0)
   expect(app.errors).toEqual([])
