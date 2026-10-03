@@ -36,8 +36,17 @@ async function launchWork(page: Page, on: boolean, previousOn: boolean) {
 
 test('production mobile work has equal off/on rows and styles, and a real press paints the mission', async ({ page, request }, testInfo) => {
   const errors: string[] = []
+  const resourceReports: { message: string; path: string }[] = []
   page.on('pageerror', error => errors.push(error.message))
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
+  page.on('console', message => {
+    if (message.type() !== 'error') return
+    // The anonymous harness refuses authenticated device requests. Keep that
+    // network evidence separate; every app error and other resource error fails.
+    if (/^Failed to load resource: the server responded with a status of 401\b/.test(message.text())) {
+      const url = message.location().url
+      resourceReports.push({ message: message.text(), path: url ? new URL(url).pathname : '' })
+    } else errors.push(message.text())
+  })
   const repos = await rpc<string[]>(request, 'repos.list', {}, 'get')
   if (!repos[0]) throw new Error('isolated harness has no repo')
   const title = `Native pool ${Date.now().toString(36)}`
@@ -110,7 +119,7 @@ test('production mobile work has equal off/on rows and styles, and a real press 
   const directory = resolve('.artifacts/POD-4977')
   mkdirSync(directory, { recursive: true })
   const path = resolve(directory, 'mobile-browser.json')
-  writeFileSync(path, JSON.stringify({ browser: await page.context().browser()?.version(), differences: 0,
+  writeFileSync(path, JSON.stringify({ browser: await page.context().browser()?.version(), differences: 0, resourceReports,
     samples: cells, scope: 'Synthetic production Expo export; interleaved startup arms on one SHA; actual Chromium Paint after mission DOM.' }, null, 2) + '\n')
   await testInfo.attach('Mobile pool browser comparison', { path, contentType: 'application/json' })
   console.info('[mobile browser]', JSON.stringify(cells))
