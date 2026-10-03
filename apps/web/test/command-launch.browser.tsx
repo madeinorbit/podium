@@ -90,14 +90,15 @@ storeStats.enable()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 function Surface() {
-  owner = useStoreHandle() as ClientRuntime
-  initializePoolScreens(owner.getSnapshot().uiState)
+  const runtime = useStoreHandle() as ClientRuntime
+  owner = runtime
+  initializePoolScreens(runtime.getSnapshot().uiState)
   pool = useWorklistPool()
   const [newIssue, setNewIssue] = useState(false),
     [opened, setOpened] = useState('')
   useEffect(() => {
     let active = true
-    void owner
+    void runtime
       .getSnapshot()
       .refreshRepos()
       .then(() => {
@@ -107,13 +108,13 @@ function Surface() {
       active = false
       booted = false
     }
-  }, [owner])
+  }, [runtime])
   return (
     <main style={{ margin: '80px auto', maxWidth: 720 }}>
       <h1>Command and launch choices</h1>
       <p>5,600 synthetic tasks · 5,014 sessions</p>
-      <button onClick={() => owner.getSnapshot().setPaletteOpen(true)}>Open commands</button>
-      <button onClick={() => setNewIssue(true)}>New task composer</button>
+      <button type="button" onClick={() => owner.getSnapshot().setPaletteOpen(true)}>Open commands</button>
+      <button type="button" onClick={() => setNewIssue(true)}>New task composer</button>
       <Profiler
         id="menus"
         onRender={(_id, _phase, duration) => {

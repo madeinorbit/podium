@@ -79,13 +79,14 @@ let owner: ClientRuntime,
 storeStats.enable()
 function Surface() {
   owner = useStoreHandle() as ClientRuntime
-  pool = useWorklistPool()
+  const currentPool = useWorklistPool()
+  pool = currentPool
   useEffect(() => {
-    ready = pool !== null
+    ready = currentPool !== null
     return () => {
       ready = false
     }
-  }, [pool])
+  }, [currentPool])
   return (
     <main className="mx-auto max-w-2xl p-8">
       <h1 className="mb-3 text-xl font-semibold">Messages, questions and recovery</h1>

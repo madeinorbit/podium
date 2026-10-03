@@ -834,6 +834,7 @@ function PaletteDialogBody({
             className="cmdk-list"
           >
             {groups.map((g) => (
+              // biome-ignore lint/a11y/useSemanticElements: Command groups are part of the palette's composite listbox.
               <div key={g.group} role="group" aria-label={groupHeading(g)} className="cmdk-group">
                 <div className="cmdk-group-label" aria-hidden="true">
                   <span className="cmdk-group-name">{groupHeading(g)}</span>
@@ -857,6 +858,7 @@ function PaletteDialogBody({
               <p className="cmdk-nomatch">No match for “{query.trim()}”</p>
             )}
             {fallbackTargets.length > 0 && (
+              // biome-ignore lint/a11y/useSemanticElements: Command groups are part of the palette's composite listbox.
               <div role="group" aria-label="New agent" className="cmdk-group">
                 <div className="cmdk-group-label" aria-hidden="true">
                   <span className="cmdk-group-name">New agent</span>

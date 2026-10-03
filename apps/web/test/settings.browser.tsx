@@ -65,24 +65,26 @@ let changePrincipal = () => {}
 storeStats.enable()
 
 function Surface() {
-  owner = useStoreHandle() as ClientRuntime
-  pool = useWorklistPool()
+  const runtime = useStoreHandle() as ClientRuntime
+  const currentPool = useWorklistPool()
+  owner = runtime
+  pool = currentPool
   useEffect(() => {
     let active = true
     queueMicrotask(async () => {
       if (!active) return
       // Provider start installs the real hub listeners in its passive effect.
       fixture.publishMachines()
-      await owner.getSnapshot().refreshRepos()
+      await runtime.getSnapshot().refreshRepos()
       if (!active) return
-      owner.getSnapshot().setSettingsTab('accounts')
-      ready = settingsDataLayer() === 'legacy' || pool !== null
+      runtime.getSnapshot().setSettingsTab('accounts')
+      ready = settingsDataLayer() === 'legacy' || currentPool !== null
     })
     return () => {
       active = false
       ready = false
     }
-  }, [pool, owner])
+  }, [currentPool, runtime])
   return (
     <main style={{ minHeight: '100vh', padding: 24 }}>
       <Profiler

@@ -1,6 +1,7 @@
 const { execFileSync } = require('node:child_process')
 const { readFileSync, existsSync, writeFileSync } = require('node:fs')
 const { createRequire } = require('node:module')
+const { createHash } = require('node:crypto')
 const ts = createRequire(process.cwd() + '/scripts/package.json')('typescript')
 const baseline = 'fba57c0c8fd01c24c2a9258d4a734961e76fdf80'
 const paths = [
@@ -65,6 +66,42 @@ const totals = (phase) =>
 const remainingSwitches = switches
   .filter(existsSync)
   .filter((path) => /\bwebPoolSwitch\s*\(/.test(readFileSync(path, 'utf8')))
+function writerHash(path, name, source) {
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true)
+  let body
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name) body = node.body
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name)
+      body = node.initializer
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  if (!body) throw new Error(`Missing writer contract: ${path}:${name}`)
+  // Formatting may add parentheses and trailing commas. Hash syntax structure,
+  // identifiers and literal values so that a setter or payload change still fails.
+  function syntax(node) {
+    if (ts.isParenthesizedExpression(node)) return syntax(node.expression)
+    const children = []
+    ts.forEachChild(node, (child) => { children.push(syntax(child)) })
+    const value = ts.isIdentifier(node) || ts.isPrivateIdentifier(node) ||
+      ts.isStringLiteralLike(node) || ts.isNumericLiteral(node) ? node.text : null
+    return [node.kind, value, children]
+  }
+  return createHash('sha256').update(JSON.stringify(syntax(body))).digest('hex')
+}
+const writerContracts = [
+  ['apps/web/src/lib/use-persisted-ui-state.ts', 'usePersistedUiState'],
+  ['apps/web/src/features/settings/readers.ts', 'usePoolPreference'],
+  ['apps/web/src/features/settings/readers.ts', 'parseSettingsText'],
+  ['apps/web/src/features/settings/readers.ts', 'serializeSettingsText'],
+  ['apps/web/src/app/density.tsx', 'PoolDensityProvider'],
+  ['apps/web/src/app/density.tsx', 'parseDensity'],
+  ['apps/web/src/app/density.tsx', 'serializeDensity'],
+].map(([path, name]) => {
+  const before = writerHash(path, name, execFileSync('git', ['show', `${baseline}:${path}`], { encoding: 'utf8' }))
+  const after = writerHash(path, name, readFileSync(path, 'utf8'))
+  return { path, name, before, after, unchanged: before === after }
+})
 const report = {
   baseline,
   candidate: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
@@ -72,11 +109,12 @@ const report = {
   after: totals('after'),
   remainingSwitches,
   rows,
+  writerContracts,
   scope:
     'Product remaining-screen reader implementations. Pure fixture/private-replay reference policies are not runtime readers.',
 }
 const output = process.argv[2]
 if (output) writeFileSync(output, JSON.stringify(report, null, 2) + '\n')
 console.log(JSON.stringify(report))
-if (Object.values(report.after).some((value) => value !== 0) || remainingSwitches.length)
+if (Object.values(report.after).some((value) => value !== 0) || remainingSwitches.length || writerContracts.some(check => !check.unchanged))
   process.exitCode = 1

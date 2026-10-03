@@ -51,15 +51,17 @@ function CurrentReaders() {
   )
 }
 function Surface() {
-  owner = useStoreHandle() as ClientRuntime
-  pool = useWorklistPool()
-  const ui = owner.getSnapshot().uiState
+  const runtime = useStoreHandle() as ClientRuntime
+  const currentPool = useWorklistPool()
+  owner = runtime
+  pool = currentPool
+  const ui = runtime.getSnapshot().uiState
   useEffect(() => {
-    ready = pool !== null
+    ready = currentPool !== null
     return () => {
       ready = false
     }
-  }, [pool])
+  }, [currentPool])
   return (
     <main style={{ fontFamily: 'system-ui', maxWidth: 680, padding: 48, margin: 'auto' }}>
       <h1>Saved client preferences</h1>
@@ -76,6 +78,7 @@ function Surface() {
         </DensityProvider>
       </Profiler>
       <button
+        type="button"
         onClick={() =>
           ui.set(
             'podium.chat.stickyPrompts',
