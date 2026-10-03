@@ -1,18 +1,27 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { observable, runInAction } from 'mobx'
-import { chatInteractions, chatMentionIssues, chatRecords, chatReferenceSessions } from './chat-context'
-import { ChatContextSource } from './chat-context-source'
+import {
+  chatInteractions,
+  chatMentionIssues,
+  chatRecords,
+  chatReferenceSessions,
+} from './chat-context'
 import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
-import { MOBILE_SESSION_ENTITIES, MOBILE_SESSION_SOURCE_KEY, type MobileSessionRows } from './mobile-session-schema'
-import type { MobxPool } from './pool'
-import { issuePages } from './issue-page'
-import { paneSession, paneHasSessions } from './session-pane'
+import { ChatContextSource } from './chat-context-source'
 import { knownIssueIds } from './enumerate'
-import { SessionPaneSource, SESSION_PANE_SOURCE_KEY } from './session-pane-source'
-import { SESSION_PANE_ENTITIES } from './session-pane-schema'
-import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from './session-exit-source'
+import { issuePages } from './issue-page'
+import {
+  MOBILE_SESSION_ENTITIES,
+  MOBILE_SESSION_SOURCE_KEY,
+  type MobileSessionRows,
+} from './mobile-session-schema'
+import type { MobxPool } from './pool'
 import { SESSION_EXIT_ENTITIES } from './session-exit-schema'
+import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from './session-exit-source'
+import { paneHasSessions, paneSession } from './session-pane'
+import { SESSION_PANE_ENTITIES } from './session-pane-schema'
+import { SESSION_PANE_SOURCE_KEY, SessionPaneSource } from './session-pane-source'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export function mobileSessionIssue(pool: MobxPool, id: string | undefined): Loaded<IssueViewModel> {
@@ -51,12 +60,29 @@ export function createMobileSessionReader(pool: MobxPool) {
     question: (id: string) => chatInteractions(pool, id),
     booting(): boolean {
       const window = pool.row('mobileSessionWindow', 'window')
-      const sessions = pool.row('chatSessionOrder', 'order'), issues = pool.row('chatIssueOrder', 'order')
-      if (!window || window === LOADING || !sessions || sessions === LOADING || !issues || issues === LOADING) return true
-      return window.cursor === null && sessions.ids.length === 0 && issues.ids.length === 0 && !paneHasSessions(pool) && knownIssueIds(pool).length === 0
+      const sessions = pool.row('chatSessionOrder', 'order'),
+        issues = pool.row('chatIssueOrder', 'order')
+      if (
+        !window ||
+        window === LOADING ||
+        !sessions ||
+        sessions === LOADING ||
+        !issues ||
+        issues === LOADING
+      )
+        return true
+      return (
+        window.cursor === null &&
+        sessions.ids.length === 0 &&
+        issues.ids.length === 0 &&
+        !paneHasSessions(pool) &&
+        knownIssueIds(pool).length === 0
+      )
     },
     conversation(id: string) {
-      const held = pool.row('chatHeld', id), draft = pool.row('chatDraft', id), records = chatRecords(pool, id)
+      const held = pool.row('chatHeld', id),
+        draft = pool.row('chatDraft', id),
+        records = chatRecords(pool, id)
       return {
         records: records.records,
         sends: held && held !== LOADING ? held.sends : [],
@@ -71,8 +97,12 @@ export function createMobileSessionReader(pool: MobxPool) {
  * nor the legacy derived snapshot arrays are read here. */
 export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) {
   const reader = createMobileSessionReader(pool)
-  const window = observable.box<MobileSessionRows['mobileSessionWindow'] | undefined>(undefined, { deep: false })
-  let demanded = false, scheduled = false, disposed = false
+  const window = observable.box<MobileSessionRows['mobileSessionWindow'] | undefined>(undefined, {
+    deep: false,
+  })
+  let demanded = false,
+    scheduled = false,
+    disposed = false
   const counts = { batches: 0 }
   function schedule() {
     if (!demanded || scheduled || disposed) return
@@ -84,7 +114,11 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
       const cursor = owner.replica.getCursor()
       const previous = window.get()
       runInAction(() => {
-        if (!previous || previous.cursor !== cursor || previous.pendingSpawnPrompts !== pendingSpawnPrompts)
+        if (
+          !previous ||
+          previous.cursor !== cursor ||
+          previous.pendingSpawnPrompts !== pendingSpawnPrompts
+        )
           window.set({ cursor, pendingSpawnPrompts })
         counts.batches++
       })
@@ -110,8 +144,20 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
 }
 
 export async function attachMobileSessionContext(owner: ClientRuntime, pool: MobxPool) {
-  await pool.sources.ensure(SESSION_PANE_SOURCE_KEY, SESSION_PANE_ENTITIES, () => new SessionPaneSource(owner))
-  await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () => createSessionExitSource(owner))
-  await pool.sources.ensure('chat-context', CHAT_CONTEXT_ENTITIES, () => new ChatContextSource(owner, pool))
-  return pool.sources.ensure(MOBILE_SESSION_SOURCE_KEY, MOBILE_SESSION_ENTITIES, () => createMobileSessionSource(owner, pool))
+  await pool.sources.ensure(
+    SESSION_PANE_SOURCE_KEY,
+    SESSION_PANE_ENTITIES,
+    () => new SessionPaneSource(owner),
+  )
+  await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () =>
+    createSessionExitSource(owner),
+  )
+  await pool.sources.ensure(
+    'chat-context',
+    CHAT_CONTEXT_ENTITIES,
+    () => new ChatContextSource(owner, pool),
+  )
+  return pool.sources.ensure(MOBILE_SESSION_SOURCE_KEY, MOBILE_SESSION_ENTITIES, () =>
+    createMobileSessionSource(owner, pool),
+  )
 }

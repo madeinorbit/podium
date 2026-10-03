@@ -7,7 +7,10 @@ import type { IssueId, SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import { useConnected, useHub } from '../client/hooks'
-import { useSessionContextSession, useSessionContextSpawnPending as useSpawnPending } from '../client/use-session-context'
+import {
+  useSessionContextSession,
+  useSessionContextSpawnPending as useSpawnPending,
+} from '../client/use-session-context'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { color } from '../theme/theme'
 import TerminalDom from './TerminalDom'

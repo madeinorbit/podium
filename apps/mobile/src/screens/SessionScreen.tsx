@@ -8,16 +8,16 @@ import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useStoreActions } from '../client/hooks'
+import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextBooting as useBooting,
   useSessionContextIssue as useIssue,
   useSessionContextSession as useSession,
+  useSessionContextExit,
   useSessionContextSessions as useSessions,
   useSessionContextSpawnPending as useSpawnPending,
   useSessionContextSpawnPrompt as useSpawnPrompt,
-  useSessionContextExit,
 } from '../client/use-session-context'
-import type { MobileTrpc } from '../client/trpc'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
 import { Icon } from '../components/Icon'

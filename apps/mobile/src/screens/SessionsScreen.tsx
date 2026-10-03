@@ -8,8 +8,8 @@ import { SectionList, StyleSheet, Text, View } from 'react-native'
 import {
   useSessionContextBooting as useBooting,
   useSessionContextIssues as useIssues,
-  useSessionContextSessions as useSessions,
   useSessionContextIssue,
+  useSessionContextSessions as useSessions,
 } from '../client/use-session-context'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'

@@ -2,12 +2,16 @@ import { resolveIssueReference } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
 import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-client-react'
-import { Mic } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 import { useConnected, useHub } from '../client/hooks'
-import { useSessionContextIssues as useIssues, useSessionContextSession, useSessionContextSpawnPending as useSpawnPending } from '../client/use-session-context'
+import {
+  useSessionContextIssues as useIssues,
+  useSessionContextSession,
+  useSessionContextSpawnPending as useSpawnPending,
+} from '../client/use-session-context'
 import { Icon } from '../components/Icon'
+import { Mic } from '../components/icons'
 import { color, font, mono, sans, space } from '../theme/theme'
 import { LEGACY_MOBILE_KEYBOARD_THEME, MOBILE_APPEARANCE } from './terminal-appearance'
 import {

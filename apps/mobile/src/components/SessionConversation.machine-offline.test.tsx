@@ -115,29 +115,30 @@ async function renderLive(initial: MachineWire[]) {
   // online->offline emit would be immediately overwritten. Answer the latest
   // emitted list instead, so the transition under test survives the refresh.
   let current: MachineWire[] = initial
-  const view = await renderWithMobileStore(
-    <LiveConversation />,
-    {
-      sessions: [session],
-      machines: initial,
-      machineProjections: initial.map(row => ({ id: row.id, name: row.name, loggedOutHarnesses: [] })),
-      api: {
-        discovery: {
-          refreshRepos: {
-            mutate: async () => ({
-              repositories: [],
-              diagnostics: [],
-              machines: current,
-            }),
-          },
-        },
-        sessions: {
-          transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
-          answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+  const view = await renderWithMobileStore(<LiveConversation />, {
+    sessions: [session],
+    machines: initial,
+    machineProjections: initial.map((row) => ({
+      id: row.id,
+      name: row.name,
+      loggedOutHarnesses: [],
+    })),
+    api: {
+      discovery: {
+        refreshRepos: {
+          mutate: async () => ({
+            repositories: [],
+            diagnostics: [],
+            machines: current,
+          }),
         },
       },
+      sessions: {
+        transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
+        answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+      },
     },
-  )
+  })
   const emitMachines = (next: MachineWire[]) => {
     current = next
     view.emit('machines', next)
@@ -238,7 +239,11 @@ describe('phone offline machine label from session homes', () => {
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('This machine')
     expect(screen.getByTestId('machine-offline-banner').textContent).not.toContain('desk')
     await act(async () => {
-      replica.applyChanges('machines', [{ id: asMachineId('m1'), name: 'Replicated desk', loggedOutHarnesses: [] }], [])
+      replica.applyChanges(
+        'machines',
+        [{ id: asMachineId('m1'), name: 'Replicated desk', loggedOutHarnesses: [] }],
+        [],
+      )
     })
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Replicated desk')
   })
