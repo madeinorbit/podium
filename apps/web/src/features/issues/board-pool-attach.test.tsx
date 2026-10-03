@@ -9,6 +9,8 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 it('attaches a real pool after the pending board render without legacy derivations or React errors', async () => {
   history.replaceState(null, '', '/?mobxBoard=1&mobxSidebar=0')
   const { attachWorklistPool, useWorklistPool } = await import('@/app/store-worklist-pool')
@@ -37,7 +39,8 @@ it('attaches a real pool after the pending board render without legacy derivatio
         principal={asClientPrincipal(asUserId('board-attach'))}
         config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
         api={{} as PodiumClientApi} createReplicaFn={() => replica} networkEnabled={false}
-        attachRuntime={attachWorklistPool} onFatalError={(message) => { throw new Error(message) }}
+        attachRuntime={(runtime) => attachWorklistPool(runtime, (cause) => errors.push(cause))}
+        onFatalError={(message) => { throw new Error(message) }}
       ><Probe /></StoreProvider>)
     })
     await vi.waitFor(async () => {
