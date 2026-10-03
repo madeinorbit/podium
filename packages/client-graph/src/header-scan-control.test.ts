@@ -1,8 +1,8 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { MobxPool } from '@podium/client-graph'
+import { MobxPool } from './pool'
 import { autorun, compareStructural, computed, type IComputedValue } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { createScanningHeaderSessions } from '../../harness/header-scan-control'
+import { createScanningHeaderSessions } from '../../../apps/web/harness/header-scan-control'
 
 it('keeps the full-scan control above the 16-read bound with 17,000 cold sessions', () => {
   const now = Date.parse('2026-10-03T12:00:00Z')
