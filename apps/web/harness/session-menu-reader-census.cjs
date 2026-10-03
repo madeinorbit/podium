@@ -56,7 +56,13 @@ function syntax(node) {
     if (value !== null) children.push(value)
   })
   const value =
-    ts.isIdentifier(node) || ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)
+    ts.isIdentifier(node) ||
+    ts.isStringLiteralLike(node) ||
+    ts.isNumericLiteral(node) ||
+    ts.isTemplateHead(node) ||
+    ts.isTemplateMiddle(node) ||
+    ts.isTemplateTail(node) ||
+    ts.isJsxText(node)
       ? node.text
       : null
   return [node.kind, value, children]

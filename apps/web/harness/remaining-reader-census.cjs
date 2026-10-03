@@ -92,7 +92,11 @@ function writerHash(path, name, source) {
       ts.isIdentifier(node) ||
       ts.isPrivateIdentifier(node) ||
       ts.isStringLiteralLike(node) ||
-      ts.isNumericLiteral(node)
+      ts.isNumericLiteral(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node) ||
+      ts.isJsxText(node)
         ? node.text
         : null
     return [node.kind, value, children]
