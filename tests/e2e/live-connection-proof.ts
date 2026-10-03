@@ -4,8 +4,8 @@ import { chromium, type Page } from '@playwright/test'
 import { actorUser, asUserId, IssueProjection } from '@podium/model'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { build, mergeConfig } from 'vite'
-import mobileHarnessConfig from '../../mobile/vite.harness.config'
-import { makeIssue } from '../src/lib/test-issue'
+import mobileHarnessConfig from '../../apps/mobile/vite.harness.config'
+import { makeIssue } from '../../apps/web/src/lib/test-issue'
 
 type ProofState = {
   app: string
@@ -23,7 +23,7 @@ const snapshot = (page: Page) =>
 /** One Chromium capture per app. Every authority, cookie and store is synthetic,
  * bound to loopback ephemeral ports, and torn down by this fixture. */
 export async function liveConnectionProof() {
-  const root = resolve(import.meta.dirname, '../../mobile')
+  const root = resolve(import.meta.dirname, '../../apps/mobile')
   const bundle = await build(
     mergeConfig(mobileHarnessConfig, {
       configFile: false,
