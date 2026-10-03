@@ -226,7 +226,8 @@ export class MobxPool {
   readonly sessionPanes = createSessionPaneReader(this)
   private settingsSequence = 0
   private readonly settingsEnabled: boolean
-  private readonly setupOrders: ObservableMap<string, number> | undefined
+  private readonly setupOrders: Map<string, number> | undefined
+  private readonly setupOrderVersion: IObservableValue<number> | undefined
   readonly settingsViews = createSettingsViews(this)
   private readonly firstTaskCount = observable.box(0)
   private readonly firstTaskPending = observable.box(0)
@@ -294,8 +295,9 @@ export class MobxPool {
   ) {
     this.issueIdByRef = lazy?.issueIdByRef
     this.settingsEnabled = lazy?.settings === true
-    this.setupOrders = this.settingsEnabled ? observable.map<string, number>(undefined, {
-      deep: false, name: debugName(() => 'pool.setupOrders'),
+    this.setupOrders = this.settingsEnabled ? new Map() : undefined
+    this.setupOrderVersion = this.settingsEnabled ? observable.box(0, {
+      name: debugName(() => 'pool.setupOrderVersion'),
     }) : undefined
     this.writes = writes ?? null
     this.tables = createObservableTables()
@@ -513,6 +515,7 @@ export class MobxPool {
       | 'settingsSequence'
       | 'settingsEnabled'
       | 'setupOrders'
+      | 'setupOrderVersion'
       | 'firstTaskCount'
       | 'firstTaskPending'
       | 'firstTaskState'
@@ -547,6 +550,7 @@ export class MobxPool {
       settingsSequence: false,
       settingsEnabled: false,
       setupOrders: false,
+      setupOrderVersion: false,
       settingsViews: false,
       firstTaskCount: false,
       firstTaskPending: false,
@@ -645,6 +649,9 @@ export class MobxPool {
   row(entity: EntityName | HeaderEntity | SourceEntity | 'setupSession' | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
     if (entity === 'setupSession') {
       const row = this.row('session', id, 'summary')
+      // Only source-order changes wake this metadata dependency. No tracking
+      // object or full-row copy is installed for a cold session at ingest.
+      this.setupOrderVersion?.get()
       return row && row !== LOADING ? setupSessionSummary(row as Readonly<Record<string, unknown>>, this.setupOrders?.get(id)) : row
     }
     if (entity === 'preference') return this.preferenceSource?.read(id) ?? LOADING
@@ -867,16 +874,21 @@ export class MobxPool {
     runInAction(() => {
       const orders = this.setupOrders
       if (orders) {
+        let changed = false
         if (event.type === 'replace') {
           this.settingsSequence = 0
           const present = new Set(event.rows.filter(row => row.kind === 'session' && row.value).map(row => row.id))
-          for (const id of orders.keys()) if (!present.has(id)) orders.delete(id)
+          for (const id of orders.keys()) if (!present.has(id)) changed = orders.delete(id) || changed
         }
         for (const record of event.rows) {
           if (record.kind !== 'session') continue
-          if (!record.value) orders.delete(record.id)
-          else if (event.type === 'replace' || !orders.has(record.id)) orders.set(record.id, ++this.settingsSequence)
+          if (!record.value) changed = orders.delete(record.id) || changed
+          else if (event.type === 'replace' || !orders.has(record.id)) {
+            const order = ++this.settingsSequence
+            if (orders.get(record.id) !== order) { orders.set(record.id, order); changed = true }
+          }
         }
+        if (changed) this.setupOrderVersion?.set(this.setupOrderVersion.get() + 1)
       }
       // Only this publication's ids are retained, until its action finishes.
       // Cold values come from the declared summary; no all-issue index.
