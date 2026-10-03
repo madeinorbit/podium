@@ -2,10 +2,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { allIssueViewModels } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
-import { checkMobileInbox } from '@podium/client-graph/diagnostics/mobile-inbox-check'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import { asUserId } from '@podium/model/browser'
 import type { PodiumTarget } from '@podium/protocol'
@@ -15,24 +12,19 @@ import { AuthStatusContext } from '../src/client/auth-context'
 import { MobileShellProvider } from '../src/client/shell'
 import {
   attachMobilePool,
-  initializeMobileDataLayer,
-  mobileDataLayer,
   useMobilePool,
 } from '../src/client/mobile-pool'
 import { PodiumLinkHost } from '../src/components/PodiumLinkHost'
 import { RefChip } from '../src/components/RefChip'
-import { followPodiumLink, mobilePodiumRoute } from '../src/lib/podium-link'
-import { buildScreeningQueue } from '../src/lib/screening'
+import { followPodiumLink } from '../src/lib/podium-link'
 import { InboxScreen } from '../src/screens/InboxScreen'
 import { ProposalScreeningScreen } from '../src/screens/ProposalScreeningScreen'
 import { usePulseFeed } from '../src/screens/usePulseFeed'
 import { createInboxFixture } from './inbox-fixture'
 import { navigation } from './inbox-platform'
 
-const on = new URLSearchParams(location.search).get('pool') === '1'
 const complete = new URLSearchParams(location.search).get('complete') === '1'
-const now = Date.now(),
-  fixture = createInboxFixture(5600, 5014),
+const fixture = createInboxFixture(5600, 5014),
   failures: string[] = []
 const tokens = [
   { token: 'SYN-1000', kind: 'issue' as const, prefix: 'SYN' },
@@ -49,7 +41,6 @@ const targets: PodiumTarget[] = [
 ]
 let owner: ClientRuntime,
   pool: ReturnType<typeof useMobilePool> = null,
-  initialized = false,
   commits = 0,
   commitMs = 0,
   pulseReady = false
@@ -68,17 +59,12 @@ function Pulse() {
 }
 function Surface() {
   owner = useStoreHandle() as ClientRuntime
-  if (!initialized) {
-    owner.ui.set(MOBX_SIDEBAR_KEY, on ? '1' : '0')
-    initializeMobileDataLayer(owner.ui)
-    initialized = true
-  }
   pool = useMobilePool()
   const [screen, setScreen] = useState('inbox')
   return (
     <main>
       <small>
-        5,600 synthetic tasks · 5,014 sessions · {mobileDataLayer()} readers
+        5,600 synthetic tasks · 5,014 sessions · pool readers
         <br />
         {complete
           ? 'Complete Inbox readers; native launch sheet closed.'
@@ -165,7 +151,7 @@ const driver = {
   ready: () =>
     pulseReady &&
     !!document.querySelector('[data-testid="screening-card"]') &&
-    (!on || (!!pool && !mobileInboxViews(pool)?.inbox().booting)),
+    !!pool && !mobileInboxViews(pool)?.inbox().booting,
   reset() {
     storeStats.reset()
     commits = 0
@@ -200,33 +186,10 @@ const driver = {
       routes: navigation.routes,
     }
   },
-  check() {
+  outputs() {
     if (!pool) return null
-    const snapshot = owner.getSnapshot(),
-      issues = allIssueViewModels(
-        snapshot.replica,
-        snapshot.issueProjections,
-        snapshot.issueUserStates,
-      )
-    return checkMobileInbox(
-      pool,
-      {
-        issues,
-        sessions: snapshot.sessions,
-        booting: false,
-        outboxSize: snapshot.outboxSize,
-        queue: buildScreeningQueue(issues).map((issue) => issue.id),
-        routes: targets.map((target) =>
-          mobilePodiumRoute(target, { issues, sessions: snapshot.sessions }),
-        ),
-      },
-      {
-        now,
-        targets,
-        tokens,
-        screeningIds: ['synthetic-0', 'synthetic-1', 'synthetic-2', 'synthetic-3'],
-      },
-    )
+    const views = mobileInboxViews(pool)
+    return views ? { routes: targets.map(target => views.route(target)), queue: views.screening().queue } : null
   },
   close: () => root.unmount(),
 }

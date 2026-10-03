@@ -10,14 +10,7 @@ const controls = [
     'complete Inbox legacy hook',
     'apps/mobile/src/client/use-inbox-data.ts',
     'export function useInboxData(): InboxData {',
-    'export function useInboxData(): InboxData { useIssues()',
-    'Legacy work at enabled mount',
-  ],
-  [
-    'launch legacy machines',
-    'apps/mobile/src/components/NewWorkButton.tsx',
-    "const useMachineRoster = mobileDataLayer() === 'pool' ? usePoolLaunchMachines : useMachines",
-    'const useMachineRoster = useMachines',
+    "import { useStoreSelector } from '@podium/client-core/react'; export function useInboxData(): InboxData { useStoreSelector(s => s.sessions)",
     'Legacy work at enabled mount',
   ],
   [

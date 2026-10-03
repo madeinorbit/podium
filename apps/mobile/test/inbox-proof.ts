@@ -1,5 +1,5 @@
 /** Flatblock only. Timing uses bench:flatblock; all data is synthetic. Owns
- * only its Vite PID and Chromium. Interleaves OFF, ON, OFF, ON. */
+ * only its Vite PID and Chromium. Runs one fresh pool-only profile. */
 
 import { spawn } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -44,7 +44,7 @@ try {
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
   console.log(JSON.stringify({ browser: browser.version(), bun: process.versions.bun }))
   const results: Record<string, unknown> = {}
-  for (const [arm, mode] of ['off', 'on', 'off', 'on'].entries()) {
+  for (const [arm, mode] of ['pool'].entries()) {
     const page = await browser.newPage({ viewport: { width: 430, height: 1050 } }),
       errors: string[] = []
     let failReady: (error: Error) => void = () => {}
@@ -63,7 +63,7 @@ try {
       }),
     )
     await page.goto(
-      `${origin}/test/inbox.browser.html?pool=${mode === 'on' ? 1 : 0}&complete=${complete ? 1 : 0}`,
+      `${origin}/test/inbox.browser.html?complete=${complete ? 1 : 0}`,
     )
     try {
       await Promise.race([
@@ -93,7 +93,6 @@ try {
     )
     const mounted = await page.evaluate(() => window.__inbox.stats())
     if (
-      mode === 'on' &&
       (mounted.selectors || mounted.rowBuilds || Object.values(mounted.slices).some(Boolean))
     )
       throw new Error(`Legacy work at enabled mount: ${JSON.stringify(mounted)}`)
@@ -123,25 +122,19 @@ try {
           : {}),
       }
       if (
-        mode === 'on' &&
-        (stats.selectors || stats.rowBuilds || Object.values(stats.slices).some(Boolean))
+          (stats.selectors || stats.rowBuilds || Object.values(stats.slices).some(Boolean))
       )
         throw new Error(`Legacy enabled work: ${JSON.stringify(stats)}`)
-      if (mode === 'off' && (!stats.selectors || !stats.rowBuilds))
-        throw new Error('OFF positive control failed')
       if (stats.failures) throw new Error('Synthetic runtime failed')
     }
-    if (mode === 'on') {
-      await page.waitForFunction(
-        () => {
-          const check = window.__inbox.check()
-          return check && !check.differences && !check.pending
-        },
-        null,
-        { timeout: 30000 },
-      )
-      results[`${arm}.${mode}.check`] = await page.evaluate(() => window.__inbox.check())
-    }
+    const { default: assert } = await import('node:assert/strict')
+    await page.waitForFunction(() => window.__inbox.outputs()?.routes.every(route => typeof route !== 'symbol'), null, { timeout: 30000 })
+    const outputs = await page.evaluate(() => window.__inbox.outputs())
+    assert.deepEqual(outputs, {
+      routes: ['/issue/synthetic-0', '/issue/synthetic-18', null, '/session/synthetic-session-0'],
+      queue: ['synthetic-2', 'synthetic-0', 'synthetic-1'],
+    })
+    results[`${arm}.${mode}.outputs`] = outputs
     await page.evaluate(() => window.__inbox.reset())
     await page.getByTestId('ref-SYN-1018').click()
     await page.waitForFunction(() => window.__inbox.stats().routes.includes('/issue/synthetic-18'))
@@ -155,7 +148,7 @@ try {
     const popup = await popupPromise
     await popup.waitForURL('http://offline.invalid/issues/SYN-9999')
     await popup.close()
-    if (arm === 3) {
+    if (arm === 0) {
       await page.screenshot({ path: `${output}/${complete ? 'complete-' : ''}inbox.png` })
       await page.getByRole('button', { name: 'Proposals', exact: true }).click()
       await page.screenshot({ path: `${output}/${complete ? 'complete-' : ''}proposals.png` })
@@ -168,7 +161,6 @@ try {
     }
     const acted = await page.evaluate(() => window.__inbox.stats())
     if (
-      mode === 'on' &&
       (acted.selectors || acted.rowBuilds || Object.values(acted.slices).some(Boolean))
     )
       throw new Error(`Legacy work while following references: ${JSON.stringify(acted)}`)

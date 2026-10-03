@@ -56,7 +56,6 @@ import {
   searchMobileSections,
   MobileSearchSections,
   MobileNativeSections,
-  type WorkSection,
   workGroupFoldKey,
 } from '../lib/work-sections'
 import { alpha } from '../theme/mix'
@@ -295,7 +294,7 @@ function GroupHeader({
   collapsed,
   onToggle,
 }: {
-  section: Pick<WorkSection, 'key' | 'label' | 'kind' | 'total'>
+  section: Pick<MobileWorkSection, 'key' | 'label' | 'kind' | 'total'>
   collapsed: boolean
   onToggle: () => void
 }) {
