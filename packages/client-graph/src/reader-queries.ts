@@ -129,7 +129,8 @@ export class ReaderQueries {
     )
   }
   repoIds(repoPath?: string): string[] {
-    return this.watch(`repos:${repoPath ?? '*'}`, (value) =>
+    const key = repoPath === undefined ? 'repos' : `repos.path:${JSON.stringify(repoPath)}`
+    return this.watch(key, (value) =>
       repoPath === undefined
         ? value.issueRepoRevision
         : value.readerRevision({
