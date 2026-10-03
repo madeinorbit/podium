@@ -34,6 +34,7 @@ import { RightDock } from '../src/app/RightDock'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { initializePoolScreens } from '../src/app/pool-screens'
 import { seedAcceptanceCache } from './sidebar-acceptance-seed'
+import { speedSwitchState } from '../harness/speed-switches'
 import { Workspace } from '../src/app/Workspace'
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
@@ -52,6 +53,7 @@ import '../src/index.css'
 import '../src/styles.css'
 
 const params = new URLSearchParams(location.search)
+const startupSwitches = speedSwitchState(location.search)
 const scale = Number(params.get('scale') ?? 1) as 1 | 4
 const corpus =
   params.get('cell') === 'h10a1'
@@ -388,6 +390,7 @@ const fixture = {
   stats: (): CaptureStats => storeStats.snapshot(),
   perf: () => perf?.read(),
   state: () => ({
+    switches: startupSwitches,
     selected: owner?.getSnapshot().selectedIssueId,
     pane: owner?.getSnapshot().paneA,
     issues: owner?.getSnapshot().issueProjections.length,

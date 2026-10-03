@@ -7,6 +7,7 @@ import { extname, resolve } from 'node:path'
 import { chromium, type Browser, type Page } from '@playwright/test'
 import { paintOf, traceStart } from './browser-paint'
 import { comparePaneSpeedPair } from './pane-speed-pair'
+import { assertSpeedSwitches, parseSpeedSwitches, speedSwitchReport, speedSwitchUrl } from './speed-switches'
 import type {} from '../test/sidebar-acceptance.browser'
 
 const ACTIONS = [
@@ -92,6 +93,7 @@ async function main() {
         '--plant-delay-ms=50: plant a synchronous delay in the sidebar click path (expected red).\n' +
         '--promote: commit-ready baseline from the saved green run after its source lands; no rerun.\n' +
         '--paired-pane: one build, two fresh captures per pane setting, five clicks plus full-page opening.\n' +
+        '--switch=<urlKey>=<0|1>: repeatable startup URL overrides; other settings stay fixed.\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
     )
     process.exit(0)
@@ -100,9 +102,11 @@ async function main() {
     if (
       !['--calibrate', '--promote', '--lease-confirmed', '--paired-pane'].includes(arg) &&
       !arg.startsWith('--plant-delay-ms=') &&
+      !arg.startsWith('--switch=') &&
       !arg.startsWith('--baseline-ref=')
     )
       throw new Error(`Unknown argument ${arg}`)
+  const switches = parseSpeedSwitches(args)
   if (hostname() !== 'flatblock')
     throw new Error('speed:gate runs on flatblock; no cross-machine comparisons')
   if (
@@ -298,9 +302,10 @@ async function main() {
       },
       { delayMs: pairedPane && pane === 0 ? 0 : delayMs },
     )
-    await page.goto(
+    await page.goto(speedSwitchUrl(
       `${origin}/test/sidebar-acceptance.browser.html?mobxSidebar=1&scale=4&surface=${surface}&panelMode=chat${pane === undefined ? '' : `&mobxPane=${pane}`}${measured ? '&measure=1' : ''}`,
-    )
+      switches,
+    ))
     await page.waitForFunction(
       () => window.__acceptance?.ready() && document.querySelector('[data-issue-row]'),
     )
@@ -311,6 +316,7 @@ async function main() {
       ...window.__acceptance.state(),
       corpus: window.__acceptance.corpus,
     }))
+    assertSpeedSwitches(state.switches, switches)
     if (
       state.mode !== 'pool' ||
       !state.pool ||
@@ -687,7 +693,8 @@ async function main() {
       const report = { version: 1, sourceSha, captureSha, dirtyProduct, machine, scale: 4, seed: 4443,
         metric: 'trusted pointerdown (background: feed delivery) to actual Chromium Paint after expected DOM',
         targets: baseline!.targets, delayMs, pair, runs, legacyPageDerivations,
-        passed: pair.passed && legacyPageDerivations === 0, runtimeSeconds: round((performance.now() - began) / 1000) }
+        passed: pair.passed && legacyPageDerivations === 0, runtimeSeconds: round((performance.now() - began) / 1000),
+        ...speedSwitchReport(switches) }
       await writeFile(resolve(root, 'paired-pane.json'), JSON.stringify(report, null, 2) + '\n')
       for (const [action, result] of Object.entries(pair.actions)) console.log(
         `${result.passed ? 'green' : 'RED'} ${action}: ${result.legacy.medianMs} → ${result.pool.medianMs} ms (${result.changePercent}%)`)
@@ -752,6 +759,7 @@ async function main() {
       regressions,
       passed: !regressions.length,
       runtimeSeconds: round((performance.now() - began) / 1000),
+      ...speedSwitchReport(switches),
     }
     await writeFile(resolve(root, 'last-run.json'), JSON.stringify(report, null, 2) + '\n')
     if (calibrate)
