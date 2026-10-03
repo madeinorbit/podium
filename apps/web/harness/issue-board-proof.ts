@@ -124,7 +124,10 @@ try {
         const stats = result.counts as { board: Record<string, number>; runtimes: { rowBuilds: number }[] }
         if (stats.runtimes.some(runtime => runtime.rowBuilds) || stats.board['legacy.board'] || stats.board['legacy.explorer']) throw new Error('Enabled board entered legacy derivation')
       }
-      if (final.state.residentIssues !== initial.residentIssues) throw new Error('Board promoted cold issues')
+      if (final.state.residentIssues !== initial.residentIssues) {
+        console.log(JSON.stringify({ initial, final: final.state, startup, open, filter }))
+        throw new Error('Board promoted cold issues')
+      }
       if (countsOnly) {
         const check = await page.evaluate(() => ({ board: Reflect.get(window, '__boardCheck')(), explorer: Reflect.get(window, '__boardExplorerCheck')() }))
         console.log(JSON.stringify({ check }))
