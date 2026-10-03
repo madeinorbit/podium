@@ -1,3 +1,4 @@
+import type { SuperagentTurnFailure } from '@podium/client-core/api'
 import {
   asSessionId,
   asThreadId,
@@ -7,7 +8,6 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import type { HeadlessActivityEvent, TurnPreviewMessage } from '@podium/protocol'
-import type { SuperagentTurnFailure } from '@podium/client-core/api'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
