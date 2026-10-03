@@ -1,8 +1,11 @@
 {
-  "extends": "../tsconfig.json",
-  "compilerOptions": { "tsBuildInfoFile": "../tsconfig.screen-work.tsbuildinfo" },
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "tsBuildInfoFile": "tsconfig.screen-work.tsbuildinfo" },
   "include": [
-    "src/work-meter.ts", "src/work-meter.test.ts", "src/work-per-change.test.tsx",
-    "src/pool-screen-work.ts", "src/screen-work-ratios.ts"
+    "harness/src/work-meter.ts",
+    "harness/src/work-meter.test.ts",
+    "harness/src/work-per-change.test.tsx",
+    "harness/src/pool-screen-work.ts",
+    "harness/src/screen-work-ratios.ts"
   ]
 }

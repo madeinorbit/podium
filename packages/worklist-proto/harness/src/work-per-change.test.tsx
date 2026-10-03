@@ -43,22 +43,21 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
-import { act } from 'react'
-import { reaction } from 'mobx'
 import { IssueModel } from '@podium/client-graph/models'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
-import type { Arm } from '../../shared/src/arm'
 import type { RowSourceMode } from '@podium/client-graph/shared/row-source'
+import type { SliceIssue, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import { reaction } from 'mobx'
+import { act } from 'react'
+import { describe, expect, it, vi } from 'vitest'
+import type { Arm } from '../../shared/src/arm'
 import {
   type FixtureScale,
   type ScenarioEngine,
   startScenarioEngine,
 } from '../../shared/src/scenarios'
-import type { SliceIssue, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { harnessMobxPoolArm } from './adapters/mobx-pool'
 import { createReplaySource, mountArmForCounts } from './count-harness'
-import { installMobxWarnTrap } from './mobx-trap'
 import {
   FENCE_SCENARIOS,
   type FenceFeeds,
@@ -67,7 +66,9 @@ import {
   runFenceStep,
 } from './fence-scenarios'
 import { legacyControlArmFor } from './legacy-control/arm'
+import { installMobxWarnTrap } from './mobx-trap'
 import { snapshotFromStore } from './oracle/index'
+import { poolScreenCellsAt } from './pool-screen-work'
 import { ROUND_THREE_ARMS, type RosterAllowances, type RosterArm } from './roster'
 import {
   assertScaleInvariant,
@@ -81,6 +82,14 @@ import {
   scaleVerdicts,
 } from './scale-check'
 import {
+  assertScreenWork,
+  SCREEN_ACTIONS,
+  type ScreenWorkCell,
+  type ScreenWorkVerdict,
+  screenWorkVerdicts,
+} from './screen-work-ratios'
+import { stubWindowLayout, type WindowLayout } from './window-layout'
+import {
   PENDING_TITLE_EDITS,
   PENDING_WINDOW_ROWS,
   pendingTitleEditsOn,
@@ -91,10 +100,6 @@ import {
   withPendingTitles,
 } from './writable-arm'
 
-import { stubWindowLayout, type WindowLayout } from './window-layout'
-import { poolScreenCellsAt } from './pool-screen-work'
-import { assertScreenWork, SCREEN_ACTIONS, screenWorkVerdicts, type ScreenWorkCell, type ScreenWorkVerdict } from './screen-work-ratios'
-
 const TRACE = process.env.POD_WORK_TRACE === '1'
 
 /** Current defects only. Every failed count retains its reader/action and owning issue.
@@ -102,10 +107,25 @@ const TRACE = process.env.POD_WORK_TRACE === '1'
 function screenFailureOwner(verdict: ScreenWorkVerdict): string | undefined {
   const name = verdict.reader
   if (name.startsWith('consumer:launcher.')) return 'POD-5406'
-  if (name.startsWith('consumer:mission.') || name.startsWith('consumer:navigation.') || name.startsWith('consumer:header.folded')) return 'POD-5421'
-  if (name.startsWith('consumer:mobile-work.long-press') || name.startsWith('consumer:shell.links')) return 'POD-5422'
-  if (/^consumer:(shell\.|header\.(shipping|fleet)|settings|automations|chat\.|issue-page\.|board\.|mobile-inbox|mobile-session)/.test(name)) return 'POD-5406'
-  if (/^consumer:(sidebar\.|mobile-work\.)/.test(name) || /^(IssueModel@|SessionModel@|GroupNode@|Sidebar|MobileSections|\(arm code\))/.test(name)) return 'POD-5423'
+  if (
+    name.startsWith('consumer:mission.') ||
+    name.startsWith('consumer:navigation.') ||
+    name.startsWith('consumer:header.folded')
+  )
+    return 'POD-5421'
+  if (name.startsWith('consumer:mobile-work.long-press') || name.startsWith('consumer:shell.links'))
+    return 'POD-5422'
+  if (
+    /^consumer:(shell\.|header\.(shipping|fleet)|settings|automations|chat\.|issue-page\.|board\.|mobile-inbox|mobile-session)/.test(
+      name,
+    )
+  )
+    return 'POD-5406'
+  if (
+    /^consumer:(sidebar\.|mobile-work\.)/.test(name) ||
+    /^(IssueModel@|SessionModel@|GroupNode@|Sidebar|MobileSections|\(arm code\))/.test(name)
+  )
+    return 'POD-5423'
   return undefined
 }
 
@@ -122,58 +142,88 @@ describe('pool screens work ratios', () => {
     expect(at4x.corpus.issues).toBeGreaterThan(at1x.corpus.issues * 3)
     expect(at4x.corpus.sessions).toBeGreaterThan(at1x.corpus.sessions * 3)
     const verdicts = screenWorkVerdicts(at1x.cells, at4x.cells)
-    const failures = verdicts.filter(verdict => !verdict.passed)
-    const expectedFailures = failures.flatMap(verdict => {
+    const failures = verdicts.filter((verdict) => !verdict.passed)
+    const expectedFailures = failures.flatMap((verdict) => {
       const issue = screenFailureOwner(verdict)
       return issue ? [{ ...verdict, issue }] : []
     })
-    const unexpected = failures.filter(verdict => screenFailureOwner(verdict) === undefined)
+    const unexpected = failures.filter((verdict) => screenFailureOwner(verdict) === undefined)
     writeCells('work-pool-screens.json', { at1x, at4x, verdicts, expectedFailures, unexpected })
-    console.info(`[screen work] ${at1x.readers.length} readers × ${SCREEN_ACTIONS.length} clicks/deltas × 2 scales; ${verdicts.length} counters; ${expectedFailures.length} expected failures; ${unexpected.length} unexpected`)
-    for (const issue of new Set(expectedFailures.map(verdict => verdict.issue))) {
-      const owned = expectedFailures.filter(verdict => verdict.issue === issue)
-      const worst = [...owned].sort((a, b) => (b.at4x - b.at1x) - (a.at4x - a.at1x))[0]!
-      console.info(`[screen work] expected failure ${issue}: ${owned.length} counts; ${worst.action} ${worst.reader} ${worst.kind} ${worst.at1x} → ${worst.at4x}; neighbourhood ${worst.neighbourhood1x} → ${worst.neighbourhood4x}`)
+    console.info(
+      `[screen work] ${at1x.readers.length} readers × ${SCREEN_ACTIONS.length} clicks/deltas × 2 scales; ${verdicts.length} counters; ${expectedFailures.length} expected failures; ${unexpected.length} unexpected`,
+    )
+    for (const issue of new Set(expectedFailures.map((verdict) => verdict.issue))) {
+      const owned = expectedFailures.filter((verdict) => verdict.issue === issue)
+      const worst = [...owned].sort((a, b) => b.at4x - b.at1x - (a.at4x - a.at1x))[0]!
+      console.info(
+        `[screen work] expected failure ${issue}: ${owned.length} counts; ${worst.action} ${worst.reader} ${worst.kind} ${worst.at1x} → ${worst.at4x}; neighbourhood ${worst.neighbourhood1x} → ${worst.neighbourhood4x}`,
+      )
     }
     // A new reader or unnamed mechanism does not silently inherit another screen's exception.
     assertScreenWork(unexpected)
-    expect(at1x.cells.some(cell => cell.work.rows! > 0 && cell.work.derivations > 0)).toBe(true)
+    expect(at1x.cells.some((cell) => cell.work.rows! > 0 && cell.work.derivations > 0)).toBe(true)
   }, 1_200_000)
 
   it('keeps the real legacy control arm as the failing whole-data read control', async () => {
-    const heartbeat = FENCE_SCENARIOS.filter(entry => entry.methodology === '#1')
+    const heartbeat = FENCE_SCENARIOS.filter((entry) => entry.methodology === '#1')
     const build = (ctx: ScenarioEngine) => ({ arm: legacyControlArmFor(ctx.engine) })
     const first = (await cellsAt(1, 'overlaid', build, heartbeat))[0]!
     const second = (await cellsAt(4, 'overlaid', build, heartbeat))[0]!
     expect(second.work.rows).toBeGreaterThan(first.work.rows)
     expect(second.work.elements).toBeGreaterThan(first.work.elements)
     // Its visible target is the same one-row heartbeat. Any total-data ratio is forbidden.
-    const verdict: ScreenWorkVerdict = { action: 'heartbeat', kind: 'rows', reader: 'legacy control',
-      at1x: first.work.rows, at4x: second.work.rows, neighbourhood1x: 1, neighbourhood4x: 1,
-      passed: second.work.rows <= first.work.rows }
+    const verdict: ScreenWorkVerdict = {
+      action: 'heartbeat',
+      kind: 'rows',
+      reader: 'legacy control',
+      at1x: first.work.rows,
+      at4x: second.work.rows,
+      neighbourhood1x: 1,
+      neighbourhood4x: 1,
+      passed: second.work.rows <= first.work.rows,
+    }
     expect(() => assertScreenWork([verdict])).toThrow(/grew with total data/)
   }, 600_000)
 
   it('rejects a planted scan in any reader, even beside a much larger constant reader', () => {
-    const cells = (): ScreenWorkCell[] => SCREEN_ACTIONS.map(action => ({
-      action, neighbourhood: ['issue:visible'], work: { derivations: 1, derivationsBy: { cheap: 1 },
-        rows: 1000, rowsBy: { expensiveButConstant: 1000 }, elements: 0, elementsBy: {}, visits: 0 },
-    }))
+    const cells = (): ScreenWorkCell[] =>
+      SCREEN_ACTIONS.map((action) => ({
+        action,
+        neighbourhood: ['issue:visible'],
+        work: {
+          derivations: 1,
+          derivationsBy: { cheap: 1 },
+          rows: 1000,
+          rowsBy: { expensiveButConstant: 1000 },
+          elements: 0,
+          elementsBy: {},
+          visits: 0,
+        },
+      }))
     expect(() => assertScreenWork(screenWorkVerdicts(cells(), cells()))).not.toThrow()
     const growingNeighbourhood = cells()
     growingNeighbourhood[0]!.neighbourhood = ['issue:1', 'issue:2', 'issue:3', 'issue:4']
     growingNeighbourhood[0]!.work.rowsBy!.expensiveButConstant = 4000
     expect(() => assertScreenWork(screenWorkVerdicts(cells(), growingNeighbourhood))).not.toThrow()
-    for (const action of SCREEN_ACTIONS) for (const kind of ['rows', 'derivations', 'elements'] as const) {
-      const first = cells(), second = cells()
-      const a = first.find(cell => cell.action === action)!.work
-      const b = second.find(cell => cell.action === action)!.work
-      const left = kind === 'rows' ? a.rowsBy! : kind === 'derivations' ? a.derivationsBy : a.elementsBy
-      const right = kind === 'rows' ? b.rowsBy! : kind === 'derivations' ? b.derivationsBy : b.elementsBy
-      left.planted = 1; right.planted = 4
-      expect(() => assertScreenWork(screenWorkVerdicts(first, second)), `${action} ${kind}`).toThrow(/planted/)
-    }
-    const zero = cells(), positive = cells()
+    for (const action of SCREEN_ACTIONS)
+      for (const kind of ['rows', 'derivations', 'elements'] as const) {
+        const first = cells(),
+          second = cells()
+        const a = first.find((cell) => cell.action === action)!.work
+        const b = second.find((cell) => cell.action === action)!.work
+        const left =
+          kind === 'rows' ? a.rowsBy! : kind === 'derivations' ? a.derivationsBy : a.elementsBy
+        const right =
+          kind === 'rows' ? b.rowsBy! : kind === 'derivations' ? b.derivationsBy : b.elementsBy
+        left.planted = 1
+        right.planted = 4
+        expect(
+          () => assertScreenWork(screenWorkVerdicts(first, second)),
+          `${action} ${kind}`,
+        ).toThrow(/planted/)
+      }
+    const zero = cells(),
+      positive = cells()
     positive[0]!.work.rowsBy!.newReader = 1
     expect(() => assertScreenWork(screenWorkVerdicts(zero, positive))).toThrow(/newReader/)
     expect(() => screenWorkVerdicts(zero.slice(1), positive)).toThrow(/every click/)
@@ -221,7 +271,10 @@ async function cellsAt(
       expect(drawn, 'the window layout draws rows').toBeGreaterThan(0)
       expect(drawn, 'the count mount is a window').toBeLessThan(
         snapshot.order.pinnedIds.length +
-          snapshot.order.groups.reduce((n, group) => n + group.rowIds.length + group.closedIds.length, 0),
+          snapshot.order.groups.reduce(
+            (n, group) => n + group.rowIds.length + group.closedIds.length,
+            0,
+          ),
       )
     }
     const cells: ScaleCell[] = []
@@ -436,14 +489,19 @@ describe('MobX cold parent reads', () => {
   function replayHeartbeat() {
     const archived = issue('archived-parent', { archived: true, stage: 'done', closedAt: old })
     const cold = issue('cold-parent', {
-      parentId: archived.id, stage: 'done', closedAt: old, updatedAt: old,
+      parentId: archived.id,
+      stage: 'done',
+      closedAt: old,
+      updatedAt: old,
     })
     const branch = issue('branch', { parentId: cold.id })
     const leaf = issue('leaf', { parentId: branch.id })
     const background = issue('background', { archived: true, stage: 'done', closedAt: old })
     const replay = createReplaySource({
-      issues: [archived, cold, branch, leaf, background].map(value => ({
-        kind: 'issue', id: value.id, value,
+      issues: [archived, cold, branch, leaf, background].map((value) => ({
+        kind: 'issue',
+        id: value.id,
+        value,
       })),
       sessions: [],
       worktrees: [],
@@ -451,7 +509,10 @@ describe('MobX cold parent reads', () => {
     const read = vi.fn(replay.source.row!.bind(replay.source))
     const locals = fixedLocals({ selectedIssueId: null, coarseNow: now })
     const handle = harnessMobxPoolArm.create(
-      { ...replay.source, row: read }, locals.source, undefined, { schedule: () => () => {} },
+      { ...replay.source, row: read },
+      locals.source,
+      undefined,
+      { schedule: () => () => {} },
     )
     try {
       const before = handle.snapshot()
@@ -459,10 +520,16 @@ describe('MobX cold parent reads', () => {
       expect([...handle.pool.residency!.ids('issue')]).toEqual(
         expect.arrayContaining([archived.id, cold.id]),
       )
-      replay.push({ type: 'update', rows: [{
-        kind: 'issue', id: background.id,
-        value: { ...background, updatedAt: new Date(now).toISOString() },
-      }] })
+      replay.push({
+        type: 'update',
+        rows: [
+          {
+            kind: 'issue',
+            id: background.id,
+            value: { ...background, updatedAt: new Date(now).toISOString() },
+          },
+        ],
+      })
       handle.settleLoads()
       expect(handle.pendingLoads()).toBe(0)
       read.mockClear()
@@ -488,29 +555,39 @@ describe('MobX cold parent reads', () => {
 
   it('tracks declared parent changes through cold updates, removal and promotion', () => {
     let value = issue('cold-parent', {
-      parentId: 'missing-parent', stage: 'done', closedAt: old, updatedAt: old,
+      parentId: 'missing-parent',
+      stage: 'done',
+      closedAt: old,
+      updatedAt: old,
     })
     const replay = createReplaySource({
-      issues: [{ kind: 'issue', id: value.id, value }], sessions: [], worktrees: [],
+      issues: [{ kind: 'issue', id: value.id, value }],
+      sessions: [],
+      worktrees: [],
     })
     const read = vi.fn(replay.source.row!.bind(replay.source))
     const locals = fixedLocals({ selectedIssueId: null, coarseNow: now })
     const handle = harnessMobxPoolArm.create(
-      { ...replay.source, row: read }, locals.source, undefined, { schedule: () => () => {} },
+      { ...replay.source, row: read },
+      locals.source,
+      undefined,
+      { schedule: () => () => {} },
     )
     const seen: (string | null)[] = []
     const stop = reaction(
       () => handle.pool.rollupInputs.rollupNode(value.id)?.formalParent ?? null,
-      parent => seen.push(parent),
+      (parent) => seen.push(parent),
       { fireImmediately: true },
     )
     const update = (patch: Partial<SliceIssue>) => {
       value = { ...value, ...patch }
       replay.push({ type: 'update', rows: [{ kind: 'issue', id: value.id, value }] })
     }
-    const remove = () => replay.push({
-      type: 'update', rows: [{ kind: 'issue', id: value.id, value: undefined }],
-    })
+    const remove = () =>
+      replay.push({
+        type: 'update',
+        rows: [{ kind: 'issue', id: value.id, value: undefined }],
+      })
     try {
       expect(handle.pool.residency!.isCold('issue', value.id)).toBe(true)
       expect(seen).toEqual(['missing-parent'])
@@ -522,7 +599,12 @@ describe('MobX cold parent reads', () => {
       update({ deletedAt: null })
       expect(handle.pool.residency!.isCold('issue', value.id)).toBe(true)
       expect(seen).toEqual([
-        'missing-parent', 'next-parent', null, 'next-parent', null, 'next-parent',
+        'missing-parent',
+        'next-parent',
+        null,
+        'next-parent',
+        null,
+        'next-parent',
       ])
       remove()
       expect(seen.at(-1)).toBeNull()
@@ -542,8 +624,18 @@ describe('MobX cold parent reads', () => {
       expect(handle.pool.residency!.isCold('issue', value.id)).toBe(true)
       update({ parentId: 'cold-again-parent' })
       expect(seen).toEqual([
-        'missing-parent', 'next-parent', null, 'next-parent', null, 'next-parent',
-        null, 'readded-parent', 'resident-parent', null, 'resident-parent', null,
+        'missing-parent',
+        'next-parent',
+        null,
+        'next-parent',
+        null,
+        'next-parent',
+        null,
+        'readded-parent',
+        'resident-parent',
+        null,
+        'resident-parent',
+        null,
         'cold-again-parent',
       ])
       expect(handle.pendingLoads()).toBe(0)
@@ -556,9 +648,11 @@ describe('MobX cold parent reads', () => {
   })
 
   it('rejects the original standing-based parent getter when it is planted', () => {
-    const plant = vi.spyOn(IssueModel.prototype, 'formalParent', 'get').mockImplementation(
-      function (this: IssueModel) { return this.standing?.formalParent ?? null },
-    )
+    const plant = vi
+      .spyOn(IssueModel.prototype, 'formalParent', 'get')
+      .mockImplementation(function (this: IssueModel) {
+        return this.standing?.formalParent ?? null
+      })
     try {
       const reads = replayHeartbeat()
       expect(reads).toEqual(['issue:cold-parent', 'issue:archived-parent'])

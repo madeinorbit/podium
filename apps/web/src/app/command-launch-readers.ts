@@ -1,5 +1,8 @@
+import {
+  type CommandLaunchData,
+  commandLaunchViews,
+} from '@podium/client-graph/command-launch-views'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { commandLaunchViews, type CommandLaunchData } from '@podium/client-graph/command-launch-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 // Shared with the structural work harness: measure the app's actual consumers.

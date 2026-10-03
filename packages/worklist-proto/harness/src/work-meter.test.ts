@@ -5,11 +5,11 @@
  * gone after the window.
  */
 
+import { MobxPool } from '@podium/client-graph/pool'
 import { autorun, computed, ObservableMap, ObservableSet, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
-import { ARM_CODE, insideArm, insideReader, measureWork, outsideArm } from './work-meter'
-import { MobxPool } from '@podium/client-graph/pool'
 import { assertScreenWork, SCREEN_ACTIONS, screenWorkVerdicts } from './screen-work-ratios'
+import { ARM_CODE, insideArm, insideReader, measureWork, outsideArm } from './work-meter'
 
 const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `i${i}`)
 
@@ -166,7 +166,13 @@ describe('derivations', () => {
       expect(change.work.elementsBy).toEqual({ 'node#.double': 30 })
       expect(seen).toBe(4)
       const idle = await measureWork(async () => insideArm(() => double.get()))
-      expect(idle.work).toEqual({ derivations: 0, derivationsBy: {}, elements: 0, elementsBy: {}, visits: 0 })
+      expect(idle.work).toEqual({
+        derivations: 0,
+        derivationsBy: {},
+        elements: 0,
+        elementsBy: {},
+        visits: 0,
+      })
     } finally {
       dispose()
     }
@@ -178,52 +184,114 @@ describe('pool reader windows', () => {
     async function measured(scale: number, scan: boolean) {
       const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
       const rows = ids(scale)
-      pool.apply({ type: 'replace', rows: rows.map(id => ({ kind: 'issue', id, value: {
-        id, seq: 1, title: id, stage: 'planning', repoPath: '/synthetic',
-      } })) })
-      const views = rows.map(id => computed(() => pool.row('issue', id), { name: 'rowProjection' }))
+      pool.apply({
+        type: 'replace',
+        rows: rows.map((id) => ({
+          kind: 'issue',
+          id,
+          value: {
+            id,
+            seq: 1,
+            title: id,
+            stage: 'planning',
+            repoPath: '/synthetic',
+          },
+        })),
+      })
+      const views = rows.map((id) =>
+        computed(() => pool.row('issue', id), { name: 'rowProjection' }),
+      )
       try {
-        return (await measureWork(async () => insideReader('panel', () =>
-          scan ? views.map(view => view.get()) : views[0]!.get()), { pool })).work
-      } finally { pool.dispose() }
+        return (
+          await measureWork(
+            async () =>
+              insideReader('panel', () =>
+                scan ? views.map((view) => view.get()) : views[0]!.get(),
+              ),
+            { pool },
+          )
+        ).work
+      } finally {
+        pool.dispose()
+      }
     }
-    const cells = (work: Awaited<ReturnType<typeof measured>>) => SCREEN_ACTIONS.map(action => ({
-      action, neighbourhood: ['issue:drawn'], work,
-    }))
-    const bounded = screenWorkVerdicts(cells(await measured(1, false)), cells(await measured(4, false)))
+    const cells = (work: Awaited<ReturnType<typeof measured>>) =>
+      SCREEN_ACTIONS.map((action) => ({
+        action,
+        neighbourhood: ['issue:drawn'],
+        work,
+      }))
+    const bounded = screenWorkVerdicts(
+      cells(await measured(1, false)),
+      cells(await measured(4, false)),
+    )
     expect(() => assertScreenWork(bounded)).not.toThrow()
-    const planted = screenWorkVerdicts(cells(await measured(1, true)), cells(await measured(4, true)))
+    const planted = screenWorkVerdicts(
+      cells(await measured(1, true)),
+      cells(await measured(4, true)),
+    )
     for (const kind of ['rows', 'derivations', 'elements'] as const) {
-      expect(planted.some(value => value.kind === kind && !value.passed), kind).toBe(true)
+      expect(
+        planted.some((value) => value.kind === kind && !value.passed),
+        kind,
+      ).toBe(true)
     }
     expect(() => assertScreenWork(planted)).toThrow(/consumer:panel/)
   })
   it('counts resident, summary, repeated and absent reads plus untracked app consumer bodies', async () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'i1', value: {
-      id: 'i1', seq: 1, title: 'One', stage: 'planning', repoPath: '/synthetic', createdAt: '', updatedAt: '',
-    } }] })
+    pool.apply({
+      type: 'replace',
+      rows: [
+        {
+          kind: 'issue',
+          id: 'i1',
+          value: {
+            id: 'i1',
+            seq: 1,
+            title: 'One',
+            stage: 'planning',
+            repoPath: '/synthetic',
+            createdAt: '',
+            updatedAt: '',
+          },
+        },
+      ],
+    })
     const original = pool.row
     try {
-      const measured = await measureWork(async () => {
-        insideReader('menu', () => {
-          pool.row('issue', 'i1')
-          pool.row('issue', 'i1', 'summary')
-          pool.row('issue', 'missing')
-        })
-        await insideReader('after-await', async () => {
-          await Promise.resolve()
-          pool.row('issue', 'i1')
-        })
-      }, { pool })
+      const measured = await measureWork(
+        async () => {
+          insideReader('menu', () => {
+            pool.row('issue', 'i1')
+            pool.row('issue', 'i1', 'summary')
+            pool.row('issue', 'missing')
+          })
+          await insideReader('after-await', async () => {
+            await Promise.resolve()
+            pool.row('issue', 'i1')
+          })
+        },
+        { pool },
+      )
       expect(measured.work.rows).toBe(4)
       expect(measured.work.rowsBy).toEqual({ 'consumer:menu': 3, 'consumer:after-await': 1 })
       expect(measured.work.derivationsBy).toEqual({ 'consumer:menu': 1, 'consumer:after-await': 1 })
       expect(pool.row).toBe(original)
       expect(Object.hasOwn(pool, 'row')).toBe(false)
-      await expect(measureWork(async () => { pool.row('issue', 'i1'); throw new Error('plant') }, { pool })).rejects.toThrow('plant')
+      await expect(
+        measureWork(
+          async () => {
+            pool.row('issue', 'i1')
+            throw new Error('plant')
+          },
+          { pool },
+        ),
+      ).rejects.toThrow('plant')
       expect(pool.row).toBe(original)
-    } finally { pool.dispose() }
+    } finally {
+      pool.dispose()
+    }
   })
 
   it('counts a computed per consumer and excludes warm-up/idle reads from the next window', async () => {
@@ -231,10 +299,16 @@ describe('pool reader windows', () => {
     const first = computed(() => input.get() * 2, { name: 'double' })
     const stop = autorun(() => insideReader('panel', () => first.get()), { name: 'consumer:panel' })
     try {
-      const changed = await measureWork(async () => { runInAction(() => input.set(1)) })
+      const changed = await measureWork(async () => {
+        runInAction(() => input.set(1))
+      })
       expect(changed.work.derivationsBy['consumer:panel/double']).toBe(1)
-      const idle = await measureWork(async () => { first.get() })
+      const idle = await measureWork(async () => {
+        first.get()
+      })
       expect(idle.work.derivations).toBe(0)
-    } finally { stop() }
+    } finally {
+      stop()
+    }
   })
 })

@@ -70,9 +70,9 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { computed, Reaction } from 'mobx'
 import { CellGraph } from '../../arms/hand/pool/cells'
-import type { MobxPool } from '@podium/client-graph/pool'
 
 type Side = 'arm' | 'outside'
 
@@ -93,11 +93,15 @@ const UNTRACKED: SideStore = {
 }
 const side: SideStore =
   typeof AsyncLocalStorage === 'function' ? new AsyncLocalStorage<Side>() : UNTRACKED
-const readerSide: Pick<AsyncLocalStorage<string>, 'run' | 'getStore'> =
-  typeof AsyncLocalStorage === 'function' ? new AsyncLocalStorage<string>() : {
-    run<R>(_name: string, fn: (...args: unknown[]) => R, ...args: unknown[]): R { return fn(...args) },
-    getStore: () => undefined,
-  }
+const readerSide: Pick<AsyncLocalStorage<string>, 'run' | 'getStore'> = typeof AsyncLocalStorage ===
+'function'
+  ? new AsyncLocalStorage<string>()
+  : {
+      run<R>(_name: string, fn: (...args: unknown[]) => R, ...args: unknown[]): R {
+        return fn(...args)
+      },
+      getStore: () => undefined,
+    }
 
 /** Run `fn` as not-the-arm (the engine, the feed, the DOM): nothing it iterates counts. */
 export function outsideArm<T>(fn: () => T): T {
@@ -222,7 +226,7 @@ function kindOf(name: unknown): string {
 }
 
 function owner(): string {
-  return running.length === 0 ? readerSide.getStore() ?? ARM_CODE : running[running.length - 1]!
+  return running.length === 0 ? (readerSide.getStore() ?? ARM_CODE) : running[running.length - 1]!
 }
 
 const containerIds = new WeakMap<object, number>()
@@ -603,18 +607,19 @@ export async function measureWork<T>(
   let value: T
   try {
     install(patches)
-    if (pool && originalRow) Object.defineProperty(pool, 'row', {
-      configurable: true,
-      writable: true,
-      value: function (this: MobxPool, ...args: Parameters<MobxPool['row']>) {
-        if (tally !== null) {
-          const by = owner()
-          tally.rows++
-          tally.rowsBy.set(by, (tally.rowsBy.get(by) ?? 0) + 1)
-        }
-        return originalRow.apply(this, args)
-      },
-    })
+    if (pool && originalRow)
+      Object.defineProperty(pool, 'row', {
+        configurable: true,
+        writable: true,
+        value: function (this: MobxPool, ...args: Parameters<MobxPool['row']>) {
+          if (tally !== null) {
+            const by = owner()
+            tally.rows++
+            tally.rowsBy.set(by, (tally.rowsBy.get(by) ?? 0) + 1)
+          }
+          return originalRow.apply(this, args)
+        },
+      })
     tally = current
     value = await outsideArm(fn)
   } finally {
