@@ -565,6 +565,59 @@ describe('the resume-twin collapse over cold twins reads no cold row (POD-4753)'
     return out
   }
 
+  it.each(['resident', 'cold'] as const)('observes only the addressed %s collapse verdict across twin changes and replacement', (mode) => {
+    const loads: string[] = []
+    const twin = (id: string, day: number, resume = ref) => session(id, {
+      ...own, resume, issueId: 'I1', status: 'exited', lastActiveAt: past(day), stoppedAt: past(day),
+    })
+    const rows = [lane('/repo'), issue('I1', closed), twin('S1', 2), twin('S2', 3)]
+    const r = rig(rows, mode === 'cold' ? { loads } : {})
+    let verdict = false
+    let runs = 0
+    const read = () => {
+      runs += 1
+      verdict = r.pool.graph.isCollapsed('session', 'S1')
+    }
+    let stop = autorun(read)
+    let disposed = false
+    try {
+      if (mode === 'cold') {
+        expect(r.pool.residency?.isCold('session', 'S1')).toBe(true)
+        expect(r.pool.residency?.isCold('session', 'S2')).toBe(true)
+      }
+      expect(verdict).toBe(true)
+      expect(runs).toBe(1)
+      // A different group changes its winner without invalidating S1's verdict.
+      const other = { kind: 'codex-thread', value: 'unrelated' }
+      r.push(twin('S3', 1, other))
+      r.push(twin('S4', 2, other))
+      expect(runs).toBe(1)
+      // Updating its peer flips S1 without reading or hydrating either twin.
+      r.push(twin('S2', 1))
+      expect(verdict).toBe(false)
+      expect(runs).toBe(2)
+      stop()
+      r.push(twin('S2', 3))
+      expect(runs).toBe(2)
+      // A later observer must subscribe again after the first atom was released.
+      stop = autorun(read)
+      expect(verdict).toBe(true)
+      expect(runs).toBe(3)
+      r.pool.apply({ type: 'replace', rows: [lane('/repo'), issue('I1', closed), twin('S1', 2)] })
+      expect(verdict).toBe(false)
+      expect(runs).toBe(4)
+      expect(loads).toEqual([])
+      r.push(twin('S2', 3))
+      expect(verdict).toBe(true)
+      r.dispose()
+      disposed = true
+      expect(verdict).toBe(false)
+    } finally {
+      stop()
+      if (!disposed) r.dispose()
+    }
+  })
+
   it('decides a group spanning a closed issue from what ingest handed it: no read by id, the all-in-memory relations at every step', () => {
     const rows = [
       lane('/repo'),

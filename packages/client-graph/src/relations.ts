@@ -91,7 +91,14 @@
  * views' `issue.repo` and `issue.discoveredFrom`), and never themselves.
  */
 
-import { type ObservableMap, type ObservableSet, observable } from 'mobx'
+import {
+  _isComputingDerivation,
+  createAtom,
+  type IAtom,
+  observable,
+  type ObservableMap,
+  type ObservableSet,
+} from 'mobx'
 import { debugName } from './debug-name'
 import type { RelationReader } from './shared/relation-reader'
 import { relationRef, relationTargets } from './shared/links'
@@ -245,6 +252,8 @@ interface Collapse {
   readonly groups: Map<string, Set<string>>
   readonly groupOf: Map<string, string>
   readonly collapsed: Set<string>
+  /** Verdicts are observed on first access, never while cold twins are ingested. */
+  readonly atoms: Map<string, IAtom>
   readonly orderKeys: ObservableMap<string, string>
 }
 
@@ -345,8 +354,8 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           rule: entity.collapse,
           groups: new Map(),
           groupOf: new Map(),
-          collapsed: Object.values(entity.relations).some(relation => relation.uncollapsed)
-            ? observable.set<string>(undefined, { deep: false }) : new Set(),
+          collapsed: new Set(),
+          atoms: new Map(),
           orderKeys: observable.map<string, string>(undefined, { deep: false }),
         })
       }
@@ -527,9 +536,27 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return link.forward.get(id) ?? link.coldForward.get(id) ?? null
   }
 
-  /** Whether `id`'s row is collapsed away by its entity's rule (tests). */
+  /** Track only the addressed verdict when a live derivation asks for it.
+   * Cold twins and maintenance reads stay plain and never read a row by id. */
   isCollapsed(entity: EntityName, id: string): boolean {
-    return this.collapses.get(entity)?.collapsed.has(id) ?? false
+    const collapse = this.collapses.get(entity)
+    if (collapse === undefined) return false
+    if (_isComputingDerivation()) {
+      let atom = collapse.atoms.get(id)
+      if (atom === undefined) {
+        const created = createAtom(
+          debugName(() => `pool.collapse.${entity}:${id}`) ?? 'Atom',
+          undefined,
+          () => {
+            if (collapse.atoms.get(id) === created) collapse.atoms.delete(id)
+          },
+        )
+        collapse.atoms.set(id, created)
+        atom = created
+      }
+      atom.reportObserved()
+    }
+    return collapse.collapsed.has(id)
   }
 
   /** Declared collapse ordering, over the same resident group keys. */
@@ -797,6 +824,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       collapse.groups.clear()
       collapse.groupOf.clear()
       collapse.collapsed.clear()
+      for (const atom of collapse.atoms.values()) atom.reportChanged()
       collapse.orderKeys.clear()
     }
     for (const held of this.summaries.values()) held.clear()
@@ -864,6 +892,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         flipped.add(member)
       }
     }
+    for (const member of flipped) collapse.atoms.get(member)?.reportChanged()
     return flipped
   }
 
