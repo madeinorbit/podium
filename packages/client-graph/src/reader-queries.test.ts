@@ -108,8 +108,7 @@ function fixture(scale = 1, bootOnly = false) {
       prefix: 'Q',
     },
   })
-  if (bootOnly)
-    rows = rows.filter((row) => row.kind !== 'session' && !row.id.includes('proposal'))
+  if (bootOnly) rows = rows.filter((row) => row.kind !== 'session' && !row.id.includes('proposal'))
   const values = new Map(rows.map((row) => [`${row.kind}:${row.id}`, row.value]))
   const index = createColdIndex(SCHEMA)
   index.apply({ type: 'replace', rows })
