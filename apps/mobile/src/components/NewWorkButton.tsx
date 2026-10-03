@@ -20,14 +20,15 @@ import {
   usableMachines,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, MachineId } from '@podium/model'
+import type { AgentKind, MachineId, MachineWire } from '@podium/model'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { lastUsedMachine } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from './icons'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useMachines, useSessions, useStoreActions } from '../client/hooks'
-import { mobileDataLayer, useMobileLaunchData } from '../client/mobile-pool'
+import { mobileDataLayer, useMobileLaunchData, useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { useHarnessDescriptors } from '@podium/client-core/react'
@@ -58,6 +59,12 @@ import { PressableScale } from './PressableScale'
 import { HeaderButton } from './Screen'
 
 type PickerStep = 'launch' | 'model' | 'effort' | 'machine' | 'repo' | null
+
+const EMPTY_MACHINES: MachineWire[] = []
+const readMachines = (pool: MobxPool) => pool.headerViews.machines()
+function usePoolLaunchMachines() {
+  return useMobilePoolProjection(readMachines, EMPTY_MACHINES)
+}
 
 function useLegacyLaunchInputs() {
   const sessions = useSessions()
@@ -124,7 +131,8 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   const pathname = usePathname()
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
-  const machines = useMachines()
+  const useMachineRoster = mobileDataLayer() === 'pool' ? usePoolLaunchMachines : useMachines
+  const machines = useMachineRoster()
   // This choice is latched before the first signed-in screen mounts.
   const useInputs = mobileDataLayer() === 'pool' ? usePoolLaunchInputs : useLegacyLaunchInputs
   const { sessions, sections } = useInputs()

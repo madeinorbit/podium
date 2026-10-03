@@ -1,4 +1,4 @@
-/** Isolated reader proof, not an Expo app or complete Inbox acceptance. */
+/** Reader proof; --complete includes every Inbox reader sibling. Not an Expo app. */
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { resolveMobilePackage, resolveRootFile, resolveRootPackage } from './resolve-package'
@@ -9,6 +9,7 @@ import { resolveMobilePackage, resolveRootFile, resolveRootPackage } from './res
 const webRequire = createRequire(new URL('../web/package.json', import.meta.url))
 
 const platform = fileURLToPath(new URL('./test/inbox-platform.tsx', import.meta.url))
+const complete = process.env.PODIUM_INBOX_COMPLETE === '1'
 export default async () => {
   const { default: react } = await import(webRequire.resolve('@vitejs/plugin-react'))
   return {
@@ -49,8 +50,14 @@ export default async () => {
         { find: /^(\.\.\/client|\.)\/server-profile-context$/, replacement: platform },
         { find: /^\.\.\/hooks\/useContentBottomInset$/, replacement: platform },
         {
-          find: /^\.\.\/components\/(NewWorkButton|StorageNoticeAlert|RefreshOffer|ScreeningCard)$/,
+          find: complete
+            ? /^\.\.\/components\/ScreeningCard$/
+            : /^\.\.\/components\/(NewWorkButton|StorageNoticeAlert|RefreshOffer|ScreeningCard)$/,
           replacement: platform,
+        },
+        {
+          find: /^\.\/BottomSheet$/,
+          replacement: fileURLToPath(new URL('./harness/stub-bottom-sheet.tsx', import.meta.url)),
         },
       ],
     },

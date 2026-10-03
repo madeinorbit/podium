@@ -12,6 +12,7 @@ import type { PodiumTarget } from '@podium/protocol'
 import { Profiler, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AuthStatusContext } from '../src/client/auth-context'
+import { MobileShellProvider } from '../src/client/shell'
 import {
   attachMobilePool,
   initializeMobileDataLayer,
@@ -29,6 +30,7 @@ import { createInboxFixture } from './inbox-fixture'
 import { navigation } from './inbox-platform'
 
 const on = new URLSearchParams(location.search).get('pool') === '1'
+const complete = new URLSearchParams(location.search).get('complete') === '1'
 const now = Date.now(),
   fixture = createInboxFixture(5600, 5014),
   failures: string[] = []
@@ -78,7 +80,9 @@ function Surface() {
       <small>
         5,600 synthetic tasks · 5,014 sessions · {mobileDataLayer()} readers
         <br />
-        Isolated proof: launch, storage and refresh siblings stubbed.
+        {complete
+          ? 'Complete Inbox readers; native launch sheet closed.'
+          : 'Isolated proof: launch, storage and refresh siblings stubbed.'}
       </small>
       <nav>
         <button type="button" onClick={() => setScreen('inbox')}>
@@ -144,7 +148,9 @@ root.render(
         return detach
       }}
     >
-      <Surface />
+      <MobileShellProvider value={{ error: null, notice: null, eraseLocalData: async () => {} }}>
+        <Surface />
+      </MobileShellProvider>
     </StoreProvider>
   </AuthStatusContext.Provider>,
 )

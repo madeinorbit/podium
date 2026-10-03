@@ -2,7 +2,7 @@
 
 The phone Inbox, proposal screening, Pulse live health, reference chips and link host now read the app-owned pool when the existing mobile pilot is enabled. The device switch still defaults OFF and is latched once; an enabled screen waits through asynchronous pool attachment without mounting a legacy reader. Mutations, RPC polling, transcript requests, optimism and the outbox remain with the existing runtime.
 
-This report covers isolated reader acceptance. The unchanged launch child is owned by POD-5356 on POD-4977's branch and is stubbed in the five-reader proof; complete mounted Inbox acceptance is tracked in POD-5373 after POD-4977 lands. POD-5370's phone startup fix has landed at `8db927c57f`, and this branch is rebased onto it. Work, Issues, Issue and Mission screens remain with their allocated lanes. Legacy retirement is proposed in POD-5376 for about a week after the operator defaults the screen ON.
+The isolated reader acceptance and seeded production lane are green. The launch child owned by POD-5356 landed with POD-4977 at `68605eaa9e`; this branch now includes it, and complete mounted Inbox acceptance is being finished in POD-5373. POD-5370's phone startup fix landed at `8db927c57f`. Work, Issues, Issue and Mission screens remain with their allocated lanes. Legacy retirement is proposed in POD-5376 for about a week after the operator defaults the screen ON.
 
 ## Scope and declarations
 
@@ -38,7 +38,9 @@ The corrected full replay ran only on ludovico against the existing operator ins
 
 ## Browser and production evidence
 
-The production mobile web export passed on the earlier rebased `80dc17543d` candidate, including postprocessing, compression and the source build stamp. Metro bundled 2,433 modules; all 12 web bundles were exported. The seeded production reader lane is now committed and awaits its flatblock run after rebasing onto the startup fix.
+The seeded production mobile web lane passed on candidate `0db6318933` after POD-5370's startup fixes. The supported `test:browser` wrapper exported the production phone build, postprocessed and compressed it, and ran one collected Pixel Chromium test: **one passed in 16.2 s (11.5 s in the test)**. Its stamp was `wireSchemaDigest=cb9f0786c0a97c2c`, `wireVersion=4`, `sourceSha=0db6318`, `appVersion=dev+0db6318`, `bundleVersion=bundle+1f8f5d3ca6b7f58204d51e14506d73fb`.
+
+The production check proves OFF remains latched after editing the setting, an ON restart loads the pool chunk, seeded proposal text updates live, Skip advances the deck, the addressed chip changes from Backlog to Review, its actual markdown link reaches the expected task, and Pulse shows streamed machines. No page errors or application console errors were reported. The fixture publishes its normal repository identity with `repos.setPrefix` before seeding issues; the harness's low-level repository registration otherwise omits the logical repo feed row. A twenty-third planted fault sent the addressed prefixed route to `/wrong-issue/`; the runner collected **one failing test at `toHaveURL`**, then the source was restored before the green run.
 
 The clean interleaved capture passed on `23d4493446`, Chromium **148.0.7778.96**, Bun **1.4.2**, on flatblock while holding `bench:flatblock`. It ran OFF/ON/OFF/ON in separate pages at 430×1050. Earlier incomplete fixture runs and the run started before its lease grant are excluded; the lease was released after every completed/failed capture. The evidence uses **5,600 synthetic issues and 5,016 sessions**: 5,014 linked sessions plus two guest sessions inherited from the shared fixture. The screenshot header shows the linked subtotal. Twelve linked sessions remain unarchived; the remainder supplies cold history.
 
@@ -66,4 +68,4 @@ timeout 600 bun apps/mobile/test/inbox-proof.ts
 podium lock release bench:flatblock
 ```
 
-Raw synthetic capture results and Inbox/proposal screenshots are attached to the issue. The upcoming production suite uses the isolated authority's seeded issues to check proposal updates/deck decisions, streamed Pulse machines, addressed RefChip updates and an actual PodiumLinkHost route. It uses the unchanged issue detail only as a rich-text host and does not migrate that screen.
+Raw synthetic capture results and Inbox/proposal screenshots are attached to the issue, alongside the seeded production proposal and Pulse screenshots. The production suite uses the unchanged issue detail only as a rich-text host and does not migrate that screen. InboxScreen has no current Expo app route, so its complete mounted acceptance uses the isolated browser fixture with the actual reader siblings rather than claiming production-route coverage.

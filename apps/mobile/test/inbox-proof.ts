@@ -12,6 +12,7 @@ import type {} from './inbox.browser'
 
 if (hostname() !== 'flatblock') throw new Error('Browser validation belongs on flatblock')
 const countsOnly = process.argv.includes('--counts-only'),
+  complete = process.argv.includes('--complete'),
   output = '.artifacts/mobile-inbox',
   origin = 'http://127.0.0.1:45172'
 await mkdir(output, { recursive: true })
@@ -19,6 +20,7 @@ const webRequire = createRequire(new URL('../../web/package.json', import.meta.u
 const viteBin = join(dirname(webRequire.resolve('vite/package.json')), 'bin/vite.js')
 const server = spawn(process.execPath, [viteBin, '--config', 'apps/mobile/vite.inbox.config.ts'], {
   stdio: ['ignore', 'ignore', 'inherit'],
+  env: { ...process.env, PODIUM_INBOX_COMPLETE: complete ? '1' : '0' },
 })
 const exited = new Promise<void>((resolve, reject) => {
   server.once('exit', () => resolve())
@@ -60,7 +62,9 @@ try {
         body: '<p>Synthetic OS fallback destination</p>',
       }),
     )
-    await page.goto(`${origin}/test/inbox.browser.html?pool=${mode === 'on' ? 1 : 0}`)
+    await page.goto(
+      `${origin}/test/inbox.browser.html?pool=${mode === 'on' ? 1 : 0}&complete=${complete ? 1 : 0}`,
+    )
     try {
       await Promise.race([
         page.waitForFunction(() => window.__inbox?.ready(), null, { timeout: 20000 }),
@@ -79,6 +83,8 @@ try {
       throw error
     }
     failReady = () => {}
+    if (complete && (await page.getByRole('button', { name: 'New work', exact: true }).count()) !== 1)
+      throw new Error('Complete Inbox did not mount the real launch button')
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>
@@ -150,9 +156,9 @@ try {
     await popup.waitForURL('http://offline.invalid/issues/SYN-9999')
     await popup.close()
     if (arm === 3) {
-      await page.screenshot({ path: `${output}/inbox.png` })
+      await page.screenshot({ path: `${output}/${complete ? 'complete-' : ''}inbox.png` })
       await page.getByRole('button', { name: 'Proposals', exact: true }).click()
-      await page.screenshot({ path: `${output}/proposals.png` })
+      await page.screenshot({ path: `${output}/${complete ? 'complete-' : ''}proposals.png` })
       await page.getByRole('button', { name: 'Skip', exact: true }).click()
       await page.waitForFunction(() =>
         document
@@ -172,7 +178,7 @@ try {
     await page.close()
   }
   await writeFile(
-    `${output}/${countsOnly ? 'counts' : 'results'}.json`,
+    `${output}/${complete ? 'complete-' : ''}${countsOnly ? 'counts' : 'results'}.json`,
     JSON.stringify(results, null, 2),
   )
   console.log(JSON.stringify(results))

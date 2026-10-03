@@ -19,11 +19,11 @@ const profile = {
 }
 const profiles = [profile]
 export const useRouter = () => router
+export const usePathname = () => '/inbox'
 export const useFocusEffect = (effect: () => void | (() => void)) => useEffect(effect, [effect])
 export const useServerProfile = () => ({ profile, profiles, activation: 'verified' })
 export const useContentBottomInset = () => 72
-// These siblings have separate owners. Complete Inbox acceptance after
-// POD-5356/POD-5370 lands must remove these reader stubs.
+// Isolated reader timings retain these stubs. --complete uses the real siblings.
 export const NewWorkButton = () => null
 export const StorageNoticeAlert = () => null
 export const RefreshOffer = () => null
