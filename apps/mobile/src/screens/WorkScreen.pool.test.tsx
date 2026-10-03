@@ -133,7 +133,8 @@ vi.mock('../components/PressableScale', () => ({
         if (key) state.counts.set(key, (state.counts.get(key) ?? 0) + 1)
       }}
     >
-      <div
+      <button
+        type="button"
         data-label={accessibilityLabel}
         aria-label={accessibilityLabel}
         onClick={onPress}
@@ -143,7 +144,7 @@ vi.mock('../components/PressableScale', () => ({
           : {})}
       >
         {children}
-      </div>
+      </button>
     </Profiler>
   ),
 }))
@@ -177,7 +178,7 @@ vi.mock('../components/Screen', () => ({
     label: string
     onPress: () => void
   }) => (
-    <button aria-label={label} onClick={onPress}>
+    <button type="button" aria-label={label} onClick={onPress}>
       {children}
     </button>
   ),

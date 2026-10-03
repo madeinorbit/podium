@@ -285,7 +285,7 @@ function OpenPage() {
   state.runtime = useStoreHandle<MobileTrpc>() as ClientRuntime<MobileTrpc>
   useMobilePool()
   const [open, setOpen] = useState(false)
-  return open ? <IssueScreen /> : <button onClick={() => setOpen(true)}>Open task</button>
+  return open ? <IssueScreen /> : <button type="button" onClick={() => setOpen(true)}>Open task</button>
 }
 function fingerprint(container: HTMLElement) {
   return createHash('sha256')
