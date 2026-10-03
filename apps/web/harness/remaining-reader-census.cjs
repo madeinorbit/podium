@@ -82,12 +82,21 @@ function writerHash(path, name, source) {
   function syntax(node) {
     if (ts.isParenthesizedExpression(node)) return syntax(node.expression)
     const children = []
-    ts.forEachChild(node, (child) => { children.push(syntax(child)) })
-    const value = ts.isIdentifier(node) || ts.isPrivateIdentifier(node) ||
-      ts.isStringLiteralLike(node) || ts.isNumericLiteral(node) ? node.text : null
+    ts.forEachChild(node, (child) => {
+      children.push(syntax(child))
+    })
+    const value =
+      ts.isIdentifier(node) ||
+      ts.isPrivateIdentifier(node) ||
+      ts.isStringLiteralLike(node) ||
+      ts.isNumericLiteral(node)
+        ? node.text
+        : null
     return [node.kind, value, children]
   }
-  return createHash('sha256').update(JSON.stringify(syntax(body))).digest('hex')
+  return createHash('sha256')
+    .update(JSON.stringify(syntax(body)))
+    .digest('hex')
 }
 const writerContracts = [
   ['apps/web/src/lib/use-persisted-ui-state.ts', 'usePersistedUiState'],
@@ -98,7 +107,11 @@ const writerContracts = [
   ['apps/web/src/app/density.tsx', 'parseDensity'],
   ['apps/web/src/app/density.tsx', 'serializeDensity'],
 ].map(([path, name]) => {
-  const before = writerHash(path, name, execFileSync('git', ['show', `${baseline}:${path}`], { encoding: 'utf8' }))
+  const before = writerHash(
+    path,
+    name,
+    execFileSync('git', ['show', `${baseline}:${path}`], { encoding: 'utf8' }),
+  )
   const after = writerHash(path, name, readFileSync(path, 'utf8'))
   return { path, name, before, after, unchanged: before === after }
 })
@@ -116,5 +129,9 @@ const report = {
 const output = process.argv[2]
 if (output) writeFileSync(output, JSON.stringify(report, null, 2) + '\n')
 console.log(JSON.stringify(report))
-if (Object.values(report.after).some((value) => value !== 0) || remainingSwitches.length || writerContracts.some(check => !check.unchanged))
+if (
+  Object.values(report.after).some((value) => value !== 0) ||
+  remainingSwitches.length ||
+  writerContracts.some((check) => !check.unchanged)
+)
   process.exitCode = 1
