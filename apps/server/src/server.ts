@@ -908,7 +908,7 @@ export async function startServer(
     },
     telegramBotToken: async () => await store.secrets.getOrEmpty('notifications.telegramBotToken'),
     superagent,
-    issues: registry.modules.issues,
+    issues: registry.modules.issues.reports,
     sessions: registry.modules.sessions,
     topics: store.messagingTopics,
     sessionIssueId: (sessionId) => registry.modules.sessions.getSessionIssueId(sessionId),

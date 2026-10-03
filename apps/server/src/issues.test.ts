@@ -554,7 +554,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     )
     // …so a cold service over the same store — the "different browser / after a
     // restart" case — serves the same fold instead of an un-tucked live row.
-    expect((await (await IssueService.create(deps).reports).get(w.id))!.tuckedAt).toBe(
+    expect((await (await IssueService.create(deps)).reports.get(w.id))!.tuckedAt).toBe(
       '2026-06-30T00:00:00.000Z',
     )
   })

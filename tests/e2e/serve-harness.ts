@@ -552,12 +552,12 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
 let daemon = await startDaemon(daemonOptions)
 const QUEUE_POSITION_ISSUE_TITLE = 'POD-2920 A1b production queue'
 if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
-  const issue = await server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.crud.create({
     repoPath: REPO_ROOT,
     title: QUEUE_POSITION_ISSUE_TITLE,
     startNow: false,
   })
-  server.registry.modules.issues.update(issue.id, { stage: 'in_progress' })
+  server.registry.modules.issues.crud.update(issue.id, { stage: 'in_progress' })
   const principal = inProcessMachinePrincipal(hostMachineId())
   const subjects: Array<{ agentKind: AgentKind; label: string; idleAfterMs: number }> = [
     { agentKind: 'codex', label: 'POD-2920 A1b codex-headless', idleAfterMs: 40_000 },
@@ -637,7 +637,7 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
 // `requireAgent`, which THROWS (and takes the whole harness down) for a harness
 // that is not installed on the host, and codex often is not.
 if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
-  const issue = await server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.crud.create({
     repoPath: REPO_ROOT,
     title: 'Panel lifecycle arbitration',
     startNow: false,
@@ -717,7 +717,7 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
  * first constructed grid names its own source.
  */
 if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
-  const issue = await server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.crud.create({
     repoPath: REPO_ROOT,
     title: 'Terminal sizing subject',
     startNow: false,
@@ -786,7 +786,7 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
 // Nothing about that is reproducible on a fresh session: with no verdict to be
 // stale, the old order and the new one agree.
 if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
-  const issue = await server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.crud.create({
     repoPath: REPO_ROOT,
     title: 'Stale verdict under a send',
     startNow: false,
@@ -836,7 +836,7 @@ if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
 // browser spec opens the real AgentPanel, which must render both files as one
 // transcript and keep the wake action visible.
 if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
-  const issue = await server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.crud.create({
     repoPath: REPO_ROOT,
     title: 'Completed transcript incarnation',
     startNow: false,
@@ -940,7 +940,7 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
       `PODIUM_E2E_TRANSCRIPT_INCARNATION: hibernate refused — ${hibernated.reason ?? 'unknown'}`,
     )
   }
-  await server.registry.modules.issues.close(issue.id, 'done')
+  await server.registry.modules.issues.crud.close(issue.id, 'done')
 }
 if (process.env.PODIUM_E2E_HANDOFF === '1') {
   await server.registry.modules.sessions.createSession({
@@ -963,7 +963,7 @@ if (process.env.PODIUM_E2E_HANDOFF === '1') {
 // onBehalfOf=<the delegating human> — two DIFFERENT values, which is the only
 // arrangement in which a collapsed renderer is visibly wrong.
 if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
-  const issue = await server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.crud.create({
     repoPath: REPO_ROOT,
     title: 'Session attribution rows',
     startNow: false,

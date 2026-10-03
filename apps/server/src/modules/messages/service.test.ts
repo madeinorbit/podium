@@ -95,6 +95,7 @@ function fakeIssues(
         }
       },
       has: (id: string) => byId.has(asIssueId(id)),
+      ownedTarget: () => undefined,
       niceRef: (row: { seq: number }) => (prefix ? `${prefix}-${row.seq}` : `#${row.seq}`),
       issueForCwd:
         resolveIssueForCwd ??

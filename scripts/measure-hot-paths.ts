@@ -256,7 +256,7 @@ async function buildFixture(): Promise<Fixture> {
   for (let index = 0; index < ISSUE_COUNT; index += 1) {
     issueIds.push(
       (
-        await registry.issues.create({
+        await registry.issues.crud.create({
           repoPath: '/repo',
           title: `issue ${index}`,
           startNow: false,
@@ -373,11 +373,11 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
       stormInbox.length = 0
       let resolvedRows = 0
       probe.reset()
-      resolvedRows += (await fixture.registry.issues.readyList('/repo')).length
+      resolvedRows += (await fixture.registry.issues.reports.readyList('/repo')).length
       for (let index = 0; index < SESSION_COUNT; index += 1) {
         const owner = fixture.issueIds[index % fixture.issueIds.length]
         if (owner === undefined) throw new Error('issue fixture is empty')
-        if ((await fixture.registry.issues.get(owner)) !== null) resolvedRows += 1
+        if ((await fixture.registry.issues.reports.get(owner)) !== null) resolvedRows += 1
       }
       const fanoutQueries = probe.count()
       breakdown['issueFrameReads.queriesPerRequest'] = probe.byStatement()

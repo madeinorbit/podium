@@ -121,7 +121,7 @@ async function main() {
   log(`server on :${server.port}, state=${stateDir}`)
 
   const issues = server.registry.issues
-  const created = issues.create({
+  const created = await issues.crud.create({
     repoPath: REPO_ROOT,
     title: 'Repro Unsnooze Tag',
     origin: 'human',
@@ -129,8 +129,8 @@ async function main() {
   server.registry.createSession({ agentKind: 'claude-code', cwd: REPO_ROOT, issueId: created.id })
   // The exact user flow: snooze (future) then Unsnooze — undefer backdates deferUntil,
   // landing the issue in returned-from-defer (top of WORK + "Unsnoozed" tag).
-  issues.defer(created.id, new Date(Date.now() + 60 * 60 * 1000).toISOString())
-  issues.undefer(created.id)
+  await issues.crud.defer(created.id, new Date(Date.now() + 60 * 60 * 1000).toISOString())
+  await issues.crud.undefer(created.id)
   await new Promise((r) => setTimeout(r, 1000))
 
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] })
@@ -144,7 +144,7 @@ async function main() {
   await page.getByText('Repro Unsnooze Tag').first().waitFor({ timeout: 30_000 })
 
   // Control: a live server change reaches the DOM (rules out a dead-socket artifact).
-  issues.update(created.id, { title: 'Repro Unsnooze Tag RENAMED' })
+  await issues.crud.update(created.id, { title: 'Repro Unsnooze Tag RENAMED' })
   let controlOk = false
   try {
     await page.getByText('Repro Unsnooze Tag RENAMED').first().waitFor({ timeout: 8000 })
@@ -165,7 +165,7 @@ async function main() {
   await page.waitForTimeout(3000)
 
   const tagAfter = await page.getByText('Unsnoozed', { exact: true }).count()
-  const serverDefer = issues.get(created.id)?.deferUntil ?? null
+  const serverDefer = (await issues.reports.get(created.id))?.deferUntil ?? null
   log('tag visible AFTER open:', tagAfter, '| server deferUntil:', serverDefer)
 
   const pass = tagAfter === 0 && serverDefer == null
