@@ -13,7 +13,11 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
     getSnapshot: () =>
       fixtureStoreSnapshot(
         selectMockSnapshot((state) => state),
-        () => syncPoolFixture(selectMockSnapshot((state) => state), true),
+        () =>
+          syncPoolFixture(
+            selectMockSnapshot((state) => state),
+            true,
+          ),
       ),
   }
   return { ...actual, useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
