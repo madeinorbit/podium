@@ -103,6 +103,7 @@ disabled.
 | Return loading before the row hooks | React reports more hooks than the previous render |
 | Prefix the actual native status formatter | Mobile corpus reports 215/815 differences at 1×/4× |
 | Prefix the production native status formatter | Seeded production off/on row comparison fails on the planted text |
+| Log a production pool formatter error | Final application-error assertion fails with twelve planted errors after equal off/on rows/styles |
 
 ## Validation and production boundary
 
@@ -153,3 +154,11 @@ is rebased onto it. Internal POD-5374 tracks the final three-row production
 off/on style comparison and interleaved Chrome Paint/heap capture. The status
 negative control already fails on the intended comparison; no positive
 production timing result is claimed yet.
+
+The production fixture waits for the previous saved preference before changing
+arms: the pilot-on preference's lazy pool attachment can initially display
+the default off value. Its first console control stopped at that readiness
+race and did not count. The corrected final console control fails exclusively
+on the planted app error. Expected anonymous-harness 401 resource reports
+are recorded separately; page errors, application console errors and other
+resource errors remain failures.
