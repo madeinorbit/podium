@@ -51,7 +51,7 @@ and the pool's resulting order without adding a new mobile control.
 
 All **28 action checks** rejected planted faults before their restored result
 counted. The final full action file passed on `integrate/4286-pilot` base
-`becad6d447`, including its cold-index reader and runtime changes. It observed
+`7f718e75c6`, including its cold-index and cycle-parent reader changes. It observed
 **91 clean mobile side-by-side comparisons**, with zero differences or pending
 rows. Guards reject a mounted legacy slice subscription or legacy row
 derivation; only the explicit independent diagnostic oracle may evaluate the
@@ -90,23 +90,31 @@ the earlier green dependency checks and runtime action checks were retained.
 The production Expo/Pixel Chromium test holds the real HTTP rename request,
 asserts the pending pool title and mutation ID, refuses the request, checks the
 restored title, then opens the mission. Its restored capture interleaves
-off/on/off/on hard launches and records actual Chromium Paint, collected heap
-and startup-to-row readiness. This is synthetic interaction evidence, not a
+off/on/off/on fresh phone profiles and records actual Chromium Paint, collected
+heap and startup-to-row readiness. Each profile loads the same seeded issue,
+persists its settings replica before the Work launch, and owns one app runtime
+and queue. The read state is seeded through the isolated server before the
+arms. A prior navigation's read or deliberately parked rename cannot become
+the next arm's starting queue. This is synthetic interaction evidence, not a
 large-corpus performance acceptance claim. The restored four-arm capture is
 queued behind the shared timing lease.
 
 The corrected production phone fault control is valid: changing the menu's
 submitted title to `Planted wrong mobile title` fails the requested optimistic
-title assertion, and the failure context shows that wrong title in the row
-with one queued mutation. The source was restored with `cp`. Earlier driver
-attempts stopped before that assertion and are excluded. The driver scrolls
+title assertion, and the initial failure context shows that wrong title in the
+row with one queued mutation. The updated fresh-profile check was replanted
+and rejects the same fault at that assertion. The source was restored with
+`cp`. Earlier driver attempts stopped before that assertion and are excluded.
+A shared-profile capture also stopped at an undelivered request, with earlier
+commands queued and needing review; it is excluded. A pool-only diagnostic
+subsequently proved the real HTTP hold, refusal rollback and navigation. The driver scrolls
 the virtualized row into view, holds real Chromium touch input, cancels the
 original row gesture when the modal owns input, and taps the native sheet
 controls.
 
 The final lean gate is green: **154 checks in four of 1,783 collected node
 files (0.2%)**. Its workspace typecheck reports 28/28 successful tasks, with
-24 cache hits; span-effect lint reports 162 bodies, zero unclassified effects
+19 cache hits; span-effect lint reports 162 bodies, zero unclassified effects
 and eight opaque bodies. The first lean run correctly rejected two uncovered
 imports from the new mobile test. `turbo.json` now declares the shared action
 fixture and mobile oracle in both mobile typecheck and test keys; the restored
@@ -124,5 +132,11 @@ no screenshot, export or dump of it is used. Tests, typecheck and lint run
 sequentially in `~/podium-test-4978` on flatblock with checkout-local Bun 1.4.2
 and dependency links. Commands are bounded, and timing captures hold the
 shared benchmark lease. These are focused results, not a whole-suite claim.
+
+Operational exception: at 14:45:33 UTC, the narrow browser-file lint started
+with load 8.81 while POD-5403 held the timing lease. It completed in 61 ms.
+The capture owner and coordinator were notified to flag an overlapping sample;
+subsequent checks use a conditional load admission before launch. This lint
+result is not timing evidence.
 
 Landing target: `integrate/4286-pilot`. The operator owns promotion to `dev/mw`.
