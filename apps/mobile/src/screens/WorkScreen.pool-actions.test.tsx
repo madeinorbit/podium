@@ -147,7 +147,7 @@ vi.mock('../components/BottomSheet', async () => {
         before.current = visible
       }, [onClose, visible])
       return visible ? (
-        <div data-testid={testID}>
+        <div data-testid={testID} data-pool-menu-sheet="true">
           {head}
           {children}
           {footer}
@@ -397,7 +397,11 @@ async function openMenu(id = TARGET) {
   await screen.findByRole('button', { name: 'Rename' })
 }
 async function choose(name: string) {
-  fireEvent.click(await screen.findByRole('button', { name }))
+  const button = await screen.findByRole('button', { name })
+  const sheet = button.closest('[data-pool-menu-sheet]')
+  if (!sheet) throw new Error(`No visible menu sheet for ${name}`)
+  expect(createHash('sha256').update(sheet.innerHTML).digest('hex')).toMatchSnapshot(`accepted menu before ${name}`)
+  fireEvent.click(button)
 }
 async function patch(fixture: Fixture, id: string, fields: Record<string, unknown>) {
   await act(async () => {

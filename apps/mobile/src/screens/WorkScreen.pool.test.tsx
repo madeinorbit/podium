@@ -183,25 +183,25 @@ describe('mobile WorkScreen pool consumer', () => {
   it('bounds derivation runs and row reads per scripted click by the visible neighbourhood at 1x and 4x', async () => {
     const cells: { scale: number; click: string; neighbours: number; rowReads: number; derivations: number }[] = []
     for (const scale of [1, 4] as const) {
-      const census = startCensus()
+      let rowReads = 0
+      const census = startCensus({ sample: () => ({ rowReads }) })
       const { view } = await mount(true, scale)
       await drainNativeLoads()
       const pool = state.pool!
       const original = pool.row.bind(pool)
-      let rowReads = 0
       const spy = vi.spyOn(pool, 'row').mockImplementation(((...args: Parameters<typeof pool.row>) => {
         rowReads++
         return original(...args)
       }) as typeof pool.row)
-      const neighbours = Math.max(1, view.container.querySelectorAll('[data-label]').length)
-      const click = async (name: string, gesture: () => void) => {
-        rowReads = 0
+      const click = async (name: string, gesture: () => void, observe: () => Promise<unknown>) => {
+        const neighbours = Math.max(1, view.container.querySelectorAll('[data-label]').length)
         census.enter(name)
         await act(async () => { gesture(); await new Promise(resolve => setTimeout(resolve, 30)) })
+        await observe()
         await drainNativeLoads()
         census.exit()
         const phase = census.snapshot().phases[name]!
-        cells.push({ scale, click: name, neighbours, rowReads, derivations: phase.computedRuns + phase.reactionRuns })
+        cells.push({ scale, click: name, neighbours, rowReads: phase.sampled.rowReads ?? 0, derivations: phase.computedRuns + phase.reactionRuns })
         expect(state.sliceReads, name).toBe(0)
         expect(state.rowDerivations, name).toBe(0)
       }
@@ -209,12 +209,15 @@ describe('mobile WorkScreen pool consumer', () => {
         const first = state.sections.flatMap(section => section.data).find(ref => ref.kind === 'issue')!
         const title = state.runtime!.replica.rows('issueProjections').find(issue => issue.id === first.id)!.title
         const row = view.container.querySelector(`[data-label$=" ${title}"]`)!
-        await click('open selected row menu', () => fireEvent.contextMenu(row))
+        await click('open selected row menu', () => fireEvent.contextMenu(row), () => screen.findByTestId('menu'))
         expect(screen.getByTestId('menu').getAttribute('data-issue')).toBe(first.id)
         const band = state.sections[0]!
-        await click('fold visible band', () => fireEvent.click(screen.getByLabelText(`${band.label} · ${band.total}`)))
-        await click('open launch choices', () => fireEvent.click(screen.getByLabelText('New work')))
-        await click('close launch choices', () => fireEvent.click(screen.getByLabelText('Close sheet')))
+        await click('fold visible band', () => fireEvent.click(screen.getByLabelText(`${band.label} · ${band.total}`)),
+          () => waitFor(() => expect(state.sections.find(section => section.key === band.key)!.data).toHaveLength(0)))
+        await click('open launch choices', () => fireEvent.click(screen.getByLabelText('New work')),
+          () => waitFor(() => expect(screen.getAllByLabelText(/^Start in /)).toHaveLength(1)))
+        await click('close launch choices', () => fireEvent.click(screen.getByLabelText('Close sheet')),
+          () => waitFor(() => expect(screen.queryByLabelText('Close sheet')).toBeNull()))
       } finally { spy.mockRestore(); view.unmount(); census.stop() }
     }
     console.info('[mobile click work]', JSON.stringify(cells))
