@@ -44,7 +44,10 @@ async function longPress(page: Page, cdp: CDPSession, label: string) {
     touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }],
   })
   await page.waitForTimeout(500)
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await expect(page.getByRole('button', { name: 'Rename', exact: true })).toBeVisible()
+  // The new native modal owns input now. Terminate the row's touch rather than
+  // synthesizing a compatibility mouse click onto its new backdrop.
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
 }
 
 async function launchWork(page: Page, on: boolean, previousOn: boolean) {
@@ -94,7 +97,7 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
   // Settle the usual read-on-open before interleaving the same fixture's arms.
   await launchWork(page, false, false)
   await expect(initial()).toBeVisible({ timeout: 60_000 })
-  await initial().click()
+  await initial().tap()
   await expect(page.getByLabel('Mission actions', { exact: true })).toBeVisible({ timeout: 30_000 })
 
   const cdp = await page.context().newCDPSession(page)
@@ -119,7 +122,7 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
       held = route
     })
     await longPress(page, cdp, label)
-    await page.getByRole('button', { name: 'Rename', exact: true }).click({ timeout: 15_000 })
+    await page.getByRole('button', { name: 'Rename', exact: true }).tap({ timeout: 15_000 })
     await page.getByRole('textbox', { name: 'Rename task', exact: true }).fill(renamed, {
       timeout: 15_000,
     })
@@ -158,7 +161,7 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
     }
     const stop = parityOnly ? undefined : await traceStart(cdp)
     try {
-      await confirm.click({ timeout: 15_000 })
+      await confirm.tap({ timeout: 15_000 })
       await expect(page.getByRole('button', { name: renamedLabel, exact: true })).toBeVisible()
       await expect.poll(() => held !== undefined).toBe(true)
       expect(held!.request().postData()).toContain(renamed)
@@ -193,7 +196,7 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
     })
     await expect(page.getByRole('button', { name: renamedLabel, exact: true })).toHaveCount(0)
     await page.unroute('**/trpc/issues.update*')
-    await page.getByRole('button', { name: label, exact: true }).click()
+    await page.getByRole('button', { name: label, exact: true }).tap()
     await expect(page).toHaveURL(/\/mobile\/mission\//)
     await expect(page.getByLabel('Mission actions', { exact: true })).toBeVisible({
       timeout: 30_000,
