@@ -43,7 +43,9 @@ export const ISSUE_PAGE_SESSION_FIELDS = {
 export const ISSUE_PAGE_SUMMARIES = {
   issue: ['seq', 'title', 'labels', 'assignee', 'repoId', 'repoPath', 'stage',
     'parentId', 'archived', 'deletedAt', 'closedReason', 'owner', 'createdBy', 'deps', 'worktreePath',
-    'blocked', 'blockedByNotes', 'needsHuman', 'color', 'isDraftVessel', 'audience', 'updatedAt', 'deferUntil', 'supersededBy', 'duplicateOf'],
+    'blocked', 'blockedByNotes', 'needsHuman', 'color', 'isDraftVessel', 'audience', 'updatedAt', 'deferUntil', 'supersededBy', 'duplicateOf',
+    // The fallback list's shared close dialog names these concerns too.
+    'asked', 'gitState', 'parentBranch'],
   session: ['sessionId', 'refIssueId', 'issueId', 'agentKind', 'headless', 'archived', 'status',
     'lastActiveAt', 'name', 'title', 'resume', 'agentState', 'offer', 'handoffTarget', 'stoppedAt'],
 } as const

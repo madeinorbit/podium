@@ -297,7 +297,7 @@ export function createIssuePageViews(pool: MobxPool) {
   }
   function explorer(): Loaded<{ issues: IssueViewModel[]; sessions: SessionView[] }> {
     return memo('explorer', () => {
-      const world = issues()
+      const world = menuIssues()
       if (!world || world === LOADING) return world
       const seats: SessionView[] = []
       let pending = false

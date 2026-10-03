@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/model-catalog-mock'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { dedupeSessions } from '@podium/client-core/engine'
@@ -185,6 +185,31 @@ describe('issue page rendered pool parity', () => {
     const next = await arm('panel', 'pool')
     expect(next.main).toEqual(old.main)
     expect(next.expanded).toEqual(old.expanded)
+    expect(next.reads).toBe(0)
+  })
+
+  it('preserves the fallback list close dialog, working members, child counts, question and delivery words', async () => {
+    async function closeFromList(mode: 'legacy' | 'pool') {
+      layer = mode; forbidden = mode === 'pool'; legacyReads = 0
+      const view = render(wrap(<IssuePanelView cwd="/unknown" />))
+      await screen.findByRole('textbox', { name: 'Search tasks' })
+      const row = (await screen.findAllByTestId('explorer-row')).find(node => node.textContent?.includes('Exact page title'))
+      if (!row) throw new Error('Missing close test issue row')
+      fireEvent.click(within(row).getByTestId('issue-status-picker'))
+      fireEvent.click(await screen.findByRole('menuitem', { name: /^Done$/ }))
+      const dialog = await screen.findByRole('alertdialog')
+      const result = { tree: rendered(dialog), text: dialog.textContent, reads: legacyReads }
+      expect(state.closeIssue).not.toHaveBeenCalled()
+      cleanup()
+      return result
+    }
+    const old = await closeFromList('legacy')
+    expect(old.text).toContain('still working')
+    expect(old.text).toContain('A synthetic decision?')
+    expect(old.text).toContain('awaiting delivery')
+    vi.clearAllMocks()
+    const next = await closeFromList('pool')
+    expect(next.tree).toEqual(old.tree)
     expect(next.reads).toBe(0)
   })
 
