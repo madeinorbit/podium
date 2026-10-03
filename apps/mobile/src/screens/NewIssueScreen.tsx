@@ -1,15 +1,13 @@
 import {
   codingRoleHarness,
   ISSUE_STAGE_LABELS,
-  reposToViews,
-  repoUsageAt,
 } from '@podium/client-core/viewmodels'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { useRouter } from 'expo-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
-import { useSessions, useTrpc } from '../client/hooks'
-import { useLaunchInputs } from '../client/use-launch-inputs'
+import { useTrpc } from '../client/hooks'
+import { useLaunchInputs, useLaunchRepositoryPaths } from '../client/use-launch-inputs'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
 import {
   type LaunchConfiguration,
@@ -46,18 +44,9 @@ export function NewIssueScreen() {
   const bottomInset = useContentBottomInset()
   const trpc = useTrpc()
   const store = useLaunchInputs()
-  const sessions = useSessions()
+  const repositoryPaths = useLaunchRepositoryPaths()
   const [fallbackRepos, setFallbackRepos] = useState<string[]>([])
-  const repos = useMemo(() => {
-    if (store.repos.length === 0) return fallbackRepos
-    return reposToViews(store.repos)
-      .sort(
-        (a, b) =>
-          repoUsageAt(b, sessions) - repoUsageAt(a, sessions) ||
-          a.path.localeCompare(b.path, undefined, { sensitivity: 'base' }),
-      )
-      .map((repo) => repo.path)
-  }, [fallbackRepos, sessions, store.repos])
+  const repos = store.repos.length === 0 ? fallbackRepos : repositoryPaths
   const [repoPath, setRepoPath] = useState('')
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
