@@ -1,6 +1,7 @@
 /** Real provider/replica/outbox, synthetic rows, and actual composer/offer UI.
  * Reports counts only: this acceptance is not a timed benchmark. */
 import type { ClientRuntime } from '@podium/client-core/engine'
+import { DRAFTS_UI_KEY } from '@podium/client-core/engine'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -87,10 +88,15 @@ function Surface() {
 const root = createRoot(document.getElementById('root')!)
 root.render(<StrictMode><StoreProvider principal={asClientPrincipal(asUserId('operator'))}
   config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
-  createReplicaFn={() => fixture.newReplica()} networkEnabled={false}
+  createReplicaFn={() => {
+    const replica = fixture.newReplica()
+    // The real runtime hydrates this device ledger in its constructor, before
+    // either controller mounts. Attachment is intentionally a later boundary.
+    replica.uiState.set(DRAFTS_UI_KEY, JSON.stringify({ [id]: { text: 'Saved synthetic draft', serverRev: 0, editedAt: 1 } }))
+    return replica
+  }} networkEnabled={false}
   onFatalError={error => failures.push(error)} attachRuntime={runtime => {
     fixture.bindHub(runtime.hub); fixture.publishMachines()
-    runtime.getSnapshot().setSessionDraft(id, 'Saved synthetic draft')
     return attachWorklistPool(runtime, error => failures.push(error.message))
   }}><Profiler id="conversation" onRender={() => { commits++ }}><Surface /></Profiler></StoreProvider></StrictMode>)
 const driver = {
