@@ -234,9 +234,9 @@ describe('mobile WorkScreen pool consumer', () => {
     await act(async () => {
       feed.publish('issueProjections', corpus.issueProjections.map(row => row.id === target.id ? { ...row, title: 'ZZZ' } : row))
     })
-    await waitFor(() => expect(state.sections.some(section => section.data.some(ref => ref.id === target.id))).toBe(false))
+    await waitFor(() => expect(state.sections.some(band => band.data.some(item => item.id === target.id))).toBe(false))
     for (const old of before) if (old.key !== section.key) {
-      expect(state.sections.find(section => section.key === old.key), `untouched search band ${old.key}`).toBe(old)
+      expect(state.sections.find(band => band.key === old.key), `untouched search band ${old.key}`).toBe(old)
     }
     expect(view.container.textContent).not.toContain('ZZZ')
   }, 120_000)
