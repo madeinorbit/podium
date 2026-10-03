@@ -22,6 +22,7 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePage } from './IssuePage'
 import { IssuePanelView } from './IssuePanelView'
+import { PoolIssuePage } from './pool-issue-page'
 
 let layer: 'legacy' | 'pool' = 'legacy'
 let forbidden = false, legacyReads = 0
@@ -245,10 +246,11 @@ describe('issue page rendered pool parity', () => {
         attach = () => { stop = startupHost!.attach(Object.assign(owner, { ui: { get: () => null } }) as unknown as ClientRuntime, errors) }
         return () => stop?.()
       }, [owner])
-      return <IssuePage issue={issue} orderedIds={[]} onBack={back} onNavigate={navigate} />
+      return <PoolIssuePage issueId={issue.id} orderedIds={[]} onBack={back} onNavigate={navigate} />
     }
     const view = render(wrap(<AttachAfterRender />))
-    // Observe the page itself after its lazy import, before attaching the host.
+    // Mount the actual pool page body before the host's asynchronous attach.
+    // The startup choice itself is covered by the page and latch comparisons.
     await waitFor(() => expect(poolReads).toHaveBeenCalledWith(null))
     expect(view.container.textContent).toBe('')
     expect(initial).toHaveBeenCalledExactlyOnceWith(null)
