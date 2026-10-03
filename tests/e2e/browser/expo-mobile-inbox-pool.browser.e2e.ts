@@ -39,6 +39,9 @@ test('seeded proposals, live health and addressed references survive the pool-on
   const repos = await query<string[]>(page, 'repos.list')
   const repoPath = repos.find((repo) => repo.includes('zz-podium-e2e-repo-')) ?? repos[0]
   expect(repoPath).toBeDefined()
+  // The harness registers repo paths directly in its raw store. Use the real
+  // registry mutation to publish the logical repo row before seeding refs.
+  await mutate(page, 'repos.setPrefix', { path: repoPath, prefix: 'PHON' })
   const create = (title: string, description: string) =>
     mutate<{ id: string }>(page, 'issues.create', {
       repoPath,
@@ -61,10 +64,14 @@ test('seeded proposals, live health and addressed references survive the pool-on
   await mutate(page, 'issues.update', { id: second.id, patch: { stage: 'proposed', priority: 1 } })
   const errors: string[] = [],
     poolChunks: string[] = []
-  page.on('pageerror', (error) => errors.push(`pageerror: ${error.stack ?? error.message}`))
+  const report = (error: string) => {
+    errors.push(error)
+    console.log('[phone-reader]', error)
+  }
+  page.on('pageerror', (error) => report(`pageerror: ${error.stack ?? error.message}`))
   page.on('console', (message) => {
     if (message.type() === 'error' && !message.text().startsWith('Failed to load resource'))
-      errors.push(`console: ${message.text()}`)
+      report(`console: ${message.text()}`)
   })
   page.on('request', (request) => {
     if (/\/runtime-pool-[^/]*\.js$/.test(new URL(request.url()).pathname))
