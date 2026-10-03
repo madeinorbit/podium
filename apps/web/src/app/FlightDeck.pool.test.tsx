@@ -7,7 +7,6 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { missionView } from '@podium/client-graph/mission-view'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { observable, runInAction } from 'mobx'
 import { Profiler, useMemo, useSyncExternalStore, type ProfilerOnRenderCallback } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -111,12 +110,13 @@ describe('rendered mission pane parity', () => {
     const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount >= 2 && issue.childCount < 12)
     if (!root) throw new Error('Missing mission fixture')
     state.layer = 'pool'; state.selectedIssueId = root.id
-    const catalogVersion = observable.box(0)
-    vi.spyOn(pool.headerViews, 'machines').mockImplementation(() => { catalogVersion.get(); return [] })
+    const publishCatalog = (prefix: string) => pool.apply({ type: 'update', rows: [{ kind: 'repo', id: 'catalog-only', value: { id: 'catalog-only', prefix } }] })
+    publishCatalog('before')
+    vi.spyOn(pool.headerViews, 'machines').mockImplementation(() => { pool.row('repo', 'catalog-only'); return [] })
     const committed = vi.fn()
     mount('full', committed); await settled()
     const before = committed.mock.calls.length
-    await act(async () => { runInAction(() => catalogVersion.set(1)) })
+    await act(async () => { publishCatalog('after') })
     expect(committed).toHaveBeenCalledTimes(before)
   }, 120_000)
 
