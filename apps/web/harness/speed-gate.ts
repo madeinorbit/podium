@@ -659,8 +659,8 @@ async function main() {
     }
     if (pairedPane) {
       const runs: Record<'legacy' | 'pool', Awaited<ReturnType<typeof suite>>[]> = { legacy: [], pool: [] }
-      // ABBA limits systematic warm-host drift; every capture gets a new browser.
-      for (const [index, pane] of ([0, 1, 1, 0] as const).entries()) {
+      // Interleave arms at the same host load; each capture gets a fresh browser.
+      for (const [index, pane] of ([0, 1, 0, 1] as const).entries()) {
         if (index) { await browser.close(); browser = await launchBrowser() }
         const arm = pane ? 'pool' : 'legacy'
         console.log(`Same-SHA pane ${arm}, capture ${runs[arm].length + 1}/2`)
