@@ -23,7 +23,7 @@ function runtime() {
   ), { action })
 }
 
-it('retires account-owned callbacks and local state with each reconstructed runtime', () => {
+it('retires account-owned callbacks and state on principal changes while preserving same-account rebuilds', () => {
   const api = {} as PodiumClientApi
   const config: StoreServerConfig = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
   const mounts: string[] = [], unmounts: string[] = []
@@ -75,11 +75,20 @@ it('retires account-owned callbacks and local state with each reconstructed runt
   expect(mounts).toEqual(['alice', 'bob', 'alice'])
   expect(unmounts).toEqual(['alice', 'bob'])
 
-  // A config rebuild belongs to a new runtime even for the same user.
+  // Reconnection or endpoint changes may rebuild a runtime for the SAME account.
+  // They must preserve local UI state rather than remounting the whole app.
   fireEvent.change(view.getByLabelText('draft'), { target: { value: 'new draft' } })
-  fixture.handle = runtime()
+  const replacement = runtime()
+  fixture.handle = replacement
   view.rerender(frame(alice, { ...config }))
   expect(previous.destroy).toHaveBeenCalledOnce()
+  expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('new draft')
+  expect(mounts).toEqual(['alice', 'bob', 'alice'])
+
+  // A server-issued rescope changes the account's storage identity.
+  fixture.handle = runtime()
+  view.rerender(frame(asClientPrincipal(alice.userId, 'replacement-boundary')))
+  expect(replacement.destroy).toHaveBeenCalledOnce()
   expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('')
   view.rerender(frame(null))
   expect(view.container.textContent).toBe('')

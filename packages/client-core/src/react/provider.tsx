@@ -103,7 +103,7 @@ import type { VisibilitySource } from '../engine/visibility'
 import type { CreateEngineOutbox } from '../engine/wiring'
 import type { OnlineEvents } from '../outbox'
 import type { ClientPrincipal } from '../principal'
-import { samePrincipal } from '../principal'
+import { principalKey, samePrincipal } from '../principal'
 import type { FeedSinkPort } from '../socket-transport'
 import type { RouterWindow } from '../ui-state'
 
@@ -227,7 +227,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   // object) is picked up without reconstructing anything.
   const latest = useRef({ onFatalError, formatError, notices, attachRuntime })
   latest.current = { onFatalError, formatError, notices, attachRuntime }
-  const runtimeGeneration = useRef(0)
   // ONE RUNTIME PER (principal, config, api) IDENTITY. The principal is the
   // load-bearing key: a change to it is a different person, so the previous
   // runtime is DESTROYED (irreversible — see ClientRuntime.destroy) before the
@@ -270,7 +269,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     }
   }
   if (principal !== null && runtimeRef.current === null) {
-    runtimeGeneration.current++
     runtimeRef.current = {
       principal,
       config,
@@ -321,7 +319,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       }
     }
   }, [runtime])
-  if (runtime === null) {
+  if (runtime === null || principal === null) {
     // FAIL CLOSED: no runtime means no transport, no replica read, no outbox —
     // and no children, because a child that rendered here would necessarily be
     // painting something other than this principal's slice.
@@ -329,11 +327,11 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   }
   return (
     <PrincipalCtx.Provider value={principal}>
-      {/* Account-owned hooks must retire with their runtime. Replacing only the
+      {/* Account-owned hooks must retire with their principal. Replacing only the
           context value leaves mount-stable callbacks, refs and memoized readers
           holding the previous account's render scope. Ordinary rerenders keep
-          this key, while every runtime reconstruction mounts a fresh subtree. */}
-      <Ctx.Provider key={runtimeGeneration.current} value={runtime as unknown as StoreHandle<PodiumClientApi>}>
+          this key, including reconnects and same-principal runtime rebuilds. */}
+      <Ctx.Provider key={principalKey(principal)} value={runtime as unknown as StoreHandle<PodiumClientApi>}>
         {children}
       </Ctx.Provider>
     </PrincipalCtx.Provider>

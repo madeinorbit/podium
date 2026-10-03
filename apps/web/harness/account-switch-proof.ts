@@ -36,7 +36,7 @@ await build({
     name: 'account-lifetime-probe', enforce: 'pre',
     transform(code: string, id: string) {
       if (unkeyedPlant && id.endsWith('/react/provider.tsx')) {
-        const key = 'key={runtimeGeneration.current}'
+        const key = 'key={principalKey(principal)}'
         if (!code.includes(key)) throw new Error('Unkeyed account plant was not armed')
         return { code: code.replace(key, ''), map: null }
       }
@@ -111,6 +111,11 @@ try {
         if (beforeGc.principal !== principal) throw new Error('Actual principal did not change')
         if (beforeGc.retired.some(row => row.name.endsWith('.runtime') && row.present && !row.destroyed))
           throw new Error('Retired runtime was not destroyed')
+        // Chromium's console keeps detached DOM nodes (and their React props)
+        // alive while CDP is attached. Drop debugger ownership before probing
+        // application ownership; the retained-handler plant still goes red.
+        await cdp.send('Runtime.discardConsoleEntries')
+        await cdp.send('Log.clear')
         for (let round = 0; round < 5; round++) {
           await cdp.send('HeapProfiler.collectGarbage')
           await page.waitForTimeout(100)
