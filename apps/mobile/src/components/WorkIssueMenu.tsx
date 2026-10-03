@@ -12,7 +12,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStoreActions } from '../client/hooks'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
-import { type WorkMenuActionId, type WorkIssueMenuTarget, workMenuActionIds } from '../lib/work-menu'
+import {
+  type WorkMenuActionId,
+  type WorkIssueMenuTarget,
+  workMenuActionIds,
+} from '../lib/work-menu'
 import { color } from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { IssueCloseSheet } from './IssueCloseSheet'
@@ -72,7 +76,8 @@ export function WorkIssueMenu({
     () => sessions.filter((session) => session.issueId === issue.id && !session.archived),
     [issue.id, sessions],
   )
-  const sessionCount = target.sessionCount ??
+  const sessionCount =
+    target.sessionCount ??
     new Set(issue.memberSessionIds ?? agentSessions.map((s) => s.sessionId)).size
   const actionIds = workMenuActionIds(issue, target.lane, {
     placement: placement?.originId != null,

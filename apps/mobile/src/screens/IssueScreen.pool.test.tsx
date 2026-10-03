@@ -419,9 +419,7 @@ it('keeps parent target order literal and row reads bounded by its visible choic
     fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
     await waitFor(() => expect(screen.getByText('The normalized description.')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Details' }))
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Set parent' })).toBeTruthy(),
-    )
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Set parent' })).toBeTruthy())
     const row = state.pool!.row.bind(state.pool!)
     const spy = vi.spyOn(state.pool!, 'row').mockImplementation(((
       ...args: Parameters<MobxPool['row']>

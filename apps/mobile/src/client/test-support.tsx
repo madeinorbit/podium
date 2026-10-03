@@ -168,7 +168,8 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
       replica.applySnapshot('sessionUserStates', fixture.sessionUserStates)
     if (fixture.machineProjections) replica.applySnapshot('machines', fixture.machineProjections)
     seedIssueFixtures(replica, fixture.issues ?? [], asUserId(fixture.principal ?? 'user:test'))
-    if (fixture.issueProjections) replica.applySnapshot('issueProjections', fixture.issueProjections)
+    if (fixture.issueProjections)
+      replica.applySnapshot('issueProjections', fixture.issueProjections)
     if (fixture.issueUserStates) replica.applySnapshot('issueUserStates', fixture.issueUserStates)
     if (fixture.issueGitStates) replica.applySnapshot('issueGitStates', fixture.issueGitStates)
     if (fixture.repoProjections) replica.applySnapshot('repos', fixture.repoProjections)
@@ -178,14 +179,22 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   const api = stubApi(fixture)
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null
   let ready = false
-  function PoolReady() { ready = useMobilePool() !== null; return null }
+  function PoolReady() {
+    ready = useMobilePool() !== null
+    return null
+  }
 
   function Capture({ inner }: { inner: ReactNode }) {
     // Reaching the hub through the store snapshot, not through a module import:
     // the hub under test must be the one the provider built.
     const store = useStore<MobileTrpc>()
     hub = store.hub as unknown as { emit(event: string, ...payload: unknown[]): void }
-    return <>{!fixture.attachRuntime && <PoolReady />}{inner}</>
+    return (
+      <>
+        {!fixture.attachRuntime && <PoolReady />}
+        {inner}
+      </>
+    )
   }
 
   const notice =
@@ -206,9 +215,13 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
         principal={principal}
         createReplicaFn={createReplicaFn}
         routerWindow={routerWindow}
-        attachRuntime={fixture.attachRuntime ?? ((runtime) => attachMobilePool(runtime, (cause) => {
-          throw cause
-        }))}
+        attachRuntime={
+          fixture.attachRuntime ??
+          ((runtime) =>
+            attachMobilePool(runtime, (cause) => {
+              throw cause
+            }))
+        }
       >
         {inner}
       </StoreProvider>
@@ -259,7 +272,10 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
       await Promise.resolve()
     })
   }
-  if (!fixture.attachRuntime) await waitFor(() => { if (!ready) throw new Error('Mobile pool is attaching') })
+  if (!fixture.attachRuntime)
+    await waitFor(() => {
+      if (!ready) throw new Error('Mobile pool is attaching')
+    })
   return {
     ...result,
     replica,

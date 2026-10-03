@@ -270,7 +270,7 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
   requests = []
   outcomes = []
   state.errors = []
-    router.push.mockClear()
+  router.push.mockClear()
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
   state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
   const fixture = createSidebarActionsFixture(6, NOW, true)
@@ -357,7 +357,9 @@ async function parity() {
   })
   const snapshot = poolMobileSnapshot(pool())
   expect(snapshot.pending).toBe(0)
-  expect(createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')).toMatchSnapshot('last green pilot-ON action output')
+  expect(createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')).toMatchSnapshot(
+    'last green pilot-ON action output',
+  )
   comparisons++
   expect(state.errors).toEqual([])
 }
@@ -399,7 +401,10 @@ async function openMenu(id = TARGET) {
 async function choose(name: string) {
   const button = await screen.findByRole('button', { name })
   const sheet = button.closest('[data-pool-menu-sheet]')
-  if (sheet) expect(createHash('sha256').update(sheet.innerHTML).digest('hex')).toMatchSnapshot(`accepted menu before ${name}`)
+  if (sheet)
+    expect(createHash('sha256').update(sheet.innerHTML).digest('hex')).toMatchSnapshot(
+      `accepted menu before ${name}`,
+    )
   fireEvent.click(button)
 }
 async function patch(fixture: Fixture, id: string, fields: Record<string, unknown>) {

@@ -27,32 +27,98 @@ afterEach(() => {
   pressCounts.clear()
 })
 
-const PROG_A: MissionProgress = { total: 3, done: 1, run: 1, review: 0, stall: 0, block: 0, wait: 1 }
-const PROG_B: MissionProgress = { total: 2, done: 0, run: 1, review: 0, stall: 0, block: 0, wait: 1 }
-const PROG_C: MissionProgress = { total: 4, done: 2, run: 0, review: 0, stall: 0, block: 0, wait: 2 }
-function paint(id: string, seq: number, label: string, progress: MissionProgress): MobileRowPaint {
-  return { id, kind: 'issue', label, ref: `POD-${seq}`, color: null, internal: false, pinned: false,
-    branch: null, progress, originSeq: id === 'b' ? 1 : null, statusLine: 'In progress', stamp: null,
-    snoozed: false, unsnoozed: false, tuckable: false,
-    display: { phase: 'queued', working: false, waitingCount: 0, decision: null, unread: false,
-      draftOnly: false, fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
-      gitStamp: { kind: 'hidden', mismatch: false, merged: false, dirty: undefined, ahead: undefined } } }
+const PROG_A: MissionProgress = {
+  total: 3,
+  done: 1,
+  run: 1,
+  review: 0,
+  stall: 0,
+  block: 0,
+  wait: 1,
 }
-const open = vi.fn(), longPress = vi.fn()
+const PROG_B: MissionProgress = {
+  total: 2,
+  done: 0,
+  run: 1,
+  review: 0,
+  stall: 0,
+  block: 0,
+  wait: 1,
+}
+const PROG_C: MissionProgress = {
+  total: 4,
+  done: 2,
+  run: 0,
+  review: 0,
+  stall: 0,
+  block: 0,
+  wait: 2,
+}
+function paint(id: string, seq: number, label: string, progress: MissionProgress): MobileRowPaint {
+  return {
+    id,
+    kind: 'issue',
+    label,
+    ref: `POD-${seq}`,
+    color: null,
+    internal: false,
+    pinned: false,
+    branch: null,
+    progress,
+    originSeq: id === 'b' ? 1 : null,
+    statusLine: 'In progress',
+    stamp: null,
+    snoozed: false,
+    unsnoozed: false,
+    tuckable: false,
+    display: {
+      phase: 'queued',
+      working: false,
+      waitingCount: 0,
+      decision: null,
+      unread: false,
+      draftOnly: false,
+      fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
+      gitStamp: {
+        kind: 'hidden',
+        mismatch: false,
+        merged: false,
+        dirty: undefined,
+        ahead: undefined,
+      },
+    },
+  }
+}
+const open = vi.fn(),
+  longPress = vi.fn()
 function List({ list }: { list: MobileRowPaint[] }) {
-  return <>{list.map(paint => <WorkRow key={paint.id} paint={paint} navPending={false}
-    onOpen={open} onLongPress={longPress} />)}</>
+  return (
+    <>
+      {list.map((paint) => (
+        <WorkRow
+          key={paint.id}
+          paint={paint}
+          navPending={false}
+          onOpen={open}
+          onLongPress={longPress}
+        />
+      ))}
+    </>
+  )
 }
 
 describe('mobile WorkRow memo (POD-4421)', () => {
   it('commits only the changed row and keeps the accepted visible titles', () => {
-    const a = paint('a', 1, 'Alpha', PROG_A), b = paint('b', 2, 'Bravo', PROG_B), c = paint('c', 3, 'Charlie', PROG_C)
+    const a = paint('a', 1, 'Alpha', PROG_A),
+      b = paint('b', 2, 'Bravo', PROG_B),
+      c = paint('c', 3, 'Charlie', PROG_C)
     const view = render(<List list={[a, b, c]} />)
     pressCounts.clear()
     view.rerender(<List list={[a, { ...b, label: 'Bravo!' }, c]} />)
     expect(pressCounts.get('POD-2 Bravo!')).toBe(1)
     expect(pressCounts.get('POD-1 Alpha') ?? 0).toBe(0)
     expect(pressCounts.get('POD-3 Charlie') ?? 0).toBe(0)
-    for (const title of ['Alpha', 'Bravo!', 'Charlie']) expect(view.container.textContent).toContain(title)
+    for (const title of ['Alpha', 'Bravo!', 'Charlie'])
+      expect(view.container.textContent).toContain(title)
   })
 })

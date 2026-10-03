@@ -22,8 +22,12 @@ export function resolvePoolWorkMenu(
   const value = pool.mobileWork.row({ kind: 'issue', id })
   if (!value || typeof value === 'symbol' || !value.sidebar) return null
   const sessions: SessionView[] = []
-  for (const key of pool.queries.ids({ kind: 'commandIssueSessions', issueId: id,
-    archived: false, includeShells: true })) {
+  for (const key of pool.queries.ids({
+    kind: 'commandIssueSessions',
+    issueId: id,
+    archived: false,
+    includeShells: true,
+  })) {
     if (pool.queries.collapsed(key)) continue
     const session = pool.row('session', key, 'summary')
     if (typeof session === 'symbol') return null
@@ -50,6 +54,14 @@ export function resolvePoolWorkMenu(
     if (typeof origin === 'symbol') return null
     if (origin) issues.push(origin)
   }
-  return { target: { issue, lane, canBringBack: value.sidebar.canBringBack,
-    sessionCount: pool.graph.size('issue', id, 'pageSessions') }, issues, sessions }
+  return {
+    target: {
+      issue,
+      lane,
+      canBringBack: value.sidebar.canBringBack,
+      sessionCount: pool.graph.size('issue', id, 'pageSessions'),
+    },
+    issues,
+    sessions,
+  }
 }
