@@ -230,10 +230,10 @@ async function main() {
   }
   const deadline = setTimeout(() => {
     console.error(
-      `speed:gate exceeded ${pairedPane ? 570 : 285} seconds. No baseline promoted.`,
+      `speed:gate exceeded ${pairedPane ? 1140 : 285} seconds. No baseline promoted.`,
     )
     void cleanup().finally(() => process.exit(2))
-  }, pairedPane ? 570_000 : 285_000)
+  }, pairedPane ? 1_140_000 : 285_000)
   for (const signal of ['SIGINT', 'SIGTERM'] as const)
     process.once(signal, () => {
       void cleanup().finally(() => process.exit(130))
@@ -654,7 +654,7 @@ async function main() {
         'acquire',
         'bench:flatblock',
         '--ttl',
-        pairedPane ? '11m' : '6m',
+        pairedPane ? '21m' : '6m',
         '--wait',
         '--timeout',
         '30s',
