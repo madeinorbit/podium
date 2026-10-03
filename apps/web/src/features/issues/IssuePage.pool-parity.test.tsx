@@ -231,19 +231,24 @@ describe('issue page rendered pool parity', () => {
     const errors = vi.fn(), back = vi.fn(), initial = vi.fn()
     startupHost = createPoolHost({ screens: [{ initialize: () => {}, enabled: () => true }], dev: false })
     const issue = legacyIssues.find(row => row.id === 'root')!
+    let attach: (() => void) | undefined, stop: (() => void) | undefined
     function AttachAfterRender() {
       const owner = useStoreHandle()
       const current = startupHost!.usePool()
       useEffect(() => {
         initial(current)
-        return startupHost!.attach(Object.assign(owner, { ui: { get: () => null } }) as unknown as ClientRuntime, errors)
+        attach = () => { stop = startupHost!.attach(Object.assign(owner, { ui: { get: () => null } }) as unknown as ClientRuntime, errors) }
+        return () => stop?.()
       }, [owner])
       return <IssuePage issue={issue} orderedIds={[]} onBack={back} onNavigate={navigate} />
     }
     const view = render(wrap(<AttachAfterRender />))
+    // Resolve the page's lazy import while the real host still has no pool.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
     expect(view.container.textContent).toBe('')
-    await screen.findByText('Exact page title')
     expect(initial).toHaveBeenCalledExactlyOnceWith(null)
+    await act(async () => { attach!(); await new Promise(resolve => setTimeout(resolve, 0)) })
+    await screen.findByText('Exact page title')
     expect(errors).not.toHaveBeenCalled()
     expect(back).not.toHaveBeenCalled()
     expect(legacyReads).toBe(0)
