@@ -11,7 +11,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import type { MobileWorkRef, MobileWorkSection, MobileWorkState } from '@podium/client-graph/worklist/mobile'
-import { compareSidebarSnapshots, type CheckRow, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import { compareSidebarSnapshots, type CheckRow, type SidebarDifference, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { sidebarComparable, legacySidebarRow, sessionComparable } from '@podium/client-graph/diagnostics/oracle'
 import { buildWorkSections, foldWorkSections, workRowListKey, workRowId, type WorkSection } from '../../../../../apps/mobile/src/lib/work-sections'
 import type { LegacyDerivation } from './oracle'
@@ -123,6 +123,6 @@ export function poolMobileSnapshot(pool: MobxPool, state: MobileWorkState = {}):
   return { pending, sections }
 }
 
-export function checkMobile(pool: MobxPool, derivation: LegacyDerivation, state: MobileWorkState = {}) {
-  return compareSidebarSnapshots(legacyMobileSnapshot(derivation, state), poolMobileSnapshot(pool, state))
+export function checkMobile(pool: MobxPool, derivation: LegacyDerivation, state: MobileWorkState = {}, onDifference?: (difference: SidebarDifference) => void) {
+  return compareSidebarSnapshots(legacyMobileSnapshot(derivation, state), poolMobileSnapshot(pool, state), onDifference)
 }
