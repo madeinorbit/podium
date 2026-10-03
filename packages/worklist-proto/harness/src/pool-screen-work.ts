@@ -103,25 +103,36 @@ async function drain(pool: ReturnType<typeof createRuntimeWorklistPool>['pool'])
 
 function assertObservedParity(readers: readonly ScreenReader[], values: ReadonlyMap<string, unknown>): void {
   for (const reader of readers) {
-    if (!compareStructural(values.get(reader.name), reader.read())) {
+    let direct: unknown, failure: unknown
+    // A fresh consumer has the app's tracking context. Reading outside a
+    // reaction bypasses the product's cachedGroup helpers and measures a
+    // different path, needlessly rebuilding every catalogue for the oracle.
+    const stop = autorun(() => {
+      try { direct = reader.read() } catch (cause) { failure = cause }
+    })
+    stop()
+    if (failure !== undefined) throw failure
+    if (!compareStructural(values.get(reader.name), direct)) {
       throw new Error(`Observed/direct parity failed: ${reader.name}`)
     }
   }
 }
 
-export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWorkRun> {
+export async function poolScreenCellsAt(scale: FixtureScale, onCell?: (cell: ScreenWorkCell) => void): Promise<ScreenWorkRun> {
   const ctx = await startScenarioEngine(scale, { ownRows: true })
   try {
-    return await measureScreenCells(ctx, scale)
+    return await measureScreenCells(ctx, scale, onCell)
   } finally {
     ctx.engine.destroy()
   }
 }
 
-async function measureScreenCells(ctx: ScenarioEngine, scale: FixtureScale): Promise<ScreenWorkRun> {
+async function measureScreenCells(ctx: ScenarioEngine, scale: FixtureScale, onCell?: (cell: ScreenWorkCell) => void): Promise<ScreenWorkRun> {
   const progress = (message: string) => process.stdout.write(`[screen work] ${scale}x ${message}\n`)
   progress('kernel ready')
   const ref = seedNeighbourhood(ctx, scale)
+  // The real web host enables this before attaching a pilot-on pool.
+  ctx.engine.enablePoolRuntimeWork()
   const handle = createRuntimeWorklistPool(ctx.engine, { header: true, settings: true, preferences: true,
     summaries: mergePoolSummaries(COMMAND_SUMMARIES, SHELL_SUMMARIES, ISSUE_PAGE_SUMMARIES,
       ISSUE_BOARD_SUMMARIES, CHAT_CONTEXT_SUMMARIES, NOTICE_SUMMARIES, SESSION_PANE_SUMMARIES,
@@ -243,12 +254,13 @@ async function measureScreenCells(ctx: ScenarioEngine, scale: FixtureScale): Pro
     }
     const issuePatch = (patch: Record<string, unknown>) => upsertIssue(ctx, ROOT, { ...ctx.cache.read('issueProjection', ROOT)!.value as object, ...patch }, 3)
     const seatPatch = (patch: Record<string, unknown>) => upsert(ctx, 'session', SESSION, { ...ctx.cache.read('session', SESSION)!.value as object, ...patch }, 3)
+    let pressed: ReturnType<typeof readPoolWorkMenu>
     const actions: Record<ScreenAction, () => void | Promise<unknown>> = {
       select: () => ctx.engine.getSnapshot().setSelectedIssueId(asIssueId(CHILD)),
       'stage-change': () => ctx.engine.getSnapshot().updateIssue(asIssueId(ROOT), { stage: 'in_progress' }),
       'pane-switch': () => ctx.engine.getSnapshot().setPane('A', asSessionId(SESSION)),
       'open-menu': () => { ctx.engine.getSnapshot().setPaletteOpen(true); insideReader('launcher.open-menu', () => readPalette(pool)) },
-      'long-press': () => { insideReader('mobile-work.long-press', () => readPoolWorkMenu(pool, ROOT)) },
+      'long-press': () => { pressed = insideReader('mobile-work.long-press', () => readPoolWorkMenu(pool, ROOT)) },
       'navigate-by-ref': () => { insideReader('navigation.navigate-by-ref', () => ctx.engine.getSnapshot().navigateToSession(asSessionId(ref))) },
       heartbeat: () => seatPatch({ lastActiveAt: ctx.stamp() }),
       'machine-flip': () => {
@@ -262,15 +274,37 @@ async function measureScreenCells(ctx: ScenarioEngine, scale: FixtureScale): Pro
       'lane-change': () => issuePatch({ stage: 'review', updatedAt: ctx.stamp() }),
     }
     const cells: ScreenWorkCell[] = []
+    const proveAction = (action: ScreenAction) => {
+      const state = ctx.engine.getSnapshot()
+      const issue = pool.row('issue', ROOT)
+      const session = pool.row('session', SESSION)
+      if (action === 'select' && state.selectedIssueId !== CHILD) throw new Error('Selection click did not select its row')
+      if (action === 'pane-switch' && state.paneA !== SESSION) throw new Error('Pane switch did not open its session')
+      if (action === 'open-menu' && !state.paletteOpen) throw new Error('Menu click did not open the palette')
+      if (action === 'long-press' && pressed?.target.issue.id !== ROOT) throw new Error('Long press did not resolve its pressed row')
+      if (action === 'navigate-by-ref' && state.paneA !== `guard-history-${32 * scale - 1}`) throw new Error('Birth-ref navigation did not open its target')
+      if (action === 'stage-change' || action === 'lane-change') {
+        const wanted = action === 'stage-change' ? 'in_progress' : 'review'
+        if (!issue || issue === LOADING || Reflect.get(issue, 'stage') !== wanted) throw new Error(`${action} did not change its row`)
+      }
+      if (action === 'heartbeat' && (!session || session === LOADING || Reflect.get(session, 'lastActiveAt') !== Reflect.get(ctx.cache.read('session', SESSION)!.value as object, 'lastActiveAt'))) throw new Error('Heartbeat did not reach its session')
+      if (action === 'machine-flip') {
+        const machine = ctx.cache.read('machine', ctx.corpus.machines[0]!.id)!.value as { loggedOutHarnesses: string[] }
+        const wanted = machine.loggedOutHarnesses.includes('codex') ? 'logged-out' : undefined
+        if (!session || session === LOADING || Reflect.get(session, 'condition') !== wanted) throw new Error('Machine flip did not reach its joined session')
+      }
+    }
     for (const action of SCREEN_ACTIONS) {
       const before = neighbourhood()
       const counted = await measureWork(async () => { await actions[action](); await drain(pool) }, { pool })
       const members = [...new Set([...before, ...neighbourhood()])]
       cells.push({ action, neighbourhood: members, work: counted.work })
+      onCell?.(cells[cells.length - 1]!)
       progress(`${action}: ${counted.work.rows} row calls, ${counted.work.derivations} derivations, ${counted.work.elements} collection elements; neighbourhood ${members.length}`)
       // Correctness is outside the count window, and is never expected-failed.
       await drain(pool)
       assertObservedParity(readers, values)
+      proveAction(action)
       const pane = values.get('mission.pane') as ReturnType<typeof readMissionPane>
       if (pane === LOADING || pane.mission.root?.id !== ROOT) throw new Error('Mission output lost its root')
       const row = pool.row('issue', ROOT)

@@ -9,6 +9,7 @@ import { autorun, computed, ObservableMap, ObservableSet, observable, runInActio
 import { describe, expect, it } from 'vitest'
 import { ARM_CODE, insideArm, insideReader, measureWork, outsideArm } from './work-meter'
 import { MobxPool } from '@podium/client-graph/pool'
+import { assertScreenWork, SCREEN_ACTIONS, screenWorkVerdicts } from './screen-work-ratios'
 
 const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `i${i}`)
 
@@ -173,6 +174,30 @@ describe('derivations', () => {
 })
 
 describe('pool reader windows', () => {
+  it('rejects a planted real pool scan through row, derivation and collection counters', async () => {
+    async function measured(scale: number, scan: boolean) {
+      const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+      const rows = ids(scale)
+      pool.apply({ type: 'replace', rows: rows.map(id => ({ kind: 'issue', id, value: {
+        id, seq: 1, title: id, stage: 'planning', repoPath: '/synthetic',
+      } })) })
+      const views = rows.map(id => computed(() => pool.row('issue', id), { name: 'rowProjection' }))
+      try {
+        return (await measureWork(async () => insideReader('panel', () =>
+          scan ? views.map(view => view.get()) : views[0]!.get()), { pool })).work
+      } finally { pool.dispose() }
+    }
+    const cells = (work: Awaited<ReturnType<typeof measured>>) => SCREEN_ACTIONS.map(action => ({
+      action, neighbourhood: ['issue:drawn'], work,
+    }))
+    const bounded = screenWorkVerdicts(cells(await measured(1, false)), cells(await measured(4, false)))
+    expect(() => assertScreenWork(bounded)).not.toThrow()
+    const planted = screenWorkVerdicts(cells(await measured(1, true)), cells(await measured(4, true)))
+    for (const kind of ['rows', 'derivations', 'elements'] as const) {
+      expect(planted.some(value => value.kind === kind && !value.passed), kind).toBe(true)
+    }
+    expect(() => assertScreenWork(planted)).toThrow(/consumer:panel/)
+  })
   it('counts resident, summary, repeated and absent reads plus untracked app consumer bodies', async () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'i1', value: {

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "tsBuildInfoFile": "tsconfig.screen-work.tsbuildinfo" },
+  "include": ["src/screens/WorkScreen.tsx", "src/lib/pool-work-menu.ts"]
+}

@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "tsBuildInfoFile": "tsconfig.screen-work.tsbuildinfo" },
+  "include": [
+    "src/app/FlightDeckPool.tsx", "src/app/command-launch-data.ts",
+    "harness/speed-gate.ts", "src/vite-env.d.ts"
+  ]
+}

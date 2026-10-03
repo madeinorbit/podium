@@ -111,8 +111,13 @@ function screenFailureOwner(verdict: ScreenWorkVerdict): string | undefined {
 
 describe('pool screens work ratios', () => {
   it('counts every scripted click/delta for every pool screen and app reader at 1x/4x', async () => {
-    const at1x = await poolScreenCellsAt(1)
-    const at4x = await poolScreenCellsAt(4)
+    const partial = { at1x: [] as ScreenWorkCell[], at4x: [] as ScreenWorkCell[] }
+    const capture = (key: keyof typeof partial) => (cell: ScreenWorkCell) => {
+      partial[key].push(cell)
+      writeCells('work-pool-screens-progress.json', partial)
+    }
+    const at1x = await poolScreenCellsAt(1, capture('at1x'))
+    const at4x = await poolScreenCellsAt(4, capture('at4x'))
     expect(at4x.readers).toEqual(at1x.readers)
     expect(at4x.corpus.issues).toBeGreaterThan(at1x.corpus.issues * 3)
     expect(at4x.corpus.sessions).toBeGreaterThan(at1x.corpus.sessions * 3)
@@ -155,12 +160,16 @@ describe('pool screens work ratios', () => {
         rows: 1000, rowsBy: { expensiveButConstant: 1000 }, elements: 0, elementsBy: {}, visits: 0 },
     }))
     expect(() => assertScreenWork(screenWorkVerdicts(cells(), cells()))).not.toThrow()
-    for (const action of SCREEN_ACTIONS) for (const kind of ['rows', 'derivations'] as const) {
+    const growingNeighbourhood = cells()
+    growingNeighbourhood[0]!.neighbourhood = ['issue:1', 'issue:2', 'issue:3', 'issue:4']
+    growingNeighbourhood[0]!.work.rowsBy!.expensiveButConstant = 4000
+    expect(() => assertScreenWork(screenWorkVerdicts(cells(), growingNeighbourhood))).not.toThrow()
+    for (const action of SCREEN_ACTIONS) for (const kind of ['rows', 'derivations', 'elements'] as const) {
       const first = cells(), second = cells()
       const a = first.find(cell => cell.action === action)!.work
       const b = second.find(cell => cell.action === action)!.work
-      const left = kind === 'rows' ? a.rowsBy! : a.derivationsBy
-      const right = kind === 'rows' ? b.rowsBy! : b.derivationsBy
+      const left = kind === 'rows' ? a.rowsBy! : kind === 'derivations' ? a.derivationsBy : a.elementsBy
+      const right = kind === 'rows' ? b.rowsBy! : kind === 'derivations' ? b.derivationsBy : b.elementsBy
       left.planted = 1; right.planted = 4
       expect(() => assertScreenWork(screenWorkVerdicts(first, second)), `${action} ${kind}`).toThrow(/planted/)
     }
