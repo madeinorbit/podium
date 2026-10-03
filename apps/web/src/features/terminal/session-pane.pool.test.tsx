@@ -8,7 +8,7 @@ import type { IssueReferenceSource } from '@podium/client-core/viewmodels'
 import type { MountedSession } from '@podium/terminal-client/session-mount'
 import type { RefLinkConfig } from '@podium/terminal-client'
 import { asIssueId } from '@podium/model/browser'
-import { bindStoreStatsOwner, readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
+import { bindStoreStatsOwner, readRuntimeStoreStats, recordStoreSelector, storeStats } from '@podium/client-core/perf'
 import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
@@ -26,7 +26,7 @@ const f = vi.hoisted(() => ({ mode: 'legacy' as 'legacy' | 'pool', state: {} as 
 const paneStoreHandle = { getSnapshot: () => f.state, subscribe: (_listener: () => void) => () => {} }
 vi.mock('./session-pane-data-layer', () => ({ sessionPaneDataLayer: () => f.mode }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (s: Store) => unknown) => select(f.state),
+  useStoreSelector: (select: (s: Store) => unknown) => { recordStoreSelector(f.owner); return select(f.state) },
   useReplicaIssues: vi.fn(() => f.issues), useSessionDraft: () => '',
   useSessionExitKind: () => undefined,
 }))
@@ -159,7 +159,7 @@ it('keeps native reference underlines equal and live without legacy issue reads 
     { seq: 3, stage: 'done', deletedAt: '2026-10-01' },
   ].map(patch => ({ id: asIssueId(`underline-${patch.seq}`), prefix: 'POD', displayRef: `POD-${patch.seq}`,
     title: `Reference ${patch.seq}`, createdAt: '2026-10-01', updatedAt: '2026-10-01', archived: false,
-    worktreePath: null, deps: [], ...patch }) as IssueReferenceSource)
+    repoPath: '/synthetic', worktreePath: null, deps: [], ...patch }) as IssueReferenceSource)
   f.issues = issues
   f.pool!.apply({ type: 'update', rows: issues.map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
   const tokens = ['POD-1', ' POD-01 ', 'POD-2', 'POD-3', 'POD-99', 'POD-1-a', '#1', 'bad']
