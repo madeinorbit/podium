@@ -139,6 +139,6 @@ it.each([false, true])('keeps session hooks stable from no pool through the real
   expect(errors).toEqual([])
   expect(consoleErrors.mock.calls.filter(args => /hooks|react error.*311/i.test(args.join(' ')))).toEqual([])
   const stats = readRuntimeStoreStats(runtime!)
-  expect(stats).not.toBeNull()
+  expect(stats).toBeDefined()
   expect(Object.entries(stats?.slices ?? {}).filter(([name]) => name.startsWith('sessionPane.'))).toEqual([])
 })
