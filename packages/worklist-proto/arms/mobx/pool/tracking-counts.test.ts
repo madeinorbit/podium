@@ -280,8 +280,16 @@ function paintWindow(pool: MobxPool): () => void {
 function checkpoint(
   snapshot: CensusSnapshot,
   facts: RowFacts,
-): { counts: Record<string, number>; perVisibleRow: Record<string, number> } {
+): {
+  counts: Record<string, number>
+  perVisibleRow: Record<string, number>
+  collections: Record<string, { built: number; entries: number }>
+} {
   const counts: Record<string, number> = { visibleRows: facts.visibleRows }
+  // Names and sizes come from MobX's containers, independently of the
+  // pool. Retain them as report evidence when declared relations move a
+  // baseline; they do not add a second set of gated counters.
+  const collections: Record<string, { built: number; entries: number }> = {}
   const add = (key: string, by = 1) => {
     counts[key] = (counts[key] ?? 0) + by
   }
@@ -300,6 +308,13 @@ function checkpoint(
     }
   }
   for (const entry of snapshot.entries) {
+    if (entry.size !== undefined) {
+      const name = entry.name?.startsWith('pool.') ? entry.name : 'unnamed'
+      const key = `${entry.kind}.${name}`
+      const collection = collections[key] ??= { built: 0, entries: 0 }
+      collection.built += 1
+      collection.entries += entry.size
+    }
     if (entry.kind === 'computed') add(`computeds.${entry.sub}`)
     else if (entry.kind === 'reaction') {
       add('reactions.built')
@@ -330,6 +345,7 @@ function checkpoint(
   const perRow = (key: string) => Math.round(((counts[key] ?? 0) / facts.visibleRows) * 100) / 100
   return {
     counts,
+    collections,
     perVisibleRow: {
       computeds: perRow('computeds.total'),
       reactions: perRow('reactions.live'),
