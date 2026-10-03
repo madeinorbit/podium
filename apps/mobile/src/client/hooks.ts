@@ -361,7 +361,7 @@ function useLegacyMissionScreenData(id: string, screen: 'mission' | 'details'): 
   const sessions = useSessions()
   const booting = useBooting()
   return useMemo(() => {
-    const root = missionRootFor(issues, id)
+    const root = missionRootFor(issues, asIssueId(id))
     return {
       root,
       issues,
@@ -394,7 +394,7 @@ function useLegacyMissionDetailsData(id: string, _screen: 'mission' | 'details')
   const issues = useIssues()
   const sessions = useSessions()
   return useMemo(() => {
-    const root = missionRootFor(issues, id)
+    const root = missionRootFor(issues, asIssueId(id))
     return {
       root,
       issues,

@@ -7,15 +7,15 @@ import { missionRootFor, reposToViews } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
   checkMobileScreens,
+  observeMobileScreens,
+  trackMobileScreenRead as tracked,
   type MobileScreenCheck,
   poolMobileScreensSnapshot,
 } from '@podium/client-graph/diagnostics/mobile-screens-check'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { reaction } from 'mobx'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { tracked } from '../../../../packages/worklist-proto/harness/src/adapters/mobx-pool'
 import {
   FENCE_SCENARIOS,
   openFenceFeeds,
@@ -26,6 +26,11 @@ import {
   writeRescopeBack,
   writeRescopeGrow,
 } from '../../../../packages/worklist-proto/shared/src/scenarios'
+import { mostRelevantSession } from '../lib/mission-session'
+import { buildScreeningQueue } from '../lib/screening'
+import { taskBoardProgress, taskBoardSections } from '../lib/task-board'
+
+const legacy = { mostRelevantSession, buildScreeningQueue, taskBoardProgress, taskBoardSections }
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -64,16 +69,13 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
   for (const selectedId of ids) {
     for (const mode of ['full', 'working', 'needs-you'] as const) {
       const input: MobileScreenCheck = {
+        legacy,
         tasks,
         selectedId: selectedId ?? null,
         mode,
         worktreePaths: paths,
       }
-      const stop = reaction(
-        () => poolMobileScreensSnapshot(pool, input),
-        () => {},
-        { fireImmediately: true },
-      )
+      const stop = observeMobileScreens(pool, input)
       try {
         settle(pool, input)
         const result = tracked(() => checkMobileScreens(pool, issues, store.sessions, input))
@@ -99,6 +101,7 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
     { ...tasks, filter: { archived: true }, showDone: true },
   ]) {
     const input: MobileScreenCheck = {
+      legacy,
       tasks: options,
       selectedId: ids[0] ?? null,
       mode: 'full',

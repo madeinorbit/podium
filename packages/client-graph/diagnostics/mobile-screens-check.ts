@@ -19,9 +19,8 @@ import {
   sessionNeedsHuman,
   taskStateWord,
 } from '@podium/client-core/viewmodels'
-import { mostRelevantSession } from '../../../apps/mobile/src/lib/mission-session'
-import { buildScreeningQueue } from '../../../apps/mobile/src/lib/screening'
-import { taskBoardProgress, taskBoardSections } from '../../../apps/mobile/src/lib/task-board'
+import { asIssueId } from '@podium/model/browser'
+import { autorun, reaction } from 'mobx'
 import type { MissionViewValues } from '../src/mission-view'
 import type {
   MobileMissionData,
@@ -38,11 +37,29 @@ import {
 } from './sidebar-check'
 
 export interface MobileScreenCheck {
+  /** Supplied by the actual phone modules, never a copied legacy oracle. */
+  legacy: MobileLegacyReads
   tasks: MobileTasksOptions
   selectedId: string | null
   mode: FlightDeckMode
   requestedSessionId?: string
   worktreePaths?: string[]
+}
+export interface MobileLegacyReads {
+  taskBoardSections(issues: IssueViewModel[], options: Omit<MobileTasksOptions, 'expanded'> & { expanded: ReadonlySet<string> }): MobileTasksData['board']
+  taskBoardProgress(issues: readonly IssueViewModel[], sections: MobileTasksData['board'], working: ReadonlyMap<string, number>): MobileTasksData['progressByIssue']
+  buildScreeningQueue(issues: IssueViewModel[]): IssueViewModel[]
+  mostRelevantSession(sessions: readonly SessionView[]): SessionView | undefined
+}
+/** Keep MobX and the pool test arm's native list out of the phone test package. */
+export function trackMobileScreenRead<T>(read: () => T): T {
+  let value!: T
+  const stop = autorun(() => { value = read() })
+  stop()
+  return value
+}
+export function observeMobileScreens(pool: MobxPool, input: MobileScreenCheck): () => void {
+  return reaction(() => poolMobileScreensSnapshot(pool, input), () => {}, { fireImmediately: true })
 }
 const fields = (value: object, keys: readonly string[]) =>
   Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? null]))
@@ -120,9 +137,10 @@ function snapshot(
   tasks: MobileTasksData,
   mission: MobileMissionData,
   deck: MissionViewValues,
+  legacy: MobileLegacyReads,
   requested?: string,
 ): SidebarSnapshot {
-  const automatic = mostRelevantSession(mission.missionSessions)
+  const automatic = legacy.mostRelevantSession(mission.missionSessions)
   const current =
     mission.missionSessions.find((session) => session.sessionId === requested) ?? automatic
   const header = mission.issues.find((issue) => issue.id === current?.issueId) ?? mission.root
@@ -229,13 +247,14 @@ export function legacyMobileScreensSnapshot(
   input: MobileScreenCheck,
   now: number,
 ): SidebarSnapshot {
+  const { taskBoardSections, taskBoardProgress, buildScreeningQueue } = input.legacy
   issues = deadlineIssues(issues, now)
   const board = taskBoardSections(issues, {
     ...input.tasks,
     expanded: new Set(input.tasks.expanded),
   })
   const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
-  const root = input.selectedId ? missionRootFor(issues, input.selectedId) : undefined
+  const root = input.selectedId ? missionRootFor(issues, asIssueId(input.selectedId)) : undefined
   const paths = input.worktreePaths ?? []
   const rows = root ? buildFlightDeckRows(issues, sessions, root.id, input.mode, paths) : []
   const byId = new Map(issues.map((issue) => [issue.id, issue]))
@@ -281,6 +300,7 @@ export function legacyMobileScreensSnapshot(
         ]),
       ),
     },
+    input.legacy,
     input.requestedSessionId,
   )
 }
@@ -294,7 +314,7 @@ export function poolMobileScreensSnapshot(
     mission = reader.mission(input.selectedId),
     deck = reader.deck(input.selectedId, input.mode)
   if (tasks === LOADING || mission === LOADING || deck === LOADING) return LOADING
-  return snapshot(tasks, mission, deck, input.requestedSessionId)
+  return snapshot(tasks, mission, deck, input.legacy, input.requestedSessionId)
 }
 export function checkMobileScreens(
   pool: MobxPool,

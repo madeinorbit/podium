@@ -155,8 +155,8 @@ export function createMobileScreenReader(pool: MobxPool) {
             !underProposal(row.id, retained),
         )
         .sort((a, b) => a.priority - b.priority || b.seq - a.seq)
-      const promotedIds = new Set(promoted.map((row) => row.id))
-      const ordinary = new Set(
+      const promotedIds = new Set<string>(promoted.map((row) => row.id))
+      const ordinary = new Set<string>(
         scoped
           .filter((row) => {
             const seen = new Set<string>()
