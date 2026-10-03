@@ -128,7 +128,8 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
     issues: Object.fromEntries(['update', 'markRead', 'markUnread', 'setTucked', 'undefer', 'setPlacement', 'delete', 'close']
       .map(name => [name, procedure(`issues.${name}`)])),
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
-    tabs: { listOrders: { query: async () => ({}) } }, layout: { get: { query: async () => [] } },
+    tabs: { listOrders: { query: async () => ({}) } },
+    layout: { get: { query: async () => [] }, set: { mutate: async () => [] }, clear: { mutate: async () => [] } },
     superagent: { listThreads: { query: async () => [] } },
   })
   const view = render(<StoreProvider principal={asClientPrincipal(asUserId('sidebar-pool-actions'))}
@@ -421,8 +422,8 @@ describe('mobile pool work-list actions', () => {
       const keys = spreadSortKeys(6)
       for (let index = 0; index < keys.length; index++) f.patchIssue(`synthetic-${index}`,
         { sortKey: keyed ? keys[index] : null, pinned: scope === 'pinned' })
-      f.patch('session', 'synthetic-session-1', { agentState: { phase: 'waiting', since: iso(-60_000),
-        waiting: { kind: 'permission' } } })
+      f.patch('session', 'synthetic-session-1', { agentState: { phase: 'needs_user', since: iso(-60_000),
+        need: { kind: 'permission' } } })
     })
     const split = pool().mobileWork.sections()
     expect(split.sections.some(section => section.kind === 'attention')).toBe(true)
