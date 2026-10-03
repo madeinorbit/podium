@@ -15,7 +15,7 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -66,11 +66,13 @@ vi.mock('@/app/store', () => ({
 vi.mock('@/lib/pane-data-layer', () => ({ paneDataLayer: () => layer }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => {
+    // biome-ignore lint/correctness/useHookAtTopLevel: The test selects its host before mounting and clears it only after cleanup.
     const current = startupHost ? startupHost.usePool() : pool
     poolReads(current)
     return current
   },
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => startupHost
+    // biome-ignore lint/correctness/useHookAtTopLevel: The test selects its host before mounting and clears it only after cleanup.
     ? startupHost.usePoolProjection(read, empty) : createPoolProjection(pool, read).getSnapshot(),
 }))
 vi.mock('@podium/client-graph/runtime-pool', async importOriginal => ({
@@ -240,9 +242,9 @@ describe('issue page rendered pool parity', () => {
     let attach: (() => void) | undefined, stop: (() => void) | undefined
     function AttachAfterRender() {
       const owner = useStoreHandle()
-      const current = startupHost!.usePool()
+      const first = useRef(startupHost!.usePool())
       useEffect(() => {
-        initial(current)
+        initial(first.current)
         attach = () => { stop = startupHost!.attach(Object.assign(owner, { ui: { get: () => null } }) as unknown as ClientRuntime, errors) }
         return () => stop?.()
       }, [owner])
