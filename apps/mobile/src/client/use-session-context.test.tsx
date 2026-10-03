@@ -8,6 +8,7 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SessionCardModel } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
 import { checkMobileSessionContext } from '@podium/client-graph/diagnostics/mobile-session-check'
+import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import {
   MOBILE_SESSION_ENTITIES,
   MOBILE_SESSION_SOURCE_KEY,
@@ -290,6 +291,15 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
       privateBody: 'Not a summary field',
     },
   })
+  const notices = noticeFixture(SID)
+  for (const [entity, rows] of [
+    ['message', notices.messages],
+    ['pendingInteraction', notices.interactions],
+  ] as const) {
+    for (const row of rows) data.records.set(`${entity}:${row.id}`, {
+      entity, entityId: row.id, provenance: { seq: 1 }, value: row,
+    })
+  }
   if (cold) data.records.clear()
   Object.assign(data.api, {
     sessions: {
@@ -310,6 +320,7 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
       exit?: unknown
       booting?: boolean
       ports?: ReturnType<typeof hooks.useSessionConversationPorts>
+      question?: ReturnType<typeof hooks.useSessionContextQuestion>
     } = {}
   function Probe() {
     const session = hooks.useSessionContextSession(SID),
@@ -318,7 +329,8 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
     const exit = hooks.useSessionContextExit(SID),
       booting = hooks.useSessionContextBooting(),
       ports = hooks.useSessionConversationPorts(SID)
-    latest = { session, prompt, pending, exit, booting, ports }
+    const question = hooks.useSessionContextQuestion(SID)
+    latest = { session, prompt, pending, exit, booting, ports, question }
     return (
       <output>
         {JSON.stringify({ session, prompt, pending, exit, booting, ready: ports.ready })}
@@ -355,6 +367,7 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
         onFatalError={(error) => errors.push(error)}
         attachRuntime={(owner) => {
           data.bindHub(owner.hub)
+          data.publishMachines()
           owner.getSnapshot().setSessionDraft(SID, 'Saved synthetic draft')
           const stop = host.host.attach(owner, (error) => errors.push(error))
           return stop
@@ -455,6 +468,9 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
     unread: false,
     snoozedUntil: null,
   })
+  expect(enabled.latest().question).toMatchObject({ id: 'notice-ask-2', kind: 'question' })
+  expect(enabled.pool().row('mobileSessionReader', 'reader')).toBeDefined()
+  expect(enabled.runtime.getSnapshot().machines).toHaveLength(3)
   await act(async () =>
     enabled.data.patch('sessionUserState', sessionUserStateRowId(asUserId('operator'), SID), {
       readAt: null,
@@ -492,12 +508,20 @@ it('borrows each shared source once and keeps the conversation bridge across dra
     outboxWake = vi.fn()
   const stopRecord = records.subscribe(recordWake),
     stopOutbox = outbox.subscribe(outboxWake)
+  expect(records.getSnapshot().map((row) => row.id)).toEqual([
+    'notice-message-0', 'notice-message-3', 'notice-message-4',
+  ])
   await act(async () => {
+    enabled.data.patch('message', 'notice-message-0', { body: 'Updated replicated message' })
+    enabled.data.patch('pendingInteraction', 'notice-ask-2', { status: 'answered' })
     await enabled.runtime.outbox.enqueue('sendText', { sessionId: SID, text: 'Held owner send' })
     enabled.runtime.getSnapshot().setSessionDraft(SID, 'Later draft')
   })
   await waitFor(() => expect(outbox.held()).toMatchObject([{ text: 'Held owner send' }]))
   expect(outboxWake).toHaveBeenCalled()
+  await waitFor(() => expect(records.getSnapshot()[0]?.body).toBe('Updated replicated message'))
+  expect(recordWake).toHaveBeenCalled()
+  await waitFor(() => expect(enabled.latest().question?.id).not.toBe('notice-ask-2'))
   expect(enabled.latest().ports?.records).toBe(records)
   expect(enabled.latest().ports?.outbox).toBe(outbox)
   expect(enabled.latest().ports?.draft).toBe('Saved synthetic draft')

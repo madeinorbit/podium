@@ -287,12 +287,27 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
     corpus = await sizedBootstrap(page, session)
   const arms: {
     pool: boolean
+    cache: 'cold' | 'warm'
     navigationMs: number
     draftMs: number[]
     counts: Awaited<ReturnType<typeof counts>>
   }[] = []
   for (const on of [false, true, false, true]) {
     await settings(page, on)
+    const cache = arms.length < 2 ? 'cold' : 'warm'
+    if (cache === 'cold') {
+      // Keep the selected device preference and auth cookie, but make both
+      // first arms pay for a fresh replica and asset cache. Leaving the app
+      // closes its IndexedDB handles before the browser clears those homes.
+      const origin = new URL(page.url()).origin
+      await page.goto('about:blank')
+      const protocol = await page.context().newCDPSession(page)
+      await protocol.send('Network.clearBrowserCache')
+      await protocol.send('Storage.clearDataForOrigin', {
+        origin, storageTypes: 'indexeddb,cache_storage',
+      })
+      await protocol.detach()
+    }
     const input = await conversation(page, session.sessionId)
     const navigationMs = await page.evaluate(
       () =>
@@ -332,7 +347,7 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
       expect(reads.context).toBeGreaterThan(0)
       expect(reads.ports).toBeGreaterThan(0)
     }
-    arms.push({ pool: on, navigationMs, draftMs, counts: reads })
+    arms.push({ pool: on, cache, navigationMs, draftMs, counts: reads })
   }
   expect(corpus.installations()).toBeGreaterThan(0)
   expect(errors).toEqual([])
