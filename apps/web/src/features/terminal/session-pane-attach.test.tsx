@@ -77,10 +77,17 @@ const offline = sessions.find(
 const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
 const principal = asClientPrincipal(asUserId('session-pane-attach'))
 const transcriptRead = vi.fn(async () => ({ items: [], hasMore: false }))
+const machines = [
+  { id: 'machine-a', name: 'Host', online: true, loggedOutHarnesses: [] },
+  { id: 'machine-b', name: 'Offline host', online: false, loggedOutHarnesses: [] },
+]
 const api = {
   settings: { get: { query: async () => ({ roles: { coding: { startScreen: 'chat' } } }) } },
   quota: { summary: { query: async () => [] } },
   sessions: { transcriptRead: { query: transcriptRead } },
+  discovery: {
+    refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines }) },
+  },
 } as unknown as PodiumClientApi
 const originalUrl = window.location.href
 let runtime: ClientRuntime | undefined
@@ -90,18 +97,7 @@ const errors: (Error | string)[] = []
 function replicaFactory() {
   const cache = new ScenarioCache()
   for (const row of [live, shell, offline]) cache.put('session', row.sessionId, row)
-  cache.put('machine', 'machine-a', {
-    id: 'machine-a',
-    name: 'Host',
-    online: true,
-    loggedOutHarnesses: [],
-  })
-  cache.put('machine', 'machine-b', {
-    id: 'machine-b',
-    name: 'Offline host',
-    online: false,
-    loggedOutHarnesses: [],
-  })
+  for (const row of machines) cache.put('machine', row.id, row)
   return createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
@@ -112,6 +108,10 @@ function binding(next: ClientRuntime): () => void {
   runtime = next
   next.getSnapshot().setPanelMode(live.sessionId, 'chat')
   next.getSnapshot().setDockShell(shell.cwd, shell.sessionId)
+  void next
+    .getSnapshot()
+    .refreshRepos()
+    .catch((error) => errors.push(error))
   return attachWorklistPool(next, (error) => errors.push(error))
 }
 
