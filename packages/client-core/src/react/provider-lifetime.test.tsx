@@ -23,7 +23,7 @@ function runtime() {
   )
 }
 
-it('retires account-owned callbacks and state on principal changes while preserving same-account rebuilds', () => {
+it('retires account-owned callbacks and state on principal changes while preserving same-account rebuilds', async () => {
   const api = {} as PodiumClientApi
   const config: StoreServerConfig = {
     httpOrigin: 'http://offline.invalid',
@@ -56,7 +56,9 @@ it('retires account-owned callbacks and state on principal changes while preserv
           aria-label="draft"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          onBlur={blur}
+          ref={(input) => {
+            if (input) input.onblur = () => blur()
+          }}
         />
         <button type="button" onClick={closeAtMount}>
           Close
@@ -100,6 +102,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
     const next = runtime()
     fixture.handle = next
     view.rerender(frame(asClientPrincipal(asUserId(name))))
+    await Promise.resolve()
     expect(previous.destroy).toHaveBeenCalledOnce()
     expect(view.getByLabelText<HTMLInputElement>('draft').value).toBe('')
     expect(document.activeElement).not.toBe(view.getByLabelText('draft'))
@@ -143,7 +146,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
   expect(unmounts).toEqual(['alice', 'bob', 'alice', 'alice'])
 })
 
-it('ends cached selection focus even when the focused field was removed before the account switch', () => {
+it('ends cached selection focus even when the focused field was removed before the account switch', async () => {
   const api = {} as PodiumClientApi
   const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
   function Reader() {
@@ -179,6 +182,7 @@ it('ends cached selection focus even when the focused field was removed before t
   view.container.addEventListener('focusout', focusOut)
   fixture.handle = runtime()
   view.rerender(frame('bob'))
+  await Promise.resolve()
   expect(focusOut).toHaveBeenCalledOnce()
   expect(focusOut.mock.calls[0]![0].target).toBe(view.container)
 })

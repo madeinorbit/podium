@@ -112,10 +112,14 @@ await build({
         const write = useStoreSelector(s => s.setSessionDraft);
         return <input data-account-blur-writer tabIndex={-1} aria-hidden="true"
           style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
-          defaultValue={principal.userId + ' on-blur write attempt'} onBlur={event => {
-            write(lifetimeSessionId(targets.phaseSessionId), event.currentTarget.value);
-            lifetimeBlurWrites.push({ principal: principal.userId, writingPrincipal: handle.principal.userId,
-              actualPrincipal: owner!.principal.userId, destroyed: handle.isDestroyed, value: event.currentTarget.value });
+          defaultValue={principal.userId + ' on-blur write attempt'} ref={input => {
+            // Native listeners exercise retirement even while React mutes its
+            // delegated handlers during commit (editors may use native routing).
+            if (input) input.onblur = () => {
+              write(lifetimeSessionId(targets.phaseSessionId), input.value);
+              lifetimeBlurWrites.push({ principal: principal.userId, writingPrincipal: handle.principal.userId,
+                actualPrincipal: owner!.principal.userId, destroyed: handle.isDestroyed, value: input.value });
+            };
           }} />;
       }
       Object.assign(window, { __accountLifetime: () => ({

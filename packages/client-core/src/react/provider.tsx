@@ -363,15 +363,20 @@ function AccountLifetime({ children }: { children: ReactNode }): JSX.Element {
     }
     const onFocus = (event: FocusEvent) => remember(event.target)
     remember(document.activeElement)
-    document.addEventListener('focusin', onFocus)
+    document.addEventListener('focusin', onFocus, true)
     return () => {
-      document.removeEventListener('focusin', onFocus)
+      document.removeEventListener('focusin', onFocus, true)
       const focused = document.activeElement
       if (focused && 'blur' in focused && typeof focused.blur === 'function') focused.blur()
       // A hidden/removed field may already have lost native focus without a
       // bubbling focusout. End that selection owner at its DOM mount container;
       // dispatching on the container does not replay a child's blur handler.
-      focusRoot?.deref()?.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      // React mutes its event plugins during mutation cleanup. Deliver the
+      // container event after commit, once selection routing is enabled again.
+      const retiringRoot = focusRoot
+      queueMicrotask(() =>
+        retiringRoot?.deref()?.dispatchEvent(new FocusEvent('focusout', { bubbles: true })),
+      )
     }
   }, [])
   return <>{children}</>
