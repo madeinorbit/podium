@@ -32,7 +32,7 @@ export const EMPTY_BOARD: PoolBoardData = {
     orderedIdsForOpen: [],
   },
 }
-const readWindow = (pool: MobxPool) => pool.row('issueBoardWindow', 'current')
+const readWindow = (pool: MobxPool) => { ...pool.row('issueBoardWindow', 'current'), openIssueId: 'PLANTED' }
 export function useBoardBase() {
   const window = useWorklistPoolProjection(readWindow, undefined)
   return {

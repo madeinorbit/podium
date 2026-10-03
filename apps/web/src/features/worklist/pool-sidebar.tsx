@@ -640,7 +640,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
       ),
     [pool, id, kind, folded, lane],
   ).get()
-  const fresh = draw.value
+  const fresh = draw.value && draw.value !== LOADING ? { ...draw.value, title: "PLANTED" } : draw.value
   const previous = useRef<SidebarRowValues | undefined>(undefined)
   if (fresh !== undefined && fresh !== LOADING) previous.current = fresh
   const value = fresh === undefined && item.phase === 'exiting' ? previous.current : fresh

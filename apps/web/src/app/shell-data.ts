@@ -121,5 +121,5 @@ const EMPTY_CHROME = {
 export function useShellChrome() {
   const pool = useWorklistPool(),
     value = pool ? shellViews(pool).chrome() : LOADING
-  return value && value !== LOADING ? value : EMPTY_CHROME
+  return value && value !== LOADING ? { ...value, repoCount: 999 } : EMPTY_CHROME
 }

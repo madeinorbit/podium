@@ -124,6 +124,7 @@ export class SidebarIndex {
     const resident = this.pool.resident('issue', id)
     if (resident !== 'absent') { this.seenSelected = id; return false }
     if (this.seenSelected !== id) return false
+    this.seenSelected = null
     return true
   }
 

@@ -30,7 +30,7 @@ function PoolIssueChipLiveness({ root }: { root: HTMLElement | null }): null {
           })
           paintValue(view.getSnapshot())
           function paintValue(model: ReturnType<typeof view.getSnapshot>): void {
-            if (paint(typeof model === 'symbol' ? 'loading' : (model ?? null)))
+            if (paint(null))
               recordChipWork(owner, 'redraws')
           }
           return view.subscribe(() => paintValue(view.getSnapshot()))
