@@ -88,10 +88,11 @@ const { default: TerminalRoute } = await import('../../app/session/[sessionId]/t
 const SID = asSessionId('synthetic-session-0')
 const NOW = Date.parse('2026-10-03T00:00:00Z')
 
-beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW); seams.route = SID; seams.terminalInputs.length = 0; seams.nativeInputs.length = 0; seams.transcriptInputs.length = 0 })
+beforeEach(() => { console.log('session context proof start'); vi.spyOn(Date, 'now').mockReturnValue(NOW); seams.route = SID; seams.terminalInputs.length = 0; seams.nativeInputs.length = 0; seams.transcriptInputs.length = 0 })
 afterEach(() => { cleanup(); storeStats.enable(false); vi.restoreAllMocks() })
 
 async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false) {
+  console.log('session context mount', on, screen)
   const host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
   seams.host = host
   const data = createHeaderFixture(12), errors: (Error | string)[] = [], seen: (MobxPool | null)[] = []
@@ -129,6 +130,7 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
       const stop = host.host.attach(owner, error => errors.push(error))
       return stop
     }}><Surface /></StoreProvider></StrictMode>)
+  console.log('session context rendered', on, screen)
   await waitFor(() => expect(runtime).toBeDefined())
   if (on) await waitFor(() => expect(seen.at(-1)?.row('mobileSessionReader', 'reader')).toBeTypeOf('object'), { timeout: 10000 })
   if (screen === 'all') await waitFor(() => expect(view.getByLabelText('Draft')).toHaveValue('Saved synthetic draft'), { timeout: 10000 })
