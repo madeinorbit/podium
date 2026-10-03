@@ -3,8 +3,13 @@ import { resolve } from 'node:path'
 import { chromium, type Page } from '@playwright/test'
 import { actorUser, asUserId, IssueProjection } from '@podium/model'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
-import { build, mergeConfig } from 'vite'
-import mobileHarnessConfig from '../../apps/mobile/vite.harness.config'
+import { build } from 'vite'
+import {
+  resolveMobileFile,
+  resolveMobilePackage,
+  resolveRootFile,
+  resolveRootPackage,
+} from '../../apps/mobile/resolve-package'
 import { makeIssue } from '../../apps/web/src/lib/test-issue'
 
 type ProofState = {
@@ -24,15 +29,30 @@ const snapshot = (page: Page) =>
  * bound to loopback ephemeral ports, and torn down by this fixture. */
 export async function liveConnectionProof() {
   const root = resolve(import.meta.dirname, '../../apps/mobile')
-  const bundle = await build(
-    mergeConfig(mobileHarnessConfig, {
+  const bundle = await build({
       configFile: false,
       root,
       logLevel: 'warn',
-      define: { __DEV__: 'false' },
+      define: { __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
       resolve: {
+        extensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'],
         conditions: ['@podium/source', 'browser', 'module', 'import'],
         alias: [
+          { find: /^react-native$/, replacement: resolveMobilePackage('react-native-web') },
+          { find: /^react$/, replacement: resolveRootPackage('react') },
+          { find: /^react-dom$/, replacement: resolveRootPackage('react-dom') },
+          { find: /^react-dom\/client$/, replacement: resolveRootFile('react-dom/client') },
+          {
+            find: /^react-native-svg$/,
+            replacement: resolveMobileFile('react-native-svg/lib/module/ReactNativeSVG.web.js'),
+          },
+          ...[
+            ['expo-blur', 'stub-expo-blur.tsx'],
+            ['expo-haptics', 'stub-expo-haptics.ts'],
+            ['react-native-safe-area-context', 'stub-safe-area.ts'],
+            ['expo-symbols', 'stub-expo-symbols.tsx'],
+          ].map(([find, file]) => ({ find: new RegExp(`^${find}$`), replacement: resolve(root, 'harness', file!) })),
+          { find: /^\.\/BottomSheet$/, replacement: resolve(root, 'harness/stub-bottom-sheet.tsx') },
           { find: '@', replacement: resolve(root, '../web/src') },
           {
             find: /^\.\/ServerProfileGate$/,
@@ -49,8 +69,7 @@ export async function liveConnectionProof() {
         minify: false,
         rollupOptions: { input: resolve(root, 'live-connection-harness.html') },
       },
-    }),
-  )
+    })
   const outputs = Array.isArray(bundle)
     ? bundle.flatMap((b) => b.output)
     : 'output' in bundle
