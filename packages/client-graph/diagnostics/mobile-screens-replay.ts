@@ -218,6 +218,22 @@ async function main() {
             rowIndex: result.first.rowIndex,
             field: result.first.field,
           }
+        if (result.first?.field === 'author') {
+          const reader = handle.pool.row('mobileScreenReader', 'reader')
+          if (reader && typeof reader !== 'symbol') {
+            const mission = reader.mission(input.selectedId)
+            const deck = reader.deck(input.selectedId, input.mode)
+            if (typeof mission !== 'symbol' && typeof deck !== 'symbol') {
+              const id = deck.rows[result.first.rowIndex]?.issue.startedBySession
+              const expected = sessions.find((session) => session.sessionId === id)
+              const actual = mission.sessions.find((session) => session.sessionId === id)
+              console.log(JSON.stringify({ phase, checks, authorInputs: {
+                expected: Number(Boolean(expected)), actual: Number(Boolean(actual)),
+                expectedRef: Number(Boolean(expected?.displayRef)), actualRef: Number(Boolean(actual?.displayRef)),
+              } }))
+            }
+          }
+        }
         if (checks % 100 === 0)
           console.log(JSON.stringify({ phase, checks, positions, differences, pending, first }))
         if (result.differences || result.pending) break
