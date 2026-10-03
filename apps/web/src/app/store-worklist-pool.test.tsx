@@ -152,18 +152,14 @@ describe('StoreProvider owns the sidebar pool', () => {
     expect(disposePool).toHaveBeenCalledTimes(1)
   })
 
-  it('builds no pool and takes no pool subscriptions when the switch is off', async () => {
-    choice.mode = 'legacy'
-    choice.check = true
+  it('builds the workspace pool with retired overrides off', async () => {
+    history.replaceState(null, '', '/?mobxSidebar=0&mobxPane=0&mobxHeader=0&mobxSessionPane=0&mobxBoard=0')
     const create = vi.spyOn(runtimePool, 'createRuntimeWorklistPool')
     render()
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    })
-    expect(shown).toBeNull()
-    expect(create).not.toHaveBeenCalled()
+    await ready()
+    expect(create).toHaveBeenCalledTimes(1)
     expect(replicaFactory).toHaveBeenCalledTimes(1)
-    expect(startSidebarCheck).not.toHaveBeenCalled()
+    history.replaceState(null, '', '/')
   })
 
   it('publishes resident counts on late panel open and clears them on sign-out', async () => {
