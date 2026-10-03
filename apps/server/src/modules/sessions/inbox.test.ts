@@ -3112,6 +3112,60 @@ describe('agent drain via the runtime contract', () => {
     expect(h.getDraft()).toBeUndefined()
   })
 
+  // POD-5296: a slow answer must never undo a known delivery. A recovery
+  // forward (row.attempts > 0 — the daemon already had this id once, e.g.
+  // msg_d0117333 accepted held=memory before the link dropped) whose receipt
+  // times out keeps its status and stays queued for the next bind/sweep;
+  // only the daemon's fenced delivery outcome settles it. The forward path
+  // never consults the ledger status, so the recovery flag alone protects
+  // every known-delivery state: accepted, typed, typing and dispatched.
+  it.each([['accepted'], ['typed'], ['typing'], ['dispatched']] as const)(
+    'a recovery forward that times out never downgrades a %s row to unknown',
+    async (prior) => {
+      vi.useFakeTimers()
+      const h = harness({
+        contractReceipts: [
+          { outcome: 'unverified', deliveredAs: 'when-ready', verificationWindowMs: 12000, at: new Date().toISOString() },
+        ],
+      })
+      const id = `msg_recovery_${prior}`
+      h.rows.push({
+        delivery: 'when-ready', id, sessionId: SID, queuedAt: 1, text: 'already handed on',
+        attempts: 1, deliveryOwner: null, inputOrigin: 'human',
+        principal: agentPrincipal(), sourceMessageId: id,
+      })
+      if (prior === 'accepted') {
+        // The incident: the server already recorded accepted held=memory.
+        await h.inbox.deliveryOutcome(SID, { rowId: id, outcome: 'accepted', held: 'memory' })
+        expect(h.accepted).toHaveBeenCalledOnce()
+      }
+
+      await h.inbox.drain(SID)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(h.contractCalls).toEqual([
+        expect.objectContaining({ turnId: id, deliveryRecovery: true }),
+      ])
+      expect(h.unconfirmed).not.toHaveBeenCalled()
+      expect(h.promptFailed).not.toHaveBeenCalled()
+      expect(h.rejected).toEqual([])
+      expect(h.rows).toHaveLength(1)
+      expect(h.getDraft()).toBeUndefined()
+
+      // Forwarded again on the next bind/sweep; still only the daemon settles it.
+      await h.inbox.drain(SID)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.contractCalls).toEqual([
+        expect.objectContaining({ turnId: id, deliveryRecovery: true }),
+        expect.objectContaining({ turnId: id, deliveryRecovery: true }),
+      ])
+      expect(h.unconfirmed).not.toHaveBeenCalled()
+      await h.inbox.deliveryOutcome(SID, { rowId: id, outcome: 'delivered' })
+      expect(h.applied).toHaveBeenCalledTimes(1)
+      expect(h.rows).toHaveLength(0)
+    },
+  )
+
   it('a daemon report that cannot prove the text landed is unknown: no draft, no dead letter', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
