@@ -33,7 +33,7 @@ export function checkMobileInbox(pool: MobxPool, legacy: MobileInboxLegacy, inpu
   const views = mobileInboxViews(pool)
   if (!views) return { differences: 0, pending: 1, positions: 0, first: null }
   const inbox = views.inbox(), screening = views.screening(), rows = views.screeningRows(input.screeningIds)
-  const byId = new Map(legacy.issues.map(issue => [issue.id, issue]))
+  const byId = new Map<string, IssueViewModel>(legacy.issues.map(issue => [issue.id, issue]))
   const groups = groupSessions(withoutShells(legacy.sessions))
   const sections = (actual: boolean): CheckSection[] => {
     const value = actual ? inbox.groups : groups
