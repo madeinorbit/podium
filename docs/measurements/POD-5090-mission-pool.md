@@ -32,7 +32,7 @@ The mission wrapper reads a structurally compared computed projection inside its
 | Existing FlightDeck, Workspace and folded-bar focused tests | 190 green |
 | Declared schema and shared edge collections with the mission reader | 73 green |
 | Existing MobX/hand relation semantics and the reader audit, focused selection | 27 green |
-| Scoped web/client-graph/worklist-proto typecheck | 16 successful tasks on the current pilot; 14 cached |
+| Scoped web/client-graph/worklist-proto typecheck | 16 successful tasks on the current pilot |
 | Focused MobX and memory-cutoff fence lint | Green |
 | Focused Biome comparison with integration baseline | 7 inherited errors on both sides; zero new errors |
 
@@ -69,7 +69,25 @@ The complete planted control at `39dae804665a15aa0f1c824c09c1b0944fa4f683` is re
 
 The first valid undelayed pair at `3b77d7467478bf9c893e6edc7934d7abda41b035` is rejected: mission latency is 1,615.642 ms off versus 1,687.193 ms on, **4.429% slower**. All five fixed-baseline checks pass and legacy reads are zero, but the strict paired mission check fails. Recorded mission-reader work falls from 574.85 to 128.90 ms, or 35.580% to 7.640% of switch time. No sample is discarded and this result is not acceptance evidence. POD-5327's separate profile identifies a second mission-row pass and expensive projection subscription work.
 
-The direct-observer attempt at `4d2c5ecc602295b6b5c04c928f7d2108314ff739` is also rejected: 1,415.212 ms off versus 2,927.109 ms on, **106.832% slower**, with all four captures complete and legacy reads zero. It removes duplicate reader derivation but loses the projection's equality filter. The render-commit control above demonstrates the extra commits. The corrected observer retains that filter without the original untracked first read; its new complete pair is pending the timing lease. Both rejected pairs retain every sample and the strict failure threshold.
+The direct-observer attempt at `4d2c5ecc602295b6b5c04c928f7d2108314ff739` is also rejected: 1,415.212 ms off versus 2,927.109 ms on, **106.832% slower**, with all four captures complete and legacy reads zero. It removes duplicate reader derivation but loses the projection's equality filter. The render-commit control above demonstrates the extra commits.
+
+The corrected observed computed projection at `c56e85d02a244bcb268ce416fb4bce20d1c7c126` retains that equality filter without the original untracked first read. Its complete four-capture pair is also rejected: mission latency is 1,615.241 ms off versus 2,609.811 ms on, **61.574% slower**. Every fixed-baseline check passes and legacy reads are zero. Recorded mission-reader work falls from 647.50 to 95.30 ms, or 40.087% to 3.652% of switch time. The focused projection and reader checks are 21 green, both new equality controls are planted red and restored, scoped typecheck reports 16 successful tasks, and the two changed UI files have no Biome errors. All three rejected pairs retain every sample and the strict failure threshold; none is acceptance evidence.
+
+### Adjacent issue-panel cost
+
+A focused CPU/commit profile at `eee9ea659d74afdf57e97b51c2c33670d210c6bf` uses the same product tree as the corrected pair. It changes only the pane switch, with the sidebar on the pool and the session pane and chips on their existing paths. The ordinary minified production fixture records three retained mission clicks per arm after two warm-ups, interleaved with the first arm reversed each pair. Profiling adds overhead, so its latency is diagnostic and does not replace the speed gate.
+
+| Profile measure | Pane off | Pane on |
+| --- | ---: | ---: |
+| Median React render work | 862.534 ms | 1,174.641 ms |
+| Median React passive effects | 48.462 ms | 1,473.742 ms |
+| Median garbage collection | 76.398 ms | 329.094 ms |
+| Rendered task-row instances, median | 239 | 478 |
+| Workspace renders, median | 2 | 3 |
+
+The dominant pool cost is the embedded issue panel, which shares the pane startup choice: `PoolIssuePanelView`'s projection calls `issuePages.panel/data`, rebuilding the global `issues/summary` catalog. The panel callback accounts for 1,384.73 ms mean inclusive CPU time and projection subscription for 1,032.78 ms; these overlap and must not be added. The issue-page memo bypasses its computed cache for an unobserved read, and the profiled projection performed that first read before subscribing. This profile identifies the next cost to remove; it does not establish a successful fix.
+
+POD-5367 records this required blocking work under the mission issue. POD-5091 owns the panel and issue-page summary files and is optimizing them. POD-4286 routed the panel cost to that lane and instructed the mission lane to retain its current wrapper, await the landing, then rebase and repeat the strict pair. POD-5347's shared projection correction has separately landed at `e3b8928e1a`; it will be included in that rebase. The CPU analysis is attached to the mission issue as `.artifacts/5090-mission-profile-analysis.json`; the benchmark lease was released before analysis and edits.
 
 The first timing control was invalid: its legacy arm completed, but the pool arm stopped before fixture readiness with React error 311. An isolated production startup probe traced this to the fixture freezing screen choices only in `attachRuntime`, after Workspace had first chosen its hooks. The ordinary app already initializes screens before descendants in AppShell. The fixture now does the same in its root, before rendering children. With the correction, the full 4× pool fixture becomes ready and a trusted click on the fixed mission target opens the FlightDeck scroller, with zero page errors and no pending settling work. The CommandPalette fix independently landed by POD-5308 did not remove the original error; this was a separate fixture startup contract violation. No timing number from the aborted control is accepted as a paired result.
 
@@ -79,4 +97,4 @@ A later incomplete control completed its first off/on captures without the start
 
 POD-5299 is covered by the landed shared relation engine; this reader reuses it. Old numerical relation guard expectations remain tracked by POD-5303. The seven inherited UI lint findings are separately proposed in POD-5313; no unrelated styling or reset semantics changed here.
 
-POD-4286 explicitly authorized fast-forward landing while the startup switch remains off by default, so the issue-page lane could rebase; the main migration landed at `f27a9d4d23`. The paired mission timing and planted delay control remain required follow-up work; this issue stays active until they are reported. Keep the pane rollback switch until the operator enables the screen by default, then remove the legacy screen path within about a week under the coordinator's rollout plan.
+POD-4286 explicitly authorized fast-forward landing while the startup switch remains off by default, so the issue-page lane could rebase; the main migration landed at `f27a9d4d23` and the fixture startup correction at `36aed40e3c`. The complete planted delay control is red as required. The paired mission speed gate remains red, with its adjacent issue-panel cost tracked by POD-5367; this issue stays active until a concrete fix passes the unchanged gate. Keep the pane rollback switch until the operator enables the screen by default, then remove the legacy screen path within about a week under the coordinator's rollout plan.
