@@ -96,6 +96,25 @@ it('re-arms after the last unsubscribe and preserves equal snapshot identity', (
   expect(f.read).toHaveBeenCalledTimes(2)
 })
 
+it('publishes lazy reference initialization when subscribing before the first snapshot', () => {
+  const f = fixture()
+  const issue = { id: 'one', seq: 1, prefix: 'POD', title: 'Task one', stage: 'review',
+    createdAt: '2026-01-01', updatedAt: '2026-01-01', archived: false }
+  f.pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'one', value: issue as never }] })
+  const read = vi.fn((current: MobxPool) => current.references.read('POD-1'))
+  const view = createPoolProjection(f.pool, read)
+  const wake = vi.fn()
+  cleanups.push(view.subscribe(wake))
+  expect(view.getSnapshot()).toMatchObject({ title: 'Task one' })
+  expect(wake).toHaveBeenCalledTimes(1)
+  // The first read builds the reference index, which publishes its readiness.
+  expect(read).toHaveBeenCalledTimes(2)
+  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'one', value: { ...issue, title: 'Changed' } as never }] })
+  expect(view.getSnapshot()).toMatchObject({ title: 'Changed' })
+  expect(read).toHaveBeenCalledTimes(3)
+  expect(wake).toHaveBeenCalledTimes(2)
+})
+
 it('gives abandoned renders to the observer finalizer and re-arms a finalized view', () => {
   const register = vi.spyOn(_observerFinalizationRegistry, 'register')
   const unregister = vi.spyOn(_observerFinalizationRegistry, 'unregister')

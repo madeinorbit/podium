@@ -31,15 +31,17 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
       return state.snapshot!.value
     },
     subscribe(wake: () => void): () => void {
-      const before = state.snapshot, error = state.error
+      const before = state.snapshot, error = state.error, version = state.version
       observeProjection(state)
-      refreshProjection(state)
+      // Lazy reader construction can publish observable initialization during
+      // tracking. Settle those real changes before attaching an imperative watch.
+      while (state.dirty) refreshProjection(state)
       _observerFinalizationRegistry.unregister(state)
       const listener = () => wake()
       state.listeners.add(listener)
       // Imperative readers paint before subscribing. A lazy source can finish
       // initialization during that read; publish its newer snapshot at attachment.
-      if ((before !== null || error !== null) && (state.snapshot !== before || state.error !== error))
+      if ((before !== null || error !== null || state.version !== version) && (state.snapshot !== before || state.error !== error))
         wake()
       return () => {
         state.listeners.delete(listener)
