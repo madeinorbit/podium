@@ -134,6 +134,7 @@ it('clears rescope inputs and releases all borrowed subscriptions on disposal', 
   await corpus.load()
   corpus.replaceEmpty(); await Promise.resolve()
   expect(corpus.check()).toMatchObject({ differences: 0, pending: 0 })
+  expect(corpus.pool.row('chatRecordOrder', 'order')).toEqual({ ids: [] })
   corpus.pool.dispose()
   expect(corpus.addressed.size).toBe(0)
   expect(corpus.listeners.size).toBe(0)

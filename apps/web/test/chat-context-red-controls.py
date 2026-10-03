@@ -63,8 +63,23 @@ env = dict(os.environ, PATH=str(ROOT / '.toolchain') + ':' + os.environ['PATH'])
 output = ROOT / '.artifacts/chat-context/controls'
 output.mkdir(parents=True, exist_ok=True)
 results = []
+start = next((arg.split('=', 1)[1] for arg in sys.argv[1:] if arg.startswith('--from=')), None)
+selected = controls
+if start:
+    at = next(index for index, control in enumerate(controls) if control[0] == start)
+    previous = json.loads((output.parent / 'controls.json').read_text())
+    for name, file, *_ in controls[:at]:
+        old_blob = run(['git', 'rev-parse', previous['candidate'] + ':' + file], capture_output=True).stdout
+        new_blob = run(['git', 'rev-parse', baseline + ':' + file], capture_output=True).stdout
+        if old_blob != new_blob:
+            raise SystemExit('Earlier production control source changed: ' + name)
+        result = next(item for item in previous['controls'] if item['control'] == name)
+        if not result['red']:
+            raise SystemExit('Earlier control is not red: ' + name)
+        results.append({**result, 'candidate': result.get('candidate', previous['candidate'])})
+    selected = controls[at:]
 try:
-    for name, file, old, new, test, test_file in controls:
+    for name, file, old, new, test, test_file in selected:
         if os.getloadavg()[0] > 8:
             raise RuntimeError('flatblock load exceeds the agreed ceiling')
         run(['git', 'switch', '-q', '--detach', baseline])
@@ -79,7 +94,7 @@ try:
         text = re.sub(r'\x1b\[[0-9;]*m', '', result.stdout + result.stderr)
         (output / (name + '.log')).write_text(text)
         red = result.returncode == 1 and 'Failed Tests' in text and 'Failed Suites' not in text
-        results.append({'control': name, 'exit': result.returncode, 'red': red})
+        results.append({'control': name, 'exit': result.returncode, 'red': red, 'candidate': baseline})
         print(json.dumps(results[-1]), flush=True)
         if not red:
             raise RuntimeError('Control did not fail its named assertion: ' + name)
