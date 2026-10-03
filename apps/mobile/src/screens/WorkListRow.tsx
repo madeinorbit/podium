@@ -524,8 +524,8 @@ export const PoolWorkRowSlot = memo(function PoolWorkRowSlot({ item, onTuck, ...
 }) {
   const read = useCallback((pool: MobxPool): PoolRowSnapshot => {
     const value = pool.mobileWork.row({ id: item.id, kind: item.kind })
-    const paint = typeof value === 'symbol' ? 'loading' : value ? mobileRowPaint(value, mobilePaintNow(pool)) : null
-    return { paint, reader: pool.mobileWork }
+    const shown = typeof value === 'symbol' ? 'loading' : value ? mobileRowPaint(value, mobilePaintNow(pool)) : null
+    return { paint: shown, reader: pool.mobileWork }
   }, [item.id, item.kind])
   const { paint, reader } = useMobilePoolProjection(read, EMPTY_POOL_ROW)
   const tuck = useCallback(() => onTuck(item.id), [item.id, onTuck])
