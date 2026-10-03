@@ -232,7 +232,7 @@ export class EntityModel {
  * accessor intercepts (a getter-only one throws), where Vite and Bun define an
  * own property over it (POD-5370).
  */
-const INSTANCE_MEMBERS: ReadonlySet<string> = new Set(
+const INSTANCE_MEMBERS: readonly string[] = Object.freeze(
   Object.keys(new EntityModel('issue', '', undefined as unknown as ModelHost)),
 )
 
@@ -253,7 +253,7 @@ function installFields(
   const editable: Readonly<Record<string, unknown>> =
     (FIELD_COVERAGE as Readonly<Record<string, Readonly<Record<string, unknown>>>>)[entity] ?? {}
   for (const field of Object.keys(spec.fields)) {
-    if (INSTANCE_MEMBERS.has(field)) {
+    if (INSTANCE_MEMBERS.includes(field)) {
       if (field === spec.key && !Object.hasOwn(editable, field)) continue
       throw new Error(`[pool] ${entity}.${field} collides with a model member; rename one`)
     }
