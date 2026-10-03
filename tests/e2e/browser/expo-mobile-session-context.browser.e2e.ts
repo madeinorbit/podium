@@ -265,7 +265,12 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
     // Synthetic receipts need strictly increasing sequences within each frame,
     // all below the real snapshot cursor. Preserve the original seed receipts
     // and authority identity; use the production row limit for added frames.
-    const width = Math.min(meta.seq, SYNC_BATCH_MAX_ROWS),
+    const requestedWidth = Number(
+      process.env.PODIUM_MOBILE_SESSION_BATCH_ROWS ?? SYNC_BATCH_MAX_ROWS,
+    )
+    if (!Number.isInteger(requestedWidth) || requestedWidth < 1)
+      throw new Error('Synthetic bootstrap batch width must be a positive integer')
+    const width = Math.min(meta.seq, SYNC_BATCH_MAX_ROWS, requestedWidth),
       extra: Frame[] = []
     for (let start = 0; start < additions.length; start += width)
       extra.push({
