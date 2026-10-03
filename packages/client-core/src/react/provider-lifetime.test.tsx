@@ -16,21 +16,25 @@ afterEach(cleanup)
 function runtime() {
   const action = vi.fn()
   const owner = { start: vi.fn(), dispose: vi.fn(), destroy: vi.fn() }
-  return Object.assign(owner, createSubscriptionStore(
-    { closeFileTab: action } as unknown as Store,
-    undefined,
+  return Object.assign(
     owner,
-  ), { action })
+    createSubscriptionStore({ closeFileTab: action } as unknown as Store, undefined, owner),
+    { action },
+  )
 }
 
 it('retires account-owned callbacks and state on principal changes while preserving same-account rebuilds', () => {
   const api = {} as PodiumClientApi
-  const config: StoreServerConfig = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
-  const mounts: string[] = [], unmounts: string[] = []
+  const config: StoreServerConfig = {
+    httpOrigin: 'http://offline.invalid',
+    wsClientUrl: 'ws://offline.invalid',
+  }
+  const mounts: string[] = [],
+    unmounts: string[] = []
   function Reader() {
     const owner = useStoreHandle()
     const principal = useCurrentPrincipal()!
-    const close = useStoreSelector(s => s.closeFileTab)
+    const close = useStoreSelector((s) => s.closeFileTab)
     const [draft, setDraft] = useState('')
     // These callbacks deliberately have mount lifetime, like UI gesture hooks.
     // They must see the current account even when their scalar inputs stay equal.
@@ -38,18 +42,45 @@ it('retires account-owned callbacks and state on principal changes while preserv
     const closeAtMount = useCallback(() => close('file-1'), [])
     useEffect(() => {
       mounts.push(principal.userId)
-      return () => { unmounts.push(principal.userId) }
+      return () => {
+        unmounts.push(principal.userId)
+      }
     }, [])
-    return <>
-      <output>{principal.userId}:{initialOwner() === owner ? 'current' : 'retired'}</output>
-      <input aria-label="draft" value={draft} onChange={event => setDraft(event.target.value)} />
-      <button type="button" onClick={closeAtMount}>Close</button>
-    </>
+    return (
+      <>
+        <output>
+          {principal.userId}:{initialOwner() === owner ? 'current' : 'retired'}
+        </output>
+        <input
+          aria-label="draft"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <button type="button" onClick={closeAtMount}>
+          Close
+        </button>
+      </>
+    )
   }
-  const frame = (principal: ClientPrincipal | null, server = config, enabled = false, client = api) => <StoreProvider
-    principal={principal} config={server} api={client} networkEnabled={enabled}
-    onFatalError={() => {}} createReplicaFn={() => { throw new Error('fixture owns runtime') }}
-  ><Reader /></StoreProvider>
+  const frame = (
+    principal: ClientPrincipal | null,
+    server = config,
+    enabled = false,
+    client = api,
+  ) => (
+    <StoreProvider
+      principal={principal}
+      config={server}
+      api={client}
+      networkEnabled={enabled}
+      onFatalError={() => {}}
+      createReplicaFn={() => {
+        throw new Error('fixture owns runtime')
+      }}
+    >
+      <Reader />
+    </StoreProvider>
+  )
   const alice = asClientPrincipal(asUserId('alice'))
   let previous = runtime()
   fixture.handle = previous
@@ -78,8 +109,11 @@ it('retires account-owned callbacks and state on principal changes while preserv
   // Reconnection or endpoint changes may rebuild a runtime for the SAME account.
   // They must preserve local UI state rather than remounting the whole app.
   fireEvent.change(view.getByLabelText('draft'), { target: { value: 'new draft' } })
-  for (const tree of [frame(alice, { ...config }), frame(alice, config, true),
-    frame(alice, config, true, {} as PodiumClientApi)]) {
+  for (const tree of [
+    frame(alice, { ...config }),
+    frame(alice, config, true),
+    frame(alice, config, true, {} as PodiumClientApi),
+  ]) {
     const replacement = runtime()
     fixture.handle = replacement
     view.rerender(tree)

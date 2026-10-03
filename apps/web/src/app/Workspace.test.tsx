@@ -605,13 +605,24 @@ describe('Workspace tab closing', () => {
   it('routes a replacement account file tab through its file-close action', () => {
     const view = render(<Workspace />)
     const nextCloseFileTab = vi.fn()
-    const file = { id: 'file-next-account', path: 'notes.txt', worktreePath: '/repo/wt',
-      issueId: task.id, scope: { kind: 'worktree', root: '/repo/wt' } }
+    const file = {
+      id: 'file-next-account',
+      path: 'notes.txt',
+      worktreePath: '/repo/wt',
+      issueId: task.id,
+      scope: { kind: 'worktree', root: '/repo/wt' },
+    }
     const layout = makeLayout()
-    state = { ...state, fileTabs: [file], closeFileTab: nextCloseFileTab,
-      workspaces: { 'mission:task-1': { ...layout,
-        panes: { p1: { ...layout.panes.p1, tabs: [file.id], activeTabId: file.id } },
-      } },
+    state = {
+      ...state,
+      fileTabs: [file],
+      closeFileTab: nextCloseFileTab,
+      workspaces: {
+        'mission:task-1': {
+          ...layout,
+          panes: { p1: { ...layout.panes.p1, tabs: [file.id], activeTabId: file.id } },
+        },
+      },
     }
 
     view.rerender(<Workspace />)
