@@ -486,7 +486,8 @@ describe('POD-5385 cyclic progress in the application sidebar replay', () => {
     }
     try {
       check('run')
-      ctx.updateSession({ ...seat, status: 'exited', agentState: { phase: 'ended' } })
+      ctx.updateSession({ ...seat, status: 'exited',
+        agentState: { phase: 'ended', since: STAMP, nativeSubagentCount: 0 } })
       check('stall')
       ctx.updateSession(seat)
       check('run')
