@@ -458,13 +458,19 @@ describe('readers behind declared cold questions', () => {
       {
         kind: 'session',
         id: 'resident',
-        value: { sessionId: 'resident', status: 'live', lastActiveAt: '2026-10-03T12:00:00Z' },
+        value: {
+          sessionId: 'resident',
+          cwd: '/resident',
+          status: 'live',
+          lastActiveAt: '2026-10-03T12:00:00Z',
+        },
       },
       {
         kind: 'session',
         id: 'history',
         value: {
           sessionId: 'history',
+          cwd: '/history',
           status: 'exited',
           stoppedAt: old,
           lastActiveAt: '2026-10-02T12:00:00Z',
@@ -481,7 +487,13 @@ describe('readers behind declared cold questions', () => {
     pool.apply({ type: 'replace', rows })
     pool.apply({
       type: 'update',
-      rows: [{ ...rows[0]!, value: { ...rows[0]!.value, lastActiveAt: old } }],
+      rows: [
+        {
+          kind: 'session',
+          id: 'resident',
+          value: { sessionId: 'resident', cwd: '/resident', status: 'live', lastActiveAt: old },
+        },
+      ],
     })
     const census = vi.spyOn(pool.residency!, 'ids')
     try {
