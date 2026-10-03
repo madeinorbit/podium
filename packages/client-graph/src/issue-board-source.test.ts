@@ -150,7 +150,7 @@ it('derives a virtual card child summary and progress through declared relations
 })
 it('orders a virtual fleet by declared member IDs after resume collapse', () => {
   const { source, pool, stop } = setup([row('root')])
-  const seat = (id: string, status: string, resume?: object) => ({
+  const seat = (id: string, status: string, resume?: { kind: string; value: string }) => ({
     sessionId: id,
     cwd: '/fixture',
     issueId: 'root',
