@@ -74,6 +74,10 @@ async function capture(page: Page, trigger: string, expected: string, perform: (
     await page.waitForFunction(() => Reflect.get(window, '__boardCapture')?.settled)
     const timings = stop ? paintOf(await stop()) : null
     const counts = await page.evaluate(() => (Reflect.get(window, '__boardHarness') as { stats(): unknown }).stats())
+    if (countsOnly) {
+      const stats = counts as { board: Record<string, number> }
+      stats.board = Object.fromEntries(Object.entries(stats.board).filter(([key]) => !key.endsWith('Ms')))
+    }
     return { ...(timings ?? {}), counts }
   } finally { await cdp.detach() }
 }
@@ -90,6 +94,8 @@ try {
     await page.goto(`${origin}/harness/issue-board.browser.html?mobxSidebar=1&mobxBoard=${arm === 'pool' ? 1 : 0}&mobxBoardCheck=${countsOnly && arm === 'pool' ? 1 : 0}`)
     await page.waitForFunction(() => Reflect.get(window, '__boardHarness')?.ready(), undefined, { timeout: 120_000 })
     const initial = await page.evaluate(() => Reflect.get(window, '__boardHarness').state())
+    const startup = await page.evaluate(() => Reflect.get(window, '__boardHarness').stats().board)
+    if (countsOnly) for (const key of Object.keys(startup)) if (key.endsWith('Ms')) delete startup[key]
     const open = await capture(page, '[data-board-open]', '[data-testid="issues-board"] [data-issue-id]', () => page.locator('[data-board-open]').click())
     const full = await rendered(page)
     const population = () => page.locator('[data-testid="issue-column"] h3 + span').evaluateAll(nodes => nodes.reduce((n, node) => n + Number(node.textContent), 0))
@@ -125,8 +131,8 @@ try {
       }
     }
     if (errors.length || final.errors.length) throw new Error(`Fixture errors: ${JSON.stringify([...errors, ...final.errors])}`)
-    runs.push({ arm, status: 'planning', fullRows, filteredRows, initial, final: final.state, open, filter })
-    console.log(JSON.stringify({ run, arm, fullRows, filteredRows, open, filter, final: final.state }))
+    runs.push({ arm, status: 'planning', fullRows, filteredRows, initial, startup, final: final.state, open, filter })
+    console.log(JSON.stringify({ run, arm, fullRows, filteredRows, startup, open, filter, final: final.state }))
     await context.close()
   }
   if (outputs.pool && JSON.stringify(outputs.pool) !== JSON.stringify(outputs.legacy)) throw new Error('Rendered board parity differs')

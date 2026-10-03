@@ -161,7 +161,10 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     if (change.type === 'add') track(change.name)
     if (change.type === 'delete') { stops.get(change.name)?.(); stops.delete(change.name) }
   })
+  const bootstrap = performance.now()
   seedIssueReferences(pool.tables, track)
+  countIssueBoard('residentIndexRows', stops.size)
+  countIssueBoard('residentIndexBootstrapMs', performance.now() - bootstrap)
   const bucket = (key: string): ReadonlySet<string> => buckets.get(key) ?? new Set<string>()
   function union(sets: readonly ReadonlySet<string>[]): Set<string> { return new Set(sets.flatMap(set => [...set])) }
   function intersection(sets: readonly ReadonlySet<string>[]): Set<string> {
