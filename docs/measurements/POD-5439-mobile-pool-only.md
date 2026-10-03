@@ -140,7 +140,32 @@ for an open and 12/12 for the two specific searches. The source guard first
 rejected numeric suffix scanning at `7aca1b4ea4` (23/99 visits for identical
 search results); the sequence-prefix correction preserved those results and
 made that counter flat. Compiler, lint and planted eager-catalog evidence for
-this checkpoint remain pending shared-host admission; this is not final acceptance.
+the original checkpoint were still pending; this was not final acceptance.
+
+The rebased source `fb41c2ea5a` passed fourteen compiler tasks and eleven
+focused picker/source-roster checks, preserving the same 29/29 row calls,
+15/15 derivations and literal searches. Another six-file phone group preserved
+68 existing checks, including the frozen action/menu, launch-form and
+navigation expectations. The existing command-launch file added seven green
+checks. No expected output was updated; the runner's snapshot whitespace
+normalization was restored to the recorded bytes.
+
+POD-4286 approved extending the existing `commandIssueSessions` question with
+`archived=false` and `includeShells=true`. The menu keeps headless and shell
+close concerns and visual resume collapse. Delete uses the already-maintained
+`graph.size(pageSessions)` scalar, including archived and raw resume-twin
+membership; it does not iterate those historical IDs or payloads. This creates
+no new resident relation subset or census cells.
+
+At `032ea94d17`, the additional 32/128 archived-sender fixture has six addressed
+neighbours at both sizes. Its menu press reads 6/6 rows, runs 0/0 derivations
+and reads zero archived payloads; raw delete counts remain 34/130. Fourteen
+compiler tasks and that one corrected focused case are green. Its first
+version failed an incorrect cold-state assertion: bound sessions inherit a
+live issue's residency under the declared schema. The corrected test measures
+payload reads and click growth directly. The existing output expectations are
+unchanged. Focused Biome found five errors awaiting correction; graph lint and
+the additional planted-fault runs are still pending. No final timing is claimed.
 
 The long-press fix also retires this issue's exact `rows` and `elements`
 exceptions in the shared structural speed guard. Other issues' exceptions
@@ -163,12 +188,18 @@ input builder reads their payloads first. The fix must retain live headless
 and shell concerns and the raw non-shell delete count. Its old exceptions
 remain removed; the gate reports this regression directly.
 
-Fourteen heartbeat-only zero-to-positive mission/inbox comparisons are tracked
-in blocking internal POD-5458 for ownership or a deterministic correction.
-No allowances were widened. POD-5425 was closed, so mail to it was refused;
-POD-4286 received the complete measured evidence and scope questions.
+POD-4286 assigned the fourteen heartbeat-only zero-to-positive mission/inbox
+comparisons to POD-5423 (review finding 9). Internal POD-5458 is closed as moved
+and its blocking edge is removed. Their exact counts and owner are attached in
+`heartbeat-ownership.json`. Automatic approval review rejected adding them as
+new exceptions without direct operator authorization. The strict manifest
+therefore remains unchanged for heartbeat; those failures stay visible. This
+report does not relabel the old red structural run as green.
 
-The current branch is rebased onto `2180eaad84`, including the already-landed
-transaction changes. This removal still has no own write-path changes. The
+The current branch is rebased onto landed POD-5437 at `e6c2313ca2`, including
+the already-landed transaction changes and optional host screen fields. The
+shared host files are untouched by this issue. POD-5081 has not landed; its
+session context/conversation files, generic hooks and final mobile switch and
+setting remain held. This removal still has no own write-path changes. The
 structural result above remains attached to its measured source; the rebased
 candidate has not yet run its final gate.
