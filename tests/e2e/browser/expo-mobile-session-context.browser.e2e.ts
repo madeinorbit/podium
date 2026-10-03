@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
+import { SYNC_BATCH_MAX_ROWS } from '@podium/protocol'
 import { RELAY } from './_harness'
 
 test.skip(
@@ -260,15 +261,16 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
         },
       })
     }
-    const width = Math.min(meta.seq, 128),
+    // A snapshot can contain many rows at one authority sequence. Retain each
+    // canonical row's sequence rather than coupling chunk width to the small
+    // harness cursor (which created thousands of artificial progress events).
+    const width = SYNC_BATCH_MAX_ROWS,
       extra: Frame[] = []
     for (let start = 0; start < additions.length; start += width)
       extra.push({
         ...chunks[0]!,
         last: false,
-        changes: additions
-          .slice(start, start + width)
-          .map((row, index) => ({ ...row, seq: index + 1 })),
+        changes: additions.slice(start, start + width),
       })
     const all = [...chunks.map((chunk) => ({ ...chunk, last: false })), ...extra]
     all.at(-1)!.last = true
@@ -288,6 +290,10 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
     delete headers['content-encoding']
     delete headers['transfer-encoding']
     installations++
+    writeFileSync(
+      resolve(artifacts, 'synthetic-bootstrap.json'),
+      `${JSON.stringify({ snapshotSeq: meta.seq, originalChunks: chunks.length, expandedChunks: all.length, rows, width })}\n`,
+    )
     await route.fulfill({
       status: reply.status(),
       body,
@@ -308,6 +314,10 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
   const observed = await observe(page),
     session = await seed(page),
     corpus = await sizedBootstrap(page, session)
+  // Verify the sized bootstrap before the capture-only lease is requested.
+  await settings(page, false)
+  await conversation(page, session.sessionId)
+  expect(observed.errors, observed.errors.join('\n')).toEqual([])
   if (process.env.PODIUM_MOBILE_SESSION_WAIT_FOR_LEASE === '1') {
     // The lane builds and boots first. The operator grants the timing lease
     // only at this boundary, so build and correctness work never hold it.
