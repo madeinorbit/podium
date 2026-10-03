@@ -38,6 +38,7 @@ const { plugin } = (
   }
 ).Bun
 
+const MAX_CHECKS_PER_POOL = 100
 let phase = 0
 async function main() {
   if (hostname() !== 'ludovico') throw new Error('Replay is restricted to ludovico')
@@ -145,14 +146,25 @@ async function main() {
     pendingOverlaysByRow: () => new Map(),
     subscribe: () => () => {},
   }
-  const handle = createRuntimeWorklistPool(
-    runtime as unknown as Parameters<typeof createRuntimeWorklistPool>[0],
-    { summaries: MOBILE_SCREEN_SUMMARIES },
-  )
-  await attachMobileScreens(
-    handle.pool,
-    runtime as unknown as Parameters<typeof attachMobileScreens>[1],
-  )
+  let poolBatches = 0
+  async function openPool() {
+    const handle = createRuntimeWorklistPool(
+      runtime as unknown as Parameters<typeof createRuntimeWorklistPool>[0],
+      { summaries: MOBILE_SCREEN_SUMMARIES },
+    )
+    try {
+      await attachMobileScreens(
+        handle.pool,
+        runtime as unknown as Parameters<typeof attachMobileScreens>[1],
+      )
+      poolBatches++
+      return handle
+    } catch (error) {
+      handle.dispose()
+      throw error
+    }
+  }
+  let handle = await openPool()
   try {
     phase = 3
     const issues = allIssueViewModels(replica, store.issueProjections, store.issueUserStates)
@@ -196,6 +208,12 @@ async function main() {
     ])
       inputs.push({ legacy, tasks: option, selectedId: roots[0] ?? null, mode: 'full' })
     for (const input of inputs) {
+      // The offline walk opens every mission. Release its diagnostic pool
+      // periodically while preserving the captured replica and mutation owner.
+      if (checks > 0 && checks % MAX_CHECKS_PER_POOL === 0) {
+        handle.dispose()
+        handle = await openPool()
+      }
       const stop = reaction(
         () => poolMobileScreensSnapshot(handle.pool, input),
         () => {},
@@ -257,13 +275,15 @@ async function main() {
         operatorWireVersion,
         checks,
         plannedChecks: inputs.length,
+        poolBatches,
+        maxChecksPerPool: MAX_CHECKS_PER_POOL,
         positions,
         differences,
         pending,
         first,
       }),
     )
-    if (differences || pending || !positions) process.exitCode = 1
+    if (differences || pending || !positions || checks !== inputs.length) process.exitCode = 1
   } finally {
     handle.dispose()
   }
