@@ -50,13 +50,18 @@ The current mobile vocabulary has no reorder buttons, following the existing
 and the pool's resulting order without adding a new mobile control.
 
 All **28 action checks** rejected planted faults before their restored result
-counted. The initial restored run passed 22; six cases needed fixture fixes
-for fold-persistence API wiring and the canonical `needs_user` phase. Only
-those six were replanted and retried, all green. The other 22 unchanged green
-cases were retained. The two restored runs observed **97 clean mobile
-side-by-side comparisons**, with zero differences or pending rows. Guards
-reject a mounted legacy slice subscription or legacy row derivation; only the
-explicit independent diagnostic oracle may evaluate the legacy arm.
+counted. The final full action file passed on `integrate/4286-pilot` base
+`becad6d447`, including its cold-index reader and runtime changes. It observed
+**91 clean mobile side-by-side comparisons**, with zero differences or pending
+rows. Guards reject a mounted legacy slice subscription or legacy row
+derivation; only the explicit independent diagnostic oracle may evaluate the
+legacy arm.
+
+The initial restored run passed 22; six cases needed fixture fixes for
+fold-persistence API wiring and the canonical `needs_user` phase. Only those
+six were replanted and retried. The later full-file runs were necessary when
+the integration reader/runtime changed; passing checks were not repeated for
+unchanged inputs.
 
 ## Planted controls
 
@@ -75,7 +80,8 @@ flatblock checkout. No assertions are weakened.
 
 ## Production phone and final gates
 
-The required uncached mobile typecheck is green. It initially found unsupported
+The required uncached mobile typecheck is green on the final integration
+runtime. It initially found unsupported
 `exact` options in Testing Library role queries and an untyped replica-call
 capture. Removing the ignored options and declaring the existing call types
 preserves the runtime assertions. Only the changed mobile project was retried;
@@ -86,15 +92,32 @@ asserts the pending pool title and mutation ID, refuses the request, checks the
 restored title, then opens the mission. Its restored capture interleaves
 off/on/off/on hard launches and records actual Chromium Paint, collected heap
 and startup-to-row readiness. This is synthetic interaction evidence, not a
-large-corpus performance acceptance claim.
+large-corpus performance acceptance claim. The restored four-arm capture is
+queued behind the shared timing lease.
 
-**Production phone proof and final lint/lean gates are pending.** The first
-browser fault control stopped at the long-press driver before reaching the
-planted wrong title, and does not count. The driver now scrolls the virtualized
-row into view and sends a real Chromium touch hold. Before the corrected run
-could start, SSH to flatblock became unreachable and ludovico's Tailscale
-reported `Logged out`. The required connection must be restored or an existing
-alternate SSH route supplied. No integration landing has happened.
+The corrected production phone fault control is valid: changing the menu's
+submitted title to `Planted wrong mobile title` fails the requested optimistic
+title assertion, and the failure context shows that wrong title in the row
+with one queued mutation. The source was restored with `cp`. Earlier driver
+attempts stopped before that assertion and are excluded. The driver scrolls
+the virtualized row into view, holds real Chromium touch input, cancels the
+original row gesture when the modal owns input, and taps the native sheet
+controls.
+
+The final lean gate is green: **154 checks in four of 1,783 collected node
+files (0.2%)**. Its workspace typecheck reports 28/28 successful tasks, with
+24 cache hits; span-effect lint reports 162 bodies, zero unclassified effects
+and eight opaque bodies. The first lean run correctly rejected two uncovered
+imports from the new mobile test. `turbo.json` now declares the shared action
+fixture and mobile oracle in both mobile typecheck and test keys; the restored
+gate verifies coverage.
+
+The three added source files pass scoped Biome lint with no errors (34
+warnings and one informational diagnostic). Root shadowing passes across
+5,899 files. Full WorkScreen lint still reports its unchanged search-cache
+memo dependencies, already present on the integration baseline. That separate
+follow-up is **Proposed POD-5411**; the menu change does not remove the
+intentional cache resets or hide the baseline error.
 
 All fixtures are synthetic. The operator's live data remains on ludovico;
 no screenshot, export or dump of it is used. Tests, typecheck and lint run
