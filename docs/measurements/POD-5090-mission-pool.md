@@ -28,7 +28,7 @@ The store-owner census records legacy reader calls and detects legacy mission-in
 | Existing FlightDeck, Workspace and folded-bar focused tests | 190 green |
 | Declared schema and shared edge collections with the mission reader | 73 green |
 | Existing MobX/hand relation semantics and the reader audit, focused selection | 27 green |
-| Scoped cached web/client-graph/worklist-proto typecheck | 17 successful tasks; 14 cached on the final startup-switch base |
+| Scoped web/client-graph/worklist-proto typecheck | 17 successful tasks; final fixture follow-up also green |
 | Focused MobX and memory-cutoff fence lint | Green |
 | Focused Biome comparison with integration baseline | 7 inherited errors on both sides; zero new errors |
 
@@ -61,8 +61,10 @@ Timing remains a required follow-up after the switch-off code landing, per POD-4
 
 The timing regression control delays only pool mission clicks, records the delay, and must turn the paired gate red before the undelayed comparison is accepted.
 
+The first timing control was invalid: its legacy arm completed, but the pool arm stopped before fixture readiness with React error 311. An isolated production startup probe traced this to the fixture freezing screen choices only in `attachRuntime`, after Workspace had first chosen its hooks. The ordinary app already initializes screens before descendants in AppShell. The fixture now does the same in its root, before rendering children. With the correction, the full 4× pool fixture becomes ready and a trusted click on the fixed mission target opens the FlightDeck scroller, with zero page errors and no pending settling work. The CommandPalette fix independently landed by POD-5308 did not remove the original error; this was a separate fixture startup contract violation. No timing number from the aborted control is accepted as a paired result.
+
 ## Follow-up and landing
 
 POD-5299 is covered by the landed shared relation engine; this reader reuses it. Old numerical relation guard expectations remain tracked by POD-5303. The seven inherited UI lint findings are separately proposed in POD-5313; no unrelated styling or reset semantics changed here.
 
-POD-4286 explicitly authorized fast-forward landing now while the startup switch remains off by default, so the issue-page lane can rebase. The paired mission timing and planted delay control remain required follow-up work; this issue stays active until they are reported. Keep the pane rollback switch until the operator enables the screen by default, then remove the legacy screen path within about a week under the coordinator's rollout plan.
+POD-4286 explicitly authorized fast-forward landing while the startup switch remains off by default, so the issue-page lane could rebase; the main migration landed at `f27a9d4d23`. The paired mission timing and planted delay control remain required follow-up work; this issue stays active until they are reported. Keep the pane rollback switch until the operator enables the screen by default, then remove the legacy screen path within about a week under the coordinator's rollout plan.
