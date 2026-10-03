@@ -260,7 +260,11 @@ export async function liveConnectionProof() {
                 .rows.includes('Relayed from the first tab'),
             undefined,
             { timeout: 15_000 },
-          )
+          ).catch(async (error) => {
+            throw new Error(
+              `${app} relay: ${error.message}; states=${JSON.stringify(await Promise.all([snapshot(first), snapshot(second)]))}; errors=${errors.join('; ')}`,
+            )
+          })
         const before = await Promise.all([snapshot(first), snapshot(second)])
         step('row relayed to both tabs')
         const port = authority.port

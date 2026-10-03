@@ -62,6 +62,7 @@ const assembly =
         databaseName,
         principal,
         evidence: { kind: 'single-account', principal: 'default' },
+        onDegraded: (detail) => console.error('web fixture degradation', detail),
       })
     : await openMobileReplica({
         api,
@@ -69,7 +70,7 @@ const assembly =
         clientPrincipal: 'alice',
         storage: localStorage,
         enumerateKeys: () => Object.keys(localStorage),
-        onDegraded: () => {},
+        onDegraded: (detail) => console.error('mobile fixture degradation', detail),
         evidence: { kind: 'single-account', principal: 'default' },
         openStore: () =>
           IndexedDbSyncStore.open({
@@ -134,7 +135,7 @@ hub.connect()
 render()
 Object.assign(window, {
   connectionProof: {
-    state: () => ({ ...state }),
+    state: () => ({ ...state, hello: assembly.feed.helloFields() }),
     stop: async () => {
       stopRows()
       stopConnection()
