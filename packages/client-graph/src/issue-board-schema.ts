@@ -10,6 +10,7 @@ import type { IssueId, IssueStage } from '@podium/model/browser'
 import type { BoardProjection } from './issue-board-projection'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import type { MissionActionInputs } from './mission-view'
+import { mergePoolSummaries } from './source-registry'
 
 export type BoardExplorerTab =
   | 'needs'
@@ -175,9 +176,8 @@ export const ISSUE_BOARD_SOURCE_SCHEMA = {
 /** Core already declares repo, treeParent/treeChildren, pageDependencies,
  * pageDependents and pageSessions. This screen uses those exact relations.
  * Cold cards/filtering need these projection fields, never a document panel. */
-export const ISSUE_BOARD_SUMMARIES = {
+export const ISSUE_BOARD_SUMMARIES = mergePoolSummaries(ISSUE_PAGE_SUMMARIES, {
   issue: [
-    ...ISSUE_PAGE_SUMMARIES.issue,
     'priority',
     'createdAt',
     'type',
@@ -192,7 +192,6 @@ export const ISSUE_BOARD_SUMMARIES = {
     'defaultAgent',
   ],
   session: [
-    ...ISSUE_PAGE_SUMMARIES.session,
     'refIssueId',
     'createdAt',
     'agentColor',
@@ -206,4 +205,4 @@ export const ISSUE_BOARD_SUMMARIES = {
     'resumable',
     'harnessHandoff',
   ],
-} as const
+}) as { readonly issue: readonly string[]; readonly session: readonly string[] }
