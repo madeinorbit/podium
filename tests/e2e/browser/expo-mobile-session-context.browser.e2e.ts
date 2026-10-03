@@ -52,9 +52,16 @@ async function seed(page: Page) {
 }
 async function observe(page: Page) {
   const errors: string[] = []
+  let resource401 = 0
+  page.on('response', (response) => {
+    if (response.status() === 401) resource401++
+  })
   page.on('pageerror', (error) => errors.push(error.message))
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text())
+    // The isolated harness refuses some unauthenticated resources during
+    // startup. Count those separately; retain every application/fatal error.
+    if (message.type() === 'error' && !/^Failed to load resource:.*status of 401/.test(message.text()))
+      errors.push(message.text())
   })
   await page.addInitScript(() => {
     // Existing opt-in counter; no production owner or subscriber is installed.
@@ -67,7 +74,7 @@ async function observe(page: Page) {
       }
     }, 0)
   })
-  return errors
+  return { errors, resource401: () => resource401 }
 }
 async function settings(page: Page, on: boolean) {
   await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
@@ -112,7 +119,7 @@ async function counts(page: Page) {
 test('seeded production phone keeps session identity, draft and terminal attachment through the pool-on restart', async ({
   page,
 }) => {
-  const errors = await observe(page),
+  const observed = await observe(page),
     session = await seed(page)
   await settings(page, false)
   const legacy = await conversation(page, session.sessionId)
@@ -164,11 +171,11 @@ test('seeded production phone keeps session identity, draft and terminal attachm
   expect(terminal?.cols).toBeGreaterThan(0)
   expect(terminal?.rows).toBeGreaterThan(0)
   expect(await counts(page)).toMatchObject({ context: 0, ports: 0 })
-  expect(errors).toEqual([])
+  expect(observed.errors).toEqual([])
   await page.screenshot({ path: resolve(artifacts, 'terminal-pool.png') })
   writeFileSync(
     resolve(artifacts, 'production-proof.json'),
-    `${JSON.stringify({ before, after, terminal: { cols: terminal?.cols, rows: terminal?.rows }, errors: errors.length }, null, 2)}\n`,
+    `${JSON.stringify({ before, after, terminal: { cols: terminal?.cols, rows: terminal?.rows }, errors: observed.errors.length, resource401: observed.resource401() }, null, 2)}\n`,
   )
 })
 
@@ -295,7 +302,7 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
     'Run only while holding bench:flatblock, with PODIUM_MOBILE_SESSION_MEASURE=1',
   )
   test.setTimeout(360_000)
-  const errors = await observe(page),
+  const observed = await observe(page),
     session = await seed(page),
     corpus = await sizedBootstrap(page, session)
   if (process.env.PODIUM_MOBILE_SESSION_WAIT_FOR_LEASE === '1') {
@@ -376,9 +383,9 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
     arms.push({ pool: on, replicaCache, navigationMs, draftMs, counts: reads })
   }
   expect(corpus.installations()).toBeGreaterThan(0)
-  expect(errors).toEqual([])
+  expect(observed.errors).toEqual([])
   writeFileSync(
     resolve(artifacts, 'browser-measurement.json'),
-    `${JSON.stringify({ corpus: corpus.size, bootstrapInstallations: corpus.installations(), browser: 'chromium-pixel', httpCache: 'Disabled by bootstrap interception in every arm', method: 'Document navigation start to settled conversation, and input event to two animation frames; cold replica legacy/pool, then warm replica legacy/pool. Cold arms clear IndexedDB, warm arms retain it. Not the web speed gate.', arms, errors: errors.length }, null, 2)}\n`,
+    `${JSON.stringify({ corpus: corpus.size, bootstrapInstallations: corpus.installations(), browser: 'chromium-pixel', httpCache: 'Disabled by bootstrap interception in every arm', method: 'Document navigation start to settled conversation, and input event to two animation frames; cold replica legacy/pool, then warm replica legacy/pool. Cold arms clear IndexedDB, warm arms retain it. Not the web speed gate.', arms, errors: observed.errors.length, resource401: observed.resource401() }, null, 2)}\n`,
   )
 })
