@@ -30,7 +30,7 @@ import {
 import { IssuesKanban } from './IssuesKanban'
 import { type BoardFilter, clearChip } from './issue-board-filter'
 import { contextMenuTargets } from './issue-context-menu'
-import { IssueBulkCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
+import { IssueBulkCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 import {
   DISPLAY_KEY,
   type IssuesDisplay,
@@ -40,6 +40,7 @@ import {
 import { type IssuesKeyAction, type IssuesKeyState, issuesKeyReduce } from './issues-keys'
 import { type IssuesDisplayPatch } from './issues-view-model'
 import { useBoardBase, useBoardData } from './board-pool-data'
+import { useBoardCloseGuard } from './board-pool-row'
 import { NewIssueDialog } from './NewIssueDialog'
 
 const ResponsiveIssueList = memo(IssueListView)
@@ -133,9 +134,9 @@ export function IssuesView(): JSX.Element {
   )
 
   const options = useMemo(() => ({ display, filter: deferredFilter, expanded: [...expanded], isMobile,
-    openIssueId, now, menu: ctxMenu !== null }), [display, deferredFilter, expanded, isMobile, openIssueId, now, ctxMenu])
+    openIssueId, now, menu: ctxMenu !== null, addressed: [...keyState.selected, ...(ctxMenu?.ids ?? []), ...(bulkClose?.ids ?? []), ...(propMenu ? [propMenu.id] : [])] }), [display, deferredFilter, expanded, isMobile, openIssueId, now, ctxMenu, keyState.selected, bulkClose, propMenu])
   const { issues, sessions, projectPaths: availableProjectPaths, view, menuInputs } = useBoardData(options, base)
-  const needsCloseGuard = useIssueCloseGuard(base.pool ? sessions : undefined)
+  const needsCloseGuard = useBoardCloseGuard(sessions)
 
   const runMut = useCallback((promise: Promise<unknown>): void => {
     setError('')
@@ -444,6 +445,7 @@ export function IssuesView(): JSX.Element {
           now={now}
           badges={display.badges}
           ordering={display.ordering}
+          showAgentTasks={display.showAgentTasks}
           stageCounts={view.stageCounts}
           epicProgress={view.epicProgress}
           onOpen={setOpenIssueId}

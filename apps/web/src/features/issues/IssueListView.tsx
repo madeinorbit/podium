@@ -14,6 +14,7 @@ import { issueColorHex } from '@/lib/issueColors'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { IssueStatusPicker } from './IssueStatusPicker'
+import { BoardPoolRow } from './board-pool-row'
 import { cardAge, issueCardModel, issueIdTitle, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { type IssueRow, isEpic } from './issue-hierarchy'
@@ -174,9 +175,6 @@ function VirtualStageRows({
     >
       {virtual.items.map((item) => {
         const { issue, depth, childCount, expanded } = rows[item.index] as IssueRow
-        const m = issueCardModel(issue)
-        const epic = isEpic(issue)
-        const hex = issueColorHex(issue.color)
         const isSelected = selected.includes(issue.id)
         return (
           <li
@@ -187,6 +185,11 @@ function VirtualStageRows({
             aria-posinset={item.index + 1}
             aria-setsize={rows.length}
           >
+            <BoardPoolRow issue={issue}>{issue => {
+              const m = issueCardModel(issue)
+              const epic = isEpic(issue)
+              const hex = issueColorHex(issue.color)
+              return (
             <button
               data-pressable
               type="button"
@@ -301,6 +304,8 @@ function VirtualStageRows({
               </span>
               <AssigneeAvatar assignee={m.assignee} />
             </button>
+              )
+            }}</BoardPoolRow>
           </li>
         )
       })}

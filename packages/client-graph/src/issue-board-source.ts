@@ -4,11 +4,11 @@ import { countIssueBoard } from '@podium/client-core/perf'
 import { confirmedWorkingAgentCount, filterBoardIssues, filterChips, groupIssuesByStage,
   issueIsActionable, issueRowsByStage, flattenRowGroups, partitionIssueTree } from '@podium/client-core/viewmodels'
 import { asIssueId, asSessionId, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
-import { _isComputingDerivation, computed, observable, observe, onBecomeUnobserved, reaction,
+import { _isComputingDerivation, compareStructural, computed, observable, observe, onBecomeUnobserved, reaction,
   runInAction, type IComputedValue } from 'mobx'
 import { seedIssueReferences } from './enumerate'
 import { BOARD_EXPLORER_TABS, ISSUE_BOARD_SUMMARIES, type BoardCatalog, type BoardExplorerTab,
-  type BoardOptions, type BoardQuery, type IssueBoardSourceRows, type PoolBoardData, type PoolExplorerData } from './issue-board-schema'
+  type BoardOptions, type BoardQuery, type BoardCardData, type IssueBoardSourceRows, type PoolBoardData, type PoolExplorerData } from './issue-board-schema'
 import type { MobxPool } from './pool'
 import type { PoolSource } from './source-registry'
 import { createBoardProjection, type BoardProjection } from './issue-board-projection'
@@ -53,7 +53,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     if (!_isComputingDerivation()) return read()
     let value = cache.get(key)
     if (!value) {
-      value = computed(read, { name: `IssueBoard@${key}` })
+      value = computed(read, { name: `IssueBoard@${key}`, ...(key.startsWith('placement:') ? { equals: compareStructural } : {}) })
       cache.set(key, value)
       onBecomeUnobserved(value, () => cache.delete(key))
     }
@@ -328,19 +328,56 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       return total ? { total, done, liveAgents } : null
     })
   }
+  /** Positions need eight scalar fields. Rich cards belong to the virtual
+   * window; addressed actions/details obtain the same canonical row model. */
+  function placement(id: string): Loaded<IssueViewModel> {
+    return memo(`placement:${id}`, () => {
+      const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
+      if (!row || row === LOADING) return row
+      return { id: asIssueId(id), seq: row.seq, stage: row.stage, priority: row.priority,
+        parentId: pool.graph.one('issue', id, 'treeParent') ?? row.parentId,
+        createdAt: row.createdAt, updatedAt: row.updatedAt, title: row.title,
+        memberSessionIds: [] } as unknown as IssueViewModel
+    })
+  }
+  function card(options: { id: string; now: number; agents?: boolean }): Loaded<BoardCardData> {
+    return memo(`card:${JSON.stringify(options)}`, () => {
+      const row = issue(options.id), roster = sessions(options.id)
+      if (!row || row === LOADING || roster === LOADING) return row === undefined ? undefined : LOADING
+      const byId = new Map<string, IssueViewModel>([[row.id, row]])
+      for (const other of pool.graph.many('issue', row.id, 'pageDependencies')) {
+        const value = facts(other)
+        if (value === LOADING) return LOADING
+        if (value) byId.set(other, value)
+      }
+      const counts = new Map<IssueViewModel['stage'], number>()
+      if (!row.archived && !row.deletedAt && scoped(row, options.agents ?? false, true)) {
+        for (const childId of pool.graph.many('issue', row.id, 'treeChildren')) {
+          const child = facts(childId)
+          if (child === LOADING) return LOADING
+          if (child && child.id !== row.id && !child.archived && !child.deletedAt && scoped(child, options.agents ?? false, true)) counts.set(child.stage, (counts.get(child.stage) ?? 0) + 1)
+        }
+      }
+      const rollup = progress(row.id, options.now)
+      if (rollup === LOADING) return LOADING
+      const members = new Set(row.memberSessionIds)
+      return { issue: row, sessions: roster ?? [], fleet: (roster ?? []).filter(seat => members.has(seat.sessionId)), byId,
+        stageCounts: ISSUE_STAGES.map(stage => ({ stage, count: counts.get(stage) ?? 0 })).filter(value => value.count), progress: rollup }
+    })
+  }
   function board(options: BoardOptions): Loaded<PoolBoardData> {
     return memo(`board:${JSON.stringify(options)}`, () => {
       const found = queryIds({ kind: 'board', filter: options.filter, showAgentTasks: options.display.showAgentTasks })
       const choices = catalog(options.display.showAgentTasks)
       if (!found || found === LOADING || !choices || choices === LOADING) return LOADING
       const active: IssueViewModel[] = []
-      for (const id of found.ids) { const row = facts(id); if (row === LOADING) return LOADING; if (row) active.push(row) }
+      for (const id of found.ids) { const row = options.windowed ? placement(id) : facts(id); if (row === LOADING) return LOADING; if (row) active.push(row) }
       const roots = partitionIssueTree(active).roots
       const layout = options.isMobile ? 'list' : options.display.layout
       const expanded = new Set(options.expanded)
       const needsRows = layout === 'list' || options.openIssueId !== null
       const groups = needsRows ? issueRowsByStage(active, options.display.ordering, { flatten: false, expanded }) : []
-      const shown = new Set([...roots.map(row => row.id), ...groups.flatMap(group => group.rows.map(row => row.issue.id))])
+      const shown = new Set(options.windowed ? options.addressed ?? [] : [...roots.map(row => row.id), ...groups.flatMap(group => group.rows.map(row => row.issue.id))])
       if (options.openIssueId) shown.add(options.openIssueId)
       const models = new Map<string, IssueViewModel>(), seats = new Map<string, SessionView>()
       for (const id of shown) {
@@ -349,8 +386,8 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
         if (row) models.set(id, row)
         for (const seat of roster ?? []) seats.set(seat.sessionId, seat)
       }
-      const boardIssues = roots.map(row => models.get(row.id)!)
-      const rowGroups = groups.map(group => ({ ...group, rows: group.rows.map(row => ({ ...row, issue: models.get(row.issue.id)! })) }))
+      const boardIssues = roots.map(row => models.get(row.id) ?? row)
+      const rowGroups = groups.map(group => ({ ...group, rows: group.rows.map(row => ({ ...row, issue: models.get(row.issue.id) ?? row.issue })) }))
       const listIds = flattenRowGroups(rowGroups)
       const orderedByStage = groupIssuesByStage(boardIssues, options.display.ordering)
       const nav: PoolBoardData['view']['nav'] = layout === 'list' ? { kind: 'rows', ids: listIds } : { kind: 'columns', columns: orderedByStage.map(column => column.issues.map(row => row.id)) }
@@ -358,7 +395,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       const stageCounts = new Map<string, { stage: IssueViewModel['stage']; count: number }[]>(), epicProgress: PoolBoardData['view']['epicProgress'] = new Map()
       const scopeIds = new Set(choices.scope)
       const rootIds = new Set(boardIssues.map(row => row.id))
-      for (const root of models.values()) {
+      for (const root of options.windowed ? [] : models.values()) {
         if (scopeIds.has(root.id) && root.childIds.length) {
           const counts = new Map<string, number>()
           for (const childId of pool.graph.many('issue', root.id, 'treeChildren')) if (childId !== root.id && scopeIds.has(childId)) {
@@ -385,10 +422,10 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       }
       const flatIds = opened ? flattenRowGroups(issueRowsByStage(active, options.display.ordering, { flatten: true, expanded })) : []
       const scope: IssueViewModel[] = []
-      if (options.menu) for (const id of choices.scope) { const row = issue(id); if (row === LOADING) return LOADING; if (row) scope.push(row) }
+      if (options.menu) for (const id of choices.scope) { const row = facts(id); if (row === LOADING) return LOADING; if (row) scope.push(row) }
       const menuInputs = options.menu ? { issues: [...models.values()], allIssues: scope, sessions: [...seats.values()],
         repos: pool.headerViews.ids('repository').flatMap(id => { const row = pool.headerViews.row('repository', id); return row ? [row] : [] }), machines: pool.headerViews.machines() } : undefined
-      return { issues: [...models.values()], sessions: [...seats.values()], projectPaths: choices.projectPaths, menuInputs,
+      return { issues: options.windowed ? active.map(row => models.get(row.id) ?? row) : [...models.values()], sessions: [...seats.values()], projectPaths: choices.projectPaths, menuInputs,
         view: { nonArchived: [], scope, active: active.map(row => models.get(row.id) ?? row), assignees: choices.assignees, labels: choices.labels,
           chips: filterChips(options.filter), layout, boardIssues, stageCounts, epicProgress, orderedByStage, rowGroups,
           listIds, nav, presentIds, ...(opened ? { open: opened } : {}), orderedIdsForOpen: opened ? listIds.includes(opened.id) ? listIds : flatIds : [] } }
@@ -398,17 +435,21 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     return memo('explorerCounts', () => {
       const counts = Object.fromEntries(BOARD_EXPLORER_TABS.map(tab => [tab, 0])) as Record<BoardExplorerTab, number>
       for (const id of [...bucket('scope'), ...(pool.residency?.ids('issue', true) ?? [])]) {
-        const row = facts(id)
+        const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
         if (row === LOADING) return LOADING
-        if (!row || row.archived || row.deletedAt || !scoped(row, false)) continue
+        if (!row || row.archived || row.deletedAt || !scoped(row, false, false, id)) continue
         const tab = tabOf(row)
         if (tab) counts[tab]++
-        if (actionable(row)) counts.needs++
+        if (row.stage !== 'done' && !row.closedReason) {
+          const attention = facts(id)
+          if (attention === LOADING) return LOADING
+          if (attention && actionable(attention)) counts.needs++
+        }
       }
       return counts
     })
   }
-  function explorer(options: { tab: BoardExplorerTab | null; query: string }): Loaded<PoolExplorerData> {
+  function explorer(options: { tab: BoardExplorerTab | null; query: string; windowed?: boolean }): Loaded<PoolExplorerData> {
     return memo(`explorer:${JSON.stringify(options)}`, () => {
       const counts = explorerCounts()
       if (!counts || counts === LOADING) return LOADING
@@ -417,13 +458,13 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       if (!found || found === LOADING) return LOADING
       const rows: IssueViewModel[] = [], byId = new Map<string, IssueViewModel>(), rowSessions = new Map<string, SessionView[]>(), allSeats = new Map<string, SessionView>()
       for (const id of found.ids) {
-        const row = issue(id)
+        const row = options.windowed ? placement(id) : issue(id)
         if (row === LOADING) return LOADING
         if (row) { rows.push(row); byId.set(id, row) }
       }
       rows.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
-      const neighbours = new Set<string>(found.ids)
-      for (const id of found.ids) {
+      const neighbours = new Set<string>(options.windowed ? [] : found.ids)
+      for (const id of options.windowed ? [] : found.ids) {
         const parent = pool.graph.one('issue', id, 'treeParent')
         if (parent) neighbours.add(parent)
         for (const relation of ['pageDependencies', 'pageDependents', 'spinOffs'] as const) for (const other of pool.graph.many('issue', id, relation)) neighbours.add(other)
@@ -447,6 +488,8 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
         case 'issueBoardModel': return board(JSON.parse(id))
         case 'issueExplorerModel': return explorer(JSON.parse(id))
         case 'issueBoardRow': return issue(id)
+        case 'issueBoardCard': return card(JSON.parse(id))
+        case 'issueBoardSessions': return sessions(id)
         case 'issueBoardProjection': {
           let view = projections.get(id)
           if (!view) {
@@ -468,6 +511,6 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
       stops.clear(); cache.clear(); runInAction(() => buckets.clear())
     },
   }
-  return { ...source, board, explorer, issue, queryIds, catalog,
+  return { ...source, board, explorer, issue, card, sessions, queryIds, catalog,
     stats: () => ({ residentRows: stops.size, demandKeys: [...cache.keys()].filter(key => key.startsWith('query:')).length, cached: cache.size }) }
 }

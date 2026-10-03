@@ -43,6 +43,30 @@ it('uses declared cold summaries without promoting cards or hydrating the world'
     expect(load).not.toHaveBeenCalled()
   } finally { stop() }
 })
+it('keeps rich card derivations inside the virtual window and addresses selection separately', () => {
+  const { source, pool, load, stop } = setup()
+  const options = { display: { layout: 'board', ordering: 'priority', showAgentTasks: false }, filter: { archived: true }, expanded: [], isMobile: false, openIssueId: null, now, windowed: true } as const
+  issueBoardStats.enable(); issueBoardStats.reset()
+  try {
+    const board = source.board(options)
+    expect(board && board !== LOADING && board.view.boardIssues.map(row => row.id)).toEqual(['cold', 'hot'])
+    expect(issueBoardStats.read().rowModels ?? 0).toBe(0)
+    expect(source.card({ id: 'cold', now })).toMatchObject({ issue: { id: 'cold', childCount: 0 }, sessions: [], progress: null })
+    expect(issueBoardStats.read().rowModels).toBe(1)
+    expect(source.board({ ...options, addressed: ['hot'] })).toMatchObject({ issues: expect.arrayContaining([expect.objectContaining({ id: 'hot', childCount: 0 })]) })
+    expect(pool.hydrate()).toBe(0)
+    expect(load).not.toHaveBeenCalled()
+  } finally { issueBoardStats.disable(); stop() }
+})
+it('derives a virtual card child summary and progress through declared relations', () => {
+  const { source, stop } = setup([row('root'), row('planning', { parentId: 'root', stage: 'planning' }), row('done', { parentId: 'root', stage: 'done' }), row('hidden', { parentId: 'root', deletedAt: '2026-01-01T00:00:00Z' })])
+  try {
+    expect(source.card({ id: 'root', now })).toMatchObject({
+      issue: { childCount: 3 }, stageCounts: [{ stage: 'planning', count: 1 }, { stage: 'done', count: 1 }],
+      progress: { total: 2, done: 1, liveAgents: 0 },
+    })
+  } finally { stop() }
+})
 it('answers a missing summary with LOADING and one batched load', () => {
   const { source, pool, load, stop } = setup()
   try {

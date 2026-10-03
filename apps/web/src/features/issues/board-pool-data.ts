@@ -48,7 +48,7 @@ function usePoolData(options: BoardOptions): PoolBoardData {
   const agents = String(options.display.showAgentTasks)
   const readCatalog = useCallback((pool: MobxPool) => pool.row('issueBoardCatalog', agents), [agents])
   useWorklistPoolProjection(readCatalog, undefined)
-  const key = JSON.stringify(options)
+  const key = JSON.stringify({ ...options, windowed: true, now: 0 })
   const value = useBoardPoolProjection<PoolBoardData | symbol>('issueBoardModel', key)
   return value && typeof value !== 'symbol' ? value : EMPTY_BOARD
 }

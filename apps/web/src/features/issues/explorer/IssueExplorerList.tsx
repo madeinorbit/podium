@@ -18,6 +18,7 @@ import { useIssueExplorer } from './explorer-context'
 import { EXPLORER_TABS } from './explorer-list'
 import { useExplorerData } from './explorer-pool-data'
 import { boardDataLayer } from '../board-data-layer'
+import { useBoardCard, useBoardSessionReader } from '../board-pool-row'
 
 /**
  * Level 0 — every task in the repo, searchable, bucketed by stage.
@@ -40,7 +41,8 @@ export function IssueExplorerList(): JSX.Element {
   const { sessions, counts, tab, total, rows, byId, rowSessions } = useExplorerData(pickedTab, query)
   // One apply and one close guard for every row's status glyph (POD-1271) —
   // held here rather than per row, which the virtualizer would unmount.
-  const rowStatus = useIssueStatusApply(boardDataLayer() === 'pool' ? sessions : undefined)
+  const sessionReader = useBoardSessionReader()
+  const rowStatus = useIssueStatusApply(boardDataLayer() === 'pool' ? sessions : undefined, sessionReader)
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
@@ -212,7 +214,7 @@ export function IssueExplorerList(): JSX.Element {
                     issue={issue}
                     state={operationalState(issue, rowSessions.get(issue.id) ?? [], byId)}
                     onOpen={() => push(issue.id)}
-                    onStatusPick={(value) => rowStatus.pick(issue, value)}
+                    onStatusPick={(value, resolved = issue) => rowStatus.pick(resolved, value)}
                   />
                 </li>
               )
@@ -300,8 +302,8 @@ function EmptyList({
  *  ref, title, and the one state word on the right. The state is resolved by
  *  the list, in one pass over every row. */
 function ExplorerRow({
-  issue,
-  state,
+  issue: suppliedIssue,
+  state: suppliedState,
   onOpen,
   onStatusPick,
 }: {
@@ -309,8 +311,12 @@ function ExplorerRow({
   state: { state: string; label: string }
   onOpen: () => void
   /** The row's status glyph is its picker (POD-1271); the list applies the pick. */
-  onStatusPick: (value: string) => void
+  onStatusPick: (value: string, issue?: IssueViewModel) => void
 }): JSX.Element {
+  const data = useBoardCard(suppliedIssue.id, 0)
+  if (typeof data === 'symbol') return <div role="status">Loading task…</div>
+  const issue = data?.issue ?? suppliedIssue
+  const state = data ? operationalState(issue, data.sessions, data.byId) : suppliedState
   const closed = issue.stage === 'done' || Boolean(issue.closedReason)
   // An errored task is a needs-you with a cause (POD-1601): the row's own
   // `data-needs-you` tint is what makes it findable in a long list, and an
@@ -330,7 +336,7 @@ function ExplorerRow({
         'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-2.5 py-1 text-left hover:bg-accent/40',
       )}
     >
-      <IssueStatusPicker issue={issue} size={13} onPick={onStatusPick} />
+      <IssueStatusPicker issue={issue} size={13} onPick={value => onStatusPick(value, issue)} />
       <span className="min-w-0 truncate">
         <span
           className="mr-1.5 font-mono shell-type-micro text-muted-foreground"

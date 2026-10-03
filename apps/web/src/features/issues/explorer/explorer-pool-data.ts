@@ -35,7 +35,7 @@ function useLegacyExplorer(pickedTab: ExplorerTab | null, query: string): PoolEx
   return { counts, tab, total: EXPLORER_TABS.reduce((n, entry) => n + (entry.id === 'needs' ? 0 : counts[entry.id]), 0), rows, sessions, byId, rowSessions }
 }
 function usePoolExplorer(tab: ExplorerTab | null, query: string): PoolExplorerData {
-  const key = JSON.stringify({ tab, query })
+  const key = JSON.stringify({ tab, query, windowed: true })
   const value = useBoardPoolProjection<PoolExplorerData | symbol>('issueExplorerModel', key)
   return value && typeof value !== 'symbol' ? value : EMPTY
 }

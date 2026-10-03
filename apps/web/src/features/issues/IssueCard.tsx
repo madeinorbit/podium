@@ -35,6 +35,7 @@ import type { IssueId, IssueStage} from '@podium/model/browser'
 import { Flag, ShieldAlert } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { memo } from 'react'
+import { useBoardCard } from './board-pool-row'
 import type { IssueViewModel } from '@/app/store'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { UnreadDot } from '@/components/UnreadMark'
@@ -185,11 +186,13 @@ function labelDotColor(label: string): string {
 }
 
 function IssueCardLeaf({
-  issue,
-  sessions,
+  issue: suppliedIssue,
+  sessions: suppliedSessions,
   badges,
-  stageCounts,
-  progress,
+  stageCounts: suppliedCounts,
+  progress: suppliedProgress,
+  showAgentTasks = false,
+  poolRollups = true,
   focused,
   selected,
   dragging,
@@ -206,6 +209,8 @@ function IssueCardLeaf({
   badges: IssuesDisplay['badges']
   stageCounts?: { stage: IssueStage; count: number }[]
   progress?: EpicProgress | null
+  showAgentTasks?: boolean
+  poolRollups?: boolean
   focused: boolean
   selected: boolean
   /** This card is the one being dragged — it stays in place as a ghost. */
@@ -218,6 +223,12 @@ function IssueCardLeaf({
   onContextMenu: (id: IssueId, event: ReactMouseEvent) => void
   onDragStart: (event: ReactPointerEvent, issue: IssueViewModel) => void
 }): JSX.Element {
+  const data = useBoardCard(suppliedIssue.id, now, showAgentTasks)
+  if (typeof data === 'symbol') return <div role="status">Loading task…</div>
+  const issue = data?.issue ?? suppliedIssue
+  const sessions = data?.fleet ?? suppliedSessions
+  const stageCounts = poolRollups ? data?.stageCounts ?? suppliedCounts : suppliedCounts
+  const progress = poolRollups ? data?.progress ?? suppliedProgress : suppliedProgress
   const slots = issueCardStateSlots(issue, {
     badges,
     stageCounts,

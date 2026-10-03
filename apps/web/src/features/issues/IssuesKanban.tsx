@@ -56,6 +56,7 @@ export interface IssuesKanbanProps {
   now: number
   badges: IssuesDisplay['badges']
   ordering: IssuesOrdering
+  showAgentTasks?: boolean
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
   epicProgress: Map<string, EpicProgress | null>
   onOpen: (id: IssueId) => void
@@ -318,6 +319,7 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
           stage={stage}
           issues={issues}
           badges={props.badges}
+          showAgentTasks={props.showAgentTasks ?? false}
           stageCounts={props.stageCounts}
           epicProgress={props.epicProgress}
           sessionsByIssueId={sessionsByIssueId}
@@ -388,6 +390,7 @@ function DragProxy({
     >
       <IssueCard
         issue={drag.issue}
+        poolRollups={false}
         sessions={sessions}
         badges={badges}
         focused={false}
@@ -420,6 +423,7 @@ const IssueColumn = memo(function IssueColumn({
   stage,
   issues,
   badges,
+  showAgentTasks,
   stageCounts,
   epicProgress,
   sessionsByIssueId,
@@ -441,6 +445,7 @@ const IssueColumn = memo(function IssueColumn({
   stage: IssueStage
   issues: IssueViewModel[]
   badges: IssuesDisplay['badges']
+  showAgentTasks: boolean
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
   epicProgress: Map<string, EpicProgress | null>
   sessionsByIssueId: Map<IssueId, SessionView[]>
@@ -561,6 +566,7 @@ const IssueColumn = memo(function IssueColumn({
                       issue={issue}
                       sessions={sessionsByIssueId.get(issue.id) ?? []}
                       badges={badges}
+                      showAgentTasks={showAgentTasks}
                       stageCounts={stageCounts.get(issue.id)}
                       progress={epicProgress.get(issue.id) ?? null}
                       focused={focusId === issue.id}

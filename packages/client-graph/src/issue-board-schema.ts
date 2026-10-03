@@ -16,6 +16,8 @@ export interface BoardOptions {
   openIssueId: IssueId | null
   now: number
   menu?: boolean
+  windowed?: boolean
+  addressed?: readonly string[]
 }
 export interface PoolBoardData {
   issues: IssueViewModel[]
@@ -47,6 +49,14 @@ export interface BoardQuery {
   kind: 'board' | 'explorer'; filter?: BoardFilter; showAgentTasks?: boolean
   tab?: BoardExplorerTab; query?: string
 }
+export interface BoardCardData {
+  issue: IssueViewModel
+  sessions: SessionView[]
+  fleet: SessionView[]
+  byId: Map<string, IssueViewModel>
+  stageCounts: { stage: IssueStage; count: number }[]
+  progress: TaskProgress | null
+}
 export interface IssueBoardSourceRows {
   issueBoardWindow: { openIssueId: IssueId | null }
   issueBoardQuery: { ids: string[] }
@@ -55,10 +65,12 @@ export interface IssueBoardSourceRows {
   issueExplorerModel: PoolExplorerData
   issueBoardRow: IssueViewModel
   issueBoardProjection: BoardProjection
+  issueBoardCard: BoardCardData
+  issueBoardSessions: SessionView[]
 }
 declare module './source-registry' { interface PoolSourceRows extends IssueBoardSourceRows {} }
 export const ISSUE_BOARD_SOURCE_KEY = 'issue-board'
-export const ISSUE_BOARD_ENTITIES = ['issueBoardWindow', 'issueBoardQuery', 'issueBoardCatalog', 'issueBoardModel', 'issueExplorerModel', 'issueBoardRow', 'issueBoardProjection'] as const
+export const ISSUE_BOARD_ENTITIES = ['issueBoardWindow', 'issueBoardQuery', 'issueBoardCatalog', 'issueBoardModel', 'issueExplorerModel', 'issueBoardRow', 'issueBoardProjection', 'issueBoardCard', 'issueBoardSessions'] as const
 export const ISSUE_BOARD_SOURCE_SCHEMA = {
   issueBoardWindow: { key: 'windowId', source: 'runtime:openIssueId', fields: ['openIssueId'], residency: 'window-scalar' },
   issueBoardQuery: { key: 'serializedFilter', source: 'pool:resident-index+declared-cold-summaries', fields: ['ids'], residency: 'mounted-demand-ids' },
@@ -67,6 +79,8 @@ export const ISSUE_BOARD_SOURCE_SCHEMA = {
   issueExplorerModel: { key: 'serializedTabAndQuery', source: 'pool:issueBoardQuery+issue-relations+session-summaries', residency: 'mounted-view' },
   issueBoardRow: { key: 'issueId', source: 'pool:issue-summary+repo+treeChildren+pageDependents+pageSessions', residency: 'observed-row' },
   issueBoardProjection: { key: 'entityAndDemandKey', source: 'pool:issueBoardModel|issueExplorerModel', residency: 'mounted-observation' },
+  issueBoardCard: { key: 'issueIdAndDisplay', source: 'pool:issueBoardRow+issue-relations+session-summaries', residency: 'virtual-row' },
+  issueBoardSessions: { key: 'issueId', source: 'pool:missionSessions+session-summaries', residency: 'addressed-read' },
 } as const
 /** Core already declares repo, treeParent/treeChildren, pageDependencies,
  * pageDependents and pageSessions. This screen uses those exact relations.

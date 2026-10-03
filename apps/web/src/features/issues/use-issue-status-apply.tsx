@@ -1,11 +1,12 @@
 import { parseIssueStatusValue } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
+import { blockingCloseConcerns } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
-import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
+import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard, issueCloseConcerns, issueMemberSessions } from './issue-lifecycle'
 
 /**
  * THE HOST HALF OF {@link IssueStatusPicker} — one issue, one picked value, the
@@ -36,7 +37,7 @@ export interface IssueStatusApply {
   dialog: JSX.Element | null
 }
 
-export function useIssueStatusApply(suppliedSessions?: readonly SessionView[]): IssueStatusApply {
+export function useIssueStatusApply(suppliedSessions?: readonly SessionView[], sessionsForIssue?: (issue: IssueViewModel) => readonly SessionView[] | symbol | undefined): IssueStatusApply {
   const updateIssue = useStoreSelector((store) => store.updateIssue)
   const closeIssue = useStoreSelector((store) => store.closeIssue)
   const needsCloseGuard = useIssueCloseGuard(suppliedSessions)
@@ -45,6 +46,7 @@ export function useIssueStatusApply(suppliedSessions?: readonly SessionView[]): 
   const [pending, setPending] = useState<{
     issue: IssueViewModel
     reason: IssueCloseReason
+    sessions?: readonly SessionView[]
   } | null>(null)
   const [closing, setClosing] = useState(false)
 
@@ -56,8 +58,12 @@ export function useIssueStatusApply(suppliedSessions?: readonly SessionView[]): 
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'close') {
-      if (needsCloseGuard(issue)) {
-        setPending({ issue, reason: intent.reason })
+      const addressed = sessionsForIssue?.(issue)
+      if (sessionsForIssue && (!addressed || typeof addressed === 'symbol')) return
+      const sessions = addressed && typeof addressed !== 'symbol' ? addressed : undefined
+      const guarded = sessions ? blockingCloseConcerns(issueCloseConcerns(issue, issueMemberSessions(issue, sessions))).length > 0 : needsCloseGuard(issue)
+      if (guarded) {
+        setPending({ issue, reason: intent.reason, ...(sessions ? { sessions } : {}) })
         return
       }
       closeIssue(issue.id, intent.reason).catch(fail)
@@ -69,7 +75,7 @@ export function useIssueStatusApply(suppliedSessions?: readonly SessionView[]): 
   const dialog = pending ? (
     <IssueCloseDialog
       issue={pending.issue}
-      sessions={suppliedSessions}
+      sessions={pending.sessions ?? suppliedSessions}
       reason={pending.reason}
       busy={closing}
       onOpenChange={(open) => {

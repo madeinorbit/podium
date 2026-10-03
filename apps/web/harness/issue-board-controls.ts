@@ -10,6 +10,9 @@ mkdirSync(root, { recursive: true })
 const source = 'packages/client-graph/src/issue-board-source.ts'
 const test = 'packages/client-graph/src/issue-board-source.test.ts'
 const cases = [
+  { name: 'virtual-window', file: source, test, title: 'keeps rich card', from: 'options.windowed ? options.addressed ?? [] :', to: 'false ? options.addressed ?? [] :' },
+  { name: 'virtual-child-summary', file: source, test, title: 'derives a virtual card', from: 'if (!row.archived && !row.deletedAt && scoped(row, options.agents ?? false, true))', to: 'if (false)' },
+  { name: 'addressed-close-roster', file: 'apps/web/src/features/issues/use-issue-status-apply.tsx', test: 'apps/web/src/features/issues/board-pool-hooks.test.tsx', title: 'uses addressed pool', from: 'const addressed = sessionsForIssue?.(issue)', to: 'const addressed = []' },
   { name: 'initial-projection', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'derives once', from: 'getSnapshot() { start(); return snapshot }', to: 'getSnapshot() { start(); const value = snapshot; clear(); return value }' },
   { name: 'abandoned-projection', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'releases an abandoned', from: 'queueMicrotask(() => { if (!listeners.size) clear() })', to: 'queueMicrotask(() => {})' },
   { name: 'projection-release', file: 'packages/client-graph/src/issue-board-projection.ts', test: 'packages/client-graph/src/issue-board-projection.test.ts', title: 'derives once', from: 'stop?.(); stop = undefined; snapshot = undefined', to: 'stop = undefined; snapshot = undefined' },
