@@ -16,7 +16,12 @@ const tree = (path, before) =>
   ts.createSourceFile(path, source(path, before), ts.ScriptTarget.Latest, true)
 
 function readers(before) {
-  const counts = { legacyBodies: 0, storeSelectors: 0, legacyIssueChoices: 0, optionalPoolInputs: 0 }
+  const counts = {
+    legacyBodies: 0,
+    storeSelectors: 0,
+    legacyIssueChoices: 0,
+    optionalPoolInputs: 0,
+  }
   for (const path of paths) {
     const visit = (node) => {
       if (ts.isFunctionDeclaration(node) && node.name?.text.startsWith('useLegacy'))
@@ -25,9 +30,14 @@ function readers(before) {
         ts.isCallExpression(node) &&
         ts.isIdentifier(node.expression) &&
         node.expression.text === 'useStoreSelector'
-      ) counts.storeSelectors++
+      )
+        counts.storeSelectors++
       if (ts.isIdentifier(node) && node.text === 'useReplicaIssues') counts.legacyIssueChoices++
-      if (ts.isPropertySignature(node) && node.name.getText() === 'poolInputs' && node.questionToken)
+      if (
+        ts.isPropertySignature(node) &&
+        node.name.getText() === 'poolInputs' &&
+        node.questionToken
+      )
         counts.optionalPoolInputs++
       ts.forEachChild(node, visit)
     }
@@ -45,8 +55,10 @@ function syntax(node) {
     const value = syntax(child)
     if (value !== null) children.push(value)
   })
-  const value = ts.isIdentifier(node) || ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)
-    ? node.text : null
+  const value =
+    ts.isIdentifier(node) || ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)
+      ? node.text
+      : null
   return [node.kind, value, children]
 }
 function writerHash(path, name, before) {
@@ -58,7 +70,9 @@ function writerHash(path, name, before) {
   }
   visit(tree(path, before))
   if (!body) throw new Error(`Missing writer contract: ${path}:${name}`)
-  return createHash('sha256').update(JSON.stringify(syntax(body))).digest('hex')
+  return createHash('sha256')
+    .update(JSON.stringify(syntax(body)))
+    .digest('hex')
 }
 
 const files = []
@@ -71,42 +85,66 @@ function walk(directory) {
   }
 }
 walk('apps/web/src')
-const missingMenuInputs = [], missingGuardInputs = []
+const missingMenuInputs = [],
+  missingGuardInputs = []
 for (const path of files) {
   const current = tree(path, false)
   const visit = (node) => {
     if (
       (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
       node.tagName.getText() === 'SessionContextMenu' &&
-      !node.attributes.properties.some((prop) => ts.isJsxAttribute(prop) && prop.name.getText() === 'poolInputs')
-    ) missingMenuInputs.push({ path, line: current.getLineAndCharacterOfPosition(node.getStart()).line + 1 })
+      !node.attributes.properties.some(
+        (prop) => ts.isJsxAttribute(prop) && prop.name.getText() === 'poolInputs',
+      )
+    )
+      missingMenuInputs.push({
+        path,
+        line: current.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+      })
     if (
-      ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
-      node.expression.text === 'useSessionGuard' && node.arguments.length < 3
-    ) missingGuardInputs.push({ path, line: current.getLineAndCharacterOfPosition(node.getStart()).line + 1 })
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'useSessionGuard' &&
+      node.arguments.length < 3
+    )
+      missingGuardInputs.push({
+        path,
+        line: current.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+      })
     ts.forEachChild(node, visit)
   }
   visit(current)
 }
 const writerContracts = [
-  [guard, 'guardedDelete'], [guard, 'guardedEnd'], [guard, 'guardedArchive'],
-  [menu, 'run'], [menu, 'handoff'],
+  [guard, 'guardedDelete'],
+  [guard, 'guardedEnd'],
+  [guard, 'guardedArchive'],
+  [menu, 'run'],
+  [menu, 'handoff'],
 ].map(([path, name]) => {
-  const before = writerHash(path, name, true), after = writerHash(path, name, false)
+  const before = writerHash(path, name, true),
+    after = writerHash(path, name, false)
   return { path, name, before, after, unchanged: before === after }
 })
 const report = {
   baseline,
   candidate: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-  before: readers(true), after: readers(false),
-  missingMenuInputs, missingGuardInputs, writerContracts,
-  scope: 'Shared guard/menu implementations and every product caller under apps/web/src; synthetic test controls excluded.',
+  before: readers(true),
+  after: readers(false),
+  missingMenuInputs,
+  missingGuardInputs,
+  writerContracts,
+  scope:
+    'Shared guard/menu implementations and every product caller under apps/web/src; synthetic test controls excluded.',
 }
 const output = process.argv.find((arg) => arg.endsWith('.json'))
 if (output) writeFileSync(output, JSON.stringify(report, null, 2) + '\n')
 console.log(JSON.stringify(report))
-if (!process.argv.includes('--record-before') && (
-  Object.values(report.after).some((value) => value !== 0) ||
-  missingMenuInputs.length || missingGuardInputs.length ||
-  writerContracts.some((contract) => !contract.unchanged)
-)) process.exitCode = 1
+if (
+  !process.argv.includes('--record-before') &&
+  (Object.values(report.after).some((value) => value !== 0) ||
+    missingMenuInputs.length ||
+    missingGuardInputs.length ||
+    writerContracts.some((contract) => !contract.unchanged))
+)
+  process.exitCode = 1

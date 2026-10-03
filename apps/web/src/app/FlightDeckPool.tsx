@@ -88,11 +88,7 @@ export default observer(function PoolFlightDeck(
       },
     }
   }, [pool, values])
-  return source ? (
-    <FlightDeckContent {...props} source={source} />
-  ) : (
-    <SettlingDeck />
-  )
+  return source ? <FlightDeckContent {...props} source={source} /> : <SettlingDeck />
 })
 
 function PoolIssueContextMenu(props: ComponentProps<typeof IssueContextMenu>) {

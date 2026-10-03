@@ -1,13 +1,28 @@
 // @vitest-environment happy-dom
-import { cleanup, renderHook } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+
 import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId } from '@podium/model/browser'
+import { cleanup, renderHook } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
-const f = vi.hoisted(() => ({ sessions: [] as SessionView[], selectors: 0, derivations: 0,
-  actions: { killSession: vi.fn(async () => {}), archiveSession: vi.fn(async () => {}), endSession: vi.fn<Store['endSession']>(async () => ({ ok: true })) },
-  confirm: vi.fn(async () => true) }))
-vi.mock('@/app/store', () => ({ useStoreSelector: (select: (state: unknown) => unknown) => { f.selectors++; return select({ sessions: f.sessions, ...f.actions }) } }))
+
+const f = vi.hoisted(() => ({
+  sessions: [] as SessionView[],
+  selectors: 0,
+  derivations: 0,
+  actions: {
+    killSession: vi.fn(async () => {}),
+    archiveSession: vi.fn(async () => {}),
+    endSession: vi.fn<Store['endSession']>(async () => ({ ok: true })),
+  },
+  confirm: vi.fn(async () => true),
+}))
+vi.mock('@/app/store', () => ({
+  useStoreSelector: (select: (state: unknown) => unknown) => {
+    f.selectors++
+    return select({ sessions: f.sessions, ...f.actions })
+  },
+}))
 vi.mock('@podium/client-core/react', () => {
   const owner = { getSnapshot: () => f.actions }
   return { useStoreHandle: () => owner }
@@ -15,24 +30,42 @@ vi.mock('@podium/client-core/react', () => {
 vi.mock('./use-confirm', () => ({ useConfirm: () => f.confirm }))
 vi.mock('@podium/client-core/viewmodels', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/viewmodels')>()
-  return { ...actual, isSessionWorking: (session: SessionView) => { f.derivations++; return actual.isSessionWorking(session) } }
+  return {
+    ...actual,
+    isSessionWorking: (session: SessionView) => {
+      f.derivations++
+      return actual.isSessionWorking(session)
+    },
+  }
 })
+
 import { useSessionGuard } from './use-session-guard'
-afterEach(() => { cleanup(); vi.clearAllMocks(); f.selectors = 0 })
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+  f.selectors = 0
+})
 it('preserves guard decisions with pool sessions and zero store subscriptions', async () => {
   const id = asSessionId('guard-session')
   f.sessions = [{ sessionId: id, agentState: { phase: 'working' } } as SessionView]
   const supplied = f.sessions
-    f.selectors = 0; vi.clearAllMocks()
-    const hook = renderHook(() => useSessionGuard(undefined, undefined, supplied))
-    await hook.result.current.guardedEnd(id)
-    expect(f.confirm).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: 'End anyway' }))
-    expect(f.actions.endSession).toHaveBeenCalledWith(id)
-    await hook.result.current.guardedDelete(id)
-    expect(f.confirm).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: 'Delete', description: expect.stringContaining('still working') }))
-    expect(f.actions.killSession).toHaveBeenCalledWith(id)
-    expect(f.selectors).toBe(0)
-    hook.unmount()
+  f.selectors = 0
+  vi.clearAllMocks()
+  const hook = renderHook(() => useSessionGuard(undefined, undefined, supplied))
+  await hook.result.current.guardedEnd(id)
+  expect(f.confirm).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: 'End anyway' }))
+  expect(f.actions.endSession).toHaveBeenCalledWith(id)
+  await hook.result.current.guardedDelete(id)
+  expect(f.confirm).toHaveBeenCalledWith(
+    expect.objectContaining({
+      confirmLabel: 'Delete',
+      description: expect.stringContaining('still working'),
+    }),
+  )
+  expect(f.actions.killSession).toHaveBeenCalledWith(id)
+  expect(f.selectors).toBe(0)
+  hook.unmount()
 })
 
 it('keeps refusal, forced end and cancellation on the existing actions', async () => {
@@ -42,7 +75,9 @@ it('keeps refusal, forced end and cancellation on the existing actions', async (
   f.actions.endSession.mockResolvedValueOnce({ ok: true })
   await hook.result.current.guardedEnd(id)
   expect(f.confirm).toHaveBeenCalledTimes(1)
-  expect(f.confirm).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining('unsaved worktree') }))
+  expect(f.confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ description: expect.stringContaining('unsaved worktree') }),
+  )
   expect(f.actions.endSession.mock.calls).toEqual([[id], [id, true]])
   f.confirm.mockResolvedValueOnce(false)
   await hook.result.current.guardedDelete(id)
@@ -57,7 +92,13 @@ it('reads one supplied neighbourhood per click at 1x and 4x without reading the 
   const reads: number[] = []
   const derivations: number[] = []
   for (const scale of [1, 4]) {
-    f.sessions = [row, ...Array.from({ length: 64 * scale - 1 }, (_, i) => ({ ...row, sessionId: asSessionId(`unrelated-${i}`) }))]
+    f.sessions = [
+      row,
+      ...Array.from({ length: 64 * scale - 1 }, (_, i) => ({
+        ...row,
+        sessionId: asSessionId(`unrelated-${i}`),
+      })),
+    ]
     let rowReads = 0
     const supplied = new Proxy([row], {
       get: (rows, key, receiver) => {
@@ -77,5 +118,13 @@ it('reads one supplied neighbourhood per click at 1x and 4x without reading the 
   expect(reads).toEqual([1, 1])
   expect(derivations).toEqual([1, 1])
   expect(reads[1]! / reads[0]!).toBeLessThanOrEqual(1)
-  console.info('POD5438 guard click counters ' + JSON.stringify({ totalSessionRows: [64, 256], visibleNeighbourhood: [1, 1], rowReads: reads, derivations }))
+  console.info(
+    'POD5438 guard click counters ' +
+      JSON.stringify({
+        totalSessionRows: [64, 256],
+        visibleNeighbourhood: [1, 1],
+        rowReads: reads,
+        derivations,
+      }),
+  )
 })

@@ -1,13 +1,14 @@
-import type { SessionView } from '@podium/client-core/session-values'
-import type { MissionActionInputs } from '@podium/client-graph/mission-view'
 import { useStoreHandle } from '@podium/client-core/react'
+import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/viewmodels'
+import type { MissionActionInputs } from '@podium/client-graph/mission-view'
 import {
   handoffAvailability,
   isSnoozed,
   type MachineId,
   snoozeUntil1h,
-  snoozeUntilTomorrow5am} from '@podium/model/browser'
+  snoozeUntilTomorrow5am,
+} from '@podium/model/browser'
 import {
   AlarmClock,
   AlarmClockOff,
@@ -91,7 +92,9 @@ export function SessionContextMenu({
     trpc,
   } = owner.getSnapshot()
   const { repos, machines, issue } = poolInputs
-  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined, [session])
+  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined, [
+    session,
+  ])
   const handoffEnabled = useFeature('session-handoff')
   const now = useNow(60_000)
   // The attached issue is part of the handoff gate: a session whose cwd drifted

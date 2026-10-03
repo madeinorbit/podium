@@ -1,9 +1,9 @@
-import { isSessionWorking } from '@podium/client-core/viewmodels'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { Trpc } from '@/app/trpc'
+import { isSessionWorking } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import { useCallback, useMemo } from 'react'
+import type { Trpc } from '@/app/trpc'
 import { useConfirm } from './use-confirm'
 
 /**
@@ -27,15 +27,22 @@ import { useConfirm } from './use-confirm'
  * `isSessionWorking` (green-dot semantics) and the popup is the app-wide
  * `useConfirm` dialog.
  */
-function useSessionGuardInputs(scopedSessionId: SessionId | undefined, knownWorking: boolean | undefined, supplied: readonly SessionView[]) {
+function useSessionGuardInputs(
+  scopedSessionId: SessionId | undefined,
+  knownWorking: boolean | undefined,
+  supplied: readonly SessionView[],
+) {
   const owner = useStoreHandle<Trpc>()
   const actions = useMemo(() => {
     const { killSession, archiveSession, endSession } = owner.getSnapshot()
     return { killSession, archiveSession, endSession }
   }, [owner])
-  const scoped = supplied.find(session => session.sessionId === scopedSessionId)
-  return { ...actions, sessions: supplied,
-    scopedWorking: knownWorking ?? (scoped ? isSessionWorking(scoped) : false) }
+  const scoped = supplied.find((session) => session.sessionId === scopedSessionId)
+  return {
+    ...actions,
+    sessions: supplied,
+    scopedWorking: knownWorking ?? (scoped ? isSessionWorking(scoped) : false),
+  }
 }
 
 export function useSessionGuard(
@@ -54,7 +61,8 @@ export function useSessionGuard(
    *  working session (unarchive is never destructive). */
   guardedArchive: (sessionId: SessionId, archived: boolean) => Promise<void>
 } {
-  const { scopedWorking, sessions, killSession, archiveSession, endSession } = useSessionGuardInputs(scopedSessionId, knownWorking, suppliedSessions)
+  const { scopedWorking, sessions, killSession, archiveSession, endSession } =
+    useSessionGuardInputs(scopedSessionId, knownWorking, suppliedSessions)
   const confirm = useConfirm()
 
   const isWorking = useCallback(

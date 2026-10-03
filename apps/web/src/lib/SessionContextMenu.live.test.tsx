@@ -20,24 +20,36 @@ const state: {
 const handoffMutate = vi.fn(async () => ({ ok: true }))
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ getSnapshot: () => ({
-    setPinned: vi.fn(),
-    setSnooze: vi.fn(),
-    clearSnooze: vi.fn(),
-    hibernateSession: vi.fn(),
-    resurrectSession: vi.fn(),
-    startBtw: vi.fn(),
-    markSessionRead: vi.fn(),
-    markSessionUnread: vi.fn(),
-    trpc: { sessions: { handoff: { mutate: handoffMutate } } },
-    get repos() { throw new Error('Menu read legacy repositories') },
-    get machines() { throw new Error('Menu read legacy machines') },
-    get issues() { throw new Error('Menu read legacy issues') },
-  }) }),
+  useStoreHandle: () => ({
+    getSnapshot: () => ({
+      setPinned: vi.fn(),
+      setSnooze: vi.fn(),
+      clearSnooze: vi.fn(),
+      hibernateSession: vi.fn(),
+      resurrectSession: vi.fn(),
+      startBtw: vi.fn(),
+      markSessionRead: vi.fn(),
+      markSessionUnread: vi.fn(),
+      trpc: { sessions: { handoff: { mutate: handoffMutate } } },
+      get repos() {
+        throw new Error('Menu read legacy repositories')
+      },
+      get machines() {
+        throw new Error('Menu read legacy machines')
+      },
+      get issues() {
+        throw new Error('Menu read legacy issues')
+      },
+    }),
+  }),
 }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: () => { throw new Error('Menu subscribed to the old store') },
-  useReplicaIssues: () => { throw new Error('Menu enumerated legacy issues') },
+  useStoreSelector: () => {
+    throw new Error('Menu subscribed to the old store')
+  },
+  useReplicaIssues: () => {
+    throw new Error('Menu enumerated legacy issues')
+  },
 }))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
@@ -98,7 +110,9 @@ function open(session: SessionView = meta()): void {
       poolInputs={{
         repos: state.repos as MissionActionInputs['repos'],
         machines: state.machines as MissionActionInputs['machines'],
-        issue: (state.issues as MissionActionInputs['issues']).find((issue) => issue.id === session.issueId),
+        issue: (state.issues as MissionActionInputs['issues']).find(
+          (issue) => issue.id === session.issueId,
+        ),
       }}
     />,
   )

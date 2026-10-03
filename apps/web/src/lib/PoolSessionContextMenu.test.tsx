@@ -13,7 +13,11 @@ const f = vi.hoisted(() => ({
   menu: null as SessionContextMenuProps | null,
 }))
 vi.mock('@podium/client-core/react', () => {
-  const owner = { getSnapshot: () => { throw new Error('Menu reader reached the old store') } }
+  const owner = {
+    getSnapshot: () => {
+      throw new Error('Menu reader reached the old store')
+    },
+  }
   return { useStoreHandle: () => owner }
 })
 vi.mock('./SessionContextMenu', () => ({
@@ -29,11 +33,20 @@ vi.mock('@/app/store-worklist-pool', async () => {
   return {
     useWorklistPoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T {
       const pool = f.pool
-      const projection = useMemo(() => pool ? createPoolProjection(pool, (owner) => {
-        f.derivations++
-        return read(owner)
-      }) : null, [pool, read])
-      return useSyncExternalStore(projection?.subscribe ?? subscribe, () => projection?.getSnapshot() ?? empty)
+      const projection = useMemo(
+        () =>
+          pool
+            ? createPoolProjection(pool, (owner) => {
+                f.derivations++
+                return read(owner)
+              })
+            : null,
+        [pool, read],
+      )
+      return useSyncExternalStore(
+        projection?.subscribe ?? subscribe,
+        () => projection?.getSnapshot() ?? empty,
+      )
     },
   }
 })
@@ -48,28 +61,56 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 const stamp = '2026-10-01T12:00:00Z'
-const row = (id: string): SessionView => ({
-  sessionId: asSessionId(id), cwd: '/synthetic/menu', title: 'Pool session', name: null,
-  agentKind: 'codex', status: 'exited', archived: true, issueId: null,
-  createdAt: stamp, lastActiveAt: stamp,
-}) as SessionView
+const row = (id: string): SessionView =>
+  ({
+    sessionId: asSessionId(id),
+    cwd: '/synthetic/menu',
+    title: 'Pool session',
+    name: null,
+    agentKind: 'codex',
+    status: 'exited',
+    archived: true,
+    issueId: null,
+    createdAt: stamp,
+    lastActiveAt: stamp,
+  }) as SessionView
 function open(scale: number) {
   const chosen = row('chosen-session')
   const seats = [chosen, ...Array.from({ length: 64 * scale - 1 }, (_, i) => row(`unrelated-${i}`))]
   const input = new Map(seats.map((seat) => [seat.sessionId as string, seat]))
-  const load = vi.fn((entity: string, id: string) => entity === 'session' ? input.get(id) : undefined)
+  const load = vi.fn((entity: string, id: string) =>
+    entity === 'session' ? input.get(id) : undefined,
+  )
   const pool = new MobxPool({ coarseNow: Date.parse(stamp), selectedIssueId: null }, undefined, {
-    load, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {},
+    load,
+    summaries: MISSION_VIEW_SUMMARIES,
+    schedule: () => () => {},
   })
   pools.push(pool)
-  pool.apply({ type: 'replace', rows: seats.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })) })
+  pool.apply({
+    type: 'replace',
+    rows: seats.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
+  })
   pool.header.apply([
-    { kind: 'repository', id: 'menu-repository', value: { path: '/synthetic/menu', kind: 'repository', worktrees: [] } },
-    { kind: 'machine', id: 'menu-machine', value: { id: 'menu-machine', name: 'Menu machine', online: true } },
+    {
+      kind: 'repository',
+      id: 'menu-repository',
+      value: { path: '/synthetic/menu', kind: 'repository', worktrees: [] },
+    },
+    {
+      kind: 'machine',
+      id: 'menu-machine',
+      value: { id: 'menu-machine', name: 'Menu machine', online: true },
+    },
   ])
   return { pool, load }
 }
-const props = { sessionId: asSessionId('chosen-session'), anchor: { x: 10, y: 10 }, onClose: () => {}, onRename: () => {} }
+const props = {
+  sessionId: asSessionId('chosen-session'),
+  anchor: { x: 10, y: 10 },
+  onClose: () => {},
+  onRename: () => {},
+}
 
 it('batches the addressed cold session and supplies pool inputs with equal click work at 1x and 4x', async () => {
   const work: Array<{ rows: number; derivations: number }> = []
@@ -81,10 +122,16 @@ it('batches the addressed cold session and supplies pool inputs with equal click
     render(<PoolSessionContextMenu {...props} />)
     expect(screen.queryByTestId('pool-session-menu')).toBeNull()
     expect(load).not.toHaveBeenCalled()
-    await act(async () => { expect(pool.hydrate()).toBe(1) })
+    await act(async () => {
+      expect(pool.hydrate()).toBe(1)
+    })
     expect(screen.getByTestId('pool-session-menu').textContent).toBe('Pool session')
     expect(load.mock.calls).toEqual([['session', 'chosen-session']])
-    expect(read.mock.calls.filter(([entity]) => entity === 'session').every(([, id]) => id === 'chosen-session')).toBe(true)
+    expect(
+      read.mock.calls
+        .filter(([entity]) => entity === 'session')
+        .every(([, id]) => id === 'chosen-session'),
+    ).toBe(true)
     expect(f.menu?.poolInputs.repos.map((repo) => repo.path)).toEqual(['/synthetic/menu'])
     expect(f.menu?.poolInputs.machines.map((machine) => machine.name)).toEqual(['Menu machine'])
     work.push({ rows: read.mock.calls.length, derivations: f.derivations })
@@ -94,7 +141,10 @@ it('batches the addressed cold session and supplies pool inputs with equal click
   expect(work[0]!.derivations).toBeGreaterThan(0)
   expect(work[1]!.rows / work[0]!.rows).toBeLessThanOrEqual(1)
   expect(work[1]!.derivations / work[0]!.derivations).toBeLessThanOrEqual(1)
-  console.info('POD5438 menu click counters ' + JSON.stringify({ totalSessionRows: [64, 256], visibleNeighbourhood: [3, 3], work }))
+  console.info(
+    'POD5438 menu click counters ' +
+      JSON.stringify({ totalSessionRows: [64, 256], visibleNeighbourhood: [3, 3], work }),
+  )
 })
 
 it('waits for pool attachment and drops obsolete menu inputs when the pool detaches', async () => {
@@ -104,7 +154,9 @@ it('waits for pool attachment and drops obsolete menu inputs when the pool detac
   f.pool = pool
   view.rerender(<PoolSessionContextMenu {...props} />)
   expect(screen.queryByTestId('pool-session-menu')).toBeNull()
-  await act(async () => { pool.hydrate() })
+  await act(async () => {
+    pool.hydrate()
+  })
   expect(screen.getByTestId('pool-session-menu').textContent).toBe('Pool session')
   f.pool = null
   view.rerender(<PoolSessionContextMenu {...props} />)

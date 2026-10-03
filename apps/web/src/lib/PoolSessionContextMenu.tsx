@@ -7,7 +7,10 @@ import { measurePoolMission } from '@/app/mission-pane-perf'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { SessionContextMenu, type SessionContextMenuProps } from './SessionContextMenu'
 
-export type PoolSessionContextMenuProps = Omit<SessionContextMenuProps, 'session' | 'poolInputs'> & {
+export type PoolSessionContextMenuProps = Omit<
+  SessionContextMenuProps,
+  'session' | 'poolInputs'
+> & {
   sessionId: SessionId
 }
 
