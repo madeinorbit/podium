@@ -34,9 +34,11 @@ afterEach(() => {
   for (const dispose of disposals.splice(0)) dispose()
 })
 async function setup(rows: ReturnType<typeof issue>[], sessions: { sessionId: string }[] = []) {
-  const load = vi.fn((kind: string, id: string) => kind === 'session'
-    ? sessions.find((row) => row.sessionId === id)
-    : rows.find((row) => row.id === id))
+  const load = vi.fn((kind: string, id: string) =>
+    kind === 'session'
+      ? sessions.find((row) => row.sessionId === id)
+      : rows.find((row) => row.id === id),
+  )
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
     summaries: MOBILE_SCREEN_SUMMARIES,
@@ -81,21 +83,39 @@ it('reads cold Tasks through declared summaries without promoting or loading the
 })
 it('reads archived mission crew display facts from declared summaries without loading their rows', async () => {
   const seat = {
-    sessionId: 'seat', issueId: 'root', title: 'Archived seat', cwd: '/fixture',
-    agentKind: 'codex', status: 'exited', archived: true,
-    createdAt: '2026-01-01T00:00:00Z', lastActiveAt: '2026-01-01T00:00:00Z',
-    spawnedBy: 'session:author', createdBy: { kind: 'user', id: 'u-fixture' },
-    stopReason: 'user', resumable: true, refLetter: 'b', model: 'fixture-model',
+    sessionId: 'seat',
+    issueId: 'root',
+    title: 'Archived seat',
+    cwd: '/fixture',
+    agentKind: 'codex',
+    status: 'exited',
+    archived: true,
+    createdAt: '2026-01-01T00:00:00Z',
+    lastActiveAt: '2026-01-01T00:00:00Z',
+    spawnedBy: 'session:author',
+    createdBy: { kind: 'user', id: 'u-fixture' },
+    stopReason: 'user',
+    resumable: true,
+    refLetter: 'b',
+    model: 'fixture-model',
   }
-  const { pool, reader, load } = await setup([
-    issue('root', { stage: 'done', closedAt: '2026-01-01T00:00:00Z', readAt: '2026-01-01T00:00:00Z' }),
-  ], [seat])
+  const { pool, reader, load } = await setup(
+    [
+      issue('root', {
+        stage: 'done',
+        closedAt: '2026-01-01T00:00:00Z',
+        readAt: '2026-01-01T00:00:00Z',
+      }),
+    ],
+    [seat],
+  )
   expect(pool.tables.session.has('seat')).toBe(false)
   expect(reader.mission('root')).toBe(LOADING)
   expect(pool.hydrate()).toBe(1)
   load.mockClear()
   expect(reader.mission('root')).toMatchObject({
-    missionSessions: [], sessions: [seat],
+    missionSessions: [],
+    sessions: [seat],
   })
   expect(reader.deck('root', 'full')).toMatchObject({ sessions: [seat] })
   expect(pool.tables.session.has('seat')).toBe(false)
@@ -135,17 +155,30 @@ it('retains matching ancestors, promotes proposal blocks, and keeps collapsed ch
 })
 it('does not resurrect a collapsed resume twin as a mission author', async () => {
   const seat = {
-    issueId: 'elsewhere', title: 'Author', cwd: '/fixture', agentKind: 'codex',
-    status: 'exited', archived: true, resume: { kind: 'codex', value: 'same-conversation' },
-    createdAt: '2026-01-01T00:00:00Z', lastActiveAt: '2026-01-01T00:00:00Z',
+    issueId: 'elsewhere',
+    title: 'Author',
+    cwd: '/fixture',
+    agentKind: 'codex',
+    status: 'exited',
+    archived: true,
+    resume: { kind: 'codex', value: 'same-conversation' },
+    createdAt: '2026-01-01T00:00:00Z',
+    lastActiveAt: '2026-01-01T00:00:00Z',
   }
-  const { pool, reader } = await setup([
-    issue('root', { startedBySession: 'old' }),
-    issue('elsewhere', { stage: 'done', closedAt: '2026-01-01T00:00:00Z', readAt: '2026-01-01T00:00:00Z' }),
-  ], [
-    { ...seat, sessionId: 'old' },
-    { ...seat, sessionId: 'new', lastActiveAt: '2026-01-02T00:00:00Z' },
-  ])
+  const { pool, reader } = await setup(
+    [
+      issue('root', { startedBySession: 'old' }),
+      issue('elsewhere', {
+        stage: 'done',
+        closedAt: '2026-01-01T00:00:00Z',
+        readAt: '2026-01-01T00:00:00Z',
+      }),
+    ],
+    [
+      { ...seat, sessionId: 'old' },
+      { ...seat, sessionId: 'new', lastActiveAt: '2026-01-02T00:00:00Z' },
+    ],
+  )
   expect(pool.graph.isCollapsed('session', 'old')).toBe(true)
   expect(reader.mission('root')).toMatchObject({ sessions: [] })
 })

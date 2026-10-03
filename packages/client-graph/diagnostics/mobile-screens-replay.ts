@@ -227,10 +227,18 @@ async function main() {
               const id = deck.rows[result.first.rowIndex]?.issue.startedBySession
               const expected = sessions.find((session) => session.sessionId === id)
               const actual = mission.sessions.find((session) => session.sessionId === id)
-              console.log(JSON.stringify({ phase, checks, authorInputs: {
-                expected: Number(Boolean(expected)), actual: Number(Boolean(actual)),
-                expectedRef: Number(Boolean(expected?.displayRef)), actualRef: Number(Boolean(actual?.displayRef)),
-              } }))
+              console.log(
+                JSON.stringify({
+                  phase,
+                  checks,
+                  authorInputs: {
+                    expected: Number(Boolean(expected)),
+                    actual: Number(Boolean(actual)),
+                    expectedRef: Number(Boolean(expected?.displayRef)),
+                    actualRef: Number(Boolean(actual?.displayRef)),
+                  },
+                }),
+              )
             }
           }
         }
