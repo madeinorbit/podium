@@ -1,5 +1,6 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+import { publishPoolFixture } from '@/test-support/pool-fixture'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -342,6 +343,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     // Navigation from outside the sidebar has no folded-click latch. The
     // previous click must not keep this new selection in the closed lane.
     selection.issueId = 'closed-a'
+    publishPoolFixture()
     rerender(<SidebarUnified />)
 
     await waitFor(() => expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy())

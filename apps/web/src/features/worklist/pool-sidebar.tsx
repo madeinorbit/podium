@@ -727,7 +727,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
       layout="position"
       layoutDependency={layoutRevision}
       transition={reduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-      data-drag-key={draggable ? id : undefined}
+      {...(draggable ? { 'data-drag-key': id } : {})}
       className={cn(
         'min-w-0',
         arriving && 'row-arrive',

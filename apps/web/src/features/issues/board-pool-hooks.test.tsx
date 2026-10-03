@@ -78,14 +78,20 @@ function useBoundary() {
   })
   const explorer = useExplorerData(null, '')
   useBoardCloseGuard(board.sessions)
-  return { board, explorer }
+  return { base, board, explorer }
 }
 it('keeps board-only pool reads off both legacy collections before and after attachment', () => {
   issueBoardStats.enable()
   storeStats.enable()
-  const { rerender } = renderHook(useBoundary)
+  const { result, rerender } = renderHook(useBoundary)
+  expect(result.current.base.openIssueId).toBeNull()
+  expect(result.current.board).toEqual(EMPTY_BOARD)
+  expect(result.current.explorer.rows).toEqual([])
   state.attached = true
   rerender()
+  expect(result.current.base.openIssueId).toBeNull()
+  expect(result.current.board).toEqual(EMPTY_BOARD)
+  expect(result.current.explorer.rows).toEqual([])
   expect(state.issueReads).not.toHaveBeenCalled()
   expect(state.sessionReads).not.toHaveBeenCalled()
   expect(issueBoardStats.read()).toEqual({})

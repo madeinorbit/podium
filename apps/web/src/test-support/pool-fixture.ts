@@ -54,6 +54,11 @@ function useFixturePool() {
   return syncPoolFixture(useStoreSelector((state) => state))
 }
 
+/** Simulate an owner publication when a test mutates its plain fake snapshot. */
+export function publishPoolFixture() {
+  syncPoolFixture(useStoreSelector((state) => state))
+}
+
 /** Fake actions publish through the same boundary as a render's snapshot. */
 export function syncPoolFixture(input: Store, sidebarGesture = false) {
   const state = input as Store & {
