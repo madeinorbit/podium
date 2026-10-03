@@ -1,7 +1,9 @@
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/mock-pool-fixture'
 import { enableFixtureHeader } from '@/test-support/pool-fixture'
+
 enableFixtureHeader()
+
 // @vitest-environment happy-dom
 import { asIssueId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -204,12 +206,8 @@ describe('StatusStrip agent concurrency history', () => {
 
     fireEvent.click(screen.getByTestId('status-strip-working'))
     await waitFor(() => expect(screen.getByTestId('status-strip-roster')).toBeTruthy())
-    expect(screen.getByTestId('status-strip-roster').textContent).toContain(
-      'First agentPOD-1-A',
-    )
-    expect(screen.getByTestId('status-strip-roster').textContent).toContain(
-      'Second agentPOD-2-A',
-    )
+    expect(screen.getByTestId('status-strip-roster').textContent).toContain('First agentPOD-1-A')
+    expect(screen.getByTestId('status-strip-roster').textContent).toContain('Second agentPOD-2-A')
   })
 
   /** POD-730: the phase outlives the process on purpose (exit keeps the final

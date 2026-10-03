@@ -19,8 +19,11 @@ const fixture = vi.hoisted(() => ({
 }))
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (state: unknown) => unknown) => select({ issues: fixture.issues, sessions: [], repos: [], machines: [] }),
-  useReplicaIssues: () => { throw new Error('Legacy chip read') },
+  useStoreSelector: (select: (state: unknown) => unknown) =>
+    select({ issues: fixture.issues, sessions: [], repos: [], machines: [] }),
+  useReplicaIssues: () => {
+    throw new Error('Legacy chip read')
+  },
 }))
 
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => fixture }))
