@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { discoveredPlacement } from '@podium/client-core/viewmodels'
+import { chatIssue } from '@podium/client-graph/chat-context'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { WorkIssueMenuTarget } from './work-menu'
 
@@ -22,14 +23,14 @@ export function resolvePoolWorkMenu(
   if (!value || typeof value === 'symbol' || !value.sidebar) return null
   const sessions: SessionView[] = []
   for (const key of pool.graph.many('issue', id, 'missionSessions')) {
-    const verdict = pool.model('session', key)?.verdict
-    if (typeof verdict === 'symbol') return null
-    if (verdict?.sidebarSession) sessions.push(verdict.sidebarSession as unknown as SessionView)
+    const session = pool.row('session', key, 'summary')
+    if (typeof session === 'symbol') return null
+    if (session) sessions.push(session as SessionView)
   }
   const children = [...pool.graph.many('issue', id, 'treeChildren')]
   let childDoneCount = 0
   for (const child of children) {
-    const detail = pool.row('issue', child)
+    const detail = pool.row('issue', child, 'summary')
     if (typeof detail === 'symbol') return null
     if (detail && Reflect.get(detail, 'stage') === 'done') childDoneCount++
   }
@@ -44,9 +45,9 @@ export function resolvePoolWorkMenu(
   const issues = [issue]
   const originId = discoveredPlacement(issue)?.originId
   if (originId && originId !== id) {
-    const origin = pool.missionViews.catalogIssue(originId)
+    const origin = chatIssue(pool, originId)
     if (typeof origin === 'symbol') return null
-    if (origin) issues.push(origin as IssueViewModel)
+    if (origin) issues.push(origin)
   }
   return { target: { issue, lane, canBringBack: value.sidebar.canBringBack }, issues, sessions }
 }
