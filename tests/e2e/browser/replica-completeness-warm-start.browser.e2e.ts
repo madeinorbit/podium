@@ -279,6 +279,8 @@ test('certified warm attach removes the second delivery and preserves live value
     // Upgrade the cache written by the unchanged older build, with no migration.
     const old = arms.baseline
     old.current = 'candidate'
+    // Unchanged chunks can keep the same URL across the two builds.
+    await old.cdp.send('Debugger.disable')
     await logpoints(old.cdp, metadata.candidate.dist, metadata.candidate.checkout, isMobile)
     const count = old.corpus.installations()
     await old.page.goto(route, { waitUntil: 'domcontentloaded' })
