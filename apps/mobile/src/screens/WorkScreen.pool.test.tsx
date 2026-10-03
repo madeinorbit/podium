@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react
 import { Profiler, type ReactNode } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientRuntime } from '@podium/client-core/engine'
+import type { SessionId } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 import type { MobilePool } from '../client/mobile-pool'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -185,7 +186,7 @@ describe('mobile WorkScreen pool consumer', () => {
     state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
     const seed = buildCorpus(1)
     const path = seed.repos[0]!.path
-    const session = { ...seed.sessions[0]!, sessionId: 'native-nav-a', cwd: path, issueId: undefined }
+    const session = { ...seed.sessions[0]!, sessionId: 'native-nav-a' as SessionId, cwd: path, issueId: undefined }
     const corpus = { ...seed, issueProjections: [], issueUserStates: [], issueGitStates: [], issueDeps: [], sessions: [session] }
     const feed = kernelFixture(corpus)
     vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
@@ -203,7 +204,7 @@ describe('mobile WorkScreen pool consumer', () => {
     await drainNativeLoads()
     const before = output(view.container)
     state.counts.clear()
-    const replacement = { ...session, sessionId: 'native-nav-b' }
+    const replacement = { ...session, sessionId: 'native-nav-b' as SessionId }
     await act(async () => { feed.publish('sessions', [replacement]) })
     await waitFor(() => {
       const current = state.pool!.mobileWork.row(item)
