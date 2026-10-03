@@ -2,7 +2,7 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { issueBoardStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider } from '@podium/client-core/react'
+import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model/browser'
 import { act } from 'react'
@@ -14,6 +14,7 @@ import { expect, it, vi } from 'vitest'
 it('attaches a real pool after the pending board render without legacy derivations or React errors', async () => {
   history.replaceState(null, '', '/?mobxBoard=1&mobxSidebar=0')
   const { attachWorklistPool, useWorklistPool } = await import('@/app/store-worklist-pool')
+  const { initializePoolScreens } = await import('@/app/pool-screens')
   const { EMPTY_BOARD, useBoardBase, useBoardData } = await import('./board-pool-data')
   const { DEFAULT_DISPLAY } = await import('./issues-display')
   const replica = createKernelReplica({
@@ -29,6 +30,10 @@ it('attaches a real pool after the pending board render without legacy derivatio
   const errors: unknown[] = []
   const error = vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   let sawPending = false
+  function ShellStartup() {
+    initializePoolScreens(useStoreHandle().getSnapshot().uiState)
+    return <Probe />
+  }
   function Probe() {
     const pool = useWorklistPool()
     const base = useBoardBase()
@@ -45,7 +50,7 @@ it('attaches a real pool after the pending board render without legacy derivatio
         api={api} createReplicaFn={() => replica} networkEnabled={false}
         attachRuntime={(runtime) => attachWorklistPool(runtime, (cause) => errors.push(cause))}
         onFatalError={(message) => { throw new Error(message) }}
-      ><Probe /></StoreProvider>)
+      ><ShellStartup /></StoreProvider>)
     })
     await vi.waitFor(async () => {
       await act(async () => { await new Promise((done) => setTimeout(done, 0)) })
