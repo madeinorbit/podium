@@ -214,6 +214,13 @@ class FakeHub {
   connectionHealth() {
     return { status: 'down' as const, rttMs: null, since: 0 }
   }
+  onConnectionHealth(cb: Parameters<SocketHub['onConnectionHealth']>[0]): () => void {
+    const off = this.on('connectionHealth', (health) =>
+      cb(health as ReturnType<SocketHub['connectionHealth']>),
+    )
+    cb(this.connectionHealth())
+    return off
+  }
   seedMetadata(): void {}
   connect(): void {}
   connectNow(): void {}

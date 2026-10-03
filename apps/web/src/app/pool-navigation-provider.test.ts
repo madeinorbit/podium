@@ -281,7 +281,10 @@ describe('web pool navigation', () => {
       expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
       runtime.getSnapshot().navigateToSession(seat.sessionId)
       expect(runtime.getSnapshot().selectedIssueId).toBe(before.selectedIssueId)
-      await vi.waitFor(() => expect(runtime.getSnapshot().selectedIssueId).toBe(target.id))
+      await vi.waitFor(() => {
+        expect(errors).not.toHaveBeenCalled()
+        expect(runtime.getSnapshot().selectedIssueId).toBe(target.id)
+      })
       expect(runtime.getSnapshot().paneA).toBe(seat.sessionId)
       expect(runtime.getSnapshot().workspaceKey()).toBe(expectedKey)
       if (seat.displayRef) {
