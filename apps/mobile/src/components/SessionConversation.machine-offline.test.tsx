@@ -103,6 +103,11 @@ const OFFLINE_DAEMON = [
   }),
 ]
 
+function LiveConversation() {
+  const row = useSession(session.sessionId)
+  return row ? <SessionConversation session={row} issue={undefined} /> : null
+}
+
 async function renderLive(initial: MachineWire[]) {
   // The engine re-runs discovery.refreshRepos when the machines scope
   // signature (id:online) moves, and the test stub's refresh REPLACES the
@@ -111,10 +116,11 @@ async function renderLive(initial: MachineWire[]) {
   // emitted list instead, so the transition under test survives the refresh.
   let current: MachineWire[] = initial
   const view = await renderWithMobileStore(
-    <SessionConversation session={session} issue={undefined} />,
+    <LiveConversation />,
     {
       sessions: [session],
       machines: initial,
+      machineProjections: initial.map(row => ({ id: row.id, name: row.name, loggedOutHarnesses: [] })),
       api: {
         discovery: {
           refreshRepos: {
@@ -189,11 +195,6 @@ describe('phone session offline banner (POD-4873)', () => {
 })
 
 describe('phone offline machine label from session homes', () => {
-  function LiveConversation() {
-    const row = useSession(session.sessionId)
-    return row ? <SessionConversation session={row} issue={undefined} /> : null
-  }
-
   it.each([
     false,
     true,
@@ -229,11 +230,16 @@ describe('phone offline machine label from session homes', () => {
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('This machine')
   })
 
-  it('falls back to the legacy session label before the machine home arrives', async () => {
-    await renderWithMobileStore(<LiveConversation />, {
+  it('ignores a stale session label until the machine home arrives', async () => {
+    const { replica } = await renderWithMobileStore(<LiveConversation />, {
       sessions: [session],
       machines: OFFLINE_SUPERVISOR,
     })
-    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('desk')
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('This machine')
+    expect(screen.getByTestId('machine-offline-banner').textContent).not.toContain('desk')
+    await act(async () => {
+      replica.applyChanges('machines', [{ id: asMachineId('m1'), name: 'Replicated desk', loggedOutHarnesses: [] }], [])
+    })
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Replicated desk')
   })
 })

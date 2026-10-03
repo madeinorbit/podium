@@ -309,12 +309,17 @@ describe('session menu snooze from the acting user home', () => {
     expect(screen.queryByLabelText('Clear snooze')).toBeNull()
   })
 
-  it('shows the legacy snooze before any personal home arrives', async () => {
-    await renderWithMobileStore(<SessionScreen />, {
+  it('ignores a stale snooze until the acting user home arrives', async () => {
+    const { replica } = await renderWithMobileStore(<SessionScreen />, {
       sessions: [session({ snoozedUntil: null })],
       issues: [active],
     })
     fireEvent.click(await screen.findByLabelText('Session actions'))
+    expect(await screen.findByLabelText('Snooze until next message')).toBeTruthy()
+    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    await act(async () => {
+      replica.applyChanges('sessionUserStates', [personal(null)], [])
+    })
     expect(await screen.findByLabelText('Clear snooze')).toBeTruthy()
   })
 })
