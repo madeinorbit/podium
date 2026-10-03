@@ -62,7 +62,7 @@ it('keeps new-task repository order literal and per-open row reads flat at 1x an
       load: (_kind, id) => sessions.find(session => session.sessionId === id),
       summaries: { session: ['sessionId', 'cwd', 'lastActiveAt', 'archived', 'status'] },
     })
-    fixture.pool.apply({ type: 'replace', rows: sessions.map(session => ({ kind: 'session', id: session.sessionId, row: session })) })
+    fixture.pool.apply({ type: 'replace', rows: sessions.map(session => ({ kind: 'session', id: session.sessionId, value: session })) })
     fixture.pool.header.apply(repositories.map(value => ({ kind: 'repository', id: value.path, value })))
     fixture.pool.header.order('repository', repositories.map(value => value.path))
     fixture.sessions = sessions.map(session => new Proxy(session, {
