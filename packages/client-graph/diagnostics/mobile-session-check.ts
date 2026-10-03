@@ -67,9 +67,9 @@ export function checkMobileSessionContext(
   const roster = (rows: readonly SessionView[], tasks: readonly IssueViewModel[]) => {
     const groups = groupSessions(withoutShells([...rows]))
     return Object.fromEntries(
-      Object.entries(groups).map(([key, rows]) => [
+      (['needsYou', 'working', 'idle'] as const).map((key) => [
         key,
-        rows.map((row) =>
+        groups[key].map((row) =>
           sessionCardModel(
             row,
             tasks.find((issue) => issue.id === row.issueId),
@@ -164,7 +164,7 @@ export function checkMobileSessionContext(
       ports.records,
       !ports.ready,
     )
-    const sends = (values: ReturnType<Store['chatSendsFor']>) =>
+    const sends = (values: Readonly<ReturnType<Store['chatSendsFor']>>) =>
       values.map(({ failure, ...send }) => ({
         ...send,
         failure: failure ? { message: failure.message, retryable: failure.retryable } : undefined,

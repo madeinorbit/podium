@@ -246,8 +246,25 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
   const draftRecent = data.records.get('session:synthetic-session-1')!
   data.records.set('session:synthetic-session-1', {
     ...draftRecent,
-    value: { ...(draftRecent.value as object), draftUpdatedAt: '2026-10-03T00:01:00Z' },
+    value: {
+      ...(draftRecent.value as object),
+      draftUpdatedAt: '2026-10-03T00:01:00Z',
+      status: 'exited',
+      lastActiveAt: '2020-01-01T00:00:00Z',
+      stoppedAt: '2020-01-01T00:00:00Z',
+    },
   })
+  // Bound sessions inherit task coldness, including the drafted history row
+  // still shown in the roster and the archived row addressed by the check.
+  for (const index of [1, 11]) {
+    const key = `issueProjection:synthetic-${index}`
+    const record = data.records.get(key)
+    if (!record) throw new Error('Synthetic history task is missing')
+    data.records.set(key, {
+      ...record,
+      value: { ...(record.value as object), archived: true, stage: 'done' },
+    })
+  }
   const stateId = sessionUserStateRowId(asUserId('operator'), SID)
   data.records.set(`sessionUserState:${stateId}`, {
     entity: 'sessionUserState',

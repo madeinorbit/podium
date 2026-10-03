@@ -260,7 +260,7 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
     const body = `${[{ ...meta, totalRows: rows }, ...all, { ...complete, rows, records: all.length }]
       .map((frame) => JSON.stringify(frame))
       .join('\n')}\n`
-    const headers = { ...reply.headers(), 'content-type': 'application/x-ndjson' }
+    const headers: Record<string, string> = { ...reply.headers(), 'content-type': 'application/x-ndjson' }
     delete headers['content-length']
     delete headers['content-encoding']
     delete headers['transfer-encoding']
