@@ -25,10 +25,13 @@ attempt observed late matching-row hydration; after settling those requests,
 both restored identity checks are green with the same strict assertions.
 
 Each native slot reads through `pool.mobileWork.row`. Its equality-filtered
-projection contains paint and navigation facts, excluding full issue/session
-records and bookkeeping. A missing payload renders loading and requests the
-existing batched load. Hooks stay mounted while the shared pool attaches.
-Full menu compatibility data is acquired through pool readers on the gesture.
+projection contains only native paint facts, excluding hidden navigation IDs,
+full issue/session records and bookkeeping. Presses acquire the current
+navigation target through that same reader; replacing an otherwise identical
+session ID causes zero row commits and opens the replacement session.
+A missing payload renders loading and requests the existing batched load.
+Hooks stay mounted while the shared pool attaches. Full menu compatibility
+data is acquired through pool readers on the gesture.
 
 The mounted NewWorkButton uses the shared command-launch source with the pilot
 on, avoiding its former worklistSlice subscription. Its existing launch UI and
@@ -91,6 +94,7 @@ disabled.
 | --- | --- |
 | Copy every native section/data array | Native data identity fails at both scales, including the final observed-publication check |
 | Include unshown description in row projection | Pool description commits become 1 instead of 0 at both scales |
+| Include hidden navigation in row projection | Otherwise identical session replacement causes 1 commit instead of 0 |
 | Omit pool fleet display prop | Legacy row derivation guard fires |
 | Force legacy launch inputs | Legacy slice subscription guard fires |
 | Ignore a native fold | Collapsed pinned data remains nonempty |
@@ -98,6 +102,7 @@ disabled.
 | Copy every filtered native data array | Untouched search-band object identity fails at both scales |
 | Return loading before the row hooks | React reports more hooks than the previous render |
 | Prefix the actual native status formatter | Mobile corpus reports 215/815 differences at 1×/4× |
+| Prefix the production native status formatter | Seeded production off/on row comparison fails on the planted text |
 
 ## Validation and production boundary
 
@@ -134,7 +139,17 @@ shadowing reports no shadowed declarations in 5,859 files. The changed-input
 span-effect gate is green: 162 span bodies, 7 accepted effects, zero
 unclassified effects and 8 declared opaque bodies.
 
-Production seeded-issue export acceptance is blocked by POD-5370
-and tracked by internal POD-5374. The three-row
-off/on style comparison and interleaved Chrome Paint/heap capture are prepared
-for the landed root fix; no production timing result is claimed yet.
+The final gesture-only navigation checks are **7 passed across two named
+mobile files**, with seven unchanged checks deselected. Prototype uncached
+typecheck is green. Mobile typecheck initially rejected two fixture strings
+as unbranded session IDs; a type-only correction passed the mobile-only retry,
+without repeating the already-green runtime checks.
+Final navigation shadowing is green in 5,865 files; the span-effect gate is
+green with 162 span bodies, 7 accepted effects, zero unclassified effects and
+8 declared opaque bodies.
+
+POD-5370's seeded phone startup fix has landed at `8db927c57f`; this consumer
+is rebased onto it. Internal POD-5374 tracks the final three-row production
+off/on style comparison and interleaved Chrome Paint/heap capture. The status
+negative control already fails on the intended comparison; no positive
+production timing result is claimed yet.
