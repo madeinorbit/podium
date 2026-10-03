@@ -8,8 +8,8 @@ import {
   createKernelReplica,
   createSideCache,
   entityForKind,
-  memoryStorage,
   issueViewModelProjectionStats,
+  memoryStorage,
   type ReplicaKind,
   type ReplicaRows,
   rowKey,
@@ -34,7 +34,13 @@ const state = vi.hoisted(() => ({
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
-    useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {}, dismissTo: () => {}, canGoBack: () => false }),
+    useRouter: () => ({
+      push: () => {},
+      replace: () => {},
+      back: () => {},
+      dismissTo: () => {},
+      canGoBack: () => false,
+    }),
     useLocalSearchParams: () => ({ missionId: state.missionId }),
     usePathname: () => '/work',
     Stack: { SearchBar: () => null },
@@ -174,7 +180,12 @@ vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 vi.mock('../hooks/useRefreshableTab', async () => {
   const { useRef } = await import('react')
   return {
-    useRefreshableList: () => ({ listRef: useRef(null), connected: true, refreshing: false, onRefresh: () => {} }),
+    useRefreshableList: () => ({
+      listRef: useRef(null),
+      connected: true,
+      refreshing: false,
+      onRefresh: () => {},
+    }),
     useRefreshableTab: () => ({
       listRef: useRef(null),
       refreshAccessibilityProps: {},
@@ -185,8 +196,17 @@ vi.mock('../hooks/useRefreshableTab', async () => {
   }
 })
 
-vi.mock('expo-crypto', () => ({ getRandomBytes: (size: number) => new Uint8Array(size), digest: async () => new ArrayBuffer(32), CryptoDigestAlgorithm: { SHA256: 'SHA-256' } }))
-vi.mock('expo-haptics', () => ({ selectionAsync: async () => {}, impactAsync: async () => {}, notificationAsync: async () => {}, ImpactFeedbackStyle: { Light: 'light' } }))
+vi.mock('expo-crypto', () => ({
+  getRandomBytes: (size: number) => new Uint8Array(size),
+  digest: async () => new ArrayBuffer(32),
+  CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+}))
+vi.mock('expo-haptics', () => ({
+  selectionAsync: async () => {},
+  impactAsync: async () => {},
+  notificationAsync: async () => {},
+  ImpactFeedbackStyle: { Light: 'light' },
+}))
 vi.mock('../components/Composer', () => ({ Composer: () => <div data-testid="composer" /> }))
 vi.mock('../hooks/useKeyboardHeight', () => ({ useKeyboardLift: () => 0 }))
 vi.mock('expo-router/build/react-navigation/bottom-tabs', async () => {
@@ -252,25 +272,47 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
   }
 }
 
-
 const off = new Map<string, (string | null)[]>()
 afterEach(() => {
-  cleanup(); vi.restoreAllMocks(); storeStats.enable(false); storeStats.reset()
-  missionLegacyStats.disable(); missionLegacyStats.reset()
-  state.paths.length = 0; state.errors.length = 0
+  cleanup()
+  vi.restoreAllMocks()
+  storeStats.enable(false)
+  storeStats.reset()
+  missionLegacyStats.disable()
+  missionLegacyStats.reset()
+  state.paths.length = 0
+  state.errors.length = 0
 })
 afterAll(() => vi.unstubAllEnvs())
-it.each([false, true])('three real phone screens keep cumulative legacy derivations at zero (ON=%s)', async (on) => {
-  storeStats.enable(); storeStats.reset(); missionLegacyStats.enable(); missionLegacyStats.reset()
+it.each([
+  false,
+  true,
+])('three real phone screens keep cumulative legacy derivations at zero (ON=%s)', async (on) => {
+  storeStats.enable()
+  storeStats.reset()
+  missionLegacyStats.enable()
+  missionLegacyStats.reset()
   const corpus = buildCorpus(1)
-  const root = corpus.issueProjections.filter(issue => !issue.parentId && !issue.archived && !issue.isDraftVessel && issue.audience === 'human' && issue.stage === 'in_progress' && corpus.issueProjections.some(child => child.parentId === issue.id && !child.archived && !child.isDraftVessel))
+  const root = corpus.issueProjections
+    .filter(
+      (issue) =>
+        !issue.parentId &&
+        !issue.archived &&
+        !issue.isDraftVessel &&
+        issue.audience === 'human' &&
+        issue.stage === 'in_progress' &&
+        corpus.issueProjections.some(
+          (child) => child.parentId === issue.id && !child.archived && !child.isDraftVessel,
+        ),
+    )
     .sort((a, b) => a.priority - b.priority || b.seq - a.seq)[0]!
   state.missionId = root.id
   let setting = on
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => setting }))
   state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
   const now = vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
-  const ticks: (() => void)[] = [], interval = globalThis.setInterval
+  const ticks: (() => void)[] = [],
+    interval = globalThis.setInterval
   vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, delay, ...args) => {
     if (delay === 60_000 && typeof handler === 'function') ticks.push(() => handler(...args))
     return interval(handler, delay, ...args)
@@ -278,45 +320,77 @@ it.each([false, true])('three real phone screens keep cumulative legacy derivati
   const replicas: ReturnType<typeof kernelFixture>['replica'][] = []
   const phases: { phase: string; legacy: number; rows: number }[] = []
   let release!: () => void
-  const receipt = new Promise<void>(resolve => { release = resolve })
+  const receipt = new Promise<void>((resolve) => {
+    release = resolve
+  })
   async function mount(principal: string) {
-    const feed = kernelFixture(corpus); replicas.push(feed.replica)
-    const view = await renderWithMobileStore(<>
-      <div data-testid="tasks"><IssuesScreen /></div>
-      <div data-testid="mission"><MissionScreen /></div>
-      <div data-testid="details"><MissionDetailsScreen /></div>
-    </>, { replica: feed.replica, principal, repos: corpus.repos, machines: corpus.machines,
-      api: { issues: { update: { mutate: () => receipt } } },
-      attachRuntime: runtime => {
-        state.runtime = runtime
-        return state.host!.host.attach(runtime, cause => state.errors.push(cause.message))
+    const feed = kernelFixture(corpus)
+    replicas.push(feed.replica)
+    const view = await renderWithMobileStore(
+      <>
+        <div data-testid="tasks">
+          <IssuesScreen />
+        </div>
+        <div data-testid="mission">
+          <MissionScreen />
+        </div>
+        <div data-testid="details">
+          <MissionDetailsScreen />
+        </div>
+      </>,
+      {
+        replica: feed.replica,
+        principal,
+        repos: corpus.repos,
+        machines: corpus.machines,
+        api: { issues: { update: { mutate: () => receipt } } },
+        attachRuntime: (runtime) => {
+          state.runtime = runtime
+          return state.host!.host.attach(runtime, (cause) => state.errors.push(cause.message))
+        },
       },
-    })
-    await waitFor(() => {
-      expect(view.container.querySelectorAll('[data-resolved="false"]')).toHaveLength(0)
-      expect(screen.getByTestId('tasks').textContent).toContain(root.title)
-      expect(screen.getByTestId('details').textContent).toContain('Full')
-    }, { timeout: 30_000 })
+    )
+    await waitFor(
+      () => {
+        expect(view.container.querySelectorAll('[data-resolved="false"]')).toHaveLength(0)
+        expect(screen.getByTestId('tasks').textContent).toContain(root.title)
+        expect(screen.getByTestId('details').textContent).toContain('Full')
+      },
+      { timeout: 30_000 },
+    )
     return { view, feed }
   }
   function checkpoint(phase: string, parity = true) {
     const stats = storeStats.snapshot()
-    expect(stats.enabled).toBe(true); expect(stats.dropped).toBe(0)
+    expect(stats.enabled).toBe(true)
+    expect(stats.dropped).toBe(0)
     expect(stats.runtimes.reduce((n, value) => n + value.publishes, 0)).toBeGreaterThan(0)
     let legacy = 0
     for (const name of ['tasks', 'mission', 'details', 'deck']) {
-      const count = stats.runtimes.reduce((n, value) => n + (value.slices[`mobileScreens.${name}`] ?? 0), 0)
+      const count = stats.runtimes.reduce(
+        (n, value) => n + (value.slices[`mobileScreens.${name}`] ?? 0),
+        0,
+      )
       if (on) expect(count, `${phase} ${name}`).toBe(0)
       else expect(count, `${phase} ${name}`).toBeGreaterThan(0)
       legacy += count
     }
-    const rows = replicas.reduce((n, replica) => n + issueViewModelProjectionStats(replica).rowBuilds, 0)
+    const rows = replicas.reduce(
+      (n, replica) => n + issueViewModelProjectionStats(replica).rowBuilds,
+      0,
+    )
     const missions = missionLegacyStats.read()
-    if (on) { expect(rows, phase).toBe(0); expect(missions.indexMissionSessions, phase).toBe(0); expect(missions.missionIssueIds, phase).toBe(0) }
-    else { expect(rows, phase).toBeGreaterThan(0); expect(missions.missionIssueIds, phase).toBeGreaterThan(0) }
+    if (on) {
+      expect(rows, phase).toBe(0)
+      expect(missions.indexMissionSessions, phase).toBe(0)
+      expect(missions.missionIssueIds, phase).toBe(0)
+    } else {
+      expect(rows, phase).toBeGreaterThan(0)
+      expect(missions.missionIssueIds, phase).toBeGreaterThan(0)
+    }
     expect(state.errors).toEqual([])
     if (parity) {
-      const text = ['tasks', 'mission', 'details'].map(id => screen.getByTestId(id).textContent)
+      const text = ['tasks', 'mission', 'details'].map((id) => screen.getByTestId(id).textContent)
       if (on) expect(text, phase).toEqual(off.get(phase))
       else off.set(phase, text)
     }
@@ -335,30 +409,54 @@ it.each([false, true])('three real phone screens keep cumulative legacy derivati
   fireEvent.click(screen.getByLabelText('Full'))
   fireEvent.click(screen.getByLabelText(/Fold every branch|Expand every branch/))
   checkpoint('deck fold')
-  const sessions = corpus.sessions.map((session, index) => index === 0 ? { ...session, title: 'Phone feed seat', lastActiveAt: new Date(corpus.fixedNow + 1_000).toISOString() } : session)
+  const sessions = corpus.sessions.map((session, index) =>
+    index === 0
+      ? {
+          ...session,
+          title: 'Phone feed seat',
+          lastActiveAt: new Date(corpus.fixedNow + 1_000).toISOString(),
+        }
+      : session,
+  )
   await act(async () => feed.publish('sessions', sessions))
   checkpoint('session feed')
-  const changed = corpus.issueProjections.map(issue => issue.id === root.id ? { ...issue, title: 'Phone feed title' } : issue)
+  const changed = corpus.issueProjections.map((issue) =>
+    issue.id === root.id ? { ...issue, title: 'Phone feed title' } : issue,
+  )
   await act(async () => feed.publish('issueProjections', changed))
   await waitFor(() => expect(screen.getByTestId('tasks').textContent).toContain('Phone feed title'))
   checkpoint('issue feed')
   let action!: Promise<void>
-  await act(async () => { action = state.runtime!.getSnapshot().updateIssue(root.id, { title: 'Phone optimistic title' }); await Promise.resolve() })
-  await waitFor(() => expect(screen.getByTestId('tasks').textContent).toContain('Phone optimistic title'))
+  await act(async () => {
+    action = state.runtime!.getSnapshot().updateIssue(root.id, { title: 'Phone optimistic title' })
+    await Promise.resolve()
+  })
+  await waitFor(() =>
+    expect(screen.getByTestId('tasks').textContent).toContain('Phone optimistic title'),
+  )
   checkpoint('optimistic action')
   await act(async () => {
-    feed.publish('issueProjections', changed.map(issue => issue.id === root.id ? { ...issue, title: 'Phone optimistic title' } : issue))
-    release(); await action
+    feed.publish(
+      'issueProjections',
+      changed.map((issue) =>
+        issue.id === root.id ? { ...issue, title: 'Phone optimistic title' } : issue,
+      ),
+    )
+    release()
+    await action
   })
   checkpoint('server echo')
   const beforeClock = state.runtime!.getSnapshot().coarseNow
   expect(ticks.length).toBeGreaterThan(0)
   now.mockReturnValue(corpus.fixedNow + 60_000)
-  await act(async () => { for (const tick of ticks) tick() })
+  await act(async () => {
+    for (const tick of ticks) tick()
+  })
   expect(state.runtime!.getSnapshot().coarseNow).toBeGreaterThan(beforeClock)
   checkpoint('idle clock')
   const before = state.runtime
-  view.unmount(); setting = !on
+  view.unmount()
+  setting = !on
   state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
   expect(state.host.layer()).toBe(on ? 'pool' : 'legacy')
   await mount('u-next')

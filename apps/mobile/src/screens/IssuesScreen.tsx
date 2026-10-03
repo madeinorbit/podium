@@ -115,12 +115,12 @@ export function IssuesScreen() {
     (effectiveFilter.stage !== undefined && CLOSED_STATUSES.has(effectiveFilter.stage))
   const options = useMemo(
     () => ({
-        showDone: showDone || filterShowsDone,
-        expanded: [...expanded],
-        filter: effectiveFilter,
-        ordering: display.ordering,
-        showAgentTasks: display.showAgentTasks,
-      }),
+      showDone: showDone || filterShowsDone,
+      expanded: [...expanded],
+      filter: effectiveFilter,
+      ordering: display.ordering,
+      showAgentTasks: display.showAgentTasks,
+    }),
     [
       display.ordering,
       display.showAgentTasks,

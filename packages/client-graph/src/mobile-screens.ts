@@ -2,15 +2,32 @@
  * world enumeration, peek reader, or independently maintained relationships. */
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { confirmedWorkingAgentCount, orderIssues, type FlightDeckMode, type IssueRow, type TaskProgress } from '@podium/client-core/viewmodels'
-import { ISSUE_STATUS_LABELS } from '@podium/model/browser'
-import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
-import { ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY, type BoardQuery } from './issue-board-schema'
-import { createIssueBoardSource } from './issue-board-source'
-import { MissionViewReader, readMissionView, type MissionViewValues } from './mission-view'
 import {
-  EMPTY_MOBILE_MISSION, MOBILE_SCREEN_ENTITIES, MOBILE_SCREEN_SOURCE_KEY, MOBILE_TASK_STAGES,
-  type MobileMissionData, type MobileTasksData, type MobileTasksOptions,
+  confirmedWorkingAgentCount,
+  type FlightDeckMode,
+  type IssueRow,
+  orderIssues,
+  type TaskProgress,
+} from '@podium/client-core/viewmodels'
+import { ISSUE_STATUS_LABELS } from '@podium/model/browser'
+import {
+  _isComputingDerivation,
+  compareStructural,
+  computed,
+  type IComputedValue,
+  onBecomeUnobserved,
+} from 'mobx'
+import { type BoardQuery, ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY } from './issue-board-schema'
+import { createIssueBoardSource } from './issue-board-source'
+import { MissionViewReader, type MissionViewValues, readMissionView } from './mission-view'
+import {
+  EMPTY_MOBILE_MISSION,
+  MOBILE_SCREEN_ENTITIES,
+  MOBILE_SCREEN_SOURCE_KEY,
+  MOBILE_TASK_STAGES,
+  type MobileMissionData,
+  type MobileTasksData,
+  type MobileTasksOptions,
 } from './mobile-screens-schema'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -28,7 +45,7 @@ class MobileMissionReader extends MissionViewReader {
   }
 }
 
-const byId = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
+const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const requireRow = <T>(row: Loaded<T>): T | undefined => {
   if (row === LOADING) throw LOADING
   return row
@@ -43,7 +60,12 @@ export function createMobileScreenReader(pool: MobxPool) {
     const existing = cache.get(key)
     if (existing) return existing.get() as T
     const safeRead = () => {
-      try { return read() } catch (error) { if (error === LOADING) return LOADING; throw error }
+      try {
+        return read()
+      } catch (error) {
+        if (error === LOADING) return LOADING
+        throw error
+      }
     }
     if (!_isComputingDerivation()) return safeRead()
     const value = computed(safeRead, { name: `MobileScreen@${key}`, equals: compareStructural })
@@ -67,7 +89,8 @@ export function createMobileScreenReader(pool: MobxPool) {
         if (value) models.set(id, value)
         return value
       }
-      const parent = (id: string) => pool.graph.one('issue', id, 'treeParent') ?? issue(id)?.parentId
+      const parent = (id: string) =>
+        pool.graph.one('issue', id, 'treeParent') ?? issue(id)?.parentId
       const audience = (id: string): boolean => {
         const row = issue(id)
         if (!row || (row.isDraftVessel && !row.deletedAt)) return false
@@ -83,9 +106,15 @@ export function createMobileScreenReader(pool: MobxPool) {
         }
         return false
       }
-      const eligible = (id: string) => audience(id) && (options.showDone || issue(id)?.stage !== 'done')
-      const matched = new Set(query({ kind: 'board', filter: options.filter, showAgentTasks: options.showAgentTasks })
-        .filter(id => eligible(id)))
+      const eligible = (id: string) =>
+        audience(id) && (options.showDone || issue(id)?.stage !== 'done')
+      const matched = new Set(
+        query({
+          kind: 'board',
+          filter: options.filter,
+          showAgentTasks: options.showAgentTasks,
+        }).filter((id) => eligible(id)),
+      )
       const retained = new Set(matched)
       for (const id of matched) {
         const seen = new Set([id])
@@ -97,7 +126,12 @@ export function createMobileScreenReader(pool: MobxPool) {
           next = parent(next)
         }
       }
-      const screenable = (row: IssueViewModel) => row.stage === 'proposed' && !row.archived && !row.deletedAt && !row.isDraftVessel && row.audience !== 'agent'
+      const screenable = (row: IssueViewModel) =>
+        row.stage === 'proposed' &&
+        !row.archived &&
+        !row.deletedAt &&
+        !row.isDraftVessel &&
+        row.audience !== 'agent'
       const underProposal = (id: string, scope?: ReadonlySet<string>): boolean => {
         const seen = new Set([id])
         let next = parent(id)
@@ -108,31 +142,64 @@ export function createMobileScreenReader(pool: MobxPool) {
         }
         return false
       }
-      const scoped = [...retained].sort(byId).flatMap(id => { const row = issue(id); return row ? [row] : [] })
-      const promoted = scoped.filter(row => screenable(row) && row.parentId && matched.has(row.id) && !underProposal(row.id, retained))
+      const scoped = [...retained].sort(byId).flatMap((id) => {
+        const row = issue(id)
+        return row ? [row] : []
+      })
+      const promoted = scoped
+        .filter(
+          (row) =>
+            screenable(row) &&
+            row.parentId &&
+            matched.has(row.id) &&
+            !underProposal(row.id, retained),
+        )
         .sort((a, b) => a.priority - b.priority || b.seq - a.seq)
-      const promotedIds = new Set(promoted.map(row => row.id))
-      const ordinary = new Set(scoped.filter(row => {
-        const seen = new Set<string>()
-        let id: string | undefined = row.id
-        while (id && retained.has(id) && !seen.has(id)) {
-          if (promotedIds.has(id)) return false
-          seen.add(id)
-          id = parent(id) ?? undefined
-        }
-        return true
-      }).map(row => row.id))
-      const children = (id: string, scope: ReadonlySet<string>) => [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
-        .filter(child => child !== id && scope.has(child)).flatMap(child => { const row = issue(child); return row ? [row] : [] })
+      const promotedIds = new Set(promoted.map((row) => row.id))
+      const ordinary = new Set(
+        scoped
+          .filter((row) => {
+            const seen = new Set<string>()
+            let id: string | undefined = row.id
+            while (id && retained.has(id) && !seen.has(id)) {
+              if (promotedIds.has(id)) return false
+              seen.add(id)
+              id = parent(id) ?? undefined
+            }
+            return true
+          })
+          .map((row) => row.id),
+      )
+      const children = (id: string, scope: ReadonlySet<string>) =>
+        [...pool.graph.many('issue', id, 'treeChildren')]
+          .sort(byId)
+          .filter((child) => child !== id && scope.has(child))
+          .flatMap((child) => {
+            const row = issue(child)
+            return row ? [row] : []
+          })
       const expanded = new Set(options.expanded)
-      const emit = (row: IssueViewModel, depth: number, scope: ReadonlySet<string>, out: IssueRow<IssueViewModel>[], path: ReadonlySet<string>, listed?: Set<string>) => {
+      const emit = (
+        row: IssueViewModel,
+        depth: number,
+        scope: ReadonlySet<string>,
+        out: IssueRow<IssueViewModel>[],
+        path: ReadonlySet<string>,
+        listed?: Set<string>,
+      ) => {
         if (path.has(row.id) || listed?.has(row.id)) return
         listed?.add(row.id)
-        const kids = children(row.id, scope), open = kids.length > 0 && expanded.has(row.id)
+        const kids = children(row.id, scope),
+          open = kids.length > 0 && expanded.has(row.id)
         out.push({ issue: row, depth, childCount: kids.length, expanded: open })
-        if (open) for (const child of orderIssues(kids, options.ordering)) emit(child, depth + 1, scope, out, new Set(path).add(row.id), listed)
+        if (open)
+          for (const child of orderIssues(kids, options.ordering))
+            emit(child, depth + 1, scope, out, new Set(path).add(row.id), listed)
       }
-      const roots = [...ordinary].sort(byId).filter(id => { const p = parent(id); return !p || p === id || !ordinary.has(p) })
+      const roots = [...ordinary].sort(byId).filter((id) => {
+        const p = parent(id)
+        return !p || p === id || !ordinary.has(p)
+      })
       // The legacy layout promotes a cycle's first unreached member too.
       const reached = new Set<string>()
       const reach = (id: string) => {
@@ -141,19 +208,27 @@ export function createMobileScreenReader(pool: MobxPool) {
           const next = pending.pop()!
           if (reached.has(next)) continue
           reached.add(next)
-          pending.push(...children(next, ordinary).map(row => row.id))
+          pending.push(...children(next, ordinary).map((row) => row.id))
         }
       }
       for (const id of roots) reach(id)
-      for (const id of [...ordinary].sort(byId)) if (!reached.has(id)) { roots.push(id); reach(id) }
-      const sections = MOBILE_TASK_STAGES.map(stage => {
+      for (const id of [...ordinary].sort(byId))
+        if (!reached.has(id)) {
+          roots.push(id)
+          reach(id)
+        }
+      const sections = MOBILE_TASK_STAGES.map((stage) => {
         const rows: IssueRow<IssueViewModel>[] = []
-        const candidates = roots.flatMap(id => { const row = issue(id); return row?.stage === stage ? [row] : [] })
-        for (const row of orderIssues(candidates, options.ordering)) emit(row, 0, ordinary, rows, new Set())
+        const candidates = roots.flatMap((id) => {
+          const row = issue(id)
+          return row?.stage === stage ? [row] : []
+        })
+        for (const row of orderIssues(candidates, options.ordering))
+          emit(row, 0, ordinary, rows, new Set())
         return { stage, title: ISSUE_STATUS_LABELS[stage], rows }
       })
-      const listed = new Set(sections.flatMap(section => section.rows.map(row => row.issue.id)))
-      const proposals = sections.find(section => section.stage === 'proposed')!
+      const listed = new Set(sections.flatMap((section) => section.rows.map((row) => row.issue.id)))
+      const proposals = sections.find((section) => section.stage === 'proposed')!
       const blocks: IssueRow<IssueViewModel>[][] = []
       for (const row of proposals.rows) {
         if (!row.depth || !blocks.length) blocks.push([row])
@@ -164,13 +239,26 @@ export function createMobileScreenReader(pool: MobxPool) {
         emit(row, 0, retained, block, new Set(), listed)
         if (block.length) blocks.push(block)
       }
-      const blockById = new Map(blocks.map(block => [block[0]!.issue.id, block]))
-      proposals.rows = orderIssues(blocks.map(block => block[0]!.issue), options.ordering).flatMap(row => blockById.get(row.id)!)
-      const board = sections.filter(section => section.rows.length)
-      const workingByIssue = new Map<string, number>(), progressByIssue = new Map<string, TaskProgress | null>()
+      const blockById = new Map(blocks.map((block) => [block[0]!.issue.id, block]))
+      proposals.rows = orderIssues(
+        blocks.map((block) => block[0]!.issue),
+        options.ordering,
+      ).flatMap((row) => blockById.get(row.id)!)
+      const board = sections.filter((section) => section.rows.length)
+      const workingByIssue = new Map<string, number>(),
+        progressByIssue = new Map<string, TaskProgress | null>()
       const sessions = new Map<string, SessionView>()
-      for (const row of board.flatMap(section => section.rows)) {
-        const card = requireRow(pool.row('issueBoardCard', JSON.stringify({ id: row.issue.id, now: pool.clock.current, agents: options.showAgentTasks })))
+      for (const row of board.flatMap((section) => section.rows)) {
+        const card = requireRow(
+          pool.row(
+            'issueBoardCard',
+            JSON.stringify({
+              id: row.issue.id,
+              now: pool.clock.current,
+              agents: options.showAgentTasks,
+            }),
+          ),
+        )
         if (!card) throw LOADING
         workingByIssue.set(row.issue.id, confirmedWorkingAgentCount(card.fleet, pool.clock.current))
         progressByIssue.set(row.issue.id, card.progress)
@@ -179,29 +267,49 @@ export function createMobileScreenReader(pool: MobxPool) {
       // The banner is independent of board filters and agent-task visibility.
       // A declared proposed query supplies IDs; ancestry uses scalar summaries.
       let proposalCount = 0
-      for (const id of query({ kind: 'board', filter: { stage: 'proposed' }, showAgentTasks: true })) {
-        const facts = requireRow(pool.row('issue', id, 'summary-fields')) as IssueViewModel | undefined
+      for (const id of query({
+        kind: 'board',
+        filter: { stage: 'proposed' },
+        showAgentTasks: true,
+      })) {
+        const facts = requireRow(pool.row('issue', id, 'summary-fields')) as
+          | IssueViewModel
+          | undefined
         if (!facts || !screenable(facts)) continue
         const seen = new Set([id])
-        let next = pool.graph.one('issue', id, 'treeParent') ?? facts.parentId, blocked = false
+        let next = pool.graph.one('issue', id, 'treeParent') ?? facts.parentId,
+          blocked = false
         while (next && !seen.has(next)) {
           seen.add(next)
-          const ancestor = requireRow(pool.row('issue', next, 'summary-fields')) as IssueViewModel | undefined
+          const ancestor = requireRow(pool.row('issue', next, 'summary-fields')) as
+            | IssueViewModel
+            | undefined
           if (!ancestor) break
-          if (ancestor.stage === 'proposed') { blocked = true; break }
+          if (ancestor.stage === 'proposed') {
+            blocked = true
+            break
+          }
           next = pool.graph.one('issue', next, 'treeParent') ?? ancestor.parentId
         }
         if (!blocked) proposalCount++
       }
-      return { issues: [...models.values()].sort((a, b) => byId(a.id, b.id)), sessions: [...sessions.values()].sort(mission.sessionOrder),
-        board, workingByIssue, progressByIssue, proposals: proposalCount }
+      return {
+        issues: [...models.values()].sort((a, b) => byId(a.id, b.id)),
+        sessions: [...sessions.values()].sort(mission.sessionOrder),
+        board,
+        workingByIssue,
+        progressByIssue,
+        proposals: proposalCount,
+      }
     })
   }
   function deck(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
     return memo(`deck:${id}:${mode}`, () => {
       const values = readMissionView(mission, id, mode)
       if (values === LOADING) throw LOADING
-      return values.rows.some(row => row.issue.id === values.root?.id) ? values : { ...values, presence: null }
+      return values.rows.some((row) => row.issue.id === values.root?.id)
+        ? values
+        : { ...values, presence: null }
     })
   }
   function readMission(id: string | null): MobileMissionData | typeof LOADING {
@@ -209,7 +317,8 @@ export function createMobileScreenReader(pool: MobxPool) {
       const values = deck(id, 'full')
       if (values === LOADING) throw LOADING
       if (!values.root) return EMPTY_MOBILE_MISSION
-      const issues = new Map(values.byId), sessions = new Map(values.sessions.map(seat => [seat.sessionId as string, seat]))
+      const issues = new Map(values.byId),
+        sessions = new Map(values.sessions.map((seat) => [seat.sessionId as string, seat]))
       const crew = new Map<string, SessionView>()
       for (const member of values.members) {
         if (!issues.has(member)) {
@@ -225,26 +334,49 @@ export function createMobileScreenReader(pool: MobxPool) {
       }
       // Authorship and child-sheet notes can refer outside the drawn roster.
       for (const row of [...issues.values()]) {
-        for (const dep of row.deps ?? []) if (!issues.has(dep.id)) {
-          const target = requireRow(pool.row('issueBoardRow', dep.id))
-          if (target) issues.set(dep.id, target)
-        }
+        for (const dep of row.deps ?? [])
+          if (!issues.has(dep.id)) {
+            const target = requireRow(pool.row('issueBoardRow', dep.id))
+            if (target) issues.set(dep.id, target)
+          }
         if (row.startedBySession && !sessions.has(row.startedBySession)) {
           const author = requireRow(mission.session(row.startedBySession))
           if (author) sessions.set(author.sessionId, author)
         }
       }
-      return { root: values.root, issues: [...issues.values()].sort((a, b) => byId(a.id, b.id)),
-        sessions: [...sessions.values()].sort(mission.sessionOrder), missionSessions: [...crew.values()].sort(mission.sessionOrder), progress: values.progress }
+      return {
+        root: values.root,
+        issues: [...issues.values()].sort((a, b) => byId(a.id, b.id)),
+        sessions: [...sessions.values()].sort(mission.sessionOrder),
+        missionSessions: [...crew.values()].sort(mission.sessionOrder),
+        progress: values.progress,
+      }
     })
   }
-  return { tasks, mission: readMission, deck, dispose() { disposed = true; cache.clear(); mission.dispose() } }
+  return {
+    tasks,
+    mission: readMission,
+    deck,
+    dispose() {
+      disposed = true
+      cache.clear()
+      mission.dispose()
+    },
+  }
 }
 
-export async function attachMobileScreens(pool: MobxPool, owner?: Parameters<typeof createIssueBoardSource>[1]) {
-  await pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () => createIssueBoardSource(pool, owner))
+export async function attachMobileScreens(
+  pool: MobxPool,
+  owner?: Parameters<typeof createIssueBoardSource>[1],
+) {
+  await pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
+    createIssueBoardSource(pool, owner),
+  )
   return pool.sources.ensure(MOBILE_SCREEN_SOURCE_KEY, MOBILE_SCREEN_ENTITIES, () => {
     const reader = createMobileScreenReader(pool)
-    return { read: (entity: string) => entity === 'mobileScreenReader' ? reader : undefined, dispose: () => reader.dispose() }
+    return {
+      read: (entity: string) => (entity === 'mobileScreenReader' ? reader : undefined),
+      dispose: () => reader.dispose(),
+    }
   })
 }

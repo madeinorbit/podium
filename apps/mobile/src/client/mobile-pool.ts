@@ -30,8 +30,8 @@ import {
   MOBILE_INBOX_SUMMARIES,
   MOBILE_INBOX_VIEW_KEY,
 } from '@podium/client-graph/mobile-inbox-schema'
-import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
 import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
+import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {

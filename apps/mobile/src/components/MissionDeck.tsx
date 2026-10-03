@@ -166,14 +166,11 @@ export const MissionDeck = memo(function MissionDeck({
   )
   // UNSPREAD ON PURPOSE: the engine memoizes per (issues, sessions) ARRAY
   // IDENTITY — copying here would mint fresh identities and defeat that cache.
-  const rows = useMemo(
-    () => {
-      if (presentation) return presentation.rows
-      recordSliceDerivation(owner, 'mobileScreens.deck')
-      return buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths)
-    },
-    [issues, sessions, root.id, mode, allWorktreePaths, presentation, owner],
-  )
+  const rows = useMemo(() => {
+    if (presentation) return presentation.rows
+    recordSliceDerivation(owner, 'mobileScreens.deck')
+    return buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths)
+  }, [issues, sessions, root.id, mode, allWorktreePaths, presentation, owner])
   const shown = useMemo(() => applyFolds(rows, folds), [rows, folds])
   /**
    * PROPOSALS SINK. A childless proposal leaves the sibling order and collects
@@ -309,12 +306,20 @@ export const MissionDeck = memo(function MissionDeck({
   )
   const allFolded =
     foldable.length > 0 && foldable.every((row) => flightDeckRowIsFolded(row, folds))
-  const rootEmptyNote = presentation ? presentation.presence : rootRow
-    ? presenceNote(rootRow.issue, rootRow.sessions, byId, sessions) : null
+  const rootEmptyNote = presentation
+    ? presentation.presence
+    : rootRow
+      ? presenceNote(rootRow.issue, rootRow.sessions, byId, sessions)
+      : null
   const rootRetired = rootEmptyNote?.kind === 'done'
-  const rootContinuation = presentation ? presentation.continuation : issueContinuation(root, byId, sessions)
+  const rootContinuation = presentation
+    ? presentation.continuation
+    : issueContinuation(root, byId, sessions)
   const allDepartures = useMemo(
-    () => presentation ? presentation.departures : missionDepartures(issues, sessions, root.id, allWorktreePaths),
+    () =>
+      presentation
+        ? presentation.departures
+        : missionDepartures(issues, sessions, root.id, allWorktreePaths),
     [allWorktreePaths, issues, root.id, sessions, presentation],
   )
   const continuationTargetId = rootContinuation?.target?.id
@@ -494,7 +499,9 @@ export const MissionDeck = memo(function MissionDeck({
             childFollows={(spineRows[index + 1]?.depth ?? 0) > row.depth}
             mode={mode}
             byId={byId}
-            poolPresentation={presentation ? { value: presentation.rowPresentation.get(row.issue.id)! } : undefined}
+            poolPresentation={
+              presentation ? { value: presentation.rowPresentation.get(row.issue.id)! } : undefined
+            }
             nameOf={nameOf}
             folded={flightDeckRowIsFolded(row, folds)}
             currentSessionId={currentSessionId}
@@ -590,16 +597,26 @@ function SpineRow({
   onOpenTaskMenu?: (i: IssueNavigationModel) => void
   onOpenSession: (s: SessionView) => void
 }) {
-  const state = poolPresentation ? poolPresentation.value.state : deckIssueState(row.issue, row.sessions, byId)
+  const state = poolPresentation
+    ? poolPresentation.value.state
+    : deckIssueState(row.issue, row.sessions, byId)
   const context = mode !== 'full' && !row.matched
-  const note = context ? null : poolPresentation ? poolPresentation.value.note : issueNote(row.issue, byId, row.sessions)
+  const note = context
+    ? null
+    : poolPresentation
+      ? poolPresentation.value.note
+      : issueNote(row.issue, byId, row.sessions)
   const bands = folded ? [] : deckSessions(row, mode)
   // The seat is held for work that could be picked up — never under a proposal,
   // and never to restate a dependency the strip has already named above it.
   const seat =
     context || row.issue.stage === 'proposed'
       ? null
-      : seatFor(poolPresentation ? poolPresentation.value.presence : presenceNote(row.issue, row.sessions, byId))
+      : seatFor(
+          poolPresentation
+            ? poolPresentation.value.presence
+            : presenceNote(row.issue, row.sessions, byId),
+        )
   // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload:
   // "2 running" is the thing the fold is hiding, and `3 tasks` is printed on the
   // same line beside it.

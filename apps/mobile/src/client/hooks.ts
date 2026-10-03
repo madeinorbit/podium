@@ -325,19 +325,26 @@ function useLegacyTaskScreenData(options: MobileTasksOptions): TasksRead {
     const board = taskBoardSections(issues, { ...options, expanded: new Set(options.expanded) })
     const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
     return {
-      issues, sessions, booting, board, workingByIssue,
+      issues,
+      sessions,
+      booting,
+      board,
+      workingByIssue,
       progressByIssue: taskBoardProgress(issues, board, workingByIssue),
       proposals: buildScreeningQueue(issues).length,
     }
   }, [issues, sessions, booting, now, options])
 }
 function usePoolTaskScreenData(options: MobileTasksOptions): TasksRead {
-  const read = useCallback((pool: MobxPool): TasksRead => {
-    const reader = pool.row('mobileScreenReader', 'reader')
-    if (!reader || typeof reader === 'symbol') return EMPTY_TASKS_READ
-    const data = reader.tasks(options)
-    return typeof data === 'symbol' ? EMPTY_TASKS_READ : { ...data, booting: poolBooting(pool) }
-  }, [options])
+  const read = useCallback(
+    (pool: MobxPool): TasksRead => {
+      const reader = pool.row('mobileScreenReader', 'reader')
+      if (!reader || typeof reader === 'symbol') return EMPTY_TASKS_READ
+      const data = reader.tasks(options)
+      return typeof data === 'symbol' ? EMPTY_TASKS_READ : { ...data, booting: poolBooting(pool) }
+    },
+    [options],
+  )
   return useMobilePoolProjection(read, EMPTY_TASKS_READ)
 }
 /** One startup choice, shared with the mobile pilot; no legacy fallback on ON. */
@@ -356,7 +363,9 @@ function useLegacyMissionScreenData(id: string, screen: 'mission' | 'details'): 
   return useMemo(() => {
     const root = missionRootFor(issues, id)
     return {
-      root, issues, sessions,
+      root,
+      issues,
+      sessions,
       missionSessions: root ? missionSessions(issues, sessions, root.id) : [],
       progress: missionProgress(issues, sessions, root?.id),
       resolved: root !== undefined || (!booting && issues.length > 0),
@@ -364,14 +373,20 @@ function useLegacyMissionScreenData(id: string, screen: 'mission' | 'details'): 
   }, [issues, sessions, id, booting])
 }
 function usePoolMissionScreenData(id: string, _screen: 'mission' | 'details'): MissionRead {
-  const read = useCallback((pool: MobxPool): MissionRead => {
-    const reader = pool.row('mobileScreenReader', 'reader')
-    if (!reader || typeof reader === 'symbol') return EMPTY_MISSION_READ
-    const data = reader.mission(id)
-    return typeof data === 'symbol' ? EMPTY_MISSION_READ : {
-      ...data, resolved: data.root !== undefined || !poolBooting(pool),
-    }
-  }, [id])
+  const read = useCallback(
+    (pool: MobxPool): MissionRead => {
+      const reader = pool.row('mobileScreenReader', 'reader')
+      if (!reader || typeof reader === 'symbol') return EMPTY_MISSION_READ
+      const data = reader.mission(id)
+      return typeof data === 'symbol'
+        ? EMPTY_MISSION_READ
+        : {
+            ...data,
+            resolved: data.root !== undefined || !poolBooting(pool),
+          }
+    },
+    [id],
+  )
   return useMobilePoolProjection(read, EMPTY_MISSION_READ)
 }
 function useLegacyMissionDetailsData(id: string, _screen: 'mission' | 'details'): MissionRead {
@@ -380,30 +395,56 @@ function useLegacyMissionDetailsData(id: string, _screen: 'mission' | 'details')
   const sessions = useSessions()
   return useMemo(() => {
     const root = missionRootFor(issues, id)
-    return { root, issues, sessions, missionSessions: root ? missionSessions(issues, sessions, root.id) : [],
-      progress: EMPTY_MOBILE_MISSION.progress, resolved: root !== undefined }
+    return {
+      root,
+      issues,
+      sessions,
+      missionSessions: root ? missionSessions(issues, sessions, root.id) : [],
+      progress: EMPTY_MOBILE_MISSION.progress,
+      resolved: root !== undefined,
+    }
   }, [issues, sessions, id])
 }
-export function useMissionScreenData(id: string, screen: 'mission' | 'details' = 'mission'): MissionRead {
-  const useRead = mobileDataLayer() === 'pool' ? usePoolMissionScreenData :
-    screen === 'details' ? useLegacyMissionDetailsData : useLegacyMissionScreenData
+export function useMissionScreenData(
+  id: string,
+  screen: 'mission' | 'details' = 'mission',
+): MissionRead {
+  const useRead =
+    mobileDataLayer() === 'pool'
+      ? usePoolMissionScreenData
+      : screen === 'details'
+        ? useLegacyMissionDetailsData
+        : useLegacyMissionScreenData
   return useRead(id, screen)
 }
 
 const EMPTY_DECK: MissionViewValues = {
-  root: undefined, rows: [], members: new Set(), byId: new Map(), sessions: [], archived: [],
-  titles: new Map(), progress: EMPTY_MOBILE_MISSION.progress, departures: [], continuation: null,
-  note: null, presence: null, rowPresentation: new Map(),
+  root: undefined,
+  rows: [],
+  members: new Set(),
+  byId: new Map(),
+  sessions: [],
+  archived: [],
+  titles: new Map(),
+  progress: EMPTY_MOBILE_MISSION.progress,
+  departures: [],
+  continuation: null,
+  note: null,
+  presence: null,
+  rowPresentation: new Map(),
 }
 /** The details deck's mode is local UI state; the addressed pool reader owns
  * its rows, state words, notes, continuation and departures. */
 export function usePoolMissionDeckData(id: string, mode: FlightDeckMode): MissionViewValues {
-  const read = useCallback((pool: MobxPool) => {
-    const reader = pool.row('mobileScreenReader', 'reader')
-    if (!reader || typeof reader === 'symbol') return EMPTY_DECK
-    const data = reader.deck(id, mode)
-    return typeof data === 'symbol' ? EMPTY_DECK : data
-  }, [id, mode])
+  const read = useCallback(
+    (pool: MobxPool) => {
+      const reader = pool.row('mobileScreenReader', 'reader')
+      if (!reader || typeof reader === 'symbol') return EMPTY_DECK
+      const data = reader.deck(id, mode)
+      return typeof data === 'symbol' ? EMPTY_DECK : data
+    },
+    [id, mode],
+  )
   return useMobilePoolProjection(read, EMPTY_DECK)
 }
 
