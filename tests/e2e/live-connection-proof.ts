@@ -198,8 +198,15 @@ export async function liveConnectionProof() {
         const first = await context.newPage(),
           second = await context.newPage()
         const errors: string[] = []
-        for (const page of [first, second])
-          page.on('pageerror', (error) => errors.push(error.message))
+        for (const page of [first, second]) {
+          page.on('pageerror', (error) => {
+            errors.push(error.message)
+            console.error(`connection fixture ${app}: ${error.message}`)
+          })
+          page.on('console', (message) => {
+            if (message.type() === 'error') console.error(`connection fixture ${app}: ${message.text()}`)
+          })
+        }
         await first.goto(`${origin}/?app=${app}&tab=one#pane`)
         await first.waitForFunction(
           () => (window as FixtureWindow).connectionProof?.state().connected,
