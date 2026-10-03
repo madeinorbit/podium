@@ -166,7 +166,7 @@ test('production mobile never derives worklist with the pilot on, including miss
     await page.getByLabel('New work', { exact: true }).click()
     await expect(page.getByLabel(/^Start in /)).toBeVisible()
     await checkpoint(on, 'new work sheet')
-    await page.getByLabel('Close', { exact: true }).click()
+    await page.getByLabel('Close', { exact: true }).click({ position: { x: 8, y: 8 } })
     await rpc(request, 'issues.update', {
       id: issues[0]!.id,
       patch: { description: `Incoming update ${on}` },

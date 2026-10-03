@@ -86,7 +86,12 @@ vi.mock('../components/PressableScale', () => ({
     onPress?: () => void
     onLongPress?: () => void
   }) => (
-    <button type="button" aria-label={accessibilityLabel} onClick={onPress} onContextMenu={onLongPress}>
+    <button
+      type="button"
+      aria-label={accessibilityLabel}
+      onClick={onPress}
+      onContextMenu={onLongPress}
+    >
       {children}
     </button>
   ),
