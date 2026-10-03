@@ -87,7 +87,12 @@ await build({
           return {
             code:
               "import { useCallback as retainAccountCallback } from 'react';\n" +
-              code.replace(close, '  retainAccountCallback(() => closeFileTab, [])\n' + close),
+              code.replace(
+                close,
+                '  const plantedSharedCallback = retainAccountCallback(() => closeFileTab, [])\n' +
+                  '  ;(window as any).__plantedSharedScopeCallback ??= plantedSharedCallback\n' +
+                  close,
+              ),
             map: null,
           }
         }
