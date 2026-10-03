@@ -72,7 +72,7 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
   }
   const seat = ctx.cache.read('session', ctx.targets.phaseSessionId)!.value as Record<string, unknown>
   for (const [id, owner] of [[SESSION, ROOT], [OTHER_SESSION, CHILD]] as const) {
-    upsert(ctx, 'session', id, { ...seat, id, sessionId: id, resume: undefined, issueId: owner, machineId: ctx.engine.getSnapshot().machines[0]!.id, archived: false, headless: false,
+    upsert(ctx, 'session', id, { ...seat, id, sessionId: id, resume: undefined, issueId: owner, machineId: ctx.corpus.machines[0]!.id, archived: false, headless: false,
       status: 'live', agentKind: 'codex', lastActiveAt: ctx.stamp() })
   }
   // Closed historical sessions in the addressed mission expose full-history walks
@@ -230,8 +230,12 @@ export async function poolScreenCellsAt(scale: FixtureScale): Promise<ScreenWork
       'navigate-by-ref': () => { insideReader('navigation.navigate-by-ref', () => ctx.engine.getSnapshot().navigateToSession(asSessionId(ref))) },
       heartbeat: () => seatPatch({ lastActiveAt: ctx.stamp() }),
       'machine-flip': () => {
-        const id = ctx.engine.getSnapshot().machines[0]!.id
-        upsert(ctx, 'machine', id, { ...ctx.cache.read('machine', id)!.value as object, online: false }, 3)
+        const id = ctx.corpus.machines[0]!.id
+        const machine = ctx.cache.read('machine', id)!.value as { loggedOutHarnesses: string[] }
+        const loggedOutHarnesses = machine.loggedOutHarnesses.includes('codex')
+          ? machine.loggedOutHarnesses.filter(kind => kind !== 'codex')
+          : [...machine.loggedOutHarnesses, 'codex']
+        upsert(ctx, 'machine', id, { ...machine, loggedOutHarnesses }, 3)
       },
       'lane-change': () => issuePatch({ stage: 'review', updatedAt: ctx.stamp() }),
     }
