@@ -111,9 +111,10 @@ describe('rendered mission pane parity', () => {
     if (!root) throw new Error('Missing mission fixture')
     const renamed = { ...root, title: 'Changed mission catalog check' }
     state.layer = 'pool'; state.selectedIssueId = root.id
-    const publishCatalog = (prefix: string) => pool.apply({ type: 'update', rows: [{ kind: 'repo', id: 'catalog-only', value: { id: 'catalog-only', prefix } }] })
+    const publishCatalog = (prefix: string) => pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: '/catalog-only',
+      value: { path: '/catalog-only', repoPath: '/catalog-only', repoName: 'Catalog only', prefix } }] })
     publishCatalog('before')
-    vi.spyOn(pool.headerViews, 'machines').mockImplementation(() => { pool.row('repo', 'catalog-only'); return [] })
+    vi.spyOn(pool.headerViews, 'machines').mockImplementation(() => { pool.row('worktree', '/catalog-only'); return [] })
     const committed = vi.fn()
     const current = mount('full', committed); await settled()
     const before = committed.mock.calls.length
