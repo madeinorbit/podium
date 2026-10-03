@@ -20,17 +20,17 @@ import {
   demoEnabled,
 } from '../client/demoData'
 import { useTrpc } from '../client/hooks'
-import { usePulseLive } from '../client/use-inbox-data'
 import { useServerProfile } from '../client/server-profile-context'
 import { serverProfileRequestKey } from '../client/server-profiles'
+import { usePulseLive } from '../client/use-inbox-data'
 import {
   beginCapacityRefresh,
   CapacityRefreshFence,
   CapacityRefreshScheduler,
   isCapacityAuthenticationFailure,
   selectCapacityRefreshMachineIds,
-  settleWithConcurrency,
   settleCapacityRefresh,
+  settleWithConcurrency,
 } from './capacity-refresh'
 
 /**

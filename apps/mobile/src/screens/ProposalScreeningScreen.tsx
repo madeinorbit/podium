@@ -5,18 +5,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useStoreActions, useTrpc } from '../client/hooks'
-import { reconcileScreeningIds, useScreeningQueue, useScreeningRows } from '../client/use-inbox-data'
+import {
+  reconcileScreeningIds,
+  useScreeningQueue,
+  useScreeningRows,
+} from '../client/use-inbox-data'
 import { Icon } from '../components/Icon'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { ScreeningCard } from '../components/ScreeningCard'
 import { EmptyState } from '../components/ui'
-import {
-  applyScreeningDecision,
-  type ScreeningOutcome,
-  screeningTally,
-} from '../lib/screening'
+import { applyScreeningDecision, type ScreeningOutcome, screeningTally } from '../lib/screening'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
 interface Deck {
@@ -66,7 +66,14 @@ export function ProposalScreeningScreen() {
   const [failures, setFailures] = useState<Failure[]>([])
   const [pending, setPending] = useState<string[]>([])
   const inFlight = useRef(new Set<string>())
-  const readIds = useMemo(() => [deck.order[deck.index] ?? '', deck.order[deck.index + 1] ?? '', ...failures.map(failure => failure.id)], [deck, failures])
+  const readIds = useMemo(
+    () => [
+      deck.order[deck.index] ?? '',
+      deck.order[deck.index + 1] ?? '',
+      ...failures.map((failure) => failure.id),
+    ],
+    [deck, failures],
+  )
   const rows = useScreeningRows(readIds, queue.legacyIssues)
   const booting = queue.booting || rows.loading
   const issueById = useCallback((id: string) => rows.issues[id], [rows.issues])

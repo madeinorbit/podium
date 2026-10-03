@@ -1196,14 +1196,22 @@ export function createRowSource(
   const source: RowSource = {
     snapshot,
     row,
-    ...(replica.issueIdByRef ? { issueIdByRef(ref: string): string | undefined {
-      if (disposed) throw new Error('createRowSource: issueIdByRef() on a disposed source')
-      return replica.issueIdByRef!(ref)
-    } } : {}),
-    ...(replica.issueIdsByRef ? { issueIdsByRef(ref: string): readonly string[] {
-      if (disposed) throw new Error('createRowSource: issueIdsByRef() on a disposed source')
-      return replica.issueIdsByRef!(ref)
-    } } : {}),
+    ...(replica.issueIdByRef
+      ? {
+          issueIdByRef(ref: string): string | undefined {
+            if (disposed) throw new Error('createRowSource: issueIdByRef() on a disposed source')
+            return replica.issueIdByRef!(ref)
+          },
+        }
+      : {}),
+    ...(replica.issueIdsByRef
+      ? {
+          issueIdsByRef(ref: string): readonly string[] {
+            if (disposed) throw new Error('createRowSource: issueIdsByRef() on a disposed source')
+            return replica.issueIdsByRef!(ref)
+          },
+        }
+      : {}),
     subscribe(listener: (event: RowSourceEvent) => void): () => void {
       listeners.add(listener)
       return () => {

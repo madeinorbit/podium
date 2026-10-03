@@ -1,11 +1,9 @@
-import { useRouter } from 'expo-router'
 import type { PodiumTarget } from '@podium/protocol'
+import { useRouter } from 'expo-router'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native'
 import { useAuthStatus } from '../client/auth-context'
 import { useBooting, useHttpOrigin, useIssues, useSessions } from '../client/hooks'
-import { mobileDataLayer } from '../client/mobile-pool'
-import { usePoolLinkData } from '../client/use-inbox-data'
 import {
   consumePendingMobileHandoff,
   decideMobileHandoff,
@@ -13,7 +11,9 @@ import {
   pendingMobileHandoffSnapshot,
   subscribePendingMobileHandoff,
 } from '../client/mobile-handoff'
+import { mobileDataLayer } from '../client/mobile-pool'
 import { useServerProfile } from '../client/server-profile-context'
+import { usePoolLinkData } from '../client/use-inbox-data'
 import { MOBILE_HOME } from '../lib/navigation'
 import {
   mobilePodiumRoute,
@@ -36,8 +36,13 @@ import {
  * rows — resolving `POD-1606` is a live-data question.
  */
 function useLegacyLinkData(target: PodiumTarget | null) {
-  const issues = useIssues(), sessions = useSessions(), booting = useBooting()
-  const resolveRoute = useMemo(() => (next: PodiumTarget) => mobilePodiumRoute(next, { issues, sessions }), [issues, sessions])
+  const issues = useIssues(),
+    sessions = useSessions(),
+    booting = useBooting()
+  const resolveRoute = useMemo(
+    () => (next: PodiumTarget) => mobilePodiumRoute(next, { issues, sessions }),
+    [issues, sessions],
+  )
   return { sessions, booting, route: target ? resolveRoute(target) : null, resolveRoute }
 }
 
@@ -51,9 +56,16 @@ export function PodiumLinkHost() {
     pendingMobileHandoffSnapshot,
     pendingMobileHandoffSnapshot,
   )
-  const target = useMemo<PodiumTarget | null>(() => pending.request?.kind === 'destination'
-    ? { kind: 'session', session: pending.request.destination.sessionId }
-    : pending.request?.kind === 'navigation' ? pending.request.target : null, [pending.request])
+  const target = useMemo<PodiumTarget | null>(
+    () =>
+      pending.request?.kind === 'destination'
+        ? { kind: 'session', session: pending.request.destination.sessionId }
+        : pending.request?.kind === 'navigation'
+          ? pending.request.target
+          : null,
+    [pending.request],
+  )
+  // biome-ignore lint/correctness/useHookAtTopLevel: the device switch is latched once before this host mounts
   const data = mobileDataLayer() === 'pool' ? usePoolLinkData(target) : useLegacyLinkData(target)
   const { sessions, booting } = data
   const [handoffStatus, setHandoffStatus] = useState('')
@@ -78,7 +90,10 @@ export function PodiumLinkHost() {
       const route = data.resolveRoute(target)
       return route instanceof Promise ? route.then(open) : open(route)
     })
-    return () => { active = false; setPodiumTargetActivator(null) }
+    return () => {
+      active = false
+      setPodiumTargetActivator(null)
+    }
   }, [data.resolveRoute, router])
 
   useEffect(() => {
@@ -141,7 +156,9 @@ export function PodiumLinkHost() {
       return
     }
     consumePendingMobileHandoff(pending.id)
-    setHandoffStatus(decision.target.kind === 'issue' ? 'Opening the task.' : 'Opening the session.')
+    setHandoffStatus(
+      decision.target.kind === 'issue' ? 'Opening the task.' : 'Opening the session.',
+    )
     router.replace(route as never)
   }, [activation, authStatus, booting, data.route, pending, profile.id, profiles, router, sessions])
 

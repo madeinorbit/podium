@@ -15,9 +15,6 @@ import { debugFlagEnabled, MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state
 import { COMMAND_ENTITIES, COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
 import type { commandLaunchViews, CommandLaunchData } from '@podium/client-graph/command-launch-views'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUPERAGENT_SUMMARIES, createSuperagentSource } from '@podium/client-graph/superagent'
-import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
-import { MOBILE_INBOX_ENTITIES, MOBILE_INBOX_SOURCE_KEY, MOBILE_INBOX_SUMMARIES, MOBILE_INBOX_VIEW_KEY } from '@podium/client-graph/mobile-inbox-schema'
 import {
   createPoolHost,
   type PoolDataLayer,
@@ -25,6 +22,19 @@ import {
   type PoolSwitchStorage,
   poolSwitches,
 } from '@podium/client-graph/host'
+import {
+  MOBILE_INBOX_ENTITIES,
+  MOBILE_INBOX_SOURCE_KEY,
+  MOBILE_INBOX_SUMMARIES,
+  MOBILE_INBOX_VIEW_KEY,
+} from '@podium/client-graph/mobile-inbox-schema'
+import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
+import {
+  createSuperagentSource,
+  SUPERAGENT_ENTITIES,
+  SUPERAGENT_SOURCE_KEY,
+  SUPERAGENT_SUMMARIES,
+} from '@podium/client-graph/superagent'
 
 /** TEMPORARY with the per-screen switches: mobile has no per-screen overrides;
  * every screen falls back to this device's setting. */
@@ -70,19 +80,34 @@ export function createMobilePool(
           preferences: true,
           header: true,
           settings: true,
-          summaries: { issue: MOBILE_INBOX_SUMMARIES.issue, session: [...SUPERAGENT_SUMMARIES.session, ...NOTICE_SUMMARIES.session, ...MOBILE_INBOX_SUMMARIES.session] },
+          summaries: {
+            issue: MOBILE_INBOX_SUMMARIES.issue,
+            session: [
+              ...SUPERAGENT_SUMMARIES.session,
+              ...NOTICE_SUMMARIES.session,
+              ...MOBILE_INBOX_SUMMARIES.session,
+            ],
+          },
         }),
         async attach(runtime, pool) {
           const { createMobileSettingsSource, MOBILE_SETTINGS_SOURCE_KEY, MOBILE_SETTINGS_ENTITIES } =
             await import('@podium/client-graph/mobile-settings')
           await pool.sources.ensure(MOBILE_SETTINGS_SOURCE_KEY, MOBILE_SETTINGS_ENTITIES, () => createMobileSettingsSource(runtime))
-          await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => createSuperagentSource(runtime))
+          await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () =>
+            createSuperagentSource(runtime),
+          )
           const [{ NoticeSource, NOTICE_SOURCE_KEY }, { NOTICE_ENTITIES }] = await Promise.all([
-            import('@podium/client-graph/notice-source'), import('@podium/client-graph/notice-schema'),
+            import('@podium/client-graph/notice-source'),
+            import('@podium/client-graph/notice-schema'),
           ])
-          await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(runtime))
+          await pool.sources.ensure(
+            NOTICE_SOURCE_KEY,
+            NOTICE_ENTITIES,
+            () => new NoticeSource(runtime),
+          )
           const [{ MobileInboxSource }, { createMobileInboxViews }] = await Promise.all([
-            import('@podium/client-graph/mobile-inbox-source'), import('@podium/client-graph/mobile-inbox-views'),
+            import('@podium/client-graph/mobile-inbox-source'),
+            import('@podium/client-graph/mobile-inbox-views'),
           ])
           await pool.sources.ensure(MOBILE_INBOX_SOURCE_KEY, MOBILE_INBOX_ENTITIES, () => {
             pool.sources.view(MOBILE_INBOX_VIEW_KEY, () => createMobileInboxViews(pool))

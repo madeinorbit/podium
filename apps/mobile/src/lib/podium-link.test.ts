@@ -12,7 +12,9 @@ import {
 const PAIRED = 'https://ludovico.example'
 
 const issues = [{ id: 'iss_abc', prefix: 'POD', seq: 1606, displayRef: 'POD-1606' }]
-const sessions = [sessionView({ sessionId: 'sess-1', refSeq: 1606, refLetter: 'A' }, { repo: { prefix: 'POD' } })]
+const sessions = [
+  sessionView({ sessionId: 'sess-1', refSeq: 1606, refLetter: 'A' }, { repo: { prefix: 'POD' } }),
+]
 
 afterEach(() => {
   setKnownPodiumOrigins([])

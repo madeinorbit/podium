@@ -27,7 +27,13 @@ import {
 } from '@podium/protocol'
 import { Linking } from 'react-native'
 
-export { findLinkedIssue, findLinkedSession, mobilePodiumRoute, type LinkIssueLike, type LinkSessionLike } from './podium-route'
+export {
+  findLinkedIssue,
+  findLinkedSession,
+  type LinkIssueLike,
+  type LinkSessionLike,
+  mobilePodiumRoute,
+} from './podium-route'
 
 /**
  * TWO SLOTS, NOT ONE LIST. The paired profiles and the active server are
@@ -111,13 +117,16 @@ export function followPodiumLink(href: string): void {
       link.origin === null || (active !== null && link.origin === active)
     const fallbackOrigin = link.origin ?? activeOrigin
     const fallback = () => {
-      if (fallbackOrigin) void Linking.openURL(formatPodiumLinkFallback(fallbackOrigin, href, link)).catch(() => {})
+      if (fallbackOrigin)
+        void Linking.openURL(formatPodiumLinkFallback(fallbackOrigin, href, link)).catch(() => {})
     }
     if (addressesActiveServer) {
       const answer = activator?.(link.target)
       if (answer === true) return
       if (answer instanceof Promise) {
-        void answer.then(opened => { if (!opened) fallback() }, fallback)
+        void answer.then((opened) => {
+          if (!opened) fallback()
+        }, fallback)
         return
       }
     }

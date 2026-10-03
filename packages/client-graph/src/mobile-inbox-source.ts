@@ -1,15 +1,17 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
-import type { MobxPool } from './pool'
 import { knownIssueIds } from './enumerate'
 import type { MobileInboxRows } from './mobile-inbox-schema'
+import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Lazily attached by PoolSources.ensure under the fixed mobile-inbox key.
  * Only cursor progress is borrowed from the existing replica. Entity values
  * and cold summaries always pass through pool.row. */
 export class MobileInboxSource {
-  private readonly state = observable.box<Loaded<MobileInboxRows['mobileInboxState']>>(LOADING, { deep: false })
+  private readonly state = observable.box<Loaded<MobileInboxRows['mobileInboxState']>>(LOADING, {
+    deep: false,
+  })
   private demanded = false
   private scheduled = false
   private disposed = false
@@ -17,36 +19,46 @@ export class MobileInboxSource {
   readonly counts = { batches: 0, prefixReads: 0 }
   private readonly prefixes
 
-  constructor(private readonly runtime: Pick<ClientRuntime, 'replica' | 'subscribe'>, pool: MobxPool) {
+  constructor(
+    private readonly runtime: Pick<ClientRuntime, 'replica' | 'subscribe'>,
+    pool: MobxPool,
+  ) {
     pool.references.requireOrderedBareAliases()
-    this.stop = runtime.subscribe(() => { if (this.demanded) this.schedule() })
-    this.prefixes = computed((): Loaded<MobileInboxRows['mobileReferencePrefixes']> => {
-      this.counts.prefixReads++
-      const used = new Set<string>()
-      // Visible tasks contribute only their declared repoId summary. This
-      // shared result is cached once per pool, not once per chip/token; it
-      // builds no issue index and retains no cold payloads.
-      let loading = false
-      for (const id of knownIssueIds(pool)) {
-        const row = pool.row('issue', id, 'summary') as Loaded<{ repoId?: string }>
-        if (row === LOADING) loading = true
-        else if (row?.repoId) used.add(row.repoId)
-      }
-      const prefixes = new Set<string>()
-      for (const id of used) {
-        const row = pool.row('repo', id) as Loaded<{ prefix?: string }>
-        if (row === LOADING) loading = true
-        else if (row?.prefix) prefixes.add(row.prefix)
-      }
-      return loading ? LOADING : { prefixes: [...prefixes].sort() }
-    }, { equals: compareStructural })
+    this.stop = runtime.subscribe(() => {
+      if (this.demanded) this.schedule()
+    })
+    this.prefixes = computed(
+      (): Loaded<MobileInboxRows['mobileReferencePrefixes']> => {
+        this.counts.prefixReads++
+        const used = new Set<string>()
+        // Visible tasks contribute only their declared repoId summary. This
+        // shared result is cached once per pool, not once per chip/token; it
+        // builds no issue index and retains no cold payloads.
+        let loading = false
+        for (const id of knownIssueIds(pool)) {
+          const row = pool.row('issue', id, 'summary') as Loaded<{ repoId?: string }>
+          if (row === LOADING) loading = true
+          else if (row?.repoId) used.add(row.repoId)
+        }
+        const prefixes = new Set<string>()
+        for (const id of used) {
+          const row = pool.row('repo', id) as Loaded<{ prefix?: string }>
+          if (row === LOADING) loading = true
+          else if (row?.prefix) prefixes.add(row.prefix)
+        }
+        return loading ? LOADING : { prefixes: [...prefixes].sort() }
+      },
+      { equals: compareStructural },
+    )
   }
 
   read<E extends keyof MobileInboxRows>(entity: E, _id: string): Loaded<MobileInboxRows[E]> {
     if (this.disposed) return LOADING
     this.demanded = true
     if (this.state.get() === LOADING) this.schedule()
-    return (entity === 'mobileReferencePrefixes' ? this.prefixes.get() : this.state.get()) as Loaded<MobileInboxRows[E]>
+    return (
+      entity === 'mobileReferencePrefixes' ? this.prefixes.get() : this.state.get()
+    ) as Loaded<MobileInboxRows[E]>
   }
 
   private schedule(): void {
@@ -57,12 +69,18 @@ export class MobileInboxSource {
       if (this.disposed) return
       const hasCursor = this.runtime.replica.getCursor() !== null
       runInAction(() => {
-        if (this.state.get() === LOADING || (this.state.get() as MobileInboxRows['mobileInboxState']).hasCursor !== hasCursor)
+        if (
+          this.state.get() === LOADING ||
+          (this.state.get() as MobileInboxRows['mobileInboxState']).hasCursor !== hasCursor
+        )
           this.state.set({ hasCursor })
         this.counts.batches++
       })
     })
   }
 
-  dispose(): void { this.disposed = true; this.stop() }
+  dispose(): void {
+    this.disposed = true
+    this.stop()
+  }
 }

@@ -58,7 +58,9 @@ export class IssueReferences implements IssueReferenceReader {
   /** Enabled once by the phone source before its readers mount. A resident
    * claimant can have an earlier cold twin, so bare aliases demand the same
    * batched authority lookup instead of borrowing the warmed row's position. */
-  requireOrderedBareAliases(): void { this.orderedBareAliases = true }
+  requireOrderedBareAliases(): void {
+    this.orderedBareAliases = true
+  }
   /** A replacement changes the visible scope. Only unresolved demand keys
    * need a fresh replica answer; resident subscriptions stay untouched. */
   resetUnresolved(): void {
@@ -75,13 +77,19 @@ export class IssueReferences implements IssueReferenceReader {
 
   /** An arriving cold row can satisfy a previously missing demand key.
    * Refresh only that key inside the pool's publication action. */
-  arrived(row: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'> & { repoId?: string | null }): void {
+  arrived(
+    row: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'> & { repoId?: string | null },
+  ): void {
     // Normalized projections carry repoId and seq, not a derived prefix.
     // Use the same resident repo join as source(), without warming this issue.
     const repo = row.repoId ? this.host.row('repo', row.repoId) : undefined
     if (repo === LOADING) return
     const prefix = (repo as { prefix?: string | null } | undefined)?.prefix ?? row.prefix
-    const ref = row.repoId ? (prefix ? `${prefix}-${row.seq}` : `#${row.seq}`) : canonicalIssueRef(row)
+    const ref = row.repoId
+      ? prefix
+        ? `${prefix}-${row.seq}`
+        : `#${row.seq}`
+      : canonicalIssueRef(row)
     const key = issueRefKey(ref)
     if (!this.requests.has(key)) return
     this.requests.set(key, LOADING)
@@ -142,7 +150,9 @@ export class IssueReferences implements IssueReferenceReader {
             // Replica.rows() orders by row ID. Keep all resident claimants in
             // the same index so a load arriving late cannot steal an earlier
             // alias, and eviction hands it to the next owner without a scan.
-            const owners = [...(this.resident.get(key) ?? []), id].sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+            const owners = [...(this.resident.get(key) ?? []), id].sort((a, b) =>
+              a < b ? -1 : a > b ? 1 : 0,
+            )
             this.resident.set(key, owners)
             this.requests.delete(key)
           }
@@ -156,7 +166,7 @@ export class IssueReferences implements IssueReferenceReader {
   }
 
   private release(key: string, id: string): void {
-    const owners = (this.resident.get(key) ?? []).filter(owner => owner !== id)
+    const owners = (this.resident.get(key) ?? []).filter((owner) => owner !== id)
     if (owners.length) this.resident.set(key, owners)
     else this.resident.delete(key)
     if (this.orderedBareAliases && key.startsWith('#')) this.requests.delete(key)
@@ -176,13 +186,14 @@ export class IssueReferences implements IssueReferenceReader {
     if (resident !== undefined && !orderedBare) return resident
     const pending = this.requests.get(key)
     if (pending !== undefined) {
-      if (typeof pending !== 'string') return pending === null && orderedBare ? resident ?? null : pending
+      if (typeof pending !== 'string')
+        return pending === null && orderedBare ? (resident ?? null) : pending
       const model = this.readById(pending)
       // A prefix change cannot bind an old token to the row's new identity.
       if (model === LOADING) return LOADING
       if (model && issueRefKey(model.ref) === key)
         return orderedBare && resident !== undefined && resident < pending ? resident : pending
-      return orderedBare ? resident ?? null : null
+      return orderedBare ? (resident ?? null) : null
     }
     // A read never blocks. Repeated chips of the same token enqueue it once.
     runInAction(() => this.requests.set(key, LOADING))

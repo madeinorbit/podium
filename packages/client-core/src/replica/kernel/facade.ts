@@ -97,8 +97,8 @@ import type {
   UiState,
 } from '../contract'
 import { COLD_CURSOR, type FeedCursor } from '../feed'
-import { entityForKind, kindForEntity, rowKey } from './kinds'
 import { IssueRefIndex } from './issue-ref-index'
+import { entityForKind, kindForEntity, rowKey } from './kinds'
 import type { SideCache } from './side-cache'
 
 /**

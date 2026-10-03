@@ -1,5 +1,5 @@
 /** Row and local channels consumed by the worklist pool. */
-import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree, SliceLocals } from './slice-types'
+import type { LocalsKey, SliceIssue, SliceLocals, SliceSession, SliceWorktree } from './slice-types'
 
 /**
  * The kernel's effective per-row row stream, as the arms see it. Owned by G3

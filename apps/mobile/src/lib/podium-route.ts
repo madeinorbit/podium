@@ -8,10 +8,14 @@ export interface LinkIssueLike {
   seq?: number
   displayRef?: string
 }
-export interface LinkSessionLike extends SessionValueInput { sessionId: string }
+export interface LinkSessionLike extends SessionValueInput {
+  sessionId: string
+}
 
-export function mobilePodiumRoute(target: PodiumTarget,
-  context: { issues: readonly LinkIssueLike[]; sessions: readonly LinkSessionLike[] }): string | null {
+export function mobilePodiumRoute(
+  target: PodiumTarget,
+  context: { issues: readonly LinkIssueLike[]; sessions: readonly LinkSessionLike[] },
+): string | null {
   if (target.kind === 'issue') {
     if (target.search || target.hash) return null
     const issue = findLinkedIssue(target.issue, context.issues)
@@ -25,19 +29,29 @@ export function mobilePodiumRoute(target: PodiumTarget,
   return null
 }
 
-export function findLinkedIssue(identifier: string, issues: readonly LinkIssueLike[]): LinkIssueLike | undefined {
+export function findLinkedIssue(
+  identifier: string,
+  issues: readonly LinkIssueLike[],
+): LinkIssueLike | undefined {
   const trimmed = identifier.trim()
-  const direct = issues.find(issue => issue.id === trimmed)
+  const direct = issues.find((issue) => issue.id === trimmed)
   if (direct) return direct
-  const byDisplay = issues.find(issue => issue.displayRef === trimmed)
+  const byDisplay = issues.find((issue) => issue.displayRef === trimmed)
   if (byDisplay) return byDisplay
   const ref = parseIssueRef(trimmed)
-  return ref ? issues.find(issue => issue.prefix === ref.prefix && issue.seq === ref.seq) : undefined
+  return ref
+    ? issues.find((issue) => issue.prefix === ref.prefix && issue.seq === ref.seq)
+    : undefined
 }
 
-export function findLinkedSession(identifier: string, sessions: readonly LinkSessionLike[]): LinkSessionLike | undefined {
+export function findLinkedSession(
+  identifier: string,
+  sessions: readonly LinkSessionLike[],
+): LinkSessionLike | undefined {
   const trimmed = identifier.trim()
-  const direct = sessions.find(session => session.sessionId === trimmed)
+  const direct = sessions.find((session) => session.sessionId === trimmed)
   if (direct) return direct
-  return parseSessionRef(trimmed) ? sessions.find(session => sessionValues(session).displayRef === trimmed) : undefined
+  return parseSessionRef(trimmed)
+    ? sessions.find((session) => sessionValues(session).displayRef === trimmed)
+    : undefined
 }

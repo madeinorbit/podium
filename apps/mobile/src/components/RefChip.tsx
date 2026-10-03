@@ -90,23 +90,32 @@ function PoolRefChip(props: RefChipProps) {
   return <RefChipView {...props} known={known} model={model} />
 }
 
-function LegacyRefChip({
-  token,
-  refKind,
-  prefix,
-  onPress,
-}: RefChipProps) {
+function LegacyRefChip({ token, refKind, prefix, onPress }: RefChipProps) {
   const issues = useIssues()
   const known = knownPrefixes(issues).has(prefix)
   const model = useMemo(
     () => (known && refKind === 'issue' ? resolveOnce(issues, token) : null),
     [issues, known, refKind, token],
   )
-  return <RefChipView token={token} refKind={refKind} prefix={prefix} onPress={onPress} known={known} model={model} />
+  return (
+    <RefChipView
+      token={token}
+      refKind={refKind}
+      prefix={prefix}
+      onPress={onPress}
+      known={known}
+      model={model}
+    />
+  )
 }
 
-function RefChipView({ token, refKind, onPress, known, model }: RefChipProps & { known: boolean; model: IssueReferenceModel | null }) {
-
+function RefChipView({
+  token,
+  refKind,
+  onPress,
+  known,
+  model,
+}: RefChipProps & { known: boolean; model: IssueReferenceModel | null }) {
   // Not a ref, just text that happens to be shaped like one.
   if (!known) return <>{token}</>
 
