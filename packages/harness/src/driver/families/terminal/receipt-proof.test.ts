@@ -245,6 +245,55 @@ describe('terminal receipt operator regressions', () => {
     w.runtime.dispose()
   })
 
+  it('four orphan framed entries do not pass an unwrapped send (POD-5436 frame guard)', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const frame = (id: string, body: string) =>
+      `[podium message ${id} · from agent · to you]\n${body}\n[end podium message ${id}]`
+    // Ids of mails typed before this daemon run (or by another owner): no open
+    // watch carries them, so nothing credits them — only the frame-id guard
+    // can keep them out of the unwrapped watch's later-prompt budget.
+    const framed = [
+      frame('msg_aaaaaaaa-1111-2222-3333-444444444444', 'orphan body one'),
+      frame('msg_bbbbbbbb-1111-2222-3333-444444444444', 'orphan body two'),
+      frame('msg_cccccccc-1111-2222-3333-444444444444', 'orphan body three'),
+      frame('msg_dddddddd-1111-2222-3333-444444444444', 'orphan body four'),
+    ]
+    const words = 'the update is failing when applying to ludovico. figure out why'
+    const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes).toContain('\r')
+    for (const text of framed) w.post(text)
+    w.post(words)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await ours).toMatchObject({ outcome: 'accepted' })
+    w.runtime.dispose()
+  })
+
+  it('four entries credited elsewhere do not pass an unwrapped send (POD-5436 credited guard)', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    // Four other open unwrapped sends with distinct texts: each entry credits
+    // its own watch by order plus text (no frame id anywhere), so only the
+    // credited-to-another guard can keep them out of our watch's budget.
+    const others = ['alpha other one', 'beta other two', 'gamma other three', 'delta other four']
+    const words = 'the update is failing when applying to ludovico. figure out why'
+    const sents = []
+    for (let i = 0; i < others.length; i++) {
+      sents.push(w.handle.send({ id: `msg_other-${i}`, text: others[i]! }, { origin: 'human', delivery: 'when-ready' }))
+      await vi.advanceTimersByTimeAsync(300)
+    }
+    const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes.filter((bytes) => bytes === '\r')).toHaveLength(5)
+    for (const text of others) w.post(text)
+    w.post(words)
+    await vi.advanceTimersByTimeAsync(10_000)
+    for (const sent of sents) expect(await sent).toMatchObject({ outcome: 'accepted' })
+    expect(await ours).toMatchObject({ outcome: 'accepted' })
+    w.runtime.dispose()
+  })
+
   it('framed queue records do not spend an unwrapped send\u2019s queue order (this issue)', async () => {
     vi.useFakeTimers(); vi.setSystemTime(START)
     const w = world()
