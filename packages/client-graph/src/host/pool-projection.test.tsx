@@ -98,9 +98,11 @@ describe('real host projection read counts with the pilot on', () => {
     const parentRerender = fixture.reads() - beforeRerender
     console.info('[pool projection counts]', { inline, firstMount, perChange, parentRerender,
       stableOnRerender: fixture.snapshot() === updated })
-    expect(firstMount).toBe(2)
-    expect(perChange).toBe(inline ? 3 : 1)
-    expect(parentRerender).toBe(inline ? 2 : 0)
+    // One tracked read per projection; a new inline closure replaces the reader.
+    expect(firstMount).toBe(1)
+    expect(perChange).toBe(inline ? 2 : 1)
+    expect(parentRerender).toBe(inline ? 1 : 0)
+    if (!inline) expect(fixture.snapshot()).toBe(updated)
   })
 
   it('measures a changed reader such as a screen navigation callback', async () => {
@@ -109,6 +111,6 @@ describe('real host projection read counts with the pilot on', () => {
     fixture.replaceReader()
     const readerChange = fixture.reads() - before
     console.info('[pool projection reader change]', { readerChange })
-    expect(readerChange).toBe(2)
+    expect(readerChange).toBe(1)
   })
 })
