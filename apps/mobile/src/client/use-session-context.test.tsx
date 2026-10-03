@@ -95,6 +95,8 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
   const host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
   seams.host = host
   const data = createHeaderFixture(12), errors: (Error | string)[] = [], seen: (MobxPool | null)[] = []
+  const draftRecent = data.records.get('session:synthetic-session-1')!
+  data.records.set('session:synthetic-session-1', { ...draftRecent, value: { ...(draftRecent.value as object), draftUpdatedAt: '2026-10-03T00:01:00Z' } })
   const stateId = sessionUserStateRowId(asUserId('operator'), SID)
   data.records.set(`sessionUserState:${stateId}`, { entity: 'sessionUserState', entityId: stateId, provenance: { seq: 1 }, value: { userId: 'operator', sessionId: SID, readAt: '2026-10-03T00:00:00Z', snoozedUntil: null } })
   const archived = data.records.get('session:synthetic-session-11')!

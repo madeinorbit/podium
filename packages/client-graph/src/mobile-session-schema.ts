@@ -20,6 +20,7 @@ export const MOBILE_SESSION_SCHEMA = {
   mobileSessionWindow: { key: 'window', source: 'runtime:locals and replica:getCursor', fields: ['cursor', 'pendingSpawnPrompts'] },
   session: { source: 'pool:session', addressed: 'session-pane reader', summary: [
     ...SESSION_PANE_SCHEMA.session.fields, 'agentColor', 'refIssueId', 'origin',
+    'draftUpdatedAt', 'lastInputAt', 'workState', 'busy', 'stoppedAt',
     'refRepoId', 'refSeq', 'refLetter', 'refDraft', 'handoffTargetMachineId',
   ] },
   issue: { source: 'pool:issue', addressed: 'full row for the selected task; summaries for roster and references', summary: [
