@@ -25,6 +25,9 @@ The two samples per arm describe these captures. The final legacy open values ha
 a wide spread; the counters establish the change in work independently of that
 spread. On the pool path the board and explorer rendered output equals legacy for
 initial and Planning views, including row positions, totals and selection attributes.
+The final count-only Chromium check repeats those views after rebasing at
+`dc86cc8e74`: rendered parity and both diagnostics remain equal, with zero
+legacy board derivations and the same initial/final residency census.
 
 ### Work and residency
 
@@ -82,26 +85,28 @@ it does not attribute all its improvement to either fix alone.
 
 ## Verification
 
-Focused flatblock validation executed 89 checks across 13 named files: 19 checks
-in five graph files and 70 in eight web files. These cover 22 normalized synthetic
+Focused flatblock validation executed 90 checks across 14 named files: 19 checks
+in five graph files and 71 in nine web files. These cover 22 normalized synthetic
 board/explorer comparisons, scoped ID-result release, resident-index scaling,
 overlays, summary-only cold reads, loading, virtual-card counts/progress, fleet
 ordering after resume collapse, the startup switch, attachment, close guards,
-and existing board/list/explorer behavior. This is a focused result.
+and existing board/list/explorer behavior. The real StoreProvider and pool host
+also transition from pending to ready with the shell's startup initialization,
+without React errors or legacy derivations. This is a focused result.
 
 The focused typecheck for client-core, client-graph and web is green (15 tasks,
 11 cached). The changed graph files pass the MobX/read-boundary ESLint fence.
-Biome passes the 24 new files, with warnings limited to test/harness assertions
+Biome passes the 25 new files, with warnings limited to test/harness assertions
 and fixture typing conventions.
 
-All 32 planted controls fail their expected assertions and restore the original
+All 33 planted controls fail their expected assertions and restore the original
 bytes. Four run the real Chromium count-only comparison with actual incorrect
 rendered titles, legacy derivation calls, cold-row promotion and incorrect
 diagnostic values. The remaining focused controls cover virtual/addressed rows,
 child counts and progress, fleet order, projection lifetime, declared summaries,
 both internal and external old-summary compatibility, summary identity,
 overlays, loading, index scaling/release, parent scope, attention, mismatch
-detection, legacy-read counters, supplied close sessions and the default-off
+detection, legacy-read counters, the real startup attachment, supplied close sessions and the default-off
 switch. Each case copies the file aside, commits the plant, runs its exact
 check, copies the original back and verifies byte equality.
 
