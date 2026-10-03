@@ -257,15 +257,18 @@ async function sizedBootstrap(page: Page, session: { issueId: string; sessionId:
     const all = [...chunks.map((chunk) => ({ ...chunk, last: false })), ...extra]
     all.at(-1)!.last = true
     const rows = original.length + additions.length
-    const body =
-      [{ ...meta, totalRows: rows }, ...all, { ...complete, rows, records: all.length }]
-        .map((frame) => JSON.stringify(frame))
-        .join('\n') + '\n'
+    const body = `${[{ ...meta, totalRows: rows }, ...all, { ...complete, rows, records: all.length }]
+      .map((frame) => JSON.stringify(frame))
+      .join('\n')}\n`
+    const headers = { ...reply.headers(), 'content-type': 'application/x-ndjson' }
+    delete headers['content-length']
+    delete headers['content-encoding']
+    delete headers['transfer-encoding']
     installations++
     await route.fulfill({
-      response: reply,
+      status: reply.status(),
       body,
-      headers: { ...reply.headers(), 'content-type': 'application/x-ndjson' },
+      headers,
     })
   })
   return { size, installations: () => installations }

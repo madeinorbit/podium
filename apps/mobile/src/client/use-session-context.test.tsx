@@ -49,6 +49,12 @@ vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
+// The transport is offline in this hermetic fixture; model a connected socket
+// without replacing any session, issue, draft or conversation read.
+vi.mock('./hooks', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./hooks')>()),
+  useConnected: () => true,
+}))
 vi.mock('expo-router', () => ({
   useRouter: () => ({
     push: () => {},
@@ -101,7 +107,7 @@ vi.mock('../components/Screen', () => ({
     children: ReactNode
     onPress: () => void
   }) => (
-    <button aria-label={label} onClick={onPress}>
+    <button type="button" aria-label={label} onClick={onPress}>
       {children}
     </button>
   ),
@@ -134,16 +140,16 @@ vi.mock('../components/TaskSheet', () => ({
 vi.mock('../components/PendingInteractionBand', () => ({ PendingInteractionBand: () => null }))
 vi.mock('../components/SessionCard', () => ({
   SessionCard: ({ model, onLongPress }: { model: SessionCardModel; onLongPress?: () => void }) => (
-    <article data-session={model.sessionId} onClick={onLongPress}>
+    <button type="button" data-session={model.sessionId} onClick={onLongPress}>
       {JSON.stringify(model)}
-    </article>
+    </button>
   ),
 }))
 vi.mock('../components/Composer', () => ({
   Composer: ({ value, onChangeText, onSend }: ComposerProps) => (
     <div>
       <input aria-label="Draft" value={value} onChange={(e) => onChangeText?.(e.target.value)} />
-      <button onClick={() => onSend('New synthetic prompt')}>Send</button>
+      <button type="button" onClick={() => onSend('New synthetic prompt')}>Send</button>
     </div>
   ),
 }))
@@ -225,8 +231,8 @@ function rendered(node: Node): unknown {
   return {
     tag: node.tagName,
     attributes: [...node.attributes]
-      .map(({ name, value }) => [name, value])
-      .sort(([a], [b]) => a!.localeCompare(b!)),
+      .map(({ name, value }) => [name, value] as const)
+      .sort(([a], [b]) => a.localeCompare(b)),
     children: [...node.childNodes].map(rendered),
   }
 }
