@@ -77,13 +77,16 @@ function writerHash(path, name, source) {
   }
   visit(tree)
   if (!body) throw new Error(`Missing writer contract: ${path}:${name}`)
-  // Formatting may add parentheses and trailing commas. Hash syntax structure,
-  // identifiers and literal values so that a setter or payload change still fails.
+  // Formatting may add parentheses, trailing commas and blank JSX lines.
+  // Keep single-line JSX spaces, identifiers and literals: they can be observable.
   function syntax(node) {
     if (ts.isParenthesizedExpression(node)) return syntax(node.expression)
+    if (ts.isJsxText(node) && node.containsOnlyTriviaWhiteSpaces && /[\r\n]/.test(node.text))
+      return null
     const children = []
     ts.forEachChild(node, (child) => {
-      children.push(syntax(child))
+      const part = syntax(child)
+      if (part !== null) children.push(part)
     })
     const value =
       ts.isIdentifier(node) ||
