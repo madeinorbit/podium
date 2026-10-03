@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import socket
 import subprocess
+import sys
 
 root = Path.cwd()
 if socket.gethostname() != 'flatblock' or not re.fullmatch(r'podium-test-\d+', root.name):
@@ -34,6 +35,12 @@ cases = [
     ('launcher', app + 'command-launch-data.ts', r'useWorklistPoolProjection\(readLaunch, LOADING\)', 'LOADING', launch_test, 'declares launch and palette demand'),
     ('palette', app + 'command-launch-data.ts', r'useWorklistPoolProjection\(readPalette, LOADING\)', 'LOADING', launch_test, 'declares launch and palette demand'),
 ]
+requested = set(sys.argv[1:])
+unknown = requested - {case[0] for case in cases}
+if unknown:
+    raise SystemExit('Unknown reader controls: ' + ', '.join(sorted(unknown)))
+if requested:
+    cases = [case for case in cases if case[0] in requested]
 
 def git(*args):
     return subprocess.run(['git', *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
@@ -69,4 +76,5 @@ try:
             raise RuntimeError('Plant did not fail a collected assertion: ' + name)
 finally:
     git('switch', '-q', '--detach', baseline)
-    (out / 'summary.json').write_text(json.dumps({'candidate': baseline, 'controls': reports}, indent=2) + '\n')
+    summary = 'summary-retry.json' if requested else 'summary.json'
+    (out / summary).write_text(json.dumps({'candidate': baseline, 'controls': reports}, indent=2) + '\n')

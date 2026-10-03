@@ -229,6 +229,10 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
     }),
     { wrapper: Wrapper },
   ).result
+  await act(async () => {
+    fixture.publishMachines()
+    await result.current.owner.getSnapshot().refreshRepos()
+  })
   await waitFor(() =>
     expect(
       result.current.list.pending + result.current.targets.pending + result.current.repos.pending,
@@ -236,6 +240,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   )
   const { owner, pool } = result.current
   expect(pool).toBeTruthy()
+  expect(result.current.repos.repos.map((repo) => repo.path)).toEqual(['/synthetic/project'])
   expect(result.current.list.automations).toHaveLength(6)
   expect(result.current.session?.sessionId).toBe('synthetic-session-0')
   storeStats.enable()
