@@ -1,10 +1,6 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
-import { type IssueReferenceModel, resolveIssueReference } from '@podium/client-core/viewmodels'
+import { type IssueReferenceModel } from '@podium/client-core/viewmodels'
 
-import { useMemo } from 'react'
 import { StyleSheet, Text } from 'react-native'
-import { useIssues } from '../client/hooks'
-import { mobileDataLayer } from '../client/mobile-pool'
 import { usePoolRefChip } from '../client/use-inbox-data'
 import { alpha } from '../theme/mix'
 import { stageColor } from '../theme/stage'
@@ -29,55 +25,6 @@ import { StageGlyph, UnknownRefGlyph } from './StageGlyph'
  * that forgot would silently paint stage-less chips.
  */
 
-/**
- * One resolution per (snapshot, token) instead of one per chip.
- *
- * `useIssues()` returns the same array for as long as the projection is
- * unchanged, so a transcript with forty mentions of the same task scans the
- * issue list once and every later chip is a map hit. Keyed weakly on the array
- * itself: when the projection changes — including when it SHRINKS under a
- * rescope — the old entry becomes unreachable rather than stale.
- */
-const resolutions = new WeakMap<object, Map<string, IssueReferenceModel | null>>()
-
-function resolveOnce(issues: readonly IssueViewModel[], token: string): IssueReferenceModel | null {
-  let cache = resolutions.get(issues)
-  if (!cache) {
-    cache = new Map()
-    resolutions.set(issues, cache)
-  }
-  const hit = cache.get(token)
-  if (hit !== undefined) return hit
-  const model = resolveIssueReference(token, issues)
-  cache.set(token, model)
-  return model
-}
-
-const prefixes = new WeakMap<object, ReadonlySet<string>>()
-
-/**
- * The repo prefixes this operator can actually see.
- *
- * `anyRefMatcher` matches `UTF-8`, `ISO-8601` and `COVID-19` as eagerly as it
- * matches `POD-529` — the grammar cannot tell a repo prefix from any other two
- * to five capitals. The desktop settles it with a registered-prefix set and so
- * does this: a token whose prefix names no visible task stays prose. An empty
- * projection therefore chips nothing, which is the honest state during the
- * first moments of a cold boot rather than a wrong one.
- */
-function knownPrefixes(issues: readonly IssueViewModel[]): ReadonlySet<string> {
-  const hit = prefixes.get(issues)
-  if (hit) return hit
-  const set = new Set<string>()
-  for (const issue of issues) if (issue.prefix) set.add(issue.prefix)
-  prefixes.set(issues, set)
-  return set
-}
-
-export function RefChip(props: RefChipProps) {
-  return mobileDataLayer() === 'pool' ? <PoolRefChip {...props} /> : <LegacyRefChip {...props} />
-}
-
 interface RefChipProps {
   token: string
   refKind: 'issue' | 'session'
@@ -85,28 +32,9 @@ interface RefChipProps {
   onPress?: ((ref: string) => void) | undefined
 }
 
-function PoolRefChip(props: RefChipProps) {
+export function RefChip(props: RefChipProps) {
   const { known, model } = usePoolRefChip(props.token, props.refKind, props.prefix)
   return <RefChipView {...props} known={known} model={model} />
-}
-
-function LegacyRefChip({ token, refKind, prefix, onPress }: RefChipProps) {
-  const issues = useIssues()
-  const known = knownPrefixes(issues).has(prefix)
-  const model = useMemo(
-    () => (known && refKind === 'issue' ? resolveOnce(issues, token) : null),
-    [issues, known, refKind, token],
-  )
-  return (
-    <RefChipView
-      token={token}
-      refKind={refKind}
-      prefix={prefix}
-      onPress={onPress}
-      known={known}
-      model={model}
-    />
-  )
 }
 
 function RefChipView({

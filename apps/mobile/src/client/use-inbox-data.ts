@@ -1,23 +1,11 @@
-// biome-ignore-all lint/correctness/useHookAtTopLevel: accessor branches use the app-load device latch, which never changes while mounted
-import { groupSessions, withoutShells } from '@podium/client-core/focus'
-import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import type { MobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import type { HostMetricsWire, IssueId, MachineWire } from '@podium/model'
 import type { PodiumTarget } from '@podium/protocol'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { buildScreeningQueue } from '../lib/screening'
+import { useCallback, useEffect, useRef } from 'react'
 import { demoEnabled } from './demoData'
-import {
-  useBooting,
-  useHostMetrics,
-  useIssues,
-  useMachines,
-  useOutboxSize,
-  useSessions,
-} from './hooks'
-import { mobileDataLayer, useMobilePool, useMobilePoolProjection } from './mobile-pool'
+import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
 
 type InboxData = ReturnType<MobileInboxViews['inbox']>
 const EMPTY_INBOX: InboxData = {
@@ -26,7 +14,7 @@ const EMPTY_INBOX: InboxData = {
   booting: true,
   outboxSize: 0,
 }
-const EMPTY_QUEUE: { queue: IssueId[]; booting: boolean; legacyIssues?: IssueViewModel[] } = {
+const EMPTY_QUEUE: { queue: IssueId[]; booting: boolean } = {
   queue: [],
   booting: true,
 }
@@ -50,53 +38,23 @@ const readQueue = (pool: Pool) => mobileInboxViews(pool)?.screening() ?? EMPTY_Q
 const readMachines = (pool: Pool) => pool.headerViews.machines()
 const readHosts = (pool: Pool) => pool.headerViews.metrics()
 
-function useLegacyInbox(): InboxData {
-  const sessions = useSessions(),
-    issues = useIssues(),
-    booting = useBooting(),
-    outboxSize = useOutboxSize()
-  const groups = useMemo(() => groupSessions(withoutShells(sessions)), [sessions])
-  const byId = useMemo(() => Object.fromEntries(issues.map((issue) => [issue.id, issue])), [issues])
-  return { groups, issues: byId, booting, outboxSize }
-}
-
-/** This branch is the app-load latch, never the asynchronous pool attachment.
- * The enabled hook stays mounted while null becomes an attached pool. */
+/** Readers stay mounted while the existing pool attaches. */
 export function useInboxData(): InboxData {
-  const data =
-    mobileDataLayer() === 'pool'
-      ? useMobilePoolProjection(readInbox, EMPTY_INBOX)
-      : useLegacyInbox()
+  const data = useMobilePoolProjection(readInbox, EMPTY_INBOX)
   return demoEnabled() && data.booting ? { ...data, booting: false } : data
 }
 
-function useLegacyQueue() {
-  const issues = useIssues(),
-    booting = useBooting()
-  const queue = useMemo(() => buildScreeningQueue(issues).map((issue) => issue.id), [issues])
-  return { queue, booting, legacyIssues: issues }
-}
 export function useScreeningQueue(): typeof EMPTY_QUEUE {
-  const data =
-    mobileDataLayer() === 'pool'
-      ? useMobilePoolProjection(readQueue, EMPTY_QUEUE)
-      : useLegacyQueue()
+  const data = useMobilePoolProjection(readQueue, EMPTY_QUEUE)
   return demoEnabled() && data.booting ? { ...data, booting: false } : data
 }
 
-export function useScreeningRows(ids: readonly string[], legacyIssues?: IssueViewModel[]) {
+export function useScreeningRows(ids: readonly string[]) {
   const read = useCallback(
     (pool: Pool) => mobileInboxViews(pool)?.screeningRows(ids) ?? EMPTY_ROWS,
     [ids],
   )
-  const legacy = useMemo(
-    () => ({
-      issues: Object.fromEntries((legacyIssues ?? []).map((issue) => [issue.id, issue])),
-      loading: false,
-    }),
-    [legacyIssues],
-  )
-  return mobileDataLayer() === 'pool' ? useMobilePoolProjection(read, EMPTY_ROWS) : legacy
+  return useMobilePoolProjection(read, EMPTY_ROWS)
 }
 
 export function usePoolRefChip(token: string, refKind: 'issue' | 'session', prefix: string) {
@@ -107,19 +65,14 @@ export function usePoolRefChip(token: string, refKind: 'issue' | 'session', pref
   return useMobilePoolProjection(read, EMPTY_CHIP)
 }
 
-function useLegacyPulseLive() {
-  return { machines: useMachines(), hosts: useHostMetrics() }
-}
-function usePoolPulseLive() {
+export function usePulseLive() {
   // Independent projections preserve the machine array identity when only a
   // health sample moves; Pulse's polling effect depends on that identity.
   const machines = useMobilePoolProjection(readMachines, EMPTY_LIVE.machines)
   const hosts = useMobilePoolProjection(readHosts, EMPTY_LIVE.hosts)
   return { machines, hosts }
 }
-export function usePulseLive() {
-  return mobileDataLayer() === 'pool' ? usePoolPulseLive() : useLegacyPulseLive()
-}
+
 
 /** Pending handoffs observe their addressed target. Ordinary taps read the
  * same current pool at dispatch and asynchronously wait only for LOADING. */

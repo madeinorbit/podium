@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native'
 import { useAuthStatus } from '../client/auth-context'
-import { useBooting, useHttpOrigin, useIssues, useSessions } from '../client/hooks'
+import { useHttpOrigin } from '../client/hooks'
 import {
   consumePendingMobileHandoff,
   decideMobileHandoff,
@@ -11,12 +11,10 @@ import {
   pendingMobileHandoffSnapshot,
   subscribePendingMobileHandoff,
 } from '../client/mobile-handoff'
-import { mobileDataLayer } from '../client/mobile-pool'
 import { useServerProfile } from '../client/server-profile-context'
 import { usePoolLinkData } from '../client/use-inbox-data'
 import { MOBILE_HOME } from '../lib/navigation'
 import {
-  mobilePodiumRoute,
   setActivePodiumOrigin,
   setPodiumTargetActivator,
 } from '../lib/podium-link'
@@ -35,17 +33,6 @@ import {
  * Re-registered on every render so the activator always closes over the current
  * rows — resolving `POD-1606` is a live-data question.
  */
-function useLegacyLinkData(target: PodiumTarget | null) {
-  const issues = useIssues(),
-    sessions = useSessions(),
-    booting = useBooting()
-  const resolveRoute = useMemo(
-    () => (next: PodiumTarget) => mobilePodiumRoute(next, { issues, sessions }),
-    [issues, sessions],
-  )
-  return { sessions, booting, route: target ? resolveRoute(target) : null, resolveRoute }
-}
-
 export function PodiumLinkHost() {
   const router = useRouter()
   const httpOrigin = useHttpOrigin()
@@ -65,8 +52,7 @@ export function PodiumLinkHost() {
           : null,
     [pending.request],
   )
-  // biome-ignore lint/correctness/useHookAtTopLevel: the device switch is latched once before this host mounts
-  const data = mobileDataLayer() === 'pool' ? usePoolLinkData(target) : useLegacyLinkData(target)
+  const data = usePoolLinkData(target)
   const { sessions, booting } = data
   const [handoffStatus, setHandoffStatus] = useState('')
 

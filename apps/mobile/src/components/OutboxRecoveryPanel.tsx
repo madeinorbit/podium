@@ -1,6 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobileTrpc } from '../client/trpc'
-import { shallowEqual } from '@podium/client-core/store'
 import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import {
@@ -16,8 +15,6 @@ import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useStoreSelector } from '../client/hooks'
-import { mobileDataLayer } from '../client/mobile-pool'
 import { usePoolRecovery } from '../client/use-pool-notices'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
@@ -182,20 +179,8 @@ function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
 }
 
 export function OutboxRecoveryPanel() {
-  return mobileDataLayer() === 'pool' ? <PoolOutboxRecoveryPanel /> : <LegacyOutboxRecoveryPanel />
-}
-
-function PoolOutboxRecoveryPanel() {
   const deadLetters = usePoolRecovery()
   return <OutboxRecoveryPanelBody outboxDeadLetters={deadLetters} />
-}
-
-function LegacyOutboxRecoveryPanel() {
-  const { outboxDeadLetters } = useStoreSelector(
-    (s) => ({ outboxDeadLetters: s.outboxDeadLetters }),
-    shallowEqual,
-  )
-  return <OutboxRecoveryPanelBody outboxDeadLetters={outboxDeadLetters} />
 }
 
 function OutboxRecoveryPanelBody({

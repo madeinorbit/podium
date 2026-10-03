@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useUiState } from '../client/hooks'
-import { mobileDataLayer } from '../client/mobile-pool'
 import {
-  readLegacyPreference,
   useOptimisticPreferences,
   usePoolPreferences,
 } from './mobile-preferences'
@@ -34,15 +32,6 @@ export function useCollapsedSet(
   keys: readonly string[],
   storageKeyFor: (key: string) => string,
 ): { collapsed: ReadonlySet<string>; toggle: (key: string) => void } {
-  // Select once-latched implementations, then invoke the hook unconditionally.
-  const useFolds = mobileDataLayer() === 'pool' ? usePoolCollapsedSet : useLegacyCollapsedSet
-  return useFolds(keys, storageKeyFor)
-}
-
-function usePoolCollapsedSet(
-  keys: readonly string[],
-  storageKeyFor: (key: string) => string,
-): { collapsed: ReadonlySet<string>; toggle: (key: string) => void } {
   const uiState = useUiState()
   const storageKeys = useMemo(() => keys.map(storageKeyFor), [keys, storageKeyFor])
   const values = usePoolPreferences(storageKeys)
@@ -64,67 +53,5 @@ function usePoolCollapsedSet(
     },
     [keys, overlay, storageKeyFor, values],
   )
-  return { collapsed, toggle }
-}
-
-function useLegacyCollapsedSet(
-  keys: readonly string[],
-  storageKeyFor: (key: string) => string,
-): { collapsed: ReadonlySet<string>; toggle: (key: string) => void } {
-  const uiState = useUiState()
-  /** Optimistic flips whose persist has not run yet: key → desired collapsed. */
-  const pending = useRef(new Map<string, boolean>())
-
-  const read = useCallback((): ReadonlySet<string> => {
-    const next = new Set<string>()
-    for (const key of keys) {
-      const wanted =
-        pending.current.get(key) ?? readLegacyPreference(uiState, storageKeyFor(key)) === 'true'
-      if (wanted) next.add(key)
-    }
-    return next
-  }, [keys, storageKeyFor, uiState])
-
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(read)
-  useEffect(() => {
-    const refresh = (): void => {
-      setCollapsed((prev) => {
-        const next = read()
-        if (prev.size === next.size && [...next].every((key) => prev.has(key))) return prev
-        return next
-      })
-    }
-    refresh()
-    return uiState.subscribe(refresh)
-  }, [read, uiState])
-
-  const toggle = useCallback(
-    (key: string) => {
-      const storageKey = storageKeyFor(key)
-      const next = !(
-        pending.current.get(key) ?? readLegacyPreference(uiState, storageKey) === 'true'
-      )
-      pending.current.set(key, next)
-      setCollapsed((prev) => {
-        const flipped = new Set(prev)
-        if (next) flipped.add(key)
-        else flipped.delete(key)
-        return flipped
-      })
-      // Persist AFTER the flip has painted. Deliberately NOT cancelled on
-      // unmount: folding a band and immediately navigating away must still
-      // save, and the callback touches only the store and the ref.
-      setTimeout(() => {
-        const wanted = pending.current.get(key)
-        if (wanted === undefined) return
-        uiState.set(storageKey, String(wanted))
-        // Release the overlay only if no NEWER toggle superseded this one —
-        // a rapid double-tap re-arms `pending` and its own persist wins.
-        if (pending.current.get(key) === wanted) pending.current.delete(key)
-      }, 0)
-    },
-    [storageKeyFor, uiState],
-  )
-
   return { collapsed, toggle }
 }

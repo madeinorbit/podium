@@ -1,10 +1,8 @@
 import type { Store } from '@podium/client-core/engine'
-import { shallowEqual } from '@podium/client-core/store'
 import type { MobxPool } from '@podium/client-graph'
 import type { MobileSettingsDiagnostics } from '@podium/client-graph/mobile-settings'
 import type { HostMetricsWire } from '@podium/model'
-import { useHostMetrics, useIssues, useStoreSelector } from '../client/hooks'
-import { mobileDataLayer, useMobilePoolProjection } from '../client/mobile-pool'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 
 export interface SettingsData extends MobileSettingsDiagnostics {
   machines: Store['machines']
@@ -59,39 +57,7 @@ export function readSettingsData(pool: MobxPool): SettingsData {
   }
 }
 
-function useLegacySettingsData(): SettingsData {
-  const { conversations, machines, outboxDeadLetters, outboxSize, replica, sessions } =
-    useStoreSelector(
-      (s) => ({
-        conversations: s.conversations,
-        machines: s.machines,
-        outboxDeadLetters: s.outboxDeadLetters,
-        outboxSize: s.outboxSize,
-        replica: s.replica,
-        sessions: s.sessions,
-      }),
-      shallowEqual,
-    )
-  const issues = useIssues()
-  const hosts = useHostMetrics()
-  return {
-    machines,
-    hosts,
-    outboxDeadLetters,
-    outboxSize,
-    sessionCount: sessions.length,
-    issueCount: issues.length,
-    conversationCount: conversations.length,
-    cursor: replica.getCursor(),
-  }
-}
-function usePoolSettingsData(): SettingsData {
-  return useMobilePoolProjection(readSettingsData, EMPTY_SETTINGS)
-}
-
-/** The startup choice is fixed before screens mount. Pool attachment may still
- * be pending; it changes the projection's source, never the hook branch. */
+/** Loading attachment yields the declared empty values until the pool is ready. */
 export function useSettingsData(): SettingsData {
-  const useData = mobileDataLayer() === 'pool' ? usePoolSettingsData : useLegacySettingsData
-  return useData()
+  return useMobilePoolProjection(readSettingsData, EMPTY_SETTINGS)
 }

@@ -1,16 +1,11 @@
 import {
   type PendingInteractionAction,
   type PendingInteractionCard,
-  pendingInteractionCards,
 } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
-import type { PendingInteractionWire } from '@podium/protocol'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useStoreSelector } from '@podium/client-core/react'
 import { useTrpc } from '../client/hooks'
-import { mobileDataLayer } from '../client/mobile-pool'
-import type { MobileTrpc } from '../client/trpc'
 import { usePoolInteractionCards } from '../client/use-pool-notices'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
@@ -36,22 +31,12 @@ import { PressableScale } from './PressableScale'
  * desktop bar sits above the composer: a blocking ask that scrolls out of the
  * feed is the failure the aggregate exists to remove.
  */
-const NO_ASKS: PendingInteractionWire[] = []
-
 export function PendingInteractionBand({ sessionId }: { sessionId: SessionId }) {
-  return mobileDataLayer() === 'pool' ? (
-    <PoolPendingInteractionBand sessionId={sessionId} />
-  ) : (
-    <LegacyPendingInteractionBand sessionId={sessionId} />
-  )
-}
-
-function PoolPendingInteractionBand({ sessionId }: { sessionId: SessionId }) {
   const cards = usePoolInteractionCards(sessionId)
   return <PendingInteractionBandBody cards={cards} />
 }
 
-function LegacyPendingInteractionBand({ sessionId }: { sessionId: SessionId }) {
+: { sessionId: SessionId }) {
   // `?? NO_ASKS` with a module-level constant: a replica whose
   // `pendingInteraction` collection has not arrived is a partial world, not an
   // error, and this band must never be why the conversation above it fails.

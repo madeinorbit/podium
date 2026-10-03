@@ -74,7 +74,7 @@ export function ProposalScreeningScreen() {
     ],
     [deck, failures],
   )
-  const rows = useScreeningRows(readIds, queue.legacyIssues)
+  const rows = useScreeningRows(readIds)
   const booting = queue.booting || rows.loading
   const issueById = useCallback((id: string) => rows.issues[id], [rows.issues])
 
