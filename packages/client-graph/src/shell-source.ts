@@ -47,6 +47,9 @@ export class ShellSource implements PoolSource<ShellEntity> {
           this.change('shellShipLane', address.id, runtime.replica.row!('shipLanes', address.id))
           this.counts.laneRows++
         }
+        const laneIds = this.orders.get('shellShipLane') ?? []
+        const ordered = [...laneIds].sort()
+        if (!compareStructural(laneIds, ordered)) this.orders.set('shellShipLane', ordered)
         this.catalog()
       })
     })]

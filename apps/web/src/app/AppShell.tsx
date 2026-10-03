@@ -10,7 +10,7 @@ import {
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
 import { ChevronLeft } from 'lucide-react'
-import { observer } from 'mobx-react-lite'
+import { observer } from '@podium/client-graph/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'

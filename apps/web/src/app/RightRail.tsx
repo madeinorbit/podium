@@ -10,7 +10,7 @@ import {
   shippingPanelModel,
 } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
-import { observer } from 'mobx-react-lite'
+import { observer } from '@podium/client-graph/react'
 import { useMemo } from 'react'
 import { useFeature } from '@/lib/use-feature'
 import { RIGHT_PANELS } from './RightDock'

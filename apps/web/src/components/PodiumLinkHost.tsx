@@ -1,4 +1,4 @@
-import { observer } from 'mobx-react-lite'
+import { observer } from '@podium/client-graph/react'
 import type { MainView } from '@podium/client-core/ui-state'
 import type { ArtifactId } from '@podium/model/browser'
 import { podiumTargetPath, type PodiumTarget } from '@podium/protocol'

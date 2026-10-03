@@ -4,8 +4,7 @@ import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { beginSidebarCheck, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { asIssueId, asUserId } from '@podium/model/browser'
-import { observer } from 'mobx-react-lite'
-import { runInAction } from 'mobx'
+import { observer } from '@podium/client-graph/react'
 import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
@@ -117,8 +116,8 @@ const driver = {
     const { checkShell, poolShellSnapshot } = await import('@podium/client-graph/diagnostics/shell-check')
     const finish = beginSidebarCheck(runtime)
     try {
-      for (let round = 0; round < 64; round++) { runInAction(() => poolShellSnapshot(pool!)); if (!pool.hydrate()) break }
-      return runInAction(() => checkShell(pool!, runtime!.getSnapshot()))
+      for (let round = 0; round < 64; round++) { poolShellSnapshot(pool); if (!pool.hydrate()) break }
+      return checkShell(pool, runtime.getSnapshot())
     } finally { finish() }
   },
   snapshot(): SidebarSnapshot {

@@ -1,6 +1,6 @@
 import type { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from '@podium/protocol'
 import { ExternalLink, X } from 'lucide-react'
-import { observer } from 'mobx-react-lite'
+import { observer } from '@podium/client-graph/react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'

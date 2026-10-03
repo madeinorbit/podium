@@ -1,4 +1,4 @@
-import { observer } from 'mobx-react-lite'
+import { observer } from '@podium/client-graph/react'
 import { allTabIds, emptyWorkspace, focusedPane } from '@podium/client-core/viewmodels'
 import { useEffect } from 'react'
 import { installDesktopMenuHooks } from './desktop-menu'

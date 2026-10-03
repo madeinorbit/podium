@@ -31,7 +31,7 @@ export function shellFixture(count = 40) {
     status: 'pending', createdAt: stamp, decidedAt: null, resultText: null })) as Store['approvals']
   const fileTabs: Store['fileTabs'] = [{ id: 'shell-file', scope: { kind: 'worktree', root: '/synthetic/project/w1', machineId },
     path: 'readme.md', worktreePath: '/synthetic/project/w1', issueId: issues[1]!.id }]
-  const workspace = openTab(openTab(emptyWorkspace(`mission:${issues[0]!.id}`), sessions[0]!.sessionId), fileTabs[0]!.id)
+  const workspace = openTab(openTab(emptyWorkspace(`mission:${issues[0]!.id}`), sessions[0]!.sessionId, { permanent: true }), fileTabs[0]!.id, { permanent: true })
   const shipOrders = ['waiting', 'needs_you', 'in_progress', 'shipped'].map((humanState, index) => ({ id: `shell-order-${index}`, issueId: issues[index]!.id,
     repoId, targetBranch: `issue/synthetic-${index}`, destination: 'main', humanState, state: humanState === 'waiting' ? 'queued' : humanState === 'shipped' ? 'completed' : 'held',
     activity: humanState === 'waiting' ? 'waiting' : humanState === 'shipped' ? 'shipped' : 'held', queuedAt: stamp, stateChangedAt: stamp,

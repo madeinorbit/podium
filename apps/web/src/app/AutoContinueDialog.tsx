@@ -1,4 +1,4 @@
-import { observer } from 'mobx-react-lite'
+import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
