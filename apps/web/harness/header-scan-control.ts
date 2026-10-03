@@ -1,18 +1,23 @@
 /** Capture-only control: the pre-delta header algorithms, with their original
  * memo boundaries. Injected by header-session-speed.ts; never app-imported. */
 import type { SessionView } from '@podium/client-core/session-values'
-import type { MobxPool } from '@podium/client-graph'
+import { LOADING, type MobxPool } from '@podium/client-graph'
 import { coldSessionIds, knownSessionIds } from '@podium/client-graph/enumerate'
 import { EMPTY_HOST_AGGREGATE, headerHostSession, headerWorkingSession } from '@podium/client-graph/header-session'
 import type { MachineId } from '@podium/model/browser'
 
 type Memo = <T>(key: string, read: () => T) => T
 export function createScanningHeaderSessions(pool: MobxPool, memo: Memo) {
+  const coldSummary = (id: string) => {
+    if (pool.row('session', id, 'mark') !== LOADING) return undefined
+    const value = pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
+    return value === LOADING ? undefined : value
+  }
   return {
     working: () => memo('sessionKeys', () => knownSessionIds(pool)).flatMap(id => {
-      const cold = pool.hidden('session', id)
+      const cold = coldSummary(id)
       const member = cold ? (cold.status === 'live' && cold.archived !== true
-        ? memo(`coldWorking:${id}`, () => headerWorkingSession(pool.hidden('session', id) as unknown as SessionView, at => pool.clock.passed(at))) : null)
+        ? memo(`coldWorking:${id}`, () => headerWorkingSession(coldSummary(id), at => pool.clock.passed(at))) : null)
         : pool.model('session', id)?.headerWorking
       return member ? [member] : []
     }),
@@ -21,8 +26,8 @@ export function createScanningHeaderSessions(pool: MobxPool, memo: Memo) {
       if (!machineId) return result
       const members = pool.header.members('machine', machineId, 'sessions').map(id => pool.model('session', id)?.headerHost)
       for (const id of coldSessionIds(pool)) {
-        const summary = pool.hidden('session', id)
-        if (summary?.machineId === machineId) members.push(memo(`coldHost:${id}`, () => headerHostSession(pool.hidden('session', id) as unknown as SessionView)))
+        const summary = coldSummary(id)
+        if (summary?.machineId === machineId) members.push(memo(`coldHost:${id}`, () => headerHostSession(coldSummary(id))))
       }
       for (const member of members) {
         if (!member || member.archived) continue

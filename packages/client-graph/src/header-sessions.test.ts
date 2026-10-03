@@ -64,6 +64,41 @@ function visits(pool: MobxPool) {
 }
 
 describe('incremental header sessions', () => {
+  it('reads pending fields of a working cold session without hydrating it', () => {
+    const pending = observable.map<string, Readonly<Record<string, unknown>>>(undefined, { deep: false })
+    const f = fixture(1, { pending: (_kind: string, id: string) => pending.get(id), edit: vi.fn() } as unknown as WriteSeam)
+    f.change('cold-0', { status: 'live', agentState: state('working') })
+    let working: ReturnType<typeof f.pool.headerViews.working> = []
+    const stop = autorun(() => { working = f.pool.headerViews.working() })
+    try {
+      runInAction(() => pending.set('cold-0', { title: 'Pending title', name: 'Pending name' }))
+      expect(working).toEqual([expect.objectContaining({ sessionId: 'cold-0', title: 'Pending title', name: 'Pending name' })])
+      runInAction(() => pending.set('cold-0', { archived: true }))
+      expect(working).toEqual([])
+      runInAction(() => pending.clear())
+      expect(working).toEqual([expect.objectContaining({ sessionId: 'cold-0', title: 'cold-0' })])
+      expect(f.pool.tables.session.has('cold-0')).toBe(false)
+      expect(f.pool.hydrate()).toBe(0)
+      expect(f.load).not.toHaveBeenCalled()
+    } finally { stop(); f.dispose() }
+  })
+
+  it('queues a missing cold header summary once and restores the roster on hydration', () => {
+    const f = fixture(1)
+    f.change('cold-0', { status: 'live', agentState: state('working') })
+    const missing = vi.spyOn(f.pool.residency!, 'summary').mockReturnValue(undefined)
+    let working: string[] = []
+    const stop = autorun(() => { working = f.pool.headerViews.working().map(row => row.sessionId) })
+    try {
+      expect(working).toEqual([])
+      expect(f.load).not.toHaveBeenCalled()
+      expect(f.pool.hydrate()).toBe(1)
+      expect(f.load).toHaveBeenCalledExactlyOnceWith('session', 'cold-0')
+      expect(working).toEqual(['cold-0'])
+      expect(f.pool.hydrate()).toBe(0)
+    } finally { missing.mockRestore(); stop(); f.dispose() }
+  })
+
   it.each([128, 17_000])('roster visits only the changed session with %i cold sessions', (coldCount) => {
     const f = fixture(coldCount)
     let working: string[] = []

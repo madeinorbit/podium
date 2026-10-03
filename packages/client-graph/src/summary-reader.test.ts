@@ -4,6 +4,16 @@ import { MobxPool, type WriteSeam } from './pool'
 import { mergePoolSummaries } from './source-registry'
 import { LOADING } from './worklist/rollup'
 
+// If hidden() becomes public again, the unused directive fails typecheck.
+function directHiddenControl(pool: MobxPool) {
+  // @ts-expect-error Stored summaries are private; callers use row(..., 'summary').
+  return pool.hidden('issue', 'cold')
+}
+
+it('keeps the direct-summary compile-time rejection referenced', () => {
+  expect(typeof directHiddenControl).toBe('function')
+})
+
 const now = Date.parse('2026-10-02T12:00:00Z')
 const row = (id: string, archived: boolean) => ({ id, seq: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
   stage: archived ? 'done' : 'in_progress', archived, title: 'Declared title', privateBody: 'Must not be stored cold', repoPath: '/synthetic', deps: [],
@@ -39,6 +49,19 @@ it('summary mode overlays pending edits on both resident and cold rows', () => {
     runInAction(() => { pending.set('issue:cold', { title: 'Pending cold' }); pending.set('issue:hot', { title: 'Pending hot' }) })
     expect(pool.row('issue', 'cold', 'summary')).toMatchObject({ title: 'Pending cold' })
     expect(pool.row('issue', 'hot', 'summary')).toMatchObject({ title: 'Pending hot' })
+  } finally { pool.dispose() }
+})
+
+it('cold model parent reads overlay pending edits without loading the row', () => {
+  const { pool, pending, load } = setup()
+  try {
+    const issue = pool.issueObject('cold')
+    runInAction(() => pending.set('issue:cold', { parentId: 'pending-parent' }))
+    expect(issue.parentRef).toBe('pending-parent')
+    runInAction(() => pending.clear())
+    expect(issue.parentRef).toBeNull()
+    expect(pool.hydrate()).toBe(0)
+    expect(load).not.toHaveBeenCalled()
   } finally { pool.dispose() }
 })
 

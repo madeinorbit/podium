@@ -81,7 +81,10 @@ export class HeaderSessions {
       return value === LOADING ? undefined : value
     }
     const summary = untracked(coldSummary)
-    const read = () => headerWorkingSession(coldSummary(), at => this.pool.clock.passed(at))
+    const read = () => {
+      const value = coldSummary()
+      return value && !value.archived ? headerWorkingSession(value, at => this.pool.clock.passed(at)) : null
+    }
     const working = summary?.status === 'live' && !summary.archived ? untracked(read) : null
     this.file(id, working, contribution(headerHostSession(summary)))
     if (summary?.status === 'live' && !summary.archived) {
