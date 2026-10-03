@@ -9,6 +9,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MobxPool } from '../pool'
+import '../runtime-pool'
 import { createPoolHost } from './pool-host'
 import { poolSwitches } from './switches'
 
@@ -28,10 +29,10 @@ async function mount(inline: boolean) {
   let runtime: ClientRuntime
   let pool: MobxPool | null = null
   let reads = 0
-  let snapshot: { now: number } | null = null
+  let snapshot: { selected: boolean } | null = null
   const read = (current: MobxPool) => {
     reads++
-    return { now: current.clock.current }
+    return { selected: current.selection.has('projection-target') }
   }
   let reader = read
   function Probe() {
@@ -76,21 +77,21 @@ async function mount(inline: boolean) {
     snapshot: () => snapshot!,
     render,
     replaceReader: () => { reader = (current) => read(current); render() },
-    tick: () => act(() => {
-      const publisher = runtime as unknown as { apply(patch: { coarseNow: number }): void }
-      publisher.apply({ coarseNow: snapshot!.now + 60_000 })
+    change: () => act(async () => {
+      const publisher = runtime as unknown as { apply(patch: { selectedIssueId: string | null }): void }
+      publisher.apply({ selectedIssueId: snapshot!.selected ? null : 'projection-target' })
     }),
   }
 }
 
 describe('real host projection read counts with the pilot on', () => {
-  it.each([false, true])('measures first mount and a real clock update (inline=%s)', async (inline) => {
+  it.each([false, true])('measures first mount and a real selection update (inline=%s)', async (inline) => {
     const fixture = await mount(inline)
     const firstMount = fixture.reads()
     const first = fixture.snapshot()
-    fixture.tick()
+    await fixture.change()
     const perChange = fixture.reads() - firstMount
-    expect(fixture.snapshot().now).toBe(first.now + 60_000)
+    expect(fixture.snapshot().selected).toBe(!first.selected)
     const updated = fixture.snapshot()
     const beforeRerender = fixture.reads()
     fixture.render()
