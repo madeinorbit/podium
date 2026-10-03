@@ -1,7 +1,7 @@
 /** Isolated reader proof, not an Expo app or complete Inbox acceptance. */
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
-import { resolveMobileFile, resolveMobilePackage, resolveRootFile, resolveRootPackage } from './resolve-package'
+import { resolveMobileFile, resolveMobilePackage, resolveRootFile, resolveRootPackage, resolveThroughMobileDep } from './resolve-package'
 
 // The isolated linker puts Vite and its React plugin under the web package,
 // which declares them. Ask that owner instead of falling through to another
@@ -21,6 +21,8 @@ export default async () => {
       extensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'],
       alias: [
         { find: /^react-native$/, replacement: resolveMobilePackage('react-native-web') },
+        { find: /^lucide-react$/, replacement: webRequire.resolve('lucide-react') },
+        { find: /^@react-native\/assets-registry\/registry$/, replacement: resolveThroughMobileDep('react-native', '@react-native/assets-registry/registry') },
         { find: /^expo-blur$/, replacement: fileURLToPath(new URL('./harness/stub-expo-blur.tsx', import.meta.url)) },
         { find: /^expo-haptics$/, replacement: fileURLToPath(new URL('./harness/stub-expo-haptics.ts', import.meta.url)) },
         { find: /^react-native-safe-area-context$/, replacement: fileURLToPath(new URL('./harness/stub-safe-area.ts', import.meta.url)) },
