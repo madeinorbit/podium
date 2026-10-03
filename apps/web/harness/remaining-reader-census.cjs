@@ -27,7 +27,7 @@ const switches = [
   'lib/preferences-data-layer.ts',
   'lib/automations-data-layer.ts',
   'lib/command-launch-data-layer.ts',
-  'lib/shell-data-layer.ts',
+  'app/shell-pool-screen.ts',
 ].map(path => 'apps/web/src/' + path)
 
 function count(path, source) {
@@ -53,7 +53,7 @@ const totals = phase => rows.reduce((sum, row) => {
   for (const [key, value] of Object.entries(row[phase])) sum[key] = (sum[key] ?? 0) + value
   return sum
 }, {})
-const remainingSwitches = switches.filter(existsSync)
+const remainingSwitches = switches.filter(existsSync).filter(path => /\bwebPoolSwitch\s*\(/.test(readFileSync(path, 'utf8')))
 const report = {
   baseline,
   candidate: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),

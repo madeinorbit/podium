@@ -50,7 +50,7 @@ it('declares launch and palette demand after attachment, follows window updates 
   await waitFor(() => {
     expect(result.current.launch).not.toBe(LOADING)
     expect(result.current.palette).not.toBe(LOADING)
-    expect(result.current.sessions).toHaveLength(8)
+    expect(result.current.sessions).toHaveLength(10)
   })
   const { launch, palette, actions, owner } = result.current
   expect(launch).toMatchObject({ initialRepoPath: '/synthetic/project',
@@ -58,7 +58,7 @@ it('declares launch and palette demand after attachment, follows window updates 
   })
   expect(palette).toMatchObject({ paletteOpen: false, selectedIssueId: null })
   expect(result.current.sessions.map(row => row.sessionId).sort()).toEqual(
-    Array.from({ length: 8 }, (_, index) => `synthetic-session-${index}`),
+    [...Array.from({ length: 8 }, (_, index) => `synthetic-session-${index}`), 'synthetic-guest-0', 'synthetic-guest-1'].sort(),
   )
   expect(actions.setPaletteOpen).toBe(owner.getSnapshot().setPaletteOpen)
   expect(actions.updateIssue).toBe(owner.getSnapshot().updateIssue)
