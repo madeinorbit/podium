@@ -217,12 +217,14 @@ describe('mobile WorkScreen pool consumer', () => {
   for (const scale of [1, 4] as const) it(`active search preserves untouched native bands at ${scale}x`, async () => {
     const { view, corpus, feed } = await mount(true, scale)
     fireEvent.click(screen.getByLabelText('Search work'))
-    fireEvent.change(screen.getByLabelText('Search work', { selector: 'input' }), { target: { value: 'e' } })
+    fireEvent.change(screen.getByLabelText('Search work', { selector: 'input' }), { target: { value: 'reconcile' } })
     await waitFor(() => expect(state.sections.length).toBeGreaterThan(1))
-    const section = state.sections.find(section => section.kind === 'project' && section.data.some(ref => ref.kind === 'issue'))!
+    const singleBand = (id: string) => state.sections.filter(band => band.data.some(item => item.id === id)).length === 1
+    const section = state.sections.find(band => band.kind === 'project' && band.data.some(item => item.kind === 'issue' && singleBand(item.id)))!
     expect(section).toBeDefined()
-    const ref = section.data.find(ref => ref.kind === 'issue')!
+    const ref = section.data.find(item => item.kind === 'issue' && singleBand(item.id))!
     const target = corpus.issueProjections.find(row => row.id === ref.id)!
+    expect(target.title.toLowerCase()).toContain('reconcile')
     const before = state.sections
     await act(async () => {
       feed.publish('issueProjections', corpus.issueProjections.map(row => row.id === target.id
