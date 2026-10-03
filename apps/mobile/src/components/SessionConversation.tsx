@@ -3,14 +3,11 @@ import {
   createConversationController,
   hubConnection,
   nativeSessionCanInterrupt,
-  storeConversationOutbox,
-  storeConversationRecords,
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { type SessionView, sessionValues } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
 import {
   createTranscriptController,
   transcriptActivitySignal,
@@ -34,14 +31,17 @@ import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
+import { useHub } from '../client/hooks'
+import type { MobileTrpc } from '../client/trpc'
 import {
-  useHub,
-  useIssues,
-  useMachines,
-  useSessionDraft,
-  useSessions,
-  useStoreSelector,
-} from '../client/hooks'
+  useSessionContextIssues as useIssues,
+  useSessionContextMachines as useMachines,
+  useSessionContextDraft as useSessionDraft,
+  useSessionContextSessions as useSessions,
+  useSessionContextQuestion,
+  useSessionContextIssue,
+  useSessionConversationPorts,
+} from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { chatSendTransport } from '../lib/chat-send-transport'
@@ -155,21 +155,21 @@ export function SessionConversation({
   /** Wait until the authority recognizes a client-minted session id. */
   deferInitialTranscript?: boolean
 }) {
-  const store = useStoreSelector(
-    (s) => ({
+  const storeHandle = useStoreHandle<MobileTrpc>()
+  const store = useMemo(() => {
+    const s = storeHandle.getSnapshot()
+    return {
       trpc: s.trpc,
       replica: s.replica,
       setSessionDraft: s.setSessionDraft,
       sendChat: s.sendChat,
-      chatSendsFor: s.chatSendsFor,
       discardChat: s.discardChat,
       dismissOffer: s.dismissOffer,
       resurrectSession: s.resurrectSession,
       killSession: s.killSession,
       httpOrigin: s.httpOrigin,
-    }),
-    shallowEqual,
-  )
+    }
+  }, [storeHandle])
   const hub = useHub()
   const issues = useIssues()
   const allSessions = useSessions()
@@ -187,14 +187,11 @@ export function SessionConversation({
     if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
     return machineName || 'This machine'
   }, [machines, session.machineId, machineName])
-  const currentQuestion = useStoreSelector((s) =>
-    (s.pendingInteractions ?? []).find(
-      (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
-    ),
-  )
+  const currentQuestion = useSessionContextQuestion(sessionId)
   const storedDraft = useSessionDraft(sessionId)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: one seed per addressed conversation
-  const draftSeed = useMemo(() => storedDraft, [sessionId])
+  const ports = useSessionConversationPorts(sessionId)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one seed when this addressed conversation's ports become ready
+  const draftSeed = useMemo(() => ports.draft, [sessionId, ports.ready])
   const trpc = store.trpc
   /**
    * THE SEND ROUTE, READ PER SEND (POD-4688). The conversation controller is
@@ -265,7 +262,6 @@ export function SessionConversation({
         },
       ]
     : []
-  const storeHandle = useStoreHandle()
   // biome-ignore lint/correctness/useExhaustiveDependencies: the spawn seed belongs to this session's controller lifetime
   const conversationController = useMemo(
     () =>
@@ -274,8 +270,8 @@ export function SessionConversation({
         transcript: transcriptController,
         // Where each sent message stands, by id, from the synced records
         // (POD-4764) — not a poll of the ledger, and never its text.
-        records: storeConversationRecords(storeHandle, sessionId),
-        outbox: storeConversationOutbox(storeHandle, sessionId),
+        records: ports.records,
+        outbox: ports.outbox,
         // Its own sends the feed no longer carries — it was away while they
         // were confirmed — asked by id at start and on every reconnect (POD-4811).
         lookupRecords: (ids) =>
@@ -287,7 +283,7 @@ export function SessionConversation({
         // them again — or "not sent" with their retry.
         initialPending: [
           ...initialPending,
-          ...store.chatSendsFor(sessionId).map(
+          ...ports.outbox.held().map(
             (send, index): ConversationPendingTurn => ({
               id: `outbox-${index}-${send.mutationId}`,
               deliveryId: send.mutationId,
@@ -318,8 +314,8 @@ export function SessionConversation({
             // A message the outbox already holds (a reloaded conversation
             // following it, or a retry of one that gave up) is waited on or
             // re-issued as it is, whatever the route says now.
-            const heldByOutbox = store
-              .chatSendsFor(sessionId)
+            const heldByOutbox = ports.outbox
+              .held()
               .some((held) => held.mutationId === turn.deliveryId)
             const transport = heldByOutbox
               ? ({ kind: 'send', wake: false } as const)
@@ -356,7 +352,9 @@ export function SessionConversation({
       sessionId,
       store.dismissOffer,
       store.sendChat,
-      store.chatSendsFor,
+      ports.records,
+      ports.outbox,
+      ports.ready,
       store.discardChat,
       store.setSessionDraft,
       storeHandle,
@@ -407,9 +405,10 @@ export function SessionConversation({
   }, [activitySignal, sessionLive, transcriptController])
 
   useEffect(() => {
+    if (!ports.ready) return
     conversationController.start()
     return () => conversationController.stop()
-  }, [conversationController])
+  }, [conversationController, ports.ready])
 
   useEffect(() => {
     conversationController.replaceDraft(storedDraft)
@@ -514,9 +513,8 @@ export function SessionConversation({
 
   // A peek stores the selected identity but renders the replica's live row, so a
   // todo toggle updates in the still-open sheet instead of waiting for reopen.
-  const livePeekIssue = peekIssue
-    ? (issues.find((candidate) => candidate.id === peekIssue.id) ?? peekIssue)
-    : null
+  const addressedPeekIssue = useSessionContextIssue(peekIssue?.id)
+  const livePeekIssue = peekIssue ? (addressedPeekIssue ?? peekIssue) : null
   /**
    * The offer this screen is still ASKING. An accept hides its card on the press
    * rather than on the round trip — the server clears the offer as part of

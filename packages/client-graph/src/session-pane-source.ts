@@ -2,6 +2,8 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { observable, runInAction } from 'mobx'
 import type { SessionPaneRows } from './session-pane-schema'
 
+export const SESSION_PANE_SOURCE_KEY = 'session-pane'
+
 /** A borrowed controls projection on the app-owned runtime, with no session
  * collection, transcript, replica, mutation or outbox of its own. */
 export class SessionPaneSource {

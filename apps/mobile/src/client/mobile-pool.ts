@@ -17,6 +17,7 @@ import type { commandLaunchViews, CommandLaunchData } from '@podium/client-graph
 import type { MobxPool } from '@podium/client-graph/pool'
 import { SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUPERAGENT_SUMMARIES, createSuperagentSource } from '@podium/client-graph/superagent'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
+import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
 import {
   createPoolHost,
   type PoolDataLayer,
@@ -76,11 +77,12 @@ export function createMobilePool(
           header: true,
           settings: true,
           summaries: {
-            issue: MOBILE_INBOX_SUMMARIES.issue,
+            issue: [...MOBILE_INBOX_SUMMARIES.issue, ...MOBILE_SESSION_SUMMARIES.issue],
             session: [
               ...SUPERAGENT_SUMMARIES.session,
               ...NOTICE_SUMMARIES.session,
               ...MOBILE_INBOX_SUMMARIES.session,
+              ...MOBILE_SESSION_SUMMARIES.session,
             ],
           },
         }),
@@ -101,6 +103,8 @@ export function createMobilePool(
             pool.sources.view(MOBILE_INBOX_VIEW_KEY, () => createMobileInboxViews(pool))
             return new MobileInboxSource(runtime, pool)
           })
+          const { attachMobileSessionContext } = await import('@podium/client-graph/mobile-session-context')
+          await attachMobileSessionContext(runtime, pool)
         },
       },
     ],

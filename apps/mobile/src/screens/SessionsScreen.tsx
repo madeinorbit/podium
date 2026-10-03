@@ -5,7 +5,12 @@ import type { SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { useBooting, useIssues, useSessions } from '../client/hooks'
+import {
+  useSessionContextBooting as useBooting,
+  useSessionContextIssues as useIssues,
+  useSessionContextSessions as useSessions,
+  useSessionContextIssue,
+} from '../client/use-session-context'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
@@ -35,6 +40,7 @@ export function SessionsScreen() {
   const bottomInset = useContentBottomInset()
   const now = Date.now()
   const [peek, setPeek] = useState<{ issue: IssueViewModel; session: SessionMeta } | null>(null)
+  const peekIssue = useSessionContextIssue(peek?.issue.id)
 
   const groups = useMemo(() => groupSessions(withoutShells(sessions)), [sessions])
   const sections = useMemo(
@@ -121,7 +127,7 @@ export function SessionsScreen() {
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
       <TaskSheet
-        issue={peek?.issue ?? null}
+        issue={peekIssue ?? peek?.issue ?? null}
         issues={issues}
         sessions={sessions}
         onClose={() => setPeek(null)}

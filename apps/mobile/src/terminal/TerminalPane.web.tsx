@@ -5,7 +5,8 @@ import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-cli
 import { Mic } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
-import { useConnected, useHub, useIssues, useSessions, useSpawnPending } from '../client/hooks'
+import { useConnected, useHub } from '../client/hooks'
+import { useSessionContextIssues as useIssues, useSessionContextSession, useSessionContextSpawnPending as useSpawnPending } from '../client/use-session-context'
 import { Icon } from '../components/Icon'
 import { color, font, mono, sans, space } from '../theme/theme'
 import { LEGACY_MOBILE_KEYBOARD_THEME, MOBILE_APPEARANCE } from './terminal-appearance'
@@ -41,7 +42,7 @@ export function TerminalPane({
   const issues = useIssues()
   // The row this pane's grid comes from (POD-3239 B1). Read once at mount by
   // `useTerminalSession`; a later row update never remounts the terminal.
-  const session = useSessions().find((s) => s.sessionId === sessionId)
+  const session = useSessionContextSession(sessionId)
   // Live reads for callbacks the terminal keeps for the lifetime of the mount:
   // the overlay asks for a stage on every repaint, and a closure that captured
   // one render's projection would underline a stage the board has left behind.

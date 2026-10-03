@@ -7,16 +7,16 @@ import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/mode
 import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useStoreActions } from '../client/hooks'
 import {
-  useBooting,
-  useIssue,
-  useReplica,
-  useSession,
-  useSessions,
-  useSpawnPending,
-  useSpawnPrompt,
-  useStoreActions,
-} from '../client/hooks'
+  useSessionContextBooting as useBooting,
+  useSessionContextIssue as useIssue,
+  useSessionContextSession as useSession,
+  useSessionContextSessions as useSessions,
+  useSessionContextSpawnPending as useSpawnPending,
+  useSessionContextSpawnPrompt as useSpawnPrompt,
+  useSessionContextExit,
+} from '../client/use-session-context'
 import type { MobileTrpc } from '../client/trpc'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
@@ -68,7 +68,7 @@ export function SessionScreen() {
   // Actions + replica are identity-stable statics: this subscription never
   // re-renders the screen on store publishes.
   const store = useStoreActions()
-  const replica = useReplica()
+  const exitKind = useSessionContextExit(sessionId)
   const allSessions = useSessions()
   const session = useSession(sessionId)
   // Served descriptors for the session's machine (POD-4475). Above the
@@ -233,7 +233,7 @@ export function SessionScreen() {
     // and not-visible are settled facts, so animating either would imply that
     // waiting can change the answer.
     const absence = sessionLinkAbsence(
-      sessionAbsence(sessionId, session, (id) => replica.exitKind?.('session', id)),
+      sessionAbsence(sessionId, session, () => exitKind),
       link,
       rawSessionId !== undefined && isShortSessionIdentifier(rawSessionId),
     )
