@@ -73,7 +73,7 @@ function Surface() {
           commitMs += ms
         }}
       >
-        <DensityProvider uiState={ui} densityEnabled>
+        <DensityProvider densityEnabled>
           <CurrentReaders />
         </DensityProvider>
       </Profiler>
