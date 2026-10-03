@@ -20,6 +20,7 @@ vi.mock('../client/hooks', async original => {
   return { ...real, useStoreSelector: (...args: Parameters<typeof real.useStoreSelector>) =>
     state.poolRead ? useLaunchInputs() : real.useStoreSelector(...args) }
 })
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }), useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }) }))
 vi.mock('expo-router', () => ({ useRouter: () => ({ back() {}, replace() {} }) }))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
 vi.mock('../components/Screen', () => ({ Screen: ({ children }: { children: import('react').ReactNode }) => <>{children}</> }))
