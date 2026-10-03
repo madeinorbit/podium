@@ -271,6 +271,18 @@ try {
         // Mark an empty set so collector-owned DOM cannot retain retired props.
         await expect(page.locator('[data-acceptance-no-such-target]')).toHaveCount(0)
         await page.mouse.move(1799, 999)
+        // A real successor field focus replaces React's transient removed-field
+        // selection owner. Do not manufacture events to reset private caches.
+        await page
+          .locator('textarea:visible, input:visible:not([data-account-blur-writer])')
+          .first()
+          .focus()
+        await settle(page)
+        const nextFocus = await page.evaluate(() => ({
+          tag: document.activeElement?.tagName,
+          connected: document.activeElement?.isConnected,
+          type: (document.activeElement as HTMLInputElement)?.type,
+        }))
         const beforeGc = await page.evaluate(() => window.__accountLifetime())
         if (beforeGc.principal !== principal) throw new Error('Actual principal did not change')
         if (
@@ -303,6 +315,7 @@ try {
           initialUi,
           uiState,
           blurWrites,
+          nextFocus,
         })
         if (preserveState) {
           const write = blurWrites!.at(-1),

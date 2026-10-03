@@ -342,41 +342,19 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   )
 }
 
-/** Clear the browser/React focus owner while the departing DOM is still attached.
- * Removing a focused input alone can leave React's selection-event cache holding
- * its old DOM tree and observer props. Layout cleanup runs before child deletion;
- * the principal key preserves focus during same-account runtime rebuilds. */
+/** End native focus while the departing account DOM is still attached. The
+ * principal key preserves focus during same-account runtime rebuilds.
+ *
+ * React can retain a removed field in its selection-event cache until another
+ * field receives real focusin. Chromium 153 warmed controls for POD-5402 retained
+ * nine retired runtime/pool parts before that focus and zero afterwards. Leave
+ * selection events to the browser rather than synthesizing a private cache reset. */
 function AccountLifetime({ children }: { children: ReactNode }): JSX.Element {
   useLayoutEffect(() => {
-    if (typeof document === 'undefined') return
-    let focusRoot: WeakRef<Element> | undefined
-    const remember = (target: EventTarget | null) => {
-      if (
-        !(target instanceof Element) ||
-        target === document.body ||
-        target === document.documentElement
-      )
-        return
-      let root = target
-      while (root.parentElement && root.parentElement !== document.body) root = root.parentElement
-      focusRoot = new WeakRef(root)
-    }
-    const onFocus = (event: FocusEvent) => remember(event.target)
-    remember(document.activeElement)
-    document.addEventListener('focusin', onFocus, true)
     return () => {
-      document.removeEventListener('focusin', onFocus, true)
+      if (typeof document === 'undefined') return
       const focused = document.activeElement
       if (focused && 'blur' in focused && typeof focused.blur === 'function') focused.blur()
-      // A hidden/removed field may already have lost native focus without a
-      // bubbling focusout. End that selection owner at its DOM mount container;
-      // dispatching on the container does not replay a child's blur handler.
-      // React mutes its event plugins during mutation cleanup. Deliver the
-      // container event after commit, once selection routing is enabled again.
-      const retiringRoot = focusRoot
-      queueMicrotask(() =>
-        retiringRoot?.deref()?.dispatchEvent(new FocusEvent('focusout', { bubbles: true })),
-      )
     }
   }, [])
   return <>{children}</>

@@ -146,7 +146,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
   expect(unmounts).toEqual(['alice', 'bob', 'alice', 'alice'])
 })
 
-it('ends cached selection focus even when the focused field was removed before the account switch', async () => {
+it('leaves removed-field selection bookkeeping to real browser focus events', async () => {
   const api = {} as PodiumClientApi
   const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
   function Reader() {
@@ -183,6 +183,5 @@ it('ends cached selection focus even when the focused field was removed before t
   fixture.handle = runtime()
   view.rerender(frame('bob'))
   await Promise.resolve()
-  expect(focusOut).toHaveBeenCalledOnce()
-  expect(focusOut.mock.calls[0]![0].target).toBe(view.container)
+  expect(focusOut).not.toHaveBeenCalled()
 })
