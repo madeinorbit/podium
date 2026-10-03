@@ -47,16 +47,22 @@ async function mount(inline: boolean) {
   }
   let reader = read
   let target = 'projection-target'
-  function Probe() {
+  // The projection owns tracking. A fresh callback keeps the inline-reader
+  // contract without making the component itself an observable consumer.
+  const freshReader = (captured: string) => (current: MobxPool) => {
+    reads++
+    return { selected: current.selection.size > 0 && current.selection.has(captured) }
+  }
+  // This fixture counts ordinary hook-driven renders, including an unchanged
+  // parent render. Keep it plain and give React its name without an observer
+  // or memo wrapper that would skip the render being measured.
+  const Probe = Object.assign(() => {
     renders++
     const captured = target
     pool = host.usePool()
-    snapshot = host.usePoolProjection(inline ? (current) => {
-      reads++
-      return { selected: current.selection.size > 0 && current.selection.has(captured) }
-    } : reader, null)
+    snapshot = host.usePoolProjection(inline ? freshReader(captured) : reader, null)
     return null
-  }
+  }, { displayName: 'PoolProjectionProbe' })
   const replica = createKernelReplica({
     cache: { readCursor: () => null, readEntities: () => [], read: () => undefined, durability: () => 'durable' },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
