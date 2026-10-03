@@ -34,17 +34,17 @@ for (const [control, path, needle, fault, expected] of controls) {
     throw new Error(`Ambiguous complete Inbox control: ${control}`)
   try {
     await writeFile(path, original.replace(needle, fault))
-  const run = spawnSync(
-    'bun',
-    ['apps/mobile/test/inbox-proof.ts', '--complete', '--counts-only'],
-    { encoding: 'utf8', timeout: 600000, env: process.env },
-  )
-  const output = `${run.stdout}\n${run.stderr}`
-  if (run.error || run.status === 0 || !output.includes(expected)) {
-    console.error(output)
-    throw new Error('Complete Inbox census did not reject the planted legacy hook')
-  }
-  console.log(JSON.stringify({ control, observedRed: true }))
+    const run = spawnSync(
+      'bun',
+      ['apps/mobile/test/inbox-proof.ts', '--complete', '--counts-only'],
+      { encoding: 'utf8', timeout: 600000, env: process.env },
+    )
+    const output = `${run.stdout}\n${run.stderr}`
+    if (run.error || run.status === 0 || !output.includes(expected)) {
+      console.error(output)
+      throw new Error('Complete Inbox census did not reject the planted legacy hook')
+    }
+    console.log(JSON.stringify({ control, observedRed: true }))
   } finally {
     await writeFile(path, original)
   }
