@@ -66,7 +66,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     const prefix = repo?.prefix
     const deadline = Date.parse(raw.deferUntil as string ?? '')
     const deferred = Number.isFinite(deadline) && !pool.clock.reached(deadline)
-    return { ...fields, priority: 99, id: asIssueId(id), description: text(raw.description),
+    return { ...fields, id: asIssueId(id), description: text(raw.description),
       parentId: pool.graph.one('issue', id, 'treeParent') ?? undefined,
       labels: raw.labels ?? [], deps: raw.deps ?? [], prefix,
       displayRef: prefix ? `${prefix}-${raw.seq}` : `#${raw.seq}`,
