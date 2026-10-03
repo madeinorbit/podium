@@ -5,7 +5,7 @@ import '@/test-support/mock-screen-pool'
 import { ExecutionProfiles } from './ExecutionProfiles'
 
 vi.mock('@podium/client-core/react', async (original) => ({
-  ...await original<typeof import('@podium/client-core/react')>(),
+  ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => ({}),
 }))
 
