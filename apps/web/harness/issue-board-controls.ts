@@ -76,8 +76,8 @@ const cases = [
     file: source,
     test,
     title: 'keeps rich card',
-    from: 'options.windowed ? options.addressed ?? [] :',
-    to: 'false ? options.addressed ?? [] :',
+    from: 'options.windowed ? (options.addressed ?? []) :',
+    to: 'false ? (options.addressed ?? []) :',
   },
   {
     name: 'virtual-child-summary',

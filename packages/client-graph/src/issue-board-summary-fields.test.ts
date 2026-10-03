@@ -6,6 +6,8 @@ import { LOADING } from './worklist/rollup'
 function setup() {
   const cold = {
     id: 'cold',
+    seq: 1,
+    repoPath: '/fixture',
     title: 'Declared title',
     privateBody: 'Undeclared',
     stage: 'done',

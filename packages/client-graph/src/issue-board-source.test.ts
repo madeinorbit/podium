@@ -152,6 +152,7 @@ it('orders a virtual fleet by declared member IDs after resume collapse', () => 
   const { source, pool, stop } = setup([row('root')])
   const seat = (id: string, status: string, resume?: object) => ({
     sessionId: id,
+    cwd: '/fixture',
     issueId: 'root',
     agentKind: 'codex',
     status,
