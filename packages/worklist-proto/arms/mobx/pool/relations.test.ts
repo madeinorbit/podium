@@ -1149,7 +1149,8 @@ it('a root starts the nesting walk when it gains a parent, including a cycle', (
     r.push(issue('I1'))
     expect(state!).toEqual({ parents: [null, 'I1'], visible: [true, true] })
     r.push(issue('I1', { audience: 'agent' }))
-    expect(state!.visible).toEqual([false, false])
+    // The sessionless agent parent loses presence; its human child surfaces.
+    expect(state!).toEqual({ parents: [null, null], visible: [false, true] })
     r.push(issue('I1'))
     expect(state!).toEqual({ parents: [null, 'I1'], visible: [true, true] })
     r.check()
