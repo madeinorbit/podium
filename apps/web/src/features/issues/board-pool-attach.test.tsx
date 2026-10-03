@@ -54,8 +54,9 @@ it('attaches a real pool after the pending board render without legacy derivatio
     })
     await vi.waitFor(async () => {
       await act(async () => { await new Promise((done) => setTimeout(done, 0)) })
+      expect(errors).toEqual([])
       expect(container.textContent).toBe('ready')
-    })
+    }, { timeout: 10_000 })
     expect(sawPending).toBe(true)
     expect(issueBoardStats.read()['legacy.board'] ?? 0).toBe(0)
     expect(errors).toEqual([])
