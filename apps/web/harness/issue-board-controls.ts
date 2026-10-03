@@ -314,7 +314,7 @@ for (const control of cases.filter((control) => !only || control.name === only))
     const output = `${run.stdout ?? ''}\n${run.stderr ?? ''}`
     const assertion =
       'browserError' in control
-        ? output.includes(control.browserError) && /\bError:/.test(output)
+        ? output.includes(control.browserError) && /\b[Ee]rror:/.test(output)
         : /AssertionError/.test(output) && /[1-9]\d* failed/.test(output)
     reports.push({ name: control.name, status: run.status, assertion, restored: false })
     if (run.status !== 1 || !assertion) {
