@@ -114,8 +114,8 @@ it('records actual legacy derivations as the switch-off positive control', () =>
   renderHook(useBoundary)
   expect(state.issueReads).toHaveBeenCalled()
   expect(state.sessionReads).toHaveBeenCalled()
-  expect(issueBoardStats.read()['legacy.board']).toBeGreaterThan(0)
-  expect(issueBoardStats.read()['legacy.explorer']).toBeGreaterThan(0)
+  expect(issueBoardStats.read()['legacy.board'] ?? 0).toBeGreaterThan(0)
+  expect(issueBoardStats.read()['legacy.explorer'] ?? 0).toBeGreaterThan(0)
 })
 it('keeps the pool bulk-close dialog off the legacy session collection', () => {
   render(
