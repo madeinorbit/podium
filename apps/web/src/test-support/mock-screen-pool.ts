@@ -1,9 +1,9 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { Store } from '@podium/client-core/engine'
 import type { MobxPool } from '@podium/client-graph'
 import { createChatContextReader } from '@podium/client-graph/chat-context'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
 import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
-import { compareStructural } from 'mobx'
 import { useMemo, useRef, useSyncExternalStore } from 'react'
 import { vi } from 'vitest'
 import * as storeInputs from '@/app/store'
@@ -196,7 +196,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection<T>(read: (pool: MobxPool) => T) {
     const next = read(useFixturePool())
     const previous = useRef<{ value: T } | null>(null)
-    if (!previous.current || !compareStructural(previous.current.value, next))
+    if (!previous.current || !isDeepStrictEqual(previous.current.value, next))
       previous.current = { value: next }
     return previous.current.value
   },

@@ -156,7 +156,7 @@ vi.mock('@/app/store', () => {
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useReplicaIssues: normalizedIssues,
+    useReplicaIssues: () => normalizedIssues(),
     useSession: (id: string | undefined) =>
       [...storeSessions, ...embeddedSessions()].find((session) => session.sessionId === id),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
