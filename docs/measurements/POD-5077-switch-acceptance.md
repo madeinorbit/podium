@@ -1,18 +1,18 @@
 # POD-5077 switch acceptance
 
-POD-5093, 2026-10-03. **Acceptance remains open.** The pruning candidate has zero legacy entries and zero unexpected diagnostic differences, but the initial account remains reachable through the workspace Close Tab hook. The frozen integration product is `c38a12b360`, containing POD-5395 and POD-5396. Flatblock access stopped during the focused gate when ludovico Tailscale entered `NeedsLogin` (shared access blocker POD-5404); the gate result is not yet retrievable and no accepted timing capture has run. No default has been changed.
+POD-5093, 2026-10-03. **Acceptance remains open.** The frozen product has zero legacy entries and zero unexpected diagnostic differences; account lifetime remains under verification in POD-5402. The frozen integration product is `c38a12b360`, containing POD-5395 and POD-5396. The test-only POD-5401 fixture fix at `eb4a26a9d9` leaves that product byte-identical. Flatblock access returned at 13:45 UTC; the saved gate result has been recovered, and timing capture is queued for its lease. No accepted timing values exist and no default has been changed.
 
 ## Evidence status
 
 | Requirement | Evidence | Result |
 | --- | --- | --- |
-| Store and derive p50 <200 ms, p95 <500 ms | Frozen product `c38a12b360`; new flatblock connections blocked by Tailscale login | Pending |
+| Store and derive p50 <200 ms, p95 <500 ms | Frozen product `c38a12b360`; paired capture prepared, waiting for `bench:flatblock` | Pending |
 | IndexedDB, layout and total reported separately | Exclusive source-mapped CPU partition and Chromium timeline collector prepared | Pending |
-| Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, candidate `91bb0f3488`, mission / small / session switches | Zero entries |
+| Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, candidate `91bb0f3488` and frozen-product preflight, mission / small / session switches | Zero entries |
 | Synthetic corpus parity | Sidebar, mission, issue-page and session diagnostics on the same browser candidate | Zero differences / pending |
 | Private operator replay | Five read-only ludovico checks; aligned sidebar repeated at frozen `c38a12b360` | Zero unexpected differences / pending |
 | Account switch leaves no survivors | Alice → Bob → Alice, actual principals checked, five forced GC and settled-render rounds per transition | Fails: POD-5402 |
-| Focused corpus and rendering gates | Fourteen exact files started on committed `b2846d011e`; transport lost before result retrieval | Pending |
+| Focused corpus and rendering gates | Saved results plus the three missing node files: 13 of 14 files green; the remaining navigation case awaits its landed fixture fix rerun | Pending |
 
 ## Correctness and legacy work
 
@@ -55,7 +55,7 @@ Window.__PODIUM_CLOSE_TAB__
   → destroyed initial ClientRuntime
 ```
 
-The same closure retains the old replica through outbox callbacks. `Workspace.tsx` already registers the handler every render. POD-5402 owns the account control arms and the fix; candidate `93f6b51297` separates the mount-lifetime drag callbacks from account actions. It has not landed and has no new control or fix survivor counts because flatblock is unreachable. The account acceptance condition remains failed. The saved remote `retired.heapsnapshot` and `retired-object.json` are retained for POD-5402's verification.
+The same closure retains the old replica through outbox callbacks. `Workspace.tsx` already registers the handler every render. POD-5402 owns the account control arms and the fix. Its drag-only candidate `93f6b51297` was insufficient; a subsequent provider principal subtree key removes the strong Workspace path. The owner also found a retained Playwright startup handle to a sidebar DOM row. The collector now waits for a boolean and disposes that handle. Corrected control and candidate survivor results are still pending, so the account condition remains failed. The saved remote `retired.heapsnapshot` and `retired-object.json` have been copied by POD-5402 and remain retained here.
 
 ## Evidence and controls
 
@@ -69,6 +69,6 @@ The operator decides when these screens become ON by default after the remaining
 
 ## Validation boundary
 
-The focused gate is `bun run test:file --` with these fourteen exact files on flatblock: sidebar-check, mission-view-check, issue-page-check, issue-page-replay, engine navigation-pool, web pool-navigation-provider and pool-navigation-render, FlightDeck.pool, IssuePage.pool-parity, session-pane.pool, chat-context.pool, shell-pool-screen, graph pool-host and pool-projection. It runs through the repository admission/collection wrapper with a foreground 900-second timeout, checkout-local Bun 1.4.2 and no timing lease. At transport loss the worker was actively executing; no result is inferred from that observation. Retrieve its existing log before deciding whether any rerun is needed.
+The focused gate is `bun run test:file --` with these fourteen exact files on flatblock: sidebar-check, mission-view-check, issue-page-check, issue-page-replay, engine navigation-pool, web pool-navigation-provider and pool-navigation-render, FlightDeck.pool, IssuePage.pool-parity, session-pane.pool, chat-context.pool, shell-pool-screen, graph pool-host and pool-projection. It uses the repository admission/collection wrapper, foreground timeouts, checkout-local Bun 1.4.2 and no timing lease. The recovered run reports four node files and six web files green. The three unreported node files passed a sequential focused rerun (12 tests). The remaining web file has 17 passing tests and one reproducible cold-navigation failure on the old fixture. POD-5401 fixes its missing `FakeHub.onConnectionHealth` subscription in `eb4a26a9d9`; the aligned case rerun is pending. POD-5410 is closed as its duplicate. No passed file is rerun merely for confidence.
 
 This issue changes only this report in tracked source. It does not require an additional runtime typecheck or the ordinary lean gate; the focused corpus/rendering lane is the relevant acceptance evidence. The product-fix owners report their own focused regressions and lean gates green. New checker sources and synthetic results are retained as issue artifacts rather than committed application code.
