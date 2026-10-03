@@ -2,7 +2,7 @@
 
 The phone Inbox, proposal screening, Pulse live health, reference chips and link host now read the app-owned pool when the existing mobile pilot is enabled. The device switch still defaults OFF and is latched once; an enabled screen waits through asynchronous pool attachment without mounting a legacy reader. Mutations, RPC polling, transcript requests, optimism and the outbox remain with the existing runtime.
 
-The isolated reader acceptance and seeded production lane are green. The launch child owned by POD-5356 landed with POD-4977 at `68605eaa9e`; this branch now includes it, and complete mounted Inbox acceptance is being finished in POD-5373. POD-5370's phone startup fix landed at `8db927c57f`. Work, Issues, Issue and Mission screens remain with their allocated lanes. Legacy retirement is proposed in POD-5376 for about a week after the operator defaults the screen ON.
+The isolated reader acceptance, complete mounted Inbox acceptance and seeded production lane are green. The launch child owned by POD-5356 landed with POD-4977 at `68605eaa9e`; the complete proof in POD-5373 uses that implementation plus its coordinator-allocated header-machine accessor. POD-5370's phone startup fix landed at `8db927c57f`. Work, Issues, Issue and Mission screens remain with their allocated lanes. Legacy retirement is proposed in POD-5376 for about a week after the operator defaults the screen ON.
 
 ## Scope and declarations
 
@@ -44,7 +44,7 @@ The production check proves OFF remains latched after editing the setting, an ON
 
 The clean interleaved capture passed on `23d4493446`, Chromium **148.0.7778.96**, Bun **1.4.2**, on flatblock while holding `bench:flatblock`. It ran OFF/ON/OFF/ON in separate pages at 430×1050. Earlier incomplete fixture runs and the run started before its lease grant are excluded; the lease was released after every completed/failed capture. The evidence uses **5,600 synthetic issues and 5,016 sessions**: 5,014 linked sessions plus two guest sessions inherited from the shared fixture. The screenshot header shows the linked subtotal. Twelve linked sessions remain unarchived; the remainder supplies cold history.
 
-The fixture mounts the actual five readers with the existing store/provider attachment and real startup latch. Router/profile adapters, native swipe animation, launch, storage and refresh siblings are explicit stubs. Five SVG DOM adapters preserve the actual stage-glyph geometry and colours; they supply the browser primitives that Expo normally supplies. This is an isolated development reader measurement. InboxScreen has no current Expo app route; complete mounted Inbox acceptance removes the launch stub after POD-4977 lands.
+The timing fixture mounts the actual five readers with the existing store/provider attachment and real startup latch. Router/profile adapters, native swipe animation, launch, storage and refresh siblings are explicit stubs. Five SVG DOM adapters preserve the actual stage-glyph geometry and colours; they supply the browser primitives that Expo normally supplies. This is an isolated development reader measurement. InboxScreen has no current Expo app route; the complete mounted acceptance below removes all three reader-sibling stubs.
 
 Enabled mount, activity, relevant updates and reference actions recorded **zero selectorRuns, zero rowBuilds and zero legacy slice derivations**. The OFF mount built 5,600 issue rows and ran 107 selectors. Each OFF activity arm ran 761 selectors and built 27 rows; each OFF relevant-update arm ran 638 selectors and built 20 rows. Both ON comparison arms matched **27 visible positions with zero differences and zero pending reads**. Known issue and permanent session taps reached their expected routes; a missing reference opened the actual RN Web popup destination once per arm. The proposal Skip button advanced the existing deck. There were no page errors or synthetic runtime failures.
 
@@ -55,7 +55,24 @@ Enabled mount, activity, relevant updates and reference actions recorded **zero 
 
 Task time is the CDP `Performance.TaskDuration` delta for the whole publication loop, including the retained proposal screen and platform work. Average React commit duration fell from 608.2 to 332.9 ms for activity and from 502.0 to 401.0 ms for relevant updates. Total task time increased about 9% and 15%, respectively, in these two development-fixture samples. This does not establish an end-to-end speed gain or a production regression; Proposed POD-5387 records the attribution/reproduction work. The device default remains OFF. Initial async attachment took 12–13 ON commits versus eight OFF commits; startup task time and heap were not measured.
 
-Reproduce from the committed candidate in the dedicated checkout:
+## Complete mounted Inbox
+
+The restored complete proof passed on `00007d68a8`, after rebasing onto POD-4977. It mounts the actual NewWorkButton, StorageNoticeAlert and RefreshOffer with the existing store, shell provider and pool. The native launch sheet is closed and its presentation primitive is stubbed; none of its input hooks are stubbed. The 5,600-issue, 5,016-session synthetic corpus and four OFF/ON/OFF/ON pages are retained.
+
+Both enabled mounts and all activity, relevant-update and reference-action phases recorded **zero selectorRuns, zero rowBuilds and zero legacy slice derivations**. Both comparison arms had **zero differences and zero pending reads over 27 positions**. The OFF mount ran 126 selectors, built 5,600 issue rows and derived the worklist three times. Each OFF activity arm ran 881 selectors and 30 worklist derivations; each relevant-update arm ran 718 selectors and 20 worklist derivations. Activity commits were **43 OFF versus 33 ON**, and issue/health update commits **39 OFF versus 21 ON**, in both pairs. Initial mount required 14 ON commits versus seven OFF; this check is counts-only and accepts no timing samples. Reference routes, the actual missing-reference popup and proposal Skip still worked, with no page errors or runtime failures.
+
+Three new browser controls each failed at the expected assertion, with every original restored in `finally`: an enabled legacy Inbox issue hook, the old enabled NewWorkButton machine hook, and retaining the launch stub. Together with the 22 unit controls and seeded production route control, **26 planted faults demonstrated red checks**. The launch owner's existing real-provider regression also passed: **one collected test, eight explicitly skipped**, selected with `test:file -t "launch choices"`.
+
+Reproduce the complete counts-only acceptance without a timing lease:
+
+```sh
+cd ~/podium-test-5172
+export PATH="$HOME/podium-test-5172/.toolchain:$PATH"
+export LD_LIBRARY_PATH="$HOME/podium-test-5172/.toolchain/lib"
+timeout 600 bun apps/mobile/test/inbox-proof.ts --complete --counts-only
+```
+
+Reproduce the isolated timing capture from its recorded candidate in the dedicated checkout:
 
 ```sh
 podium lock acquire bench:flatblock --ttl 10m --wait
