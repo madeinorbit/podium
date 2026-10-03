@@ -10,7 +10,7 @@ POD-5093, 2026-10-03. **Acceptance remains open.** The pruning candidate has zer
 | IndexedDB, layout and total reported separately | Exclusive source-mapped CPU partition and Chromium timeline collector prepared | Pending |
 | Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, candidate `91bb0f3488`, mission / small / session switches | Zero entries |
 | Synthetic corpus parity | Sidebar, mission, issue-page and session diagnostics on the same browser candidate | Zero differences / pending |
-| Private operator replay | Five read-only ludovico checks; current sidebar seed alignment | Zero unexpected differences / pending |
+| Private operator replay | Five read-only ludovico checks; aligned sidebar repeated at frozen `c38a12b360` | Zero unexpected differences / pending |
 | Account switch leaves no survivors | Alice → Bob → Alice, actual principals checked, five forced GC and settled-render rounds per transition | Fails: POD-5402 |
 | Focused corpus and rendering gates | Fourteen exact files started on committed `b2846d011e`; transport lost before result retrieval | Pending |
 
@@ -32,15 +32,17 @@ Rows remain in ludovico memory. Only counts, positions, field names and opaque I
 
 | Screen | Positions or rows | Unexpected differences | Pending | Explicitly accepted semantic differences |
 | --- | ---: | ---: | ---: | ---: |
-| Sidebar, current joined seed | 1,207 rows / 35 sections; 6,078 issues, 5,184 sessions | 0 | 0 | 0 |
+| Sidebar, current joined seed (`c38a12b360`) | 1,209 rows / 35 sections; 6,087 issues, 5,186 sessions | 0 | 0 | 0 |
 | Mission view | 8,432 selections / 10,495 rows / 2,108 roots | 0 | 0 | 0 |
 | Issue page | 6,074 positions | 0 | 0 | 0 deadline differences |
 | Session pane | 5,180 positions | 0 | 0 | 1,600 ownership differences |
 | Shell | 78,869 positions / seven contexts | 0 | 0 | 0 |
 
+The aligned sidebar row is a fresh replay at exact `c38a12b360` on 2026-10-03 at 10:04:37 UTC. It ran on ludovico in a detached checkout with its own frozen dependency graph and unchanged tracked product source, and exited 0. Issue artifact 13, `aligned-replay-frozen-counts.json`, retains its count-only result and fixture fingerprint. The other private rows retain the earlier `c8bccb92cb` product results.
+
 Session ownership follows the previously accepted POD-5092 rule: explicit issue ownership first, then nearest worktree ownership, rather than legacy list order. The 1,600 accepted differences are reported separately; this is not a claim that every historical ownership value is identical. See [session pane evidence](pod-5092-session-pane-pool.md).
 
-The unchanged older sidebar replay fails equally at morning `803ecfa597` and the current `c8bccb92cb` product: 1,116 differences across 1,207 rows, with identical first opaque positions and field counts. It does not seed current session homes/user states/machines or declare mission summaries. A measurement-only copy follows the current browser fixture, reads joined sessions through the pool row source, declares `MISSION_SUMMARIES`, and yields zero differences. Dropping the joined session list is a planted red control: 1,192 differences, exit 1, exact source restoration verified. No shared replay or product source has been changed by this issue.
+The unchanged older sidebar replay fails equally at morning `803ecfa597` and the then-current `c8bccb92cb` product: 1,116 differences across 1,207 rows, with identical first opaque positions and field counts. It does not seed current session homes/user states/machines or declare mission summaries. A measurement-only copy follows the current browser fixture, reads joined sessions through the pool row source, declares `MISSION_SUMMARIES`, and yields zero differences. Dropping the joined session list is a planted red control: 1,192 differences, exit 1, exact source restoration verified. No shared replay or product source has been changed by this issue.
 
 ## Account boundary
 
