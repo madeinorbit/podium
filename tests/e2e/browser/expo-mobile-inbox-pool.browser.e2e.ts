@@ -5,7 +5,7 @@ import { RELAY } from './_harness'
 
 /** Reachable readers in the actual Metro export. InboxScreen is retained source
  * without an Expo route; its mounted acceptance lives in inbox-proof.ts. The
- * unchanged task detail only supplies a real RichMarkdown/RefChip host here. */
+ * task detail also supplies a real RichMarkdown/RefChip host here. */
 test.skip(
   ({ isMobile, browserName }) => !isMobile || browserName !== 'chromium',
   'Pixel Chromium phone reader proof',
