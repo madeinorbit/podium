@@ -259,6 +259,7 @@ describe('declared issue page', () => {
         seat('born-a', 'remote', { refIssueId: 'arch', archived: true, status: 'exited' }),
         seat('born-b', 'remote', { refIssueId: 'arch', archived: true, status: 'exited' })], true)
     const read = vi.spyOn(ctx.pool, 'row'), before = ctx.load.mock.calls.length
+    expect(tracked(() => ctx.pool.row('session', 'born-a', 'mark'))).toBe(LOADING)
     expect(tracked(() => ctx.pool.row('session', 'born-a', 'summary'))).toMatchObject({ refIssueId: 'arch' })
     expect(tracked(() => [...ctx.pool.graph.many('issue', 'arch', 'bornSessions')])).toEqual(['born-a', 'born-b'])
     expect(tracked(() => ctx.views.menuIssues())).not.toBe(LOADING)
