@@ -20,7 +20,7 @@ export function legacyWorkflowSnapshot(state: WorkflowCheckStore, inputs: Workfl
     { key: 'placement', fields: placementOptions(views), rows: [] },
     { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, fields: profilePlacement(profile, views) })) },
     { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {
-      const subject = runSubjectReference(run, id => run.subjectKind === 'issue'
+      const subject = runSubjectReference<object>(run, id => run.subjectKind === 'issue'
         ? state.issueProjections.find(issue => issue.id === id)
         : state.sessions.find(session => session.sessionId === id))
       return { id: run.id, fields: { id: subject.id, state: subject.state } }
@@ -32,7 +32,7 @@ export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs
   const { views, pending: machinesPending } = workflowMachines(pool)
   let pending = machinesPending
   const options = placementOptions(views)
-  return { sections: [
+  const sections: SidebarSnapshot['sections'] = [
     { key: 'placement', fields: options, pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
     { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, pending: machinesPending > 0, fields: profilePlacement(profile, views) })) },
     { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {
@@ -41,7 +41,8 @@ export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs
       return { id: run.id, pending: subject === LOADING,
         fields: subject === LOADING ? {} : { id: subject.id, state: subject.state } }
     }) },
-  ], get pending() { return pending } }
+  ]
+  return { sections, pending }
 }
 
 export function checkWorkflows(pool: MobxPool, state: WorkflowCheckStore, inputs: WorkflowCheckInputs) {

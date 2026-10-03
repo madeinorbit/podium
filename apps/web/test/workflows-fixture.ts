@@ -11,8 +11,12 @@ export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCoun
   const machines: MachineWire[] = ['available', 'unauthorized', 'unreachable', 'incapable', 'disabled', 'degraded'].map(state => ({
     id: asMachineId(`synthetic-${state}`), name: `Synthetic ${state}`, hostname: `synthetic-${state}`,
     online: state !== 'unreachable', lastSeenAt: stamp, use: state === 'unauthorized' ? 'denied' : 'granted',
-    availability: { daemon: state !== 'incapable', agentExecution: state !== 'degraded', server: false, supervisor: false, epoch: 'fixture' },
-    serviceAssignment: { server: false, agentExecution: state !== 'disabled' },
+    availability: { daemon: state !== 'incapable', server: false, supervisor: false, epoch: 'fixture' },
+    serviceAssignment: { server: false, agentExecution: state !== 'incapable' },
+    services: {
+      server: { policy: 'disabled', state: 'stopped', observedAt: stamp },
+      agentExecution: { policy: state === 'disabled' ? 'disabled' : 'enabled', state: state === 'degraded' ? 'refused' : 'available', observedAt: stamp },
+    },
   }))
   const profiles: ExecutionProfileWire[] = [...machines.map(machine => machine.id), asMachineId('synthetic-missing'), null].map((machineId, index) => ({
     id: `synthetic-profile-${index}`, name: `Synthetic profile ${index}`, accountId: asAccountId('synthetic-account'), machineId,
@@ -37,7 +41,7 @@ export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCoun
   const query = <T>(key: string, read: () => T) => async () => { calls[key] = (calls[key] ?? 0) + 1; return read() }
   const mutate = query('profileSave', () => { if (denial) throw new Error(denial); return profiles[0] })
   Object.assign(fixture.api, {
-    discovery: { refreshRepos: { mutate: query('discovery', () => ({ repositories: [], machines, diagnostics: [] })) } },
+    discovery: { refreshRepos: { mutate: query('discovery', () => ({ repositories: [], machines: [...machines], diagnostics: [] })) } },
     workflows: {
       list: { query: query('list', () => [detail.workflow]) }, bindings: { query: query('bindings', () => []) },
       profiles: { query: query('profiles', () => profiles) }, runs: { query: query('runs', () => runs) },

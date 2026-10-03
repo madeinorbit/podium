@@ -28,14 +28,14 @@ function useLegacySubject(run: WorkflowRunWire) {
   const owner = useStoreHandle()
   const issues = useReplicaIssues()
   const session = useSession(run.subjectKind === 'session' ? asSessionId(run.subjectId) : undefined)
-  return runSubjectReference(run, id => {
+  return runSubjectReference<object>(run, id => {
     recordSliceDerivation(owner, 'workflows.subject')
     return run.subjectKind === 'issue' ? issues.find(issue => issue.id === id)
       : session?.sessionId === id ? session : undefined
   })
 }
 function usePoolSubject(run: WorkflowRunWire) {
-  const read = useCallback((pool: Parameters<typeof workflowSubject>[0]) => workflowSubject(pool, run), [run.subjectKind, run.subjectId])
+  const read = useCallback((pool: Parameters<typeof workflowSubject>[0]) => workflowSubject(pool, run), [run])
   return useWorklistPoolProjection(read, LOADING)
 }
 export function useWorkflowSubject(run: WorkflowRunWire) {

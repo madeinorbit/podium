@@ -1,9 +1,9 @@
-import { machineViewsFromWire, runSubjectReference } from '@podium/client-core/viewmodels'
+import { machineViewsFromWire, runSubjectReference, type RunSubjectReference } from '@podium/client-core/viewmodels'
 import type { WorkflowRunWire } from '@podium/protocol'
 import type { MobxPool } from './pool'
 import type { SettingsRows } from './settings-schema'
 import { WORKFLOW_SCHEMA } from './workflow-schema'
-import { LOADING } from './worklist/rollup'
+import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Read-only projections over the one pool reader. The host's observed
  * projection supplies memoization; nothing here retains a second row copy. */
@@ -19,12 +19,12 @@ export function workflowMachines(pool: MobxPool) {
   return { views: machineViewsFromWire(machines), pending }
 }
 
-export function workflowSubject(pool: MobxPool, run: Pick<WorkflowRunWire, 'subjectKind' | 'subjectId'>) {
+export function workflowSubject(pool: MobxPool, run: WorkflowRunWire): Loaded<RunSubjectReference<{ id: string }>> {
   // The session summary applies the existing resume-twin rule and source-order
   // tie break. A raw keyed session read would expose a suppressed parked twin.
   const present = run.subjectKind === 'session'
     ? pool.settingsViews.sessionPresent(run.subjectId)
     : pool.row(WORKFLOW_SCHEMA.issue.entity, run.subjectId, 'summary')
   if (present === LOADING) return LOADING
-  return runSubjectReference(run as WorkflowRunWire, id => present ? { id } : undefined)
+  return runSubjectReference(run, id => present ? { id } : undefined)
 }
