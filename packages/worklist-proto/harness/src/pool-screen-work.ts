@@ -329,11 +329,11 @@ async function measureScreenCells(
       pool.sidebar.sections(layout),
     )
     const worktree = pool.tables.worktree.keys().next().value!
-    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => ({
-      issue: pool.sidebar.row(selected()),
-      worktree: pool.sidebar.worktree(worktree, layout),
-      evicted: pool.sidebar.selectionEvicted(),
-    }))
+    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => pool.sidebar.row(selected()))
+    add('sidebar.worktree', ['PoolWorktreeRow', 'PoolSidebarRail'], () =>
+      pool.sidebar.worktree(worktree, layout),
+    )
+    add('sidebar.selection', ['PoolSidebar'], () => pool.sidebar.selectionEvicted())
     add('mobile-work.sections', ['PoolWorkScreen', 'GroupHeader'], () =>
       pool.mobileWork.sections(layout),
     )
@@ -386,7 +386,7 @@ async function measureScreenCells(
       files: readFiles(pool),
     }))
     add('mission.pane', ['PoolFlightDeck', 'MissionDeck'], () =>
-      readMissionPane(pool, { ...window.get(), mode: 'full', handoff: false }),
+      readMissionPane(pool, { ...window.get(), mode: 'full', handoff: true }),
     )
     add('mission.workspace', ['Workspace', 'FoldedFlightDeckBar'], () =>
       readWorkspaceMission(missionView(pool), selected(), selected()),

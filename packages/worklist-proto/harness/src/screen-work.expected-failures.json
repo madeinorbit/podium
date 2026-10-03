@@ -1012,6 +1012,34 @@
             "elements"
           ]
         }
+      },
+      {
+        "reader": "consumer:workflows",
+        "actions": {
+          "select": [
+            "elements"
+          ],
+          "pane-switch": [
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "elements"
+          ],
+          "heartbeat": [
+            "elements"
+          ],
+          "lane-change": [
+            "elements"
+          ]
+        }
+      },
+      {
+        "reader": "consumer:workflows/settings.sessions",
+        "actions": {
+          "heartbeat": [
+            "elements"
+          ]
+        }
       }
     ]
   },
@@ -1449,6 +1477,23 @@
           "navigate-by-ref": [
             "rows",
             "elements"
+          ]
+        }
+      },
+      {
+        "reader": "consumer:references",
+        "actions": {
+          "pane-switch": [
+            "derivations"
+          ]
+        }
+      },
+      {
+        "reader": "consumer:references/ComputedValue@#",
+        "actions": {
+          "pane-switch": [
+            "rows",
+            "derivations"
           ]
         }
       },
