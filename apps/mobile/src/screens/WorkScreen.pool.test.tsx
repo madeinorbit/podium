@@ -108,8 +108,8 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
       records.set(key(entity, entityId), { entity, entityId, value, provenance: { seq } })
     }
   }
-  install('issueProjections', corpus.issueProjections); install('issueUserStates', corpus.issueUserStates)
-  install('issueGitStates', corpus.issueGitStates); install('repos', corpus.repoProjections)
+  install('issueProjections', corpus.issueProjections); install('issueUserStates', corpus.issueUserStates ?? [])
+  install('issueGitStates', corpus.issueGitStates ?? []); install('repos', corpus.repoProjections)
   install('issueDeps', corpus.issueDeps); install('sessions', corpus.sessions)
   const replica = createKernelReplica({ cache: {
     readCursor: () => ({ seq }), readEntities: () => [...records.values()],
@@ -143,6 +143,7 @@ async function mount(on: boolean, scale: 1 | 4) {
   vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
   const view = await renderWithMobileStore(<Capture />, {
     replica: feed.replica, principal: 'u-bench', repos: corpus.repos, machines: corpus.machines,
+    api: { pins: { list: { query: async () => corpus.pins } } },
     attachRuntime: runtime => {
       state.runtime = runtime
       return state.host!.host.attach(runtime, cause => { state.errors.push(cause.message) })
