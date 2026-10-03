@@ -9,7 +9,7 @@ import { checkMobileInbox } from '@podium/client-graph/diagnostics/mobile-inbox-
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import { asUserId } from '@podium/model/browser'
 import type { PodiumTarget } from '@podium/protocol'
-import { Profiler, useEffect, useState } from 'react'
+import { Profiler, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AuthStatusContext } from '../src/client/auth-context'
 import {
@@ -72,10 +72,6 @@ function Surface() {
   }
   pool = useMobilePool()
   const [screen, setScreen] = useState('inbox')
-  useEffect(() => {
-    fixture.publishMachines()
-    fixture.publishMetrics(0)
-  }, [])
   return (
     <main>
       <small>
@@ -137,7 +133,10 @@ root.render(
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(runtime) => {
         fixture.bindHub(runtime.hub)
-        return attachMobilePool(runtime, (error) => failures.push(error.message))
+        const detach = attachMobilePool(runtime, (error) => failures.push(error.message))
+        fixture.publishMachines()
+        fixture.publishMetrics(0)
+        return detach
       }}
     >
       <Surface />

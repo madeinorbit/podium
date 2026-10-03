@@ -19,6 +19,8 @@ export function createInboxFixture(count = 24, sessions = 12) {
         ? { stage: 'done', closedReason: 'done', archived: true, worktreePath: null }
         : {}),
     })
+  for (let index = 12; index < sessions; index++)
+    patch('session', `synthetic-session-${index}`, { archived: true })
   for (const index of [0, 1, 2, 3, 4, 6])
     patch('issueProjection', `synthetic-${index}`, {
       stage: 'proposed',
