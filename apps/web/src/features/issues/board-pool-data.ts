@@ -35,11 +35,14 @@ export function useBoardBase() {
 function useLegacyData(options: BoardOptions, base: ReturnType<typeof useBoardBase>): PoolBoardData {
   const owner = useStoreHandle()
   const { issues, sessions } = base
+  const { display, filter, isMobile, openIssueId, now } = options
+  const expansionKey = JSON.stringify(options.expanded)
+  const expanded = useMemo(() => new Set(JSON.parse(expansionKey) as string[]), [expansionKey])
   const projectPaths = useMemo(() => [...new Set(issues.map(row => row.repoPath).filter(Boolean))].sort((a, b) =>
     (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b)), [issues])
   const view = useMemo(() => legacyIssueBoard(owner, 'board', () => deriveIssuesViewModel({
-    ...options, issues, sessions, display: options.display as Parameters<typeof deriveIssuesViewModel>[0]['display'], expanded: new Set(options.expanded),
-  })), [owner, issues, sessions, options])
+    display: display as Parameters<typeof deriveIssuesViewModel>[0]['display'], filter, isMobile, openIssueId, now, issues, sessions, expanded,
+  })), [owner, issues, sessions, display, filter, isMobile, openIssueId, now, expanded])
   return { issues, sessions, projectPaths, view }
 }
 function usePoolData(options: BoardOptions): PoolBoardData {

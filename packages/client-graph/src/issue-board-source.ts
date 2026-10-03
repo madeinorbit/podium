@@ -331,6 +331,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
   /** Positions need eight scalar fields. Rich cards belong to the virtual
    * window; addressed actions/details obtain the same canonical row model. */
   function placement(id: string): Loaded<IssueViewModel> {
+    if (pool.tables.issue.has(id)) return facts(id)
     return memo(`placement:${id}`, () => {
       const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
       if (!row || row === LOADING) return row
