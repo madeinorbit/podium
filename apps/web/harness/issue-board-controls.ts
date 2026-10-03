@@ -12,6 +12,10 @@ const source = 'packages/client-graph/src/issue-board-source.ts'
 const test = 'packages/client-graph/src/issue-board-source.test.ts'
 const cases = [
   {
+    name: 'real-attachment', file: 'apps/web/src/features/issues/board-pool-data.ts', test: 'apps/web/src/features/issues/board-pool-attach.test.tsx', title: 'attaches a real pool',
+    from: "boardDataLayer() === 'pool' ? usePoolData : useLegacyData", to: "boardDataLayer() === 'pool' ? useLegacyData : useLegacyData",
+  },
+  {
     name: 'browser-rendered',
     file: source,
     browserError: 'Rendered board/explorer parity differs',
