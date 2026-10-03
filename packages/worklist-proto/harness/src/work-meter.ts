@@ -74,7 +74,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { compareStructural, computed, isObservableMap, isObservableSet, isObservableValue, Reaction } from 'mobx'
+import { compareStructural, computed, isBoxedObservable, isObservableMap, isObservableSet, Reaction } from 'mobx'
 import { CellGraph } from '../../arms/hand/pool/cells'
 
 type Side = 'arm' | 'outside'
@@ -184,13 +184,14 @@ export function countedStructuralEqual(before: unknown, next: unknown): boolean 
       const shadow = array ? new Array(value.length) : {}
       const native = value instanceof Map || value instanceof Set || value instanceof Date ||
         value instanceof Number || value instanceof String || value instanceof Boolean ||
-        isObservableMap(value) || isObservableSet(value) || isObservableValue(value)
+        isObservableMap(value) || isObservableSet(value) || isBoxedObservable(value)
       const proxy = new Proxy(shadow, {
         get(_target, key) {
           const item = Reflect.get(value, key, value)
           if (array && typeof key === 'string' && /^(0|[1-9]\d*)$/.test(key)) {
             const walk = startWalk()
-            if (walk) visit(walk, identity(item, value, Number(key)))
+            // Comparisons visit slots even when their cached values repeat.
+            if (walk) visit(walk, identity(undefined, value, Number(key)))
           }
           if (typeof item === 'function' && native && key !== 'constructor') {
             if (key === 'entries' || key === 'values' || key === 'keys' || key === Symbol.iterator)
