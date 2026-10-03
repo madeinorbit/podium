@@ -1,7 +1,12 @@
-import { shallowEqual } from '@podium/client-core/store'
 import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
+import { shallowEqual } from '@podium/client-core/store'
 import { reposToViews } from '@podium/client-core/viewmodels'
-import { agentCapabilityRejection, isMachineOfflineForLiveTerminal, type MachineId, machinesForRepoOrClone } from '@podium/model'
+import {
+  agentCapabilityRejection,
+  isMachineOfflineForLiveTerminal,
+  type MachineId,
+  machinesForRepoOrClone,
+} from '@podium/model'
 import { useLayoutEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useStoreSelector } from '../client/hooks'
@@ -17,14 +22,14 @@ import {
   issueAgentLabel,
 } from '../lib/agent-models'
 import {
+  autoLaunchMachineOption,
+  hasAuthoritativeLaunchCatalog,
   type LaunchConfiguration,
   type LaunchMachineOption,
-  autoLaunchMachineOption,
   type LaunchPlan,
-  hasAuthoritativeLaunchCatalog,
   normalizeLaunchConfiguration,
-  selectLaunchAgent,
   selectInheritedLaunchAgent,
+  selectLaunchAgent,
   selectLaunchEffort,
   selectLaunchMachine,
   selectLaunchModel,
@@ -60,6 +65,17 @@ export function LaunchConfigurationFields({
     () => (repo ? machinesForRepoOrClone(repo, store.machines) : []),
     [repo, store.machines],
   )
+  // An unpinned launch is validated by the server's own authority/default
+  // catalog. Never substitute the first eligible repo machine: it may expose a
+  // different harness or model set than the host that validates the spawn.
+  const { catalog, status: catalogStatus } = useModelCatalogState<MobileTrpc>(
+    value.machineId ? (value.machineId as MachineId) : undefined,
+  )
+  // Served harness descriptors for the launch target (POD-4475): harness
+  // names render from the report, bundled copy offline.
+  const { served } = useHarnessDescriptors<MobileTrpc>(
+    value.machineId ? (value.machineId as MachineId) : undefined,
+  )
   const machineOptions = useMemo<LaunchMachineOption[]>(() => {
     const explicit = machines.map((machine) => {
       const rejection = agentCapabilityRejection(machine, value.agentKind)
@@ -78,19 +94,11 @@ export function LaunchConfigurationFields({
         ...(reason ? { reason } : {}),
       }
     })
-    return [autoLaunchMachineOption(explicit, issueAgentLabel(value.agentKind, served)), ...explicit]
-  }, [machines, value.agentKind])
-  // An unpinned launch is validated by the server's own authority/default
-  // catalog. Never substitute the first eligible repo machine: it may expose a
-  // different harness or model set than the host that validates the spawn.
-  const { catalog, status: catalogStatus } = useModelCatalogState<MobileTrpc>(
-    value.machineId ? (value.machineId as MachineId) : undefined,
-  )
-  // Served harness descriptors for the launch target (POD-4475): harness
-  // names render from the report, bundled copy offline.
-  const { served } = useHarnessDescriptors<MobileTrpc>(
-    value.machineId ? (value.machineId as MachineId) : undefined,
-  )
+    return [
+      autoLaunchMachineOption(explicit, issueAgentLabel(value.agentKind, served)),
+      ...explicit,
+    ]
+  }, [machines, value.agentKind, served])
   const plan = useMemo(
     () => normalizeLaunchConfiguration(value, catalog, machineOptions, catalogStatus),
     [catalog, catalogStatus, machineOptions, value],
@@ -125,10 +133,15 @@ export function LaunchConfigurationFields({
     return allConnectorModelOptions(catalog, served)
       .filter((option) => option.value === AUTO || option.group === group)
       .map(({ value: optionValue, label }) => ({ value: optionValue, label }))
-  }, [catalog, effective.agentKind, hasLiveAgentCatalog])
+  }, [catalog, effective.agentKind, hasLiveAgentCatalog, served])
   const decoded = decodeModelPick(effective.modelPick)
   const effortOptions = hasLiveAgentCatalog
-    ? effortOptionsForModel(effective.agentKind, decoded.model, catalog[effective.agentKind], served)
+    ? effortOptionsForModel(
+        effective.agentKind,
+        decoded.model,
+        catalog[effective.agentKind],
+        served,
+      )
     : []
 
   const rows: Array<{
