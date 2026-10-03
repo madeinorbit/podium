@@ -19,7 +19,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import type { MobileTrpc } from '../client/trpc'
 import type { MobilePool } from '../client/mobile-pool'
 import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const state = vi.hoisted(() => ({ host: null as MobilePool | null, pool: null as MobxPool | null,
@@ -40,6 +40,8 @@ vi.mock('@podium/client-core/react', async original => {
     })),
   }
 })
+// Preserve the relative-time output captured by the accepted control.
+beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-03T19:30:00Z')))
 afterEach(() => { cleanup(); storeStats.enable(false); storeStats.reset(); vi.restoreAllMocks() })
 
 vi.mock('expo-haptics', () => ({

@@ -115,3 +115,13 @@ The clock control at `f922f86779` also records its actual old mechanism: ten
 legacy selector runs and no repaint after the first real pool tick. Its pool
 clock regression, including forward ticks and rewind, remains to pass after
 the generic hook retirement.
+
+The actual parent-picker control at `0c94ed68f9` renders the same newest-first
+fourteen literal choices at both sizes, including archived tasks. Opening it
+still reads 2,400/9,600 values and runs 1,201/4,801 derivations. Its visible
+neighbourhood ratio is one, so the guard is red. The declared identity-query
+scope has been sent to POD-4286 before any shared-query or picker change.
+
+The long-press fix also retires this issue's exact `rows` and `elements`
+exceptions in the shared structural speed guard. Other issues' exceptions
+remain unchanged; the candidate must satisfy those two comparisons outright.

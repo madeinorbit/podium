@@ -344,18 +344,6 @@
     ]
   },
   {
-    "issue": "POD-5439",
-    "reason": "Review finding 5: the mobile long-press whole-table bridge; ownership moved from POD-5422.",
-    "readers": [
-      {
-        "reader": "consumer:mobile-work.long-press",
-        "actions": {
-          "long-press": ["rows", "elements"]
-        }
-      }
-    ]
-  },
-  {
     "issue": "POD-5453",
     "reason": "Measured after POD-5406: declared query result reconstruction and resident count correction still scale with total rows.",
     "readers": [
