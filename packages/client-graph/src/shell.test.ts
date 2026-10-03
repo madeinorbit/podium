@@ -68,8 +68,10 @@ describe('shell pool', () => {
       f.sessions[2] = { ...f.sessions[2]!, archived: true }
       f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: f.sessions[2]!.sessionId, value: f.sessions[2]! }] as never })
       f.change({ selectedIssueId: draft.id })
-      expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
+      expect(f.pool.row('issue', draft.id)).toMatchObject({ isDraftVessel: true, worktreePath: null })
+      expect(f.pool.row('session', f.sessions[2]!.sessionId, 'summary')).toMatchObject({ archived: true })
       expect(shellViews(f.pool).chrome()).toHaveProperty('missionRoot', undefined)
+      expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
     } finally { f.pool.dispose() }
   })
   it('reads authoritative lane trains, maintains resident relations, and handles deletion without collection rescans', () => {
