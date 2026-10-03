@@ -113,6 +113,8 @@ describe('mobile target identity question', () => {
     index.apply({ type: 'replace', rows: [issue('a', 1), issue('b', 2)] })
     expect(index.repoIds('/phone')).toEqual(['phone'])
     const first = index.revision(question())
+    index.apply({ type: 'update', rows: [issue('unrelated', 99, { repoPath: '/other' })] })
+    expect(index.revision(question())).toBe(first)
     index.apply({ type: 'update', rows: [issue('a', 3, { title: 'Renamed target' })] })
     expect(index.revision(question())).toBeGreaterThan(first)
     expect(index.ids(question())).toEqual(['a', 'b'])

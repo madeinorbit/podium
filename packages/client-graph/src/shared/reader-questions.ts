@@ -64,6 +64,8 @@ const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const targetTitle = 'issue:targetTitle:'
 const targetGram = (field: 'title' | 'ref', text: string, path: string) =>
   `issue:targetGram:${field}:${JSON.stringify([path, text])}`
+const targetSequenceStart = (text: string, path: string) =>
+  `issue:targetSequenceStart:${JSON.stringify([path, text])}`
 function grams(text: string, length: number): Set<string> {
   const out = new Set<string>()
   if (length === 0) return out
@@ -94,7 +96,7 @@ export function createReaderIndex() {
   const compareTargets = (a: string, b: string) =>
     (targetOrder.get(b) ?? 0) - (targetOrder.get(a) ?? 0) || byId(a, b)
   const orderedTargetKey = (key: string) =>
-    key.startsWith('issue:path:') || key.startsWith('issue:targetGram:')
+    key.startsWith('issue:path:') || key.startsWith('issue:targetGram:') || key.startsWith('issue:targetSequenceStart:')
   function removeTarget(key: string, id: string) {
     const ids = targetPostings.get(key)
     if (!ids) return
@@ -157,6 +159,8 @@ export function createReaderIndex() {
       out.add(`issue:path:${row.repoPath ?? ''}`)
       const title = String(row.title ?? '').toLocaleLowerCase()
       const ref = String(row.seq ?? '')
+      for (let length = 1; length <= ref.length; length++)
+        out.add(targetSequenceStart(ref.slice(0, length), String(row.repoPath ?? '')))
       out.add(`${targetTitle}${title}`)
       for (const [field, text] of [
         ['title', title],
@@ -302,8 +306,7 @@ export function createReaderIndex() {
       const keys = [`${questionEntity(question)}:all`]
       switch (question.kind) {
         case 'mobileIssueTargets':
-          keys.push(`mobileTargets:issue:path:${question.repoPath}`)
-          break
+          return Math.max(replacement, revisions.get(`mobileTargets:issue:path:${question.repoPath}`) ?? 0)
         case 'proposedIssues':
           keys.push('issue:proposed')
           break
@@ -385,19 +388,24 @@ export function createReaderIndex() {
               (prefix ?? '').toLocaleLowerCase().replace(/[^a-z0-9]/g, ''),
             ),
           ])
-          const sequences = new Set<string>()
+          const sequences = new Map<string, { text: string; starts: boolean }>()
           if (/\d/.test(refNeedle))
             for (const prefix of prefixes) {
-              if (prefix.includes(refNeedle)) sequences.add('')
+              if (prefix.includes(refNeedle)) sequences.set('any:', { text: '', starts: false })
               for (let cut = 0; cut < refNeedle.length; cut++) {
                 const tail = refNeedle.slice(cut)
                 if (prefix.endsWith(refNeedle.slice(0, cut)) && /^\d+$/.test(tail))
-                  sequences.add(tail)
+                  sequences.set(`${cut > 0 ? 'start' : 'any'}:${tail}`, { text: tail, starts: cut > 0 })
               }
             }
-          const candidates = (field: 'title' | 'ref', text: string) => {
+          const candidates = (field: 'title' | 'ref', text: string, starts = false) => {
             const lists = [targetPostings.get(path) ?? []]
             const sets: ReadonlySet<string>[] = [repo, undeleted]
+            if (starts) {
+              const key = targetSequenceStart(text, question.repoPath)
+              lists.push(targetPostings.get(key) ?? [])
+              sets.push(bucket(key))
+            }
             for (const gram of grams(text, Math.min(3, text.length))) {
               const key = targetGram(field, gram, question.repoPath)
               lists.push(targetPostings.get(key) ?? [])
@@ -409,7 +417,7 @@ export function createReaderIndex() {
           const lanes = needle
             ? [
                 candidates('title', needle),
-                ...[...sequences].map((text) => candidates('ref', text)),
+                ...[...sequences.values()].map(({ text, starts }) => candidates('ref', text, starts)),
               ]
             : [candidates('title', '')]
           const positions = lanes.map(() => 0),
