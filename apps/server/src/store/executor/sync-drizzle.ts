@@ -52,31 +52,14 @@ export function currentTransaction(): StoreDrizzle | undefined {
 }
 
 /**
- * Builder reads decode positionally; raw reads also expose column names
- * (POD-3680). Drizzle rc.4 drops the declared result mode at its remote callback,
- * so StoreRemoteSession selects the shape while preparing the query.
- *
- * Raw results keep both shapes in one ordinary array. Named cells are copied
- * once as non-enumerable data properties, preserving iteration and JSON output.
- * Builder results need only the positional cells and skip those properties.
- * Array members retain precedence over column names, as in the old adapter.
+ * Drizzle drops result mode at the remote callback. Keep it at preparation:
+ * builder mappers need positional arrays, while raw queries consume named rows
+ * (POD-3680). Copy each returned row once, with no per-cell forwarding.
  */
-function rowValues(row: unknown, namedColumns: boolean): unknown[] {
+function resultRow(row: unknown, arrayRows: boolean): unknown {
   if (Array.isArray(row)) return row
   if (row !== null && typeof row === 'object') {
-    const named = row as Record<string, unknown>
-    const values = Object.values(named)
-    if (namedColumns) {
-      for (const [index, name] of Object.keys(named).entries()) {
-        if (Reflect.has(values, name)) continue
-        Object.defineProperty(values, name, {
-          value: values[index],
-          writable: true,
-          configurable: true,
-        })
-      }
-    }
-    return values
+    return arrayRows ? Object.values(row) : { ...row }
   }
   return [row]
 }
@@ -101,15 +84,15 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
     private readonly queryClient: QueryClient,
     dialect: SQLiteDialect,
   ) {
-    super(remoteCallback(queryClient, 'write', true), dialect, {})
+    super(remoteCallback(queryClient, 'write', false), dialect, {})
     this.readingSession = new SQLiteRemoteSession(
-      remoteCallback(queryClient, 'read', true), dialect, {},
-    )
-    this.arrayReadingSession = new SQLiteRemoteSession(
       remoteCallback(queryClient, 'read', false), dialect, {},
     )
+    this.arrayReadingSession = new SQLiteRemoteSession(
+      remoteCallback(queryClient, 'read', true), dialect, {},
+    )
     this.arrayWritingSession = new SQLiteRemoteSession(
-      remoteCallback(queryClient, 'write', false), dialect, {},
+      remoteCallback(queryClient, 'write', true), dialect, {},
     )
   }
 
@@ -140,7 +123,7 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
       )._prepare(),
     )
     const delegate = new SQLiteRemoteSession(
-      remoteCallback(this.queryClient, 'write', true),
+      remoteCallback(this.queryClient, 'write', false),
       this.dialect,
       {},
       async (batch) => {
@@ -153,14 +136,14 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
           })),
         )
         return results.map((result, index) => {
-          const namedColumns = !this.arrayQueries.has(prepared[index]!)
+          const arrayRows = this.arrayQueries.has(prepared[index]!)
           return {
             rows:
               batch[index]?.method === 'get'
                 ? result.rows.length === 0
                   ? (undefined as unknown as unknown[])
-                  : rowValues(result.rows[0], namedColumns)
-                : result.rows.map((row) => rowValues(row, namedColumns)),
+                  : (resultRow(result.rows[0], arrayRows) as unknown[])
+                : result.rows.map((row) => resultRow(row, arrayRows)),
             ...result.run,
           }
         })
@@ -176,7 +159,7 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
 function remoteCallback(
   client: QueryClient,
   intent: StatementIntent,
-  namedColumns: boolean,
+  arrayRows: boolean,
 ): AsyncRemoteCallback {
   return async (sql, params, method) => {
     if (method === 'run') {
@@ -190,15 +173,17 @@ function remoteCallback(
     if (method === 'get') {
       const row =
         intent === 'read' ? await client.get(sql, ...params) : await client.writeGet(sql, ...params)
+      // Upstream types even a raw get result as an array. In raw mode its
+      // executor returns this named row directly, without a positional mapper.
       return {
         rows: row === undefined
           ? (undefined as unknown as unknown[])
-          : rowValues(row, namedColumns),
+          : (resultRow(row, arrayRows) as unknown[]),
       }
     }
     const rows =
       intent === 'read' ? await client.all(sql, ...params) : await client.writeAll(sql, ...params)
-    return { rows: rows.map((row) => rowValues(row, namedColumns)) }
+    return { rows: rows.map((row) => resultRow(row, arrayRows)) }
   }
 }
 

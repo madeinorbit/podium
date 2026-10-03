@@ -112,29 +112,26 @@ describe('builder-declared statement intent', () => {
     expect(statements.map(({ intent }) => intent)).toEqual(['write', 'write', 'write'])
   })
 
-  it('returns native raw arrays with named data cells and unchanged array iteration', async () => {
+  it('returns plain raw snapshots with every named data cell', async () => {
     const { db } = await fixture()
     await db.insert(notes).values({ id: 1, body: 'search result' }).run()
-    type RawRow = unknown[] & { id: number; note_body: string }
+    type RawRow = { id: number; note_body: string }
     const row = await db.get<RawRow>(sql`select * from intent_notes`)
     const rows = await db.all<RawRow>(sql`select * from intent_notes`)
     for (const result of [row!, rows[0]!]) {
       expect(types.isProxy(result)).toBe(false)
-      expect(Array.isArray(result)).toBe(true)
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype)
       expect(result.id).toBe(1)
       expect(result.note_body).toBe('search result')
       expect('note_body' in result).toBe(true)
       expect(Object.getOwnPropertyDescriptor(result, 'note_body')?.value).toBe('search result')
-      expect(Object.keys(result)).toEqual(['0', '1'])
-      expect([...result]).toEqual([1, 'search result'])
-      expect(result.map(String)).toEqual(['1', 'search result'])
-      expect(JSON.stringify(result)).toBe('[1,"search result"]')
+      expect(Object.keys(result)).toEqual(['id', 'note_body'])
+      expect(Object.values(result)).toEqual([1, 'search result'])
+      expect(JSON.stringify(result)).toBe('{"id":1,"note_body":"search result"}')
     }
     expect(await db.get(sql`select * from intent_notes where id = 2`)).toBeUndefined()
-    const reserved = await db.get<unknown[]>(sql`select 'column' as length, null as map`)
-    expect(reserved?.length).toBe(2)
-    expect(typeof reserved?.map).toBe('function')
-    expect([...reserved!]).toEqual(['column', null])
+    const reserved = await db.get<{ length: string; map: null }>(sql`select 'column' as length, null as map`)
+    expect(reserved).toEqual({ length: 'column', map: null })
   })
 
   it('keeps prepared builder values positional without constructing named properties', async () => {
@@ -164,9 +161,9 @@ describe('builder-declared statement intent', () => {
       async () => [],
     )
     const db = storeQueriesOver(client, async (fn) => await fn(client)).rootDb
-    const result = await db.get<unknown[] & { note_body: string }>(sql`select id, note_body`)
+    const result = await db.get<{ id: number; note_body: string }>(sql`select id, note_body`)
     current = 'changed'
-    expect(result?.[1]).toBe('first')
+    expect(result?.id).toBe(1)
     expect(result?.note_body).toBe('first')
     expect(reads).toBe(1)
     expect(types.isProxy(result)).toBe(false)
