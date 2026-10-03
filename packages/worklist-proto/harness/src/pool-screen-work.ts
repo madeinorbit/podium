@@ -549,8 +549,8 @@ async function measureScreenCells(
     for (const reader of readers) {
       const projection = createPoolProjection(pool, () => insideReader(reader.name, reader.read), {
         name: `consumer:${reader.name}`,
-        equals: (before, next) => insideReader(`${reader.name}.compare`, () =>
-          countedStructuralEqual(before, next)),
+        equals: (before, next) =>
+          insideReader(`${reader.name}.compare`, () => countedStructuralEqual(before, next)),
       })
       const paint = () => values.set(reader.name, projection.getSnapshot())
       paint()

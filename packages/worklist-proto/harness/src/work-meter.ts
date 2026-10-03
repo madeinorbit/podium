@@ -75,7 +75,14 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { compareStructural, computed, isBoxedObservable, isObservableMap, isObservableSet, Reaction } from 'mobx'
+import {
+  compareStructural,
+  computed,
+  isBoxedObservable,
+  isObservableMap,
+  isObservableSet,
+  Reaction,
+} from 'mobx'
 import { CellGraph } from '../../arms/hand/pool/cells'
 
 type Side = 'arm' | 'outside'
@@ -184,9 +191,17 @@ export function countedStructuralEqual(before: unknown, next: unknown): boolean 
       const array = Array.isArray(value)
       const shadow = array ? [] : {}
       const prototype = Reflect.getPrototypeOf(value)
-      const native = value instanceof Map || value instanceof Set || value instanceof Date ||
-        value instanceof Number || value instanceof String || value instanceof Boolean ||
-        (prototype !== null && (isObservableMap(prototype) || isObservableSet(prototype) || isBoxedObservable(prototype)))
+      const native =
+        value instanceof Map ||
+        value instanceof Set ||
+        value instanceof Date ||
+        value instanceof Number ||
+        value instanceof String ||
+        value instanceof Boolean ||
+        (prototype !== null &&
+          (isObservableMap(prototype) ||
+            isObservableSet(prototype) ||
+            isBoxedObservable(prototype)))
       const proxy = new Proxy(shadow, {
         get(_target, key) {
           const item = Reflect.get(value, key, value)
@@ -204,7 +219,9 @@ export function countedStructuralEqual(before: unknown, next: unknown): boolean 
                     const result = iterator.next()
                     return result.done ? result : { done: false, value: wrap(result.value) }
                   },
-                  [Symbol.iterator]() { return this },
+                  [Symbol.iterator]() {
+                    return this
+                  },
                 }
               }
             return item.bind(value)

@@ -7,10 +7,25 @@
 
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { autorun, compareStructural, computed, ObservableMap, ObservableSet, observable, runInAction } from 'mobx'
+import {
+  autorun,
+  compareStructural,
+  computed,
+  ObservableMap,
+  ObservableSet,
+  observable,
+  runInAction,
+} from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { assertScreenWork, SCREEN_ACTIONS, screenWorkVerdicts } from './screen-work-ratios'
-import { ARM_CODE, countedStructuralEqual, insideArm, insideReader, measureWork, outsideArm } from './work-meter'
+import {
+  ARM_CODE,
+  countedStructuralEqual,
+  insideArm,
+  insideReader,
+  measureWork,
+  outsideArm,
+} from './work-meter'
 
 const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `i${i}`)
 
@@ -187,16 +202,25 @@ describe('pool reader windows', () => {
       const tick = observable.box(false)
       // Repeated cached values prove that visited slots, not only identities,
       // must count when the app compares equal vectors.
-      const first = Object.freeze({ ids: Object.freeze(Array.from({ length: scale }, () => 'same')) })
-      const second = Object.freeze({ ids: Object.freeze(Array.from({ length: scale }, () => 'same')) })
-      const projection = createPoolProjection(pool, () => insideReader('cached', () =>
-        tick.get() ? second : first), {
-        name: 'consumer:cached',
-        equals: (a, b) => insideReader('cached.compare', () => countedStructuralEqual(a, b)),
+      const first = Object.freeze({
+        ids: Object.freeze(Array.from({ length: scale }, () => 'same')),
       })
+      const second = Object.freeze({
+        ids: Object.freeze(Array.from({ length: scale }, () => 'same')),
+      })
+      const projection = createPoolProjection(
+        pool,
+        () => insideReader('cached', () => (tick.get() ? second : first)),
+        {
+          name: 'consumer:cached',
+          equals: (a, b) => insideReader('cached.compare', () => countedStructuralEqual(a, b)),
+        },
+      )
       const initial = projection.getSnapshot()
       let wakes = 0
-      const stop = projection.subscribe(() => { wakes++ })
+      const stop = projection.subscribe(() => {
+        wakes++
+      })
       try {
         const { work } = await measureWork(async () => runInAction(() => tick.set(true)), { pool })
         expect(projection.getSnapshot()).toBe(initial)
@@ -208,23 +232,38 @@ describe('pool reader windows', () => {
         pool.dispose()
       }
     }
-    const first = await measured(1), second = await measured(4)
+    const first = await measured(1),
+      second = await measured(4)
     expect(second.derivations).toBe(first.derivations)
-    expect(second.elementsBy['consumer:cached.compare']).toBeGreaterThan(first.elementsBy['consumer:cached.compare']!)
-    const cells = (work: typeof first) => SCREEN_ACTIONS.map(action => ({
-      action, neighbourhood: ['issue:drawn'], work,
-    }))
-    expect(() => assertScreenWork(screenWorkVerdicts(cells(first), cells(second)))).toThrow(/cached.compare/)
+    expect(second.elementsBy['consumer:cached.compare']).toBeGreaterThan(
+      first.elementsBy['consumer:cached.compare']!,
+    )
+    const cells = (work: typeof first) =>
+      SCREEN_ACTIONS.map((action) => ({
+        action,
+        neighbourhood: ['issue:drawn'],
+        work,
+      }))
+    expect(() => assertScreenWork(screenWorkVerdicts(cells(first), cells(second)))).toThrow(
+      /cached.compare/,
+    )
   })
 
   it('preserves MobX comparison decisions for frozen values, native collections, aliases and cycles', async () => {
     const child = Object.freeze({ id: 'shared' })
-    const cycleA: { self?: unknown } = {}, cycleB: { self?: unknown } = {}
+    const cycleA: { self?: unknown } = {},
+      cycleB: { self?: unknown } = {}
     cycleA.self = cycleA
     cycleB.self = cycleB
     const pairs: [unknown, unknown][] = [
-      [Object.freeze({ rows: Object.freeze([child, child]) }), Object.freeze({ rows: Object.freeze([child, child]) })],
-      [new Map([['rows', Object.freeze(['a', 'b'])]]), new Map([['rows', Object.freeze(['a', 'b'])]])],
+      [
+        Object.freeze({ rows: Object.freeze([child, child]) }),
+        Object.freeze({ rows: Object.freeze([child, child]) }),
+      ],
+      [
+        new Map([['rows', Object.freeze(['a', 'b'])]]),
+        new Map([['rows', Object.freeze(['a', 'b'])]]),
+      ],
       [new Set(['a', 'b']), new Set(['a', 'b'])],
       [new Date(1), new Date(1)],
       [cycleA, cycleB],
@@ -235,7 +274,9 @@ describe('pool reader windows', () => {
     ]
     for (const [a, b] of pairs) {
       const expected = compareStructural(a, b)
-      const { value } = await measureWork(async () => insideReader('comparison', () => countedStructuralEqual(a, b)))
+      const { value } = await measureWork(async () =>
+        insideReader('comparison', () => countedStructuralEqual(a, b)),
+      )
       expect(value).toBe(expected)
     }
   })
