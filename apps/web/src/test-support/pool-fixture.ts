@@ -11,7 +11,9 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
 import { useStoreSelector } from '@/app/store'
-import { normalizedFixtureIssues } from './normalized-issues'
+import { normalizedFixtureStore } from './normalized-issues'
+import type { RowSourceEvent } from '@podium/client-graph'
+import { fixtureStoreSnapshot } from './fixture-store'
 
 let pool: MobxPool | null = null
 let signature: string | undefined
@@ -19,6 +21,7 @@ let seededIssues: readonly unknown[] = []
 let headerFixture = false
 let stopHeader: (() => void) | undefined
 let fixtureState: Store
+let previousRows = new Map<string, RowSourceEvent['rows'][number]>()
 const headerListeners = new Set<() => void>()
 
 export function enableFixtureHeader() {
@@ -33,6 +36,7 @@ afterEach(() => {
   pool = null
   signature = undefined
   seededIssues = []
+  previousRows.clear()
 })
 
 /** Historical page tests supplied their fixture row as a prop. */
@@ -40,12 +44,18 @@ export function seedPoolFixture(issues: readonly unknown[]) {
   seededIssues = issues
 }
 
+/** Complete the fake authority's batched answer for an absent reference. */
+export function resolvePoolFixtureReference(ref: string, id: string | null) {
+  if (!pool) throw new Error('Fixture pool has not mounted')
+  pool.references.resolved(ref, id)
+}
+
 function useFixturePool() {
   const state = useStoreSelector((state) => state) as Store & {
     issues?: readonly unknown[]
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]
   }
-  fixtureState = { ...state, view: state.view ?? 'workspace', paneA: state.paneA ?? null, fileTabs: state.fileTabs ?? [], outboxSize: state.outboxSize ?? 0, machines: state.machines ?? [], repos: state.repos ?? [] } as Store
+  fixtureState = fixtureStoreSnapshot({ ...state, view: state.view ?? 'workspace', paneA: state.paneA ?? null, fileTabs: state.fileTabs ?? [], outboxSize: state.outboxSize ?? 0, machines: state.machines ?? [], repos: state.repos ?? [] } as Store)
   const fixtureIssues = state.issues?.length ? state.issues : seededIssues
   const nextSignature = JSON.stringify([
     fixtureIssues,
@@ -68,10 +78,10 @@ function useFixturePool() {
   }
   if (signature !== nextSignature) {
     signature = nextSignature
-    const issues =
-      state.replica && state.issueProjections
-        ? allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates)
-        : normalizedFixtureIssues({ ...state, issues: fixtureIssues })
+    const normalized = state.replica && state.issueProjections
+      ? state
+      : normalizedFixtureStore({ ...state, issues: fixtureIssues })
+    const issues = allIssueViewModels(normalized.replica, normalized.issueProjections, normalized.issueUserStates)
     const worktrees = reposToViews(state.repos ?? []).flatMap((repo) =>
       repo.worktrees.map((tree) => ({
         ...tree,
@@ -81,9 +91,8 @@ function useFixturePool() {
         projectRoot: tree.path === repo.path,
       })),
     )
-    pool.apply({
-      type: 'replace',
-      rows: [
+    const rows: RowSourceEvent['rows'] = [
+        ...normalized.replica.rows('repos').map((value) => ({ kind: 'repo' as const, id: value.id, value })),
         ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
         ...(state.sessions ?? []).map((value) => ({
           kind: 'session' as const,
@@ -91,11 +100,17 @@ function useFixturePool() {
           value,
         })),
         ...worktrees.map((value) => ({ kind: 'worktree' as const, id: value.path, value })),
-      ],
-    })
+      ]
+    const nextRows = new Map(rows.map((row) => [JSON.stringify([row.kind, row.id]), row]))
+    pool.apply({ type: 'update', rows: [
+      ...rows,
+      ...[...previousRows].flatMap(([key, row]) => nextRows.has(key) ? [] : [{ ...row, value: undefined }]),
+    ] })
+    previousRows = nextRows
+    const selectionChanged = (pool.selection.keys().next().value ?? null) !== (state.selectedIssueId ?? null)
     pool.applyLocals(
       { selectedIssueId: state.selectedIssueId ?? null, coarseNow: state.coarseNow ?? Date.now() },
-      new Set(['selectedIssueId', 'coarseNow']),
+      new Set(selectionChanged ? ['selectedIssueId', 'coarseNow'] : ['coarseNow']),
     )
     pool.header.apply(
       (state.machines ?? []).map((value) => ({ kind: 'machine', id: value.id, value })),
@@ -114,6 +129,7 @@ function useFixturePool() {
       'repository',
       repositories.map((value) => value.id),
     )
+    queueMicrotask(() => { for (const listener of headerListeners) listener() })
   }
   if (headerFixture && !stopHeader) {
     const subscribe = (listener: () => void) => {
@@ -126,7 +142,7 @@ function useFixturePool() {
       getSnapshot: () => fixtureState,
       subscribe,
       replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
-      hostMetrics: { getSnapshot: () => state.hostMetrics ?? [], subscribe },
+      hostMetrics: { getSnapshot: () => (fixtureState as typeof state).hostMetrics ?? [], subscribe },
       hub: {
         connectionHealth: () => ({ status: 'ok', rttMs: null, since: Date.now() }),
         onConnectionHealth: () => () => {},

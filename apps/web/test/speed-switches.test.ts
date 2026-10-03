@@ -13,24 +13,24 @@ describe('generic speed gate URL overrides', () => {
   it('parses repeatable overrides and rejects malformed or conflicting values', () => {
     expect(
       parseSpeedSwitches([
-        '--switch=mobxPane=0',
+        '--switch=mobxCommands=0',
         '--lease-confirmed',
         '--switch=anotherSetting=1',
-        '--switch=mobxPane=0',
+        '--switch=mobxCommands=0',
       ]),
     ).toEqual([
-      ['mobxPane', '0'],
+      ['mobxCommands', '0'],
       ['anotherSetting', '1'],
     ])
     for (const arg of [
-      '--switch=mobxPane=2',
+      '--switch=mobxCommands=2',
       '--switch==1',
-      '--switch=mobxPane',
+      '--switch=mobxCommands',
       '--switch= spaced=0',
     ]) {
       expect(() => parseSpeedSwitches([arg])).toThrow(/Invalid/)
     }
-    expect(() => parseSpeedSwitches(['--switch=mobxPane=0', '--switch=mobxPane=1'])).toThrow(
+    expect(() => parseSpeedSwitches(['--switch=mobxCommands=0', '--switch=mobxCommands=1'])).toThrow(
       /Conflicting/,
     )
   })

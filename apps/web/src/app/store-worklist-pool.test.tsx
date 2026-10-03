@@ -24,7 +24,10 @@ import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 const corpus = buildCorpus(1)
 const id = pickTargets(corpus).visibleRootId
 const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
-const api = {} as PodiumClientApi
+const api = {
+  settings: { get: { query: async () => ({}) } },
+  quota: { summary: { query: async () => [] } },
+} as unknown as PodiumClientApi
 const principal = (name: string) => asClientPrincipal(asUserId(name))
 const alice = principal('pool-alice')
 const bob = principal('pool-bob')

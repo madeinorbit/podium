@@ -73,15 +73,13 @@
  */
 
 import type { MotionPhase } from '@podium/client-core/viewmodels'
-import { type JSX, lazy, Suspense } from 'react'
+import { type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import type { IdSquareBadge } from '@/components/IdSquare'
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'
 import { cn } from '@/lib/utils'
 
-const PoolSidebarRail = lazy(() =>
-  import('./pool-sidebar-rail').then((m) => ({ default: m.PoolSidebarRail })),
-)
+import { PoolSidebarRail } from './pool-sidebar-rail'
 
 export function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
   if (waitingCount > 0) return { kind: 'count', count: waitingCount }
@@ -172,9 +170,5 @@ export function RailHoverCard({
 }
 
 export function SidebarRail(): JSX.Element {
-  return (
-    <Suspense fallback={null}>
-      <PoolSidebarRail />
-    </Suspense>
-  )
+  return <PoolSidebarRail />
 }

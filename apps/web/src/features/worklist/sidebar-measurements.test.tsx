@@ -120,7 +120,7 @@ describe('sidebar measurement boundary', () => {
     view.rerender(<SidebarPerfReadout {...props} report={perf.read()} />)
     expect(screen.getByTestId('perf-idle').textContent).toContain('1 rows redrawn')
     expect(screen.getByTestId('perf-memory').textContent).toContain('12')
-    expect(screen.getByTestId('perf-check').textContent).toContain('Off')
+    expect(screen.queryByTestId('perf-check')).toBeNull()
   })
 
   it('starts the reused switch trace at the captured input and preserves the paint mark', () => {

@@ -1,4 +1,5 @@
 import '@/test-support/mock-pool-fixture'
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 //
 // The dock's scroll contract (POD-516 r2 #6/#7).

@@ -1,4 +1,5 @@
 import '@/test-support/mock-pool-fixture'
+import { resolvePoolFixtureReference } from '@/test-support/pool-fixture'
 import { act, type JSX, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -79,6 +80,9 @@ describe('IssueChipLiveness host lifecycle', () => {
     await act(async () => {
       await Promise.resolve()
     })
+
+    expect(anchor.getAttribute('data-issue-availability')).toBe('loading')
+    act(() => resolvePoolFixtureReference('POD-99', null))
 
     expect(anchor.hasAttribute('data-issue-stage')).toBe(false)
     expect(anchor.getAttribute('data-issue-availability')).toBe('unavailable')

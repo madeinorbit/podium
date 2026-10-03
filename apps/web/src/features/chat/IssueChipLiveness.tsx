@@ -1,5 +1,6 @@
 import { recordChipWork } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { JSX } from 'react'
 import { useLayoutEffect } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
@@ -21,12 +22,7 @@ function PoolIssueChipLiveness({ root }: { root: HTMLElement | null }): null {
   const owner = useStoreHandle()
   useLayoutEffect(() => {
     if (!pool || !root) return
-    let disposed = false
-    let stop: (() => void) | undefined
-    // The legacy startup imports neither MobX nor the pool's tracking module.
-    void import('@podium/client-graph/runtime-pool').then(({ createPoolProjection }) => {
-      if (disposed) return
-      stop = bindIssueRefAnchors(root, {
+    const stop = bindIssueRefAnchors(root, {
         watch(ref, paint) {
           const view = createPoolProjection(pool, (pool) => {
             recordChipWork(owner, 'reads')
@@ -39,12 +35,8 @@ function PoolIssueChipLiveness({ root }: { root: HTMLElement | null }): null {
           }
           return view.subscribe(() => paintValue(view.getSnapshot()))
         },
-      })
     })
-    return () => {
-      disposed = true
-      stop?.()
-    }
+    return stop
   }, [owner, pool, root])
   return null
 }

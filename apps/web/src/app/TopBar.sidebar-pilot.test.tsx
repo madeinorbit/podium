@@ -6,6 +6,9 @@ vi.mock('./header-data', () => ({
   useHeaderView: () => 'workspace',
   useHeaderActions: () => ({ setView: vi.fn() }),
 }))
+vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
+vi.mock('@/features/machines/HostIndicators', () => ({ HeaderHostIndicators: () => null }))
+vi.mock('./HostedWorkspaceSwitcher', () => ({ HostedWorkspaceSwitcher: () => null }))
 
 describe('workspace header', () => {
   it.each([true, false])('omits the retired pilot badge (development=%s)', (development) => {

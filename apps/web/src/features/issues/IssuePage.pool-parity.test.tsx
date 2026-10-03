@@ -16,6 +16,8 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
 import { MobxPool } from '@podium/client-graph/pool'
+import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
+import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
@@ -334,6 +336,7 @@ function seed(
   }))
   visibleSessions = dedupeSessions(seats)
   pool = new MobxPool({ selectedIssueId: 'root', coarseNow: NOW })
+  pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
   pool.apply({
     type: 'replace',
     rows: [

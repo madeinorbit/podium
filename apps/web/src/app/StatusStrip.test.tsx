@@ -69,6 +69,8 @@ const fixture = vi.hoisted(() => {
       paletteOpen: false,
       setPaletteOpen: vi.fn(),
       trpc: {
+        settings: { get: { query: async () => ({}) } },
+        quota: { summary: { query: async () => [] } },
         sessions: { concurrencyHistory: { query } },
         usage: { summary: { query: usageQuery } },
       },
