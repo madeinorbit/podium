@@ -60,5 +60,5 @@ it('attaches the existing pool after mounting every reader without a legacy fall
   const stats = storeStats.snapshot().windows.at(-1)!.runtimes
   expect(stats.reduce((sum, runtime) => sum + runtime.selectorRuns, 0)).toBe(0)
   expect(stats.flatMap(runtime => Object.entries(runtime.slices)).filter(([key]) => key.startsWith('shell.'))).toEqual([])
-  expect(owner?.getSnapshot().sessions.length).toBe(40)
+  expect(owner?.getSnapshot().sessions.length).toBe(42)
 })

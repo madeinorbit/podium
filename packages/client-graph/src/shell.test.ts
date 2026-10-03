@@ -1,4 +1,5 @@
 import { autorun } from 'mobx'
+import { asSessionId } from '@podium/model/browser'
 import { describe, expect, it, vi } from 'vitest'
 import { checkShell, compareShellSnapshots, legacyShellSnapshot, poolShellSnapshot, startShellCheck } from '../diagnostics/shell-check'
 import { shellFixture } from '../diagnostics/shell-fixture'
@@ -32,7 +33,7 @@ describe('shell pool', () => {
   it('uses file scope and focused workspace after selection, including utility views and absent layouts', () => {
     const f = shellFixture()
     try {
-      settled(f); f.change({ paneA: f.fileTabs[0]!.id, view: 'settings' })
+      settled(f); f.change({ paneA: asSessionId(f.fileTabs[0]!.id), view: 'settings' })
       const value = shellViews(f.pool).dock()
       expect(value && value !== LOADING ? value.active : null).toMatchObject({ cwd: f.fileTabs[0]!.worktreePath, issueId: f.issues[1]!.id, machineId: 'shell-machine' })
       expect(settled(f).differences).toBe(0)
@@ -51,7 +52,7 @@ describe('shell pool', () => {
       expect(settled(f).differences).toBe(0)
       const lag = shellViews(f.pool).dock()
       expect(lag && lag !== LOADING ? lag.scope : null).toEqual({ repoId: 'shell-repo', repoPath: '/synthetic/project' })
-      f.change({ paneA: f.fileTabs[0]!.id })
+      f.change({ paneA: asSessionId(f.fileTabs[0]!.id) })
       expect(settled(f).differences).toBe(0)
     } finally { f.pool.dispose() }
   })

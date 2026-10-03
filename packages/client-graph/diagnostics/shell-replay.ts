@@ -56,7 +56,7 @@ async function main() {
   const corpus = corpusFromLive({ issues: [], issueProjections: byEntity.get('issueProjection') ?? [],
     issueUserStates: byEntity.get('issueUserState') ?? [], issueGitStates: byEntity.get('issueGitState') ?? [],
     sessions: byEntity.get('session') ?? [], repoProjections: byEntity.get('repo') ?? [], issueDeps: byEntity.get('issueDep') ?? [],
-    repos: scan.repositories, machines: scan.machines, pins: { repos: [], worktrees: [], issues: [], sessions: [] } } as LiveCollections, Date.now())
+    repos: scan.repositories, machines: scan.machines, pins: { repos: [], worktrees: [], panels: [] } } as LiveCollections, Date.now())
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const users = replica.rows('sessionUserStates')
   if (new Set(users.map(row => row.userId)).size > 1) throw new Error('Ambiguous principal')

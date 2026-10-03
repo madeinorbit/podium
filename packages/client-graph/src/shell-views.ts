@@ -2,7 +2,7 @@ import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { ActiveWorktree, WorktreeView } from '@podium/client-core/viewmodels'
-import { normalizeOriginUrl } from '@podium/model/browser'
+import { normalizeOriginUrl, type RepoId } from '@podium/model/browser'
 import { computed, compareStructural } from 'mobx'
 import { headerIds, knownIssueIds, knownSessionIds } from './enumerate'
 import type { HeaderRows } from './header-schema'
@@ -13,7 +13,7 @@ import { LOADING, type Loaded } from './worklist/rollup'
 
 export interface ShellDockData {
   active: ActiveWorktree | null
-  scope: { repoId: string | null; repoPath: string } | null
+  scope: { repoId: RepoId | null; repoPath: string } | null
   gitIssue: IssueViewModel | undefined
   mailIssueId: SessionView['issueId']
   issues: IssueViewModel[]
@@ -27,7 +27,7 @@ const contains = (cwd: string, root: string) => cwd === root || cwd.startsWith(r
 /** Cached views over the pool's one reader. No replica, legacy array, peek or
  * cold-ID index lives here. A missing summary queues the existing batch. */
 export function createShellViews(pool: MobxPool) {
-  const cache = new Map<string, ReturnType<typeof computed>>()
+  const cache = new Map<string, { get(): unknown }>()
   function memo<T>(key: string, read: () => T): T {
     let value = cache.get(key)
     if (!value) { value = computed(read, { equals: compareStructural }); cache.set(key, value) }

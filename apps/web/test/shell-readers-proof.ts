@@ -29,7 +29,7 @@ try {
     }, { clock })
     await page.context().route('https://synthetic.example.invalid/**', route => route.fulfill({ body: 'Synthetic login destination' }))
     const switched = arm === 'after' && red !== 'legacy'
-    await page.goto(`${origin}/test/shell-readers.browser.html?mobxSidebar=1&mobxHeader=0&mobxSettings=0&mobxShell=${switched ? 1 : 0}&rows=5600`)
+    await page.goto(`${origin}/test/shell-readers.browser.html?mobxSidebar=1&mobxCommands=1&mobxHeader=0&mobxSettings=0&mobxShell=${switched ? 1 : 0}&rows=5600`)
     await page.waitForFunction(() => window.__shellReaders?.ready(), null, { timeout: 60000 })
     await page.getByText('Synthetic task 0', { exact: true }).first().waitFor()
     await page.getByText('Host 3', { exact: true }).first().waitFor()
@@ -78,7 +78,10 @@ try {
     await page.evaluate(() => window.__shellReaders.close())
     await page.close()
   }
-  if (red === 'render') snapshots[1]![0]!.sections[0]!.fields.planted = true
+  if (red === 'render') {
+    const frame = snapshots[1]![0]!, section = frame.sections[0]!
+    snapshots[1]![0] = { ...frame, sections: [{ ...section, fields: { ...section.fields, planted: true } }, ...frame.sections.slice(1)] }
+  }
   const checks = snapshots[0]!.map((frame, index) => compareSidebarSnapshots(frame, snapshots[1]![index]!))
   if (checks.some(check => check.differences || check.pending || check.sections !== 7)) throw new Error(`Rendered shell differs: ${JSON.stringify(checks)}`)
   results.rendered = { frames: checks.length, sections: checks.reduce((sum, check) => sum + check.sections, 0), differences: 0 }
