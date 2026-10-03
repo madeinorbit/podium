@@ -1,6 +1,6 @@
 # POD-5077 switch acceptance
 
-POD-5093, 2026-10-03. **Operator-size timing is GREEN on exact landed `fba57c0c8fd01c24c2a9258d4a734961e76fdf80`; acceptance awaits the 4× capture and final corpus checks.** ON mission, small-mission and session switching all satisfy store/derive p50 <200 ms and p95 <500 ms. All sixty ON gestures have zero actual legacy, mission and engine-selection entries. POD-5406 removes the global command-launch work; its four global counters remain zero during every ON gesture. POD-5402's account fix is included; the aligned parent probe confirms zero survivors after real successor focus, with nine retained beforehand in ON. This issue has changed no defaults or application source.
+POD-5093, 2026-10-03. **Operator-size timing is GREEN on exact landed `fba57c0c8fd01c24c2a9258d4a734961e76fdf80`; the 4× mission p50 remains RED and final corpus checks are in progress.** At operator size, ON mission, small-mission and session switching all satisfy store/derive p50 <200 ms and p95 <500 ms. At 4×, small-mission and session switching pass, while mission p50 is 240 ms. All 120 ON gestures across both sizes have zero actual legacy, mission and engine-selection entries. POD-5406 removes the global command-launch work; its four global counters remain zero during every ON gesture. POD-5402's account fix is included; the aligned parent probe confirms zero survivors after real successor focus, with nine retained beforehand in ON. This issue has changed no defaults or application source.
 
 Both paired measurements use exactly `fba57c0c8f`, as instructed by POD-4286. It contains POD-5406 and excludes POD-5437's legacy removal, so OFF and ON remain available in the same build. The owner's first changed-source 4× attempt retained only 39 of 120 records and is incomplete; it is not combined with any completed capture. Historical frozen-product results below remain RED before this fix.
 
@@ -8,9 +8,9 @@ Both paired measurements use exactly `fba57c0c8f`, as instructed by POD-4286. It
 
 | Requirement | Evidence | Result |
 | --- | --- | --- |
-| Store and derive p50 <200 ms, p95 <500 ms | Exact `fba57c0c8f`, 120 retained profiles at 1×; 4× capture running | Passes at operator size; 4× pending |
+| Store and derive p50 <200 ms, p95 <500 ms | Exact `fba57c0c8f`, 120 retained profiles at each size | Passes at operator size; 4× mission p50 misses |
 | IndexedDB, layout and total reported separately | Exclusive CPU partition, request wait union and Chromium layout/paint union below | Recorded at both sizes |
-| Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, candidate `91bb0f3488`, frozen-product preflight and 120 retained ON gestures | Zero entries |
+| Zero legacy mission, selection and ownership work | Chromium 153, all sixteen switches ON, 120 final ON gestures on exact `fba57c0c8f`; earlier candidate/frozen controls retained | Zero entries |
 | Synthetic corpus parity | 1× browser diagnostics and focused corpus/rendering files green; 4× untimed browser checks interrupted | Zero differences / pending on completed checks; 4× browser result unavailable |
 | Private operator replay | Five read-only ludovico checks; aligned sidebar repeated at frozen `c38a12b360` | Zero unexpected differences / pending |
 | Account switch leaves no survivors | Landed `70f3c661f4`, aligned parent Chromium probe; Alice → Bob → Alice, actual principals checked | Bounded release: OFF 0/0; ON 9 before real successor focus, 0 afterward |
@@ -36,6 +36,25 @@ All numbers are milliseconds, nearest-rank p50 / p95. The store column is an exc
 Every ON gesture has zero `catalogBuilds`, `issueBuilds`, `coldSessionVisits` and `usageQueries` deltas; addressed session reads peak at two. Actual legacy, mission and navigation entry maps are zero. OFF remains an armed positive control, and independently mapped legacy data contributes 6,735.486 ms across its saved profiles. Retained inputs begin at 18:51:04.5901 UTC and the final Paint ends at 18:55:10.542691. The exclusive timing lease was acquired before the foreground run and released after all 120 records/manifest were saved and PID 1264868 exited 0. Per-sample one-minute host load ranges from 8.79 to 15.35 and is retained in the records.
 
 Artifact 27 retains the complete operator-size analysis. This timing-only manifest explicitly marks verification incomplete; empty diagnostic/lifetime arrays are not claimed as passing evidence. Raw OFF/ON text differs only in advancing countdowns (`12:10`/`12:06` and `7:41`/`7:36`); deck/dock labels and all other text match.
+
+## Final 4× timing
+
+The same fresh `fba57c0c8f` build, Chromium configuration, seed and twenty-sample alternating protocol run on 19,468 issues / 17,208 sessions. Targets match the frozen 4× baseline: missions `i13916`/`i19016`, small missions `i10006`/`i10061`, sessions `s8608`/`s11337`. The metric partition and percentile definitions are unchanged.
+
+| Action / arm | Store and derive | IndexedDB JS | IndexedDB wait | Layout / paint | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mission / OFF | 1,411.1 / 2,062.1 | 0.0 / 1.3 | 227.3 / 296.4 | 173.8 / 216.3 | 2,829.4 / 3,458.5 |
+| Mission / ON | 240.0 / 321.6 | 0.0 / 1.0 | 261.8 / 325.5 | 185.9 / 206.5 | 1,069.3 / 1,670.4 |
+| Small mission / OFF | 1,177.8 / 1,368.0 | 0.0 / 2.2 | 47.6 / 63.5 | 23.0 / 29.6 | 1,688.4 / 2,103.5 |
+| Small mission / ON | 114.1 / 133.4 | 0.0 / 0.0 | 56.8 / 79.5 | 23.7 / 30.0 | 327.7 / 362.8 |
+| Session / OFF | 2,466.7 / 2,763.3 | 0.0 / 0.3 | 13.2 / 17.4 | 30.5 / 90.5 | 3,473.1 / 3,853.2 |
+| Session / ON | 194.0 / 225.9 | 0.0 / 0.0 | 19.5 / 25.4 | 33.7 / 85.8 | 871.9 / 1,139.7 |
+
+All sixty ON legacy, mission and navigation maps are zero; the four global launcher deltas remain zero, with addressed session reads at most two. The cold-session counter was armed at 11,231 before the retained ON gestures. Positive OFF source-map attribution contributes 86,438.232 ms of legacy data work. Artifact 28 retains the complete 4× analysis.
+
+Small-mission and session budgets pass; mission p50 exceeds 200 ms by 40 ms, while its p95 is below 500 ms. Remaining mission self time is led by `reader-queries.ts:118 activity` (66.450 ms mean); small switches include its `question.roots.some` callback. This result remains explicitly negative even though the command-launch scan is gone. No product change was made in this measurement lane.
+
+The separate twenty-minute lease was granted at 18:57:34.935 UTC. Retained inputs begin at 18:59:09.2224 and the final Paint ends at 19:09:14.653938. All 120 records/manifest were saved, PID 1281563 exited 0, and the lease was released. A later audit finds no surviving recorded descendants from either timing capture. Per-sample one-minute load ranges from 5.31 to 11.05. The timing-only verification arrays are unavailable; raw render differences are only countdowns (`17:02`/`16:52`, `21:43`/`21:33`), with all other text and deck/dock labels equal.
 
 ## Operator-size timing before the fix
 
