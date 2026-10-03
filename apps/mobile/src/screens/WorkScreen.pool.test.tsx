@@ -97,6 +97,7 @@ vi.mock('../hooks/useRefreshableTab', async () => {
 vi.stubEnv('EXPO_OS', 'web')
 const { createMobilePool } = await import('../client/mobile-pool')
 const { WorkScreen } = await import('./WorkScreen')
+const { PoolWorkRowSlot } = await import('./WorkListRow')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -178,6 +179,45 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); state.counts.clear() })
 afterAll(() => vi.unstubAllEnvs())
 
 describe('mobile WorkScreen pool consumer', () => {
+  it('a hidden navigation target stays cold and a press reads the current session', async () => {
+    state.on = true; state.counts.clear(); state.errors.length = 0
+    state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
+    state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+    const seed = buildCorpus(1)
+    const path = seed.repos[0]!.path
+    const session = { ...seed.sessions[0]!, sessionId: 'native-nav-a', cwd: path, issueId: undefined }
+    const corpus = { ...seed, issueProjections: [], issueUserStates: [], issueGitStates: [], issueDeps: [], sessions: [session] }
+    const feed = kernelFixture(corpus)
+    vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
+    const callbacks = { navPending: false, onOpenIssue: vi.fn(), onOpenSession: vi.fn(), onLongPress: vi.fn(), onTuck: vi.fn() }
+    const item = { id: path, kind: 'worktree' as const, listKey: path }
+    function NavigationRow() {
+      state.pool = state.host!.host.usePool()
+      return <PoolWorkRowSlot item={item} {...callbacks} />
+    }
+    const view = await renderWithMobileStore(<NavigationRow />, {
+      replica: feed.replica, principal: 'u-bench', repos: corpus.repos, machines: corpus.machines,
+      attachRuntime: runtime => state.host!.host.attach(runtime, cause => { state.errors.push(cause.message) }),
+    })
+    await waitFor(() => expect(screen.queryByLabelText(/^Worktree /)).not.toBeNull(), { timeout: 30_000 })
+    await drainNativeLoads()
+    const before = output(view.container)
+    state.counts.clear()
+    const replacement = { ...session, sessionId: 'native-nav-b' }
+    await act(async () => { feed.publish('sessions', [replacement]) })
+    await waitFor(() => {
+      const current = state.pool!.mobileWork.row(item)
+      expect(current && typeof current !== 'symbol' ? current.navigation?.id : null).toBe(replacement.sessionId)
+    })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+    expect(output(view.container)).toEqual(before)
+    expect([...state.counts.values()].reduce((total, count) => total + count, 0), 'hidden navigation target commits').toBe(0)
+    fireEvent.click(screen.getByLabelText(/^Worktree /))
+    expect(callbacks.onOpenSession).toHaveBeenCalledWith(replacement.sessionId, path)
+    expect(callbacks.onOpenIssue).not.toHaveBeenCalled()
+    expect(state.errors).toEqual([])
+  }, 120_000)
+
   for (const scale of [1, 4] as const) it(`same native rows, bands and look at ${scale}x with no legacy reader`, async () => {
     const legacy = await mount(false, scale)
     const expected = output(legacy.view.container)

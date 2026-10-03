@@ -192,8 +192,8 @@ export function foldWorkSections(
   )
 }
 
-/** Only paint and navigation facts cross the row subscription. Feed records,
- * bookkeeping and raw session payloads cannot invalidate the native row. */
+/** Only paint facts cross the row subscription. Navigation reads the current
+ * pool value on the gesture; bookkeeping and payloads cannot invalidate it. */
 export function mobileRowPaint(value: MobileRowValues, now: number) {
   const sidebar = value.sidebar
   const issue = sidebar?.issue
@@ -216,8 +216,6 @@ export function mobileRowPaint(value: MobileRowValues, now: number) {
     snoozed: value.snoozed,
     unsnoozed: value.unsnoozed,
     tuckable: value.tuckable,
-    navigation: value.navigation,
-    firstSessionId: value.navigation?.kind === 'session' ? value.navigation.id : null,
     display: {
       phase: value.timing.phase,
       working: value.working,
