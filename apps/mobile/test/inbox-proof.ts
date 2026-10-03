@@ -3,7 +3,9 @@
 
 import { spawn } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { hostname } from 'node:os'
+import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium } from '@playwright/test'
 import type {} from './inbox.browser'
@@ -13,9 +15,11 @@ const countsOnly = process.argv.includes('--counts-only'),
   output = '.artifacts/mobile-inbox',
   origin = 'http://127.0.0.1:45172'
 await mkdir(output, { recursive: true })
+const webRequire = createRequire(new URL('../../web/package.json', import.meta.url))
+const viteBin = join(dirname(webRequire.resolve('vite/package.json')), 'bin/vite.js')
 const server = spawn(
   process.execPath,
-  ['apps/mobile/node_modules/vite/bin/vite.js', '--config', 'apps/mobile/vite.inbox.config.ts'],
+  [viteBin, '--config', 'apps/mobile/vite.inbox.config.ts'],
   { stdio: ['ignore', 'ignore', 'inherit'] },
 )
 const exited = new Promise<void>((resolve, reject) => {
