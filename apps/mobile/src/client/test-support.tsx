@@ -164,17 +164,17 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   // attribution gate here, and this one must never quietly become that.
   const replica = fixture.replica ?? createReplica({ storage: memoryStorage() })
   if (!fixture.replica) {
-  replica.applySnapshot('sessions', fixture.sessions ?? [])
-  if (fixture.sessionUserStates)
-    replica.applySnapshot('sessionUserStates', fixture.sessionUserStates)
-  if (fixture.machineProjections) replica.applySnapshot('machines', fixture.machineProjections)
-  seedIssueFixtures(replica, fixture.issues ?? [], asUserId(fixture.principal ?? 'user:test'))
-  if (fixture.issueProjections) replica.applySnapshot('issueProjections', fixture.issueProjections)
-  if (fixture.issueUserStates) replica.applySnapshot('issueUserStates', fixture.issueUserStates)
-  if (fixture.issueGitStates) replica.applySnapshot('issueGitStates', fixture.issueGitStates)
-  if (fixture.repoProjections) replica.applySnapshot('repos', fixture.repoProjections)
-  if (fixture.issueDeps) replica.applySnapshot('issueDeps', fixture.issueDeps)
-  replica.applySnapshot('messageRecords', fixture.messageRecords ?? [])
+    replica.applySnapshot('sessions', fixture.sessions ?? [])
+    if (fixture.sessionUserStates)
+      replica.applySnapshot('sessionUserStates', fixture.sessionUserStates)
+    if (fixture.machineProjections) replica.applySnapshot('machines', fixture.machineProjections)
+    seedIssueFixtures(replica, fixture.issues ?? [], asUserId(fixture.principal ?? 'user:test'))
+    if (fixture.issueProjections) replica.applySnapshot('issueProjections', fixture.issueProjections)
+    if (fixture.issueUserStates) replica.applySnapshot('issueUserStates', fixture.issueUserStates)
+    if (fixture.issueGitStates) replica.applySnapshot('issueGitStates', fixture.issueGitStates)
+    if (fixture.repoProjections) replica.applySnapshot('repos', fixture.repoProjections)
+    if (fixture.issueDeps) replica.applySnapshot('issueDeps', fixture.issueDeps)
+    replica.applySnapshot('messageRecords', fixture.messageRecords ?? [])
   }
   const api = stubApi(fixture)
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null

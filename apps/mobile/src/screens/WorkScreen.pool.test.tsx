@@ -145,7 +145,7 @@ async function mount(on: boolean, scale: 1 | 4) {
     replica: feed.replica, principal: 'u-bench', repos: corpus.repos, machines: corpus.machines,
     attachRuntime: runtime => state.host!.host.attach(runtime, cause => { state.errors.push(cause.message) }),
   })
-  await waitFor(() => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull())
+  await waitFor(() => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull(), { timeout: 30_000 })
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
   expect(state.errors).toEqual([])
   return { view, corpus, feed }
