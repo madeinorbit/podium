@@ -38,29 +38,38 @@ export interface ScreenWorkException {
   issue: string
 }
 
-export function screenWorkKey(value: Pick<ScreenWorkException, 'action' | 'kind' | 'reader'>): string {
+export function screenWorkKey(
+  value: Pick<ScreenWorkException, 'action' | 'kind' | 'reader'>,
+): string {
   return JSON.stringify([value.action, value.kind, value.reader])
 }
 
-export function classifyScreenWork(verdicts: readonly ScreenWorkVerdict[], exceptions: readonly ScreenWorkException[]) {
+export function classifyScreenWork(
+  verdicts: readonly ScreenWorkVerdict[],
+  exceptions: readonly ScreenWorkException[],
+) {
   const known = new Map<string, ScreenWorkException>()
   for (const entry of exceptions) {
     const key = screenWorkKey(entry)
-    if (known.has(key) || !SCREEN_ACTIONS.some(action => action === entry.action)
-      || !['rows', 'derivations', 'elements'].includes(entry.kind)
-      || !entry.reader || !/^POD-\d+$/.test(entry.issue)) {
+    if (
+      known.has(key) ||
+      !SCREEN_ACTIONS.some((action) => action === entry.action) ||
+      !['rows', 'derivations', 'elements'].includes(entry.kind) ||
+      !entry.reader ||
+      !/^POD-\d+$/.test(entry.issue)
+    ) {
       throw new Error(`Invalid or duplicate screen work exception: ${key}`)
     }
     known.set(key, entry)
   }
-  const failures = verdicts.filter(verdict => !verdict.passed)
-  const expectedFailures = failures.flatMap(verdict => {
+  const failures = verdicts.filter((verdict) => !verdict.passed)
+  const expectedFailures = failures.flatMap((verdict) => {
     const entry = known.get(screenWorkKey(verdict))
     return entry ? [{ ...verdict, issue: entry.issue }] : []
   })
-  const unexpected = failures.filter(verdict => !known.has(screenWorkKey(verdict)))
+  const unexpected = failures.filter((verdict) => !known.has(screenWorkKey(verdict)))
   const failing = new Set(failures.map(screenWorkKey))
-  const resolved = exceptions.filter(entry => !failing.has(screenWorkKey(entry)))
+  const resolved = exceptions.filter((entry) => !failing.has(screenWorkKey(entry)))
   return { expectedFailures, unexpected, resolved }
 }
 

@@ -69,7 +69,6 @@ import { legacyControlArmFor } from './legacy-control/arm'
 import { installMobxWarnTrap } from './mobx-trap'
 import { snapshotFromStore } from './oracle/index'
 import { poolScreenCellsAt } from './pool-screen-work'
-import screenWorkExceptions from './screen-work.expected-failures.json'
 import { ROUND_THREE_ARMS, type RosterAllowances, type RosterArm } from './roster'
 import {
   assertScaleInvariant,
@@ -82,6 +81,7 @@ import {
   scaleFailures,
   scaleVerdicts,
 } from './scale-check'
+import screenWorkExceptions from './screen-work.expected-failures.json'
 import {
   assertScreenWork,
   classifyScreenWork,
@@ -117,10 +117,22 @@ describe('pool screens work ratios', () => {
     expect(at4x.corpus.issues).toBeGreaterThan(at1x.corpus.issues * 3)
     expect(at4x.corpus.sessions).toBeGreaterThan(at1x.corpus.sessions * 3)
     const verdicts = screenWorkVerdicts(at1x.cells, at4x.cells)
-    const exceptions = screenWorkExceptions.flatMap(({ issue, counters }) =>
-      counters.map(counter => ({ ...counter, issue })))
+    const exceptions = screenWorkExceptions.flatMap(({ issue, readers }) =>
+      readers.flatMap(({ reader, actions }) =>
+        Object.entries(actions).flatMap(([action, kinds]) =>
+          (kinds ?? []).map((kind) => ({ action, kind, reader, issue })),
+        ),
+      ),
+    )
     const { expectedFailures, unexpected, resolved } = classifyScreenWork(verdicts, exceptions)
-    writeCells('work-pool-screens.json', { at1x, at4x, verdicts, expectedFailures, unexpected, resolved })
+    writeCells('work-pool-screens.json', {
+      at1x,
+      at4x,
+      verdicts,
+      expectedFailures,
+      unexpected,
+      resolved,
+    })
     console.info(
       `[screen work] ${at1x.readers.length} readers × ${SCREEN_ACTIONS.length} clicks/deltas × 2 scales; ${verdicts.length} counters; ${expectedFailures.length} expected failures; ${resolved.length} fixed counts green; ${unexpected.length} unexpected`,
     )
@@ -202,11 +214,26 @@ describe('pool screens work ratios', () => {
   })
 
   it('limits expected failures to exact issue-linked counts and reports fixed counts green', () => {
-    const bad: ScreenWorkVerdict = { action: 'select', kind: 'rows', reader: 'consumer:known',
-      at1x: 1, at4x: 4, neighbourhood1x: 1, neighbourhood4x: 1, passed: false }
+    const bad: ScreenWorkVerdict = {
+      action: 'select',
+      kind: 'rows',
+      reader: 'consumer:known',
+      at1x: 1,
+      at4x: 4,
+      neighbourhood1x: 1,
+      neighbourhood4x: 1,
+      passed: false,
+    }
     const exception = { action: bad.action, kind: bad.kind, reader: bad.reader, issue: 'POD-5421' }
-    const classified = classifyScreenWork([bad, { ...bad, kind: 'derivations' },
-      { ...bad, action: 'open-menu' }, { ...bad, reader: `${bad.reader}/newScan` }], [exception])
+    const classified = classifyScreenWork(
+      [
+        bad,
+        { ...bad, kind: 'derivations' },
+        { ...bad, action: 'open-menu' },
+        { ...bad, reader: `${bad.reader}/newScan` },
+      ],
+      [exception],
+    )
     expect(classified.expectedFailures).toEqual([{ ...bad, issue: exception.issue }])
     expect(classified.unexpected).toHaveLength(3)
     expect(() => assertScreenWork(classified.unexpected)).toThrow(/newScan/)
