@@ -39,7 +39,7 @@ import { createMobileSettingsSource, MOBILE_SETTINGS_ENTITIES } from '@podium/cl
 import { readLaunch, readPalette, readGuardSessions, readOpen, readFiles } from '../../../../apps/web/src/app/command-launch-readers'
 import { readMissionPane } from '../../../../apps/web/src/app/mission-pane-reader'
 import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
-import { readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
+import { resolvePoolWorkMenu as readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
 import { MobileSearchSections, searchMobileSections } from '../../../../apps/mobile/src/lib/work-sections'
 import { startScenarioEngine, upsert, upsertIssue, type FixtureScale, type ScenarioEngine } from '../../shared/src/scenarios'
 import { insideReader, measureWork } from './work-meter'
