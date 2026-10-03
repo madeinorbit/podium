@@ -308,7 +308,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
     })
   }
   function progress(id: string, now: number) {
-    if (pool.graph.many('issue', id, 'treeChildren').size === 0) return null
+    if (pool.graph.many('issue', id, 'treeChildren')[Symbol.iterator]().next().done) return null
     return memo(`progress:${id}:${now}`, () => {
       let total = 0, done = 0, liveAgents = 0
       const seen = new Set([id]), stack = [...pool.graph.many('issue', id, 'treeChildren')]
