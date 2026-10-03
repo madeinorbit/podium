@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { createKernelReplica, createSideCache, entityForKind, rowKey, memoryStorage, type ReplicaKind, type ReplicaRows } from '@podium/client-core/replica'
-import { reposVisibleOnMachines, sidebarSections } from '@podium/client-core/viewmodels'
+import { reposToViews, reposVisibleOnMachines, sidebarSections } from '@podium/client-core/viewmodels'
 import type { EntityRecord } from '@podium/sync/replica'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import type { MobilePool } from '../client/mobile-pool'
@@ -130,6 +130,9 @@ describe('mobile never derives the legacy worklist in pilot mode', () => {
     storeStats.reset()
     storeStats.enable()
     const corpus = buildCorpus(1)
+    const projects = reposToViews(reposVisibleOnMachines(corpus.repos, corpus.machines))
+    corpus.pins = { panels: [], repos: [projects.at(-1)!.path, projects[0]!.path],
+      worktrees: [projects[0]!.worktrees[0]!.path] }
     const root = corpus.issueProjections.find(issue => !issue.parentId)!
     state.missionId = root.id
     let setting = on
