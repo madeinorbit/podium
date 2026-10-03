@@ -74,7 +74,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { compareStructural, computed, isObservableMap, isObservableSet, Reaction } from 'mobx'
+import { compareStructural, computed, isObservableMap, isObservableSet, isObservableValue, Reaction } from 'mobx'
 import { CellGraph } from '../../arms/hand/pool/cells'
 
 type Side = 'arm' | 'outside'
@@ -184,7 +184,7 @@ export function countedStructuralEqual(before: unknown, next: unknown): boolean 
       const shadow = array ? new Array(value.length) : {}
       const native = value instanceof Map || value instanceof Set || value instanceof Date ||
         value instanceof Number || value instanceof String || value instanceof Boolean ||
-        isObservableMap(value) || isObservableSet(value)
+        isObservableMap(value) || isObservableSet(value) || isObservableValue(value)
       const proxy = new Proxy(shadow, {
         get(_target, key) {
           const item = Reflect.get(value, key, value)
@@ -210,6 +210,7 @@ export function countedStructuralEqual(before: unknown, next: unknown): boolean 
           return typeof key === 'symbol' ? item : wrap(item)
         },
         ownKeys: () => Reflect.ownKeys(value),
+        has: (_target, key) => Reflect.has(value, key),
         getPrototypeOf: () => Reflect.getPrototypeOf(value),
         getOwnPropertyDescriptor(_target, key) {
           if (array && key === 'length') return Reflect.getOwnPropertyDescriptor(shadow, key)
