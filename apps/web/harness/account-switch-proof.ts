@@ -134,18 +134,17 @@ await build({
       }, __accountEdit: () => {
         flushSync(() => {
           owner!.getSnapshot().setSelectedIssueId(asIssueId(targets.visibleRootId));
-          // Durable homes use canonical paths. The discovery answer deliberately
-          // retains the corpus's older display paths, which startup normalizes.
-          const worktree = owner!.getSnapshot().issueProjections.find(row => row.worktreePath != null)?.worktreePath;
-          if (!worktree) throw new Error('No canonical worktree in synthetic kernel');
+          // Arm the workspace shown by this session, rather than an unrelated
+          // issue's worktree that the next session-route hydration can replace.
+          const worktree = owner!.getSnapshot().sessions.find(row => row.sessionId === targets.phaseSessionId)?.cwd;
+          if (!worktree) throw new Error('No focused session worktree in synthetic kernel');
           owner!.getSnapshot().openSessionTab(lifetimeSessionId(targets.phaseSessionId));
           const s = owner!.getSnapshot(), ws = s.workspaces[s.workspaceKey()];
           s.splitWorkspacePane(ws.focusedPaneId, 'row', { tabId: targets.heartbeatSessionId });
           s.setSessionDraft(lifetimeSessionId(targets.phaseSessionId), 'Alice unsent chat draft');
           s.uiState.set('podium.firstTaskActivation.draft', JSON.stringify({ title: 'Alice first task', description: 'Unsent first task draft' }));
           s.uiState.set(lifetimeThemeKeys[0], 'light');
-          // Opening a session follows its legacy cwd; select the registered
-          // worktree after that action so this control starts in valid state.
+          // Keep the selected worktree aligned with the session on screen.
           s.setSelectedWorktree(worktree);
         });
       }, __accountUiState: () => {
