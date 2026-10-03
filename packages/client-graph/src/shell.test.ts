@@ -8,9 +8,9 @@ import { SHELL_ENTITIES, SHELL_SOURCE_KEY } from './shell-schema'
 import { ShellSource } from './shell-source'
 import { LOADING } from './worklist/rollup'
 
-function settled(f: ReturnType<typeof shellFixture>) {
-  let report = checkShell(f.pool, f.state(), f.issues)
-  for (let batch = 0; report.pending && batch < 8; batch++) { f.pool.hydrate(); report = checkShell(f.pool, f.state(), f.issues) }
+function settled(f: ReturnType<typeof shellFixture>, issues = f.issues) {
+  let report = checkShell(f.pool, f.state(), issues)
+  for (let batch = 0; report.pending && batch < 8; batch++) { f.pool.hydrate(); report = checkShell(f.pool, f.state(), issues) }
   return report
 }
 describe('shell pool', () => {
@@ -63,15 +63,15 @@ describe('shell pool', () => {
         f.change({ selectedIssueId }); expect(settled(f)).toMatchObject({ differences: 0, pending: 0 })
       }
       const draft = { ...f.issues[2]!, isDraftVessel: true, worktreePath: null }
-      f.issues[2] = draft
+      const issues = f.issues.map(issue => issue.id === draft.id ? draft : issue)
       f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: draft.id, value: draft }] as never })
-      f.sessions[2] = { ...f.sessions[2]!, archived: true }
-      f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: f.sessions[2]!.sessionId, value: f.sessions[2]! }] as never })
-      f.change({ selectedIssueId: draft.id })
+      const archived = { ...f.sessions[2]!, archived: true }
+      f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: archived.sessionId, value: archived }] as never })
+      f.change({ selectedIssueId: draft.id, sessions: f.sessions.map(session => session.sessionId === archived.sessionId ? archived : session) })
       expect(f.pool.row('issue', draft.id)).toMatchObject({ isDraftVessel: true, worktreePath: null })
       expect(f.pool.row('session', f.sessions[2]!.sessionId, 'summary')).toMatchObject({ archived: true })
       expect(shellViews(f.pool).chrome()).toHaveProperty('missionRoot', undefined)
-      expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
+      expect(settled(f, issues)).toMatchObject({ differences: 0, pending: 0, first: null })
     } finally { f.pool.dispose() }
   })
   it('reads authoritative lane trains, maintains resident relations, and handles deletion without collection rescans', () => {
