@@ -135,7 +135,12 @@ hub.connect()
 render()
 Object.assign(window, {
   connectionProof: {
-    state: () => ({ ...state, hello: assembly.feed.helloFields() }),
+    state: () => ({
+      ...state,
+      hello: assembly.feed.helloFields(),
+      progress:
+        'progress' in assembly ? assembly.progress.getSnapshot() : assembly.syncProgress.getSnapshot(),
+    }),
     stop: async () => {
       stopRows()
       stopConnection()
