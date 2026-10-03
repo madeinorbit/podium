@@ -133,20 +133,22 @@ export function createIssuePageViews(pool: MobxPool) {
     return memo(`issue:${id}`, () => {
       stats.issues++
       const row = pool.row('issue', id)
-      if (!row || row === LOADING) return row
-      const value = row as IssueViewModel
+      if (!row) return row
       const members = memberSessions(id)
-      if (members === LOADING) return LOADING
+      let pending = members === LOADING
       const rawMemberIds = [...pool.graph.many('issue', id, 'pageSessions')].sort(byId)
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
       let childDoneCount = 0
       for (const childId of childIds) {
         const child = pool.row('issue', childId, 'summary') as Loaded<{ stage?: string }>
-        if (child === LOADING) return LOADING
-        if (child?.stage === 'done') childDoneCount++
+        if (child === LOADING) pending = true
+        else if (child?.stage === 'done') childDoneCount++
       }
       const inverse = dependents(id)
-      if (inverse === LOADING) return LOADING
+      // Read every known requirement before returning LOADING so this issue's
+      // payload, members and summaries share the existing load window.
+      if (pending || row === LOADING || inverse === LOADING) return LOADING
+      const value = row as IssueViewModel
       const p = prefix(id)
       const isDeferred = deferred(value.deferUntil)
       // Ingest absorbs cursor-only deltas into this existing scalar lane so
@@ -197,15 +199,16 @@ export function createIssuePageViews(pool: MobxPool) {
     return memo(`page:${id}`, () => {
       stats.pages++
       const value = issue(id)
-      if (!value || value === LOADING) return value
+      if (!value) return value
+      let pending = value === LOADING
       const children: IssueViewModel[] = []
       const neighbours = new Set([id, pool.graph.one('issue', id, 'treeParent'),
         pool.graph.one('issue', id, 'supersedingIssue'), pool.graph.one('issue', id, 'canonicalIssue')]
         .filter((key): key is string => Boolean(key)))
       for (const childId of pool.graph.many('issue', id, 'treeChildren')) {
         const child = issue(childId)
-        if (child === LOADING) return LOADING
-        if (child && !child.deletedAt) { children.push(child); neighbours.add(child.id) }
+        if (child === LOADING) { pending = true; neighbours.add(childId) }
+        else if (child && !child.deletedAt) { children.push(child); neighbours.add(child.id) }
       }
       children.sort((a, b) => a.seq - b.seq)
       for (const target of pool.graph.many('issue', id, 'pageDependencies')) neighbours.add(target)
@@ -220,7 +223,7 @@ export function createIssuePageViews(pool: MobxPool) {
           if (seenOrigins.has(next)) continue
           seenOrigins.add(next)
           const branch = summary(next)
-          if (branch === LOADING) return LOADING
+          if (branch === LOADING) { pending = true; continue }
           if (!branch || branch.archived || branch.deletedAt) continue
           neighbours.add(next)
           origins.push(next)
@@ -231,11 +234,14 @@ export function createIssuePageViews(pool: MobxPool) {
       const sessions: SessionView[] = []
       for (const sid of [...sessionIds].sort(bySessionOrder)) {
         const seat = session(sid)
-        if (seat === LOADING) return LOADING
-        if (seat) sessions.push(seat)
+        if (seat === LOADING) pending = true
+        else if (seat) sessions.push(seat)
       }
       const members = memberSessions(id)
-      if (members === LOADING) return LOADING
+      const own = attachedSessions(id)
+      // Collect all addressed rows in one batch; do not render partial values
+      // or build the menu world while this neighbourhood is still loading.
+      if (pending || value === LOADING || members === LOADING || own === LOADING) return LOADING
       const world = issues()
       if (!world || world === LOADING) return world
       const worldById = new Map(world.map(row => [row.id as string, row]))
@@ -245,8 +251,6 @@ export function createIssuePageViews(pool: MobxPool) {
         if (exit === LOADING) return LOADING
         exits[neighbour] = exit?.kind
       }
-      const own = attachedSessions(id)
-      if (own === LOADING) return LOADING
       const worktreePaths = residentWorktreeIds(pool).flatMap(path => {
         const lane = pool.row('worktree', path) as { path?: string; projectRoot?: boolean } | undefined
         return lane?.path && !lane.projectRoot ? [lane.path] : []
