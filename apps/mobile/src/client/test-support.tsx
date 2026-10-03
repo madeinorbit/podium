@@ -19,7 +19,7 @@
  */
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
-import { createReplica, type IssueViewModel, memoryStorage, type Replica } from '@podium/client-core/replica'
+import { type IssueViewModel, type Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import {
   asUserId,
@@ -39,6 +39,7 @@ import { render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
 import { seedIssueFixtures } from './issue-fixtures'
+import { createMobileTestReplica } from './test-replica'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { attachMobilePool, useMobilePool } from './mobile-pool'
 import { MobileShellProvider } from './shell'
@@ -157,13 +158,10 @@ function stubApi(fixture: MobileStoreFixture): MobileTrpc {
  */
 export async function renderWithMobileStore(children: ReactNode, fixture: MobileStoreFixture = {}) {
   ;(globalThis as { WebSocket?: unknown }).WebSocket = SilentSocket
-  // EPHEMERAL, DECLARED RATHER THAN IMPLIED. `createReplica()` with no storage
-  // already falls back to memory, but saying so at the call site is what makes
-  // this root honest to the phase-2 client audit's `unattributed-store-read`
-  // item: a store that persists nothing adopts nothing, so there is no previous
-  // principal's slice for it to inherit. A root that PERSISTED would owe the
-  // attribution gate here, and this one must never quietly become that.
-  const replica = fixture.replica ?? createReplica({ storage: memoryStorage() })
+  // The pool's addressed feed is the production kernel facade. Fixture-only
+  // metadata changes enter through its cache/events; no compatibility replica
+  // or second runtime is constructed.
+  const replica = fixture.replica ?? createMobileTestReplica()
   if (!fixture.replica) {
     replica.applySnapshot('sessions', fixture.sessions ?? [])
     if (fixture.sessionUserStates)
