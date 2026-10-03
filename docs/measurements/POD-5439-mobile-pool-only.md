@@ -196,10 +196,16 @@ new exceptions without direct operator authorization. The strict manifest
 therefore remains unchanged for heartbeat; those failures stay visible. This
 report does not relabel the old red structural run as green.
 
-The current branch is rebased onto landed POD-5437 at `e6c2313ca2`, including
-the already-landed transaction changes and optional host screen fields. The
-shared host files are untouched by this issue. POD-5081 has not landed; its
+The current branch is rebased onto landed POD-5438 at `7f952ac170`, including
+POD-5437's optional host screen fields and the already-landed transaction
+changes. The shared host files are untouched by this issue. POD-5081 has not landed; its
 session context/conversation files, generic hooks and final mobile switch and
 setting remain held. This removal still has no own write-path changes. The
 structural result above remains attached to its measured source; the rebased
 candidate has not yet run its final gate.
+
+At `7a299940a4`, all fourteen mobile/dependency compiler tasks passed on the
+rebased candidate. Focused Biome across fourteen files reports no errors;
+graph ESLint across five files is green. The fixture controls now use semantic
+buttons, and unused issue-screen imports are removed. The two affected fixture
+files and four explicit planted-fault proofs are still pending at this checkpoint.
