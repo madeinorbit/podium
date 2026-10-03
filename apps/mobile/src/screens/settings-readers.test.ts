@@ -11,8 +11,7 @@ afterEach(() => {
 })
 
 async function fixture() {
-  const runtimeListeners = new Set<() => void>(),
-    replicaListeners = new Set<() => void>()
+  const runtimeListeners = new Set<() => void>()
   // A huge array-like inventory catches accidental payload iteration without
   // allocating it; the production seam only needs its maintained length.
   const inventory = (length: number) =>
@@ -38,12 +37,6 @@ async function fixture() {
     },
     replica: {
       getCursor: () => cursor,
-      subscribeAddressedBatch: (wake: () => void) => {
-        replicaListeners.add(wake)
-        return () => {
-          replicaListeners.delete(wake)
-        }
-      },
     } as unknown as ClientRuntime['replica'],
   })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
@@ -54,14 +47,15 @@ async function fixture() {
     source,
     read,
     runtimeListeners,
-    replicaListeners,
     publish(issues: number, conversations: number) {
       state = { issueProjections: inventory(issues), conversations: inventory(conversations) }
       for (const wake of runtimeListeners) wake()
     },
     cursor(next: typeof cursor) {
       cursor = next
-      for (const wake of replicaListeners) wake()
+      // The real facade intentionally ignores cursor-only events. The existing
+      // runtime clock/publication refreshes diagnostic scalars without row churn.
+      for (const wake of runtimeListeners) wake()
     },
   }
 }
@@ -89,7 +83,7 @@ it('batches declared diagnostics and maintains counts without iterating payloads
   })
 })
 
-it('tracks cursor-only frames and suppresses structurally equal diagnostics', async () => {
+it('refreshes the cursor on runtime publications and suppresses equal diagnostics', async () => {
   const f = await fixture()
   const view = createPoolProjection(f.pool, (pool) =>
     pool.row('mobileSettingsDiagnostics', 'diagnostics'),
@@ -112,7 +106,6 @@ it('unsubscribes at disposal and cancels a pending diagnostic batch', async () =
   expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toBe(LOADING)
   f.pool.dispose()
   expect(f.runtimeListeners.size).toBe(0)
-  expect(f.replicaListeners.size).toBe(0)
   await Promise.resolve()
   expect(f.read).not.toHaveBeenCalled()
   expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toBe(LOADING)

@@ -35,7 +35,8 @@ type DiagnosticsOwner = Pick<ClientRuntime, 'subscribe' | 'replica'> & {
 
 /** Demand batches one O(1) summary from the existing runtime. Array lengths are
  * already maintained by its replica binding; no issue models or table walks
- * are needed. Cursor-only feed frames also invalidate this declared summary. */
+ * are needed. Runtime publications refresh the cursor, including coarse-clock
+ * ticks; watermark-only frames deliberately do not invalidate replica rows. */
 export async function createMobileSettingsSource(
   owner: DiagnosticsOwner,
 ): Promise<PoolSource<keyof MobileSettingsRows> & { counts: { batches: number } }> {
@@ -68,7 +69,7 @@ export async function createMobileSettingsSource(
       counts.batches++
     })
   }
-  const stops = [owner.subscribe(schedule), owner.replica.subscribeAddressedBatch!(schedule)]
+  const stop = owner.subscribe(schedule)
   return {
     counts,
     read(_entity, id): Loaded<MobileSettingsDiagnostics> {
@@ -85,7 +86,7 @@ export async function createMobileSettingsSource(
     dispose(): void {
       if (disposed) return
       disposed = true
-      for (const stop of stops) stop()
+      stop()
       queueMicrotask(() => runInAction(() => value.set(undefined)))
     },
   }
