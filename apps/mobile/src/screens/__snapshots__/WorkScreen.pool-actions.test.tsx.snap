@@ -6,11 +6,19 @@ exports[`mobile pool work-list actions > brings a recent closed row back and ret
 
 exports[`mobile pool work-list actions > brings a recent closed row back and returns it to Closed on refusal > last green pilot-ON action output 3`] = `"9128004cfd509ba414e98fa0d96712fecb3b7726dc89a1a8d52f225b31775293"`;
 
+exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > accepted menu before Planning 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
+
+exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > accepted menu before Set status 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
+
 exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > last green pilot-ON action output 1`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
 exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > last green pilot-ON action output 2`] = `"9fc3b93b5bc936c786ae61657cfa4f97a725faefc5947e9045c4feaa721eb7d0"`;
 
 exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > last green pilot-ON action output 3`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
+
+exports[`mobile pool work-list actions > closes as Cancelled and restores on refusal > accepted menu before Cancelled 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
+
+exports[`mobile pool work-list actions > closes as Cancelled and restores on refusal > accepted menu before Set status 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
 
 exports[`mobile pool work-list actions > closes as Cancelled and restores on refusal > last green pilot-ON action output 1`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
@@ -18,17 +26,29 @@ exports[`mobile pool work-list actions > closes as Cancelled and restores on ref
 
 exports[`mobile pool work-list actions > closes as Cancelled and restores on refusal > last green pilot-ON action output 3`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
+exports[`mobile pool work-list actions > closes as Done and restores on refusal > accepted menu before Done 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
+
+exports[`mobile pool work-list actions > closes as Done and restores on refusal > accepted menu before Set status 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
+
 exports[`mobile pool work-list actions > closes as Done and restores on refusal > last green pilot-ON action output 1`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
 exports[`mobile pool work-list actions > closes as Done and restores on refusal > last green pilot-ON action output 2`] = `"ff8b133955ab6a4d666413b4ebf651bf9682f09239c95775cc69420a8c400e4a"`;
 
 exports[`mobile pool work-list actions > closes as Done and restores on refusal > last green pilot-ON action output 3`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
+exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > accepted menu before Duplicate 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
+
+exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > accepted menu before Set status 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
+
 exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > last green pilot-ON action output 1`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
 exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > last green pilot-ON action output 2`] = `"b6960d27e8273837fca7e0fc012a38703a1d02245c3cbc3bc7c0d38764e12543"`;
 
 exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > last green pilot-ON action output 3`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
+
+exports[`mobile pool work-list actions > delete confirms the raw non-shell cascade count and restores the row on refusal > accepted menu before Delete 1`] = `"9b2e7cb9e566019c4044e5684f2d972b735e7f5053695ec9c7067d322ab69122"`;
+
+exports[`mobile pool work-list actions > delete confirms the raw non-shell cascade count and restores the row on refusal > accepted menu before Delete… 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
 
 exports[`mobile pool work-list actions > delete confirms the raw non-shell cascade count and restores the row on refusal > last green pilot-ON action output 1`] = `"97743a24aa620b1e8d18af008f42dc8e36d4592be22f4e86ea4b5f0bb45387db"`;
 
@@ -44,11 +64,15 @@ exports[`mobile pool work-list actions > loading and absent menu targets never o
 
 exports[`mobile pool work-list actions > loading and absent menu targets never open a menu or mutate, and loads batch > last green pilot-ON action output 2`] = `"91484182aa49cf9443448fefd2a8699a50140696b441134a76b5239235b0507e"`;
 
+exports[`mobile pool work-list actions > menu marks read through the shared outbox and rolls back > accepted menu before Mark as read 1`] = `"2caf3dc0998805caef49ceaedc4e6792624ee94c2c5cead5ef6f30dc7b245a1a"`;
+
 exports[`mobile pool work-list actions > menu marks read through the shared outbox and rolls back > last green pilot-ON action output 1`] = `"234a679a0d1c320223c7a485dc6afb8983dd04aa0c67d2cfd299d71b62c87e64"`;
 
 exports[`mobile pool work-list actions > menu marks read through the shared outbox and rolls back > last green pilot-ON action output 2`] = `"d409f2c12cb8f1e8446cac332ce815e8d47fbac2b36384d4938da6812ee2c70c"`;
 
 exports[`mobile pool work-list actions > menu marks read through the shared outbox and rolls back > last green pilot-ON action output 3`] = `"234a679a0d1c320223c7a485dc6afb8983dd04aa0c67d2cfd299d71b62c87e64"`;
+
+exports[`mobile pool work-list actions > menu marks unread through the shared outbox and rolls back > accepted menu before Mark as unread 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
 
 exports[`mobile pool work-list actions > menu marks unread through the shared outbox and rolls back > last green pilot-ON action output 1`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
@@ -56,11 +80,15 @@ exports[`mobile pool work-list actions > menu marks unread through the shared ou
 
 exports[`mobile pool work-list actions > menu marks unread through the shared outbox and rolls back > last green pilot-ON action output 3`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
+exports[`mobile pool work-list actions > moves placement to mission and rolls back the native bands > accepted menu before Move into SYN-1001 1`] = `"bfd6ac17fe160f131b68b8426018c6fe839a2185ba2fb25e20ad354c1a479881"`;
+
 exports[`mobile pool work-list actions > moves placement to mission and rolls back the native bands > last green pilot-ON action output 1`] = `"723c5129c4db171e92023782606f1ec8ac74e3054b705b000b26e68b6e6d57f5"`;
 
 exports[`mobile pool work-list actions > moves placement to mission and rolls back the native bands > last green pilot-ON action output 2`] = `"81414f9a84081f3198a9635377b9e6d43cd928e11f7a31c25a10c1a349361469"`;
 
 exports[`mobile pool work-list actions > moves placement to mission and rolls back the native bands > last green pilot-ON action output 3`] = `"723c5129c4db171e92023782606f1ec8ac74e3054b705b000b26e68b6e6d57f5"`;
+
+exports[`mobile pool work-list actions > moves placement to own and rolls back the native bands > accepted menu before Move to top level (out of SYN-1001) 1`] = `"6751fe770a8ab96d98533baadaacf42058a1383fea898ec7d796f1036efbf451"`;
 
 exports[`mobile pool work-list actions > moves placement to own and rolls back the native bands > last green pilot-ON action output 1`] = `"81414f9a84081f3198a9635377b9e6d43cd928e11f7a31c25a10c1a349361469"`;
 
@@ -82,17 +110,37 @@ exports[`mobile pool work-list actions > opens the mission before the deferred m
 
 exports[`mobile pool work-list actions > opens the mission before the deferred mark-read, then restores unread on refusal > last green pilot-ON action output 3`] = `"109834bbda7a8238ceb2c100f5f41655f8825be3bda041edb7d0b29122677357"`;
 
+exports[`mobile pool work-list actions > rename "   " queues no write > accepted menu before Rename 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
+
+exports[`mobile pool work-list actions > rename "   " queues no write > accepted menu before Rename 2`] = `"281f3041cacb1a32edccfd2bdec6ff9a1430869c09111641e905078e67a0dfd6"`;
+
 exports[`mobile pool work-list actions > rename "   " queues no write > last green pilot-ON action output 1`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
 exports[`mobile pool work-list actions > rename "   " queues no write > last green pilot-ON action output 2`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
+
+exports[`mobile pool work-list actions > rename "Synthetic task 3" queues no write > accepted menu before Rename 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
+
+exports[`mobile pool work-list actions > rename "Synthetic task 3" queues no write > accepted menu before Rename 2`] = `"e58c46cd7b275e329192448c6d3a40a7fdd8f38939ff86acaaade3adc3def562"`;
 
 exports[`mobile pool work-list actions > rename "Synthetic task 3" queues no write > last green pilot-ON action output 1`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
 exports[`mobile pool work-list actions > rename "Synthetic task 3" queues no write > last green pilot-ON action output 2`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
+exports[`mobile pool work-list actions > rename "cancel" queues no write > accepted menu before Cancel 1`] = `"e58c46cd7b275e329192448c6d3a40a7fdd8f38939ff86acaaade3adc3def562"`;
+
+exports[`mobile pool work-list actions > rename "cancel" queues no write > accepted menu before Rename 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
+
 exports[`mobile pool work-list actions > rename "cancel" queues no write > last green pilot-ON action output 1`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
 exports[`mobile pool work-list actions > rename "cancel" queues no write > last green pilot-ON action output 2`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
+
+exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > accepted menu before Rename 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
+
+exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > accepted menu before Rename 2`] = `"8c08250cc064678c334d147cd95c3ad00380dda737031e212a838b27705c61d9"`;
+
+exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > accepted menu before Rename 3`] = `"d98a3c7ef3b31ab19916c26a5164331859f58e0d92cbfb3526bd9d8c064b3423"`;
+
+exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > accepted menu before Rename 4`] = `"27cbec626717de8604dce52bed3166ccf5acc7ab1125c089f1b1636663ddae0d"`;
 
 exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > last green pilot-ON action output 1`] = `"a1461d69c1a713e4eab610dc82a0cc496d970d50ecfe9115b7fb6995bca86f89"`;
 
@@ -148,17 +196,31 @@ exports[`mobile pool work-list actions > reorders unkeyed project scope and roll
 
 exports[`mobile pool work-list actions > reorders unkeyed project scope and rolls back every sort-key write > last green pilot-ON action output 8`] = `"fa87a05526809ad19f1291a7b59f64209f61b352031a79bc532ad139507d3bd6"`;
 
+exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > accepted menu before Close anyway 1`] = `"967f30affcbc66396c438e1a06b51c9125472101f3bd278967c9eba0d5192ed3"`;
+
+exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > accepted menu before Done 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
+
+exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > accepted menu before Set status 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
+
 exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > last green pilot-ON action output 1`] = `"8b146e5ee613f0589a6826046c7a3ba62327bb02b1f4a8ed9a9725a62fc6ae56"`;
 
 exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > last green pilot-ON action output 2`] = `"0ef3e6334f13363c349d9b91a500b012eb88dc986ee96bc3d46a755cbafcd70b"`;
 
 exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > last green pilot-ON action output 3`] = `"8b146e5ee613f0589a6826046c7a3ba62327bb02b1f4a8ed9a9725a62fc6ae56"`;
 
+exports[`mobile pool work-list actions > sets colour green and restores on refusal > accepted menu before Set colour 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
+
+exports[`mobile pool work-list actions > sets colour green and restores on refusal > accepted menu before green 1`] = `"95120fd23cad979a9080ace387db7c10c38b6ef26c42d7ed4fc0fa90807a0ed8"`;
+
 exports[`mobile pool work-list actions > sets colour green and restores on refusal > last green pilot-ON action output 1`] = `"c02b8bb97deac17caf82659cf07f69ca773a882fbd185a2878775e7eac00d847"`;
 
 exports[`mobile pool work-list actions > sets colour green and restores on refusal > last green pilot-ON action output 2`] = `"b19129a27a94a680c96c7b5c752c810b3685c0f795f9e773bcf897b45bc699a7"`;
 
 exports[`mobile pool work-list actions > sets colour green and restores on refusal > last green pilot-ON action output 3`] = `"c02b8bb97deac17caf82659cf07f69ca773a882fbd185a2878775e7eac00d847"`;
+
+exports[`mobile pool work-list actions > sets colour none and restores on refusal > accepted menu before No colour 1`] = `"95120fd23cad979a9080ace387db7c10c38b6ef26c42d7ed4fc0fa90807a0ed8"`;
+
+exports[`mobile pool work-list actions > sets colour none and restores on refusal > accepted menu before Set colour 1`] = `"c7af1eecf2340f9ba1cff613244b09be2269ac8d1096e51c3b3bc7d11a63ea25"`;
 
 exports[`mobile pool work-list actions > sets colour none and restores on refusal > last green pilot-ON action output 1`] = `"c02b8bb97deac17caf82659cf07f69ca773a882fbd185a2878775e7eac00d847"`;
 

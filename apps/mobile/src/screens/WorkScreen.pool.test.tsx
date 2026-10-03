@@ -85,9 +85,9 @@ vi.mock('../components/StorageNoticeAlert', () => ({ StorageNoticeAlert: () => n
 vi.mock('../components/RefreshOffer', () => ({ RefreshOffer: () => null }))
 vi.mock('../components/WorkspaceContinuityNotice', () => ({ WorkspaceContinuityNotice: () => null }))
 vi.mock('../components/PullToRefreshBoundary', () => ({ PullToRefreshBoundary: ({ children }: { children: ReactNode }) => children }))
-vi.mock('../components/BottomSheet', () => ({ BottomSheet: ({ visible, head, children }: { visible: boolean; head: ReactNode; children: ReactNode }) => visible ? <div>{head}{children}</div> : null }))
-vi.mock('../components/WorkIssueMenu', () => ({ WorkIssueMenu: ({ target, issues, sessions }: { target: { issue: { id: string } }; issues: { id: string }[]; sessions: unknown[] }) =>
-  <div data-testid="menu" data-issue={target.issue.id} data-issues={issues.length} data-sessions={sessions.length} /> }))
+vi.mock('../components/BottomSheet', () => ({ BottomSheet: ({ visible, head, children, onClose }: { visible: boolean; head: ReactNode; children: ReactNode; onClose: () => void }) => visible ? <div>{head}{children}<button type="button" aria-label="Close sheet" onClick={onClose} /></div> : null }))
+vi.mock('../components/WorkIssueMenu', () => ({ WorkIssueMenu: ({ target, issues, sessions, onClose }: { target: { issue: { id: string } }; issues: { id: string }[]; sessions: unknown[]; onClose: () => void }) =>
+  <div data-testid="menu" data-issue={target.issue.id} data-issues={issues.length} data-sessions={sessions.length}><button type="button" aria-label="Close row menu" onClick={onClose} /></div> }))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
 vi.mock('../hooks/useMinimizeTabBarOnScroll', () => ({ useMinimizeTabBarOnScroll: () => ({}) }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
@@ -211,6 +211,8 @@ describe('mobile WorkScreen pool consumer', () => {
         const row = view.container.querySelector(`[data-label$=" ${title}"]`)!
         await click('open selected row menu', () => fireEvent.contextMenu(row), () => screen.findByTestId('menu'))
         expect(screen.getByTestId('menu').getAttribute('data-issue')).toBe(first.id)
+        await click('close selected row menu', () => fireEvent.click(screen.getByLabelText('Close row menu')),
+          () => waitFor(() => expect(screen.queryByTestId('menu')).toBeNull()))
         const band = state.sections[0]!
         await click('fold visible band', () => fireEvent.click(screen.getByLabelText(`${band.label} · ${band.total}`)),
           () => waitFor(() => expect(state.sections.find(section => section.key === band.key)!.data).toHaveLength(0)))
