@@ -95,11 +95,13 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
     sessionRefs: async (sessions) => await readSessionRefs(store, sessions),
     machineName: async (machineId) => await registry.modules.machines.machineName(machineId),
     issues: ({
+      reports: {
         resolveRef: async () => ISSUE.id,
         getMeta: async () => ISSUE,
         get: async () => ISSUE,
         issueForCwd: async () => ISSUE.id,
-      }) as unknown as IssueService,
+      },
+    }) as unknown as IssueService,
     messages: ({ deliveredUnacked: async () => [] }) as unknown as MessageDeliveryService,
     events: { appendEvent: async () => 1 },
     watermarks: {

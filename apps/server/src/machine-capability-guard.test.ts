@@ -152,7 +152,7 @@ describe('issue homing refuses a machine that can never hold the worktree', () =
     const { registry, coordinator, repos } = await fleet()
     await repos.add('/home/mgw/src/thing', asMachineId('laptop'))
     await expect(
-      registry.modules.issues.create({
+      registry.modules.issues.crud.create({
         title: 'homed wrongly',
         repoPath: '/home/mgw/src/thing',
         machineId: coordinator,

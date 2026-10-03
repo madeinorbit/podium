@@ -28,7 +28,7 @@ async function heldIssueMail(dropped?: MetadataChange['entity']) {
   registries.push(reg)
   const daemon: ControlMessage[] = []
   await attachHostDaemon(reg, (message) => daemon.push(message), { repos: ['/repo'] })
-  const issue = await reg.modules.issues.create({
+  const issue = await reg.modules.issues.crud.create({
     repoPath: '/repo',
     title: 'Mail target',
     startNow: false,
@@ -72,7 +72,7 @@ async function heldIssueMail(dropped?: MetadataChange['entity']) {
     await recompute(ids)
   })
 
-  await reg.modules.issues.update(issue.id, { worktreePath: WORKTREE })
+  await reg.modules.issues.crud.update(issue.id, { worktreePath: WORKTREE })
   return { reg, daemon, sessionId, sent, issue, seen, examined }
 }
 

@@ -318,7 +318,7 @@ describe('oracle: setIssueId', () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
     await o.store.repos.addRepo('/p', o.store.hostMachineId)
-    const issue = await o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
+    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 'target', startNow: false })
     // Outside every reported repo: no prefix, so no draft ordinal at birth.
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/scratch' })
     const born = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
@@ -344,7 +344,7 @@ describe('oracle: setIssueId', () => {
   it(`${MUST_NOT_CHANGE}: a session born in a reported repo is named at birth with a draft ordinal, and attaching an issue does not rename it`, async () => {
     const o = await makeOracle()
     await o.store.repos.addRepo('/p', o.store.hostMachineId)
-    const issue = await o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
+    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 'target', startNow: false })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const born = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(typeof born?.refDraft).toBe('number')

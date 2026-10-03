@@ -311,11 +311,11 @@ export class SessionReadToolkit {
     if (direct) return direct
     let issueId: string
     try {
-      issueId = await this.deps.issues.resolveRef(ref)
+      issueId = await this.deps.issues.reports.resolveRef(ref)
     } catch {
       return undefined
     }
-    const issue = await this.deps.issues.getMeta(issueId)
+    const issue = await this.deps.issues.reports.getMeta(issueId)
     if (!issue) return undefined
     const members = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
     const live = selectMailNudgeSession(members)
@@ -336,9 +336,9 @@ export class SessionReadToolkit {
     if (!target) throw new Error(`no session found for ${ref}`)
     await this.logRead('session.status_read', target.sessionId, reader)
     const issues = this.deps.issues
-    const issueId = target.issueId ?? issues.issueForCwd(target.cwd)
+    const issueId = target.issueId ?? issues.reports.issueForCwd(target.cwd)
     // Full wire is intentional: status surfaces the derived panel todo projection.
-    const issue = issueId ? await issues.get(issueId) : null
+    const issue = issueId ? await issues.reports.get(issueId) : null
     const [log, status] = await Promise.all([
       this.deps.repoOp('log', target.cwd, target.machineId).catch(() => ({
         ok: false,

@@ -49,7 +49,10 @@ export interface MaintenanceServiceOptions {
   now?: () => number
   leaseTtlMs?: number
   /** Optional until issue auto-archive migrates; tests may omit. */
-  issues?: Pick<IssueService, 'tryAutoArchiveObserved' | 'tryWorktreeGcObserved'>
+  issues?: {
+    readonly attention: Pick<IssueService['attention'], 'tryAutoArchiveObserved'>
+    readonly gitWorkflow: Pick<IssueService['gitWorkflow'], 'tryWorktreeGcObserved'>
+  }
   sessions?: {
     tryAutoArchiveStoppedObserved(
       observed: Extract<MaintenanceCommand, { jobKind: 'session-auto-archive' }>['observed'],
@@ -371,7 +374,7 @@ export class MaintenanceService {
     if (!this.issues) {
       return this.stale(command, 'precondition')
     }
-    const result = await this.issues.tryAutoArchiveObserved(observed, nowMs, systemPrincipal('expiry'))
+    const result = await this.issues.attention.tryAutoArchiveObserved(observed, nowMs, systemPrincipal('expiry'))
     if (result === 'not-due') return this.stale(command, 'not-due')
     if (result === 'precondition') return this.stale(command, 'precondition')
     const applied: MaintenanceCommandReply = {
@@ -438,7 +441,7 @@ export class MaintenanceService {
       return this.stale(command, 'invalid-run-key')
     }
     if (!this.issues) return this.stale(command, 'precondition')
-    const result = await this.issues.tryWorktreeGcObserved(
+    const result = await this.issues.gitWorkflow.tryWorktreeGcObserved(
       observed,
       nowMs,
       systemPrincipal('expiry'),

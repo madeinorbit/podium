@@ -28,15 +28,19 @@ const ISSUE = {
 function fakeIssues(over?: Partial<typeof ISSUE>) {
   const issue = { ...ISSUE, ...over }
   return {
-    resolveRef: (ref: string) => {
-      if (ref === issue.id || ref === `#${issue.seq}`) return issue.id
-      throw new Error(`unknown ref ${ref}`)
+    reports: {
+      resolveRef: (ref: string) => {
+        if (ref === issue.id || ref === `#${issue.seq}`) return issue.id
+        throw new Error(`unknown ref ${ref}`)
+      },
+      get: (id: string) => (id === issue.id ? issue : undefined),
+      getMeta: (id: string) => (id === issue.id ? issue : undefined),
+      has: (id: string) => id === issue.id,
+      niceRef: (r: { seq: number }) => `#${r.seq}`,
     },
-    get: (id: string) => (id === issue.id ? issue : undefined),
-    getMeta: (id: string) => (id === issue.id ? issue : undefined),
-    has: (id: string) => id === issue.id,
-    niceRef: (r: { seq: number }) => `#${r.seq}`,
-    ancestorIds: () => [],
+    hierarchy: {
+      ancestorIds: () => [],
+    },
   } as unknown as IssueService
 }
 

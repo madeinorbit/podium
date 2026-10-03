@@ -170,7 +170,7 @@ describe('POD-4872: first turn on an online machine', () => {
     const h = await onlineHarness()
     // One issue, three live headed sessions bound to it: the seed must resolve
     // all three from the single repo fetch, not one fetch per session.
-    const issue = await h.registry.issues.create({
+    const issue = await h.registry.issues.crud.create({
       repoPath: '/r',
       title: 'Fix the thing',
       startNow: false,

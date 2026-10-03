@@ -183,11 +183,11 @@ async function ctxFor(
     rpc: () => modules.rpc,
 
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
-      await modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+      await modules.issues.attention.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {
-      for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
+      for (const artifact of artifacts) await modules.issues.crud.panelArtifactUpload(issueId, artifact)
     },
-    discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
+    discardUnlaunchedDraft: async (issueId) => await modules.issues.attention.discardUnlaunchedDraft(issueId),
     issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
@@ -694,8 +694,8 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
       assignment: { server: false, agentExecution: true },
     })
     await o.store.repos.addRepo('/r', asMachineId('local'))
-    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'handoff', startNow: false })
-    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/h' })
+    const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'handoff', startNow: false })
+    await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/h' })
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/h',

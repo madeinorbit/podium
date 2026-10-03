@@ -30,7 +30,7 @@ export class IssueGitWatch {
   private timer: ReturnType<typeof setInterval> | undefined
   private sweeping = false
 
-  constructor(private readonly issues: Pick<IssueService, 'sweepParentBranchMovement'>) {}
+  constructor(private readonly gitWorkflow: Pick<IssueService['gitWorkflow'], 'sweepParentBranchMovement'>) {}
 
   start(): void {
     this.bootTimer = setTimeout(() => {
@@ -53,7 +53,7 @@ export class IssueGitWatch {
     if (this.sweeping) return
     this.sweeping = true
     try {
-      await this.issues.sweepParentBranchMovement()
+      await this.gitWorkflow.sweepParentBranchMovement()
     } catch (err) {
       log.warn('parent-branch watch failed', { err })
     } finally {

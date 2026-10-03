@@ -22,9 +22,9 @@ describe('approval broker relay e2e (#410)', () => {
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
-    const A = await registry.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
-    await registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
-    const wtA = (await registry.issues.get(A.id))?.worktreePath as string
+    const A = await registry.issues.crud.create({ repoPath: '/r', title: 'epic', startNow: false })
+    await registry.issues.crud.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
+    const wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
     sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
     daemonInbox = []
     registry.gateway.attachDaemon(machineId, (msg) => daemonInbox.push(msg))

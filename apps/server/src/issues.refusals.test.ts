@@ -31,7 +31,7 @@ describe('definitive issue refusals (POD-5429)', () => {
   })
 
   const seed = async () => {
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'subject',
       startNow: false,
@@ -99,7 +99,7 @@ describe('definitive issue refusals (POD-5429)', () => {
     await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
     const before = await registry.issues.crud.store.rowOrThrow(issue.id)
     await preparationRefusal(
-      () => registry.issues.prepareSoftDelete(issue.id),
+      () => registry.issues.crud.prepareSoftDelete(issue.id),
       issue.id,
       `issue ${issue.id} is already deleted`,
     )
@@ -109,7 +109,7 @@ describe('definitive issue refusals (POD-5429)', () => {
   it('refuses restoration of an issue that is not deleted', async () => {
     const issue = await seed()
     await preparationRefusal(
-      () => registry.issues.prepareRestore(issue.id),
+      () => registry.issues.crud.prepareRestore(issue.id),
       issue.id,
       `issue ${issue.id} is not deleted`,
     )
@@ -172,7 +172,7 @@ describe('definitive issue refusals (POD-5429)', () => {
 
   it('types the internal shipping-create guard (the public create schema has no stage)', async () => {
     await expect(
-      registry.issues.create({
+      registry.issues.crud.create({
         repoPath: '/repo',
         title: 'x',
         startNow: false,
@@ -190,7 +190,7 @@ describe('definitive issue refusals (POD-5429)', () => {
     row.stage = 'shipping'
     await registry.issues.crud.store.persistRow(row)
     await preparationRefusal(
-      () => registry.issues.ensureWorktree(issue.id),
+      () => registry.issues.gitWorkflow.ensureWorktree(issue.id),
       issue.id,
       'shipping stage is system-owned and cannot create an issue worktree',
     )
@@ -198,7 +198,7 @@ describe('definitive issue refusals (POD-5429)', () => {
 
   it('preserves public delete and restore no-op results exactly', async () => {
     const issue = await seed()
-    const report = await registry.issues.get(issue.id)
+    const report = await registry.issues.reports.get(issue.id)
     expect(await request('restore', { id: issue.id })).toEqual({
       status: 200,
       body: {
@@ -240,7 +240,7 @@ describe('definitive issue refusals (POD-5429)', () => {
   it('refuses recording a repository root as an issue worktree', async () => {
     const issue = await seed()
     await preparationRefusal(
-      () => registry.issues.update(issue.id, { worktreePath: '/repo' }),
+      () => registry.issues.crud.update(issue.id, { worktreePath: '/repo' }),
       issue.id,
       'refusing worktree path /repo: a repository root cannot be recorded as an issue worktree',
     )
@@ -249,7 +249,7 @@ describe('definitive issue refusals (POD-5429)', () => {
 
   it('refuses a colour on a sub-task', async () => {
     const parent = await seed()
-    const child = await registry.issues.create({
+    const child = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'child',
       startNow: false,
@@ -275,13 +275,13 @@ describe('definitive issue refusals (POD-5429)', () => {
   it('refuses dependency and containment cycles', async () => {
     const a = await seed()
     const b = await seed()
-    await registry.issues.addDep(a.id, b.id)
+    await registry.issues.hierarchy.addDep(a.id, b.id)
     await refuse(
       'depAdd',
       { fromId: b.id, toId: a.id },
       `dependency ${b.id} -> ${a.id} would create a dependency cycle: ${b.id} -> ${a.id} -> ${b.id}`,
     )
-    await registry.issues.reparent(b.id, a.id)
+    await registry.issues.hierarchy.reparent(b.id, a.id)
     await refuse(
       'reparent',
       { id: a.id, parentId: b.id },
@@ -311,7 +311,7 @@ describe('definitive issue refusals (POD-5429)', () => {
     await registry.issues.crud.store.persistRow(row)
     await preparationRefusal(
       () =>
-        registry.issues.rehome(issue.id, {
+        registry.issues.gitWorkflow.rehome(issue.id, {
           repoPath: '/other',
           machineId: registry.sessionStore.hostMachineId,
           worktreePath: '/other/wt',
@@ -414,7 +414,7 @@ describe('definitive issue refusals (POD-5429)', () => {
   it('forwards an opt-in envelope revision and refuses its stale write', async () => {
     const issue = await seed()
     const base = issue.revision
-    await registry.issues.update(issue.id, { title: 'accepted first' })
+    await registry.issues.crud.update(issue.id, { title: 'accepted first' })
     // A recovery token lives on the envelope, independently of the command
     // input. Its current value must take precedence over a stale input copy.
     const { outbox, inputs } = await engine(
@@ -440,7 +440,7 @@ describe('definitive issue refusals (POD-5429)', () => {
         },
       ])
       expect(outbox.deadLetters()).toHaveLength(1)
-      expect((await registry.issues.get(issue.id))?.title).toBe('accepted first')
+      expect((await registry.issues.reports.get(issue.id))?.title).toBe('accepted first')
     } finally {
       outbox.dispose()
     }
@@ -448,7 +448,7 @@ describe('definitive issue refusals (POD-5429)', () => {
 
   it('the envelope revision overrides an older input copy on recovery', async () => {
     const issue = await seed()
-    await registry.issues.update(issue.id, { title: 'accepted first' })
+    await registry.issues.crud.update(issue.id, { title: 'accepted first' })
     const current = await projection(issue.id)
     const { outbox, inputs } = await engine(
       { id: issue.id, patch: { title: 'recovered' }, expectedRevision: issue.revision },

@@ -187,7 +187,7 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       await attachHostDaemon(reg, () => {}, { repos: ['/proj'] })
-      const issue = await reg.modules.issues.create({
+      const issue = await reg.modules.issues.crud.create({
         repoPath: '/proj',
         title: 'Coordinator default',
         startNow: false,
@@ -198,7 +198,7 @@ describe('SessionRegistry', () => {
         cwd: '/proj',
         issueId: issue.id,
       })
-      expect((await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBeUndefined()
+      expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBeUndefined()
 
       const first = (
         await reg.modules.sessions.createSession({
@@ -208,12 +208,12 @@ describe('SessionRegistry', () => {
         })
       ).sessionId
       await expect
-        .poll(async () => (await reg.modules.issues.get(issue.id))?.coordinatorSessionId)
+        .poll(async () => (await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId)
         .toBe(first)
 
       // Explicit clear survives a later teammate joining: with two eligible
       // agents there is no unambiguous default to invent.
-      await reg.modules.issues.setCoordinator(issue.id, null)
+      await reg.modules.issues.crud.setCoordinator(issue.id, null)
       const second = (
         await reg.modules.sessions.createSession({
           agentKind: 'codex',
@@ -221,16 +221,16 @@ describe('SessionRegistry', () => {
           issueId: issue.id,
         })
       ).sessionId
-      expect((await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBeUndefined()
+      expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBeUndefined()
 
       // An issue claim by a bound agent fills the empty seat, but never replaces
       // an explicit handoff.
-      await reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
-      expect((await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBe(second)
-      await reg.modules.issues.setCoordinator(issue.id, first)
-      await reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
+      await reg.modules.issues.crud.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
+      expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBe(second)
+      await reg.modules.issues.crud.setCoordinator(issue.id, first)
+      await reg.modules.issues.crud.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
       await expect
-        .poll(async () => (await reg.modules.issues.get(issue.id))?.coordinatorSessionId)
+        .poll(async () => (await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId)
         .toBe(first)
     } finally {
       await reg.dispose()
@@ -296,19 +296,19 @@ describe('SessionRegistry', () => {
         answerRepoOps(store.hostMachineId, host),
         inventory,
       )
-      const hostIssue = await reg.modules.issues.create({
+      const hostIssue = await reg.modules.issues.crud.create({
         repoPath: '/host/project',
         title: 'Host routed',
         startNow: false,
       })
-      const remoteIssue = await reg.modules.issues.create({
+      const remoteIssue = await reg.modules.issues.crud.create({
         repoPath: '/remote/project',
         title: 'Remote routed',
         startNow: false,
       })
 
-      const hostStarted = await reg.modules.issues.start(hostIssue.id)
-      const remoteStarted = await reg.modules.issues.start(remoteIssue.id)
+      const hostStarted = await reg.modules.issues.gitWorkflow.start(hostIssue.id)
+      const remoteStarted = await reg.modules.issues.gitWorkflow.start(remoteIssue.id)
 
       expect(hostStarted.machineId).toBe(store.hostMachineId)
       expect(remoteStarted.machineId).toBe('remote-first')
@@ -510,7 +510,7 @@ describe('SessionRegistry', () => {
   const adopting = async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/repo',
       title: 'Adopt me',
       startNow: false,
@@ -532,7 +532,7 @@ describe('SessionRegistry', () => {
         repoRoot: '/repo',
         ...over,
       } as never)
-    return { reg, issue, cwdMsg, read: async () => await reg.modules.issues.get(issue.id) }
+    return { reg, issue, cwdMsg, read: async () => await reg.modules.issues.reports.get(issue.id) }
   }
 
   it('adopts a worktree the harness made for itself, stamping branch and path together', async () => {
@@ -561,12 +561,12 @@ describe('SessionRegistry', () => {
   it('never steals a worktree another issue already owns', async () => {
     // A `cd` into a sibling's workspace to read something must not hand it over.
     const { reg, cwdMsg, read } = await adopting()
-    const sibling = await reg.modules.issues.create({
+    const sibling = await reg.modules.issues.crud.create({
       repoPath: '/repo',
       title: 'Sibling',
       startNow: false,
     })
-    await reg.modules.issues.update(sibling.id, { worktreePath: '/repo/.worktrees/sibling' })
+    await reg.modules.issues.crud.update(sibling.id, { worktreePath: '/repo/.worktrees/sibling' })
     await cwdMsg({ cwd: '/repo/.worktrees/sibling', branch: 'issue/sibling' })
     await expect.poll(read).toMatchObject({ worktreePath: null })
   })
@@ -579,7 +579,7 @@ describe('SessionRegistry', () => {
 
   it('leaves an issue that already has a worktree alone', async () => {
     const { reg, issue, cwdMsg, read } = await adopting()
-    await reg.modules.issues.update(issue.id, {
+    await reg.modules.issues.crud.update(issue.id, {
       worktreePath: '/repo/.worktrees/mine',
       branch: 'mine',
     })
@@ -620,7 +620,7 @@ describe('SessionRegistry', () => {
     // real git: `git -C /link/repo rev-parse --show-toplevel` prints /real/repo.
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {}, { repos: ['/link/repo'] })
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/link/repo', // registered through a symlink…
       title: 'Symlinked',
       startNow: false,
@@ -636,7 +636,7 @@ describe('SessionRegistry', () => {
       cwd: '/real/repo', // …but git resolves it to here, so a path compare says "not main"
       explicit: true, // the old daemon's one stamping trigger
     })
-    expect(await reg.modules.issues.get(issue.id)).toMatchObject({ worktreePath: null })
+    expect(await reg.modules.issues.reports.get(issue.id)).toMatchObject({ worktreePath: null })
   })
 
   it('an explicit declaration is not a licence to stamp main', async () => {
@@ -7534,7 +7534,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     try {
       const daemon: ControlMessage[] = []
       await attachHostDaemon(registry, (message) => daemon.push(message), { repos: ['/repo'] })
-      const issue = await registry.issues.create({
+      const issue = await registry.issues.crud.create({
         repoPath: '/repo',
         title: 'Mail target',
         startNow: false,
@@ -7666,12 +7666,12 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     try {
       const daemon: ControlMessage[] = []
       await attachHostDaemon(registry, (message) => daemon.push(message), { repos: ['/repo'] })
-      const parent = await registry.modules.issues.create({
+      const parent = await registry.modules.issues.crud.create({
         repoPath: '/repo',
         title: 'Epic',
         startNow: false,
       })
-      const child = await registry.modules.issues.create({
+      const child = await registry.modules.issues.crud.create({
         repoPath: '/repo',
         title: 'Child',
         startNow: false,

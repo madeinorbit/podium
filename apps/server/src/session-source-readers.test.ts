@@ -198,7 +198,7 @@ describe('S4 server consumers', () => {
     const repos = new RepoRegistry(o.reg, o.store)
     await o.store.repos.addRepo('/source', machineId)
     await repos.setPrefix('/source', 'SRC', machineId)
-    const issue = await o.reg.issues.create({
+    const issue = await o.reg.issues.crud.create({
       repoPath: '/source',
       title: 'Source refs',
       startNow: false,

@@ -1,3 +1,4 @@
+import { commandAccess } from '../../issues/command-ctx'
 /**
  * Handler for the `mail.spawnAgent` contract (L3).
  *
@@ -52,7 +53,7 @@ async function spawnOnce(
     // the `unknown issue` branch below rather than a distinguishable denial.
     const resolved = await access.resolveIssueAddress(input.issue)
     issueId = resolved.kind === 'issue' ? resolved.id : UNADDRESSABLE
-    await checkIssueAccess(caller, issues, 'agent.spawn', 'write', issueId)
+    await checkIssueAccess(caller, commandAccess(issues), 'agent.spawn', 'write', issueId)
   } else if (input.newTitle) {
     if (!deps.createIssue) throw new Error('issue creation is not wired on this server')
     // Deliberate --new: inherit the caller's repo/parent from its own issue
@@ -66,12 +67,12 @@ async function spawnOnce(
     // The rule lives in the contract; this is the site that obeys it.
     const scopeIssue =
       caller.capability.scope.kind === 'subtree'
-        ? await issues.getMeta(caller.capability.scope.rootId ?? '')
+        ? await issues.reports.getMeta(caller.capability.scope.rootId ?? '')
         : null
     const repoPath = input.repo ?? scopeIssue?.repoPath
     if (!repoPath) throw new Error('--new needs --repo (no issue scope to inherit a repo from)')
     const inheritedOwner = scopeIssue
-      ? ((await issues.ownedTarget(scopeIssue.id, 'read'))?.owner ?? callerOwner)
+      ? ((await issues.reports.ownedTarget(scopeIssue.id, 'read'))?.owner ?? callerOwner)
       : callerOwner
     issueId = (await deps.createIssue({
       ownerUserId: inheritedOwner,
@@ -86,7 +87,7 @@ async function spawnOnce(
   } else {
     throw new Error('pass --issue <ref> or --new "title"')
   }
-  const issue = await issues.getMeta(issueId)
+  const issue = await issues.reports.getMeta(issueId)
   if (!issue) throw new Error(`unknown issue ${issueId}`)
   // Brake 2 applies to DIRECT agent spawns too [spec:SP-34d7 containment]:
   // the same per-issue daily budget as the spawn-on-wake seam, or a looping
@@ -196,7 +197,7 @@ async function spawnOnce(
   // persisted snapshot from the previous connection. The wait stays below the
   // relay deadline; on expiry SessionStart returns the honest probing refusal.
   if (machineId && harness !== 'shell') await deps.awaitMachineInventory?.(machineId)
-  const sessionOwner = (await issues.ownedTarget(issue.id, 'read'))?.owner ?? callerOwner
+  const sessionOwner = (await issues.reports.ownedTarget(issue.id, 'read'))?.owner ?? callerOwner
   const spawned = await deps.spawnSession({
     ownerUserId: sessionOwner,
     cwd,

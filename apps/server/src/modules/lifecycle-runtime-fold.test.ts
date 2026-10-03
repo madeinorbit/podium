@@ -80,7 +80,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
 
   it('does not delete an issue in memory when the enclosing span rolls back (site 6)', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'issue to delete',
       startNow: false,
@@ -92,7 +92,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       }),
     ).rejects.toThrow('enclosing span failed')
 
-    expect((await registry.issues.get(issue.id))?.deletedAt).toBeFalsy()
+    expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeFalsy()
     expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeFalsy()
   })
 
@@ -105,7 +105,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     // issue, and that detaches the PTY and every client. It is the irreversible
     // half, and it was running for a delete the enclosing span could roll back.
     const { store, registry } = await build()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'issue with a session',
       startNow: false,
@@ -129,7 +129,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
 
   it('still deletes when the enclosing span commits (site 6)', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'issue to delete',
       startNow: false,
@@ -139,18 +139,18 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
     })
 
-    expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
+    expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeTruthy()
   })
 
   it('does not restore an issue in memory when the enclosing span rolls back (site 7)', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'issue to restore',
       startNow: false,
     })
     await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
-    expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
+    expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeTruthy()
 
     await expect(store.transact(async () => {
         await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
@@ -158,7 +158,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       }),
     ).rejects.toThrow('enclosing span failed')
 
-    expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
+    expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeTruthy()
     expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeTruthy()
   })
 
@@ -168,7 +168,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     // rolled-back restore left LIVE sessions in the map for rows the database
     // still holds tombstoned.
     const { store, registry } = await build()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'issue with a session',
       startNow: false,

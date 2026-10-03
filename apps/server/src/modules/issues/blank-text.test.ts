@@ -41,8 +41,8 @@ async function harness() {
 describe('blank issue text normalizes to null', () => {
   it('collapses an empty assignee written through update()', async () => {
     const { store, svc } = await harness()
-    const created = await svc.create({ repoPath: '/repo', title: 'T', startNow: false })
-    await svc.update(created.id, { assignee: '' as UserId })
+    const created = await svc.crud.create({ repoPath: '/repo', title: 'T', startNow: false })
+    await svc.crud.update(created.id, { assignee: '' as UserId })
 
     // Read back through the STORE, not the wire: the wire's truthiness omission
     // renders both spellings identically, which is why this was invisible.
@@ -51,8 +51,8 @@ describe('blank issue text normalizes to null', () => {
 
   it('leaves a non-empty value and a legitimately empty description alone', async () => {
     const { store, svc } = await harness()
-    const created = await svc.create({ repoPath: '/repo', title: 'T', description: '', startNow: false })
-    await svc.update(created.id, { assignee: firstAdminMemberId() })
+    const created = await svc.crud.create({ repoPath: '/repo', title: 'T', description: '', startNow: false })
+    await svc.crud.update(created.id, { assignee: firstAdminMemberId() })
 
     const row = await store.issues.getIssue(created.id)
     expect(row?.assignee).toBe(firstAdminMemberId())
@@ -62,8 +62,8 @@ describe('blank issue text normalizes to null', () => {
 
   it('applies to the whole nullable-text class, not just the measured column', async () => {
     const { store, svc } = await harness()
-    const created = await svc.create({ repoPath: '/repo', title: 'T', startNow: false })
-    await svc.update(created.id, { design: '', notes: '', branch: '', closedReason: '' })
+    const created = await svc.crud.create({ repoPath: '/repo', title: 'T', startNow: false })
+    await svc.crud.update(created.id, { design: '', notes: '', branch: '', closedReason: '' })
 
     const row = await store.issues.getIssue(created.id)
     expect(row?.design).toBeNull()

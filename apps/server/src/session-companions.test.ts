@@ -356,11 +356,11 @@ describe('S1 session companion records', () => {
       cwd: '/repo',
     })
     expect(await f.sessions.sessionById(draft)).toMatchObject({ refRepoId: repoId, refDraft: 1 })
-    const birth = await f.reg.issues.create({ repoPath: '/repo', title: 'Birth', startNow: false })
+    const birth = await f.reg.issues.crud.create({ repoPath: '/repo', title: 'Birth', startNow: false })
     await f.sessions.setSessionIssueId(f.sessionId, birth.id)
     const before = await f.sessions.sessionById(f.sessionId)
     expect(before).toMatchObject({ refRepoId: repoId, refSeq: birth.seq, refLetter: 'A' })
-    const next = await f.reg.issues.create({ repoPath: '/repo', title: 'Next', startNow: false })
+    const next = await f.reg.issues.crud.create({ repoPath: '/repo', title: 'Next', startNow: false })
     await f.sessions.setSessionIssueId(f.sessionId, next.id)
     expect(await f.sessions.sessionById(f.sessionId)).toMatchObject({
       refRepoId: repoId,

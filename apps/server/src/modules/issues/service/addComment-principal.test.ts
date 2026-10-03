@@ -53,7 +53,7 @@ async function harness() {
     now: () => '2026-06-30T00:00:00.000Z',
   }
   const svc = await IssueService.create(deps)
-  const issue = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+  const issue = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
   return { store, svc, issue }
 }
 
@@ -77,7 +77,7 @@ async function _addCommentRefusesAnUnnamedCaller(svc: IssueService, id: string):
   // @ts-expect-error POD-1315: omitting the principal must not compile. If this
   // directive is reported unused, a default has come back — restore the fix, do
   // not delete the directive.
-  await svc.addComment(id, 'mike', 'no principal named')
+  await svc.commentsMail.addComment(id, 'mike', 'no principal named')
 
   // @ts-expect-error POD-1315: same guard one layer down. `IssueService` is an
   // INTERSECTION that includes this module's signature, so leaving the module's
@@ -86,7 +86,7 @@ async function _addCommentRefusesAnUnnamedCaller(svc: IssueService, id: string):
   await svc.commentsMail.addComment(id, 'mike', 'no principal named')
 
   // @ts-expect-error POD-1315: an optional parameter would accept this too.
-  await svc.addComment(id, 'mike', 'explicitly nobody', undefined)
+  await svc.commentsMail.addComment(id, 'mike', 'explicitly nobody', undefined)
 }
 void _addCommentRefusesAnUnnamedCaller
 
@@ -98,16 +98,16 @@ void _addCommentRefusesAnUnnamedCaller
  */
 async function _gitWorkflowRefusesAnUnnamedCaller(svc: IssueService, id: string): Promise<void> {
   // @ts-expect-error POD-1344: cleanup without a principal must not compile.
-  void await svc.cleanup(id)
+  void await svc.gitWorkflow.cleanup(id)
 
   // @ts-expect-error POD-1344: integrate without a principal must not compile.
-  void await svc.integrate(id)
+  void await svc.gitWorkflow.integrate(id)
 
   // @ts-expect-error POD-1344: freeWorktreeKeepBranch without a principal must not compile.
-  void await svc.freeWorktreeKeepBranch(id)
+  void await svc.gitWorkflow.freeWorktreeKeepBranch(id)
 
   // @ts-expect-error POD-1344: an explicit undefined is still not a principal.
-  void await svc.cleanup(id, undefined)
+  void await svc.gitWorkflow.cleanup(id, undefined)
 }
 void _gitWorkflowRefusesAnUnnamedCaller
 
@@ -117,7 +117,7 @@ describe('addComment requires an explicit principal', () => {
     const alice = asUserId('user:alice')
     expect(alice).not.toBe(firstAdminMemberId())
 
-    await svc.addComment(issue.id, 'alice', 'my note', userCommandPrincipal(alice, 'member'))
+    await svc.commentsMail.addComment(issue.id, 'alice', 'my note', userCommandPrincipal(alice, 'member'))
 
     const [comment] = await store.issues.listIssueComments(issue.id)
     expect(comment?.actor).toBe(alice)
@@ -127,7 +127,7 @@ describe('addComment requires an explicit principal', () => {
   it('stamps a system job as a system actor with no human behind it', async () => {
     const { store, svc, issue } = await harness()
 
-    await svc.addComment(issue.id, 'system:cleanup', 'freed the worktree', systemPrincipal('cleanup'))
+    await svc.commentsMail.addComment(issue.id, 'system:cleanup', 'freed the worktree', systemPrincipal('cleanup'))
 
     const [comment] = await store.issues.listIssueComments(issue.id)
     // Visibly a job, not a person — and `onBehalfOf` stays null rather than
@@ -139,7 +139,7 @@ describe('addComment requires an explicit principal', () => {
   it('always records attribution — a comment can no longer land anonymously', async () => {
     const { store, svc, issue } = await harness()
 
-    await svc.addComment(
+    await svc.commentsMail.addComment(
       issue.id,
       'mike',
       'attributed',

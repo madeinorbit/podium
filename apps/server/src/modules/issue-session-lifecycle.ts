@@ -43,23 +43,23 @@ export class IssueSessionLifecycle {
 
   /** Resume a durable conversation under one visible issue/session workflow. */
   async resumeSession(input: Parameters<SessionLifecycle['resumeSession']>[0]) {
-    return await this.deps.sessions.resumeSession(input, this.deps.issues)
+    return await this.deps.sessions.resumeSession(input, this.deps.issues.gitWorkflow)
   }
 
   /** Recreate a freed issue worktree before respawning its parked session. */
   async resurrectSession(input: Parameters<SessionLifecycle['resurrectSession']>[0]) {
-    return await this.deps.sessions.resurrectSession(input, this.deps.issues)
+    return await this.deps.sessions.resurrectSession(input, this.deps.issues.gitWorkflow)
   }
 
   /** Park one session and free its worktree without an asynchronous ordering hop. */
   async stopSession(input: Parameters<SessionLifecycle['stopSession']>[0]) {
-    return await this.deps.sessions.stopSession(input, this.deps.issues)
+    return await this.deps.sessions.stopSession(input, this.deps.issues.gitWorkflow)
   }
 
   /** Stop every issue member before the single final worktree-free pass. */
   async stopIssue(input: Parameters<SessionLifecycle['stopIssue']>[0]) {
-    const issueId = await this.deps.issues.resolveRef(input.issueId)
-    return await this.deps.sessions.stopIssue({ ...input, issueId }, this.deps.issues)
+    const issueId = await this.deps.issues.reports.resolveRef(input.issueId)
+    return await this.deps.sessions.stopIssue({ ...input, issueId }, this.deps.issues.gitWorkflow)
   }
   /**
    * Stop a closed issue through the same no-force path as `podium issue stop`.
@@ -96,7 +96,7 @@ export class IssueSessionLifecycle {
   }): Promise<void> {
     let issueId: IssueId
     try {
-      issueId = await this.deps.issues.resolveRef(input.issueId)
+      issueId = await this.deps.issues.reports.resolveRef(input.issueId)
     } catch (error) {
       log.warn('closed-issue cleanup could not resolve its issue', {
         err: error,
@@ -109,7 +109,7 @@ export class IssueSessionLifecycle {
     if (inFlight) return inFlight
 
     const task = (async (): Promise<void> => {
-      const current = await this.deps.issues.get(issueId)
+      const current = await this.deps.issues.reports.get(issueId)
       if (!current || current.deletedAt || !isIssueClosed(current)) return
       log.info('closed issue stop requested', { issueId, reason: input.reason })
       const result = await this.stopIssue({
@@ -271,23 +271,23 @@ export class IssueSessionLifecycle {
     input: Parameters<SessionLifecycle['handoffSession']>[0],
     caller: HandoffCaller,
   ) {
-    return await this.deps.sessions.handoffSession(input, caller, this.deps.issues)
+    return await this.deps.sessions.handoffSession(input, caller, this.deps.issues.gitWorkflow)
   }
   /** Soft-delete an issue and tombstone all of its local member sessions.
    *  Both durable entity changes land in one ledger transaction; PTY teardown and
    *  broadcasts happen only after the commit succeeds. */
   async deleteIssue(id: string): Promise<DeleteIssueResult> {
     // Membership and no-op results use durable facts, without report joins.
-    const current = await this.deps.issues.getMeta(id)
+    const current = await this.deps.issues.reports.getMeta(id)
     if (!current) throw new IssueNotFound(id)
     if (current.deletedAt)
-      return { issue: await this.deps.issues.projection(current), deletedSessionIds: [] }
+      return { issue: await this.deps.issues.reports.store.projection(current), deletedSessionIds: [] }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionDelete(
       current.id,
       current.worktreePath,
     )
-    const issuePlan = await this.deps.issues.prepareSoftDelete(current.id)
+    const issuePlan = await this.deps.issues.crud.prepareSoftDelete(current.id)
 
     await this.deps.ledger.commit({
       write: async () => {
@@ -331,13 +331,13 @@ export class IssueSessionLifecycle {
    *  resumable sessions can then be started through the normal resurrection path. */
   async restoreIssue(id: string): Promise<RestoreIssueResult> {
     // No-op restores return the same normalized shape as committed ones.
-    const current = await this.deps.issues.getMeta(id)
+    const current = await this.deps.issues.reports.getMeta(id)
     if (!current) throw new IssueNotFound(id)
     if (!current.deletedAt)
-      return { issue: await this.deps.issues.projection(current), restoredSessionIds: [] }
+      return { issue: await this.deps.issues.reports.store.projection(current), restoredSessionIds: [] }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionRestore(current.id)
-    const issuePlan = await this.deps.issues.prepareRestore(current.id)
+    const issuePlan = await this.deps.issues.crud.prepareRestore(current.id)
 
     await this.deps.ledger.commit({
       write: async () => {

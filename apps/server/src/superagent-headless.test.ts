@@ -995,7 +995,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
   it('prepends what the user is looking at to EVERY turn, resolving ids server-side', async () => {
     const h = await harness()
     // A real session to focus, and the issue it belongs to.
-    const issue = await h.registry.issues.create({
+    const issue = await h.registry.issues.crud.create({
       repoPath: '/r',
       title: 'Fix the thing',
       startNow: false,
@@ -1373,7 +1373,7 @@ describe('sendTurn (headless harness turns)', () => {
 describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', () => {
   it('first concierge turn prepends the tracker seed; re-entry prepends the event delta', async () => {
     const h = await harness()
-    await h.registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    await h.registry.issues.crud.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     const a = await h.sa.conciergeTurn({
       ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
@@ -1389,7 +1389,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     h.resolveTurn(first, { harnessSessionId: 'hc1' })
     await h.settle()
     // New tracker activity → the next turn carries a delta, not a re-seed.
-    await h.registry.issues.create({ repoPath: '/r', title: 'New work', startNow: false })
+    await h.registry.issues.crud.create({ repoPath: '/r', title: 'New work', startNow: false })
     const b = await h.sa.conciergeTurn({
       ownerUserId: firstAdminMemberId(),
       repoPath: '/r',

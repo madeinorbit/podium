@@ -65,7 +65,7 @@ describe('SessionStart: issue owner precedence', () => {
     expect(issueOwner).not.toBe(firstAdminMemberId())
 
     const { reg, daemon } = await makeRegistry()
-    const issue = await reg.issues.create({
+    const issue = await reg.issues.crud.create({
       repoPath: '/r',
       title: 'Owned issue',
       startNow: false,
@@ -468,7 +468,7 @@ describe('non-picker driver requests', () => {
         { harness: 'codex', id: 'codex-pty', family: 'terminal' },
       ],
     })
-    const issue = await reg.issues.create({
+    const issue = await reg.issues.crud.create({
       repoPath: '/proj', title: 'CLI contract request', startNow: false,
       defaultAgent: 'codex', machineId,
     })

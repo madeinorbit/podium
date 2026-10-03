@@ -138,11 +138,11 @@ async function ctxFor(
       )!,
 
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
-      await modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+      await modules.issues.attention.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {
-      for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
+      for (const artifact of artifacts) await modules.issues.crud.panelArtifactUpload(issueId, artifact)
     },
-    discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
+    discardUnlaunchedDraft: async (issueId) => await modules.issues.attention.discardUnlaunchedDraft(issueId),
     issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
@@ -175,7 +175,7 @@ describe('draft launch compensation', () => {
       ],
     })
 
-    const draft = (await o.reg.issues.list('/p')).find((issue) => issue.draft)
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
     expect(draft?.panel?.artifacts).toEqual([
       expect.objectContaining({
         path: 'attachments/att-1/mock.png',
@@ -184,7 +184,7 @@ describe('draft launch compensation', () => {
       }),
     ])
     expect(o.reg.modules.sessions.getSessionIssueId(created.sessionId)).toBe(draft?.id)
-    expect((await o.reg.issues.panelArtifactRead(draft?.id ?? '', { index: 1 })).dataBase64).toBe(
+    expect((await o.reg.issues.crud.panelArtifactRead(draft?.id ?? '', { index: 1 })).dataBase64).toBe(
       'UE5H',
     )
   })
@@ -192,7 +192,7 @@ describe('draft launch compensation', () => {
   it('does not create a draft when an existing issue takes precedence', async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const issue = await o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
+    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Existing work', startNow: false })
 
     const created = await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
       agentKind: 'codex',
@@ -201,7 +201,7 @@ describe('draft launch compensation', () => {
       draftIssue: { repoPath: '/p' },
     })
 
-    expect((await o.reg.issues.list('/p')).filter((candidate) => candidate.draft)).toEqual([])
+    expect((await o.reg.issues.reports.list('/p')).filter((candidate) => candidate.draft)).toEqual([])
     expect(o.reg.modules.sessions.getSessionIssueId(created.sessionId)).toBe(issue.id)
   })
 
@@ -220,7 +220,7 @@ describe('draft launch compensation', () => {
       }),
     ).rejects.toThrow('spawn failed')
 
-    expect((await o.reg.issues.list('/p')).filter((issue) => issue.draft)).toEqual([])
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
     expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
   })
 
@@ -241,7 +241,7 @@ describe('draft launch compensation', () => {
       }),
     ).rejects.toThrow('late spawn failure')
 
-    const draft = (await o.reg.issues.list('/p')).find((issue) => issue.draft)
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
     expect(draft).toBeDefined()
     expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({ issueId: draft?.id }),

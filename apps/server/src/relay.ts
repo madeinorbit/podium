@@ -2041,27 +2041,27 @@ export class SessionRegistry {
     // first eligible agent born on an issue takes an empty coordinator seat;
     // later sessions and every explicit set/clear remain untouched.
     this.bus.on('session.created', async ({ sessionId, issueId }) => {
-      if (issueId) await issues.ensureCoordinator(issueId, sessionId, { onlyMember: true })
+      if (issueId) await issues.crud.ensureCoordinator(issueId, sessionId, { onlyMember: true })
     })
     const applySessionDerived = async (event: EventMap['issue.sessionDerived']): Promise<void> => {
       switch (event.kind) {
         case 'gitActivity':
-          await issues.recordSessionGitActivity(event.sessionId, {
+          await issues.gitWorkflow.recordSessionGitActivity(event.sessionId, {
             ...(event.commits ? { commits: event.commits } : {}),
             ...(event.touched ? { touched: event.touched } : {}),
           })
           break
         case 'activity':
-          await issues.onSessionActivity(event.sessionId)
+          await issues.gitWorkflow.onSessionActivity(event.sessionId)
           break
         case 'attention':
-          await issues.onSessionAttention(event.sessionId)
+          await issues.gitWorkflow.onSessionAttention(event.sessionId)
           break
         case 'turnEnd':
-          await issues.onSessionTurnEnd(event.sessionId)
+          await issues.gitWorkflow.onSessionTurnEnd(event.sessionId)
           break
         case 'removedOrArchived':
-          await issues.onSessionRemovedOrArchived(event.sessionId)
+          await issues.gitWorkflow.onSessionRemovedOrArchived(event.sessionId)
           break
         case 'adoptWorktree': {
           const issue = await issueAccess.getMeta(event.issueId)
@@ -2075,7 +2075,7 @@ export class SessionRegistry {
             break
           if (message.repoRoot !== undefined && message.repoRoot !== issue.repoPath) break
           if ((await issueAccess.worktreePaths()).includes(message.cwd)) break
-          await issues.update(issue.id, {
+          await issues.crud.update(issue.id, {
             worktreePath: message.cwd,
             machineId: event.machineId,
             ...(message.branch ? { branch: message.branch } : {}),
@@ -2087,16 +2087,16 @@ export class SessionRegistry {
     const applyRuntimeDerived = async (event: EventMap['issue.runtimeDerived']): Promise<void> => {
       switch (event.kind) {
         case 'gitActivity':
-          await issues.projectSessionGitActivity(event.sessionId, {
+          await issues.gitWorkflow.projectSessionGitActivity(event.sessionId, {
             ...(event.commits ? { commits: event.commits } : {}),
             ...(event.touched ? { touched: event.touched } : {}),
           })
           break
         case 'attention':
-          await issues.onSessionAttention(event.sessionId)
+          await issues.gitWorkflow.onSessionAttention(event.sessionId)
           break
         case 'turnEnd':
-          await issues.projectSessionTurnEnd(event.sessionId)
+          await issues.gitWorkflow.projectSessionTurnEnd(event.sessionId)
           break
       }
     }
@@ -2367,7 +2367,7 @@ export class SessionRegistry {
             : undefined
         },
         issue: async (issueId) => {
-          const issue = await issues?.getMeta(issueId)
+          const issue = await issues.reports?.getMeta(issueId)
           // Only `worktreePath` is read (workflows' step-placement check); the id /
           // repoId / repoPath this used to also carry had no reader (POD-367).
           return issue ? { worktreePath: issue.worktreePath } : undefined
@@ -2573,7 +2573,7 @@ export class SessionRegistry {
               : {}),
           })
         },
-        createIssue: async (o) => await issues.create({ ...o, startNow: false }),
+        createIssue: async (o) => await issues.crud.create({ ...o, startNow: false }),
         appendEvent: async (e) => {
           await this.store.events.appendEvent(e)
         },
@@ -2641,13 +2641,13 @@ export class SessionRegistry {
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       }),
       createIssue: async (o) => {
-        const issue = await issues.create({
+        const issue = await issues.crud.create({
           ...o,
           startNow: false,
           origin: 'agent',
           audience: 'human',
         })
-        await issues.update(issue.id, { stage: 'in_progress' })
+        await issues.crud.update(issue.id, { stage: 'in_progress' })
         return { id: issue.id }
       },
       liveSessionIds: async () =>
@@ -2678,10 +2678,10 @@ export class SessionRegistry {
       clients: () => clientRegistry.values(),
       sessionIssueId: async (sessionId) => {
         const s = await sessionsSvc.sessionById(sessionId)
-        return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
+        return s ? (s.issueId ?? issues.reports.issueForCwd(s.cwd)) : null
       },
       issueInfo: async (issueId) => {
-        const row = await issues.getMeta(issueId)
+        const row = await issues.reports.getMeta(issueId)
         if (!row) return null
         const prefix = await this.store.repos.prefixForPath(row.repoPath)
         return {
@@ -2869,7 +2869,7 @@ export class SessionRegistry {
           (await this.store.repos.listRepoPaths(machineId))[0] ??
           (await this.store.repos.listRepoPaths())[0],
         issueExists: async (id) => (await readIssue(this.store.issues, id)) !== null,
-        createIssue: async (input) => await issues.create(input),
+        createIssue: async (input) => await issues.crud.create(input),
         sendMail: async (issueId, body) =>
           await systemIssueNotice(messagesSvc, 'machine-diagnostic')(issueId, body),
         notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
@@ -2970,21 +2970,21 @@ export class SessionRegistry {
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
       issues: {
         get: async (id) => {
-          const issue = await issues.get(id)
+          const issue = await issues.reports.get(id)
           if (!issue) throw new Error(`unknown issue ${id}`)
           return issue
         },
-        children: async (id, recursive) => await issues.children(id, recursive),
+        children: async (id, recursive) => await issues.reports.children(id, recursive),
         shippingCommit: async (id, mutation, write) =>
-          await issues.shippingCommit(id, mutation, write),
+          await issues.crud.shippingCommit(id, mutation, write),
         shippingCommitMany: async (entries, write) =>
-          await issues.shippingCommitMany(entries, write),
+          await issues.crud.shippingCommitMany(entries, write),
         takeBranchCustody: async (issue) => {
           const stopped = await issueSessionLifecycle.stopIssue({
             issueId: issue.id,
             principal: systemPrincipal('shipping-custody'),
           })
-          const live = await issues.get(issue.id)
+          const live = await issues.reports.get(issue.id)
           const freed = live?.worktreePath == null
           return {
             ok: stopped.ok && freed,
@@ -3664,8 +3664,8 @@ export class SessionRegistry {
           void (async () => {
             if ((await messagesSvc.settleNotifiable(sessionId)).length === 0) return
             const meta = await sessionsSvc.sessionById(sessionId)
-            const issueId = meta ? (meta.issueId ?? issues.issueForCwd(meta.cwd)) : null
-            const issue = issueId ? await issues.getMeta(issueId) : null
+            const issueId = meta ? (meta.issueId ?? issues.reports.issueForCwd(meta.cwd)) : null
+            const issue = issueId ? await issues.reports.getMeta(issueId) : null
             let lastCommit: string | undefined
             if (meta) {
               try {
@@ -3741,11 +3741,11 @@ export class SessionRegistry {
         perf.record('phase', 'eventLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
       },
     })
-    this.issueAutoArchive = new IssueAutoArchive(issues)
+    this.issueAutoArchive = new IssueAutoArchive(issues.attention)
     // STARTED, unlike the two retired timers around it: the watch refreshes only
     // the ephemeral in-memory git-state cache, so there is no durable write for
     // the janitor's fence to protect — see IssueGitWatch.
-    this.issueGitWatch = new IssueGitWatch(issues)
+    this.issueGitWatch = new IssueGitWatch(issues.gitWorkflow)
     if (!backgroundDisabled) this.issueGitWatch.start()
     // Reads through the same fan-out `quota.summary` serves, so the sampler adds
     // no new path to the daemons — only a clock behind the one that exists.

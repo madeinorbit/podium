@@ -251,12 +251,12 @@ describe('stopSession [spec:SP-9904]', () => {
 
   it('parks a live session, frees the issue worktree, keeps the branch', async () => {
     const { reg, daemon, repoOps } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Stop target',
       startNow: false,
     })
-    await reg.modules.issues.update(issue.id, {
+    await reg.modules.issues.crud.update(issue.id, {
       worktreePath: '/r/.worktrees/issue-1-stop-target',
       branch: 'issue/1-stop-target',
     })
@@ -290,7 +290,7 @@ describe('stopSession [spec:SP-9904]', () => {
     )
     // Worktree removed, branch still on issue.
     expect(repoOps.some((c) => c.op === 'worktreeRemove')).toBe(true)
-    const after = await reg.modules.issues.getMeta(issue.id)
+    const after = await reg.modules.issues.reports.getMeta(issue.id)
     expect(after?.worktreePath).toBeNull()
     expect(after?.branch).toBe('issue/1-stop-target')
   })
@@ -356,12 +356,12 @@ describe('stopSession [spec:SP-9904]', () => {
       if (op === 'status') return { ok: true, output: '## issue/2-dirty\n M dirty.ts\n' }
       return { ok: true, output: '' }
     })
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Dirty stop',
       startNow: false,
     })
-    await reg.modules.issues.update(issue.id, {
+    await reg.modules.issues.crud.update(issue.id, {
       worktreePath: '/r/.worktrees/issue-2-dirty',
       branch: 'issue/2-dirty',
     })
@@ -380,7 +380,7 @@ describe('stopSession [spec:SP-9904]', () => {
     // Still live — not parked.
     expect((await clientSessionViews(reg))[0]?.status).toBe('live')
     // Branch and worktree unchanged.
-    expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBe('/r/.worktrees/issue-2-dirty')
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.worktreePath).toBe('/r/.worktrees/issue-2-dirty')
   })
 
   it('--force stops and frees even with dirty tree', async () => {
@@ -393,12 +393,12 @@ describe('stopSession [spec:SP-9904]', () => {
       }
       return { ok: true, output: '' }
     })
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Force stop',
       startNow: false,
     })
-    await reg.modules.issues.update(issue.id, {
+    await reg.modules.issues.crud.update(issue.id, {
       worktreePath: '/r/.worktrees/issue-3-force',
       branch: 'issue/3-force',
     })
@@ -416,8 +416,8 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(
       (await clientSessionViews(reg)).find((s) => s.sessionId === sessionId)?.stopReason,
     ).toBe('forced')
-    expect((await reg.modules.issues.getMeta(issue.id))?.branch).toBe('issue/3-force')
-    expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.branch).toBe('issue/3-force')
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.worktreePath).toBeNull()
   })
 
   it('self-stop holds the kill until finalizeDeferredStopKill (after-reply)', async () => {
@@ -442,13 +442,13 @@ describe('stopSession [spec:SP-9904]', () => {
 
   it('does not free the worktree while a sibling session is still live', async () => {
     const { reg, repoOps } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Shared wt',
       startNow: false,
     })
     const wt = '/r/.worktrees/issue-4-shared'
-    await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/4-shared' })
+    await reg.modules.issues.crud.update(issue.id, { worktreePath: wt, branch: 'issue/4-shared' })
     const a = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: wt,
@@ -466,23 +466,23 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(false)
     expect(repoOps.some((c) => c.op === 'worktreeRemove')).toBe(false)
-    expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBe(wt)
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.worktreePath).toBe(wt)
   })
 
   it('does not free when a live session of ANOTHER issue shares the cwd', async () => {
     const { reg, repoOps } = await makeRegistry()
-    const a = await reg.modules.issues.create({
+    const a = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Owner issue',
       startNow: false,
     })
-    const b = await reg.modules.issues.create({
+    const b = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Squatter issue',
       startNow: false,
     })
     const wt = '/r/.worktrees/issue-cross-share'
-    await reg.modules.issues.update(a.id, { worktreePath: wt, branch: 'issue/a-owner' })
+    await reg.modules.issues.crud.update(a.id, { worktreePath: wt, branch: 'issue/a-owner' })
     // B is a different issue but its session runs inside A's worktree.
     const owner = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -501,7 +501,7 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(false)
     expect(repoOps.some((c) => c.op === 'worktreeRemove')).toBe(false)
-    expect((await reg.modules.issues.getMeta(a.id))?.worktreePath).toBe(wt)
+    expect((await reg.modules.issues.reports.getMeta(a.id))?.worktreePath).toBe(wt)
   })
 
   it('freeWorktreeKeepBranch passes issue.machineId on status and remove', async () => {
@@ -526,17 +526,17 @@ describe('stopSession [spec:SP-9904]', () => {
     })
     await reg.sessionStore.machines.addMachineComponent('machine-remote', 'daemon')
     reg.modules.machines.invalidateMachineCache()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Remote free',
       startNow: false,
     })
-    await reg.modules.issues.update(issue.id, {
+    await reg.modules.issues.crud.update(issue.id, {
       worktreePath: '/r/.worktrees/issue-remote',
       branch: 'issue/remote',
       machineId: asMachineId('machine-remote'),
     })
-    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issue.id, systemPrincipal('stop'))
+    const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(issue.id, systemPrincipal('stop'))
     expect(freed.ok).toBe(true)
     expect(seen.find((s) => s.op === 'status')?.machineId).toBe('machine-remote')
     expect(seen.find((s) => s.op === 'worktreeRemove')?.machineId).toBe('machine-remote')
@@ -548,17 +548,17 @@ describe('stopSession [spec:SP-9904]', () => {
       if (op === 'status') return { ok: true, output: '## issue/x\n' }
       return { ok: true, output: '' }
     })
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Attributed free',
       startNow: false,
     })
-    await reg.modules.issues.update(issue.id, {
+    await reg.modules.issues.crud.update(issue.id, {
       worktreePath: '/r/.worktrees/issue-attr',
       branch: 'issue/attr',
     })
     const alice = asUserId('user:alice')
-    const freed = await reg.modules.issues.freeWorktreeKeepBranch(
+    const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(
       issue.id,
       userCommandPrincipal(alice, 'member'),
     )
@@ -581,13 +581,13 @@ describe('stopSession [spec:SP-9904]', () => {
       if (op === 'status') return { ok: true, output: '## issue/x\n' }
       return { ok: true, output: '' }
     })
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Stop attributes',
       startNow: false,
     })
     const wt = '/r/.worktrees/issue-stop-attr'
-    await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/stop-attr' })
+    await reg.modules.issues.crud.update(issue.id, { worktreePath: wt, branch: 'issue/stop-attr' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: wt,
@@ -610,13 +610,13 @@ describe('stopSession [spec:SP-9904]', () => {
 
   it('resurrect recreates a freed worktree from the preserved branch', async () => {
     const { reg, daemon } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Resume recreate',
       startNow: false,
     })
     const wt = '/r/.worktrees/issue-5-resume'
-    await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/5-resume' })
+    await reg.modules.issues.crud.update(issue.id, { worktreePath: wt, branch: 'issue/5-resume' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: wt,
@@ -624,13 +624,13 @@ describe('stopSession [spec:SP-9904]', () => {
     })
     await bindLive(reg, sessionId, wt)
     await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
-    expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.worktreePath).toBeNull()
 
     daemon.length = 0
     const woke = await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
     expect(woke.ok).toBe(true)
-    expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBe(wt)
-    expect((await reg.modules.issues.getMeta(issue.id))?.branch).toBe('issue/5-resume')
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.worktreePath).toBe(wt)
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.branch).toBe('issue/5-resume')
     const spawn = daemon.find((m) => m.type === 'spawn')
     expect(spawn).toMatchObject({
       type: 'spawn',
@@ -642,12 +642,12 @@ describe('stopSession [spec:SP-9904]', () => {
 
   it('resurrects an issue session that never owned a dedicated worktree', async () => {
     const { reg, daemon, repoOps } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Repository root session',
       startNow: false,
     })
-    expect(await reg.modules.issues.getMeta(issue.id)).toMatchObject({
+    expect(await reg.modules.issues.reports.getMeta(issue.id)).toMatchObject({
       worktreePath: null,
       branch: null,
     })
@@ -675,13 +675,13 @@ describe('stopSession [spec:SP-9904]', () => {
 describe('stopIssue [spec:SP-9904]', () => {
   it('closing an issue dispatches the same no-force stop and frees its clean worktree', async () => {
     const { reg, daemon, repoOps } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Close target',
       startNow: false,
     })
     const wt = '/r/.worktrees/issue-close-target'
-    await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/close-target' })
+    await reg.modules.issues.crud.update(issue.id, { worktreePath: wt, branch: 'issue/close-target' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: wt,
@@ -691,31 +691,31 @@ describe('stopIssue [spec:SP-9904]', () => {
     // Session creation publishes coordinator assignment as a background event.
     // Finish that setup write before starting the independent close command.
     await vi.waitFor(async () => {
-      expect((await reg.modules.issues.getMeta(issue.id))?.coordinatorSessionId).toBe(sessionId)
+      expect((await reg.modules.issues.reports.getMeta(issue.id))?.coordinatorSessionId).toBe(sessionId)
     })
 
-    await reg.modules.issues.update(issue.id, { stage: 'done' })
+    await reg.modules.issues.crud.update(issue.id, { stage: 'done' })
 
     await vi.waitFor(async () => {
       expect((await clientSessionViews(reg)).find((s) => s.sessionId === sessionId)?.status).toBe(
         'hibernated',
       )
-      expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
+      expect((await reg.modules.issues.reports.getMeta(issue.id))?.worktreePath).toBeNull()
     })
-    expect((await reg.modules.issues.getMeta(issue.id))?.branch).toBe('issue/close-target')
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.branch).toBe('issue/close-target')
     expect(daemon.some((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toBe(true)
     expect(repoOps.some((call) => call.op === 'worktreeRemove')).toBe(true)
   })
 
   it('closing an issue re-sends reap for a session parked by an earlier stop', async () => {
     const { reg, daemon } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Parked close target',
       startNow: false,
     })
     const wt = '/r/.worktrees/issue-parked-close-target'
-    await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/parked-close-target' })
+    await reg.modules.issues.crud.update(issue.id, { worktreePath: wt, branch: 'issue/parked-close-target' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: wt,
@@ -726,7 +726,7 @@ describe('stopIssue [spec:SP-9904]', () => {
     await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect(daemon.filter((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toHaveLength(1)
 
-    await reg.modules.issues.update(issue.id, { stage: 'done' })
+    await reg.modules.issues.crud.update(issue.id, { stage: 'done' })
     await vi.waitFor(() => {
       expect(daemon.filter((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toHaveLength(2)
     })
@@ -734,13 +734,13 @@ describe('stopIssue [spec:SP-9904]', () => {
 
   it('stops every member session then frees the worktree', async () => {
     const { reg } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Issue stop',
       startNow: false,
     })
     const wt = '/r/.worktrees/issue-6-all'
-    await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/6-all' })
+    await reg.modules.issues.crud.update(issue.id, { worktreePath: wt, branch: 'issue/6-all' })
     const a = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: wt,
@@ -763,19 +763,19 @@ describe('stopIssue [spec:SP-9904]', () => {
         'hibernated',
       )
     }
-    expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
-    expect((await reg.modules.issues.getMeta(issue.id))?.branch).toBe('issue/6-all')
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.worktreePath).toBeNull()
+    expect((await reg.modules.issues.reports.getMeta(issue.id))?.branch).toBe('issue/6-all')
   })
 
   it('resolves a human ref/seq before matching members (POD-985 regression)', async () => {
     const { reg } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Issue stop by ref',
       startNow: false,
     })
     const wt = '/r/.worktrees/issue-7-ref'
-    await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/7-ref' })
+    await reg.modules.issues.crud.update(issue.id, { worktreePath: wt, branch: 'issue/7-ref' })
     const a = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: wt,

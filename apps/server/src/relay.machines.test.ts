@@ -216,7 +216,7 @@ describe('multi-daemon routing', () => {
     const { reg } = await regWithTwoDaemons()
     try {
       await reg.sessionStore.repos.addRepo('/repo', asMachineId('m2'))
-      const issue = await reg.modules.issues.create({
+      const issue = await reg.modules.issues.crud.create({
         repoPath: '/repo',
         title: 'Remote adoption',
         startNow: false,
@@ -237,7 +237,7 @@ describe('multi-daemon routing', () => {
         repoRoot: '/repo',
       })
 
-      await expect.poll(() => reg.modules.issues.get(issue.id)).toMatchObject({
+      await expect.poll(() => reg.modules.issues.reports.get(issue.id)).toMatchObject({
         worktreePath: '/repo/.worktrees/remote-adoption',
         branch: 'issue/remote-adoption',
         machineId: 'm2',
@@ -648,10 +648,10 @@ async function handoffRegistry(
   })
   // An issue homed on the SOURCE machine, as `issue start` would leave it.
   const issue = opts.withIssue
-    ? await reg.modules.issues.create({ repoPath: '/source/repo', title: 'handoff me', startNow: false })
+    ? await reg.modules.issues.crud.create({ repoPath: '/source/repo', title: 'handoff me', startNow: false })
     : undefined
   if (issue) {
-    await reg.modules.issues.update(issue.id, {
+    await reg.modules.issues.crud.update(issue.id, {
       worktreePath: '/source/repo/.worktrees/x',
       branch: 'x',
       machineId: asMachineId('m1'),
@@ -796,7 +796,7 @@ describe('session handoff orchestration', () => {
       cwd: '/old-machine/repo',
       kind: 'none',
     })
-    expect(await reg.modules.issues.getMeta(issueId!)).toMatchObject({
+    expect(await reg.modules.issues.reports.getMeta(issueId!)).toMatchObject({
       worktreePath: '/source/repo/.worktrees/x',
       machineId: asMachineId('m1'),
     })
@@ -872,13 +872,13 @@ describe('session handoff orchestration', () => {
         withIssue: true,
         landInSubdir: true,
       })
-      const before = await reg.modules.issues.get(issueId!)
+      const before = await reg.modules.issues.reports.get(issueId!)
       expect(before).toMatchObject({ repoPath: '/source/repo', machineId: 'm1' })
       await reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       )
-      expect(await reg.modules.issues.get(issueId!)).toMatchObject({
+      expect(await reg.modules.issues.reports.get(issueId!)).toMatchObject({
         // The ROOT, even though the agent resumed in .../x/apps/web.
         worktreePath: '/target/repo/.worktrees/x',
         repoPath: '/target/repo',
@@ -886,7 +886,7 @@ describe('session handoff orchestration', () => {
       })
       // Identity survives the move: the nice-id prefix and repo scoping resolve
       // through repoId, which is origin-derived and the same on both machines.
-      expect((await reg.modules.issues.get(issueId!))?.seq).toBe(before?.seq)
+      expect((await reg.modules.issues.reports.get(issueId!))?.seq).toBe(before?.seq)
     } finally {
       if (prior === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = prior
@@ -907,7 +907,7 @@ describe('session handoff orchestration', () => {
         { sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       )
-      expect(await reg.modules.issues.get(issueId!)).toMatchObject({
+      expect(await reg.modules.issues.reports.get(issueId!)).toMatchObject({
         worktreePath: '/source/repo/.worktrees/x',
         repoPath: '/source/repo',
         machineId: asMachineId('m1'),

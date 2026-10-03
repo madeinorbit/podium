@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { types } from 'node:util'
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
@@ -37,6 +38,9 @@ describe('issue tracker capability composition', () => {
       ...issueTestPlumbing(),
     }
     const tracker = await IssueService.create(deps)
+    expect(types.isProxy(tracker)).toBe(false)
+    expect('create' in tracker).toBe(false)
+    expect(Reflect.get(tracker, 'addComment')).toBeUndefined()
     const capabilities = [
       tracker.crud,
       tracker.hierarchy,

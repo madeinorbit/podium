@@ -232,7 +232,7 @@ async function fixture(): Promise<Fixture> {
   // The narrowing `relay.ts` does: lambdas, not the service, not the store.
   const shipping = new ShippingService({
     repository: { record: async (upper, lower) => await edges.record(upper, lower) },
-    issues: { shippingCommitMany: async (entries, write) => await issues.shippingCommitMany(entries, write) },
+    issues: { shippingCommitMany: async (entries, write) => await issues.crud.shippingCommitMany(entries, write) },
     // The ledger opens its own span, as the real one does: the branch matters
     // because it is the SAME closure, run under a different owner's unit of work.
     ledger: {
@@ -285,7 +285,7 @@ describe('the cross-service span', () => {
     const before = issues.installed.get('i1')
 
     await expect(
-      issues.shippingCommitMany(
+      issues.crud.shippingCommitMany(
         [{ id: 'i1', mutation: { expectedStage: 'shipping', needsHuman: true } }],
         async () => {
           await settle(2)
@@ -306,7 +306,7 @@ describe('the cross-service span', () => {
     const { h, issues } = await fixture()
     let closureRan = false
     await expect(
-      issues.shippingCommitMany(
+      issues.crud.shippingCommitMany(
         [{ id: 'i1', mutation: { expectedStage: 'review', needsHuman: true } }],
         async () => {
           closureRan = true
@@ -328,7 +328,7 @@ describe('the cross-service span', () => {
     const parked = barrier()
     const observed: (string | undefined)[] = []
 
-    const span = issues.shippingCommitMany(
+    const span = issues.crud.shippingCommitMany(
       [{ id: 'i1', mutation: { expectedStage: 'shipping', needsHuman: true, nextStage: 'done' } }],
       async () => {
         await parked.wait()

@@ -110,7 +110,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // session born inside a reported repo takes a draft ref at spawn, and this
     // test is about the issue ref the attachment allocates.
     await registry.sessionStore.repos.addRepo('/w', registry.sessionStore.hostMachineId)
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/w',
       title: 'Attachment',
       startNow: false,
@@ -296,7 +296,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       agentKind: 'shell',
       cwd: '/w',
     })
-    await registry.issues.create({ repoPath: '/r', title: 'interleaved', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'interleaved', startNow: false })
     await registry.modules.sessions.renameSession({ sessionId, name: 'renamed-mid-stream' })
     await registry.modules.sessions.flushBroadcasts() // drain the coalesced pipeline
     await vi.waitFor(() => {

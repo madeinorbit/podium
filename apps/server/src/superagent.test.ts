@@ -206,8 +206,8 @@ describe('start_agent tool wiring (issue #60)', () => {
 
   it("issueId on a started issue spawns in the issue's worktree", async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
-    await registry.issues.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
+    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
+    await registry.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
     const out = JSON.parse(
       await sa.callMcpTool(
         'start_agent',
@@ -228,7 +228,7 @@ describe('start_agent tool wiring (issue #60)', () => {
 
   it('unstarted issue spawn preserves the exact initiating superagent thread', async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     const out = JSON.parse(
       await sa.callMcpTool(
         'start_agent',
@@ -246,13 +246,13 @@ describe('start_agent tool wiring (issue #60)', () => {
     const meta = (await clientSessionViews(registry)).find((s) => s.sessionId === out.sessionId)
     // IssueService owns worktree creation, but the initiating thread remains the parent.
     expect(meta?.spawnedBy).toBe('superagent:btw_parent')
-    expect((await registry.issues.get(issue.id))?.stage).toBe('in_progress')
+    expect((await registry.issues.reports.get(issue.id))?.stage).toBe('in_progress')
   })
 
   it('works with issueId alone — cwd is optional when the issue provides it', async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
-    await registry.issues.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
+    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
+    await registry.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
     const out = JSON.parse(
       await sa.callMcpTool(
         'start_agent',

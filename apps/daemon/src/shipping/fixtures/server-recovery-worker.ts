@@ -75,13 +75,13 @@ replies.on('line', (line) => {
 
 const issuePort = {
   async get(id: string): Promise<IssueReport> {
-    const issue = await issues.get(id)
+    const issue = await issues.reports.get(id)
     if (!issue) throw new Error(`unknown issue ${id}`)
     return issue
   },
-  children: (id: string, recursive?: boolean) => issues.children(id, recursive),
-  shippingCommit: issues.shippingCommit.bind(issues),
-  shippingCommitMany: issues.shippingCommitMany.bind(issues),
+  children: (id: string, recursive?: boolean) => issues.reports.children(id, recursive),
+  shippingCommit: issues.crud.shippingCommit.bind(issues.crud),
+  shippingCommitMany: issues.crud.shippingCommitMany.bind(issues.crud),
 }
 const compatibilityPolicy = new CompatibilityShippingPolicyResolver(() => 'main')
 const recoveryPolicy = {
@@ -149,11 +149,11 @@ const service = new ShippingService({
 })
 
 if (phase === 'crash') {
-  const created = await issues.create({ repoPath, title: 'process recovery', startNow: false })
-  const started = await issues.start(created.id)
+  const created = await issues.crud.create({ repoPath, title: 'process recovery', startNow: false })
+  const started = await issues.gitWorkflow.start(created.id)
   if (!started.branch) throw new Error('started recovery issue has no branch')
   git('branch', started.branch, 'main')
-  await issues.update(created.id, { stage: 'review', machineId })
+  await issues.crud.update(created.id, { stage: 'review', machineId })
   const head = git('rev-parse', started.branch)
   await store.shipping.recordRootIntegrationReceipt({
     rootIssueId: created.id,

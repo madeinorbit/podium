@@ -127,7 +127,7 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
 
   it('issue deletion fails its sessions’ messages as the issue’s end', async () => {
     const { registry, store } = await registryWithDaemon()
-    const issue = await registry.issues.create({ repoPath: '/repo', title: 'Going away', startNow: false })
+    const issue = await registry.issues.crud.create({ repoPath: '/repo', title: 'Going away', startNow: false })
     const sender = (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo' })).sessionId
     const member = (await registry.modules.sessions.createSession({
       agentKind: 'shell', cwd: '/repo', issueId: issue.id,
@@ -151,7 +151,7 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
 
   it('a stored issue message is bound to its issue, not to the session that is killed', async () => {
     const { registry, store } = await registryWithDaemon()
-    const issue = await registry.issues.create({ repoPath: '/repo', title: 'Stays', startNow: false })
+    const issue = await registry.issues.crud.create({ repoPath: '/repo', title: 'Stays', startNow: false })
     const sender = (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo' })).sessionId
     const member = (await registry.modules.sessions.createSession({
       agentKind: 'shell', cwd: '/repo', issueId: issue.id,
@@ -181,14 +181,14 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
 describe('a deleted issue takes the messages still waiting for it (POD-4817)', () => {
   async function withIssue(title: string) {
     const { registry, store } = await registryWithDaemon()
-    const issue = await registry.issues.create({ repoPath: '/repo', title, startNow: false })
+    const issue = await registry.issues.crud.create({ repoPath: '/repo', title, startNow: false })
     const sender = (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo' })).sessionId
     return { registry, store, issue, sender }
   }
 
   it('fails a message never handed on, with its sender told in the deletion’s commit; restore does not reopen it', async () => {
     const { registry, store, issue, sender } = await withIssue('Deleted with mail waiting')
-    const other = await registry.issues.create({ repoPath: '/repo', title: 'Stays', startNow: false })
+    const other = await registry.issues.crud.create({ repoPath: '/repo', title: 'Stays', startNow: false })
     const held = await seed(store, { from: sender, to: { kind: 'issue', id: issue.id }, status: 'stored' })
     const elsewhere = await seed(store, { from: sender, to: { kind: 'issue', id: other.id }, status: 'stored' })
 

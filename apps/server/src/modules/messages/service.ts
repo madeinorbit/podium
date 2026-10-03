@@ -763,7 +763,7 @@ export class MessageDeliveryService {
     const candidates = new Set<SessionId>()
     for (const issueId of changed) {
       await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
-      const issue = await this.deps.issues.getMeta(issueId)
+      const issue = await this.deps.issues.reports.getMeta(issueId)
       for (const id of this.routingMembership.candidates(issueId, issue?.worktreePath)) candidates.add(id)
     }
     for (const id of candidates) {
@@ -895,7 +895,7 @@ export class MessageDeliveryService {
     // front so the stored to_id is stable.
     const toId =
       input.to.kind === 'issue'
-        ? await issues.resolveRef(input.to.id ?? '')
+        ? await issues.reports.resolveRef(input.to.id ?? '')
         : input.to.kind === 'session'
           ? (input.to.id ?? null)
           : null
@@ -1109,7 +1109,7 @@ export class MessageDeliveryService {
     if (
       message.toKind !== 'issue' ||
       !toId ||
-      !(await this.deps.issues.has(toId)) ||
+      !(await this.deps.issues.reports.has(toId)) ||
       !(await this.applyAuth(message)).ok
     ) {
       return undefined
@@ -1159,7 +1159,7 @@ export class MessageDeliveryService {
   ): Promise<MessageSendResult> {
     const toId =
       input.to.kind === 'issue'
-        ? await this.deps.issues.resolveRef(input.to.id ?? '')
+        ? await this.deps.issues.reports.resolveRef(input.to.id ?? '')
         : input.to.kind === 'session'
           ? (input.to.id ?? null)
           : null
@@ -1291,7 +1291,7 @@ export class MessageDeliveryService {
         })
       }
     } else {
-      const issue = await this.deps.issues.get(message.toId ?? '')
+      const issue = await this.deps.issues.reports.get(message.toId ?? '')
       if (!issue) {
         return await this.deadLetter(message, 'issue no longer exists', {
           notifySender,
@@ -1443,7 +1443,7 @@ export class MessageDeliveryService {
       // instead (issue.machineId), so re-check against that placement target.
       const issueId =
         this.issueForSession(target) ?? (message.toId ? asIssueId(message.toId) : null)
-      const issueMachine = issueId ? (await this.deps.issues.get(issueId))?.machineId : undefined
+      const issueMachine = issueId ? (await this.deps.issues.reports.get(issueId))?.machineId : undefined
       if (issueMachine && issueMachine !== target.machineId) {
         const denied = await this.refuseWakeUnlessUsable(message, issueMachine, opts?.viaSweep === true)
         if (denied) return denied
@@ -2203,7 +2203,7 @@ export class MessageDeliveryService {
     if (!s) return null
     if (s.issueId) return s.issueId
     try {
-      const issueId = this.deps.issues.issueForCwd(s.cwd)
+      const issueId = this.deps.issues.reports.issueForCwd(s.cwd)
       return issueId ? asIssueId(issueId) : null
     } catch {
       return null
@@ -2682,8 +2682,8 @@ export class MessageDeliveryService {
           return { reason: `${session} has ended`, action }
         }
         case 'issue-ended': {
-          const issue = message.toId ? await this.deps.issues.getMeta(message.toId) : undefined
-          const ref = issue ? await this.deps.issues.niceRef(issue) : 'that issue'
+          const issue = message.toId ? await this.deps.issues.reports.getMeta(message.toId) : undefined
+          const ref = issue ? await this.deps.issues.reports.niceRef(issue) : 'that issue'
           return {
             reason: failure.deleted ? `${ref} was deleted` : `${ref} is finished`,
             action: 'Do not wait for a reply.',
@@ -2742,8 +2742,8 @@ export class MessageDeliveryService {
   /** Who a message was addressed to, as its sender would name it. */
   private async targetLabel(message: MessageRow): Promise<string> {
     if (message.toKind === 'issue') {
-      const issue = message.toId ? await this.deps.issues.getMeta(message.toId) : undefined
-      return issue ? await this.deps.issues.niceRef(issue) : `issue ${message.toId}`
+      const issue = message.toId ? await this.deps.issues.reports.getMeta(message.toId) : undefined
+      return issue ? await this.deps.issues.reports.niceRef(issue) : `issue ${message.toId}`
     }
     if (message.toKind === 'session') return `session ${message.toId}`
     return 'the operator'
@@ -2760,10 +2760,10 @@ export class MessageDeliveryService {
               ? await this.deps.sessions.sessionById(asSessionId(message.toId))
               : undefined,
           )
-    const issue = issueId ? await this.deps.issues.get(issueId) : undefined
+    const issue = issueId ? await this.deps.issues.reports.get(issueId) : undefined
     // A deleted issue's row still reads (POD-4817); nobody works it.
     if (issue && !issue.archived && !issue.deletedAt && !isIssueClosed(issue)) {
-      const ref = await this.deps.issues.niceRef(issue)
+      const ref = await this.deps.issues.reports.niceRef(issue)
       return `Send to ${ref} (\`podium issue mail send ${ref} …\`) to reach whoever works it now.`
     }
     return NOBODY_HOLDS_IT
@@ -3006,7 +3006,7 @@ export class MessageDeliveryService {
         return from.name ?? 'system'
       case 'agent': {
         if (from.issueId) {
-          const issue = await this.deps.issues.getMeta(from.issueId)
+          const issue = await this.deps.issues.reports.getMeta(from.issueId)
           if (issue) return `issue:#${issue.seq}`
         }
         return from.sessionId ? `session:${from.sessionId}` : 'agent'

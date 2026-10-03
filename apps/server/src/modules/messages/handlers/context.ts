@@ -1,3 +1,4 @@
+import { commandAccess } from '../../issues/command-ctx'
 /**
  * The L3 handler context for the agent-mail contracts (POD-728).
  *
@@ -254,8 +255,8 @@ export class MailAccess {
     const knownSession = (await this.deps.sessionById(asSessionId(to))) !== undefined
     return await resolveAddress(to, {
       isKnownSession: () => knownSession,
-      resolveIssueRef: async (ref) => await this.deps.issues.resolveRef(ref),
-      issueExists: async (id) => await this.deps.issues.has(id),
+      resolveIssueRef: async (ref) => await this.deps.issues.reports.resolveRef(ref),
+      issueExists: async (id) => await this.deps.issues.reports.has(id),
       ceiling: this.ceiling,
     })
   }
@@ -269,8 +270,8 @@ export class MailAccess {
   async resolveIssueAddress(ref: string): Promise<AddressResolution> {
     return await resolveAddress(ref, {
       isKnownSession: () => false,
-      resolveIssueRef: async (r) => await this.deps.issues.resolveRef(r),
-      issueExists: async (id) => await this.deps.issues.has(id),
+      resolveIssueRef: async (r) => await this.deps.issues.reports.resolveRef(r),
+      issueExists: async (id) => await this.deps.issues.reports.has(id),
       ceiling: this.ceiling,
     })
   }
@@ -288,9 +289,9 @@ export class MailAccess {
     const target = await this.deps.sessionById(sessionId)
     if (!target) throw new Error('session not found')
     const issues = this.deps.issues
-    const targetIssueId = target.issueId ?? await issues.issueForCwd(target.cwd)
+    const targetIssueId = target.issueId ?? await issues.reports.issueForCwd(target.cwd)
     if (targetIssueId) {
-      await checkIssueAccess(caller, issues, proc, 'write', targetIssueId)
+      await checkIssueAccess(caller, commandAccess(issues), proc, 'write', targetIssueId)
       return
     }
     const isOperator = caller.capability.scope.kind === 'all'
@@ -354,9 +355,9 @@ export class MailAccess {
     const label = async (kind: string, issueId: IssueId | null, sessionId: SessionId | null): Promise<string> => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
-          const issue = await issues.getMeta(issueId)
+          const issue = await issues.reports.getMeta(issueId)
           // Nice-id form (#474), matching the envelope labels.
-          if (issue) return `issue:${await issues.niceRef(issue)}`
+          if (issue) return `issue:${await issues.reports.niceRef(issue)}`
           return issueId
         }
         if (sessionId) return `session:${sessionId}`

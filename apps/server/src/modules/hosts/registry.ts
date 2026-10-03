@@ -75,7 +75,7 @@ export const HOST_COMMANDS_TRPC = {
     contract: HOST_CONTRACTS.reclaimInventory,
     handler: (async (state, input) => {
       const machineId = input?.machineId
-      const inventory = await state.issues.listReclaimableWorktrees(Date.now(), machineId)
+      const inventory = await state.issues.gitWorkflow.listReclaimableWorktrees(Date.now(), machineId)
       const estimate = await state.hosts.reclaimDiskEstimate(
         inventory.allWorktreePaths,
         inventory.reclaimableDiskPaths,

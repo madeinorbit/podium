@@ -46,7 +46,7 @@ describe('bind-storm regression', () => {
     await registry.gateway.attachDaemon('m1', () => {})
     await registry.gateway.attachDaemon('m2', () => {})
     for (let i = 0; i < opts.issues; i++) {
-      await registry.issues.create({ repoPath: '/repo', title: `issue ${i}`, startNow: false })
+      await registry.issues.crud.create({ repoPath: '/repo', title: `issue ${i}`, startNow: false })
     }
     const bound: { sessionId: SessionId; cwd: string; machineId: string }[] = []
     for (let i = 0; i < opts.sessions; i++) {

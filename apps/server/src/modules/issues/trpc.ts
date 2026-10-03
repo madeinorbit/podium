@@ -1,3 +1,4 @@
+import { commandAccess } from './command-ctx'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import { type Context, issueCaller, t } from '../../trpc'
@@ -43,7 +44,7 @@ function guardFor(name: string, def: AnyIssueCommandDef) {
   return t.middleware(async ({ ctx, next, getRawInput }) => {
     await guardIssueCommand(
       issueCaller(ctx),
-      familyState(ctx).modules.issues,
+      commandAccess(familyState(ctx).modules.issues),
       name,
       def,
       await getRawInput(),

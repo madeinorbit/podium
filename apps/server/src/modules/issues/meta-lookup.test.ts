@@ -43,10 +43,10 @@ async function harness() {
 describe('POD-826 lightweight issue lookups', () => {
   it('returns raw metadata and checks existence without enumerating sessions', async () => {
     const { sessionFacts, svc } = await harness()
-    const created = await svc.create({ repoPath: '/repo', title: 'metadata', startNow: false })
+    const created = await svc.crud.create({ repoPath: '/repo', title: 'metadata', startNow: false })
     sessionFacts.mockClear()
 
-    expect(await svc.getMeta(String(created.seq))).toMatchObject({
+    expect(await svc.reports.getMeta(String(created.seq))).toMatchObject({
       id: created.id,
       repoPath: '/repo',
       seq: created.seq,
@@ -54,38 +54,38 @@ describe('POD-826 lightweight issue lookups', () => {
       worktreePath: null,
       parentId: null,
     })
-    expect(await svc.getMeta(created.id)).not.toHaveProperty('sessions')
-    expect(await svc.has(`#${created.seq}`)).toBe(true)
-    expect(await svc.has('missing')).toBe(false)
+    expect(await svc.reports.getMeta(created.id)).not.toHaveProperty('sessions')
+    expect(await svc.reports.has(`#${created.seq}`)).toBe(true)
+    expect(await svc.reports.has('missing')).toBe(false)
     expect(sessionFacts).not.toHaveBeenCalled()
   })
 
   it('uses the committed index without enumerating rows and retains staged reads', async () => {
     const { deps, svc } = await harness()
-    const created = await svc.create({ repoPath: '/repo', title: 'indexed', startNow: false })
-    const row = (await svc.getMeta(created.id))!
-    const rows = (svc as unknown as { rows: Map<string, typeof row> }).rows
+    const created = await svc.crud.create({ repoPath: '/repo', title: 'indexed', startNow: false })
+    const row = (await svc.reports.getMeta(created.id))!
+    const rows = (svc.reports.store as unknown as { rows: Map<string, typeof row> }).rows
     const scan = vi.spyOn(rows, 'values')
     const indexed = vi.fn(deps.worldIndex!.issueForWorktree)
     deps.worldIndex = { ...deps.worldIndex!, issueForWorktree: indexed }
     // The row map deliberately differs to model a staged worktree installation.
     rows.set(created.id, { ...row, worktreePath: '/staged' })
-    for (let i = 0; i < 200; i++) expect(svc.issueForCwd('/staged/src')).toBeNull()
+    for (let i = 0; i < 200; i++) expect(svc.reports.issueForCwd('/staged/src')).toBeNull()
     expect(indexed).toHaveBeenCalledTimes(200)
     expect(scan).not.toHaveBeenCalled()
     deps.applyCommit = { spanOpen: () => true, onCommit: () => ({ live: () => true }) }
-    expect(svc.issueForCwd('/staged/src')).toBe(created.id)
+    expect(svc.reports.issueForCwd('/staged/src')).toBe(created.id)
     expect(indexed).toHaveBeenCalledTimes(200)
     expect(scan).toHaveBeenCalledTimes(1)
   })
 
   it('keeps get as a session-free wire lookup', async () => {
     const { sessionFacts, svc } = await harness()
-    const created = await svc.create({ repoPath: '/repo', title: 'wire', startNow: false })
+    const created = await svc.crud.create({ repoPath: '/repo', title: 'wire', startNow: false })
     sessionFacts.mockClear()
 
-    expect(await svc.get(created.id)).toMatchObject({ id: created.id })
-    expect(await svc.get(created.id)).not.toHaveProperty('sessions')
+    expect(await svc.reports.get(created.id)).toMatchObject({ id: created.id })
+    expect(await svc.reports.get(created.id)).not.toHaveProperty('sessions')
     expect(sessionFacts).not.toHaveBeenCalled()
   })
 })

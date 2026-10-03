@@ -215,15 +215,15 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
  */
 describe('SessionService.tryAutoArchiveStoppedObserved — the issue record it reads (POD-4971)', () => {
   const topLevel = async (reg: SessionRegistry) =>
-    (await reg.modules.issues.create({ repoPath: '/r', title: 'Top level', startNow: false })).id
+    (await reg.modules.issues.crud.create({ repoPath: '/r', title: 'Top level', startNow: false })).id
   const child = async (reg: SessionRegistry) => {
-    const parent = await reg.modules.issues.create({
+    const parent = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Parent',
       startNow: false,
     })
     return (
-      await reg.modules.issues.create({
+      await reg.modules.issues.crud.create({
         repoPath: '/r',
         title: 'Child',
         parentId: parent.id,

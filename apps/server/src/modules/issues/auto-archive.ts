@@ -22,7 +22,7 @@ export class IssueAutoArchive {
   /** True while a pass is running — see {@link IssueAutoArchive.sweep}. */
   private sweeping = false
 
-  constructor(private readonly issues: Pick<IssueService, 'sweepAutoArchive'>) {}
+  constructor(private readonly attention: Pick<IssueService['attention'], 'sweepAutoArchive'>) {}
 
   start(): void {
     this.bootTimer = setTimeout(async () => {
@@ -50,7 +50,7 @@ export class IssueAutoArchive {
     if (this.sweeping) return
     this.sweeping = true
     try {
-      const archived = await this.issues.sweepAutoArchive(undefined, systemPrincipal('expiry'))
+      const archived = await this.attention.sweepAutoArchive(undefined, systemPrincipal('expiry'))
       if (archived.length > 0) {
         log.info('auto-archived read+done issues', { archived: archived.length })
       }

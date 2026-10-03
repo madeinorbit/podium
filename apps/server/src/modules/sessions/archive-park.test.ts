@@ -75,7 +75,7 @@ describe('archive parks the session process [POD-108]', () => {
     await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
     expect((await meta(reg, sessionId))?.status).toBe('live')
 
-    const gitCleanup = vi.spyOn(reg.modules.issues, 'onSessionRemovedOrArchived')
+    const gitCleanup = vi.spyOn(reg.modules.issues.gitWorkflow, 'onSessionRemovedOrArchived')
     await reg.modules.sessions.setArchived({ sessionId, archived: true })
     expect(gitCleanup).toHaveBeenCalledWith(sessionId)
 
@@ -244,7 +244,7 @@ describe('archive parks the session process [POD-108]', () => {
       agentKind: 'shell',
       cwd: '/r',
     })
-    const gitCleanup = vi.spyOn(reg.modules.issues, 'onSessionRemovedOrArchived')
+    const gitCleanup = vi.spyOn(reg.modules.issues.gitWorkflow, 'onSessionRemovedOrArchived')
 
     await reg.modules.sessions.killSession({ sessionId })
 

@@ -442,7 +442,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       ...(opts?.resolveExecutionProfile
         ? { resolveExecutionProfile: opts.resolveExecutionProfile }
         : {}),
-      createIssue: async (input) => await issues.create({ ...input, startNow: false }),
+      createIssue: async (input) => await issues.crud.create({ ...input, startNow: false }),
       appendEvent: async (e) => {
         await store.events.appendEvent(e)
       },
@@ -506,7 +506,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       nowMs = Date.parse(iso)
     },
     createIssue: async (input) => {
-      const wire = await issues.create({
+      const wire = await issues.crud.create({
         repoPath: input.repoPath ?? '/repo',
         title: input.title,
         ...(input.parentId ? { parentId: input.parentId } : {}),
@@ -515,10 +515,10 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       return { id: wire.id, seq: wire.seq }
     },
     setWorktree: async (issueId, worktreePath) => {
-      await issues.update(issueId, { worktreePath })
+      await issues.crud.update(issueId, { worktreePath })
     },
     archive: async (issueId) => {
-      await issues.update(issueId, { archived: true })
+      await issues.crud.update(issueId, { archived: true })
     },
     put: (...fixtures) => {
       const created = fixtures.map(session)

@@ -87,7 +87,7 @@ describe('SessionRegistry metadata deltas', () => {
     const legacyBefore = legacy.inbox.length
     const deltaBefore = delta.inbox.length
 
-    await registry.issues.create({ repoPath: '/r', title: 'first', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'first', startNow: false })
     flush(registry)
 
     await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(2)
@@ -114,15 +114,15 @@ describe('SessionRegistry metadata deltas', () => {
 
   it('a single-issue update touches one canonical row and never rebuilds the bystander (#22)', async () => {
     const registry = await makeRegistry()
-    const w = await registry.issues.create({ repoPath: '/r', title: 'solo', startNow: false })
-    await registry.issues.create({ repoPath: '/r', title: 'bystander', startNow: false })
+    const w = await registry.issues.crud.create({ repoPath: '/r', title: 'solo', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'bystander', startNow: false })
     flush(registry) // drain the setup writes' pending batch before the clients attach
     const legacy = await client(registry)
     const delta = await client(registry, ['metadataDelta'])
     const legacyBefore = legacy.inbox.length
     const deltaBefore = delta.inbox.length
 
-    await registry.issues.update(w.id, { notes: 'self-contained edit' })
+    await registry.issues.crud.update(w.id, { notes: 'self-contained edit' })
     flush(registry)
 
     await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(1)
@@ -166,8 +166,8 @@ describe('SessionRegistry metadata deltas', () => {
   it('batches carry seq of the last change and stay in order', async () => {
     const registry = await makeRegistry()
     const delta = await client(registry, ['metadataDelta'])
-    await registry.issues.create({ repoPath: '/r', title: 'a', startNow: false })
-    await registry.issues.create({ repoPath: '/r', title: 'b', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'a', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'b', startNow: false })
     flush(registry)
     await expect
       .poll(() => deltas(delta.inbox).filter((c) => c.entity === 'issueEvent').length)
@@ -186,7 +186,7 @@ describe('SessionRegistry metadata deltas', () => {
 
   it('changesSince: snapshot on null cursor, delta after, snapshot-equivalent replay', async () => {
     const registry = await makeRegistry()
-    await registry.issues.create({ repoPath: '/r', title: 'a', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'a', startNow: false })
 
     const boot = await registry.modules.sessions.syncChangesSince(null)
     expect(boot.kind).toBe('snapshot')
@@ -194,8 +194,8 @@ describe('SessionRegistry metadata deltas', () => {
     expect(boot.issues).toEqual([])
     expect(boot.issueProjections?.map((i) => i.title)).toEqual(['a'])
 
-    const created = await registry.issues.create({ repoPath: '/r', title: 'b', startNow: false })
-    await registry.issues.close(created.id, 'wontfix')
+    const created = await registry.issues.crud.create({ repoPath: '/r', title: 'b', startNow: false })
+    await registry.issues.crud.close(created.id, 'wontfix')
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
 
     const catchUp = await registry.modules.sessions.syncChangesSince(boot.cursor)
@@ -236,8 +236,8 @@ describe('SessionRegistry metadata deltas', () => {
   // showing the row live again. Its personal marker now rides this seam.
   it('a tuck reaches other live clients and heals a reconnecting one', async () => {
     const registry = await makeRegistry()
-    const w = await registry.issues.create({ repoPath: '/r', title: 'finished', startNow: false })
-    await registry.issues.close(w.id)
+    const w = await registry.issues.crud.create({ repoPath: '/r', title: 'finished', startNow: false })
+    await registry.issues.crud.close(w.id)
     flush(registry)
 
     // The cursor a client held while it was away — nothing tucked yet.
@@ -250,7 +250,7 @@ describe('SessionRegistry metadata deltas', () => {
     // A SECOND client is watching while the first one tucks.
     const other = await client(registry, ['metadataDelta'])
     const before = other.inbox.length
-    await registry.issues.setIssueTucked(w.id, true)
+    await registry.issues.crud.setIssueTucked(w.id, true)
     flush(registry)
 
     await expect
@@ -285,7 +285,7 @@ describe('SessionRegistry metadata deltas', () => {
       .toBe(true)
     expect(inbox.some((message) => message.type === 'feedResume')).toBe(false)
     const before = inbox.length
-    await registry.issues.create({ repoPath: '/r', title: 'x', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'x', startNow: false })
     flush(registry)
     expect(inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
     expect(inbox).toHaveLength(before)

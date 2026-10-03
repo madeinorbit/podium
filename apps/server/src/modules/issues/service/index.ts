@@ -164,23 +164,12 @@ export interface IssueTrackerCapabilities {
 
 export { DEFAULT_ISSUE_REPORT_VISIBILITY, type IssueReportVisibilityPolicy } from './reads'
 
-type PublicSurface<T> = Pick<T, keyof T>
-
-type IssueLegacySurface = PublicSurface<IssueStore> &
-  PublicSurface<IssueReportsModule> &
-  PublicSurface<IssueCrudModule> &
-  PublicSurface<IssueHierarchyModule> &
-  PublicSurface<IssueAttentionModule> &
-  PublicSurface<IssueCommentsMailModule> &
-  PublicSurface<IssueGitWorkflowModule>
-
 /**
  * Server-side issue tracker composition root.
  *
  * Six independent capability objects share exactly one IssueStore. Cross-module
  * behavior travels through narrow constructor ports, never through another
- * module's state. The Proxy only preserves the legacy flat service API: it
- * forwards each old call to its owning object and never copies methods.
+ * module's state. Callers address the owning capability directly.
  */
 class IssueServiceRoot implements IssueTrackerCapabilities {
   private readonly store: IssueStore
@@ -190,11 +179,10 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
   readonly attention: IssueAttentionModule
   readonly gitWorkflow: IssueGitWorkflowModule
   readonly reports: IssueReportsModule
-  private readonly legacyOwners: object[]
 
   /**
    * Compose the tracker WITHOUT reading anything. The caller owns hydration and
-   * runs {@link IssueServiceRoot.boot} (or `init()`) as its own boot step — this
+   * runs {@link IssueServiceRoot.boot} as its own boot step — this
    * is the shape a composition root needs, because at the flip a constructor
    * cannot await and `relay.ts` composes this object inside one.
    */
@@ -255,59 +243,10 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
     this.commentsMail = commentsMail
     this.attention = attention
     this.gitWorkflow = gitWorkflow
-    this.legacyOwners = [store, reports, crud, hierarchy, attention, commentsMail, gitWorkflow]
-
-    const ownerOf = (property: PropertyKey): object | undefined =>
-      this.legacyOwners.find((owner) => Reflect.has(owner, property))
-    const descriptorOf = (owner: object, property: PropertyKey): PropertyDescriptor | undefined => {
-      let current: object | null = owner
-      while (current) {
-        const descriptor = Reflect.getOwnPropertyDescriptor(current, property)
-        if (descriptor) return descriptor
-        current = Reflect.getPrototypeOf(current)
-      }
-      return undefined
-    }
-
-    // biome-ignore lint/correctness/noConstructorReturn: compatibility-only forwarding; behavior stays on the owning store/module object.
-    return new Proxy(this, {
-      has: (target, property) => Reflect.has(target, property) || ownerOf(property) !== undefined,
-      get: (target, property, receiver) => {
-        if (Reflect.has(target, property)) return Reflect.get(target, property, receiver)
-        const owner = ownerOf(property)
-        if (!owner) return undefined
-        const value = Reflect.get(owner, property, owner)
-        return typeof value === 'function' ? value.bind(owner) : value
-      },
-      set: (target, property, value, receiver) => {
-        if (Reflect.has(target, property)) return Reflect.set(target, property, value, receiver)
-        const owner = ownerOf(property)
-        return owner ? Reflect.set(owner, property, value, owner) : false
-      },
-      getOwnPropertyDescriptor: (target, property) => {
-        const own = Reflect.getOwnPropertyDescriptor(target, property)
-        if (own) return own
-        const owner = ownerOf(property)
-        return owner ? descriptorOf(owner, property) : undefined
-      },
-      defineProperty: (target, property, descriptor) => {
-        const owner = ownerOf(property)
-        return owner
-          ? Reflect.defineProperty(owner, property, descriptor)
-          : Reflect.defineProperty(target, property, descriptor)
-      },
-    })
   }
 
-  // NOTE (POD-1315): there is deliberately no `addComment` override here. One
-  // existed, forwarding to `commentsMail` with `principal` DEFAULTED to the
-  // first admin, on the reasoning that the flat legacy service is an
-  // "authenticated in-process operator seam". The reasoning did not hold: the
-  // seam has no authentication of its own, so the default meant any caller that
-  // omitted the argument silently acted AS the administrator. The forwarding it
-  // added is already provided by the legacy Proxy above, so the override is gone
-  // rather than merely de-defaulted, and `IssueCommentsMailModule.addComment`'s
-  // required principal is now the only signature `IssueService` exposes.
+  // Comment writes go through commentsMail.addComment, whose principal is
+  // required. No operator/admin default is supplied by this root (POD-1315).
 
   /** Boot hydration, membership totalization and ledger reconcile. */
   async boot(principal: SystemCommandPrincipal = systemPrincipal('boot-reconcile')): Promise<this> {
@@ -362,12 +301,4 @@ import { createLogger } from '@podium/logger'
 
 const log = createLogger('server:issues')
 
-/**
- * Typed compatibility value for legacy callers while command handlers consume
- * IssueTrackerCapabilities. Runtime behavior remains on the owning capability.
- */
-export type IssueService = IssueServiceRoot & IssueLegacySurface
-export const IssueService = IssueServiceRoot as unknown as {
-  compose(deps: IssueDeps): IssueService
-  create(deps: IssueDeps): IssueService
-}
+export { IssueServiceRoot as IssueService }

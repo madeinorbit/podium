@@ -17,15 +17,15 @@ async function regWithDaemon() {
 describe('issue archive cascades to member sessions (real relay #133)', () => {
   it('archiving an issue archives every attached session', async () => {
     const reg = await regWithDaemon()
-    const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
-    await reg.issues.update(issue.id, { worktreePath: '/repo/wt' })
+    const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    await reg.issues.crud.update(issue.id, { worktreePath: '/repo/wt' })
     const a = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id }))
       .sessionId
     const b = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id }))
       .sessionId
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).filter((s) => s.archived)).toHaveLength(0)
 
-    await reg.issues.archive(issue.id)
+    await reg.issues.attention.archive(issue.id)
 
     const archived = new Set(
       (await reg
@@ -36,7 +36,7 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
     expect(archived.has(a)).toBe(true)
     expect(archived.has(b)).toBe(true)
     // The issue itself is archived (and, being a real issue, not reaped).
-    expect((await reg.issues.get(issue.id))?.archived).toBe(true)
+    expect((await reg.issues.reports.get(issue.id))?.archived).toBe(true)
   })
 
   it('frees the checkout too, after parking the agents standing in it (POD-567)', async () => {
@@ -68,33 +68,33 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
           : ''
       return { ok: true, output }
     }
-    const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
-    await reg.issues.update(issue.id, { worktreePath: '/repo/wt', branch: 'issue/real-work' })
+    const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    await reg.issues.crud.update(issue.id, { worktreePath: '/repo/wt', branch: 'issue/real-work' })
     const s = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo/wt',
       issueId: issue.id,
     })).sessionId
 
-    await reg.issues.archive(issue.id)
+    await reg.issues.attention.archive(issue.id)
     await new Promise((resolve) => setTimeout(resolve, 0)) // the free is fire-and-forget
 
     const parked = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === s)
     expect(parked?.archived).toBe(true)
     expect(parked?.status === 'hibernated' || parked?.status === 'exited').toBe(true)
     expect(repoOps.find((o) => o.op === 'worktreeRemove')?.args).toEqual({ path: '/repo/wt' })
-    expect((await reg.issues.get(issue.id))?.worktreePath).toBeNull()
+    expect((await reg.issues.reports.get(issue.id))?.worktreePath).toBeNull()
     // The branch is what makes this reversible — resume rebuilds the checkout from it.
-    expect((await reg.issues.get(issue.id))?.branch).toBe('issue/real-work')
+    expect((await reg.issues.reports.get(issue.id))?.branch).toBe('issue/real-work')
   })
 
   it('un-archiving the issue leaves the sessions archived (no cascade back)', async () => {
     const reg = await regWithDaemon()
-    const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
     const s = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo', issueId: issue.id }))
       .sessionId
-    await reg.issues.archive(issue.id)
-    await reg.issues.update(issue.id, { archived: false })
+    await reg.issues.attention.archive(issue.id)
+    await reg.issues.crud.update(issue.id, { archived: false })
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === s)?.archived).toBe(true)
   })
 })

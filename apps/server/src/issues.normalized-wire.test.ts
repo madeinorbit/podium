@@ -258,7 +258,7 @@ describe('issueProjection is the only issue record', () => {
 
   it('only normalized issue rows are appended', async () => {
     const { registry } = await world({ issues: 3, sessions: 2 })
-    await registry.modules.issues.update('iss_1', { title: 'edited' })
+    await registry.modules.issues.crud.update('iss_1', { title: 'edited' })
     await registry.modules.sessions.flushBroadcasts()
 
     const projections = await changesOf(registry, 'issueProjection')
@@ -282,8 +282,8 @@ describe('issueProjection is the only issue record', () => {
   it('cold snapshot includes all normalized issue collections for reload bootstrap', async () => {
     const { registry, store } = await world({ issues: 2, sessions: 0 })
     await store.repos.addRepo('/repo', store.hostMachineId)
-    await registry.modules.issues.publishRepos()
-    await registry.modules.issues.addDep('iss_0', 'iss_1')
+    await registry.modules.issues.reports.store.publishRepos()
+    await registry.modules.issues.hierarchy.addDep('iss_0', 'iss_1')
 
     const snapshot = await registry.modules.sessions.syncChangesSince(null)
     expect(snapshot.kind).toBe('snapshot')
@@ -342,9 +342,9 @@ describe('issueProjection is the only issue record', () => {
 
   it('comment add advances updatedAt on the normalized projection', async () => {
     const { registry } = await world({ issues: 1, sessions: 0 })
-    const before = (await registry.modules.issues.get('iss_0'))?.updatedAt
+    const before = (await registry.modules.issues.reports.get('iss_0'))?.updatedAt
 
-    await registry.modules.issues.addComment(
+    await registry.modules.issues.commentsMail.addComment(
       'iss_0',
       'agent',
       'projection revision premise',
@@ -356,7 +356,7 @@ describe('issueProjection is the only issue record', () => {
     const value =
       appended?.op === 'upsert' ? (appended.value as Record<string, unknown>) : undefined
     expect(value?.updatedAt).not.toBe(before)
-    expect(value?.updatedAt).toBe((await registry.modules.issues.get('iss_0'))?.updatedAt)
+    expect(value?.updatedAt).toBe((await registry.modules.issues.reports.get('iss_0'))?.updatedAt)
   })
 })
 
@@ -424,7 +424,7 @@ describe('normalized dep emission [POD-797]', () => {
       before.kind === 'delta'
         ? before.changes.filter((change) => change.entity === 'issueDep').length
         : 0
-    await registry.modules.issues.addDep('iss_1', 'iss_2')
+    await registry.modules.issues.hierarchy.addDep('iss_1', 'iss_2')
     await registry.modules.sessions.flushBroadcasts()
     const after = await registry.modules.sessions.syncChangesSince(0)
     const edges =

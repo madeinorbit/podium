@@ -121,7 +121,7 @@ describe('the podium issue CLI table renders over the real surface', () => {
   it('READ verbs execute end to end against the real registry and return real data', async () => {
     const reg = await fresh()
     const client = reg.issueCommands.asIssueTrpc(OPERATOR)
-    const made = await reg.issues.create({ repoPath: '/r', title: 'Runtime probe', startNow: false })
+    const made = await reg.issues.crud.create({ repoPath: '/r', title: 'Runtime probe', startNow: false })
 
     // Pure reads only. `doctor`, `preflight`, `lint` and `orphans` shell out to git
     // and the filesystem; running them from a unit lane would be measuring this
@@ -159,7 +159,7 @@ describe('the podium issue CLI table renders over the real surface', () => {
       client,
       parseArgs(createCmd, { repoPath: '/r', title: 'Written by the CLI table' }),
     )
-    const created = (await reg.issues.list('/r')).find((i) => i.title === 'Written by the CLI table')
+    const created = (await reg.issues.reports.list('/r')).find((i) => i.title === 'Written by the CLI table')
     expect(created, 'the CLI create really wrote a row').toBeDefined()
     // The printed id is PREFIX-seq (or `#seq` before a prefix exists) as one
     // token — the same displayRef the row carries, not a repo-ambiguous `#N`.
@@ -170,7 +170,7 @@ describe('the podium issue CLI table renders over the real surface', () => {
 
     const commentCmd = verb('comment')
     await commentCmd?.run(client, parseArgs(commentCmd, { id, body: 'a real comment' }))
-    expect((await reg.issues.comments(created?.id as string)).map((c) => c.body)).toContain(
+    expect((await reg.issues.reports.comments(created?.id as string)).map((c) => c.body)).toContain(
       'a real comment',
     )
 
@@ -179,14 +179,14 @@ describe('the podium issue CLI table renders over the real surface', () => {
     // The surface's own answer, and the row it wrote — both, because a rendering that
     // echoes its input would satisfy the first assertion alone.
     expect(labelled?.text).toContain('alpha, beta')
-    expect((await reg.issues.get(created?.id as string) as { labels?: string[] })?.labels).toEqual([
+    expect((await reg.issues.reports.get(created?.id as string) as { labels?: string[] })?.labels).toEqual([
       'alpha',
       'beta',
     ])
 
     const closeCmd = verb('close')
     await closeCmd?.run(client, parseArgs(closeCmd, { id }))
-    expect((await reg.issues.getMeta(created?.id as string))?.stage).toBe('done')
+    expect((await reg.issues.reports.getMeta(created?.id as string))?.stage).toBe('done')
   })
 
   it('the side-effecting verbs are reachable, and are listed rather than silently skipped', async () => {

@@ -1,3 +1,4 @@
+import { commandAccess } from '../../issues/command-ctx'
 /**
  * Handler for the `mail.send` contract (L3). The contract's policy is in
  * `@podium/commands`; this file is the only place that knows there is an
@@ -42,7 +43,7 @@ export async function sendHandler(
     // crosses scope; it never elevates the clamp matrix. The spawn-on-wake
     // seam is downstream of this same check, so a spawn always required
     // write access to the target issue.
-    await checkIssueAccess(caller, deps.issues, 'messages.send', 'write', to.id)
+    await checkIssueAccess(caller, commandAccess(deps.issues), 'messages.send', 'write', to.id)
   }
   // A send answers at once, on every surface [POD-4661]. It never waits on the
   // agent's turn: the server has handed the message on, and whether it reached

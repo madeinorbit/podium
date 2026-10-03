@@ -66,10 +66,10 @@ async function world(outside: number, laneSize: number) {
   const service = new ShippingService({
     repository: store.shipping,
     issues: {
-      get: async (id) => (await issues.get(id))!,
-      children: async (id, recursive) => await issues.children(id, recursive),
-      shippingCommit: issues.shippingCommit.bind(issues),
-      shippingCommitMany: issues.shippingCommitMany.bind(issues),
+      get: async (id) => (await issues.reports.get(id))!,
+      children: async (id, recursive) => await issues.reports.children(id, recursive),
+      shippingCommit: issues.crud.shippingCommit.bind(issues.crud),
+      shippingCommitMany: issues.crud.shippingCommitMany.bind(issues.crud),
     },
     ledger,
     daemon: {
@@ -121,13 +121,13 @@ async function world(outside: number, laneSize: number) {
     })
   }
   const issueIn = async (repoPath: string, title: string) => {
-    const created = await issues.create({
+    const created = await issues.crud.create({
       repoPath,
       title,
       startNow: false,
       machineId: asMachineId('machine-1'),
     })
-    return (await issues.get(created.id))!
+    return (await issues.reports.get(created.id))!
   }
   // Outside the lane: nine in ten are history on one issue (cancelled orders
   // are terminal, so one issue can hold any number), one in ten is queued work

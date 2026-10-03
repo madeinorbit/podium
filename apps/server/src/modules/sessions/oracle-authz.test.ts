@@ -97,10 +97,10 @@ async function twoIssueOracle() {
   const o = await makeOracle()
   // Issues are placed on a machine that reported their repo (2b803efb5).
   await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const a = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
-  await o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
-  const b = await o.reg.issues.create({ repoPath: '/r', title: 'issue B', startNow: false })
-  await o.reg.issues.update(b.id, { worktreePath: '/r/.worktrees/b' })
+  const a = await o.reg.issues.crud.create({ repoPath: '/r', title: 'issue A', startNow: false })
+  await o.reg.issues.crud.update(a.id, { worktreePath: '/r/.worktrees/a' })
+  const b = await o.reg.issues.crud.create({ repoPath: '/r', title: 'issue B', startNow: false })
+  await o.reg.issues.crud.update(b.id, { worktreePath: '/r/.worktrees/b' })
   // The AGENT: a session inside A's worktree ⇒ capability scoped to A's subtree.
   const agent = await o.reg.modules.sessions.createSession({
     agentKind: 'shell',

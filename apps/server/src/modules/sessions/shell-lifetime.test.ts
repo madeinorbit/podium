@@ -168,12 +168,12 @@ describe('releaseShellTab (tab-release trigger)', () => {
 describe('stopSession shell upgrade (issue-close / worktree-free trigger)', () => {
   it('tombstones an untouched, unheld shell on a closed issue instead of parking it', async () => {
     const { reg } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Closed work',
       startNow: false,
     })
-    await reg.modules.issues.update(issue.id, { stage: 'done' })
+    await reg.modules.issues.crud.update(issue.id, { stage: 'done' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r',
@@ -188,12 +188,12 @@ describe('stopSession shell upgrade (issue-close / worktree-free trigger)', () =
 
   it('still parks a touched shell on a closed issue', async () => {
     const { reg } = await makeRegistry()
-    const issue = await reg.modules.issues.create({
+    const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Closed work',
       startNow: false,
     })
-    await reg.modules.issues.update(issue.id, { stage: 'done' })
+    await reg.modules.issues.crud.update(issue.id, { stage: 'done' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r',

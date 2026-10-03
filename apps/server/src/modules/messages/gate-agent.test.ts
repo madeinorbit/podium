@@ -47,25 +47,31 @@ function fakeIssues(
     [SENDER_ISSUE.id, SENDER_ISSUE],
   ])
   return {
-    resolveRef: (ref: string) => {
-      if (byId.has(ref)) return ref
-      if (ref === `#${ISSUE.seq}`) return ISSUE.id
-      throw new Error(`unknown ref ${ref}`)
+    reports: {
+      resolveRef: (ref: string) => {
+        if (byId.has(ref)) return ref
+        if (ref === `#${ISSUE.seq}`) return ISSUE.id
+        throw new Error(`unknown ref ${ref}`)
+      },
+      get: (id: string) => byId.get(id),
+      getMeta: (id: string) => byId.get(id),
+      niceRef: (row: { seq: number }) => `#${row.seq}`,
+      has: (id: string) => byId.has(id),
+      ownedTarget: (id: string) => {
+        const row = byId.get(id)
+        return row ? { kind: 'issue', id, owner: row.ownerUserId ?? firstAdminMemberId() } : undefined
+      },
     },
-    get: (id: string) => byId.get(id),
-    getMeta: (id: string) => byId.get(id),
-    niceRef: (row: { seq: number }) => `#${row.seq}`,
-    has: (id: string) => byId.has(id),
-    ownedTarget: (id: string) => {
-      const row = byId.get(id)
-      return row ? { kind: 'issue', id, owner: row.ownerUserId ?? firstAdminMemberId() } : undefined
+    hierarchy: {
+      ancestorIds: () => [],
     },
-    ancestorIds: () => [],
-    create: (input: Record<string, unknown>) => {
-      created.push(input)
-      const id = 'iss_new'
-      byId.set(id, { ...ISSUE, id, seq: 300, worktreePath: null })
-      return byId.get(id)
+    crud: {
+      create: (input: Record<string, unknown>) => {
+        created.push(input)
+        const id = 'iss_new'
+        byId.set(id, { ...ISSUE, id, seq: 300, worktreePath: null })
+        return byId.get(id)
+      },
     },
   } as unknown as IssueService
 }
@@ -161,7 +167,7 @@ async function harness(opts?: {
     // The deliberate --new path registers in the same fake registry so the
     // follow-up issues.get() resolves it (mirrors the real IssueService).
     createIssue: async (i) =>
-      await (issues as unknown as { create(x: unknown): Promise<{ id: string }> }).create(i),
+      await (issues.crud as unknown as { create(x: unknown): Promise<{ id: string }> }).create(i),
     appendEvent: async (e) => {
       await store.events.appendEvent(e)
     },

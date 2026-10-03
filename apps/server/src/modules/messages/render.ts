@@ -184,7 +184,9 @@ export function renderEnvelope(
  * service already hands around, narrowed to the one read this module makes.
  */
 export interface MessageRenderDeps {
-  issues: Pick<IssueService, 'getMeta' | 'niceRef'>
+  issues: {
+    readonly reports: Pick<IssueService['reports'], 'getMeta' | 'niceRef'>
+  }
   /** ONE session by id — the only session read the renderer makes [POD-3857]. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** Human-readable machine name for cross-machine provenance [POD-658];
@@ -319,8 +321,8 @@ export class MessageRenderer {
         // and the reference form agents are told to use; `#seq` only before a
         // repo prefix exists (niceRef's own fallback).
         const issues = this.deps.issues
-        const issue = await issues.getMeta(message.fromIssue)
-        return issue ? `issue:${await issues.niceRef(issue)}` : message.fromIssue
+        const issue = await issues.reports.getMeta(message.fromIssue)
+        return issue ? `issue:${await issues.reports.niceRef(issue)}` : message.fromIssue
       }
       if (message.fromSession) return `session:${message.fromSession}`
       return 'agent'
@@ -333,8 +335,8 @@ export class MessageRenderer {
   private async toLabel(message: MessageRow): Promise<string> {
     if (message.toKind === 'issue') {
       const issues = this.deps.issues
-      const issue = await issues.getMeta(message.toId ?? '')
-      return issue ? `your issue ${await issues.niceRef(issue)}` : `your issue ${message.toId}`
+      const issue = await issues.reports.getMeta(message.toId ?? '')
+      return issue ? `your issue ${await issues.reports.niceRef(issue)}` : `your issue ${message.toId}`
     }
     if (message.toKind === 'session') return 'your session'
     return 'the operator'

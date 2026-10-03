@@ -1650,7 +1650,7 @@ export class SuperagentService {
       const prevEventId = Number(thread.watermarkItemId ?? '0') || 0
       const { events, overflowLastId } = await this.issueEventsSince(prevEventId, repoPath)
       if (events.length === 0) return undefined
-      const all = await this.modules.issues.list(repoPath)
+      const all = await this.modules.issues.reports.list(repoPath)
       // On overflow, advance only to the last event actually digested — the
       // next turn picks up the rest instead of silently skipping past it.
       const nextWatermark = overflowLastId ?? maxEventId
@@ -1781,7 +1781,7 @@ export class SuperagentService {
     // for minutes on a real database: S sessions × R repos × issues.list).
     const issueByIdCache = new Map<IssueId, IssueReport>()
     for (const repoPath of repoPaths) {
-      const all = await issues.list(repoPath)
+      const all = await issues.reports.list(repoPath)
       for (const i of all) {
         if (i.worktreePath) issueByWorktree.set(i.worktreePath, i)
         issueByIdCache.set(i.id, i)
@@ -1851,7 +1851,7 @@ export class SuperagentService {
   /** An issue by id, across every registered repo (ids are globally unique). */
   private async issueById(issueId: IssueId): Promise<IssueReport | undefined> {
     for (const repoPath of await this.repos.list()) {
-      const found = (await this.modules.issues.list(repoPath)).find((i) => i.id === issueId)
+      const found = (await this.modules.issues.reports.list(repoPath)).find((i) => i.id === issueId)
       if (found) return found
     }
     return undefined
@@ -1903,7 +1903,7 @@ export class SuperagentService {
     maxEventId: number,
   ): Promise<Omit<Parameters<typeof buildConciergeSeed>[0], 'maxEventId'>> {
     const issues = this.modules.issues
-    const all = await issues.list(repoPath)
+    const all = await issues.reports.list(repoPath)
     const byWorktree = new Map(all.filter((i) => i.worktreePath).map((i) => [i.worktreePath, i]))
     const sessions: ConciergeSessionInfo[] = this.sessionFacts()
       .filter(
@@ -1925,8 +1925,8 @@ export class SuperagentService {
       })
     return {
       repoPath,
-      ready: await issues.readyList(repoPath),
-      blocked: await issues.blockedList(repoPath),
+      ready: await issues.reports.readyList(repoPath),
+      blocked: await issues.reports.blockedList(repoPath),
       needsHuman: all.filter((i) => i.needsHuman),
       all,
       sessions,

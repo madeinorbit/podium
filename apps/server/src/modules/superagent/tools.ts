@@ -141,8 +141,8 @@ export async function buildSuperagentTools(
               async (s) => {
                 // Reverse of issue_show's session list (issue #72): session cwd →
                 // bound issue, via the same worktree-containment rule as authz scope.
-                const issueId = issues.issueForCwd(s.cwd)
-                const issue = issueId ? await issues.getMeta(issueId) : null
+                const issueId = issues.reports.issueForCwd(s.cwd)
+                const issue = issueId ? await issues.reports.getMeta(issueId) : null
                 return {
                   sessionId: s.sessionId,
                   name: s.name ?? s.title,
@@ -226,14 +226,14 @@ export async function buildSuperagentTools(
         const issueRef = str(args.issueId)
         if (!isAgentKind(agentKind)) return 'invalid agentKind'
         if (issueRef) {
-          const issue = await issues.getMeta(issueRef)
+          const issue = await issues.reports.getMeta(issueRef)
           if (!issue) return `unknown issue: ${issueRef}`
           if (issue.worktreePath) {
             cwd = issue.worktreePath // spawn alongside the issue's work
           } else {
             // Not started yet — issues.start owns the whole flow (worktree, branch,
             // agent spawn with the description as first prompt and caller provenance).
-            const started = await issues.start(issue.id, agentKind, { spawnedBy })
+            const started = await issues.gitWorkflow.start(issue.id, agentKind, { spawnedBy })
             const spawned = (await sessions
               .listSessionsForIssue(started.worktreePath ?? null, issue.id))
               .find((s) => s.cwd === started.worktreePath && s.status !== 'exited')
@@ -791,7 +791,7 @@ export async function buildSuperagentTools(
         const lines = await Promise.all(
           results.map(async (r) => {
             // Issues read by display seq (what users and issue_* tools speak).
-            const seq = r.kind === 'issue' ? (await issues.getMeta(r.id))?.seq : undefined
+            const seq = r.kind === 'issue' ? (await issues.reports.getMeta(r.id))?.seq : undefined
             const ref = seq !== undefined ? `#${seq}` : r.id
             return `[${r.kind}] ${r.title}${r.snippet ? ` — ${r.snippet}` : ''} (${ref})`
           }),

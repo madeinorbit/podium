@@ -112,12 +112,12 @@ async function makeRegistry(statusImpl: () => Promise<{ ok: boolean; output: str
 }
 
 async function makeIssueWithWorktree(reg: SessionRegistry): Promise<string> {
-  const issue = await reg.modules.issues.create({
+  const issue = await reg.modules.issues.crud.create({
     repoPath: '/r',
     title: 'Dock shell home',
     startNow: false,
   })
-  await reg.modules.issues.update(issue.id, { worktreePath: WT, branch: 'issue/a' })
+  await reg.modules.issues.crud.update(issue.id, { worktreePath: WT, branch: 'issue/a' })
   return issue.id
 }
 
@@ -135,7 +135,7 @@ describe('freeWorktreeKeepBranch releases dock shells', () => {
     // An unrelated worktree mapping survives the free.
     await store.dockShells.set(alice, '/r/.worktrees/b', shellB, now)
 
-    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
+    const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
     expect(freed.ok).toBe(true)
     expect(freed.worktreeFreed).toBe(true)
     expect(await store.dockShells.get(alice, WT)).toBeUndefined()
@@ -153,7 +153,7 @@ describe('freeWorktreeKeepBranch releases dock shells', () => {
     const shellA: SessionId = asSessionId(randomUUID())
     await store.dockShells.set(alice, WT, shellA, new Date().toISOString())
 
-    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
+    const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
     expect(freed.ok).toBe(true)
     expect(freed.worktreeFreed).toBe(true)
     expect(await store.dockShells.get(alice, WT)).toBeUndefined()
@@ -169,7 +169,7 @@ describe('freeWorktreeKeepBranch releases dock shells', () => {
     const shellA: SessionId = asSessionId(randomUUID())
     await store.dockShells.set(alice, WT, shellA, new Date().toISOString())
 
-    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
+    const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
     expect(freed.ok).toBe(false)
     expect(await store.dockShells.get(alice, WT)).toBe(shellA)
   })
@@ -189,13 +189,13 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
    */
   async function setupMappedStop(mapped: boolean) {
     const { reg, store } = await makeRegistry(async () => ({ ok: true, output: '## issue/a\n' }))
-    const issueA = await reg.modules.issues.create({
+    const issueA = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Owner',
       startNow: false,
     })
-    await reg.modules.issues.update(issueA.id, { worktreePath: WT, branch: 'issue/a' })
-    const issueB = await reg.modules.issues.create({
+    await reg.modules.issues.crud.update(issueA.id, { worktreePath: WT, branch: 'issue/a' })
+    const issueB = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Binding',
       startNow: false,
@@ -207,12 +207,12 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
       cwd: '/r',
       issueId: issueB.id,
     })
-    await reg.modules.issues.update(issueA.id, { stage: 'done' })
+    await reg.modules.issues.crud.update(issueA.id, { stage: 'done' })
     await vi.waitFor(async () => {
-      expect((await reg.modules.issues.getMeta(issueA.id))?.stage).toBe('done')
+      expect((await reg.modules.issues.reports.getMeta(issueA.id))?.stage).toBe('done')
     })
     // The close must have kept the worktree (occupied) and therefore the mapping.
-    expect((await reg.modules.issues.getMeta(issueA.id))?.worktreePath).toBe(WT)
+    expect((await reg.modules.issues.reports.getMeta(issueA.id))?.worktreePath).toBe(WT)
     if (mapped) {
       await store.dockShells.set(
         firstAdminMemberId(),
@@ -295,7 +295,7 @@ describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () 
 
   it('a touched dock shell whose worktree is freed directly ends hibernated', async () => {
     const { reg, store, shellId, issueId } = await setupDockShell({ touched: true })
-    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
+    const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
     expect(freed.ok).toBe(true)
     expect(freed.worktreeFreed).toBe(true)
     expect(await store.dockShells.get(firstAdminMemberId(), WT)).toBeUndefined()
@@ -304,7 +304,7 @@ describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () 
 
   it('an untouched unheld dock shell whose worktree is freed directly ends tombstoned', async () => {
     const { reg, store, shellId, issueId } = await setupDockShell({ touched: false })
-    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
+    const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
     expect(freed.ok).toBe(true)
     expect(freed.worktreeFreed).toBe(true)
     expect(await store.dockShells.get(firstAdminMemberId(), WT)).toBeUndefined()

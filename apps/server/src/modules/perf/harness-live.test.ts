@@ -73,7 +73,7 @@ async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }>
   })
   await expect.poll(() => inbox).toContainEqual(expect.objectContaining({ type: 'feedResume' }))
   // A real write through the real funnel, then the deterministic flush seam.
-  await registry.issues.create({ repoPath: '/r', title: 'switch-latency probe', startNow: false })
+  await registry.issues.crud.create({ repoPath: '/r', title: 'switch-latency probe', startNow: false })
   registry.modules.funnel.flushDeltas()
   return { registry, inbox }
 }

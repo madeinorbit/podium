@@ -220,7 +220,7 @@ async function observe(reg: SessionRegistry, issueId: string): Promise<Lifecycle
   await reg.modules.sessions.flushBroadcasts()
   const store = reg.sessionStore
   return {
-    wire: normalize(await reg.issues.get(issueId)),
+    wire: normalize(await reg.issues.reports.get(issueId)),
     events: normalize(
       (await store.events.listEventsSince(0)).map((e) => ({
         kind: e.kind,
@@ -281,15 +281,15 @@ describe('characterization: issue lifecycle equivalence across entry points (con
     try {
       // (a) IssueService direct.
       const regA = await freshRegistry()
-      const a = await regA.issues.create({
+      const a = await regA.issues.crud.create({
         repoPath: '/repo',
         title: 'Lifecycle',
         description: 'characterize me',
         startNow: false,
       })
-      await regA.issues.claim(a.id, asUserId('agent:test'))
+      await regA.issues.crud.claim(a.id, asUserId('agent:test'))
       await regA.issues.commentsMail.addCallerComment(a.id, 'progress note', AS_OPERATOR)
-      await regA.issues.close(a.id, 'done')
+      await regA.issues.crud.close(a.id, 'done')
 
       // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
       // registry's in-process IssueTrpc-shaped client.
@@ -312,7 +312,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       await runIssueCli(['claim', seq, '--assignee', 'agent:test'], cli)
       await runIssueCli(['comment', seq, '--body', 'progress note'], cli)
       await runIssueCli(['close', seq, '--reason', 'done'], cli)
-      const bId = await regB.issues.resolveRef(seq)
+      const bId = await regB.issues.reports.resolveRef(seq)
 
       // (c) the tRPC router directly.
       const regC = await freshRegistry()
@@ -382,16 +382,16 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.create({ repoPath: '/r', title: 'bimodal', startNow: false })
-      const patched = await reg.issues.update(w.id, { closedReason: 'wontfix' })
+      const w = await reg.issues.crud.create({ repoPath: '/r', title: 'bimodal', startNow: false })
+      const patched = await reg.issues.crud.update(w.id, { closedReason: 'wontfix' })
       // #24: closing via reason IS closing — stage follows to 'done'.
       expect(patched.stage).toBe('done')
       expect(patched.closedReason).toBe('wontfix')
       expect(
-        (await reg.issues.search({ repoPath: '/r', status: 'closed' })).map((i) => i.id),
+        (await reg.issues.reports.search({ repoPath: '/r', status: 'closed' })).map((i) => i.id),
       ).toEqual([w.id])
-      expect(await reg.issues.search({ repoPath: '/r', status: 'open' })).toEqual([])
-      expect(await reg.issues.stats('/r')).toMatchObject({ total: 1, closed: 1, open: 0 })
+      expect(await reg.issues.reports.search({ repoPath: '/r', status: 'open' })).toEqual([])
+      expect(await reg.issues.reports.stats('/r')).toMatchObject({ total: 1, closed: 1, open: 0 })
       // The close EVENT fires off the derived flip, with the patched reason.
       const closed = (await reg.sessionStore.events.listEventsSince(0)).filter(
         (e) => e.kind === 'issue.closed',
@@ -400,7 +400,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(closed[0]?.payload).toMatchObject({ seq: w.seq, reason: 'wontfix' })
       // A contradictory patch (non-null reason + non-done stage) is nonsensical.
       await expect(
-        reg.issues.update(w.id, { stage: 'in_progress', closedReason: 'wontfix' }),
+        reg.issues.crud.update(w.id, { stage: 'in_progress', closedReason: 'wontfix' }),
       ).rejects.toThrow(/closedReason/)
     } finally {
       await reg.dispose()
@@ -411,18 +411,18 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.create({ repoPath: '/r', title: 'reopen me', startNow: false })
-      await reg.issues.close(w.id) // stage done + closedReason 'done'
+      const w = await reg.issues.crud.create({ repoPath: '/r', title: 'reopen me', startNow: false })
+      await reg.issues.crud.close(w.id) // stage done + closedReason 'done'
       // The obvious "reopen": drag the card back to in_progress.
-      const reopened = await reg.issues.update(w.id, { stage: 'in_progress' })
+      const reopened = await reg.issues.crud.update(w.id, { stage: 'in_progress' })
       expect(reopened.stage).toBe('in_progress')
       // #24: closedReason clears with the stage move, so the reopened issue is
       // open/ready-visible again — no explicit closedReason:null needed.
       expect(reopened.closedReason).toBeUndefined()
       expect(
-        (await reg.issues.search({ repoPath: '/r', status: 'open' })).map((i) => i.id),
+        (await reg.issues.reports.search({ repoPath: '/r', status: 'open' })).map((i) => i.id),
       ).toEqual([w.id])
-      expect(await reg.issues.stats('/r')).toMatchObject({ closed: 0, open: 1 })
+      expect(await reg.issues.reports.stats('/r')).toMatchObject({ closed: 0, open: 1 })
       // The reopen is observable: issue.reopened fires on the true→false flip.
       const reopenedEvents = (await reg.sessionStore.events.listEventsSince(0)).filter(
         (e) => e.kind === 'issue.reopened',
@@ -438,14 +438,14 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.create({
+      const w = await reg.issues.crud.create({
         repoPath: '/r',
         title: 'audible re-close',
         startNow: false,
       })
-      await reg.issues.close(w.id)
-      await reg.issues.update(w.id, { stage: 'in_progress' }) // real reopen: reason clears
-      await reg.issues.update(w.id, { stage: 'done' }) // drag back to done
+      await reg.issues.crud.close(w.id)
+      await reg.issues.crud.update(w.id, { stage: 'in_progress' }) // real reopen: reason clears
+      await reg.issues.crud.update(w.id, { stage: 'done' }) // drag back to done
       // #24: the reopen flipped the derived predicate false, so the re-close
       // flips it true again and issue.closed fires a second time.
       const closed = (await reg.sessionStore.events.listEventsSince(0)).filter(
@@ -564,9 +564,9 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       agentKind: 'claude-code',
       cwd: '/proj',
     })
-    const issue = await reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
-    await reg1.issues.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
-    await reg1.issues.close(issue.id, 'done')
+    const issue = await reg1.issues.crud.create({ repoPath: '/repo', title: 'survive', startNow: false })
+    await reg1.issues.commentsMail.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
+    await reg1.issues.crud.close(issue.id, 'done')
     await reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({
       ok: true,
     }))

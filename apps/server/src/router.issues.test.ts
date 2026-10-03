@@ -267,9 +267,9 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     registries.push(registry)
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     // create + set worktreePath directly (start() needs a daemon repoOp round-trip).
-    const i = await registry.issues.create({ repoPath: '/r', title: 'W', startNow: false })
-    await registry.issues.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
-    const wt = (await registry.issues.get(i.id))!.worktreePath as string
+    const i = await registry.issues.crud.create({ repoPath: '/r', title: 'W', startNow: false })
+    await registry.issues.crud.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
+    const wt = (await registry.issues.reports.get(i.id))!.worktreePath as string
 
     const { sessionId: sid } = await registry.modules.sessions.createSession({
       cwd: wt,

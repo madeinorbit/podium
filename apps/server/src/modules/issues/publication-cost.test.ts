@@ -39,7 +39,7 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
   const ids: string[] = []
   for (let index = 0; index < count; index++) {
     ids.push(
-      (await svc.create({ repoPath: '/repo', title: `Fixture issue ${index}`, startNow: false }))
+      (await svc.crud.create({ repoPath: '/repo', title: `Fixture issue ${index}`, startNow: false }))
         .id,
     )
   }
@@ -60,9 +60,9 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
   }> = []
   const emitted: MetadataChange[][] = []
   const operations = [
-    ['update', () => svc.update(target, { title: 'Changed fixture title' })],
-    ['reparent', () => svc.reparent(target, parent)],
-    ['close', () => svc.close(target)],
+    ['update', () => svc.crud.update(target, { title: 'Changed fixture title' })],
+    ['reparent', () => svc.hierarchy.reparent(target, parent)],
+    ['close', () => svc.crud.close(target)],
   ] as const
   try {
     for (const [operation, run] of operations) {

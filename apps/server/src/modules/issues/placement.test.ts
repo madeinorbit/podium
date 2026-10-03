@@ -32,8 +32,8 @@ afterAll(async () => {
 /** origin + the work an agent filed under it, as a sub-issue. */
 async function discovered() {
   const registry = await fresh()
-  const origin = await registry.issues.create({ repoPath: '/r', title: 'Origin', startNow: false })
-  const found = await registry.issues.create({
+  const origin = await registry.issues.crud.create({ repoPath: '/r', title: 'Origin', startNow: false })
+  const found = await registry.issues.crud.create({
     repoPath: '/r',
     title: 'Found while working',
     parentId: origin.id,
@@ -43,7 +43,7 @@ async function discovered() {
 }
 
 const depsOf = async (registry: SessionRegistry, id: string, type: string): Promise<string[]> =>
-  ((await registry.issues.get(id))?.deps ?? []).filter((dep) => dep.type === type).map((dep) => dep.id)
+  ((await registry.issues.reports.get(id))?.deps ?? []).filter((dep) => dep.type === type).map((dep) => dep.id)
 
 describe('issues.setPlacement', () => {
   it('sends a sub-task out on its own — top level, with the way back intact', async () => {
@@ -55,7 +55,7 @@ describe('issues.setPlacement', () => {
       originId: origin.id,
     })
 
-    const moved = await registry.issues.get(found.id)
+    const moved = await registry.issues.reports.get(found.id)
     expect(moved?.parentId ?? null).toBeNull()
     // The edge is the whole point: without it the work is orphaned, and the
     // mission it came from can no longer say what left.
@@ -76,7 +76,7 @@ describe('issues.setPlacement', () => {
       originId: origin.id,
     })
 
-    expect((await registry.issues.get(found.id))?.parentId).toBe(origin.id)
+    expect((await registry.issues.reports.get(found.id))?.parentId).toBe(origin.id)
     // The stale edge must go: departure keys on it, so leaving it behind would
     // leave the work showing as gone from the very mission it just rejoined.
     expect(await depsOf(registry, found.id, 'discovered-from')).toEqual([])
@@ -84,12 +84,12 @@ describe('issues.setPlacement', () => {
 
   it('leaves an unrelated provenance edge alone', async () => {
     const { registry, origin, found, client } = await discovered()
-    const elsewhere = await registry.issues.create({
+    const elsewhere = await registry.issues.crud.create({
       repoPath: '/r',
       title: 'Somewhere else',
       startNow: false,
     })
-    await registry.issues.addDep(found.id, elsewhere.id, 'discovered-from')
+    await registry.issues.hierarchy.addDep(found.id, elsewhere.id, 'discovered-from')
 
     await client.issues.setPlacement.mutate({
       id: found.id,

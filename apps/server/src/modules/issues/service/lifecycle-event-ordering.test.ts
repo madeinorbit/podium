@@ -64,7 +64,7 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
   it('makes issue.deleted readable inside the span that deletes', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'Doomed vessel',
       startNow: false,
@@ -85,7 +85,7 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
   it('leaves no issue.deleted row when the enclosing span rolls back', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'Doomed vessel',
       startNow: false,
@@ -108,7 +108,7 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
   it('makes issue.restored readable inside the span that restores', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'Recoverable',
       startNow: false,
@@ -126,7 +126,7 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
   it('leaves no issue.restored row when the enclosing span rolls back', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'Recoverable',
       startNow: false,

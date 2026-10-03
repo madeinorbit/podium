@@ -56,7 +56,7 @@ describe('a system notice to an issue', () => {
     // No session: held for the issue's next one, and readable from its inbox.
     expect((await h.svc.message(id))?.deliveryStatus).toBe('stored')
     expect(h.pushes).toHaveLength(0)
-    expect(await h.issues.mailInbox(iss.id)).toMatchObject([
+    expect(await h.issues.commentsMail.mailInbox(iss.id)).toMatchObject([
       { id, fromAuthor: 'machine-diagnostic', body: 'integration disabled' },
     ])
   })

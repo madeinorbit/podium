@@ -37,12 +37,12 @@ function callerFor(registry: SessionRegistry) {
 async function seed(registry: SessionRegistry, title = 'subject') {
   // An issue is placed under a machine that REPORTED its repo (2b803efb5).
   await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
-  return await registry.issues.create({ repoPath: '/repo', title, startNow: false })
+  return await registry.issues.crud.create({ repoPath: '/repo', title, startNow: false })
 }
 
 /** The revision the authority currently holds for `id`. */
 async function revisionOf(registry: SessionRegistry, id: string): Promise<number | undefined> {
-  return (await registry.issues.get(id))?.revision
+  return (await registry.issues.reports.get(id))?.revision
 }
 
 /** Assert `fn` rejects with the structured CONFLICT, and hand back its detail. */
@@ -97,7 +97,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
 
       // The refusal is a REFUSAL: writer 1's work survives intact, and the
       // rejected write did not burn a revision on its way out.
-      expect((await registry.issues.get(issue.id))?.title).toBe('writer one')
+      expect((await registry.issues.reports.get(issue.id))?.title).toBe('writer one')
       expect(await revisionOf(registry, issue.id)).toBe(afterFirst)
     } finally {
       await registry.dispose()
@@ -121,7 +121,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
         patch: { title: 'two' },
         expectedRevision: detail.actualRevision,
       })
-      expect((await registry.issues.get(issue.id))?.title).toBe('two')
+      expect((await registry.issues.reports.get(issue.id))?.title).toBe('two')
     } finally {
       await registry.dispose()
     }
@@ -166,7 +166,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
         patch: { title: 'fresh' },
         expectedRevision: await revisionOf(registry, issue.id),
       })
-      expect((await registry.issues.get(issue.id))?.title).toBe('fresh')
+      expect((await registry.issues.reports.get(issue.id))?.title).toBe('fresh')
     } finally {
       await registry.dispose()
     }
@@ -181,7 +181,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
       const caller = callerFor(registry)
       await caller.issues.update({ id: issue.id, patch: { title: 'one' } })
       await caller.issues.update({ id: issue.id, patch: { title: 'two' } })
-      expect((await registry.issues.get(issue.id))?.title).toBe('two')
+      expect((await registry.issues.reports.get(issue.id))?.title).toBe('two')
     } finally {
       await registry.dispose()
     }
@@ -202,7 +202,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
         body: 'lands regardless of how far the issue has moved',
       })
       expect(comment).toBeTruthy()
-      expect(await registry.issues.comments(issue.id)).toHaveLength(1)
+      expect(await registry.issues.reports.comments(issue.id)).toHaveLength(1)
 
       // And the contract says so, rather than the behaviour being incidental.
       // Main spells the declaration `concurrency: { kind: 'append' }`; this tree
@@ -261,7 +261,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
 
       // The replay is the RECORDED result, not a second append.
       expect(replay).toEqual(first)
-      expect(await registry.issues.comments(issue.id)).toHaveLength(1)
+      expect(await registry.issues.reports.comments(issue.id)).toHaveLength(1)
     } finally {
       await registry.dispose()
     }
@@ -283,7 +283,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       const replay = await caller.issues.update(input)
 
       expect(replay).toEqual(first)
-      expect((await registry.issues.get(issue.id))?.title).toBe('exactly once')
+      expect((await registry.issues.reports.get(issue.id))?.title).toBe('exactly once')
       expect(await revisionOf(registry, issue.id)).toBe(base + 1)
     } finally {
       await registry.dispose()
@@ -341,7 +341,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       const caller = callerFor(registry)
       await caller.issues.addComment({ id: issue.id, body: 'x', mutationId: 'm1' })
       await caller.issues.addComment({ id: issue.id, body: 'x', mutationId: 'm2' })
-      expect(await registry.issues.comments(issue.id)).toHaveLength(2)
+      expect(await registry.issues.reports.comments(issue.id)).toHaveLength(2)
     } finally {
       await registry.dispose()
     }
@@ -402,7 +402,7 @@ describe('the conflict reaches a real client over HTTP (ADR 3 D13.3)', () => {
       // …and the human-readable half still says what happened.
       expect(body.error.message).toContain('changed since you read it')
 
-      expect((await registry.issues.get(issue.id))?.title).toBe('landed')
+      expect((await registry.issues.reports.get(issue.id))?.title).toBe('landed')
     } finally {
       await registry.dispose()
     }

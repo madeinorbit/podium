@@ -301,8 +301,12 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         now: () => nowMs,
         leaseTtlMs: 90_000,
         issues: {
-          tryAutoArchiveObserved,
-          tryWorktreeGcObserved: vi.fn(async () => ({ outcome: 'proposed' as const })),
+          attention: {
+            tryAutoArchiveObserved,
+          },
+          gitWorkflow: {
+            tryWorktreeGcObserved: vi.fn(async () => ({ outcome: 'proposed' as const })),
+          },
         },
       },
     )
@@ -578,8 +582,12 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
         now: () => nowMs,
         leaseTtlMs: 90_000,
         issues: {
-          tryAutoArchiveObserved: vi.fn(async () => 'applied' as const),
-          tryWorktreeGcObserved: tryWorktreeGcObserved as never,
+          attention: {
+            tryAutoArchiveObserved: vi.fn(async () => 'applied' as const),
+          },
+          gitWorkflow: {
+            tryWorktreeGcObserved: tryWorktreeGcObserved as never,
+          },
         },
         worktreeGcPolicy: () => policy,
       },

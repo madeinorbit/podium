@@ -1,3 +1,4 @@
+import { commandAccess } from './command-ctx'
 /**
  * THE AGENT-RELAY DISPATCH ARM (POD-418).
  *
@@ -125,9 +126,9 @@ async function sessionTitlePrime(
   const actor = await sessionsSvc.sessionById(actorSessionId)
   if (!actor) return ''
   if (actor.name?.trim()) return ''
-  const issueId = actor.issueId ?? issues.issueForCwd(actor.cwd)
+  const issueId = actor.issueId ?? issues.reports.issueForCwd(actor.cwd)
   if (!issueId) return ''
-  const issue = await issues.getMeta(issueId)
+  const issue = await issues.reports.getMeta(issueId)
   const seq = issue?.seq
   if (seq === undefined) return ''
   // Siblings = the other sessions on the SAME issue that have a usable label. A
@@ -137,7 +138,7 @@ async function sessionTitlePrime(
   const siblings = (await sessionsSvc
     .listSessionsForIssue(issue?.worktreePath ?? null, issueId))
     .filter((s) => s.sessionId !== actorSessionId && !s.archived)
-    .filter((s) => (s.issueId ?? issues.issueForCwd(s.cwd)) === issueId)
+    .filter((s) => (s.issueId ?? issues.reports.issueForCwd(s.cwd)) === issueId)
     .map((s) => sessionLabel(s))
     .filter((label): label is string => label !== undefined)
   return sessionTitleRule(seq, siblings)
@@ -277,14 +278,14 @@ export function makeAgentRelayDispatch(
         if (typeof raw.ref !== 'string' || !raw.ref) throw new Error('ref is required')
         const target = await readToolkit.resolveTarget(raw.ref)
         if (!target) throw new Error(`no session found for ${raw.ref}`)
-        const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+        const targetIssueId = target.issueId ?? issues.reports.issueForCwd(target.cwd)
         if (targetIssueId) {
           await checkIssueAccess(
             {
               capability,
               ...(overrideScope ? { overrideScope: true } : {}),
             },
-            issues,
+            commandAccess(issues),
             'workspace.fetch',
             'write',
             targetIssueId,
@@ -358,8 +359,8 @@ export function makeAgentRelayDispatch(
         // containment (see `capabilityForSession`). Both the retirement guard
         // and the self-reference nudge below are about that one issue.
         const ownIssueId = capability.scope.kind === 'subtree' ? capability.scope.rootId : null
-        const ownRow = ownIssueId ? await issues.getMeta(ownIssueId) : null
-        const ownRef = ownRow ? await issues.niceRef(ownRow) : null
+        const ownRow = ownIssueId ? await issues.reports.getMeta(ownIssueId) : null
+        const ownRef = ownRow ? await issues.reports.niceRef(ownRow) : null
         // RETIRE ON CLOSE, IN EITHER ORDER (POD-1072). `retireIssueOffers`
         // sweeps standing offers when the issue closes, but the common shape is
         // the reverse: an agent closes and THEN posts its closing offer, which
@@ -420,14 +421,14 @@ export function makeAgentRelayDispatch(
           }
           const target = await readToolkit.resolveTarget(ref)
           if (!target) throw new Error(`no session found for ${ref}`)
-          const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+          const targetIssueId = target.issueId ?? issues.reports.issueForCwd(target.cwd)
           if (targetIssueId) {
             await checkIssueAccess(
               {
                 capability,
                 ...(overrideScope ? { overrideScope: true } : {}),
               },
-              issues,
+              commandAccess(issues),
               `sessions.${proc}`,
               'write',
               targetIssueId,
@@ -510,11 +511,11 @@ export function makeAgentRelayDispatch(
           if (!selfStop) {
             const target = await sessionsSvc.sessionById(sessionId)
             if (!target) throw new Error('session not found')
-            const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+            const targetIssueId = target.issueId ?? issues.reports.issueForCwd(target.cwd)
             if (targetIssueId) {
               await checkIssueAccess(
                 { capability, ...(overrideScope ? { overrideScope: true } : {}) },
-                issues,
+                commandAccess(issues),
                 'sessions.stop',
                 'write',
                 targetIssueId,

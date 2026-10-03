@@ -357,7 +357,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
 
   const withMachine = async (h: Awaited<ReturnType<typeof mailHarness>>): Promise<{ id: string; seq: number }> => {
     const issue = await h.createIssue({ title: 'work' })
-    await h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
+    await h.issues.crud.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
     return issue
   }
 
@@ -568,7 +568,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
   it('issue-addressed bare spawn-on-wake is gated on the ISSUE machine', async () => {
     const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = await h.createIssue({ title: 'empty' })
-    await h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
+    await h.issues.crud.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
     // No sessions on the issue → wake tries trySpawn on the issue machine.
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), true, 'send', {
       to: issue.id,
@@ -635,7 +635,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     const usable = new Set(['mac_alices_laptop'])
     const h = await mailHarness({ machines: machinesFor(usable) })
     const issue = await h.createIssue({ title: 'cross-machine' })
-    await h.issues.update(issue.id, { machineId: asMachineId('mac_bobs_workstation') })
+    await h.issues.crud.update(issue.id, { machineId: asMachineId('mac_bobs_workstation') })
     h.put({
       sessionId: asSessionId('sUnresumable'),
       issueId: issue.id,
@@ -672,7 +672,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
       },
     })
     const first = await h.createIssue({ title: 'same-pass fallback' })
-    await h.issues.update(first.id, { machineId: bob })
+    await h.issues.crud.update(first.id, { machineId: bob })
     h.put({
       sessionId: asSessionId('sUnresumable'),
       issueId: first.id,
@@ -695,7 +695,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     expect(h.wakeSpawns).toHaveLength(1)
 
     const next = await h.createIssue({ title: 'next apply' })
-    await h.issues.update(next.id, { machineId: bob })
+    await h.issues.crud.update(next.id, { machineId: bob })
     const denied = await h.svc.send(
       { kind: 'operator' },
       {

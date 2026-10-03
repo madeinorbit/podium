@@ -152,8 +152,8 @@ describe('appRouter', () => {
       cwd: '/p',
       draftIssue: { repoPath: '/p', issueId: clientIssueId },
     })
-    expect((await registry.issues.get(clientIssueId))?.id).toBe(clientIssueId)
-    expect((await registry.issues.get(clientIssueId))?.draft).toBe(true)
+    expect((await registry.issues.reports.get(clientIssueId))?.id).toBe(clientIssueId)
+    expect((await registry.issues.reports.get(clientIssueId))?.draft).toBe(true)
     const list = await call.sessions.list()
     expect(list.find((s) => s.sessionId === sessionId)?.issueId).toBe(clientIssueId)
   })

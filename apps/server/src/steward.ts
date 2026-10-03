@@ -357,7 +357,11 @@ export interface StewardDeps {
    *  §07b/§10]: has the producer already told a target directly, so the
    *  steward's own nudge for the same fact would just be a duplicate? */
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
-  issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
+  issues: {
+    readonly reports: Pick<IssueService['reports'], 'get' | 'getMeta' | 'list' | 'comments'>
+    readonly commentsMail: Pick<IssueService['commentsMail'], 'addComment'>
+    readonly hierarchy: Pick<IssueService['hierarchy'], 'ancestorIds'>
+  }
   /**
    * THE CHEAP FLEET READ [POD-3857]. The steward decides who to nudge from
    * `issueId`, `cwd`, `status`, `agentKind`, `spawnedBy` and a label — none of
@@ -781,7 +785,7 @@ export class StewardService {
   /** needs_human cleared — free needs_human parentnudge + sub facts. */
   private async retireNeedsHumanFacts(issueId: IssueId, seq: number | undefined): Promise<void> {
     const at = this.now()
-    const parentId = (await this.deps.issues.getMeta(issueId))?.parentId
+    const parentId = (await this.deps.issues.reports.getMeta(issueId))?.parentId
     if (parentId != null && seq != null) {
       await this.arbiter.retireFactKey(`parentnudge:needs_human:${parentId}:${seq}`, at)
     }
@@ -844,10 +848,10 @@ export class StewardService {
     const anchor = this.subscriberIssueId(sub, sessions)
     if (!anchor) return false
     if (sub.sourceRef === 'my-children') {
-      return (await this.deps.issues.getMeta(ev.srcIssueId))?.parentId === anchor
+      return (await this.deps.issues.reports.getMeta(ev.srcIssueId))?.parentId === anchor
     }
     if (sub.sourceRef === 'my-subtree') {
-      return (await this.deps.issues.ancestorIds(ev.srcIssueId)).includes(anchor)
+      return (await this.deps.issues.hierarchy.ancestorIds(ev.srcIssueId)).includes(anchor)
     }
     // my-blockers / my-parent: not trivially resolvable at this layer yet.
     return false
@@ -899,7 +903,7 @@ export class StewardService {
         sub.subscriberKind === 'issue'
           ? preferIssueCoordinator(
               candidates,
-              (await this.deps.issues.getMeta(sub.subscriberId))?.coordinatorSessionId,
+              (await this.deps.issues.reports.getMeta(sub.subscriberId))?.coordinatorSessionId,
             )
           : candidates
       for (const s of targets) {
@@ -961,7 +965,7 @@ export class StewardService {
         const ownerUserId =
           sub.subscriberKind === 'session'
             ? await this.deps.sessionOwner?.(asSessionId(sub.subscriberId))
-            : (await this.deps.issues.getMeta(sub.subscriberId))?.ownerUserId
+            : (await this.deps.issues.reports.getMeta(sub.subscriberId))?.ownerUserId
         if (ownerUserId) await this.deps.notify?.(ownerUserId, subscriptionNotice(sub, e))
       } catch (err) {
         log.warn('subscription notify failed', { err, subscriptionId: sub.id })
@@ -979,7 +983,7 @@ export class StewardService {
     if (sub.subscriberKind === 'session') {
       return sessions.filter((s) => s.sessionId === sub.subscriberId)
     }
-    const issue = await this.deps.issues.getMeta(sub.subscriberId)
+    const issue = await this.deps.issues.reports.getMeta(sub.subscriberId)
     if (!issue) return []
     return sessionsForIssue(issue.worktreePath, sessions, issue.id)
   }
@@ -994,25 +998,25 @@ export class StewardService {
       if (closedSeq == null) continue
       // The session that closed the blocker already knows — skip self-nudge (#116).
       const causedBy = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
-      const dependent = await this.deps.issues.getMeta(e.subject)
+      const dependent = await this.deps.issues.reports.getMeta(e.subject)
       if (!dependent) continue
       // Colon-anchored so '#5' never matches a prior '#55' comment. Single-server
       // assumption: this read-then-write dedup is a cross-process race — fine
       // while live is one server; revisit for multi-server.
       const marker = `Unblocked by #${closedSeq}:`
       // Comment bodies left IssueReport (#175) — dedup reads the thread directly.
-      const already = (await this.deps.issues.comments(dependent.id)).some(
+      const already = (await this.deps.issues.reports.comments(dependent.id)).some(
         (c) => c.author === 'steward' && c.body.includes(marker),
       )
-      const closed = (await this.deps.issues.list(e.repoPath ?? dependent.repoPath)).find(
+      const closed = (await this.deps.issues.reports.list(e.repoPath ?? dependent.repoPath)).find(
         (w) => w.seq === closedSeq,
       )
       if (!already) {
         const note = completionNote(
           closed,
-          closed ? await this.deps.issues.comments(closed.id) : [],
+          closed ? await this.deps.issues.reports.comments(closed.id) : [],
         )
-        await this.deps.issues.addComment(
+        await this.deps.issues.commentsMail.addComment(
           dependent.id,
           'steward',
           marker + ' ' + note,
@@ -1164,7 +1168,7 @@ export class StewardService {
     const sub = CHILD_PARENT_SUBS[group]
     const first = batch[0]
     if (!sub || !first) return
-    const parent = await this.deps.issues.getMeta(parentId)
+    const parent = await this.deps.issues.reports.getMeta(parentId)
     if (!parent) return
     let lastChildSeq: number | undefined
     // The event timestamp behind the coalesced nudge below, for the
@@ -1186,17 +1190,17 @@ export class StewardService {
       // matching note on handleUnblock — same single-server dedup assumption).
       const marker = sub.marker(childSeq)
       // Comment bodies left IssueReport (#175) — dedup reads the thread directly.
-      const already = (await this.deps.issues.comments(parent.id)).some(
+      const already = (await this.deps.issues.reports.comments(parent.id)).some(
         (c) => c.author === 'steward' && c.body.includes(marker),
       )
       if (already) continue
-      const child = (await this.deps.issues.list(e.repoPath ?? parent.repoPath)).find(
+      const child = (await this.deps.issues.reports.list(e.repoPath ?? parent.repoPath)).find(
         (w) => w.seq === childSeq,
       )
       // Empty excerpt (no note / question) → bare marker, no trailing space.
       // The marker keeps its colon so replay dedup still matches.
-      const excerpt = sub.excerpt(e, child, child ? await this.deps.issues.comments(child.id) : [])
-      await this.deps.issues.addComment(
+      const excerpt = sub.excerpt(e, child, child ? await this.deps.issues.reports.comments(child.id) : [])
+      await this.deps.issues.commentsMail.addComment(
         parent.id,
         'steward',
         excerpt ? `${marker} ${excerpt}` : marker,
@@ -1211,12 +1215,12 @@ export class StewardService {
     // Same target filter as unblock: no resurrect, no shells.
     if (lastChildSeq == null) return
     // Full wire is intentional: the nudge reports derived child completion counts.
-    const fresh = await this.deps.issues.get(parentId)
+    const fresh = await this.deps.issues.reports.get(parentId)
     const total = fresh?.childCount ?? 0
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))
     // Resolved once for the already-communicated check below — the child whose
     // transition drove this coalesced nudge.
-    const lastChild = (await this.deps.issues.list(parent.repoPath)).find(
+    const lastChild = (await this.deps.issues.reports.list(parent.repoPath)).find(
       (w) => w.seq === lastChildSeq,
     )
     const candidates = sessionsForIssue(

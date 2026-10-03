@@ -38,7 +38,7 @@ export async function inboxConsumeHandler(
       own ||
       (scope.kind === 'subtree' &&
         scope.rootId !== undefined &&
-        (await deps.issues.ancestorIds(id)).includes(scope.rootId))
+        (await deps.issues.hierarchy.ancestorIds(id)).includes(scope.rootId))
     const consume = own ? (caller.capability.actorSessionId ?? null) : undefined
     const rows = await svc.readInbox(
       [{ kind: 'issue', id }],

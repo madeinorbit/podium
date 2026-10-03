@@ -315,17 +315,17 @@ describe('concierge threads (issue #64)', () => {
 
   it('seeds a new thread with ready/needs-human/session lines from the tracker', async () => {
     const { registry, sa, turnReqs } = await harness()
-    const ready = await registry.issues.create({
+    const ready = await registry.issues.crud.create({
       repoPath: '/r',
       title: 'Fix login',
       startNow: false,
     })
-    const asking = await registry.issues.create({
+    const asking = await registry.issues.crud.create({
       repoPath: '/r',
       title: 'Deploy',
       startNow: false,
     })
-    await registry.issues.setNeedsHuman(asking.id, 'Which region?')
+    await registry.issues.crud.setNeedsHuman(asking.id, 'Which region?')
     await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r',
@@ -344,7 +344,7 @@ describe('concierge threads (issue #64)', () => {
 
   it('gates start-capable tools behind confirmed:true on concierge threads', async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
+    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
     const tid = conciergeThreadId('/r')
     // Unconfirmed → refused, nothing spawned, issue untouched.
     expect(await sa.callMcpTool('issue_start', { id: issue.id }, tid)).toBe(NOT_CONFIRMED_MSG)
@@ -352,7 +352,7 @@ describe('concierge threads (issue #64)', () => {
       NOT_CONFIRMED_MSG,
     )
     expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
-    expect((await registry.issues.get(issue.id))?.stage).toBe('backlog')
+    expect((await registry.issues.reports.get(issue.id))?.stage).toBe('backlog')
     // Confirmed → runs (confirmed stripped before the underlying tool).
     const out = JSON.parse(
       await sa.callMcpTool(
@@ -393,7 +393,7 @@ describe('concierge threads (issue #64)', () => {
     expect(
       await sa.callMcpTool('issue_create', { repoPath: '/r', title: 'Big', start: true }, tid),
     ).toBe(NOT_CONFIRMED_MSG)
-    expect(await registry.issues.list('/r')).toHaveLength(0)
+    expect(await registry.issues.reports.list('/r')).toHaveLength(0)
     expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
     // Plain create (no start) stays ungated — filing issues is always allowed.
     const plain = await sa.callMcpTool('issue_create', { repoPath: '/r', title: 'Note' }, tid)
@@ -406,7 +406,7 @@ describe('concierge threads (issue #64)', () => {
     )
     expect(out).toMatch(/created (?:[A-Z]{2,5}-|#)2 Big/)
     expect(out).toContain('started in')
-    expect((await registry.issues.list('/r')).find((i) => i.title === 'Big')?.stage).toBe(
+    expect((await registry.issues.reports.list('/r')).find((i) => i.title === 'Big')?.stage).toBe(
       'in_progress',
     )
   })
@@ -494,7 +494,7 @@ describe('concierge threads (issue #64)', () => {
 
     it('attaches the confirmed-gate for a concierge thread token', async () => {
       const { registry, sa, call } = await httpHarness()
-      const issue = await registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
+      const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
       const tok = sa.mcpThreadToken(conciergeThreadId('/r'))
       // Start-capable tools without confirmed → refused over HTTP, nothing spawned.
       expect(await call('issue_start', { id: issue.id }, tok)).toBe(NOT_CONFIRMED_MSG)
@@ -502,7 +502,7 @@ describe('concierge threads (issue #64)', () => {
         NOT_CONFIRMED_MSG,
       )
       expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
-      expect((await registry.issues.get(issue.id))?.stage).toBe('backlog')
+      expect((await registry.issues.reports.get(issue.id))?.stage).toBe('backlog')
     })
 
     it('stamps superagent:<threadId> provenance on a resolved thread', async () => {
@@ -537,9 +537,9 @@ describe('concierge threads (issue #64)', () => {
     await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'hi' })
     await settle()
     // 3 issue.created events > limit 2: first re-entry digests 2, second the rest.
-    await registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-    await registry.issues.create({ repoPath: '/r', title: 'B', startNow: false })
-    await registry.issues.create({ repoPath: '/r', title: 'C', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'C', startNow: false })
     await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'update?' })
     await settle()
     await vi.waitFor(() => expect(turnReqs).toHaveLength(2))
@@ -570,7 +570,7 @@ describe('search_all tool', () => {
   it('wraps the real searchAll: renders one line per typed hit plus the data payload', async () => {
     const { registry, sa } = await harness()
     registry.gateway.attachDaemon('m1', () => {})
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/r',
       title: 'replace the flux capacitor',
       description: 'it drifts',
@@ -613,7 +613,7 @@ describe('search_all tool', () => {
 
   it('filters by kinds and caps the limit', async () => {
     const { registry, sa } = await harness()
-    await registry.issues.create({ repoPath: '/r', title: 'capacitor issue', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/r', title: 'capacitor issue', startNow: false })
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -642,7 +642,7 @@ describe('list_sessions boundIssue', () => {
       { repoPath: '/r', title: 'Worktree work', start: true, confirmed: true },
       conciergeThreadId('/r'),
     )
-    const issue = (await registry.issues.list('/r')).find((i) => i.title === 'Worktree work')
+    const issue = (await registry.issues.reports.list('/r')).find((i) => i.title === 'Worktree work')
     expect(issue?.worktreePath).toBeTruthy()
     // A second session inside the issue worktree, one outside.
     await registry.modules.sessions.createSession({

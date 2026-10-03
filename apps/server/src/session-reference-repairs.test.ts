@@ -34,8 +34,8 @@ async function fixture() {
   registries.push(registry)
   await attachHostDaemon(registry, () => {}, { repos: ['/heal/a', '/heal/b'] })
   const sessions = registry.modules.sessions
-  const a = await registry.issues.create({ repoPath: '/heal/a', title: 'A', startNow: false })
-  const b = await registry.issues.create({ repoPath: '/heal/b', title: 'B', startNow: false })
+  const a = await registry.issues.crud.create({ repoPath: '/heal/a', title: 'A', startNow: false })
+  const b = await registry.issues.crud.create({ repoPath: '/heal/b', title: 'B', startNow: false })
   const repoId = asRepoId('repo:common')
   for (const issue of [a, b]) {
     const row = await store.issues.getIssue(issue.id)

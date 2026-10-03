@@ -40,18 +40,18 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
   }
 
   const draft = async (registry: SessionRegistry, title: string) =>
-    await registry.issues.create({ repoPath: '/repo', title, draft: true, startNow: false })
+    await registry.issues.crud.create({ repoPath: '/repo', title, draft: true, startNow: false })
 
   it('does not purge from memory when the enclosing span rolls back', async () => {
     const { store, registry } = await build()
     const doomed = await draft(registry, 'the abandoned vessel')
 
     await expect(store.transact(async () => {
-        await registry.issues.purgeEmptyDraft(doomed.id)
+        await registry.issues.crud.purgeEmptyDraft(doomed.id)
         // In-window the purge must be visible to its own span: the full-list
         // reconcile below it reads the map, and would otherwise re-declare the
         // row it just deleted.
-        expect(await registry.issues.get(doomed.id)).toBeNull()
+        expect(await registry.issues.reports.get(doomed.id)).toBeNull()
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -61,7 +61,7 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
     // whole point: a reload would repopulate from the database and report a
     // pass for a map that was wrong.
     expect((await store.issues.listIssueRows()).map((row) => row.id)).toContain(doomed.id)
-    expect(await registry.issues.get(doomed.id)).not.toBeNull()
+    expect(await registry.issues.reports.get(doomed.id)).not.toBeNull()
   })
 
   it('still purges when the enclosing span commits', async () => {
@@ -69,10 +69,10 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
     const doomed = await draft(registry, 'the abandoned vessel')
 
     await store.transact(async () => {
-      await registry.issues.purgeEmptyDraft(doomed.id)
+      await registry.issues.crud.purgeEmptyDraft(doomed.id)
     })
 
-    expect(await registry.issues.get(doomed.id)).toBeNull()
+    expect(await registry.issues.reports.get(doomed.id)).toBeNull()
     expect((await store.issues.listIssueRows()).map((row) => row.id)).not.toContain(doomed.id)
   })
 
@@ -84,21 +84,21 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
     // purge — including writes made earlier in that same span.
     const { store, registry } = await build()
     const doomed = await draft(registry, 'the abandoned vessel')
-    const bystander = await registry.issues.create({
+    const bystander = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'committed title',
       startNow: false,
     })
 
     await expect(store.transact(async () => {
-        await registry.issues.update(bystander.id, { title: 'written in the same span' })
-        await registry.issues.purgeEmptyDraft(doomed.id)
+        await registry.issues.crud.update(bystander.id, { title: 'written in the same span' })
+        await registry.issues.crud.purgeEmptyDraft(doomed.id)
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
 
-    expect((await registry.issues.get(bystander.id))?.title).toBe('committed title')
-    expect(await registry.issues.get(doomed.id)).not.toBeNull()
+    expect((await registry.issues.reports.get(bystander.id))?.title).toBe('committed title')
+    expect(await registry.issues.reports.get(doomed.id)).not.toBeNull()
   })
 
   it('rolls the in-memory cascade back with the purge', async () => {
@@ -110,24 +110,24 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
     // database still has their parent.
     const { store, registry } = await build()
     const parent = await draft(registry, 'the abandoned vessel')
-    const child = await registry.issues.create({
+    const child = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'a child pointing at it',
       parentId: parent.id,
       startNow: false,
     })
-    expect((await registry.issues.get(child.id))?.parentId).toBe(parent.id)
+    expect((await registry.issues.reports.get(child.id))?.parentId).toBe(parent.id)
 
     await expect(store.transact(async () => {
-        await registry.issues.purgeEmptyDraft(parent.id)
+        await registry.issues.crud.purgeEmptyDraft(parent.id)
         // In-window the child's reference is cleared, matching what the engine
         // did inside the savepoint.
-        expect((await registry.issues.get(child.id))?.parentId).toBeFalsy()
+        expect((await registry.issues.reports.get(child.id))?.parentId).toBeFalsy()
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
 
-    expect((await registry.issues.get(child.id))?.parentId).toBe(parent.id)
+    expect((await registry.issues.reports.get(child.id))?.parentId).toBe(parent.id)
     expect(
       (await store.issues.listIssueRows()).find((row) => row.id === child.id)?.parentId,
     ).toBe(parent.id)
@@ -136,15 +136,15 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
   it('leaves the map and the database agreeing after a rolled-back purge', async () => {
     const { store, registry } = await build()
     const doomed = await draft(registry, 'the abandoned vessel')
-    await registry.issues.create({ repoPath: '/repo', title: 'committed issue', startNow: false })
+    await registry.issues.crud.create({ repoPath: '/repo', title: 'committed issue', startNow: false })
 
     await expect(store.transact(async () => {
-        await registry.issues.purgeEmptyDraft(doomed.id)
+        await registry.issues.crud.purgeEmptyDraft(doomed.id)
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
 
-    const inMemory = (await registry.issues
+    const inMemory = (await registry.issues.reports
       .list())
       .map((issue) => issue.id)
       .sort()

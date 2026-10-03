@@ -15,12 +15,12 @@ async function registryWithDaemon(store?: Awaited<ReturnType<typeof openTestStor
 describe('issue/session deletion lifecycle', () => {
   it('tombstones and restores the issue with all member session records', async () => {
     const { registry, store, messages } = await registryWithDaemon()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'Recoverable',
       startNow: false,
     })
-    await registry.issues.update(issue.id, { worktreePath: '/repo/worktree' })
+    await registry.issues.crud.update(issue.id, { worktreePath: '/repo/worktree' })
     const attached = (await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo',
@@ -46,7 +46,7 @@ describe('issue/session deletion lifecycle', () => {
     expect(new Set(result.deletedSessionIds)).toEqual(new Set([attached, inWorktree]))
     expect(result.issue.deletedAt).toBeTruthy()
     expect(result.issue).not.toHaveProperty('sessions')
-    expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
+    expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeTruthy()
     expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
     expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId)).toEqual([unrelated])
     expect((await store.sessions.loadSessions()).map((s) => s.id)).toEqual([unrelated])
@@ -94,7 +94,7 @@ describe('issue/session deletion lifecycle', () => {
   it('prepares restore reads before publishing and applies synchronously', async () => {
     const { registry, store } = await registryWithDaemon()
     try {
-      const issue = await registry.issues.create({ repoPath: '/repo', title: 'Prepared restore', startNow: false })
+      const issue = await registry.issues.crud.create({ repoPath: '/repo', title: 'Prepared restore', startNow: false })
       const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo', issueId: issue.id })
       await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
       const plan = await registry.modules.sessions.prepareIssueSessionRestore(issue.id)
@@ -117,7 +117,7 @@ describe('issue/session deletion lifecycle', () => {
     async (failure) => {
       const { registry, store } = await registryWithDaemon()
       try {
-        const issue = await registry.issues.create({ repoPath: '/repo', title: 'Failed deletion', startNow: false })
+        const issue = await registry.issues.crud.create({ repoPath: '/repo', title: 'Failed deletion', startNow: false })
         const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo', issueId: issue.id })
         const reject = async () => {
           await new Promise(resolve => setTimeout(resolve, 0))
@@ -140,7 +140,7 @@ describe('issue/session deletion lifecycle', () => {
   it('keeps both tombstones when the asynchronous session restore rejects', async () => {
     const { registry, store } = await registryWithDaemon()
     try {
-      const issue = await registry.issues.create({ repoPath: '/repo', title: 'Failed restoration', startNow: false })
+      const issue = await registry.issues.crud.create({ repoPath: '/repo', title: 'Failed restoration', startNow: false })
       const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo', issueId: issue.id })
       await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
       vi.spyOn(store.sessions, 'restoreDeletedForIssue').mockImplementationOnce(async () => {
@@ -158,7 +158,7 @@ describe('issue/session deletion lifecycle', () => {
 
   it('rolls back both aggregates and leaves runtime sessions alive when the ledger append fails', async () => {
     const { registry, store, messages } = await registryWithDaemon()
-    const issue = await registry.issues.create({ repoPath: '/repo', title: 'Atomic', startNow: false })
+    const issue = await registry.issues.crud.create({ repoPath: '/repo', title: 'Atomic', startNow: false })
     const sessionId = (await registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo',
@@ -173,7 +173,7 @@ describe('issue/session deletion lifecycle', () => {
     )
     spy.mockRestore()
 
-    expect((await registry.issues.get(issue.id))?.deletedAt).toBeUndefined()
+    expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeUndefined()
     expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeNull()
     expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some((s) => s.sessionId === sessionId)).toBe(
       true,
@@ -186,7 +186,7 @@ describe('issue/session deletion lifecycle', () => {
 
   it('rolls back both tombstone restores when the ledger append fails', async () => {
     const { registry, store } = await registryWithDaemon()
-    const issue = await registry.issues.create({
+    const issue = await registry.issues.crud.create({
       repoPath: '/repo',
       title: 'Restore atomicity',
       startNow: false,
@@ -212,7 +212,7 @@ describe('issue/session deletion lifecycle', () => {
     )
     spy.mockRestore()
 
-    expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
+    expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeTruthy()
     expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
     expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some((s) => s.sessionId === sessionId)).toBe(
       false,
@@ -228,7 +228,7 @@ describe('issue/session deletion lifecycle', () => {
     const { registry, store } = await registryWithDaemon()
     let spy: ReturnType<typeof vi.spyOn> | undefined
     try {
-      const issue = await registry.issues.create({ repoPath: '/repo', title: 'Nested restore', startNow: false })
+      const issue = await registry.issues.crud.create({ repoPath: '/repo', title: 'Nested restore', startNow: false })
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'shell', cwd: '/repo', issueId: issue.id,
       })
@@ -260,7 +260,7 @@ describe('issue/session deletion lifecycle', () => {
       })
       spy.mockRestore()
 
-      expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
+      expect((await registry.issues.reports.get(issue.id))?.deletedAt).toBeTruthy()
       expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
       expect((await store.sessions.loadDeletedSessionsForIssue(issue.id)).map(row => row.id)).toEqual([sessionId])
       expect((await store.sessions.loadSessions()).some(row => row.id === sessionId)).toBe(false)

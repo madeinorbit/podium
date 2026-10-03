@@ -32,6 +32,7 @@
  * multi-user answer is exercised before POD-1075 supplies the real one.
  */
 
+import type { IssueTrackerCapabilities } from '../issues/service'
 import type { Capability, SessionId, SessionMeta } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
@@ -89,15 +90,16 @@ export interface SessionAccessDeps {
   visibility?: SessionVisibility
 }
 
-/** Lift the synchronous issue index at the composition boundary. */
+/** Lift the owned issue read capabilities at the composition boundary. */
 export function asyncSessionIssueAccess(
-  issues: IssueAccessIndex & { issueForCwd(cwd: string): string | null | undefined },
+  issues: Pick<IssueTrackerCapabilities, 'reports' | 'hierarchy'>,
 ): SessionAccessDeps['issues'] {
+  const { reports, hierarchy } = issues
   return {
-    has: (id) => issues.has(id),
-    ancestorIds: (id) => issues.ancestorIds(id),
-    ...(issues.ownedTarget ? { ownedTarget: issues.ownedTarget.bind(issues) } : {}),
-    issueForCwd: async (cwd) => issues.issueForCwd(cwd),
+    has: (id) => reports.has(id),
+    ancestorIds: (id) => hierarchy.ancestorIds(id),
+    ...(reports.ownedTarget ? { ownedTarget: reports.ownedTarget.bind(reports) } : {}),
+    issueForCwd: async (cwd) => reports.issueForCwd(cwd),
   }
 }
 

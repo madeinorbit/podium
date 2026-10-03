@@ -56,14 +56,16 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
     sessionRefs: async (sessions) => await readSessionRefs(refSource, sessions),
     machineName: async () => 'buildbox',
     issues: ({
+      reports: {
         resolveRef: (ref: string) => {
-          if (ref === '#228' || ref === '228' || ref === ISSUE.id) return ISSUE.id
-          throw new Error(`unknown ref ${ref}`)
-        },
+            if (ref === '#228' || ref === '228' || ref === ISSUE.id) return ISSUE.id
+            throw new Error(`unknown ref ${ref}`)
+          },
         getMeta: (id: string) => (id === ISSUE.id ? ISSUE : undefined),
         get: (id: string) => (id === ISSUE.id ? ISSUE : undefined),
         issueForCwd: () => null,
-      }) as unknown as IssueService,
+      },
+    }) as unknown as IssueService,
     messages: ({
         deliveredUnacked: () => [{ id: 'm1' }, { id: 'm2' }],
       }) as unknown as MessageDeliveryService,

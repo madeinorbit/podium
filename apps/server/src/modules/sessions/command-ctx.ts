@@ -107,12 +107,12 @@ export async function sessionCommandCtx(
         transport,
       ))!,
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
-      await issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+      await issues.attention.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {
-      for (const artifact of artifacts) await issues.panelArtifactUpload(issueId, artifact)
+      for (const artifact of artifacts) await issues.crud.panelArtifactUpload(issueId, artifact)
     },
-    discardUnlaunchedDraft: async (issueId) => await issues.discardUnlaunchedDraft(issueId),
-    issueOwner: async (issueId) => (await issues.ownedTarget(issueId, 'read'))?.owner ?? undefined,
+    discardUnlaunchedDraft: async (issueId) => await issues.attention.discardUnlaunchedDraft(issueId),
+    issueOwner: async (issueId) => (await issues.reports.ownedTarget(issueId, 'read'))?.owner ?? undefined,
     access: {
       sessionById: async (sessionId) => await sessions.sessionById(sessionId),
       // Unambiguous prefix only (POD-4536) — ids from the cheap in-memory facts

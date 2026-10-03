@@ -14,7 +14,7 @@ async function harness() {
   await store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {})
-  const issue = await reg.modules.issues.create({
+  const issue = await reg.modules.issues.crud.create({
     repoPath: '/r/podium',
     title: 'T',
     startNow: false,
@@ -32,7 +32,7 @@ describe('session birth naming (#474)', () => {
       issueId: issue.id,
     })
     expect((await meta(sessionId))?.displayRef).toBe(
-      `${(await reg.modules.issues.get(issue.id))!.displayRef}-A`,
+      `${(await reg.modules.issues.reports.get(issue.id))!.displayRef}-A`,
     )
   })
 
@@ -67,7 +67,7 @@ describe('session birth naming (#474)', () => {
     })
     await reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
     expect((await meta(sessionId))?.displayRef).toBe(
-      `${(await reg.modules.issues.get(issue.id))!.displayRef}-A`,
+      `${(await reg.modules.issues.reports.get(issue.id))!.displayRef}-A`,
     )
   })
 
@@ -106,7 +106,7 @@ describe('session birth naming (#474)', () => {
 
     await reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
     expect((await meta(sessionId))?.displayRef).toBe(
-      (await reg.modules.issues.get(issue.id))!.displayRef + '-A',
+      (await reg.modules.issues.reports.get(issue.id))!.displayRef + '-A',
     )
   })
 
@@ -139,7 +139,7 @@ describe('session birth naming (#474)', () => {
 
   it('re-attach keeps the permanent birth name', async () => {
     const { reg, issue, meta } = await harness()
-    const other = await reg.modules.issues.create({
+    const other = await reg.modules.issues.crud.create({
       repoPath: '/r/podium',
       title: 'U',
       startNow: false,
@@ -151,7 +151,7 @@ describe('session birth naming (#474)', () => {
     })
     await reg.modules.sessions.setSessionIssueId(sessionId, other.id)
     expect((await meta(sessionId))?.displayRef).toBe(
-      `${(await reg.modules.issues.get(issue.id))!.displayRef}-A`,
+      `${(await reg.modules.issues.reports.get(issue.id))!.displayRef}-A`,
     )
     expect((await meta(sessionId))?.issueId).toBe(other.id)
   })

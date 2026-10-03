@@ -63,47 +63,51 @@ function fakeIssues(
     [SENDER_ISSUE.id, SENDER_ISSUE],
   ])
   return {
-    resolveRef: (ref: string) => {
-      if (byId.has(asIssueId(ref))) return ref
-      if (ref === `#${ISSUE.seq}` || ref === String(ISSUE.seq)) return ISSUE.id
-      throw new Error(`unknown ref ${ref}`)
+    reports: {
+      resolveRef: (ref: string) => {
+        if (byId.has(asIssueId(ref))) return ref
+        if (ref === `#${ISSUE.seq}` || ref === String(ISSUE.seq)) return ISSUE.id
+        throw new Error(`unknown ref ${ref}`)
+      },
+      get: (id: string, sessionList?: SessionMeta[]) => {
+        getSessionLists?.push(sessionList)
+        const base = byId.get(asIssueId(id))
+        // Surface a per-test archived flag [POD-834] without mutating the shared
+        // fixtures (which would leak across tests).
+        if (!base) return undefined
+        const coord = coordinatorByIssue?.get(id)
+        return {
+          ...base,
+          archived: archivedIds?.has(id) ?? false,
+          deletedAt: deletedIds?.has(id) ? 't' : null,
+          ...(coord ? { coordinatorSessionId: coord } : {}),
+        }
+      },
+      getMeta: (id: string) => {
+        const base = byId.get(asIssueId(id))
+        if (!base) return undefined
+        const coord = coordinatorByIssue?.get(id)
+        return {
+          ...base,
+          archived: archivedIds?.has(id) ?? false,
+          deletedAt: deletedIds?.has(id) ? 't' : null,
+          ...(coord ? { coordinatorSessionId: coord } : {}),
+        }
+      },
+      has: (id: string) => byId.has(asIssueId(id)),
+      niceRef: (row: { seq: number }) => (prefix ? `${prefix}-${row.seq}` : `#${row.seq}`),
+      issueForCwd:
+        resolveIssueForCwd ??
+        ((cwd: string) =>
+          [...byId.values()].find(
+            (issue) =>
+              issue.worktreePath &&
+              (cwd === issue.worktreePath || cwd.startsWith(`${issue.worktreePath}/`)),
+          )?.id ?? null),
     },
-    get: (id: string, sessionList?: SessionMeta[]) => {
-      getSessionLists?.push(sessionList)
-      const base = byId.get(asIssueId(id))
-      // Surface a per-test archived flag [POD-834] without mutating the shared
-      // fixtures (which would leak across tests).
-      if (!base) return undefined
-      const coord = coordinatorByIssue?.get(id)
-      return {
-        ...base,
-        archived: archivedIds?.has(id) ?? false,
-        deletedAt: deletedIds?.has(id) ? 't' : null,
-        ...(coord ? { coordinatorSessionId: coord } : {}),
-      }
+    hierarchy: {
+      ancestorIds: () => [],
     },
-    getMeta: (id: string) => {
-      const base = byId.get(asIssueId(id))
-      if (!base) return undefined
-      const coord = coordinatorByIssue?.get(id)
-      return {
-        ...base,
-        archived: archivedIds?.has(id) ?? false,
-        deletedAt: deletedIds?.has(id) ? 't' : null,
-        ...(coord ? { coordinatorSessionId: coord } : {}),
-      }
-    },
-    has: (id: string) => byId.has(asIssueId(id)),
-    niceRef: (row: { seq: number }) => (prefix ? `${prefix}-${row.seq}` : `#${row.seq}`),
-    ancestorIds: () => [],
-    issueForCwd:
-      resolveIssueForCwd ??
-      ((cwd: string) =>
-        [...byId.values()].find(
-          (issue) =>
-            issue.worktreePath &&
-            (cwd === issue.worktreePath || cwd.startsWith(`${issue.worktreePath}/`)),
-        )?.id ?? null),
   } as unknown as IssueService
 }
 
@@ -4701,8 +4705,8 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       issueForCwd: () => nested ? SENDER_ISSUE.id : ISSUE.id,
     })
     const issues = (svc as unknown as { deps: { issues: IssueService } }).deps.issues
-    const original = issues.getMeta.bind(issues)
-    vi.spyOn(issues, 'getMeta').mockImplementation(async (id) => {
+    const original = issues.reports.getMeta.bind(issues.reports)
+    vi.spyOn(issues.reports, 'getMeta').mockImplementation(async (id) => {
       const row = await original(id)
       return id === SENDER_ISSUE.id ? nested && row ? { ...row, worktreePath: `${ISSUE.worktreePath}/nested` } : null : row
     })

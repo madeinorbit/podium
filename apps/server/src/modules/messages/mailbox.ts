@@ -59,7 +59,9 @@ export interface MessageMailboxDeps {
     // which moves the SHARED delivery status for the message as a whole.
     | 'recordRead'
   >
-  issues: Pick<IssueService, 'resolveRef' | 'has'>
+  issues: {
+    readonly reports: Pick<IssueService['reports'], 'resolveRef' | 'has'>
+  }
   notificationArbiter: Pick<NotificationArbiter, 'retire'>
   /** ONE session by id — the only session read the mailbox makes [POD-3857].
    *  The full-list port it used to carry alongside this was never called. */
@@ -116,8 +118,8 @@ export class MessageMailbox {
     const issues = this.deps.issues
     const bare = ref.startsWith('issue:') ? ref.slice('issue:'.length) : ref
     try {
-      const id = await issues.resolveRef(bare)
-      return await issues.has(id) ? id : null
+      const id = await issues.reports.resolveRef(bare)
+      return await issues.reports.has(id) ? id : null
     } catch {
       return null
     }

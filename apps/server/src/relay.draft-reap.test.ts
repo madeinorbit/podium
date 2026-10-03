@@ -68,7 +68,7 @@ async function draftWithSession(reg: SessionRegistry, repo = '/repo') {
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the host machine reports it first.
   await reg.sessionStore.repos.addRepo(repo, reg.sessionStore.hostMachineId)
-  const draft = await reg.issues.createDraftFor(repo, 'codex')
+  const draft = await reg.issues.attention.createDraftFor(repo, 'codex')
   const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: repo,
@@ -81,9 +81,9 @@ describe('draft retention on session death', () => {
   it('kill of the last attached session keeps the draft', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    expect(await reg.issues.get(draft.id)).not.toBeNull()
+    expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     await reg.modules.sessions.killSession({ sessionId })
-    expect(await reg.issues.get(draft.id)).not.toBeNull()
+    expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
     expect((await reg.sessionStore.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
   })
@@ -92,7 +92,7 @@ describe('draft retention on session death', () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
     await reg.modules.sessions.setArchived({ sessionId, archived: true })
-    expect(await reg.issues.get(draft.id)).not.toBeNull()
+    expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
 
@@ -110,7 +110,7 @@ describe('draft retention on session death', () => {
       code: 0,
     })
 
-    expect(await reg.issues.get(draft.id)).not.toBeNull()
+    expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
     expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({ sessionId, status: 'exited', issueId: draft.id }),
@@ -119,7 +119,7 @@ describe('draft retention on session death', () => {
     const restarted = await SessionRegistry.create(await openTestStore(file), undefined, {
       instanceId: 'default',
     })
-    expect(await restarted.issues.get(draft.id)).not.toBeNull()
+    expect(await restarted.issues.reports.get(draft.id)).not.toBeNull()
     expect(restarted.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
     expect(await restarted.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({ sessionId, status: 'exited', issueId: draft.id }),
@@ -143,7 +143,7 @@ describe('draft retention on session death', () => {
       sessionId,
       code: 0,
     })
-    expect(await reg.issues.get(draft.id)).not.toBeNull()
+    expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
 
@@ -157,29 +157,29 @@ describe('draft retention on session death', () => {
     })).sessionId
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(second))
     await reg.modules.sessions.killSession({ sessionId })
-    expect(await reg.issues.get(draft.id)).not.toBeNull()
+    expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(second)).toBe(draft.id)
   })
 
   it('non-draft issue is never reaped', async () => {
     const reg = await regWithDaemon()
-    const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo',
       issueId: issue.id,
     })
     await reg.modules.sessions.killSession({ sessionId })
-    expect(await reg.issues.get(issue.id)).not.toBeNull()
+    expect(await reg.issues.reports.get(issue.id)).not.toBeNull()
   })
 
   it('draft with a worktree is kept', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    await reg.issues.update(draft.id, { worktreePath: '/repo/.claude/worktrees/wt' })
-    expect((await reg.issues.get(draft.id))?.draft).toBe(true) // worktree does not clear draft
+    await reg.issues.crud.update(draft.id, { worktreePath: '/repo/.claude/worktrees/wt' })
+    expect((await reg.issues.reports.get(draft.id))?.draft).toBe(true) // worktree does not clear draft
     await reg.modules.sessions.killSession({ sessionId })
-    expect(await reg.issues.get(draft.id)).not.toBeNull()
+    expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
   })
 })
 
@@ -187,11 +187,11 @@ describe('explicit rehome draft cleanup', () => {
   it('purges a draft after its sole visible session is rehomed', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    const target = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    const target = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
 
-    await reg.issues.attachSession({ sessionId, targetId: target.id })
+    await reg.issues.attention.attachSession({ sessionId, targetId: target.id })
 
-    expect(await reg.issues.get(draft.id)).toBeNull()
+    expect(await reg.issues.reports.get(draft.id)).toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(target.id)
   })
 
@@ -209,11 +209,11 @@ describe('explicit rehome draft cleanup', () => {
       cwd: '/repo',
       issueId: exited.draft.id,
     })).sessionId
-    const target = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    const target = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
 
-    await reg.issues.attachSession({ sessionId: liveSessionId, targetId: target.id })
+    await reg.issues.attention.attachSession({ sessionId: liveSessionId, targetId: target.id })
 
-    expect(await reg.issues.get(exited.draft.id)).not.toBeNull()
+    expect(await reg.issues.reports.get(exited.draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(exited.sessionId)).toBe(exited.draft.id)
     expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({
@@ -241,7 +241,7 @@ describe('boot-time draft retention', () => {
     await orphanStore.sessions.purgeSession(sessionId)
     await fixture.closeStore(orphanStore)
     const reg2 = await fixture.createRegistry()
-    expect(await reg2.issues.get(draft.id)).not.toBeNull()
+    expect(await reg2.issues.reports.get(draft.id)).not.toBeNull()
   })
 
   it('keeps a draft whose only attached session is exited', async () => {
@@ -258,7 +258,7 @@ describe('boot-time draft retention', () => {
     await reg1.dispose()
     await store.close()
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
-    expect(await reg2.issues.get(draft.id)).not.toBeNull()
+    expect(await reg2.issues.reports.get(draft.id)).not.toBeNull()
     expect(reg2.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
 
@@ -280,8 +280,8 @@ describe('boot-time draft retention', () => {
     expect((await reg1.modules.sessions.hibernateSession({ sessionId: hib.sessionId })).ok).toBe(true)
     await fixture.stopRegistry(reg1)
     const reg2 = await fixture.createRegistry()
-    expect(await reg2.issues.get(live.draft.id)).not.toBeNull()
-    expect(await reg2.issues.get(hib.draft.id)).not.toBeNull()
+    expect(await reg2.issues.reports.get(live.draft.id)).not.toBeNull()
+    expect(await reg2.issues.reports.get(hib.draft.id)).not.toBeNull()
   })
 })
 
@@ -335,9 +335,9 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
 
     // Rehoming the remaining live session is the explicit cleanup point.
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
-    const target = await reg2.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
-    await reg2.issues.attachSession({ sessionId: activeSessionId, targetId: target.id })
-    expect(await reg2.issues.get(draft.id)).toBeNull()
+    const target = await reg2.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    await reg2.issues.attention.attachSession({ sessionId: activeSessionId, targetId: target.id })
+    expect(await reg2.issues.reports.get(draft.id)).toBeNull()
 
     const after = await (await openTestStore(file)).sessions.getSession(sessionId)
     expect(after).toBeDefined()

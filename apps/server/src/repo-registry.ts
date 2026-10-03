@@ -162,7 +162,7 @@ export class RepoRegistry {
    */
   private async publishRepos(): Promise<void> {
     try {
-      await this.sessionReg.modules.issues.publishRepos()
+      await this.sessionReg.modules.issues.reports.store.publishRepos()
     } catch (err) {
       log.warn('repo projection publish failed', { err })
     }

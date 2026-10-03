@@ -28,14 +28,14 @@ describe('closed-issue cleanup under the async store (POD-3806)', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const logs = captureLogs()
     try {
-      const issue = await registry.modules.issues.create({
+      const issue = await registry.modules.issues.crud.create({
         repoPath: '/repo',
         title: 'closes inside a span',
         startNow: false,
       })
 
       await store.transact(async () => {
-        await registry.modules.issues.close(issue.id, 'done')
+        await registry.modules.issues.crud.close(issue.id, 'done')
         // The statement the lock bug died on: same span, after the cleanup fired.
         await store.issues.getIssue(asIssueId('iss_after'))
       })
@@ -96,10 +96,10 @@ describe('IssueService.onIssueClosed under the async store (POD-3820)', () => {
     }
     const issues = await IssueService.create(deps)
     try {
-      const issue = await issues.create({ repoPath: '/repo', title: 'closes', startNow: false })
+      const issue = await issues.crud.create({ repoPath: '/repo', title: 'closes', startNow: false })
 
       await store.transact(async () => {
-        await issues.close(issue.id, 'done')
+        await issues.crud.close(issue.id, 'done')
         // The statement the lock bug died on: the same span, after the hook.
         await store.issues.getIssue(asIssueId('iss_after'))
       })

@@ -33,7 +33,7 @@ async function fixture(registry: SessionRegistry): Promise<LifecycleFixture> {
   // so the fixture repo is reported by the host machine.
   await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
   const create = async (title: string, parentId?: IssueId) =>
-    await registry.issues.create({
+    await registry.issues.crud.create({
       repoPath: '/repo',
       title,
       startNow: false,
@@ -50,7 +50,7 @@ async function fixture(registry: SessionRegistry): Promise<LifecycleFixture> {
   const depFrom = await create('dep from', root.id)
   const depTo = await create('dep to', root.id)
   const archived = await create('archived', root.id)
-  await registry.issues.addDep(depFrom.id, depTo.id, 'blocks')
+  await registry.issues.hierarchy.addDep(depFrom.id, depTo.id, 'blocks')
   return {
     root,
     moving,
@@ -76,20 +76,20 @@ function lifecycleInputs(f: LifecycleFixture): Array<[LifecycleName, Record<stri
 }
 
 async function verify(registry: SessionRegistry, f: LifecycleFixture): Promise<void> {
-  expect((await registry.issues.get(f.moving.id))?.parentId).toBe(f.newParent.id)
-  expect(await registry.issues.get(f.superseded.id)).toMatchObject({
+  expect((await registry.issues.reports.get(f.moving.id))?.parentId).toBe(f.newParent.id)
+  expect(await registry.issues.reports.get(f.superseded.id)).toMatchObject({
     closedReason: 'superseded',
     supersededBy: f.replacement.id,
   })
-  expect(await registry.issues.get(f.duplicate.id)).toMatchObject({
+  expect(await registry.issues.reports.get(f.duplicate.id)).toMatchObject({
     closedReason: 'duplicate',
     duplicateOf: f.canonical.id,
   })
-  expect((await registry.issues.get(f.depFrom.id))?.deps).not.toContainEqual({
+  expect((await registry.issues.reports.get(f.depFrom.id))?.deps).not.toContainEqual({
     id: f.depTo.id,
     type: 'blocks',
   })
-  expect((await registry.issues.get(f.archived.id))?.archived).toBe(true)
+  expect((await registry.issues.reports.get(f.archived.id))?.archived).toBe(true)
 }
 
 async function runIssueClient(client: IssueTrpc, f: LifecycleFixture): Promise<void> {
@@ -188,7 +188,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
           if (msg.type === 'agentRelayResult') hub.onResult(msg)
         }),
       )
-      await registry.issues.update(f.root.id, { worktreePath: '/wt/lifecycle-root' })
+      await registry.issues.crud.update(f.root.id, { worktreePath: '/wt/lifecycle-root' })
       const sessionId = (await registry.modules.sessions.createSession({
         cwd: '/wt/lifecycle-root',
         agentKind: 'shell',

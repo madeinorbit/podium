@@ -96,7 +96,7 @@ export const accountFamilyProcedures = (): AccountProcedures =>
             listings: await state.modules.machines.listMachines(),
             isOnline: (id) => state.modules.machines.hasDaemon(id),
             defaultMachineId: await state.modules.machines.defaultMachine().catch(() => undefined),
-            lastError: state.modules.issues.backgroundLastError(),
+            lastError: state.modules.issues.gitWorkflow.backgroundLastError(),
           })
         } catch {
           return undefined
