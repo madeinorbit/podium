@@ -30,9 +30,9 @@ describe('generic speed gate URL overrides', () => {
     ]) {
       expect(() => parseSpeedSwitches([arg])).toThrow(/Invalid/)
     }
-    expect(() => parseSpeedSwitches(['--switch=mobxCommands=0', '--switch=mobxCommands=1'])).toThrow(
-      /Conflicting/,
-    )
+    expect(() =>
+      parseSpeedSwitches(['--switch=mobxCommands=0', '--switch=mobxCommands=1']),
+    ).toThrow(/Conflicting/)
   })
 
   it('preserves the default URL and report bytes and records only requested overrides', () => {

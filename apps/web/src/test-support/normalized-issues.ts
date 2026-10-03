@@ -72,8 +72,12 @@ function make(store: FixtureStore) {
       ...durable
     } = input
     const repoId =
-      input.repoId ?? store.repos?.find((repo) => repo.path === repoPath)?.repoId ?? repoPath ?? 'fixture-repo'
-    const refPrefix = prefix ?? /^(.+)-\d+$/.exec(input.displayRef ?? '')?.[1] ?? repos.get(repoId)?.prefix
+      input.repoId ??
+      store.repos?.find((repo) => repo.path === repoPath)?.repoId ??
+      repoPath ??
+      'fixture-repo'
+    const refPrefix =
+      prefix ?? /^(.+)-\d+$/.exec(input.displayRef ?? '')?.[1] ?? repos.get(repoId)?.prefix
     repos.set(repoId, { id: repoId, repoPath: repoPath ?? '', prefix: refPrefix } as RepoProjection)
     // Explicit undefined exercises historical absence instead of fixture defaults.
     projections.push({

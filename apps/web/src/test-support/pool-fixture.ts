@@ -3,6 +3,7 @@
 import type { Store } from '@podium/client-core/engine'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { reposToViews } from '@podium/client-core/viewmodels'
+import type { RowSourceEvent } from '@podium/client-graph'
 import { MobxPool } from '@podium/client-graph'
 import { attachHeaderSource } from '@podium/client-graph/header-source'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
@@ -10,10 +11,9 @@ import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
-import { useStoreSelector } from '@/app/store'
-import { normalizedFixtureStore } from './normalized-issues'
-import type { RowSourceEvent } from '@podium/client-graph'
+import { useStoreSelector as readFixtureSnapshot } from '@/app/store'
 import { fixtureStoreSnapshot } from './fixture-store'
+import { normalizedFixtureStore } from './normalized-issues'
 
 let pool: MobxPool | null = null
 let signature: string | undefined
@@ -51,12 +51,12 @@ export function resolvePoolFixtureReference(ref: string, id: string | null) {
 }
 
 function useFixturePool() {
-  return syncPoolFixture(useStoreSelector((state) => state))
+  return syncPoolFixture(readFixtureSnapshot((state) => state))
 }
 
 /** Simulate an owner publication when a test mutates its plain fake snapshot. */
 export function publishPoolFixture() {
-  syncPoolFixture(useStoreSelector((state) => state))
+  syncPoolFixture(readFixtureSnapshot((state) => state))
 }
 
 /** Fake actions publish through the same boundary as a render's snapshot. */
@@ -65,7 +65,15 @@ export function syncPoolFixture(input: Store, sidebarGesture = false) {
     issues?: readonly unknown[]
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]
   }
-  fixtureState = fixtureStoreSnapshot({ ...state, view: state.view ?? 'workspace', paneA: state.paneA ?? null, fileTabs: state.fileTabs ?? [], outboxSize: state.outboxSize ?? 0, machines: state.machines ?? [], repos: state.repos ?? [] } as Store)
+  fixtureState = fixtureStoreSnapshot({
+    ...state,
+    view: state.view ?? 'workspace',
+    paneA: state.paneA ?? null,
+    fileTabs: state.fileTabs ?? [],
+    outboxSize: state.outboxSize ?? 0,
+    machines: state.machines ?? [],
+    repos: state.repos ?? [],
+  } as Store)
   const fixtureIssues = state.issues?.length ? state.issues : seededIssues
   const nextSignature = JSON.stringify([
     fixtureIssues,
@@ -88,10 +96,15 @@ export function syncPoolFixture(input: Store, sidebarGesture = false) {
   }
   if (signature !== nextSignature) {
     signature = nextSignature
-    const normalized = state.replica && state.issueProjections
-      ? state
-      : normalizedFixtureStore({ ...state, issues: fixtureIssues })
-    const issues = allIssueViewModels(normalized.replica, normalized.issueProjections, normalized.issueUserStates)
+    const normalized =
+      state.replica && state.issueProjections
+        ? state
+        : normalizedFixtureStore({ ...state, issues: fixtureIssues })
+    const issues = allIssueViewModels(
+      normalized.replica,
+      normalized.issueProjections,
+      normalized.issueUserStates,
+    )
     const worktrees = reposToViews(state.repos ?? []).flatMap((repo) =>
       repo.worktrees.map((tree) => ({
         ...tree,
@@ -117,26 +130,43 @@ export function syncPoolFixture(input: Store, sidebarGesture = false) {
       },
     }))
     const rows: RowSourceEvent['rows'] = [
-        ...repoWorktrees,
-        ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
-        ...(state.sessions ?? []).map((value) => ({
-          kind: 'session' as const,
-          id: value.sessionId,
-          value,
-        })),
-        ...worktrees.filter((tree) => !repoWorktrees.some((row) => row.id === tree.path)).map((value) => ({ kind: 'worktree' as const, id: value.path, value })),
-      ]
+      ...repoWorktrees,
+      ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+      ...(state.sessions ?? []).map((value) => ({
+        kind: 'session' as const,
+        id: value.sessionId,
+        value,
+      })),
+      ...worktrees
+        .filter((tree) => !repoWorktrees.some((row) => row.id === tree.path))
+        .map((value) => ({ kind: 'worktree' as const, id: value.path, value })),
+    ]
     const nextRows = new Map(rows.map((row) => [JSON.stringify([row.kind, row.id]), row]))
-    pool.apply({ type: 'update', rows: [
-      ...rows,
-      ...[...previousRows].flatMap(([key, row]) => nextRows.has(key) ? [] : [{ ...row, value: undefined }]),
-    ] })
+    pool.apply({
+      type: 'update',
+      rows: [
+        ...rows,
+        ...[...previousRows].flatMap(([key, row]) =>
+          nextRows.has(key) ? [] : [{ ...row, value: undefined }],
+        ),
+      ],
+    })
     previousRows = nextRows
-    const selectionChanged = (pool.selection.keys().next().value ?? null) !== (state.selectedIssueId ?? null)
+    const selectionChanged =
+      (pool.selection.keys().next().value ?? null) !== (state.selectedIssueId ?? null)
     pool.applyLocals(
-      { selectedIssueId: state.selectedIssueId ?? null, coarseNow: state.coarseNow ?? Date.now(),
-        selectedIssueWasFolded: sidebarGesture ? undefined : false },
-      new Set(selectionChanged ? sidebarGesture ? ['selectedIssueId', 'coarseNow'] : ['selectedIssueId', 'selectedIssueWasFolded', 'coarseNow'] : ['coarseNow']),
+      {
+        selectedIssueId: state.selectedIssueId ?? null,
+        coarseNow: state.coarseNow ?? Date.now(),
+        selectedIssueWasFolded: sidebarGesture ? undefined : false,
+      },
+      new Set(
+        selectionChanged
+          ? sidebarGesture
+            ? ['selectedIssueId', 'coarseNow']
+            : ['selectedIssueId', 'selectedIssueWasFolded', 'coarseNow']
+          : ['coarseNow'],
+      ),
     )
     pool.header.apply(
       (state.machines ?? []).map((value) => ({ kind: 'machine', id: value.id, value })),
@@ -155,7 +185,9 @@ export function syncPoolFixture(input: Store, sidebarGesture = false) {
       'repository',
       repositories.map((value) => value.id),
     )
-    queueMicrotask(() => { for (const listener of headerListeners) listener() })
+    queueMicrotask(() => {
+      for (const listener of headerListeners) listener()
+    })
   }
   if (headerFixture && !stopHeader) {
     const subscribe = (listener: () => void) => {
@@ -168,7 +200,10 @@ export function syncPoolFixture(input: Store, sidebarGesture = false) {
       getSnapshot: () => fixtureState,
       subscribe,
       replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
-      hostMetrics: { getSnapshot: () => (fixtureState as typeof state).hostMetrics ?? [], subscribe },
+      hostMetrics: {
+        getSnapshot: () => (fixtureState as typeof state).hostMetrics ?? [],
+        subscribe,
+      },
       hub: {
         connectionHealth: () => ({ status: 'ok', rttMs: null, since: Date.now() }),
         onConnectionHealth: () => () => {},

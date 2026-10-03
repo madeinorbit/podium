@@ -23,18 +23,18 @@ function PoolIssueChipLiveness({ root }: { root: HTMLElement | null }): null {
   useLayoutEffect(() => {
     if (!pool || !root) return
     const stop = bindIssueRefAnchors(root, {
-        watch(ref, paint) {
-          const view = createPoolProjection(pool, (pool) => {
-            recordChipWork(owner, 'reads')
-            return pool.references.read(ref)
-          })
-          paintValue(view.getSnapshot())
-          function paintValue(model: ReturnType<typeof view.getSnapshot>): void {
-            if (paint(typeof model === 'symbol' ? 'loading' : (model ?? null)))
-              recordChipWork(owner, 'redraws')
-          }
-          return view.subscribe(() => paintValue(view.getSnapshot()))
-        },
+      watch(ref, paint) {
+        const view = createPoolProjection(pool, (pool) => {
+          recordChipWork(owner, 'reads')
+          return pool.references.read(ref)
+        })
+        paintValue(view.getSnapshot())
+        function paintValue(model: ReturnType<typeof view.getSnapshot>): void {
+          if (paint(typeof model === 'symbol' ? 'loading' : (model ?? null)))
+            recordChipWork(owner, 'redraws')
+        }
+        return view.subscribe(() => paintValue(view.getSnapshot()))
+      },
     })
     return stop
   }, [owner, pool, root])

@@ -8,7 +8,16 @@ import { syncPoolFixture } from './pool-fixture'
 // out of global setup leaves real-provider and missing-provider checks intact.
 vi.mock('@podium/client-core/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
-  const owner = { getSnapshot: () => fixtureStoreSnapshot(selectMockSnapshot((state) => state),
-    () => syncPoolFixture(selectMockSnapshot((state) => state), true)) }
+  const owner = {
+    getSnapshot: () =>
+      fixtureStoreSnapshot(
+        selectMockSnapshot((state) => state),
+        () =>
+          syncPoolFixture(
+            selectMockSnapshot((state) => state),
+            true,
+          ),
+      ),
+  }
   return { ...actual, useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
 })

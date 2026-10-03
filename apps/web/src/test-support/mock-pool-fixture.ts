@@ -5,10 +5,22 @@ vi.mock('@/features/worklist/worklist-motion', async () => {
   const { LayoutGroup, LazyMotion, MotionConfig } = await import('motion/react')
   const { default: features } = await import('@/features/worklist/worklist-motion-features')
   return {
-    WorklistMotion: ({ children, layoutGroupId }: { children: import('react').ReactNode; layoutGroupId: string }) =>
-      createElement(LazyMotion, { features, strict: true },
-        createElement(MotionConfig, { reducedMotion: 'always' },
-          createElement(LayoutGroup, { id: layoutGroupId }, children))),
+    WorklistMotion: ({
+      children,
+      layoutGroupId,
+    }: {
+      children: import('react').ReactNode
+      layoutGroupId: string
+    }) =>
+      createElement(
+        LazyMotion,
+        { features, strict: true },
+        createElement(
+          MotionConfig,
+          { reducedMotion: 'always' },
+          createElement(LayoutGroup, { id: layoutGroupId }, children),
+        ),
+      ),
   }
 })
 

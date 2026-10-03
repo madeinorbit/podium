@@ -73,7 +73,7 @@
  */
 
 import type { MotionPhase } from '@podium/client-core/viewmodels'
-import { type JSX } from 'react'
+import type { JSX } from 'react'
 import { createPortal } from 'react-dom'
 import type { IdSquareBadge } from '@/components/IdSquare'
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'

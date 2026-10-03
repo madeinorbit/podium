@@ -14,7 +14,11 @@ const fixture = vi.hoisted(() => ({
   issues: [] as IssueReferenceSource[],
 }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => fixture.owner }))
-vi.mock('@/app/store', () => ({ useReplicaIssues: () => { throw new Error('Legacy chip read') } }))
+vi.mock('@/app/store', () => ({
+  useReplicaIssues: () => {
+    throw new Error('Legacy chip read')
+  },
+}))
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => fixture.pool }))
 
 describe('non-reference fallback labels', () => {

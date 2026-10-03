@@ -1,10 +1,10 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { publishPoolFixture } from '@/test-support/pool-fixture'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
+import { publishPoolFixture } from '@/test-support/pool-fixture'
 import { SidebarUnified, WorkSections } from './SidebarUnified'
 
 const selection = vi.hoisted(() => ({

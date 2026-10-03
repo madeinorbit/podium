@@ -1,9 +1,22 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
-import { boardSnapshot, compareBoardValues, explorerSnapshot } from '@podium/client-graph/diagnostics/issue-board-check'
-import type { BoardOptions, PoolBoardData, PoolExplorerData } from '@podium/client-graph/issue-board-schema'
-import { defaultTab, EXPLORER_TABS, explorerCounts, explorerRows } from '../src/features/issues/explorer/explorer-list'
+import {
+  boardSnapshot,
+  compareBoardValues,
+  explorerSnapshot,
+} from '@podium/client-graph/diagnostics/issue-board-check'
+import type {
+  BoardOptions,
+  PoolBoardData,
+  PoolExplorerData,
+} from '@podium/client-graph/issue-board-schema'
+import {
+  defaultTab,
+  EXPLORER_TABS,
+  explorerCounts,
+  explorerRows,
+} from '../src/features/issues/explorer/explorer-list'
 import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
 import { deriveIssuesViewModel } from '../src/features/issues/issues-view-model'
 

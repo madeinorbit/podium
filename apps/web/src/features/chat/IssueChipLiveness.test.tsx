@@ -1,8 +1,8 @@
 import '@/test-support/mock-pool-fixture'
-import { resolvePoolFixtureReference } from '@/test-support/pool-fixture'
 import { act, type JSX, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resolvePoolFixtureReference } from '@/test-support/pool-fixture'
 import { IssueChipLiveness } from './IssueChipLiveness'
 
 const fixture = vi.hoisted(() => ({
