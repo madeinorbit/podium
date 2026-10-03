@@ -26,7 +26,7 @@ try {
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, reducedMotion: 'reduce' })
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
-    await page.goto(`${origin}/test/chat-context.browser.html?rows=${rows}&mobxChatContext=${mode === 'pool' ? 1 : 0}&mobxSessionPanes=0`)
+    await page.goto(`${origin}/test/chat-context.browser.html?rows=${rows}&mobxChatContext=${mode === 'pool' ? 1 : 0}&mobxSessionPane=0`)
     await page.waitForFunction(() => window.__chatContextFixture?.ready(), null, { timeout: 60000 })
     if (mode === 'pool') await page.waitForFunction(() => {
       const result = window.__chatContextFixture.check()

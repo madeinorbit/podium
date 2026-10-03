@@ -669,7 +669,7 @@ This is agent mail, not the operator's latest prompt.
     })
     const viewportRect = vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 100, 800, 600))
     const promptRect = vi.spyOn(prompt, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 40))
-    act(() => fireEvent.scroll(scroller))
+    act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
     await flush()
     const shelf = container.querySelector('[data-testid="pinned-brief"]')
     expect(shelf).not.toBeNull()
