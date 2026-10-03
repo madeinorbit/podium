@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import type { Store } from '@podium/client-core/engine'
 import { dedupeSessions } from '@podium/client-core/engine'
 import { createKernelReplica, createSideCache, memoryStorage, allIssueViewModels } from '@podium/client-core/replica'
-import { sessionViews } from '@podium/client-core/session-values'
 import { NdjsonLineReader, readSyncStream } from '@podium/client-core/sync-stream'
 import { emptyWorkspace, missionRootFor, workspaceKeyFor } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model/browser'
@@ -16,6 +15,7 @@ import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
 import { corpusFromLive, type LiveCollections } from '../../worklist-proto/harness/src/fixture/live-snapshot'
 import { sidebarReplayStore } from '../../worklist-proto/harness/src/oracle/sidebar-replay'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
+import { createRowSource } from '../src/shared/row-source'
 import { ShellSource } from '../src/shell-source'
 import { SHELL_ENTITIES, SHELL_SOURCE_KEY, SHELL_SUMMARIES } from '../src/shell-schema'
 import { MISSION_VIEW_SUMMARIES } from '../src/mission-view-schema'
@@ -60,8 +60,13 @@ async function main() {
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const users = replica.rows('sessionUserStates')
   if (new Set(users.map(row => row.userId)).size > 1) throw new Error('Ambiguous principal')
-  const sessions = dedupeSessions(sessionViews(replica.rows('sessions'), { userId: users[0]?.userId ?? '', userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true,
-    userStates: users, repos: replica.rows('repos'), machines: replica.rows('machines') }))
+  const sessionReader = createRowSource({ principal: { userId: users[0]?.userId ?? '' },
+    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+  }, replica, { mode: 'truth' })
+  let sessions: Store['sessions']
+  try {
+    sessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
+  } finally { sessionReader.dispose() }
   const lifecycle = { sessionDefaults: { agent: 'codex' }, hibernation: { enabled: false }, worktreeGc: { enabled: false, afterDays: 14 } }
   let state = { ...sidebarReplayStore(corpus, replica), sessions, view: 'workspace', paneA: sessions[0]?.sessionId ?? null,
     reposLoaded: true, superOpen: false, paletteOpen: false, autoContinuePromptSessionId: null,

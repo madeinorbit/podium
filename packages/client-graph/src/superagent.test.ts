@@ -83,6 +83,16 @@ it('keeps unrelated publications out of thread derivation and honors active-thre
   f.publish({ superThreadId: 'global' as Store['superThreadId'] }); await Promise.resolve()
   expect(superagentState(f.pool).activeSessionId).toBe('s-a')
 })
+it('keeps booting tied to server session presence while optimistic store sessions exist', async () => {
+  const f = await fixture()
+  vi.spyOn(f.owner.replica, 'getCursor').mockReturnValue(null)
+  await settle(f)
+  expect(f.state.sessions.length).toBeGreaterThan(0)
+  expect(superagentState(f.pool).booting).toBe(true)
+  f.rows.mockImplementation(kind => kind === 'sessions' ? f.state.sessions as never : [])
+  f.publish({}); await Promise.resolve()
+  expect(superagentState(f.pool).booting).toBe(false)
+})
 it('orders numeric event ids, caps the tail and updates only addressed event rows', async () => {
   const f = await fixture(); await settle(f)
   expect(superagentFeed(f.pool).events.map(row => row.id)).toEqual([9, 99, 100])

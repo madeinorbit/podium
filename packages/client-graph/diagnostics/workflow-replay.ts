@@ -4,10 +4,10 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { dedupeSessions, type Store } from '@podium/client-core/engine'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { sessionViews } from '@podium/client-core/session-values'
 import { asAccountId, asMachineId, asSessionId, type MachineWire } from '@podium/model/browser'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
+import { createRowSource } from '../src/shared/row-source'
 import { WORKFLOW_SUMMARIES } from '../src/workflow-schema'
 import type { SliceIssue } from '../src/shared/slice-types'
 import { checkWorkflows } from './workflow-check'
@@ -53,8 +53,15 @@ async function main() {
   }
   const replica = createKernelReplica({ cache: { readCursor: () => null, readEntities: () => [...records.values()], read: (entity, id) => records.get(`${entity}:${id}`), durability: () => 'durable' },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
+  const sessionReader = createRowSource({ principal: { userId: 'workflow-replay' },
+    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+  }, { ...replica, sessionUserStatesLoaded: () => true }, { mode: 'truth' })
+  let normalizedSessions: Store['sessions']
+  try {
+    normalizedSessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
+  } finally { sessionReader.dispose() }
   const state = { issueProjections: [...replica.rows('issueProjections')],
-    sessions: dedupeSessions(sessionViews(replica.rows('sessions'), { userId: 'workflow-replay', userStatesLoaded: true, userStates: [], repos: [], machines: [] })),
+    sessions: normalizedSessions,
     repos: [], machines, settingsTab: 'general', coarseNow: Date.now(), selectedIssueId: null,
   } as unknown as Store
   const profiles: ExecutionProfileWire[] = profileRefs.map(row => ({ id: String(row.id), name: '', machineId: row.machineId ? asMachineId(String(row.machineId)) : null,

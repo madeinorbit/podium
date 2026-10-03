@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { createKernelReplica, createSideCache, memoryStorage, allIssueViewModels } from '@podium/client-core/replica'
-import { sessionViews } from '@podium/client-core/session-values'
 import { dedupeSessions, type Store } from '@podium/client-core/engine'
 import { NdjsonLineReader, readSyncStream } from '@podium/client-core/sync-stream'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
+import { createRowSource } from '../src/shared/row-source'
 import { SessionPaneSource } from '../src/session-pane-source'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from '../src/session-pane-schema'
 import { checkSessionPanes } from './session-pane-check'
@@ -40,9 +40,13 @@ async function main() {
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const users = replica.rows('sessionUserStates')
   if (new Set(users.map(row => row.userId)).size > 1) throw new Error('Ambiguous replay principal')
-  const sessions = dedupeSessions(sessionViews(replica.rows('sessions'), { userId: users[0]?.userId ?? '',
-    userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true, userStates: users,
-    repos: replica.rows('repos'), machines: replica.rows('machines') }))
+  const sessionReader = createRowSource({ principal: { userId: users[0]?.userId ?? '' },
+    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+  }, replica, { mode: 'truth' })
+  let sessions: Store['sessions']
+  try {
+    sessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
+  } finally { sessionReader.dispose() }
   const issues = allIssueViewModels(replica)
   phase = 3
   let multipleMatches = 0, differentTies = 0

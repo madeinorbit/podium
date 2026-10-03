@@ -51,8 +51,8 @@ type SuperagentOwner = Pick<ClientRuntime, 'replica' | 'readPosition' | 'subscri
 export async function createSuperagentSource(owner: SuperagentOwner): Promise<PoolSource<keyof SuperagentRows> & {
   counts: { batches: number; threadLists: number; eventCollections: number; addressedEvents: number; questionCollections: number }
 }> {
-  const [{ observable, runInAction, compareStructural }, rollup] = await Promise.all([
-    import('mobx'), import('./worklist/rollup'),
+  const [{ observable, runInAction, compareStructural }, rollup, { readViewInputs }] = await Promise.all([
+    import('mobx'), import('./worklist/rollup'), import('@podium/client-core/replica'),
   ])
   const LOADING: typeof import('./worklist/rollup').LOADING = rollup.LOADING
   const replica = owner.replica
@@ -158,7 +158,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
             this.threads(state.superThreads)
             this.set('superagentLocal:local', { superThreadId: state.superThreadId, paneA: state.paneA,
               selectedWorktree: state.selectedWorktree, booting: replica.getCursor() === null &&
-                replica.rows('sessions').length === 0 && replica.rows('issueProjections').length === 0 })
+                readViewInputs(replica).sessions.length === 0 && replica.rows('issueProjections').length === 0 })
             this.loaded.add('threads')
           }
           if (this.demanded.has('events') && this.eventsDirty) {

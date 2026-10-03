@@ -8,6 +8,7 @@ import { createKernelReplica, createSideCache, memoryStorage } from '@podium/cli
 import { machineViewsFromWire } from '@podium/client-core/viewmodels'
 import { AutomationWire, AutomationRunWire, GitRepositoryWire, type MachineWire } from '@podium/model/browser'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
+import { createRowSource } from '../src/shared/row-source'
 import { AutomationSource } from '../src/automation-source'
 import { AUTOMATION_ENTITIES } from '../src/automation-schema'
 import { checkAutomations, type LegacyTargets } from './automation-check'
@@ -60,7 +61,14 @@ async function main() {
   }
   const replica = createKernelReplica({ cache: { readCursor: () => null, readEntities: () => [...records.values()], read: (entity, id) => records.get(`${entity}:${id}`), durability: () => 'durable' },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-  const state = { automations: [...replica.rows('automations')], automationRuns: [...replica.rows('automationRuns')], sessions: dedupeSessions([...replica.rows('sessions')]),
+  const sessionReader = createRowSource({ principal: { userId: '' },
+    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+  }, { ...replica, sessionUserStatesLoaded: () => true }, { mode: 'truth' })
+  let normalizedSessions: Store['sessions']
+  try {
+    normalizedSessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
+  } finally { sessionReader.dispose() }
+  const state = { automations: [...replica.rows('automations')], automationRuns: [...replica.rows('automationRuns')], sessions: normalizedSessions,
     repos, machines, settingsTab: 'general', coarseNow: Date.now(), selectedIssueId: null, paneA: null,
     pins: { repos: [], worktrees: [] }, sidebarSettings: { repoOrder: [] },
   } as unknown as Store
