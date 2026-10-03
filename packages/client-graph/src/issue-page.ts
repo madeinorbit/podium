@@ -86,7 +86,7 @@ export function createIssuePageViews(pool: MobxPool) {
     const result: IssueViewModel['dependents'] = []
     let pending = false
     for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
-      const source = pool.row('issue', sourceId, 'summary') as Loaded<{ deps?: { id: string; type: string }[] }>
+      const source = pool.row('issue', sourceId, 'summary-fields') as Loaded<{ deps?: { id: string; type: string }[] }>
       if (source === LOADING) pending = true
       else for (const dep of source?.deps ?? []) if (dep.id === id) result.push({ id: asIssueId(sourceId), type: dep.type })
     }
@@ -96,7 +96,8 @@ export function createIssuePageViews(pool: MobxPool) {
     return memo(`dependents:${id}`, () => readDependents(id))
   }
   function readSummary(id: string): Loaded<IssueViewModel> {
-    const row = pool.row('issue', id, 'summary')
+    // Menus need declared fields, not the worklist's computed presence bound.
+    const row = pool.row('issue', id, 'summary-fields')
     if (!row || row === LOADING) return row
     // Pick declared menu facts even for a resident row: a read cursor or
     // body update cannot invalidate the whole menu/edge lookup world.
