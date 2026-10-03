@@ -29,6 +29,7 @@ export const MOBILE_INBOX_SCHEMA = {
     source: 'pool:session',
     relations: ['pageIssue', 'bornIssue'],
     summary: [
+      // eslint-disable-next-line fence/no-table-walk -- Static declared field names, not entity rows.
       ...ISSUE_PAGE_SUMMARIES.session,
       'createdAt',
       'draftUpdatedAt',
@@ -47,6 +48,7 @@ export const MOBILE_INBOX_SCHEMA = {
   issue: {
     source: 'pool:issue',
     relations: ['repo', 'treeParent', 'treeChildren', 'pageSessions'],
+    // eslint-disable-next-line fence/no-table-walk -- Static declared field names, not entity rows.
     summary: [...ISSUE_PAGE_SUMMARIES.issue, 'priority'],
   },
   window: { source: 'pool:window', fields: ['outboxSize'] },
