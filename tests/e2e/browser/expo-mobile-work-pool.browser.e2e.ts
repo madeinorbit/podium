@@ -21,11 +21,14 @@ async function rpc<T>(request: APIRequestContext, proc: string, input: unknown =
   return (await result.json()).result.data as T
 }
 
-async function launchWork(page: Page, on: boolean) {
+async function launchWork(page: Page, on: boolean, previousOn: boolean) {
   await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
   const toggle = page.getByLabel('MobX pilot', { exact: true })
-  if ((await toggle.isChecked()) !== on) await toggle.click()
+  // Pilot-on preferences arrive with the lazy pool. The screen's initial
+  // fallback is off, so wait for our last saved value before deciding to click.
+  await expect(toggle).toBeChecked({ checked: previousOn })
+  if (previousOn !== on) await toggle.click()
   await expect(toggle).toBeChecked({ checked: on })
   await page.waitForTimeout(2_000)
   await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
@@ -42,7 +45,7 @@ test('production mobile work has equal off/on rows and styles, and a real press 
   const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
   const row = () => page.getByRole('button', { name: new RegExp(`^${prefix} ${title} 1$`) })
   // Prime the normal mark-read write before comparing the same data in both arms.
-  await launchWork(page, false)
+  await launchWork(page, false, false)
   await expect(row()).toBeVisible({ timeout: 60_000 })
   await row().click()
   await expect(page.getByLabel('Mission actions', { exact: true })).toBeVisible({ timeout: 30_000 })
@@ -51,8 +54,10 @@ test('production mobile work has equal off/on rows and styles, and a real press 
   const heap = async () => { await cdp.send('HeapProfiler.collectGarbage'); return (await cdp.send('Runtime.getHeapUsage')).usedSize as number }
   const cells: unknown[] = []
   let expected: unknown
+  let savedOn = false
   for (const on of [false, true, false, true]) {
-    await launchWork(page, on)
+    await launchWork(page, on, savedOn)
+    savedOn = on
     await expect(row()).toBeVisible({ timeout: 60_000 })
     // Each hard navigation constructs the real principal-scoped provider and
     // pool again. This is startup-to-row readiness, not a mounted user switch.
