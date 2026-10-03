@@ -37,14 +37,17 @@ vi.mock('./store', () => ({
 vi.mock('@podium/client-core/react', async original => ({ ...await original<typeof import('@podium/client-core/react')>(),
   useStoreHandle: () => owner,
 }))
-vi.mock('./store-worklist-pool', () => ({
-  useWorklistPool: () => state.pool,
-  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => {
-    const currentPool = state.pool as MobxPool | null
-    const projection = useMemo(() => currentPool ? createPoolProjection(currentPool, read) : null, [read, currentPool])
-    return useSyncExternalStore(projection?.subscribe ?? (() => () => {}), projection?.getSnapshot ?? (() => empty))
-  },
-}))
+vi.mock('./store-worklist-pool', () => {
+  const usePool = () => state.pool as MobxPool | null
+  return {
+    useWorklistPool: usePool,
+    useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => {
+      const currentPool = usePool()
+      const projection = useMemo(() => currentPool ? createPoolProjection(currentPool, read) : null, [read, currentPool])
+      return useSyncExternalStore(projection?.subscribe ?? (() => () => {}), projection?.getSnapshot ?? (() => empty))
+    },
+  }
+})
 vi.mock('@/lib/pane-data-layer', () => ({ paneDataLayer: () => state.layer, initializePaneDataLayer: () => {} }))
 vi.mock('@/lib/use-harness-descriptors', () => ({ useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' }) }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => true }))
