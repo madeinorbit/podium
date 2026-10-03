@@ -24,6 +24,7 @@ import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import {
   asRepoId,
+  asIssueId,
   asSessionId,
   asUserId,
   sessionUserStateRowId,
@@ -378,6 +379,21 @@ describe('POD-5179 reciprocal provenance in the sidebar check corpus', () => {
     } finally {
       ctx.dispose()
     }
+  })
+})
+
+describe('POD-5263 empty reciprocal parents in the sidebar check corpus', () => {
+  it.each([false, true])('matches legacy before and after lifecycle changes (reversed=%s)', reversed => {
+    const a = issue('cycle-a', { stage: 'backlog', parentId: asIssueId('cycle-b') })
+    const b = issue('cycle-b', { stage: 'backlog', parentId: asIssueId('cycle-a') })
+    const ctx = replay(collections(reversed ? [b, a] : [a, b]))
+    try {
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 0 })
+      ctx.updateIssue({ ...a, stage: 'planning' })
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
+      ctx.updateIssue(a)
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 0 })
+    } finally { ctx.dispose() }
   })
 })
 

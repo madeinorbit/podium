@@ -488,10 +488,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     ),
     /** A hidden issue's from its summary (POD-4753): its row and its sessions are not read. */
     presence: cachedGroup('presence', (issue: IssueModel) => {
-      const hidden = issue.host.hidden('issue', issue.id)
+      const hidden = issue.hidden
       return hidden === undefined
         ? presenceOf(issue.host.visibleInputs, issue.id, issue)
-        : hiddenPresenceOf(issue.host.visibleInputs, issue.id, hidden as HiddenIssue)
+        : hiddenPresenceOf(issue.host.visibleInputs, issue.id, hidden)
     }),
     /** Independent of nesting: cycle rejection can follow candidates without recursion. */
     nestCandidate: cachedGroup('nestCandidate', (issue: IssueModel) => {
@@ -860,6 +860,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.presence.flat
   }
 
+  get hidden(): HiddenIssue | undefined {
+    return this.host.hidden('issue', this.id) as HiddenIssue | undefined
+  }
+
   get keeps(): boolean {
     return this.presence.keeps
   }
@@ -965,7 +969,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get keptBelow(): boolean {
-    return keptBelowPartOf(this.host.visibleInputs, this.childIds)
+    return keptBelowPartOf(this.host.visibleInputs, this.id, this.childIds)
   }
 
   get unread(): boolean {

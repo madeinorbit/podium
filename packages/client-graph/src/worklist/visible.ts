@@ -25,8 +25,8 @@
  * a whole list reads (the rank) is its own group, and every other group is
  * read by its own row, its family or one ancestor chain. Groups never read
  * each other in a cycle: every cross-issue read goes one way (children up,
- * ancestors down, spin-offs across), and a group reading another issue reads
- * a group of that issue that does not read back.
+ * ancestors down, spin-offs across). Rescue within a raw parent cycle reads
+ * only own-row/member facts, never another cycle member's presence.
  * - facts (`issueFactsOf`): the own row, hot OR cold (a cold row is read by
  *   id through the feed, `VisibleInputs.issueRow`), and the clock: the
  *   standing (structural exclusion, finished, the sessionless keep's inputs,
@@ -242,7 +242,7 @@ export type HiddenIssue = Partial<Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[
 
 /** The presence of a hidden issue, from its summary and the rows below it: never flat or present. */
 export function hiddenPresenceOf(input: VisibleInputs, id: string, hidden: HiddenIssue): Presence {
-  const keeps = !excludedOf(hidden) && keptBelowPartOf(input, childIdsPartOf(input, id))
+  const keeps = !excludedOf(hidden) && keptBelowPartOf(input, id, childIdsPartOf(input, id))
   // An unplaced agent row may still have pre-nesting presence from a seat.
   // A live descendant needs that verdict: it might nest under this row and
   // disappear with it. Load through the normal window only when needed,
@@ -509,6 +509,8 @@ export interface Members {
 /** One issue's parts (see the header), and its roll-up parts (`rollup.ts`). */
 export interface IssueVisibility extends RollupParts, Members {
   readonly standing: Standing | undefined
+  /** A cold hidden issue's declared summary; absent in the plain rebuild. */
+  readonly hidden?: HiddenIssue
   /** The raw `parentId` the nesting walk follows (`standing.parentId`; a hidden issue's from its summary). */
   readonly parentRef: string | null
   readonly childIds: readonly string[]
@@ -685,9 +687,48 @@ export function unreadPartOf(
 }
 
 /** Some child is flat or kept, through non-excluded children (`rows.ts:130-146`). */
-export function keptBelowPartOf(input: VisibleInputs, childIds: readonly string[]): boolean {
-  for (const childId of childIds) {
-    if (input.issue(childId)?.keeps === true) return true
+export function keptBelowPartOf(input: VisibleInputs, id: string, childIds: readonly string[]): boolean {
+  if (childIds.length === 0) return false
+  // Each issue has one raw parent. Only members of the same parent cycle
+  // can read presence back into this issue; branches leaving it are trees.
+  // Detect that cycle through relations alone, without reading presence.
+  const cycle = new Set<string>([id])
+  let parentId = input.links.issue.treeParent(id)
+  while (parentId !== null && !cycle.has(parentId)) {
+    cycle.add(parentId)
+    parentId = input.links.issue.treeParent(parentId)
+  }
+  if (parentId !== id) {
+    for (const childId of childIds) {
+      if (input.issue(childId)?.keeps === true) return true
+    }
+    return false
+  }
+
+  // Legacy rescues only from a flat row, never from a cycle on its own.
+  // Within the cycle check the flat pass directly, and visit each member
+  // once. Outside it keep composing the child's cached presence as usual.
+  const seen = new Set<string>()
+  const pending = [...childIds]
+  while (pending.length > 0) {
+    const childId = pending.pop() as string
+    if (seen.has(childId)) continue
+    seen.add(childId)
+    if (!cycle.has(childId)) {
+      if (input.issue(childId)?.keeps === true) return true
+      continue
+    }
+    const child = input.issue(childId)
+    if (child === undefined) continue
+    const hidden = child.hidden
+    if (hidden !== undefined) {
+      if (excludedOf(hidden)) continue
+    } else {
+      const standing = child.standing
+      if (standing === undefined || standing.excluded) continue
+      if (flatOf(input, childId, standing, child)) return true
+    }
+    pending.push(...childIdsPartOf(input, childId))
   }
   return false
 }
@@ -718,7 +759,7 @@ export function presenceOf(
   }
   const flat = flatOf(input, id, standing, self)
   if (flat) return { flat, keeps: true, present: true }
-  const keptBelow = keptBelowPartOf(input, childIdsPartOf(input, id))
+  const keptBelow = keptBelowPartOf(input, id, childIdsPartOf(input, id))
   return { flat, keeps: keptBelow, present: standing.rescuable && keptBelow }
 }
 
@@ -993,7 +1034,7 @@ export function directVisibility(
       return presence().flat
     },
     get keptBelow() {
-      return once('keptBelow', () => keptBelowPartOf(input, parts.childIds))
+      return once('keptBelow', () => keptBelowPartOf(input, id, parts.childIds))
     },
     get keeps() {
       return presence().keeps
