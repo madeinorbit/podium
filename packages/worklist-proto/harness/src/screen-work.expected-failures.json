@@ -5,1040 +5,485 @@
       {
         "reader": "IssueBoard@facts:guard-root",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "IssueBoard@sessions:guard-root",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ]
+          "pane-switch": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:automations",
         "actions": {
-          "heartbeat": [
-            "elements"
-          ]
+          "heartbeat": ["elements"]
         }
       },
       {
         "reader": "consumer:automations/automations.targets:",
         "actions": {
-          "heartbeat": [
-            "elements"
-          ]
+          "heartbeat": ["elements"]
         }
       },
       {
         "reader": "consumer:board.card",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ],
-          "heartbeat": [
-            "derivations",
-            "elements"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"],
+          "heartbeat": ["derivations", "elements"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-child\",\"now\":#}",
         "actions": {
-          "pane-switch": [
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["derivations", "elements"]
         }
       },
       {
         "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}",
         "actions": {
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "elements"
-          ],
-          "lane-change": [
-            "derivations",
-            "elements"
-          ]
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["derivations", "elements"],
+          "machine-flip": ["elements"],
+          "lane-change": ["derivations", "elements"]
         }
       },
       {
         "reader": "consumer:board.card/IssueBoard@row:guard-child",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:board.card/IssueBoard@row:guard-root",
         "actions": {
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:board.catalog",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"]
         }
       },
       {
         "reader": "consumer:board.explorer",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ]
+          "pane-switch": ["rows", "derivations"]
         }
       },
       {
         "reader": "consumer:board.explorer/IssueBoard@explorer:{\"tab\":null,\"query\":\"\",\"windowed\":true}",
         "actions": {
-          "stage-change": [
-            "elements"
-          ],
-          "pane-switch": [
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "elements"
-          ],
-          "machine-flip": [
-            "elements"
-          ],
-          "lane-change": [
-            "elements"
-          ]
+          "stage-change": ["elements"],
+          "pane-switch": ["derivations", "elements"],
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["elements"],
+          "machine-flip": ["elements"],
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:board.explorer/IssueBoard@explorerCounts",
         "actions": {
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "elements"
-          ]
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:board.explorer/IssueBoard@query:{\"kind\":\"explorer\",\"tab\":\"needs\",\"query\":\"\"}",
         "actions": {
-          "lane-change": [
-            "elements"
-          ]
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:board.explorer/IssueBoard@sessions:guard-root",
         "actions": {
-          "machine-flip": [
-            "rows",
-            "elements"
-          ]
+          "machine-flip": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:board.model",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations"
-          ]
+          "pane-switch": ["rows", "derivations"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "lane-change": ["rows", "derivations"]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-child\",\"now\":#,\"windowed\":true}",
         "actions": {
-          "select": [
-            "elements"
-          ],
-          "stage-change": [
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["elements"],
+          "stage-change": ["elements"],
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}",
         "actions": {
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@catalog:false",
         "actions": {
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "elements"
-          ]
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
+          "lane-change": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@query:{\"kind\":\"board\",\"filter\":{},\"showAgentTasks\":false}",
         "actions": {
-          "stage-change": [
-            "elements"
-          ],
-          "pane-switch": [
-            "derivations",
-            "elements"
-          ],
-          "heartbeat": [
-            "elements"
-          ],
-          "lane-change": [
-            "elements"
-          ]
+          "stage-change": ["elements"],
+          "pane-switch": ["derivations", "elements"],
+          "heartbeat": ["elements"],
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@row:guard-root",
         "actions": {
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "elements"
-          ]
+          "heartbeat": ["rows", "elements"],
+          "lane-change": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:board.query",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"]
         }
       },
       {
         "reader": "consumer:board.query/IssueBoard@query:{\"kind\":\"board\",\"showAgentTasks\":false}",
         "actions": {
-          "stage-change": [
-            "elements"
-          ],
-          "pane-switch": [
-            "derivations",
-            "elements"
-          ],
-          "heartbeat": [
-            "elements"
-          ],
-          "lane-change": [
-            "elements"
-          ]
+          "stage-change": ["elements"],
+          "pane-switch": ["derivations", "elements"],
+          "heartbeat": ["elements"],
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:chat.detail",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ]
+          "pane-switch": ["rows", "derivations"]
         }
       },
       {
         "reader": "consumer:chat.references",
         "actions": {
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "elements"
-          ]
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:header.shipping/header.shipping",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["elements"],
+          "navigate-by-ref": ["rows", "derivations", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:issue-page.catalog",
         "actions": {
-          "pane-switch": [
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["derivations", "elements"]
         }
       },
       {
         "reader": "consumer:issue-page.catalog/IssuePage@explorer",
         "actions": {
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "elements"
-          ]
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:issue-page.catalog/IssuePage@summaries",
         "actions": {
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:issue-page.detail",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ],
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "derivations",
-            "elements"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"],
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["derivations", "elements"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:issue-page.detail/IssuePage@members:guard-root",
         "actions": {
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ]
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
+          "machine-flip": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:issue-page.detail/IssuePage@page:guard-child",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:issue-page.detail/IssuePage@page:guard-root",
         "actions": {
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:issue-page.detail/IssuePage@summaries",
         "actions": {
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "elements"
-          ]
+          "heartbeat": ["rows", "elements"],
+          "lane-change": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:issue-page.panel",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ],
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "derivations",
-            "elements"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"],
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["derivations", "elements"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:issue-page.panel/IssuePage@panel:{\"issueId\":\"guard-child\",\"cwd\":\"/synthetic\"}",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"]
         }
       },
       {
         "reader": "consumer:issue-page.panel/IssuePage@panel:{\"issueId\":\"guard-root\",\"cwd\":\"/synthetic\"}",
         "actions": {
-          "heartbeat": [
-            "derivations"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "heartbeat": ["derivations"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:launcher.launch/ComputedValue@#",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "elements"
-          ],
-          "open-menu": [
-            "rows",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "pane-switch": ["rows", "elements"],
+          "open-menu": ["rows", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
+          "machine-flip": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:launcher.palette",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ],
-          "heartbeat": [
-            "derivations",
-            "elements"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"],
+          "heartbeat": ["derivations", "elements"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:launcher.palette/ComputedValue@#",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "open-menu": [
-            "rows",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "open-menu": ["rows", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mobile-inbox",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mobile-inbox/ComputedValue@#",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mobile-inbox/IssuePage@issue:guard-child",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root",
         "actions": {
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mobile-session",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:settings",
         "actions": {
-          "heartbeat": [
-            "elements"
-          ]
+          "heartbeat": ["elements"]
         }
       },
       {
         "reader": "consumer:settings/settings.sessions",
         "actions": {
-          "heartbeat": [
-            "elements"
-          ]
+          "heartbeat": ["elements"]
         }
       },
       {
         "reader": "consumer:settings/settings.setup",
         "actions": {
-          "heartbeat": [
-            "elements"
-          ]
+          "heartbeat": ["elements"]
         }
       },
       {
         "reader": "consumer:shell.catalogs/ComputedValue@#",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"]
         }
       },
       {
         "reader": "consumer:shell.chrome",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ],
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "elements"
-          ]
+          "pane-switch": ["derivations"],
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["elements"]
         }
       },
       {
         "reader": "consumer:shell.chrome/ComputedValue@#",
         "actions": {
-          "select": [
-            "elements"
-          ],
-          "stage-change": [
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "open-menu": [
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["elements"],
+          "stage-change": ["elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "open-menu": ["elements"],
+          "navigate-by-ref": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ]
+          "pane-switch": ["rows", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
+          "machine-flip": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["rows", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:shell.close/ComputedValue@#",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:shell.dock",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"]
         }
       },
       {
         "reader": "consumer:shell.dock/ComputedValue@#",
         "actions": {
-          "select": [
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "open-menu": [
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "elements"
-          ]
+          "select": ["elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "open-menu": ["elements"],
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["rows", "elements"],
+          "lane-change": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:superagent",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ]
+          "pane-switch": ["rows", "elements"],
+          "navigate-by-ref": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:workflows",
         "actions": {
-          "select": [
-            "elements"
-          ],
-          "pane-switch": [
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "elements"
-          ],
-          "lane-change": [
-            "elements"
-          ]
+          "select": ["elements"],
+          "pane-switch": ["elements"],
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["elements"],
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:workflows/settings.sessions",
         "actions": {
-          "heartbeat": [
-            "elements"
-          ]
+          "heartbeat": ["elements"]
         }
       }
     ]
@@ -1049,23 +494,14 @@
       {
         "reader": "consumer:notices",
         "actions": {
-          "navigate-by-ref": [
-            "rows",
-            "derivations"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations"
-          ]
+          "navigate-by-ref": ["rows", "derivations"],
+          "lane-change": ["rows", "derivations"]
         }
       },
       {
         "reader": "consumer:session-pane",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ]
+          "pane-switch": ["rows", "derivations"]
         }
       }
     ]
@@ -1076,443 +512,211 @@
       {
         "reader": "Mission@guard-root.topology",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ]
+          "pane-switch": ["rows", "derivations"]
         }
       },
       {
         "reader": "consumer:header.folded",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ],
-          "heartbeat": [
-            "elements"
-          ]
+          "pane-switch": ["derivations"],
+          "heartbeat": ["elements"]
         }
       },
       {
         "reader": "consumer:header.folded/IssueModel@guard-root.loaded",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ]
+          "pane-switch": ["rows", "derivations"]
         }
       },
       {
         "reader": "consumer:header.folded/IssueModel@guard-root.sidebar",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ],
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["rows", "derivations"],
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:header.folded/IssueModel@guard-root.unitOwn",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:header.folded/IssueModel@guard-root.unitsBelow",
         "actions": {
-          "pane-switch": [
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["derivations", "elements"]
         }
       },
       {
         "reader": "consumer:header.folded/SessionModel@guard-history-#.activityMs",
         "actions": {
-          "navigate-by-ref": [
-            "rows",
-            "derivations"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations"
-          ]
+          "navigate-by-ref": ["rows", "derivations"],
+          "lane-change": ["rows", "derivations"]
         }
       },
       {
         "reader": "consumer:header.folded/header.folded",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mission.menu",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mission.pane",
         "actions": {
-          "select": [
-            "rows",
-            "elements"
-          ],
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "elements"],
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mission.pane/MissionNode@guard-child.missionPaneFull",
         "actions": {
-          "select": [
-            "elements"
-          ],
-          "stage-change": [
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["elements"],
+          "stage-change": ["elements"],
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull",
         "actions": {
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mission.session-menu",
         "actions": {
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mission.workspace",
         "actions": {
-          "pane-switch": [
-            "derivations",
-            "elements"
-          ],
-          "heartbeat": [
-            "derivations"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations", "elements"],
+          "heartbeat": ["derivations"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:mission.workspace/MissionNode@guard-child.missionIssue",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mission.workspace/MissionNode@guard-root.missionIssue",
         "actions": {
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:navigation.activity",
         "actions": {
-          "stage-change": [
-            "rows",
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "elements"
-          ]
+          "stage-change": ["rows", "elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:navigation.mission",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ],
-          "navigate-by-ref": [
-            "derivations"
-          ],
-          "heartbeat": [
-            "derivations"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"],
+          "navigate-by-ref": ["derivations"],
+          "heartbeat": ["derivations"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:navigation.navigate-by-ref",
         "actions": {
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "elements"
-          ]
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:navigation.navigate-by-ref/IssueBoard@sessions:guard-root",
         "actions": {
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ]
+          "navigate-by-ref": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:navigation.navigate-by-ref/IssueModel@guard-root.members",
         "actions": {
-          "navigate-by-ref": [
-            "elements"
-          ]
+          "navigate-by-ref": ["elements"]
         }
       },
       {
         "reader": "consumer:navigation.navigate-by-ref/Reaction@#",
         "actions": {
-          "navigate-by-ref": [
-            "elements"
-          ]
+          "navigate-by-ref": ["elements"]
         }
       },
       {
         "reader": "consumer:navigation.navigate-by-ref/pool projection",
         "actions": {
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ],
-          "heartbeat": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:navigation.ref",
         "actions": {
-          "navigate-by-ref": [
-            "rows",
-            "elements"
-          ]
+          "navigate-by-ref": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:references",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"]
         }
       },
       {
         "reader": "consumer:references/ComputedValue@#",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ]
+          "pane-switch": ["rows", "derivations"]
         }
       },
       {
         "reader": "pool projection",
         "actions": {
-          "heartbeat": [
-            "rows",
-            "elements"
-          ],
-          "machine-flip": [
-            "rows",
-            "elements"
-          ],
-          "lane-change": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "heartbeat": ["rows", "elements"],
+          "machine-flip": ["rows", "elements"],
+          "lane-change": ["rows", "derivations", "elements"]
         }
       }
     ]
@@ -1523,18 +727,13 @@
       {
         "reader": "consumer:mobile-work.long-press",
         "actions": {
-          "long-press": [
-            "rows",
-            "elements"
-          ]
+          "long-press": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:shell.links",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"]
         }
       }
     ]
@@ -1545,158 +744,86 @@
       {
         "reader": "(arm code)",
         "actions": {
-          "pane-switch": [
-            "rows"
-          ],
-          "heartbeat": [
-            "rows"
-          ],
-          "machine-flip": [
-            "rows"
-          ],
-          "lane-change": [
-            "rows"
-          ]
+          "pane-switch": ["rows"],
+          "heartbeat": ["rows"],
+          "machine-flip": ["rows"],
+          "lane-change": ["rows"]
         }
       },
       {
         "reader": "IssueModel@guard-root.facts",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ]
+          "pane-switch": ["rows", "derivations"]
         }
       },
       {
         "reader": "IssueModel@guard-root.members",
         "actions": {
-          "pane-switch": [
-            "elements"
-          ],
-          "heartbeat": [
-            "elements"
-          ],
-          "lane-change": [
-            "elements"
-          ]
+          "pane-switch": ["elements"],
+          "heartbeat": ["elements"],
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "Reaction@#",
         "actions": {
-          "stage-change": [
-            "elements"
-          ],
-          "pane-switch": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "heartbeat": [
-            "elements"
-          ],
-          "machine-flip": [
-            "elements"
-          ],
-          "lane-change": [
-            "elements"
-          ]
+          "stage-change": ["elements"],
+          "pane-switch": ["rows", "derivations", "elements"],
+          "heartbeat": ["elements"],
+          "machine-flip": ["elements"],
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:mobile-work.row",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ],
-          "navigate-by-ref": [
-            "derivations",
-            "elements"
-          ],
-          "heartbeat": [
-            "derivations",
-            "elements"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"],
+          "navigate-by-ref": ["derivations", "elements"],
+          "heartbeat": ["derivations", "elements"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:mobile-work.row/IssueModel@guard-child.mobileWork",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"]
         }
       },
       {
         "reader": "consumer:mobile-work.row/IssueModel@guard-root.mobileWork",
         "actions": {
-          "navigate-by-ref": [
-            "derivations"
-          ],
-          "heartbeat": [
-            "derivations"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "navigate-by-ref": ["derivations"],
+          "heartbeat": ["derivations"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:mobile-work.sections/ComputedValue@#",
         "actions": {
-          "select": [
-            "rows",
-            "derivations",
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "rows",
-            "derivations",
-            "elements"
-          ]
+          "select": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:sidebar.row",
         "actions": {
-          "pane-switch": [
-            "derivations"
-          ],
-          "navigate-by-ref": [
-            "derivations"
-          ],
-          "heartbeat": [
-            "derivations"
-          ],
-          "lane-change": [
-            "derivations"
-          ]
+          "pane-switch": ["derivations"],
+          "navigate-by-ref": ["derivations"],
+          "heartbeat": ["derivations"],
+          "lane-change": ["derivations"]
         }
       },
       {
         "reader": "consumer:sidebar.row/IssueModel@guard-child.sidebar",
         "actions": {
-          "pane-switch": [
-            "rows",
-            "derivations"
-          ]
+          "pane-switch": ["rows", "derivations"]
         }
       },
       {
         "reader": "consumer:sidebar.sections/WorklistGroups@#.latchedOpenId",
         "actions": {
-          "heartbeat": [
-            "derivations",
-            "elements"
-          ],
-          "lane-change": [
-            "derivations",
-            "elements"
-          ]
+          "heartbeat": ["derivations", "elements"],
+          "lane-change": ["derivations", "elements"]
         }
       }
     ]
