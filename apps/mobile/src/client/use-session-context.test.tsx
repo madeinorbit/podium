@@ -13,7 +13,7 @@ import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
 import { asSessionId, asUserId, sessionUserStateRowId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { StrictMode, type ComponentProps, type ReactNode, useEffect } from 'react'
+import { StrictMode, type ComponentProps, type ReactNode, useEffect, useRef } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from './mobile-pool'
@@ -74,7 +74,7 @@ vi.mock('../terminal/TerminalDom', () => ({ default: (props: TerminalDomProps) =
 vi.mock('@podium/terminal-client-react', () => ({
   useTerminalSession: (input: typeof seams.terminalInputs[number]) => {
     seams.terminalInputs.push(input)
-    return { viewportRef: { current: null }, containerRef: { current: null }, toolbarRef: { current: null }, mountedRef: { current: null }, ready: true, outputSeen: true }
+    return useRef({ viewportRef: { current: null }, containerRef: { current: null }, toolbarRef: { current: null }, mountedRef: { current: null }, ready: true, outputSeen: true }).current
   }, MobileTerminalKeyboard: () => null,
 }))
 
@@ -88,11 +88,10 @@ const { default: TerminalRoute } = await import('../../app/session/[sessionId]/t
 const SID = asSessionId('synthetic-session-0')
 const NOW = Date.parse('2026-10-03T00:00:00Z')
 
-beforeEach(() => { console.log('session context proof start'); vi.spyOn(Date, 'now').mockReturnValue(NOW); seams.route = SID; seams.terminalInputs.length = 0; seams.nativeInputs.length = 0; seams.transcriptInputs.length = 0 })
+beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW); seams.route = SID; seams.terminalInputs.length = 0; seams.nativeInputs.length = 0; seams.transcriptInputs.length = 0 })
 afterEach(() => { cleanup(); storeStats.enable(false); vi.restoreAllMocks() })
 
 async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false) {
-  console.log('session context mount', on, screen)
   const host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
   seams.host = host
   const data = createHeaderFixture(12), errors: (Error | string)[] = [], seen: (MobxPool | null)[] = []
@@ -130,7 +129,6 @@ async function mount(on: boolean, screen: 'all' | 'probe' = 'all', cold = false)
       const stop = host.host.attach(owner, error => errors.push(error))
       return stop
     }}><Surface /></StoreProvider></StrictMode>)
-  console.log('session context rendered', on, screen)
   await waitFor(() => expect(runtime).toBeDefined())
   if (on) await waitFor(() => expect(seen.at(-1)?.row('mobileSessionReader', 'reader')).toBeTypeOf('object'), { timeout: 10000 })
   if (screen === 'all') await waitFor(() => expect(view.getByLabelText('Draft')).toHaveValue('Saved synthetic draft'), { timeout: 10000 })
