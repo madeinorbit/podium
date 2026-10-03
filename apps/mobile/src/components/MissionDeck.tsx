@@ -2,7 +2,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import { recordSliceDerivation } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { type SessionView, sessionValues } from '@podium/client-core/session-values'
+import type { SessionView } from '@podium/client-core/session-values'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   buildFlightDeckRows,
@@ -271,7 +271,7 @@ export const MissionDeck = memo(function MissionDeck({
       const id = issue.startedBySession
       if (!id) return null
       const author = sessions.find((s) => s.sessionId === id)
-      return author ? sessionValues(author).displayRef?.trim() || null : null
+      return author?.displayRef?.trim() || null
     },
     [sessions],
   )
@@ -716,7 +716,7 @@ function Band({
       accent={accent}
       stops={stops}
       name={sessionTitle(session)}
-      displayRef={sessionValues(session).displayRef?.trim() || undefined}
+      displayRef={session.displayRef?.trim() || undefined}
       role={role}
       roleText={roleLabel(role, nameOf)}
       kind={session.agentKind}

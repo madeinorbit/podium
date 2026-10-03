@@ -15,6 +15,9 @@ import {
   rowKey,
 } from '@podium/client-core/replica'
 import { missionLegacyStats } from '@podium/client-core/viewmodels'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { asIssueId, asSessionId } from '@podium/model'
+import { formatSessionRef } from '@podium/protocol'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
@@ -30,6 +33,7 @@ import type { MobileTrpc } from '../client/trpc'
 
 const state = vi.hoisted(() => ({
   host: null as MobilePool | null,
+  pool: null as MobxPool | null,
   missionId: '',
   paths: [] as string[][],
   runtime: null as ClientRuntime<MobileTrpc> | null,
@@ -64,6 +68,7 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   }
 })
 function readLaunch(pool: Parameters<typeof commandLaunchViews>[0]) {
+  state.pool = pool
   const value = commandLaunchViews(pool).launch()
   return value && typeof value !== 'symbol' ? value : null
 }
@@ -320,6 +325,7 @@ afterEach(() => {
   missionLegacyStats.reset()
   state.paths.length = 0
   state.errors.length = 0
+  state.pool = null
 })
 afterAll(() => vi.unstubAllEnvs())
 it.each([
@@ -344,6 +350,28 @@ it.each([
         ),
     )
     .sort((a, b) => a.priority - b.priority || a.seq - b.seq)[0]!
+  const historyId = asIssueId('phone-cold-author-task')
+  const authorId = asSessionId('phone-cold-author-session')
+  const repo = corpus.repoProjections.find((repo) => repo.prefix)!
+  const authorRef = formatSessionRef({ prefix: repo.prefix!, seq: 99990, letter: 'z' })
+  corpus.issueProjections.push(
+    {
+      ...root, id: historyId, seq: 99990, title: 'Cold author task',
+      stage: 'done', closedAt: '2026-01-01T00:00:00Z',
+      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    },
+    {
+      ...root, id: asIssueId('phone-cold-authored-proposal'), seq: 99991,
+      title: 'Cold authored proposal', parentId: root.id, stage: 'proposed', startedBySession: authorId,
+    },
+  )
+  corpus.sessions.push({
+    ...corpus.sessions[0]!, sessionId: authorId, issueId: historyId,
+    title: 'Cold proposal author', status: 'exited', archived: true, headless: false,
+    createdAt: '2026-01-01T00:00:00Z', lastActiveAt: '2026-01-01T00:00:00Z',
+    stoppedAt: '2026-01-01T00:00:00Z', agentState: undefined, offer: undefined, resume: undefined,
+    refRepoId: repo.id, refIssueId: historyId, refSeq: 99990, refLetter: 'z', refDraft: undefined,
+  })
   state.missionId = root.id
   let setting = on
   state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => setting }))
@@ -435,6 +463,8 @@ it.each([
     phases.push({ phase, legacy, rows })
   }
   const { view, feed } = await mount('u-bench')
+  expect(screen.getByTestId('details').textContent).toContain(`by ${authorRef}`)
+  if (on) expect(state.pool!.tables.session.has(authorId)).toBe(false)
   checkpoint('startup')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Show done tasks'))
