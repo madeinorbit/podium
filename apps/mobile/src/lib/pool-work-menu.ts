@@ -1,7 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { WorkIssueMenuTarget } from '../components/WorkIssueMenu'
+import type { WorkIssueMenuTarget } from './work-menu'
 
 export interface PoolWorkMenuData {
   target: WorkIssueMenuTarget

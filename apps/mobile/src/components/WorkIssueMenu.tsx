@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStoreActions } from '../client/hooks'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
-import { type WorkMenuActionId, type WorkMenuLane, workMenuActionIds } from '../lib/work-menu'
+import { type WorkMenuActionId, type WorkMenuLane, type WorkIssueMenuTarget, workMenuActionIds } from '../lib/work-menu'
 import { color } from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { IssueCloseSheet } from './IssueCloseSheet'
@@ -20,11 +20,7 @@ import { IssueColorSheet } from './IssueColorSheet'
 import { StageGlyph } from './StageGlyph'
 import { PromptSheet } from './task-detail/PromptSheet'
 
-export interface WorkIssueMenuTarget {
-  issue: IssueNavigationModel
-  lane: WorkMenuLane
-  canBringBack?: boolean
-}
+export type { WorkIssueMenuTarget } from '../lib/work-menu'
 
 type MenuSheet =
   | null

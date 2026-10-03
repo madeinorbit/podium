@@ -4,6 +4,13 @@ import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
  * have a much smaller vocabulary than live rows. */
 export type WorkMenuLane = 'live' | 'snoozed' | 'closed'
 
+/** Menu data is shared with non-native readers and structural guards. */
+export interface WorkIssueMenuTarget {
+  issue: IssueNavigationModel
+  lane: WorkMenuLane
+  canBringBack?: boolean
+}
+
 export type WorkMenuActionId =
   | 'rename'
   | 'read'

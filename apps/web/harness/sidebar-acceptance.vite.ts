@@ -18,7 +18,7 @@ const config: UserConfig = defineConfig({
   plugins: [tailwindcss(), {
     name: 'acceptance-state-boundaries',
     enforce: 'pre',
-    transform(code, id) {
+    transform(code: string, id: string) {
       const names = Object.entries(functions).find(([suffix]) => id.endsWith(suffix))?.[1]
       if (!names) return
       for (const name of names) {
