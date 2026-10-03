@@ -214,6 +214,9 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/server/src/features.ts",
+        "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
+        "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/packages/worklist-proto/**",
         "$TURBO_ROOT$/packages/client-graph/**",
         "!$TURBO_ROOT$/packages/client-graph/node_modules/**",
