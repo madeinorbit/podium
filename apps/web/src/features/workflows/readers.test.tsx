@@ -3,13 +3,12 @@ import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { placementOptions } from '@podium/client-core/viewmodels'
-import { checkWorkflows } from '@podium/client-graph/diagnostics/workflow-check'
+import { checkWorkflows, probeWorkflowCheckScope } from '@podium/client-graph/diagnostics/workflow-check'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { getObserverTree, runInAction } from 'mobx'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
@@ -140,16 +139,15 @@ it('bounds diagnostic summary reads and releases its tracking scope even inside 
   const pool = result.current.pool!
   workflowMachines(pool)
   await act(async () => { await Promise.resolve() })
-  const before = getObserverTree(pool.tables.session, 'synthetic-session-0')
   const row = vi.spyOn(pool, 'row')
   const inputs = { profiles: fixture.profiles,
     runs: Array.from({ length: 500 }, (_, index) => ({ ...fixture.runs[3 + index % 3]!, id: `diagnostic-${index}` })),
   }
-  const check = runInAction(() => checkWorkflows(pool, result.current.owner.getSnapshot(), inputs))
-  expect(check).toMatchObject({ differences: 0, pending: 0, positions: 508 })
+  const probe = probeWorkflowCheckScope(pool, result.current.owner.getSnapshot(), inputs, 'synthetic-session-0')
+  expect(probe.result).toMatchObject({ differences: 0, pending: 0, positions: 508 })
   const sessions = [...fixture.records.values()].filter(record => record.entity === 'session').length
   expect(row.mock.calls.filter(call => String(call[0]) === 'setupSession')).toHaveLength(sessions)
-  expect(getObserverTree(pool.tables.session, 'synthetic-session-0')).toEqual(before)
+  expect(probe.after).toEqual(probe.before)
 })
 
 it('executes zero legacy readers after feed activity and preserves one denied-write attempt', async () => {

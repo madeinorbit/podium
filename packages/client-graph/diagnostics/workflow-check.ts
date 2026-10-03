@@ -1,7 +1,7 @@
 import type { Store } from '@podium/client-core/engine'
 import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/viewmodels'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
-import { Reaction } from 'mobx'
+import { getObserverTree, Reaction, runInAction } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import { workflowMachines, workflowSubject } from '../src/workflow-views'
 import { LOADING } from '../src/worklist/rollup'
@@ -60,4 +60,11 @@ export function checkWorkflows(pool: MobxPool, state: WorkflowCheckStore, inputs
   // The machine option payload may contain hostnames: report positions only.
   return { differences: result.differences, pending: result.pending, sections: result.sections, positions: result.rows,
     first: result.first ? { section: result.first.sectionIndex, row: result.first.rowIndex, field: result.first.field } : null }
+}
+
+/** Probe the synchronous check and observer lifetime at the graph's MobX boundary. */
+export function probeWorkflowCheckScope(pool: MobxPool, state: WorkflowCheckStore, inputs: WorkflowCheckInputs, sessionId: string) {
+  const before = getObserverTree(pool.tables.session, sessionId)
+  const result = runInAction(() => checkWorkflows(pool, state, inputs))
+  return { result, before, after: getObserverTree(pool.tables.session, sessionId) }
 }
