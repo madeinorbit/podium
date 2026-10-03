@@ -160,7 +160,7 @@
     },
     "@podium/worklist-proto#typecheck": {
       "dependsOn": ["^typecheck"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/diagnostics/issue-chips-replay.ts"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/diagnostics/issue-chips-replay.ts", "$TURBO_ROOT$/apps/mobile/src/lib/work-sections.ts"],
       "outputs": ["*.tsbuildinfo"]
     },
     "@podium/scripts#typecheck": {
