@@ -13,8 +13,8 @@
  * time over the visible set (audit §7: Linear sorts a collection when a view
  * reads it).
  *
- * ONE RULE, TWO CALLERS (as `views.ts`). The part functions are pure over
- * their inputs. The live pool caches them in GROUPS on the one object per
+ * ONE RULE, TWO CALLERS (as `views.ts`). The part functions derive their
+ * values from their inputs. The live pool caches them in GROUPS on the one object per
  * issue (`IssueModel`, `models.ts`): one cached value per group, each group
  * a function below (`issueFactsOf`, `membersOf`, `presenceOf`, `nestingOf`)
  * or in `rollup.ts` (`attentionOf`, `progressOf`). The rebuild and the pool's
@@ -241,8 +241,14 @@ export type HiddenIssue = Partial<Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[
 }
 
 /** The presence of a hidden issue, from its summary and the rows below it: never flat or present. */
-export function hiddenPresenceOf(input: VisibleInputs, id: string, hidden: HiddenIssue): Presence {
-  const keeps = !excludedOf(hidden) && keptBelowPartOf(input, id, childIdsPartOf(input, id))
+export function hiddenPresenceOf(
+  input: VisibleInputs,
+  id: string,
+  hidden: HiddenIssue,
+  self: Pick<IssueVisibility, 'parentRef'>,
+): Presence {
+  rescueWalkOf(input)?.paths.delete(self)
+  const keeps = !excludedOf(hidden) && keptBelowPartOf(input, id, childIdsPartOf(input, id), self, true)
   // An unplaced agent row may still have pre-nesting presence from a seat.
   // A live descendant needs that verdict: it might nest under this row and
   // disappear with it. Load through the normal window only when needed,
@@ -686,38 +692,89 @@ export function unreadPartOf(
   return false
 }
 
-/** Some child is flat or kept, through non-excluded children (`rows.ts:130-146`). */
-export function keptBelowPartOf(input: VisibleInputs, id: string, childIds: readonly string[]): boolean {
-  if (childIds.length === 0) return false
-  // Each issue has one raw parent. Only members of the same parent cycle
-  // can read presence back into this issue; branches leaving it are trees.
-  // Detect that cycle through relations alone, without reading presence.
-  const cycle = new Set<string>([id])
-  let parentId = input.links.issue.treeParent(id)
-  while (parentId !== null && !cycle.has(parentId)) {
-    cycle.add(parentId)
-    parentId = input.links.issue.treeParent(parentId)
-  }
-  if (parentId !== id) {
-    for (const childId of childIds) {
-      if (input.issue(childId)?.keeps === true) return true
-    }
-    return false
-  }
+interface RescueCycle {
+  /** Raw-parent order, recorded only after a rescue path repeats. */
+  readonly ids: readonly string[]
+}
 
-  // Legacy rescues only from a flat row, never from a cycle on its own.
-  // Within the cycle check the flat pass directly, and visit each member
-  // once. Outside it keep composing the child's cached presence as usual.
+interface RescueWalk {
+  readonly active: Map<string, object>
+  /** Cached presence reads; weak references do not retain removed models. */
+  readonly paths: WeakMap<object, { id: string; children: WeakRef<object>[] }>
+  readonly cycles: WeakMap<object, RescueCycle>
+}
+
+const RESCUE_WALK = Symbol('presence-rescue')
+
+/** Native metadata belongs to the pool's inputs, never a module cache. */
+function rescueWalkOf(input: VisibleInputs): RescueWalk | undefined {
+  return (input as VisibleInputs & { [RESCUE_WALK]?: RescueWalk })[RESCUE_WALK]
+}
+
+/** A cached child's dependency check can reach a running presence before its body runs. */
+function repeatsRescue(walk: RescueWalk, id: string, child: object): boolean {
+  if (walk.active.has(id)) return true
+  const pending = [child]
+  const seen = new Set<object>()
+  while (pending.length > 0) {
+    const part = pending.pop() as object
+    if (seen.has(part)) continue
+    seen.add(part)
+    const path = walk.paths.get(part)
+    if (path === undefined) continue
+    if (walk.active.has(path.id)) return true
+    for (const ref of path.children) {
+      const below = ref.deref()
+      if (below !== undefined) pending.push(below)
+    }
+  }
+  return false
+}
+
+/** Parent facts are read only for a repeated path, never for ordinary ancestry. */
+function rememberRescueCycle(input: VisibleInputs, walk: RescueWalk, id: string): void {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  let parentId: string | null = id
+  while (parentId !== null && !seen.has(parentId)) {
+    seen.add(parentId)
+    ids.push(parentId)
+    parentId = input.issue(parentId)?.parentRef ?? null
+  }
+  if (parentId !== id) return
+  const cycle: RescueCycle = { ids }
+  for (const memberId of ids) {
+    const part = input.issue(memberId)
+    if (part !== undefined) walk.cycles.set(part, cycle)
+    const active = walk.active.get(memberId)
+    if (active !== undefined) walk.cycles.set(active, cycle)
+  }
+}
+
+/** A remembered cycle is valid only while every raw parent still closes it. */
+function currentRescueCycle(input: VisibleInputs, walk: RescueWalk, self: object): boolean {
+  const cycle = walk.cycles.get(self)
+  if (cycle === undefined) return false
+  const parts = cycle.ids.map(id => input.issue(id))
+  if (parts.every((part, index) => part?.parentRef === cycle.ids[(index + 1) % cycle.ids.length])) {
+    for (const part of parts) if (part !== undefined) walk.cycles.set(part, cycle)
+    return true
+  }
+  for (const part of parts) {
+    if (part !== undefined && walk.cycles.get(part) === cycle) walk.cycles.delete(part)
+  }
+  walk.cycles.delete(self)
+  return false
+}
+
+/** Least rescue verdict: actual flat work below, with no presence dependency back into the walk. */
+function flatKeptBelow(input: VisibleInputs, childIds: readonly string[]): boolean {
   const seen = new Set<string>()
   const pending = [...childIds]
   while (pending.length > 0) {
     const childId = pending.pop() as string
     if (seen.has(childId)) continue
     seen.add(childId)
-    if (!cycle.has(childId)) {
-      if (input.issue(childId)?.keeps === true) return true
-      continue
-    }
     const child = input.issue(childId)
     if (child === undefined) continue
     const hidden = child.hidden
@@ -731,6 +788,52 @@ export function keptBelowPartOf(input: VisibleInputs, id: string, childIds: read
     pending.push(...childIdsPartOf(input, childId))
   }
   return false
+}
+
+/** Some child is flat or kept, through non-excluded children (`rows.ts:130-146`). */
+export function keptBelowPartOf(
+  input: VisibleInputs,
+  id: string,
+  childIds: readonly string[],
+  self: Pick<IssueVisibility, 'parentRef'>,
+  fromPresence = false,
+): boolean {
+  if (childIds.length === 0) return false
+  let walk = rescueWalkOf(input)
+  if (walk === undefined) {
+    walk = { active: new Map(), paths: new WeakMap(), cycles: new WeakMap() }
+    // A plain rebuild copies the inputs but needs its own guard. Keep this
+    // pool-owned metadata non-enumerable, outside the tracked input values.
+    Object.defineProperty(input, RESCUE_WALK, { value: walk })
+  }
+  // Record only the presence group's reads. The standalone keptBelow
+  // getter must not replace that cached group's dependency path.
+  const path = { id, children: [] as WeakRef<object>[] }
+  if (fromPresence) walk.paths.set(self, path)
+  if (currentRescueCycle(input, walk, self)) return flatKeptBelow(input, childIds)
+  if (walk.active.has(id)) {
+    rememberRescueCycle(input, walk, id)
+    return flatKeptBelow(input, childIds)
+  }
+  walk.active.set(id, self)
+  try {
+    for (const childId of childIds) {
+      const child = input.issue(childId)
+      if (child === undefined) continue
+      if (repeatsRescue(walk, childId, child)) {
+        rememberRescueCycle(input, walk, childId)
+        return flatKeptBelow(input, childIds)
+      }
+      if (fromPresence) path.children.push(new WeakRef(child))
+      const keeps = child.keeps
+      // A child can discover this cycle while the cached read is running.
+      if (walk.cycles.has(self)) return flatKeptBelow(input, childIds)
+      if (keeps) return true
+    }
+    return false
+  } finally {
+    walk.active.delete(id)
+  }
 }
 
 /** The presence group (see the header). */
@@ -751,15 +854,16 @@ export interface Presence {
 export function presenceOf(
   input: VisibleInputs,
   id: string,
-  self: Pick<IssueVisibility, 'standing' | 'retained' | 'seatIds'>,
+  self: Pick<IssueVisibility, 'standing' | 'retained' | 'seatIds' | 'parentRef'>,
 ): Presence {
+  rescueWalkOf(input)?.paths.delete(self)
   const standing = self.standing
   if (standing === undefined || standing.excluded) {
     return { flat: false, keeps: false, present: false }
   }
   const flat = flatOf(input, id, standing, self)
   if (flat) return { flat, keeps: true, present: true }
-  const keptBelow = keptBelowPartOf(input, id, childIdsPartOf(input, id))
+  const keptBelow = keptBelowPartOf(input, id, childIdsPartOf(input, id), self, true)
   return { flat, keeps: keptBelow, present: standing.rescuable && keptBelow }
 }
 
@@ -1034,7 +1138,7 @@ export function directVisibility(
       return presence().flat
     },
     get keptBelow() {
-      return once('keptBelow', () => keptBelowPartOf(input, id, parts.childIds))
+      return once('keptBelow', () => keptBelowPartOf(input, id, parts.childIds, parts))
     },
     get keeps() {
       return presence().keeps

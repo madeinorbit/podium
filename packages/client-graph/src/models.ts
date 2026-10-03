@@ -521,7 +521,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       const hidden = issue.hidden
       return hidden === undefined
         ? presenceOf(issue.host.visibleInputs, issue.id, issue)
-        : hiddenPresenceOf(issue.host.visibleInputs, issue.id, hidden)
+        : hiddenPresenceOf(issue.host.visibleInputs, issue.id, hidden, issue)
     }),
     /** Independent of nesting: cycle rejection can follow candidates without recursion. */
     nestCandidate: cachedGroup('nestCandidate', (issue: IssueModel) => {
@@ -1086,7 +1086,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get keptBelow(): boolean {
-    return keptBelowPartOf(this.host.visibleInputs, this.id, this.childIds)
+    return keptBelowPartOf(this.host.visibleInputs, this.id, this.childIds, this)
   }
 
   get unread(): boolean {

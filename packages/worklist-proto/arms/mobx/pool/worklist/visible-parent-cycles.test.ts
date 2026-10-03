@@ -4,7 +4,7 @@ import { type IssueNavigationModel, type UnifiedWorkRow, unifiedWorkList } from 
 import { MobxPool } from '@podium/client-graph/pool'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord } from '@podium/client-graph/shared/source'
-import { directVisibility, type IssueVisibility, type VisibleInputs } from '@podium/client-graph/worklist/visible'
+import { directVisibility, keptBelowPartOf, type IssueVisibility, type VisibleInputs } from '@podium/client-graph/worklist/visible'
 import { describe, expect, it, vi } from 'vitest'
 import { tracked, visibleOrderOf } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
@@ -54,6 +54,34 @@ function expectParity(pool: MobxPool, issues: SliceIssue[], sessions: SliceSessi
 }
 
 describe('parent-cycle presence (POD-5263)', () => {
+  it('rescues an ordinary tree without probing parent relations', () => {
+    const root = issue('tree-root', null)
+    const issues = [root, issue('tree-branch', root.id),
+      issue('tree-leaf', 'tree-branch', { stage: 'planning' })]
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+    try {
+      pool.apply({ type: 'replace', rows: records(issues) })
+      const parentProbe = vi.fn(pool.visibleInputs.links.issue.treeParent)
+      const lookup = vi.fn(pool.visibleInputs.issue)
+      const input: VisibleInputs = { ...pool.visibleInputs, issue: lookup,
+        links: { ...pool.visibleInputs.links,
+          issue: { ...pool.visibleInputs.links.issue, treeParent: parentProbe } } }
+      expect(tracked(() => {
+        const parts = pool.knownIssue(root.id)
+        if (parts === undefined) throw new Error('Missing ordinary root')
+        return keptBelowPartOf(input, root.id, parts.childIds, parts)
+      })).toBe(true)
+      expect(parentProbe).not.toHaveBeenCalled()
+      expect(lookup.mock.calls).toEqual([['tree-branch']])
+      expectParity(pool, issues)
+      const cyclicRoot = { ...root, parentId: 'tree-leaf' }
+      pool.apply({ type: 'update', rows: records([cyclicRoot]) })
+      expectParity(pool, [cyclicRoot, ...issues.slice(1)])
+      pool.apply({ type: 'update', rows: records([root]) })
+      expectParity(pool, issues)
+    } finally { pool.dispose() }
+  })
+
   it.each([false, true])('keeps an empty reciprocal backlog cycle hidden (reversed=%s)', reversed => {
     const issues = [issue('cycle-a', 'cycle-b'), issue('cycle-b', 'cycle-a')]
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
@@ -68,6 +96,39 @@ describe('parent-cycle presence (POD-5263)', () => {
         { flat: false, keeps: false, present: false },
       ])
       expect(legacyVisible(issues)).toEqual([])
+    } finally { pool.dispose() }
+  })
+
+  it.each([false, true])('bounds a cached rescue path when its only live branch disappears (reversed=%s)', reversed => {
+    let issues = [issue('cycle-c', null), issue('cycle-b', 'cycle-c'),
+      issue('cycle-a', 'cycle-b'), issue('a-live', 'cycle-a')]
+    const seat = session('a-live')
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+    try {
+      pool.apply({ type: 'replace', rows: records(reversed ? [...issues].reverse() : issues, [seat]) })
+      expectParity(pool, issues, [seat])
+      issues = issues.map(row => row.id === 'cycle-c' ? { ...row, parentId: 'cycle-a' } : row)
+      pool.apply({ type: 'update', rows: records(issues.filter(row => row.id === 'cycle-c')) })
+      expectParity(pool, issues, [seat])
+      // A's first child keeps the row, so the cached reads still run C -> B
+      // -> A -> live. Losing that child makes A try C: MobX can follow C's
+      // cached dependencies back to A before entering C's presence body.
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: seat.sessionId, value: undefined }] })
+      expectParity(pool, issues)
+      expect(tracked(() => [...visibleOrderOf(pool)])).toEqual([])
+      pool.apply({ type: 'update', rows: records([], [seat]) })
+      expectParity(pool, issues, [seat])
+      issues = issues.map(row => row.id === 'cycle-a' ? { ...row, title: 'Changed cycle member' } : row)
+      pool.apply({ type: 'update', rows: records(issues.filter(row => row.id === 'cycle-a')) })
+      expectParity(pool, issues, [seat])
+      // Reverse the former ancestor path into an ordinary tree. Remembered
+      // cycles and stale cached paths must not preserve phantom rescue.
+      issues = issues.map(row => row.id === 'cycle-a' ? { ...row, parentId: null } : row)
+      pool.apply({ type: 'update', rows: records(issues.filter(row => row.id === 'cycle-a')) })
+      expectParity(pool, issues, [seat])
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: seat.sessionId, value: undefined }] })
+      expectParity(pool, issues)
+      expect(tracked(() => [...visibleOrderOf(pool)])).toEqual([])
     } finally { pool.dispose() }
   })
 
