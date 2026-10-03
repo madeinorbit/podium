@@ -604,6 +604,7 @@
         "@types/ws": "^8.5.13",
         "fake-indexeddb": "^6.2.5",
         "react-native-web": "0.21.2",
+        "vite": "^8.0.16",
         "vitest": "5.0.0-beta.6",
       },
     },
