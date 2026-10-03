@@ -223,7 +223,7 @@ vi.mock('../components/WorkIssueMenu', () => ({
     sessions,
     onClose,
   }: {
-    target: { issue: { id: string } }
+    target: { issue: { id: string }; sessionCount?: number }
     issues: { id: string }[]
     sessions: unknown[]
     onClose: () => void
@@ -233,6 +233,7 @@ vi.mock('../components/WorkIssueMenu', () => ({
       data-issue={target.issue.id}
       data-issues={issues.length}
       data-sessions={sessions.length}
+      data-session-count={target.sessionCount}
     >
       <button type="button" aria-label="Close row menu" onClick={onClose} />
     </div>
@@ -368,7 +369,7 @@ function clickCorpus(scale: 1 | 4) {
     parentId: undefined,
     stage: 'in_progress' as const,
     archived: false,
-    deletedAt: null,
+    deletedAt: undefined,
     isDraftVessel: false,
     needsHuman: false,
     asked: undefined,
@@ -462,6 +463,66 @@ afterEach(() => {
 afterAll(() => vi.unstubAllEnvs())
 
 describe('mobile WorkScreen pool consumer', () => {
+  it('keeps archived long-press history cold and the raw delete count exact at 1x and 4x', async () => {
+    const cells: { scale: number; neighbours: number; rowReads: number; derivations: number }[] = []
+    for (const scale of [1, 4] as const) {
+      const corpus = clickCorpus(scale)
+      const member = corpus.sessions.find((session) => session.sessionId === 'phone-click-session-0')!
+      const history = Array.from({ length: 32 * scale }, (_, at) => ({
+        ...member,
+        sessionId: asSessionId(`phone-menu-archived-${at}`),
+        archived: true,
+        status: 'exited' as const,
+        stoppedAt: '2020-01-01T00:00:00Z',
+        lastActiveAt: '2020-01-01T00:00:00Z',
+      }))
+      const { view } = await mount(true, scale, { ...corpus, sessions: [...corpus.sessions, ...history] })
+      await drainNativeLoads()
+      const pool = state.pool!
+      let rowReads = 0
+      const row = pool.row.bind(pool)
+      const spy = vi.spyOn(pool, 'row').mockImplementation(((...args: Parameters<typeof pool.row>) => {
+        rowReads++
+        return row(...args)
+      }) as typeof pool.row)
+      const census = startCensus({ sample: () => ({ rowReads }) })
+      try {
+        expect(history.every((session) => !pool.tables.session.has(session.sessionId))).toBe(true)
+        const target = view.container.querySelector('[data-label$=" Fixed phone menu target"]')!
+        expect(target).not.toBeNull()
+        census.enter('archive history menu')
+        await act(async () => {
+          fireEvent.contextMenu(target)
+          await new Promise((resolve) => setTimeout(resolve, 30))
+        })
+        const menu = await screen.findByTestId('menu')
+        await drainNativeLoads()
+        census.exit()
+        expect(menu.getAttribute('data-issue')).toBe('phone-click-target')
+        expect(menu.getAttribute('data-issues')).toBe('2')
+        expect(menu.getAttribute('data-sessions')).toBe('2')
+        expect(menu.getAttribute('data-session-count')).toBe(String(history.length + 2))
+        expect(history.every((session) => !pool.tables.session.has(session.sessionId))).toBe(true)
+        expect(state.sliceReads).toBe(0)
+        expect(state.rowDerivations).toBe(0)
+        const phase = census.snapshot().phases['archive history menu']!
+        const neighbours = Number(menu.getAttribute('data-issues')) +
+          Number(menu.getAttribute('data-sessions')) + pool.graph.size('issue', 'phone-click-target', 'treeChildren')
+        expect(neighbours).toBe(6)
+        cells.push({ scale, neighbours, rowReads: phase.sampled.rowReads ?? rowReads,
+          derivations: phase.computedRuns + phase.reactionRuns })
+      } finally {
+        spy.mockRestore()
+        view.unmount()
+        census.stop()
+      }
+    }
+    console.info('[archived menu open work]', JSON.stringify(cells))
+    for (const metric of ['rowReads', 'derivations'] as const) {
+      expect(cells[1]![metric], `archived menu: 4x/1x ${metric} exceeds visible-neighbourhood ratio`)
+        .toBeLessThanOrEqual(cells[0]![metric] * cells[1]!.neighbours / cells[0]!.neighbours)
+    }
+  }, 240_000)
   it('bounds derivation runs and row reads per scripted click by the visible neighbourhood at 1x and 4x', async () => {
     const cells: {
       scale: number
