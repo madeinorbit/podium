@@ -91,7 +91,7 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
   function sessions(id: string): Loaded<SessionView[]> {
     return memo(`sessions:${id}`, () => {
       const result: SessionView[] = []
-      for (const sid of [...pool.graph.many('issue', id, 'pageSessions')].sort((a, b) =>
+      for (const sid of [...pool.graph.many('issue', id, 'missionSessions')].sort((a, b) =>
         byId(pool.graph.orderKey('session', a), pool.graph.orderKey('session', b)) || byId(a, b))) {
         if (pool.graph.isCollapsed('session', sid)) continue
         const seat = pool.row('session', sid, 'summary') as Loaded<SessionView>
@@ -104,7 +104,8 @@ export function createIssueBoardSource(pool: MobxPool, owner?: {
   function actionable(row: IssueViewModel): boolean {
     if (row.archived || row.deletedAt || row.stage === 'done' || row.closedReason) return false
     const roster = sessions(row.id)
-    return roster !== LOADING && issueIsActionable(row, (roster ?? []).filter(seat => !seat.archived))
+    const attention = row.stage === 'review' ? { ...row, dependents: pool.graph.many('issue', row.id, 'spinOffs').map(id => ({ id: asIssueId(id), type: 'discovered-from' })) } : row
+    return roster !== LOADING && issueIsActionable(attention, (roster ?? []).filter(seat => !seat.archived))
   }
   function indexKeys(row: IssueViewModel): Set<string> {
     const keys = new Set(['all', `priority:${row.priority}`, `repo:${row.repoPath}`, `stage:${issueStatusOf(row)}`])

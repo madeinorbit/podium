@@ -63,6 +63,11 @@ it('stage changes examine the matching resident bucket, independent of hidden re
     expect(issueBoardStats.read().coldSummaryVisits).toBe(0)
   } finally { issueBoardStats.disable(); stop() }
 })
+it('keeps an empty review with a discovered continuation out of Needs you', () => {
+  const { source, stop } = setup([row('origin', { stage: 'review' }), row('tip', { deps: [{ id: 'origin', type: 'discovered-from' }] })])
+  try { expect(source.queryIds({ kind: 'explorer', tab: 'needs' })).toEqual({ ids: [] }) }
+  finally { stop() }
+})
 it('updates overlays, parent scope, cold transitions, and replacement without a cold standing index', () => {
   const { source, pool, pending, stop } = setup([row('parent'), row('child', { audience: 'agent', parentId: 'parent' }), row('draft', { isDraftVessel: true })])
   let ids: string[] = []
