@@ -24,6 +24,7 @@ type ProofState = {
 type FixtureWindow = Window & { connectionProof: { state(): ProofState; stop(): Promise<void> } }
 const snapshot = (page: Page) =>
   page.evaluate(() => (window as FixtureWindow).connectionProof.state())
+const fixtureClaim = 'fixture-claim-00000000000000000000'
 
 /** One Chromium capture per app. Every authority, cookie and store is synthetic,
  * bound to loopback ephemeral ports, and torn down by this fixture. */
@@ -301,8 +302,8 @@ export async function liveConnectionProof() {
             JSON.stringify({
               type: 'serverRelocation',
               publicUrl: `http://127.0.0.1:${promoted.port}`,
-              transferId: 'fixture-transfer',
-              claimToken: 'fixture-claim',
+              transferId: '00000000-0000-4000-8000-000000000001',
+              claimToken: fixtureClaim,
             }),
           )
         await first.waitForURL(`http://127.0.0.1:${promoted.port}/auth/server-transfer-claim#**`, {
@@ -316,8 +317,8 @@ export async function liveConnectionProof() {
           reconnects,
           moved: destination.pathname === '/auth/server-transfer-claim',
           claimInFragment:
-            destination.hash.includes('fixture-claim') &&
-            movedRequests.every((url) => !url.includes('fixture-claim')),
+            destination.hash.includes(fixtureClaim) &&
+            movedRequests.every((url) => !url.includes(fixtureClaim)),
         })
         await second.evaluate(() => (window as FixtureWindow).connectionProof.stop())
       } finally {
