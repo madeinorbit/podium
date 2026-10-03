@@ -53,6 +53,9 @@ test('production mobile work has equal off/on rows and styles, and a real press 
   for (const on of [false, true, false, true]) {
     await launchWork(page, on)
     await expect(row()).toBeVisible({ timeout: 60_000 })
+    // Each hard navigation constructs the real principal-scoped provider and
+    // pool again. This is startup-to-row readiness, not a mounted user switch.
+    const startupToRowMs = parityOnly ? undefined : await page.evaluate(() => performance.now())
     await page.waitForTimeout(250)
     const look = await page.getByRole('button', { name: new RegExp(`^${prefix} ${title} [123]$`) }).evaluateAll(nodes => nodes.map(node => ({
       label: node.getAttribute('aria-label'), text: node.textContent,
@@ -94,7 +97,7 @@ test('production mobile work has equal off/on rows and styles, and a real press 
     } finally {
       const events = await stop()
       const timing = paintOf(events, 'mobile:input', 'mobile:dom')
-      cells.push({ on, ...timing, heapBeforeBytes: before, heapAfterBytes: await heap() })
+      cells.push({ on, ...timing, startupToRowMs, heapBeforeBytes: before, heapAfterBytes: await heap() })
     }
   }
   expect(errors).toEqual([])
