@@ -1,7 +1,7 @@
 import type { SettingsOwner } from './settings-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { attachHeaderSource } from './header-source'
-import { $mobx, compareStructural, computed, reaction, type IComputedValue, type Reaction } from 'mobx'
+import { compareStructural, Reaction } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import type { MobxPool } from './pool'
@@ -16,26 +16,46 @@ import type { PoolSummaryFields } from './source-registry'
 export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) => T) {
   const state = projectionState(pool, read)
   const view = {
-    getSnapshot(): T {
-      if (state.reaction === null) {
-        observeProjection(state)
+    getSnapshot(nextRead = state.read): T {
+      if (state.read !== nextRead) {
+        state.read = nextRead
+        state.dirty = true
+      }
+      if (observeProjection(state) && !state.listeners.size && !state.invalidations.size) {
         // React can abandon a render before subscribing. Use the same cleanup
         // as observer components, including its fallback on engines without GC hooks.
         _observerFinalizationRegistry.register(view, state, state)
       }
+      refreshProjection(state)
       if (state.error !== null) throw state.error.cause
       return state.snapshot!.value
     },
     subscribe(wake: () => void): () => void {
-      if (state.reaction === null) observeProjection(state)
+      observeProjection(state)
+      refreshProjection(state)
       _observerFinalizationRegistry.unregister(state)
       const listener = () => wake()
       state.listeners.add(listener)
       return () => {
         state.listeners.delete(listener)
-        if (state.listeners.size !== 0) return
-        state.reaction?.dispose()
-        state.reaction = null
+        releaseProjection(state)
+      }
+    },
+    // The host reads the current callback in render. Polling this revision must
+    // not derive with yesterday's callback before React renders with today's props.
+    getVersion: () => state.version,
+    subscribeInvalidations(wake: () => void): () => void {
+      const rearmed = observeProjection(state)
+      _observerFinalizationRegistry.unregister(state)
+      const listener = () => wake()
+      state.invalidations.add(listener)
+      if (rearmed) {
+        state.version++
+        wake()
+      }
+      return () => {
+        state.invalidations.delete(listener)
+        releaseProjection(state)
       }
     },
   }
@@ -43,46 +63,72 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
 }
 
 interface ProjectionState<T> {
-  readonly value: IComputedValue<T>
+  readonly pool: MobxPool
+  read: (pool: MobxPool) => T
   snapshot: { value: T } | null
   error: { cause: unknown } | null
+  dirty: boolean
+  version: number
   reaction: Reaction | null
   readonly listeners: Set<() => void>
+  readonly invalidations: Set<() => void>
 }
 
-// Both factories stay outside createPoolProjection: even the computed's closure
-// must not share a context with the view, or it would retain the finalization target.
+// These helpers stay outside createPoolProjection: reaction closures must not
+// share a context with the view, or they would retain the finalization target.
 function projectionState<T>(pool: MobxPool, read: (pool: MobxPool) => T): ProjectionState<T> {
   return {
-    value: computed(() => read(pool), { equals: compareStructural }),
+    pool,
+    read,
     snapshot: null,
     error: null,
+    dirty: true,
+    version: 0,
     reaction: null,
     listeners: new Set(),
+    invalidations: new Set(),
   }
 }
 
-function observeProjection<T>(state: ProjectionState<T>): void {
-  const stop = reaction(
-    () => state.value.get(),
-    (next) => {
-      const failed = state.error !== null
-      state.error = null
-      if (!failed && state.snapshot !== null && compareStructural(state.snapshot.value, next)) return
-      state.snapshot = { value: next }
-      for (const listener of [...state.listeners]) listener()
-    },
-    {
-      fireImmediately: true,
-      onError: (cause) => {
-        state.error = { cause }
+function observeProjection<T>(state: ProjectionState<T>): boolean {
+  if (state.reaction !== null) return false
+  state.dirty = true
+  state.reaction = new Reaction('pool projection', () => {
+    state.dirty = true
+    state.version++
+    // Imperative consumers keep structural notification filtering. React's host
+    // subscribes to invalidation instead, deriving once with its latest reader.
+    if (state.listeners.size) {
+      const before = state.snapshot, error = state.error
+      refreshProjection(state)
+      if (state.snapshot !== before || state.error !== error)
         for (const listener of [...state.listeners]) listener()
-      },
-    },
-  )
-  // The first read is already tracked. Subscription adopts this observer rather
-  // than asking an unobserved computed to derive the same screen a second time.
-  state.reaction = stop[$mobx]
+    }
+    for (const listener of [...state.invalidations]) listener()
+  })
+  return true
+}
+
+function refreshProjection<T>(state: ProjectionState<T>): void {
+  if (!state.dirty) return
+  state.dirty = false
+  state.error = null
+  let next!: T
+  state.reaction!.track(() => {
+    try {
+      next = state.read(state.pool)
+    } catch (cause) {
+      state.error = { cause }
+    }
+  })
+  if (state.error === null && (state.snapshot === null || !compareStructural(state.snapshot.value, next)))
+    state.snapshot = { value: next }
+}
+
+function releaseProjection<T>(state: ProjectionState<T>): void {
+  if (state.listeners.size || state.invalidations.size) return
+  state.reaction?.dispose()
+  state.reaction = null
 }
 
 /** Structural seam satisfied by the app's StoreProvider runtime. */

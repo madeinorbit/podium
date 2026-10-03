@@ -131,6 +131,6 @@ it('rethrows reader errors through getSnapshot and recovers on a real input chan
   expect(() => view.getSnapshot()).toThrow(failure)
   expect(wake).toHaveBeenCalledTimes(1)
   f.change(null)
-  expect(view.getSnapshot()).toEqual(first)
+  expect(view.getSnapshot()).toBe(first)
   expect(wake).toHaveBeenCalledTimes(2)
 })

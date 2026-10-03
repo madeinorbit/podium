@@ -2,7 +2,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo, useRef, useSyncExternalStore } from 'react'
 import type { WorklistPoolHandle } from '../create'
 import type { MobxPool } from '../pool'
 import type { createPoolProjection } from '../runtime-pool'
@@ -161,14 +161,19 @@ export function createPoolHost({ screens, dev, start }: PoolHostOptions): PoolHo
     const runtime = useStoreHandle()
     const pool = usePool()
     const project = slotFor(runtime).project
+    const reader = useRef(read)
+    reader.current = read
     const view = useMemo(
-      () => (pool && project ? project(pool, read) : null),
-      [pool, project, read],
+      () => (pool && project ? project(pool, reader.current) : null),
+      // Reader closures change with props. The view adopts the latest reader
+      // below without replacing its observer or React subscription.
+      [pool, project],
     )
-    return useSyncExternalStore(
-      view?.subscribe ?? (() => () => {}),
-      view?.getSnapshot ?? (() => empty),
+    useSyncExternalStore(
+      view?.subscribeInvalidations ?? (() => () => {}),
+      view?.getVersion ?? (() => 0),
     )
+    return view ? view.getSnapshot(reader.current) : empty
   }
 
   return { attach, usePool, usePoolProjection, survivors }

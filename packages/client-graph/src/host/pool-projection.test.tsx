@@ -9,7 +9,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MobxPool } from '../pool'
-import '../runtime-pool'
+import * as runtimePool from '../runtime-pool'
 import { createPoolHost } from './pool-host'
 import { poolSwitches } from './switches'
 
@@ -21,6 +21,16 @@ afterEach(() => {
 })
 
 async function mount(inline: boolean) {
+  const original = runtimePool.createPoolProjection
+  const create = vi.spyOn(runtimePool, 'createPoolProjection')
+  const subscriptions: (() => number)[] = []
+  create.mockImplementation(<T,>(pool: MobxPool, read: (pool: MobxPool) => T) => {
+    const view = original(pool, read)
+    const subscribe = vi.spyOn(view, 'subscribeInvalidations')
+    subscriptions.push(() => subscribe.mock.calls.length)
+    return view
+  })
+  cleanups.push(() => vi.restoreAllMocks())
   const pilot = poolSwitches(() => ({ get: () => null, device: () => true }))('mobxProjection')
   const host = createPoolHost({
     dev: false,
@@ -35,9 +45,14 @@ async function mount(inline: boolean) {
     return { selected: current.selection.has('projection-target') }
   }
   let reader = read
+  let target = 'projection-target'
   function Probe() {
+    const captured = target
     pool = host.usePool()
-    snapshot = host.usePoolProjection(inline ? (current) => read(current) : reader, null)
+    snapshot = host.usePoolProjection(inline ? (current) => {
+      reads++
+      return { selected: current.selection.has(captured) }
+    } : reader, null)
     return null
   }
   const replica = createKernelReplica({
@@ -75,8 +90,11 @@ async function mount(inline: boolean) {
   return {
     reads: () => reads,
     snapshot: () => snapshot!,
+    projections: () => create.mock.calls.length,
+    subscriptions: () => subscriptions.reduce((sum, count) => sum + count(), 0),
     render,
     replaceReader: () => { reader = (current) => read(current); render() },
+    capture: (id: string) => { target = id; render() },
     change: () => act(async () => {
       const publisher = runtime as unknown as { apply(patch: { selectedIssueId: string | null }): void }
       publisher.apply({ selectedIssueId: snapshot!.selected ? null : 'projection-target' })
@@ -98,11 +116,13 @@ describe('real host projection read counts with the pilot on', () => {
     const parentRerender = fixture.reads() - beforeRerender
     console.info('[pool projection counts]', { inline, firstMount, perChange, parentRerender,
       stableOnRerender: fixture.snapshot() === updated })
-    // One tracked read per projection; a new inline closure replaces the reader.
+    // Publication polls only a revision; render reads the latest callback once.
     expect(firstMount).toBe(1)
-    expect(perChange).toBe(inline ? 2 : 1)
+    expect(perChange).toBe(1)
     expect(parentRerender).toBe(inline ? 1 : 0)
-    if (!inline) expect(fixture.snapshot()).toBe(updated)
+    expect(fixture.snapshot()).toBe(updated)
+    expect(fixture.projections()).toBe(1)
+    expect(fixture.subscriptions()).toBe(1)
   })
 
   it('measures a changed reader such as a screen navigation callback', async () => {
@@ -112,5 +132,19 @@ describe('real host projection read counts with the pilot on', () => {
     const readerChange = fixture.reads() - before
     console.info('[pool projection reader change]', { readerChange })
     expect(readerChange).toBe(1)
+    expect(fixture.projections()).toBe(1)
+    expect(fixture.subscriptions()).toBe(1)
+  })
+
+  it('adopts changed captures without a pool publication or subscription replacement', async () => {
+    const fixture = await mount(true)
+    await fixture.change()
+    expect(fixture.snapshot().selected).toBe(true)
+    const before = fixture.reads()
+    fixture.capture('another-target')
+    expect(fixture.snapshot().selected).toBe(false)
+    expect(fixture.reads() - before).toBe(1)
+    expect(fixture.projections()).toBe(1)
+    expect(fixture.subscriptions()).toBe(1)
   })
 })
