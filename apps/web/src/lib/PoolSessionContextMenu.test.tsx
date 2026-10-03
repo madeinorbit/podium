@@ -66,7 +66,6 @@ const row = (id: string): SessionView =>
     sessionId: asSessionId(id),
     cwd: '/synthetic/menu',
     title: 'Pool session',
-    name: null,
     agentKind: 'codex',
     status: 'exited',
     controllerId: null,
@@ -75,10 +74,11 @@ const row = (id: string): SessionView =>
     clientCount: 0,
     origin: { kind: 'spawn' },
     archived: true,
-    issueId: null,
+    readAt: null,
+    unread: false,
     createdAt: stamp,
     lastActiveAt: stamp,
-  }) as SessionView
+  })
 function open(scale: number) {
   const chosen = row('chosen-session')
   const seats = [chosen, ...Array.from({ length: 64 * scale - 1 }, (_, i) => row(`unrelated-${i}`))]
@@ -105,7 +105,13 @@ function open(scale: number) {
     {
       kind: 'machine',
       id: 'menu-machine',
-      value: { id: asMachineId('menu-machine'), name: 'Menu machine', online: true },
+      value: {
+        id: asMachineId('menu-machine'),
+        name: 'Menu machine',
+        hostname: 'synthetic-menu',
+        lastSeenAt: stamp,
+        online: true,
+      },
     },
   ])
   return { pool, load }
