@@ -78,6 +78,23 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
 }
 
 describe('declared issue page', () => {
+  it('keeps the menu world quiet for body edits and reactive to labels and inverse edge changes', () => {
+    const ctx = open([task('root'), task('other')])
+    const snapshots: IssueViewModel[][] = []
+    const stop = reaction(() => ctx.views.issues(), next => {
+      if (!next || next === LOADING) throw new Error('Missing menu world')
+      snapshots.push(next)
+    }, { fireImmediately: true })
+    try {
+      ctx.patch('issue', 'other', task('other', { description: 'A changed document' }))
+      expect(snapshots).toHaveLength(1)
+      ctx.patch('issue', 'other', task('other', { labels: ['changed'], deps: [{ id: 'root', type: 'custom' }] }))
+      expect(snapshots).toHaveLength(2)
+      expect(snapshots[1]?.find(row => row.id === 'other')?.labels).toEqual(['changed'])
+      expect(snapshots[1]?.find(row => row.id === 'root')?.dependents).toEqual([{ id: 'other', type: 'custom' }])
+      expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
+    } finally { stop() }
+  })
   it('publishes the accepted deadline change on a clock-only tick without hiding other differences', () => {
     const ctx = open([task('root', { deferUntil: new Date(NOW + 1000).toISOString() })])
     const values: boolean[][] = []
