@@ -347,18 +347,18 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
     test.setTimeout(Date.now() - started + 360_000)
   }
   const arms: {
-    pool: boolean
+    start: number
     replicaCache: 'cold' | 'warm'
     navigationMs: number
     draftMs: number[]
     counts: Awaited<ReturnType<typeof counts>>
   }[] = []
-  for (const on of [true, true]) {
+  for (const start of [1, 2]) {
     await settings(page)
     const replicaCache = arms.length === 0 ? 'cold' : 'warm'
     if (replicaCache === 'cold') {
       // Keep the device preference and auth cookie; close the app's handles
-      // before clearing both first arms' replica homes. Bootstrap interception
+      // before clearing the first start's replica homes. Bootstrap interception
       // disables browser HTTP caching in every arm, including the warm arms.
       const origin = new URL(page.url()).origin
       await page.goto('about:blank')
@@ -394,7 +394,7 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
         )
         delete (window as unknown as { __phoneDraftMs?: number }).__phoneDraftMs
       })
-      await input.fill(`Synthetic draft ${on}:${index}`)
+      await input.fill(`Synthetic draft ${start}:${index}`)
       await page.waitForFunction(
         () => (window as unknown as { __phoneDraftMs?: number }).__phoneDraftMs !== undefined,
       )
@@ -404,7 +404,7 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
     }
     const reads = await counts(page)
     expect(reads).toMatchObject({ context: 0, ports: 0 })
-    arms.push({ pool: on, replicaCache, navigationMs, draftMs, counts: reads })
+    arms.push({ start, replicaCache, navigationMs, draftMs, counts: reads })
   }
   expect(corpus.installations()).toBeGreaterThan(0)
   expect(observed.errors).toEqual([])

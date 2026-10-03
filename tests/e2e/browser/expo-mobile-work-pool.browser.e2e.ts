@@ -44,7 +44,7 @@ test('production mobile work has stable pool rows and styles, and a real press p
   for (let n = 1; n <= 3; n++) await rpc(request, 'issues.create', { repoPath: repos[0], title: `${title} ${n}`, startNow: true })
   const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
   const row = () => page.getByRole('button', { name: new RegExp(`^${prefix} ${title} 1$`) })
-  // Prime the normal mark-read write before comparing the same data in both arms.
+  // Prime the normal mark-read write before comparing the same data across fresh starts.
   await launchWork(page)
   await expect(row()).toBeVisible({ timeout: 60_000 })
   await row().click()
@@ -54,7 +54,7 @@ test('production mobile work has stable pool rows and styles, and a real press p
   const heap = async () => { await cdp.send('HeapProfiler.collectGarbage'); return (await cdp.send('Runtime.getHeapUsage')).usedSize as number }
   const cells: unknown[] = []
   let expected: unknown
-  for (const on of [true, true]) {
+  for (const start of [1, 2]) {
     await launchWork(page)
     await expect(row()).toBeVisible({ timeout: 60_000 })
     // Each hard navigation constructs the real principal-scoped provider and
@@ -101,7 +101,7 @@ test('production mobile work has stable pool rows and styles, and a real press p
     } finally {
       const events = await stop()
       const timing = paintOf(events, 'mobile:input', 'mobile:dom')
-      cells.push({ on, ...timing, startupToRowMs, heapBeforeBytes: before, heapAfterBytes: await heap() })
+      cells.push({ start, ...timing, startupToRowMs, heapBeforeBytes: before, heapAfterBytes: await heap() })
     }
   }
   expect(errors).toEqual([])

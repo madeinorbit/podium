@@ -54,8 +54,8 @@ test('production mobile never derives worklist from the pool, including mission 
       return result
     }
   })
-  const counts: { on: boolean; phase: string; worklist: number }[] = []
-  async function checkpoint(on: boolean, phase: string) {
+  const counts: { start: number; phase: string; worklist: number }[] = []
+  async function checkpoint(start: number, phase: string) {
     const stats = await page.evaluate(() => {
       const value = Reflect.get(globalThis, '__podiumStoreStats')
       if (!value) throw new Error('store stats missing before bootstrap')
@@ -76,7 +76,7 @@ test('production mobile never derives worklist from the pool, including mission 
       0,
     )
     expect(worklist, phase).toBe(0)
-    counts.push({ on, phase, worklist })
+    counts.push({ start, phase, worklist })
   }
   const errors: string[] = []
   const resourceReports: { message: string; path: string }[] = []
@@ -106,7 +106,7 @@ test('production mobile never derives worklist from the pool, including mission 
     )
   const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
   const row = () => page.getByRole('button', { name: new RegExp(`^${prefix} ${title} 1$`) })
-  // Prime the normal mark-read write before comparing the same data in both arms.
+  // Prime the normal mark-read write before comparing the same data across fresh starts.
   await launchWork(page)
   await expect(row()).toBeVisible({ timeout: 60_000 })
   await row().click()
@@ -119,7 +119,7 @@ test('production mobile never derives worklist from the pool, including mission 
   }
   const cells: unknown[] = []
   let expected: unknown
-  for (const [arm, on] of [true, true].entries()) {
+  for (const [arm, start] of [1, 2].entries()) {
     if (captureGate && !parityOnly) {
       writeFileSync(`${captureGate}.${arm}.ready`, 'ready\n')
       const deadline = Date.now() + 180_000
@@ -162,17 +162,17 @@ test('production mobile never derives worklist from the pool, including mission 
     expect(look).toHaveLength(3)
     if (expected === undefined) expected = look
     else expect(look).toEqual(expected)
-    await checkpoint(on, 'bootstrap/rebuild')
+    await checkpoint(start, 'bootstrap/rebuild')
     await page.getByLabel('New work', { exact: true }).click()
     await expect(page.getByLabel(/^Start in /)).toBeVisible()
-    await checkpoint(on, 'new work sheet')
+    await checkpoint(start, 'new work sheet')
     await page.getByLabel('Close', { exact: true }).click({ position: { x: 8, y: 8 } })
     await rpc(request, 'issues.update', {
       id: issues[0]!.id,
-      patch: { description: `Incoming update ${on}` },
+      patch: { description: `Incoming update ${start}` },
     })
     await page.waitForTimeout(250)
-    await checkpoint(on, 'incoming update')
+    await checkpoint(start, 'incoming update')
     const before = parityOnly ? undefined : await heap()
     const label = await row().getAttribute('aria-label')
     await page.evaluate((label) => {
@@ -213,7 +213,7 @@ test('production mobile never derives worklist from the pool, including mission 
         const events = await stop()
         const timing = paintOf(events, 'mobile:input', 'mobile:dom')
         cells.push({
-          on,
+          start,
           ...timing,
           startupToRowMs,
           heapBeforeBytes: before,
@@ -221,17 +221,17 @@ test('production mobile never derives worklist from the pool, including mission 
         })
       }
     }
-    await checkpoint(on, 'mission press and mark read')
+    await checkpoint(start, 'mission press and mark read')
     await page.getByLabel('Mission details', { exact: true }).click()
     await expect(page).toHaveURL(/\/mobile\/mission\/[^/]+\/details/)
     await expect(page.getByText('Mission details', { exact: true })).toBeVisible()
-    await checkpoint(on, 'mission details')
+    await checkpoint(start, 'mission details')
     if (captureGate && !parityOnly) writeFileSync(`${captureGate}.${arm}.done`, 'done\n')
     if (!parityOnly) {
-      // One genuine scheduled clock publication per arm; no manually invoked
+      // One genuine scheduled clock publication per start; no manually invoked
       // slice and no reset can erase a late eager derivation.
       await page.waitForTimeout(61_000)
-      await checkpoint(on, 'idle minute')
+      await checkpoint(start, 'idle minute')
     }
   }
   expect(errors).toEqual([])
