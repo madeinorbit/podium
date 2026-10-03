@@ -1168,7 +1168,7 @@ Inclusive loop attribution approximately matches the planted duration; self excl
 
 The analyzer and evidence checks verify one input/feed mark, one expected-DOM mark, a qualifying main-renderer Paint, matching gate/analyzer wall time, same SHA, 24 distinct retained records, actual reader startup modes, interleaved order, and complete clipped CPU coverage. Exclusive sampled categories partition both each wall window and each longest-task window within floating-point precision. Rendered-instance totals equal the summed complete component lists. Both contexts preserve the fixture census and target shapes, and the collector checked empty fixture/page error lists. The requested interval is 1,000 µs; observed retained interval medians are 1,073–1,148 µs with occasional gaps up to 22.031 ms. These remain sampled elapsed-time estimates, not CPU-cycle or invocation counts.
 
-Focused measurement-harness typecheck: **pending final candidate check**. Product files and the standard gate/baseline are unchanged; no product test sweep or speed-gate promotion is part of this measurement issue.
+Focused measurement-harness typecheck: **green** on flatblock at candidate `2c1e74e826555a68777f22d85b6fc518d5286cc8`: `bun run typecheck -- --filter @podium/web --only -- -p harness/tsconfig.full-screen-profile.json`, one task successful, 7.946 seconds. This is a focused compiler check, not the lean gate or full suite. Product files and the standard gate/baseline are unchanged; no product test sweep or speed-gate promotion is part of this measurement issue.
 
 ### Post-fix reproduction and evidence
 
