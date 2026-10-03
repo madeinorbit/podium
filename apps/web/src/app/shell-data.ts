@@ -26,7 +26,7 @@ export function useShellActions(): Pick<Store, typeof ACTIONS[number]> {
 const legacy = (owner: object, name: string) => recordSliceDerivation(owner, `shell.${name}`)
 const EMPTY_DOCK: ShellDockData = { active: null, scope: null, gitIssue: undefined, mailIssueId: undefined,
   issues: [], shipOrders: [], shipLanes: [], coarseNow: 0, shipping: { unfinishedCount: 0, decisionCount: 0 } }
-function usePoolDock() {
+function usePoolDock(): ShellDockData {
   const pool = useWorklistPool(), value = pool ? shellViews(pool).dock() : LOADING
   return value && value !== LOADING ? value : EMPTY_DOCK
 }
@@ -63,7 +63,7 @@ function useLegacyDock(): ShellDockData {
 }
 /** Large pool reads run inside their consumer's MobX observer. The startup
  * choice never depends on whether a pool happens to be attached yet. */
-export function useShellDock() { const useRead = shellDataLayer() === 'pool' ? usePoolDock : useLegacyDock; return useRead() }
+export function useShellDock(): ShellDockData { const useRead = shellDataLayer() === 'pool' ? usePoolDock : useLegacyDock; return useRead() }
 
 function usePoolWindow() { const pool = useWorklistPool(); const value = pool?.row('shellWindow', 'window'); return value === LOADING ? undefined : value }
 function useLegacyWindow() {
