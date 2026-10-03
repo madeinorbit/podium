@@ -62,6 +62,7 @@ const value = (name: string, fallback: string) =>
   args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
 const profileAction = value('profile', 'all')
 const interleave = args.includes('--interleave')
+const poolReaders = args.includes('--pool-readers')
 const profileActions = profileAction === 'all' ? ACTIONS.filter(action => action !== 'sidebar-issue')
   : [profileAction === 'session-switch' ? 'session-pane' : profileAction]
 const root = resolve('.artifacts/full-screen-click-profile')
@@ -84,10 +85,11 @@ async function main() {
     console.log('bun apps/web/harness/full-screen-click-profile.ts --profile=mission-switch|session-switch|issue-rename|background-update|all\n' +
       'Three production CPU + trace samples per action, mobxPane OFF/ON; no gate/baseline writes.\n' +
       '--interleave: alternate arms per sample, reversing the first arm each pair.\n' +
+      '--pool-readers: toggle the converted session-pane and issue-reference readers with mobxPane.\n' +
       '--lease-confirmed: caller holds bench:flatblock.')
     return
   }
-  for (const arg of args) if (arg !== '--lease-confirmed' && arg !== '--interleave' && !arg.startsWith('--profile='))
+  for (const arg of args) if (arg !== '--lease-confirmed' && arg !== '--interleave' && arg !== '--pool-readers' && !arg.startsWith('--profile='))
     throw new Error(`Unknown argument ${arg}`)
   if (hostname() !== 'flatblock') throw new Error('Profile capture runs on flatblock')
   if (!profileActions.length || profileActions.some(action => !ACTIONS.includes(action as Action) || action === 'sidebar-issue'))
@@ -206,7 +208,7 @@ async function main() {
       },
     )
     await page.goto(
-      `${origin}/harness/full-screen-click-profile.browser.html?mobxSidebar=1&mobxPane=${pilot}&scale=4&surface=full&panelMode=chat`,
+      `${origin}/harness/full-screen-click-profile.browser.html?mobxSidebar=1&mobxPane=${pilot}${poolReaders ? `&mobxSessionPane=${pilot}&mobxChips=${pilot}` : ''}&scale=4&surface=full&panelMode=chat`,
     )
     await page.waitForFunction(
       () => window.__acceptance?.ready() && document.querySelector('[data-issue-row]'),
@@ -218,11 +220,14 @@ async function main() {
       ...window.__acceptance.state(),
       corpus: window.__acceptance.corpus,
       paneMode: window.__speedPaneMode(),
+      readerModes: window.__speedReaderModes(),
     }))
     if (
       state.mode !== 'pool' ||
       !state.pool ||
       (state.paneMode !== (pilot ? 'pool' : 'legacy')) ||
+      state.readerModes.sessionPane !== (poolReaders && pilot ? 'pool' : 'legacy') ||
+      state.readerModes.chips !== (poolReaders && pilot ? 'pool' : 'legacy') ||
       (state.issues ?? 0) < 19_000 ||
       (state.sessions ?? 0) < 17_000
     )
@@ -232,7 +237,7 @@ async function main() {
       if (renderer?.bundleType !== 0 || renderer.version !== '19.2.7')
         throw new Error(`Expected ordinary production React 19.2.7: ${JSON.stringify(renderer)}`)
     }
-    return { page, cdp: await context.newCDPSession(page), context, errors, pilot }
+    return { page, cdp: await context.newCDPSession(page), context, errors, pilot, readerModes: state.readerModes }
   }
   async function settle(page: Page) {
     await page.evaluate(() => window.__acceptance.settled())
@@ -322,7 +327,7 @@ async function main() {
       const file = `${actionName}-pilot-${fixture.pilot ? 'on' : 'off'}-${sampleIndex}`
       const record = {
         file, sourceSha: captureSha, action: actionName, pilot: fixture.pilot,
-        iteration: sampleIndex, trigger, expected, paint: result, boundary,
+        iteration: sampleIndex, trigger, expected, paint: result, boundary, readerModes: fixture.readerModes,
         react, stateBefore, stateAfter: await page.evaluate(() => window.__acceptance.state()),
         loadavg: loadavg(),
         // Browser performance.timeOrigin + boundary.input locates the input
@@ -614,7 +619,9 @@ async function main() {
       }
       await writeFile(resolve(profileDir, 'manifest.json'), JSON.stringify({
         version: 1, sourceSha: captureSha, dirtyProduct, machine, capturedAt: new Date().toISOString(),
-        profileAction, pilot: 'mobxPane=0/1; mobxSidebar=1 in both arms',
+        profileAction, pilot: poolReaders
+          ? 'mobxPane=mobxSessionPane=mobxChips=0/1; mobxSidebar=1 in both arms'
+          : 'mobxPane=0/1; mobxSidebar=1 in both arms; session-pane and chips legacy',
         scale: 4, surface: 'full', seed: 4443, repetitions: REPETITIONS, warmups: WARMUPS,
         build: 'ordinary React 19.2.7; minified production; hidden source maps; no state-boundary wrappers',
         samplingIntervalUs: 1000,

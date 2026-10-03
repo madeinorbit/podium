@@ -41,6 +41,7 @@ declare global {
     __speedFunctions: Function[]
     __speedFunctionNames: string[]
     __speedPaneMode(): 'legacy' | 'pool'
+    __speedReaderModes(): { pane: 'legacy' | 'pool'; sessionPane: 'legacy' | 'pool'; chips: 'legacy' | 'pool' }
   }
 }
 
