@@ -12,7 +12,9 @@ import type { PoolSummaryFields } from './source-registry'
 
 /** React's scalar/layout readers share MobX tracking without eagerly loading
  * the graph in legacy mode. Rows use observer directly; this seam is for the
- * palette and project controls, which need only a small section projection. */
+ * palette and project controls, which need only a small section projection.
+ * Optional diagnostics let the structural harness observe this real boundary;
+ * the app keeps the existing reaction name and MobX equality by default. */
 export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) => T,
   options: { name?: string; equals?: (before: T, next: T) => boolean } = {}) {
   const state = projectionState(pool, read, options)

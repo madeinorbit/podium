@@ -66,7 +66,8 @@
  * the DOM's own bookkeeping never counts, even when the arm calls it.
  *
  * WHAT IT CANNOT SEE: an index loop (`for (let i = 0; i < a.length; i++)`)
- * over a plain array, and a walk inside a closure-held native structure the
+ * over a plain array (except the app projection comparer, observed through
+ * `countedStructuralEqual`), and a walk inside a closure-held native structure the
  * patches do not reach (a typed array, a string). A full walk written that way
  * still reads rows, which the feed counts; a walk over ids only does not. That
  * stays a review item, as the copy sweep's blind spots do.
