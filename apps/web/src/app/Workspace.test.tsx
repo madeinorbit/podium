@@ -23,6 +23,10 @@ vi.mock('@/features/setup/ColdStartComposer', () => ({
   ColdStartComposer: (): JSX.Element => <div data-testid="partial-recovery-composer" />,
 }))
 
+vi.mock('@/features/files/FilePanel', () => ({
+  FilePanel: (): JSX.Element => <div data-testid="workspace-file-panel" />,
+}))
+
 vi.mock('./NewPanelMenu', async () => {
   const { cloneElement, useState } = await import('react')
   return {
@@ -583,6 +587,40 @@ describe('Workspace tab closing', () => {
     const closeTab = (globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }).__PODIUM_CLOSE_TAB__
     expect(closeTab?.()).toBe(true)
     expect(actions.closeWorkspaceTab).toHaveBeenCalledWith('s2')
+  })
+
+  it('routes Cmd+W to the replacement account actions without remounting the workspace', () => {
+    const view = render(<Workspace />)
+    const nextCloseWorkspaceTab = vi.fn()
+    state = { ...state, closeWorkspaceTab: nextCloseWorkspaceTab }
+
+    view.rerender(<Workspace />)
+
+    const closeTab = (globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }).__PODIUM_CLOSE_TAB__
+    expect(closeTab?.()).toBe(true)
+    expect(nextCloseWorkspaceTab).toHaveBeenCalledWith('s2')
+    expect(actions.closeWorkspaceTab).not.toHaveBeenCalled()
+  })
+
+  it('routes a replacement account file tab through its file-close action', () => {
+    const view = render(<Workspace />)
+    const nextCloseFileTab = vi.fn()
+    const file = { id: 'file-next-account', path: 'notes.txt', worktreePath: '/repo/wt',
+      issueId: task.id, scope: { kind: 'worktree', root: '/repo/wt' } }
+    const layout = makeLayout()
+    state = { ...state, fileTabs: [file], closeFileTab: nextCloseFileTab,
+      workspaces: { 'mission:task-1': { ...layout,
+        panes: { p1: { ...layout.panes.p1, tabs: [file.id], activeTabId: file.id } },
+      } },
+    }
+
+    view.rerender(<Workspace />)
+
+    const closeTab = (globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }).__PODIUM_CLOSE_TAB__
+    expect(closeTab?.()).toBe(true)
+    expect(nextCloseFileTab).toHaveBeenCalledWith(file.id)
+    expect(actions.closeFileTab).not.toHaveBeenCalled()
+    expect(actions.closeWorkspaceTab).not.toHaveBeenCalled()
   })
 
   it('closes a remaining tab when the active one is already gone', () => {

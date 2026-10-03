@@ -13,6 +13,10 @@ import type {} from '../test/sidebar-acceptance.browser'
 
 const args = process.argv.slice(2)
 const planted = args.includes('--plant-stale-handler')
+const sharedScopePlant = args.includes('--plant-shared-scope-callback')
+const pilotArg = args.find(arg => arg.startsWith('--pilot='))?.slice(8)
+if (pilotArg !== undefined && !['0', '1'].includes(pilotArg)) throw new Error('Invalid pilot arm')
+const pilots = pilotArg === undefined ? [0, 1] : [Number(pilotArg)]
 const out = resolve(args.find(arg => arg.startsWith('--out='))?.slice(6) ?? '.artifacts/account-switch')
 const buildDir = resolve(out, 'build')
 const sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
@@ -36,6 +40,12 @@ await build({
         // A real mutation of the production effect: keep the first account's
         // handler registered across every later render and principal change.
         return { code: code.replace(registration, 'delete g.__PODIUM_CLOSE_TAB__\n    }\n  }, [])'), map: null }
+      }
+      if (sharedScopePlant && id.endsWith('/app/Workspace.tsx')) {
+        const close = '  const closeTab = (tabId: string): void => {'
+        if (!code.includes(close)) throw new Error('Shared-scope callback plant was not armed')
+        return { code: "import { useCallback as retainAccountCallback } from 'react';\n" +
+          code.replace(close, '  retainAccountCallback(() => closeFileTab, [])\n' + close), map: null }
       }
       if (!id.endsWith('/test/sidebar-acceptance.browser.tsx')) return
       // Observe identities through the fixture's existing WeakRefs. This probe
@@ -73,7 +83,7 @@ async function settle(page: Page): Promise<void> {
 }
 const records: unknown[] = [], failures: string[] = []
 try {
-  for (const pilot of [0, 1]) {
+  for (const pilot of pilots) {
     const context = await browser.newContext({ viewport: { width: 1800, height: 1000 }, reducedMotion: 'reduce' })
     try {
       const page = await context.newPage(), errors: string[] = []
@@ -114,9 +124,9 @@ try {
     } finally { await context.close() }
   }
   await writeFile(resolve(out, 'report.json'), JSON.stringify({ sourceSha, browser: browser.version(),
-    host: hostname(), seed: 4443, issues: 4867, sessions: 4302, switches, planted, records, failures }, null, 2) + '\n')
+    host: hostname(), seed: 4443, issues: 4867, sessions: 4302, switches, planted, sharedScopePlant, records, failures }, null, 2) + '\n')
   if (failures.length) throw new Error(`Account survivors guard failed:\n${failures.join('\n')}`)
-  console.log('Account-switch proof passed: zero retired survivors in both startup arms')
+  console.log(`Account-switch proof passed: zero retired survivors in startup arms ${pilots.join(', ')}`)
 } finally {
   await browser.close()
   await new Promise<void>(done => server.close(() => done()))
