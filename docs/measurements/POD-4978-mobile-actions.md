@@ -105,10 +105,29 @@ title assertion, and the initial failure context shows that wrong title in the
 row with one queued mutation. The updated fresh-profile check was replanted
 and rejects the same fault at that assertion. The source was restored with
 `cp`. Earlier driver attempts stopped before that assertion and are excluded.
-A shared-profile capture also stopped at an undelivered request, with earlier
-commands queued and needing review; it is excluded. A pool-only diagnostic
-subsequently proved the real HTTP hold, refusal rollback and navigation. The driver scrolls
-the virtualized row into view, holds real Chromium touch input, cancels the
+A shared-profile capture stopped at an undelivered request with one change
+needing review and two queued. Its original queue records and arm label were
+not retained, so its command times cannot be recovered and the earlier
+first-OFF attribution was unsupported. The old sequence was reproduced with
+durable queue snapshots on `ccce76d346`; the initial read receipt drained and
+the first OFF rename passed hold, refusal, rollback and navigation. The next
+ON arm reproduced the banner and failed delivery with these records:
+
+| Command | Creation time, 2026-10-03 UTC | Origin and observed state |
+| --- | --- | --- |
+| `issues.update`, rename | 15:26:36.121 | First OFF arm; synthetic refusal at .158, retained for recovery at .172 |
+| `issues.markRead` | 15:26:36.327 | First OFF arm's mission navigation after refusal; queued behind that rename |
+| `issues.update`, rename | 15:26:43.222 | Next ON arm; still queued with zero attempts at 15:26:48.130 |
+
+All three share the same issue partition. The existing outbox retains authored
+rename intent and blocks following writes in that partition until recovery;
+its parked-yield policy only permits chat sends. This product behavior is
+reported in **Proposed POD-5415**, and the queue audit is attached. Fresh-profile
+capture covers actions with an empty starting queue; it does not claim to fix
+or accept this recovery policy. A drain delay alone cannot remove a parked
+rename. The original failed capture is excluded from timing evidence.
+
+The driver waits for a stable virtualized row, holds real Chromium touch input, cancels the
 original row gesture when the modal owns input, and taps the native sheet
 controls.
 
@@ -122,10 +141,10 @@ gate verifies coverage.
 
 The three added source files pass scoped Biome lint with no errors (34
 warnings and one informational diagnostic). Root shadowing passes across
-5,899 files. Full WorkScreen lint still reports its unchanged search-cache
-memo dependencies, already present on the integration baseline. That separate
-follow-up is **Proposed POD-5411**; the menu change does not remove the
-intentional cache resets or hide the baseline error.
+5,899 files. The coordinator landed the inherited WorkScreen search-cache lint
+fix separately as **POD-5414**, `ccce76d346`, with both reset paths tested and a
+rejected no-reset plant. This branch is rebased onto it. The original
+**Proposed POD-5411** finding is now covered by that landing.
 
 All fixtures are synthetic. The operator's live data remains on ludovico;
 no screenshot, export or dump of it is used. Tests, typecheck and lint run
