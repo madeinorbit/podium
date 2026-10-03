@@ -3,6 +3,8 @@ import { compareStructural, observable, runInAction } from 'mobx'
 import { NOTICE_RELATIONS, type NoticeEntity, type NoticeRows } from './notice-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
+export const NOTICE_SOURCE_KEY = 'notices'
+
 type NoticeRuntime = Pick<ClientRuntime, 'replica' | 'outbox'>
 type RecordEntity = 'messageRecord' | 'pendingInteraction' | 'outboxDeadLetter'
 

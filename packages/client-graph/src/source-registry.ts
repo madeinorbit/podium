@@ -28,11 +28,47 @@ export interface PoolSource<E extends SourceEntity> {
 export class PoolSources {
   private readonly byEntity = observable.map<SourceEntity, PoolSource<SourceEntity>>(undefined, { deep: false })
   private readonly views = new Map<string, object>()
+  private readonly owners = new Map<SourceEntity, string>()
+  private readonly ensured = new Map<string, { entities: readonly SourceEntity[]; promise: Promise<PoolSource<SourceEntity>> }>()
   private disposed = false
 
   register<E extends SourceEntity>(entities: readonly E[], source: PoolSource<E>): void {
+    this.install(entities, source)
+  }
+
+  /** A source's fixed key owns its entity set, including while its lazy factory
+   * is pending. All screens share the same promise and the same source. */
+  ensure<E extends SourceEntity>(key: string, entities: readonly E[], create: () => PoolSource<E> | Promise<PoolSource<E>>): Promise<PoolSource<E>> {
+    if (this.disposed || new Set(entities).size !== entities.length) throw new Error('Pool source registration conflicts with its owner')
+    const existing = this.ensured.get(key)
+    if (existing) {
+      if (entities.length !== existing.entities.length || entities.some(entity => !existing.entities.includes(entity))) {
+        throw new Error('Pool source key has a different entity declaration')
+      }
+      return existing.promise as Promise<PoolSource<E>>
+    }
+    if (entities.some(entity => this.byEntity.has(entity) || this.owners.has(entity))) {
+      throw new Error('Pool source registration conflicts with its owner')
+    }
+    for (const entity of entities) this.owners.set(entity, key)
+    const promise = Promise.resolve().then(() => {
+      if (this.disposed) throw new Error('Pool source registry disposed before creation')
+      return create()
+    }).then(source => {
+      this.install(entities, source, key)
+      return source
+    }).catch(cause => {
+      this.ensured.delete(key)
+      for (const entity of entities) if (this.owners.get(entity) === key) this.owners.delete(entity)
+      throw cause
+    })
+    this.ensured.set(key, { entities: [...entities], promise: promise as Promise<PoolSource<SourceEntity>> })
+    return promise
+  }
+
+  private install<E extends SourceEntity>(entities: readonly E[], source: PoolSource<E>, key?: string): void {
     if (this.disposed || new Set(entities).size !== entities.length ||
-      entities.some(entity => this.byEntity.has(entity))) {
+      entities.some(entity => this.byEntity.has(entity) || (this.owners.has(entity) && this.owners.get(entity) !== key))) {
       source.dispose()
       throw new Error('Pool source registration conflicts with its owner')
     }
@@ -68,6 +104,8 @@ export class PoolSources {
         if (typeof dispose === 'function') dispose()
       }
       this.views.clear()
+      this.ensured.clear()
+      this.owners.clear()
     })
     queueMicrotask(() => runInAction(() => this.byEntity.clear()))
   }
