@@ -1,17 +1,14 @@
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
-import { checkPreferences } from '@podium/client-graph/diagnostics/preference-check'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { StrictMode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mobilePreferenceReadStats } from './mobile-preferences'
 import { useCollapsed } from './useCollapsed'
 import { useCollapsedSet } from './useCollapsedSet'
 import { usePersistedUiState } from './usePersistedUiState'
 
 const state = vi.hoisted(() => ({
-  layer: 'pool' as 'legacy' | 'pool',
   ui: undefined as RoutedUiState | undefined,
   pool: null as MobxPool | null,
   projections: 0,
@@ -23,7 +20,6 @@ vi.mock('../client/hooks', () => ({
   },
 }))
 vi.mock('../client/mobile-pool', () => ({
-  mobileDataLayer: () => state.layer,
   useMobilePoolProjection: <T,>(read: (pool: MobxPool) => T, empty: T): T => {
     const pool = state.pool
     // biome-ignore lint/correctness/useExhaustiveDependencies: This fixture changes the pool on explicit rerenders to model attachment and principal replacement.
@@ -89,22 +85,17 @@ beforeEach(() => {
   state.ui = ui
   state.pool = null
   state.projections = 0
-  state.layer = 'pool'
-  mobilePreferenceReadStats.enable()
-  mobilePreferenceReadStats.reset()
 })
 afterEach(() => {
   cleanup()
   for (const pool of pools.splice(0)) pool.dispose()
-  mobilePreferenceReadStats.enable(false)
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
-describe.each(['legacy', 'pool'] as const)('%s mobile preferences', (layer) => {
+describe('mobile preferences', () => {
   beforeEach(() => {
-    state.layer = layer
-    if (layer === 'pool') attach(ui)
+    attach(ui)
   })
 
   it('parses saved values, follows late hydration and rollback, and deletes back to defaults', async () => {
@@ -263,8 +254,11 @@ it('batches all demanded keys, never falls back while attaching, and reports mat
   expect(pool.preferenceCounts()).toMatchObject({ batches: 1, loaded: 4 })
   expect(pool.preferenceKeys().length).toBe(4)
   expect(ui.listeners.size).toBe(1)
-  expect(mobilePreferenceReadStats.read(ui).legacyReads).toBe(0)
-  expect(checkPreferences(pool, ui)).toMatchObject({ differences: 0, pending: 0, positions: 4 })
+  const values = () => pool.preferenceKeys().map(key => {
+    const row = pool.row('preference', key)
+    return typeof row === 'object' && row ? row.value : row
+  })
+  expect(values()).toEqual(['saved', null, null, 'true'])
   const projections = state.projections
   rerender()
   expect(state.projections).toBe(projections)
@@ -272,14 +266,14 @@ it('batches all demanded keys, never falls back while attaching, and reports mat
   act(() => ui.emit())
   await flush()
   expect(renders).toBe(before)
-  expect(mobilePreferenceReadStats.read(ui).legacyReads).toBe(0)
 
   const row = pool.row.bind(pool)
   vi.spyOn(pool, 'row').mockImplementation(((entity: never, key: string) => {
     const value = row(entity, key)
     return typeof value === 'object' && value ? { ...value, value: 'planted-difference' } : value
   }) as typeof pool.row)
-  expect(checkPreferences(pool, ui)).toMatchObject({ differences: 4, pending: 0 })
+  expect(values()).toEqual(Array(4).fill('planted-difference'))
+  expect(values()).not.toEqual(['saved', null, null, 'true'])
 })
 
 it('keeps pending writes with the old principal and drops its optimism and subscriptions on owner replacement', async () => {
@@ -305,7 +299,6 @@ it('keeps pending writes with the old principal and drops its optimism and subsc
   expect(result.current.collapsed.size).toBe(0)
   expect(alice.listeners.size).toBe(0)
   expect(alicePool.preferenceKeys()).toEqual([])
-  expect(mobilePreferenceReadStats.read(bob).legacyReads).toBe(0)
 })
 
 it('allows an authoritative replacement inside the post-write batch to win after local optimism ends', async () => {
@@ -324,17 +317,4 @@ it('allows an authoritative replacement inside the post-write batch to win after
   })
   expect(result.current.collapsed.size).toBe(0)
   expect(ui.values.get(storageKeyFor('repo'))).toBe('false')
-})
-
-it('counts the unchanged legacy reader as a positive control', () => {
-  state.layer = 'legacy'
-  const { result } = renderHook(() => ({
-    value: usePersistedUiState(VALUE, parse, serialize),
-    single: useCollapsed(FOLD, true),
-    set: useCollapsedSet(KEYS, storageKeyFor),
-  }))
-  expect(result.current.value[0]).toBe('default')
-  expect(mobilePreferenceReadStats.read(ui).legacyReads).toBeGreaterThan(0)
-  expect(ui.listeners.size).toBe(3)
-  expect(state.pool).toBeNull()
 })

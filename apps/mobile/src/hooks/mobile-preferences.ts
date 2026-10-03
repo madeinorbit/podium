@@ -3,26 +3,6 @@ import type { MobxPool } from '@podium/client-graph'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 
-// Counts retain neither keys nor values and cost nothing while disabled.
-let counting = false
-let legacyReads = new WeakMap<object, number>()
-export const mobilePreferenceReadStats = {
-  enable(value = true): void {
-    counting = value
-  },
-  reset(): void {
-    legacyReads = new WeakMap()
-  },
-  read(owner: object): { legacyReads: number } {
-    return { legacyReads: legacyReads.get(owner) ?? 0 }
-  },
-}
-
-export function readLegacyPreference(ui: RoutedUiState, key: string): string | null {
-  if (counting) legacyReads.set(ui, (legacyReads.get(ui) ?? 0) + 1)
-  return ui.get(key)
-}
-
 function preferenceValue(pool: MobxPool, key: string): string | null {
   const row = pool.row('preference', key)
   // A cold row or an attaching pool paints the default, never a legacy read.
