@@ -487,6 +487,11 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
     // loop this count guards has already asserted each of them writes `'n/a'`
     // rather than staying silent — which is the whole point of the rewrite noted
     // above, and the reason bumping this number does not soften anything.
-    expect(queries).toBe(27)
+    //
+    // 27 → 29 is `issues.resolveRefs` (the bounded issue-reference resolver
+    // behind chips and the ref miniview) and `issues.searchNormalized` (search
+    // over the normalized issue record). Both are reads and both already declare
+    // `'n/a'` in the loop above.
+    expect(queries).toBe(29)
   })
 })
