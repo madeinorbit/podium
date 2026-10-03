@@ -223,6 +223,28 @@ describe('terminal receipt operator regressions', () => {
     w.runtime.dispose()
   })
 
+  it('a re-read of an entry credited elsewhere does not spend our order (POD-5436)', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const words = 'the update is failing when applying to ludovico. figure out why'
+    const other = w.handle.send({ id: 'msg_other-first', text: 'First' }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes.filter((bytes) => bytes === '\r')).toHaveLength(2)
+    // 'First' credits the other watch, which resolves and is removed. Ours
+    // records it (dedupe) without spending order or budget.
+    w.post('First', { id: 'reread-first' })
+    // A history re-check delivers the same items again: the duplicate must be
+    // deduped, not treated as a new foreign entry that spends our order.
+    w.post('First', { id: 'reread-first' })
+    w.post(words)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await other).toMatchObject({ outcome: 'accepted' })
+    expect(await ours).toMatchObject({ outcome: 'accepted' })
+    w.runtime.dispose()
+  })
+
   it('framed queue records do not spend an unwrapped send\u2019s queue order (this issue)', async () => {
     vi.useFakeTimers(); vi.setSystemTime(START)
     const w = world()
