@@ -149,6 +149,23 @@ Final navigation shadowing is green in 5,865 files; the span-effect gate is
 green with 162 span bodies, 7 accepted effects, zero unclassified effects and
 8 declared opaque bodies.
 
+The final rebase included the shared parent-cycle rollup fix
+(`595bf1403d`/`b9da04b899`). Its consumer replay passes **all eight mobile
+model checks under the prototype's own package config**, including 600
+observed changes. Both scales retain 34 comparisons, zero differences,
+zero pending rows and 388/528 native array identities. The generic file
+wrapper selected the root Node project first; that interrupted route is
+excluded from this required package-config evidence.
+
+Four unchanged native navigation/commit/fold checks stay green on this
+rollup, with legacy 9/9 versus pool 0/1 commits. The initial 4× look snapshot
+observed one row before its extra paint-input batch completed. The fixture
+now drains the existing public loader before the comparison, just as the
+search proof does. Only the two affected look cases were retried:
+**2 passed, 7 unchanged checks deselected**, with strict text, accessibility,
+style and legacy-reader assertions preserved. All six selected native checks
+are green; no product code changed for this readiness correction.
+
 POD-5370's seeded phone startup fix landed at `8db927c57f` before this
 consumer's production acceptance. The restored minified Expo export passes
 **all three Pixel Chromium checks**: default-off and restart-latched switch
