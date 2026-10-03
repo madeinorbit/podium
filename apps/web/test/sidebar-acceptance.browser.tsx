@@ -215,6 +215,8 @@ function MeasurementBinding() {
 
 function Fixture() {
   const runtime = useStoreHandle() as ClientRuntime
+  // Match AppShell: freeze screen choices before descendants choose their hooks.
+  initializePoolScreens(runtime.ui)
   const pool = useWorklistPool()
   const selected = useStoreSelector((s) => s.selectedIssueId)
   owner = runtime
