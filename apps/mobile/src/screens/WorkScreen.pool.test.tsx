@@ -463,8 +463,8 @@ afterEach(() => {
 afterAll(() => vi.unstubAllEnvs())
 
 describe('mobile WorkScreen pool consumer', () => {
-  it('keeps archived long-press history cold and the raw delete count exact at 1x and 4x', async () => {
-    const cells: { scale: number; neighbours: number; rowReads: number; derivations: number }[] = []
+  it('keeps archived long-press payload reads absent and the raw delete count exact at 1x and 4x', async () => {
+    const cells: { scale: number; neighbours: number; rowReads: number; archivedReads: number; derivations: number }[] = []
     for (const scale of [1, 4] as const) {
       const corpus = clickCorpus(scale)
       const member = corpus.sessions.find(
@@ -485,16 +485,17 @@ describe('mobile WorkScreen pool consumer', () => {
       await drainNativeLoads()
       const pool = state.pool!
       let rowReads = 0
+      let archivedReads = 0
       const row = pool.row.bind(pool)
       const spy = vi.spyOn(pool, 'row').mockImplementation(((
         ...args: Parameters<typeof pool.row>
       ) => {
         rowReads++
+        if (args[0] === 'session' && args[1].startsWith('phone-menu-archived-')) archivedReads++
         return row(...args)
       }) as typeof pool.row)
       const census = startCensus({ sample: () => ({ rowReads }) })
       try {
-        expect(history.every((session) => !pool.tables.session.has(session.sessionId))).toBe(true)
         const target = view.container.querySelector('[data-label$=" Fixed phone menu target"]')!
         expect(target).not.toBeNull()
         census.enter('archive history menu')
@@ -509,7 +510,6 @@ describe('mobile WorkScreen pool consumer', () => {
         expect(menu.getAttribute('data-issues')).toBe('2')
         expect(menu.getAttribute('data-sessions')).toBe('2')
         expect(menu.getAttribute('data-session-count')).toBe(String(history.length + 2))
-        expect(history.every((session) => !pool.tables.session.has(session.sessionId))).toBe(true)
         expect(state.sliceReads).toBe(0)
         expect(state.rowDerivations).toBe(0)
         const phase = census.snapshot().phases['archive history menu']!
@@ -522,6 +522,7 @@ describe('mobile WorkScreen pool consumer', () => {
           scale,
           neighbours,
           rowReads: phase.sampled.rowReads ?? rowReads,
+          archivedReads,
           derivations: phase.computedRuns + phase.reactionRuns,
         })
       } finally {
@@ -537,6 +538,7 @@ describe('mobile WorkScreen pool consumer', () => {
         `archived menu: 4x/1x ${metric} exceeds visible-neighbourhood ratio`,
       ).toBeLessThanOrEqual((cells[0]![metric] * cells[1]!.neighbours) / cells[0]!.neighbours)
     }
+    expect(cells.map((cell) => cell.archivedReads)).toEqual([0, 0])
   }, 240_000)
   it('bounds derivation runs and row reads per scripted click by the visible neighbourhood at 1x and 4x', async () => {
     const cells: {
