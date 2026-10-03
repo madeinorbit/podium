@@ -87,7 +87,13 @@ it('reads archived mission crew display facts from declared summaries without lo
     spawnedBy: 'session:author', createdBy: { kind: 'user', id: 'u-fixture' },
     stopReason: 'user', resumable: true, refLetter: 'b', model: 'fixture-model',
   }
-  const { pool, reader, load } = await setup([issue('root')], [seat])
+  const { pool, reader, load } = await setup([
+    issue('root', { stage: 'done', closedAt: '2026-01-01T00:00:00Z', readAt: '2026-01-01T00:00:00Z' }),
+  ], [seat])
+  expect(pool.tables.session.has('seat')).toBe(false)
+  expect(reader.mission('root')).toBe(LOADING)
+  expect(pool.hydrate()).toBe(1)
+  load.mockClear()
   expect(reader.mission('root')).toMatchObject({
     missionSessions: [], sessions: [seat],
   })
