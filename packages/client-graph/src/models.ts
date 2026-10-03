@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+
 /**
  * The pool's models: ONE object per row, one class per schema entity, built
  * by the pool the first time anything asks for it (Linear's "observable on
@@ -68,18 +69,13 @@ import type { SessionView } from '@podium/client-core/session-values'
  * across), so no two groups wait on each other.
  */
 
-import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues } from './worklist/sidebar-row'
-import { sidebarRosterOf, type SidebarRoster } from './worklist/sidebar'
-import { mobileIssueValues, mobileWaitingCount, type MobileRowValues } from './worklist/mobile-row'
+import { compareStructural } from 'mobx'
+import { cachedGroup } from './cached'
+import { headerDockSession, headerHostSession, headerWorkingSession } from './header-session'
+import type { Residence } from './pool'
+import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
 import { overlayRow } from './shared/overlay-row'
 import type { RelationReader } from './shared/relation-reader'
-import type {
-  CollectionName,
-  IsLazy,
-  SingleName,
-  SubsetName,
-  TargetOf,
-} from './shared/links'
 import { FEED_SPELLING } from './shared/repo-from-lane'
 import {
   plainRowView,
@@ -89,15 +85,9 @@ import {
   type RowView,
   type RowViewField,
 } from './shared/row-view'
-import { headerWorkingSession, headerHostSession, headerDockSession } from './header-session'
 
 import { type EntityName, SCHEMA } from './shared/schema'
-import type {
-  SliceIssue,
-  SlicePhase,
-  SliceSession,
-  SliceWorktree,
-} from './shared/slice-types'
+import type { SliceIssue, SlicePhase, SliceSession, SliceWorktree } from './shared/slice-types'
 import {
   type EditableStage,
   type EditPatch,
@@ -105,9 +95,6 @@ import {
   type TxId,
   type WritableKind,
 } from './shared/write-contract'
-import { cachedGroup } from './cached'
-import { compareStructural } from 'mobx'
-import type { Residence } from './pool'
 import type { StoredRow } from './tables'
 import {
   activityAtOf,
@@ -131,6 +118,7 @@ import {
   type ViewInputs,
 } from './views'
 import { type Placement, withWaiting } from './worklist/groups'
+import { type MobileRowValues, mobileIssueValues, mobileWaitingCount } from './worklist/mobile-row'
 import {
   type Aggregate,
   type Attention,
@@ -141,8 +129,6 @@ import {
   type OwnAttention,
   type OwnFacts,
   ownFactsOf,
-  unitOwnPartOf,
-  unitsBelowPartOf,
   type Rollup,
   type RollupInputs,
   rollupPartOf,
@@ -150,8 +136,17 @@ import {
   tipPartOf,
   type UnitOwn,
   type Units,
+  unitOwnPartOf,
+  unitsBelowPartOf,
   waitingPartOf,
 } from './worklist/rollup'
+import { type SidebarRoster, sidebarRosterOf } from './worklist/sidebar'
+import {
+  NO_SIDEBAR_SESSIONS,
+  type SidebarRowValues,
+  sidebarLifecycle,
+  sidebarTimingFromFacts,
+} from './worklist/sidebar-row'
 import {
   childIdsPartOf,
   type HeldIssue,
@@ -163,8 +158,8 @@ import {
   type Members,
   membersOf,
   type Nesting,
-  nestCandidatePartOf,
   nestBelowPartOf,
+  nestCandidatePartOf,
   nestedPartOf,
   nestingOf,
   type Presence,
@@ -296,7 +291,8 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
     if (name in prototype) {
       throw new Error(`[pool] ${entity}.${name} collides with a model member; rename one`)
     }
-    const collection = spec.kind === 'hasMany' || (spec.kind === 'edge' && (spec.direction === 'in' || spec.many))
+    const collection =
+      spec.kind === 'hasMany' || (spec.kind === 'edge' && (spec.direction === 'in' || spec.many))
     if (!collection) {
       Object.defineProperty(prototype, name, {
         configurable: false,
@@ -426,7 +422,10 @@ export interface Loaded {
  * structurally, so a field whose inputs moved but whose value did not
  * notifies no row.
  */
-function rowField<V>(field: RowViewField, compute: (issue: IssueModel) => V): (issue: IssueModel) => V {
+function rowField<V>(
+  field: RowViewField,
+  compute: (issue: IssueModel) => V,
+): (issue: IssueModel) => V {
   return cachedGroup(field, (issue: IssueModel) => compute(issue))
 }
 
@@ -443,13 +442,19 @@ function rowField<V>(field: RowViewField, compute: (issue: IssueModel) => V): (i
 function sameAggregate(a: Aggregate, b: Aggregate): boolean {
   const { sessions: left = [], ...leftFacts } = a
   const { sessions: right = [], ...rightFacts } = b
-  return left.length === right.length && left.every((row, index) => row === right[index]) &&
+  return (
+    left.length === right.length &&
+    left.every((row, index) => row === right[index]) &&
     compareStructural(leftFacts, rightFacts)
+  )
 }
 
 function sameAttention(a: Attention, b: Attention): boolean {
-  return a.seatActivity === b.seatActivity && sameAggregate(a.ownAttention, b.ownAttention) &&
+  return (
+    a.seatActivity === b.seatActivity &&
+    sameAggregate(a.ownAttention, b.ownAttention) &&
     sameAggregate(a.aggregate, b.aggregate)
+  )
 }
 
 function sameVerdict(a: LoadedRow<SeatVerdict>, b: LoadedRow<SeatVerdict>): boolean {
@@ -466,7 +471,8 @@ function sameSidebar(a: LoadedRow<SidebarRowValues>, b: LoadedRow<SidebarRowValu
   const { sessions: ownA, aggregateSessions: allA, ...factsA } = a
   const { sessions: ownB, aggregateSessions: allB, ...factsB } = b
   const sameSeats = (left: readonly SliceSession[], right: readonly SliceSession[]): boolean =>
-    left === right || (left.length === right.length && left.every((seat, index) => seat === right[index]))
+    left === right ||
+    (left.length === right.length && left.every((seat, index) => seat === right[index]))
   return sameSeats(ownA, ownB) && sameSeats(allA, allB) && compareStructural(factsA, factsB)
 }
 
@@ -479,17 +485,24 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
 
   private static readonly groups = {
-    mobileWork: cachedGroup('mobileWork', (issue: IssueModel): LoadedRow<MobileRowValues> => {
-      const sidebar = issue.sidebar
-      return sidebar === LOADING || sidebar === undefined ? sidebar
-        : mobileIssueValues(sidebar, issue.mobileWaitingCount, issue.activityAt)
-    }, (a, b) => {
-      if (a === b) return true
-      if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
-      const { sidebar: left, sessions: leftSeats, ...leftFacts } = a
-      const { sidebar: right, sessions: rightSeats, ...rightFacts } = b
-      return left === right && leftSeats === rightSeats && compareStructural(leftFacts, rightFacts)
-    }),
+    mobileWork: cachedGroup(
+      'mobileWork',
+      (issue: IssueModel): LoadedRow<MobileRowValues> => {
+        const sidebar = issue.sidebar
+        return sidebar === LOADING || sidebar === undefined
+          ? sidebar
+          : mobileIssueValues(sidebar, issue.mobileWaitingCount, issue.activityAt)
+      },
+      (a, b) => {
+        if (a === b) return true
+        if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
+        const { sidebar: left, sessions: leftSeats, ...leftFacts } = a
+        const { sidebar: right, sessions: rightSeats, ...rightFacts } = b
+        return (
+          left === right && leftSeats === rightSeats && compareStructural(leftFacts, rightFacts)
+        )
+      },
+    ),
     /** One drawn row's complete payload, suppressing equal intermediate roll-ups. */
     sidebar: cachedGroup('sidebar', (issue: IssueModel) => issue.sidebarValues(), sameSidebar),
     /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
@@ -513,12 +526,23 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     /** Independent of nesting: cycle rejection can follow candidates without recursion. */
     nestCandidate: cachedGroup('nestCandidate', (issue: IssueModel) => {
       const present = issue.present
-      return nestCandidatePartOf(issue.host.visibleInputs, issue.id, present ? issue.standing : undefined, present)
+      return nestCandidatePartOf(
+        issue.host.visibleInputs,
+        issue.id,
+        present ? issue.standing : undefined,
+        present,
+      )
     }),
     /** Presence first: a row that is not present (a hidden one among them) reads no standing. */
     nesting: cachedGroup('nesting', (issue: IssueModel) => {
       const present = issue.present
-      return nestingOf(issue.host.visibleInputs, issue.id, present ? issue.standing : undefined, present, issue.nestCandidate)
+      return nestingOf(
+        issue.host.visibleInputs,
+        issue.id,
+        present ? issue.standing : undefined,
+        present,
+        issue.nestCandidate,
+      )
     }),
     /** The nest candidates down the raw parent edge (read by the parent's `nestBelow` and `nested`). */
     nestBelow: cachedGroup('nestBelow', (issue: IssueModel) =>
@@ -529,8 +553,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       nestedPartOf(issue.host.visibleInputs, issue.id, issue),
     ),
     tip: cachedGroup('tip', (issue: IssueModel) => tipPartOf(issue.host.rollupInputs, issue.id)),
-    attention: cachedGroup('attention', (issue: IssueModel) =>
-      attentionOf(issue.host.rollupInputs, issue.id, issue),
+    attention: cachedGroup(
+      'attention',
+      (issue: IssueModel) => attentionOf(issue.host.rollupInputs, issue.id, issue),
       sameAttention,
     ),
     /** Its own contribution to its formal ancestors' progress (its own row, and whether it is vacated). */
@@ -586,7 +611,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     workingSince: rowField('workingSince', (issue) => issue.rowRollup.workingSince),
     band: rowField('band', (issue) => issue.own?.band ?? 1),
     repoKey: rowField('repoKey', (issue) => issue.own?.repoKey ?? ''),
-    closed: rowField('closed', (issue) => unlessWaiting(issue.own?.closed === true, issue.rowRollup)),
+    closed: rowField('closed', (issue) =>
+      unlessWaiting(issue.own?.closed === true, issue.rowRollup),
+    ),
     dismissed: rowField('dismissed', (issue) =>
       unlessWaiting(issue.own?.dismissed === true, issue.rowRollup),
     ),
@@ -602,7 +629,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       rowActivityAtOf(issue.ownActivityAt, issue.rowRollup),
     ),
     loading: rowField('loading', (issue) => rowLoadingOf(issue.lazyLoading, issue.rowRollup)),
-  } satisfies { readonly [F in Exclude<RowViewField, 'id' | 'selected'>]: (issue: IssueModel) => RowView[F] }
+  } satisfies {
+    readonly [F in Exclude<RowViewField, 'id' | 'selected'>]: (issue: IssueModel) => RowView[F]
+  }
 
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
@@ -632,50 +661,121 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     if (own === LOADING) return LOADING
     if (own === undefined) return undefined
     const facts = this.loaded.facts
-    const issue = overlayRow(own, { displayRef: this.displayRef, readAt: this.host.visibleInputs.issueRead(this.id), unread: this.unread }, SIDEBAR_ISSUE_OMISSIONS)
+    const issue = overlayRow(
+      own,
+      {
+        displayRef: this.displayRef,
+        readAt: this.host.visibleInputs.issueRead(this.id),
+        unread: this.unread,
+      },
+      SIDEBAR_ISSUE_OMISSIONS,
+    )
     const agg = this.aggregate
     const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
     const sessions = this.ownAttention.sessions ?? []
     const aggregateSessions = agg.sessions ?? []
     const targetId = own.supersededBy ?? own.duplicateOf
-    const origin = this.originRef === null ? undefined : this.host.rollupInputs.loadedIssue(this.originRef)
+    const origin =
+      this.originRef === null ? undefined : this.host.rollupInputs.loadedIssue(this.originRef)
     if (origin === LOADING) return LOADING
-    const originTick = origin === undefined ? null : { id: origin.id, seq: origin.seq,
-      title: origin.title, ref: this.host.inputs.parts(origin.id)?.label.displayRef ?? `#${origin.seq}` }
+    const originTick =
+      origin === undefined
+        ? null
+        : {
+            id: origin.id,
+            seq: origin.seq,
+            title: origin.title,
+            ref: this.host.inputs.parts(origin.id)?.label.displayRef ?? `#${origin.seq}`,
+          }
     const tip = !targetId && !this.openOwn ? this.tip : undefined
-    if (agg.pending > 0 || this.unitsBelow.pending > 0 || this.unitOwn.cold || (tip?.pending ?? 0) > 0) return LOADING
+    if (
+      agg.pending > 0 ||
+      this.unitsBelow.pending > 0 ||
+      this.unitOwn.cold ||
+      (tip?.pending ?? 0) > 0
+    )
+      return LOADING
     const fromChildren = this.unitsBelow.members > 0
     const progress = fromChildren
-      ? { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, ...this.unitsBelow.progress, total: this.unitsBelow.units }
-      : { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, total: this.unitOwn.solo ? 1 : 0,
-          ...(this.unitOwn.solo ? { [this.unitOwn.state ?? 'wait']: 1 } : {}) }
+      ? {
+          done: 0,
+          run: 0,
+          review: 0,
+          stall: 0,
+          block: 0,
+          wait: 0,
+          ...this.unitsBelow.progress,
+          total: this.unitsBelow.units,
+        }
+      : {
+          done: 0,
+          run: 0,
+          review: 0,
+          stall: 0,
+          block: 0,
+          wait: 0,
+          total: this.unitOwn.solo ? 1 : 0,
+          ...(this.unitOwn.solo ? { [this.unitOwn.state ?? 'wait']: 1 } : {}),
+        }
     const decision = this.ownAttention.deciding ? facts.decision : null
     let continuation: SidebarRowValues['continuation'] = null
     if (targetId) {
       if (this.host.rollupInputs.loadedIssue(targetId) === LOADING) return LOADING
       const target = this.host.inputs.parts(targetId)?.label
-      continuation = { kind: own.supersededBy ? 'continued' : 'duplicate', ref: target?.displayRef ?? 'another task' }
+      continuation = {
+        kind: own.supersededBy ? 'continued' : 'duplicate',
+        ref: target?.displayRef ?? 'another task',
+      }
     } else if (!this.openOwn) {
       const destination = tip?.target
-      if (destination) continuation = { kind: 'continued', ref: this.host.inputs.parts(destination.id)?.label.displayRef ?? `#${destination.seq}` }
+      if (destination)
+        continuation = {
+          kind: 'continued',
+          ref: this.host.inputs.parts(destination.id)?.label.displayRef ?? `#${destination.seq}`,
+        }
     }
     const readMs = Date.parse(issue.readAt ?? '')
-    const descendantUnread = this.nested.length > 0 && issue.readAt && Number.isFinite(readMs) && (
-      (Date.parse(agg.updatedAt ?? '') || 0) > readMs || sessionFacts.lastActiveMs > readMs)
+    const descendantUnread =
+      this.nested.length > 0 &&
+      issue.readAt &&
+      Number.isFinite(readMs) &&
+      ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || sessionFacts.lastActiveMs > readMs)
     return {
-      idNumber: this.seq, color: own.color ?? null, title: this.title,
-      timing: sidebarTimingFromFacts(sessionFacts, this.phase, facts.finished, this.activityAt, agg.decidingAt),
-      working: this.working, asking: this.asking, originTick,
-      decision, mergeCommits: decision === 'merge' ? own.gitState?.ahead ?? 0 : 0,
-      progress, fromChildren, statusFromChildren: this.nestParent === null && fromChildren, gitState: own.gitState,
+      idNumber: this.seq,
+      color: own.color ?? null,
+      title: this.title,
+      timing: sidebarTimingFromFacts(
+        sessionFacts,
+        this.phase,
+        facts.finished,
+        this.activityAt,
+        agg.decidingAt,
+      ),
+      working: this.working,
+      asking: this.asking,
+      originTick,
+      decision,
+      mergeCommits: decision === 'merge' ? (own.gitState?.ahead ?? 0) : 0,
+      progress,
+      fromChildren,
+      statusFromChildren: this.nestParent === null && fromChildren,
+      gitState: own.gitState,
       unread: !this.working && (this.unread || Boolean(descendantUnread)),
       errorClass: facts.finished ? null : sessionFacts.errorClass,
       internal: own.audience === 'agent',
       ...sidebarLifecycle(issue, this.asking, this.host.inputs.passed, this.host.inputs.reached),
       draftAgentOnly: own.isDraftVessel === true && !own.worktreePath && sessions.length > 0,
-      firstSessionId: this.ownAttention.firstSessionId ?? null, continuation,
-      fleet: sessionFacts.fleet, issue, sessions, aggregateSessions,
-      awaitingFirstPrompt: own.isDraftVessel === true && this.phase === 'queued' && aggregateSessions.length > 0 && sessionFacts.allUnstarted,
+      firstSessionId: this.ownAttention.firstSessionId ?? null,
+      continuation,
+      fleet: sessionFacts.fleet,
+      issue,
+      sessions,
+      aggregateSessions,
+      awaitingFirstPrompt:
+        own.isDraftVessel === true &&
+        this.phase === 'queued' &&
+        aggregateSessions.length > 0 &&
+        sessionFacts.allUnstarted,
     }
   }
 
@@ -838,7 +938,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   get parentRef(): string | null {
     const hidden = this.host.hidden('issue', this.id)
     if (hidden === undefined) return this.standing?.parentId ?? null
-    return (hidden['parentId'] as string | null | undefined) || null
+    return (hidden.parentId as string | null | undefined) || null
   }
 
   get seatIds(): readonly string[] {
@@ -1032,14 +1132,23 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel implements SessionVisibility {
   private static readonly headerWorking = cachedGroup('headerWorking', (session: SessionModel) =>
-    headerWorkingSession(session.row as SessionView | undefined, session.host.inputs.passed))
+    headerWorkingSession(session.row as SessionView | undefined, session.host.inputs.passed),
+  )
   private static readonly headerHost = cachedGroup('headerHost', (session: SessionModel) =>
-    headerHostSession(session.row as SessionView | undefined))
-  get headerWorking() { return SessionModel.headerWorking(this) }
-  get headerHost() { return SessionModel.headerHost(this) }
+    headerHostSession(session.row as SessionView | undefined),
+  )
+  get headerWorking() {
+    return SessionModel.headerWorking(this)
+  }
+  get headerHost() {
+    return SessionModel.headerHost(this)
+  }
   private static readonly headerDock = cachedGroup('headerDock', (session: SessionModel) =>
-    headerDockSession(session.row as SessionView | undefined))
-  get headerDock() { return SessionModel.headerDock(this) }
+    headerDockSession(session.row as SessionView | undefined),
+  )
+  get headerDock() {
+    return SessionModel.headerDock(this)
+  }
   private static readonly groups = {
     retention: cachedGroup('retention', (session: SessionModel) =>
       retentionOf(session.host.visibleInputs.sessionRow(session.id)),
@@ -1050,8 +1159,9 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     links: cachedGroup('links', (session: SessionModel) =>
       sessionLinksOf(session.host.visibleInputs, session.id),
     ),
-    verdict: cachedGroup('verdict', (session: SessionModel) =>
-      verdictPartOf(session.host.visibleInputs, session.id),
+    verdict: cachedGroup(
+      'verdict',
+      (session: SessionModel) => verdictPartOf(session.host.visibleInputs, session.id),
       sameVerdict,
     ),
   }
@@ -1140,7 +1250,10 @@ export type ModelOf = {
 
 /** The model class of each schema entity. */
 export const MODEL_CLASSES: {
-  readonly [E in EntityName]: (new (id: string, host: ModelHost) => EntityModel) &
+  readonly [E in EntityName]: (new (
+    id: string,
+    host: ModelHost,
+  ) => EntityModel) &
     Pick<typeof EntityModel, 'answers'>
 } = {
   issue: IssueModel,
