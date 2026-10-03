@@ -33,8 +33,10 @@ const disposals: (() => void)[] = []
 afterEach(() => {
   for (const dispose of disposals.splice(0)) dispose()
 })
-async function setup(rows: ReturnType<typeof issue>[]) {
-  const load = vi.fn((_kind: string, id: string) => rows.find((row) => row.id === id))
+async function setup(rows: ReturnType<typeof issue>[], sessions: { sessionId: string }[] = []) {
+  const load = vi.fn((kind: string, id: string) => kind === 'session'
+    ? sessions.find((row) => row.sessionId === id)
+    : rows.find((row) => row.id === id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
     summaries: MOBILE_SCREEN_SUMMARIES,
@@ -42,7 +44,10 @@ async function setup(rows: ReturnType<typeof issue>[]) {
   })
   pool.apply({
     type: 'replace',
-    rows: rows.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+    rows: [
+      ...rows.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+      ...sessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
+    ],
   })
   const scans = vi.spyOn(pool.residency!, 'ids')
   await attachMobileScreens(pool)
@@ -73,6 +78,23 @@ it('reads cold Tasks through declared summaries without promoting or loading the
   expect(load).not.toHaveBeenCalled()
   expect(row.mock.calls.some(([, , purpose]) => String(purpose) === 'peek')).toBe(false)
   expect(scans).not.toHaveBeenCalled()
+})
+it('reads archived mission crew display facts from declared summaries without loading their rows', async () => {
+  const seat = {
+    sessionId: 'seat', issueId: 'root', title: 'Archived seat', cwd: '/fixture',
+    agentKind: 'codex', status: 'exited', archived: true,
+    createdAt: '2026-01-01T00:00:00Z', lastActiveAt: '2026-01-01T00:00:00Z',
+    spawnedBy: 'session:author', createdBy: { kind: 'user', id: 'u-fixture' },
+    stopReason: 'user', resumable: true, refLetter: 'b', model: 'fixture-model',
+  }
+  const { pool, reader, load } = await setup([issue('root')], [seat])
+  expect(reader.mission('root')).toMatchObject({
+    missionSessions: [], sessions: [seat],
+  })
+  expect(reader.deck('root', 'full')).toMatchObject({ sessions: [seat] })
+  expect(pool.tables.session.has('seat')).toBe(false)
+  expect(pool.hydrate()).toBe(0)
+  expect(load).not.toHaveBeenCalled()
 })
 it('retains matching ancestors, promotes proposal blocks, and keeps collapsed child counts honest', async () => {
   const { reader } = await setup([

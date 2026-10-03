@@ -10,7 +10,7 @@ import type {
 import type { IssueBoardStage } from '@podium/model/browser'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { MISSION_SUMMARIES } from './mission-schema'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
+import { MISSION_VIEW_SESSION_FIELDS, MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { MOBILE_SESSION_SUMMARIES } from './mobile-session-schema'
 import { mergePoolSummaries } from './source-registry'
 
@@ -101,5 +101,8 @@ export const MOBILE_SCREEN_SUMMARIES = mergePoolSummaries(
   MISSION_SUMMARIES,
   MISSION_VIEW_SUMMARIES,
   MOBILE_SESSION_SUMMARIES,
-  { issue: ['sortKey', 'startedBySession'] },
+  {
+    issue: ['sortKey', 'startedBySession'],
+    session: [...Object.keys(MISSION_VIEW_SESSION_FIELDS), 'createdBy', 'stopReason'],
+  },
 )
