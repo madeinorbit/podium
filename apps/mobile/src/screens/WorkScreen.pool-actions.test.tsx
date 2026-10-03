@@ -203,7 +203,8 @@ describe('mobile pool work-list actions', () => {
     expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}`)
     expect(requests).toEqual([])
     const write = await request('issues.markRead')
-    expect(write.input).toMatchObject({ id: TARGET, readAt: iso(0), mutationId: expect.any(String) })
+    expect(write.input).toMatchObject({ id: TARGET, mutationId: expect.any(String) })
+    expect(pool().readCursor(TARGET)).toBe(iso(0))
     expect(value().unread).toBe(false)
     await parity()
     await settle(write)
@@ -244,7 +245,7 @@ describe('mobile pool work-list actions', () => {
     const fixture = await mount(f => f.patchIssue(TARGET, { stage: 'done', closedAt: iso(-600_000), closedReason: 'done' }))
     expect(value().tuckable).toBe(true)
     const label = button().getAttribute('aria-label')!
-    await choose('Tuck')
+    await choose('Tuck Synthetic task 3 into Closed')
     const first = await request('issues.setTucked')
     expect(first.input).toMatchObject({ id: TARGET, tucked: true, mutationId: expect.any(String) })
     expect(screen.queryByRole('button', { name: label, exact: true })).toBeNull()
@@ -252,7 +253,7 @@ describe('mobile pool work-list actions', () => {
     await parity()
     await settle(first)
     expect(button()).toBeDefined()
-    await choose('Tuck')
+    await choose('Tuck Synthetic task 3 into Closed')
     const second = await request('issues.setTucked')
     await settle(second, true)
     expect(value().sidebar!.issue.tuckedAt).toBe(iso(0))
@@ -377,10 +378,12 @@ describe('mobile pool work-list actions', () => {
   for (const placement of ['own', 'mission'] as const) it(`moves placement to ${placement} and rolls back the native bands`, async () => {
     await mount(f => {
       f.patchIssue(TARGET, { parentId: placement === 'own' ? 'synthetic-1' : null })
-      const record = { entity: 'issueDep', entityId: 'origin-edge', provenance: { seq: 1 },
-        value: { id: 'origin-edge', fromId: TARGET, toId: 'synthetic-1', type: 'discovered-from' } }
-      f.records.set('issueDep:origin-edge', record)
-      f.replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+      if (placement === 'mission') {
+        const record = { entity: 'issueDep', entityId: 'origin-edge', provenance: { seq: 1 },
+          value: { id: 'origin-edge', fromId: TARGET, toId: 'synthetic-1', type: 'discovered-from' } }
+        f.records.set('issueDep:origin-edge', record)
+        f.replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+      }
     }, TARGET)
     fireEvent.click(screen.getByTestId('menu-probe'))
     await choose(placement === 'own' ? 'Move to top level (out of SYN-1001)' : 'Move into SYN-1001')
@@ -405,7 +408,7 @@ describe('mobile pool work-list actions', () => {
     expect(menu.target.issue.memberSessionIds).toEqual(['synthetic-session-3', 'synthetic-session-4'])
     await openMenu(); await choose('Delete…')
     expect(requests).toEqual([])
-    expect(screen.getByText(/2 agents/)).toBeDefined()
+    expect(await screen.findByText(/2 agents/)).toBeDefined()
     await choose('Delete')
     const write = await request('issues.delete')
     expect(pool().mobileWork.sections().sections.every(section => section.data.every(row => row.id !== TARGET))).toBe(true)
@@ -413,15 +416,17 @@ describe('mobile pool work-list actions', () => {
     expect(button()).toBeDefined()
   })
 
-  it('reorders in the complete project scope and rolls back every sort-key write', async () => {
+  for (const scope of ['project', 'pinned'] as const) for (const keyed of [true, false]) it(`reorders ${keyed ? 'keyed' : 'unkeyed'} ${scope} scope and rolls back every sort-key write`, async () => {
     await mount(f => {
       const keys = spreadSortKeys(6)
-      for (let index = 0; index < keys.length; index++) f.patchIssue(`synthetic-${index}`, { sortKey: keys[index] })
-      f.patchIssue('synthetic-1', { needsHuman: true })
+      for (let index = 0; index < keys.length; index++) f.patchIssue(`synthetic-${index}`,
+        { sortKey: keyed ? keys[index] : null, pinned: scope === 'pinned' })
+      f.patch('session', 'synthetic-session-1', { agentState: { phase: 'waiting', since: iso(-60_000),
+        waiting: { kind: 'permission' } } })
     })
     const split = pool().mobileWork.sections()
     expect(split.sections.some(section => section.kind === 'attention')).toBe(true)
-    const ordering = split.orderingSections.find(section => section.kind === 'project')!
+    const ordering = split.orderingSections.find(section => section.kind === scope)!
     expect(ordering.data.some(row => row.id === 'synthetic-1')).toBe(true)
     expect(split.orderingSections.every(section => section.kind !== 'attention')).toBe(true)
     const before = ordering.data.map(ref => ref.id)
@@ -437,18 +442,20 @@ describe('mobile pool work-list actions', () => {
   })
 
   it('loading and absent menu targets never open a menu or mutate, and loads batch', async () => {
+    let loads: ReturnType<typeof vi.spyOn>
     await mount(f => {
       f.patchIssue('synthetic-5', { archived: true, stage: 'done', closedAt: iso(-172_800_000) })
       f.patch('session', 'synthetic-session-5', { archived: true })
+      loads = vi.spyOn(f.replica, 'row')
     }, 'synthetic-5')
-    const loads = vi.spyOn(runtime.replica, 'row')
+    loads!.mockClear()
     expect(pool().tables.issue.has('synthetic-5')).toBe(false)
     fireEvent.click(screen.getByTestId('menu-probe'))
     fireEvent.click(screen.getByTestId('menu-probe'))
     expect(screen.queryByRole('button', { name: 'Rename', exact: true })).toBeNull()
     expect(requests).toEqual([])
     await act(async () => { pool().hydrate() })
-    expect(loads.mock.calls.filter(([kind, id]) => kind === 'issueProjections' && id === 'synthetic-5')).toHaveLength(1)
+    expect(loads!.mock.calls.filter(([kind, id]) => kind === 'issueProjections' && id === 'synthetic-5')).toHaveLength(1)
     expect(resolvePoolWorkMenu(pool(), 'absent')).toBeNull()
     expect(requests).toEqual([])
     await parity()
