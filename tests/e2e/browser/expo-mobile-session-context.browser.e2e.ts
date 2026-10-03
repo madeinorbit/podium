@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
 import { RELAY } from './_harness'
@@ -53,6 +53,9 @@ async function seed(page: Page) {
 async function observe(page: Page) {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text())
+  })
   await page.addInitScript(() => {
     // Existing opt-in counter; no production owner or subscriber is installed.
     const timer = setInterval(() => {
@@ -292,6 +295,17 @@ test('measures the phone conversation with an operator-sized synthetic corpus', 
   const errors = await observe(page),
     session = await seed(page),
     corpus = await sizedBootstrap(page, session)
+  if (process.env.PODIUM_MOBILE_SESSION_WAIT_FOR_LEASE === '1') {
+    // The lane builds and boots first. The operator grants the timing lease
+    // only at this boundary, so build and correctness work never hold it.
+    test.setTimeout(2_160_000)
+    const started = Date.now()
+    writeFileSync(resolve(artifacts, 'measurement-ready.json'), '{"ready":true}\n')
+    await expect.poll(() => existsSync(resolve(artifacts, 'capture-granted')), {
+      timeout: 1_800_000,
+    }).toBe(true)
+    test.setTimeout(Date.now() - started + 360_000)
+  }
   const arms: {
     pool: boolean
     cache: 'cold' | 'warm'
