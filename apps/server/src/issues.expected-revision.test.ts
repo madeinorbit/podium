@@ -131,7 +131,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = await seed(registry)
-      const base = await revisionOf(registry, issue.id) as number
+      const base = (await revisionOf(registry, issue.id)) as number
       const ledger = (registry as unknown as { ledger: Ledger }).ledger
       const commit = vi.spyOn(ledger.authority, 'commit')
 
@@ -272,7 +272,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
     try {
       const issue = await seed(registry)
       const caller = callerFor(registry)
-      const base = await revisionOf(registry, issue.id) as number
+      const base = (await revisionOf(registry, issue.id)) as number
       const input = {
         id: issue.id,
         patch: { title: 'exactly once' },
@@ -357,7 +357,7 @@ describe('the conflict reaches a real client over HTTP (ADR 3 D13.3)', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = await seed(registry)
-      const base = await revisionOf(registry, issue.id) as number
+      const base = (await revisionOf(registry, issue.id)) as number
       await callerFor(registry).issues.update({
         id: issue.id,
         patch: { title: 'landed' },
@@ -470,12 +470,12 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
     // author forgot the field would have produced, so the old form passed
     // identically for "correctly has no row" and "nobody classified it". Only
     // one of those two can now reach this loop at all.
-    let queries = 0
+    const queries: string[] = []
     for (const [name, def] of Object.entries(
       issueRegistry.defs as Record<string, AnyIssueCommandDef>,
     )) {
       if (def.kind === 'mutation') continue
-      queries += 1
+      queries.push(`issues.${name}`)
       expect(def.conflict, `${name} is a query and must declare 'n/a'`).toBe('n/a')
       expect(def.conflictRule, `${name} is a query and has no rule to state`).toBeUndefined()
     }
@@ -487,11 +487,41 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
     // loop this count guards has already asserted each of them writes `'n/a'`
     // rather than staying silent — which is the whole point of the rewrite noted
     // above, and the reason bumping this number does not soften anything.
-    //
-    // 27 → 29 is `issues.resolveRefs` (the bounded issue-reference resolver
-    // behind chips and the ref miniview) and `issues.searchNormalized` (search
-    // over the normalized issue record). Both are reads and both already declare
-    // `'n/a'` in the loop above.
-    expect(queries).toBe(29)
+    // 27 → 29 adds the intended reads `issues.resolveRefs` (POD-5078,
+    // 819096e65f: batched reference lookup) and `issues.searchNormalized` (POD-4968,
+    // 49bd864068: normalized web search alongside the legacy response).
+    // Pin names as well as membership so a query replacement cannot hide behind
+    // an unchanged count; the loop above still checks every query's envelope.
+    expect(queries.sort()).toEqual([
+      'issues.artifactRead',
+      'issues.blocked',
+      'issues.children',
+      'issues.closeEligibleEpics',
+      'issues.comments',
+      'issues.count',
+      'issues.deliveryReceipt',
+      'issues.depReport',
+      'issues.doctor',
+      'issues.epicStatus',
+      'issues.events',
+      'issues.findDuplicates',
+      'issues.get',
+      'issues.graph',
+      'issues.linearSearch',
+      'issues.lint',
+      'issues.list',
+      'issues.mailPending',
+      'issues.orphans',
+      'issues.preflight',
+      'issues.prime',
+      'issues.ready',
+      'issues.resolveRefs',
+      'issues.search',
+      'issues.searchNormalized',
+      'issues.stale',
+      'issues.stats',
+      'issues.subscriptionList',
+      'issues.tree',
+    ])
   })
 })
