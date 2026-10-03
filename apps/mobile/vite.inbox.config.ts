@@ -13,7 +13,7 @@ export default async () => {
   const { default: react } = await import(webRequire.resolve('@vitejs/plugin-react'))
   return {
     root: fileURLToPath(new URL('.', import.meta.url)),
-    define: { __DEV__: 'true', 'process.env.NODE_ENV': '"development"' },
+    define: { __DEV__: 'true', global: 'globalThis', 'process.env.NODE_ENV': '"development"' },
     plugins: [react()],
     cacheDir: 'node_modules/.cache/mobile-inbox-vite',
     resolve: {
