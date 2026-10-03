@@ -25,9 +25,12 @@ describe('the mobile API type import at the Metro boundary', () => {
     )
     const actual = await transform(source)
     const withoutTypeImport = await transform(source.replace(/^import type .*@podium\/api-types.*\n/m, ''))
-    expect(actual.dependencies).toEqual(withoutTypeImport.dependencies)
-    expect(actual.dependencies.map((dependency: { name: string }) => dependency.name))
-      .not.toContain('@podium/api-types')
+    // Removing a source line shifts diagnostic locations, but must leave the
+    // runtime dependency list and emitted JavaScript identical.
+    const names = (result: { dependencies: { name: string }[] }) =>
+      result.dependencies.map(dependency => dependency.name)
+    expect(names(actual)).toEqual(names(withoutTypeImport))
+    expect(names(actual)).not.toContain('@podium/api-types')
     expect(actual.output[0].data.code).toEqual(withoutTypeImport.output[0].data.code)
     expect(actual.output[0].data.code).not.toContain('AppRouter')
   })
