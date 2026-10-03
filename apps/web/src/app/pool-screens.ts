@@ -22,8 +22,7 @@ export function initializePoolScreens(ui: UiState): void {
   for (const screen of poolBackedScreens) screen.initialize?.(ui)
 }
 
-/** Screen declarations are the only provider registration surface. Graph code
- * stays behind startup choices; every entry uses the existing runtime/pool. */
+/** Screen declarations are the only provider registration surface. Permanent workspace readers and remaining pilots use the existing runtime/pool. */
 export const poolBackedScreens: readonly PoolScreen[] = [
   issueBoardPoolScreen,
   issuePagePoolScreen,

@@ -1,3 +1,4 @@
+import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
 /**
  * TRANSIENT STATE DOES NOT SURVIVE AN ISSUE SWITCH (POD-646).
@@ -35,7 +36,13 @@ import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import '@/test-support/model-catalog-mock'
-import { IssuePage } from './IssuePage'
+import { IssuePage as PoolIssuePage } from './IssuePage'
+import { seedPoolFixture } from '@/test-support/pool-fixture'
+
+function IssuePage(props: Parameters<typeof PoolIssuePage>[0]) {
+  seedPoolFixture([props.issue])
+  return <PoolIssuePage {...props} />
+}
 
 vi.mock('@/app/store', () => {
   const state = () =>

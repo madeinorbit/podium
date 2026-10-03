@@ -1,3 +1,4 @@
+import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueEvent } from '@podium/client-core/viewmodels'
@@ -5,7 +6,13 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import '@/test-support/model-catalog-mock'
-import { IssuePage } from './IssuePage'
+import { IssuePage as PoolIssuePage } from './IssuePage'
+import { seedPoolFixture } from '@/test-support/pool-fixture'
+
+function IssuePage(props: Parameters<typeof PoolIssuePage>[0]) {
+  seedPoolFixture([props.issue])
+  return <PoolIssuePage {...props} />
+}
 
 const ROWS: IssueEvent[] = [
   {

@@ -61,8 +61,6 @@ const args = process.argv.slice(2).filter((arg) => arg !== '--')
 const value = (name: string, fallback: string) =>
   args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
 const profileAction = value('profile', 'all')
-const interleave = args.includes('--interleave')
-const poolReaders = args.includes('--pool-readers')
 const profileActions = profileAction === 'all' ? ACTIONS.filter(action => action !== 'sidebar-issue')
   : [profileAction === 'session-switch' ? 'session-pane' : profileAction]
 const root = resolve('.artifacts/full-screen-click-profile')
@@ -83,13 +81,11 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 async function main() {
   if (args.includes('--help')) {
     console.log('bun apps/web/harness/full-screen-click-profile.ts --profile=mission-switch|session-switch|issue-rename|background-update|all\n' +
-      'Three production CPU + trace samples per action, mobxPane OFF/ON; no gate/baseline writes.\n' +
-      '--interleave: alternate arms per sample, reversing the first arm each pair.\n' +
-      '--pool-readers: toggle the converted session-pane and issue-reference readers with mobxPane.\n' +
+      'Three production CPU + trace samples per action, pool-only; no gate/baseline writes.\n' +
       '--lease-confirmed: caller holds bench:flatblock.')
     return
   }
-  for (const arg of args) if (arg !== '--lease-confirmed' && arg !== '--interleave' && arg !== '--pool-readers' && !arg.startsWith('--profile='))
+  for (const arg of args) if (arg !== '--lease-confirmed' && !arg.startsWith('--profile='))
     throw new Error(`Unknown argument ${arg}`)
   if (hostname() !== 'flatblock') throw new Error('Profile capture runs on flatblock')
   if (!profileActions.length || profileActions.some(action => !ACTIONS.includes(action as Action) || action === 'sidebar-issue'))
@@ -156,7 +152,7 @@ async function main() {
       void cleanup().finally(() => process.exit(130))
     })
 
-  async function openPage(origin: string, pilot: number) {
+  async function openPage(origin: string) {
     const context = await browser!.newContext({
       viewport: { width: 1800, height: 1000 },
       reducedMotion: 'reduce',
@@ -208,7 +204,7 @@ async function main() {
       },
     )
     await page.goto(
-      `${origin}/harness/full-screen-click-profile.browser.html?mobxSidebar=1&mobxPane=${pilot}${poolReaders ? `&mobxSessionPane=${pilot}&mobxChips=${pilot}` : ''}&scale=4&surface=full&panelMode=chat`,
+      `${origin}/harness/full-screen-click-profile.browser.html?mobxCommands=1&mobxChatContext=1&mobxNotices=1&mobxPreferences=1&mobxSettings=1&mobxWorkflows=1&mobxSuperagent=1&mobxAutomations=1&mobxSpecs=1&scale=4&surface=full&panelMode=chat`,
     )
     await page.waitForFunction(
       () => window.__acceptance?.ready() && document.querySelector('[data-issue-row]'),
@@ -225,9 +221,9 @@ async function main() {
     if (
       state.mode !== 'pool' ||
       !state.pool ||
-      (state.paneMode !== (pilot ? 'pool' : 'legacy')) ||
-      state.readerModes.sessionPane !== (poolReaders && pilot ? 'pool' : 'legacy') ||
-      state.readerModes.chips !== (poolReaders && pilot ? 'pool' : 'legacy') ||
+      state.paneMode !== 'pool' ||
+      state.readerModes.sessionPane !== 'pool' ||
+      state.readerModes.chips !== 'pool' ||
       (state.issues ?? 0) < 19_000 ||
       (state.sessions ?? 0) < 17_000
     )
@@ -237,7 +233,7 @@ async function main() {
       if (renderer?.bundleType !== 0 || renderer.version !== '19.2.7')
         throw new Error(`Expected ordinary production React 19.2.7: ${JSON.stringify(renderer)}`)
     }
-    return { page, cdp: await context.newCDPSession(page), context, errors, pilot, readerModes: state.readerModes }
+    return { page, cdp: await context.newCDPSession(page), context, errors, readerModes: state.readerModes }
   }
   async function settle(page: Page) {
     await page.evaluate(() => window.__acceptance.settled())
@@ -324,9 +320,9 @@ async function main() {
     if (errors.length) throw new Error(`Fixture errors: ${errors.join('; ')}`)
     if (profile) {
       const actionName = action === 'session-pane' ? 'session-switch' : action
-      const file = `${actionName}-pilot-${fixture.pilot ? 'on' : 'off'}-${sampleIndex}`
+      const file = `${actionName}-pilot-on-${sampleIndex}`
       const record = {
-        file, sourceSha: captureSha, action: actionName, pilot: fixture.pilot,
+        file, sourceSha: captureSha, action: actionName, reader: 'pool',
         iteration: sampleIndex, trigger, expected, paint: result, boundary, readerModes: fixture.readerModes,
         react, stateBefore, stateAfter: await page.evaluate(() => window.__acceptance.state()),
         loadavg: loadavg(),
@@ -342,8 +338,8 @@ async function main() {
     return result.inputToPaintMs
   }
 
-  async function* suite(origin: string, fixed: Targets, pilot: number) {
-    const full = await openPage(origin, pilot)
+  async function* suite(origin: string, fixed: Targets) {
+    const full = await openPage(origin)
     const samples = Object.fromEntries(ACTIONS.map((action) => [action, [] as number[]])) as Record<
       Action,
       number[]
@@ -380,7 +376,7 @@ async function main() {
             samples[action].push(ms)
             loads.push(loadavg()[0]!)
           }
-          yield { action, iteration: i, pilot }
+          yield { action, iteration: i }
         }
         console.log(
           `${action}: median ${round(median(samples[action]))} ms, worst ${round(Math.max(...samples[action]))} ms (n=${repetitions})`,
@@ -488,7 +484,7 @@ async function main() {
       ) as Numbers
       {
         await saveComponentLocations(full.page, full.cdp,
-          resolve(profileDir, `components-pilot-${pilot ? 'on' : 'off'}.json`))
+          resolve(profileDir, `components-pilot-on.json`))
       }
       return {
         targets,
@@ -590,42 +586,24 @@ async function main() {
       if (!grant?.granted) throw new Error('bench:flatblock was not granted')
       leased = !grant.alreadyHeld
     }
-    const suites = [0, 1].map(pilot => suite(origin, baseline.targets, pilot))
-    type SuiteResult = Awaited<ReturnType<typeof suites[number]['next']>>
-    const runs: Extract<SuiteResult, { done: true }>['value'][] = []
-    const order: { action: Action; iteration: number; pilot: number }[] = []
-    console.log(`Production build and browser ready: ${round((performance.now() - began) / 1000)}s`)
+    const capture = suite(origin, baseline.targets)
+    const runs: unknown[] = []
+    const order: { action: Action; iteration: number }[] = []
     {
       if (dirtyProduct) throw new Error('Profile a committed product tree')
-      console.log(`4× full surface; mobxSidebar=1, mobxPane=0/1; ${REPETITIONS} profiles per action; interleave=${interleave}`)
-      const step = async (pilot: number) => {
-        const result = await suites[pilot]!.next()
-        if (result.done) runs[pilot] = result.value
-        else order.push(result.value)
-        return result
-      }
-      if (interleave) {
-        for (let pair = 0; ; pair++) {
-          const first = (pair % (WARMUPS + REPETITIONS)) % 2
-          const a = await step(first)
-          const b = await step(1 - first)
-          if (a.done !== b.done || (!a.done && !b.done &&
-            (a.value.action !== b.value.action || a.value.iteration !== b.value.iteration)))
-            throw new Error('Interleaved arms drifted out of action/sample order')
-          if (a.done) break
-        }
-      } else {
-        for (const pilot of [0, 1]) while (!(await step(pilot)).done) {}
+      console.log(`4× full surface; pool-only; ${REPETITIONS} profiles per action`)
+      for (;;) {
+        const result = await capture.next()
+        if (result.done) { runs.push(result.value); break }
+        order.push(result.value)
       }
       await writeFile(resolve(profileDir, 'manifest.json'), JSON.stringify({
         version: 1, sourceSha: captureSha, dirtyProduct, machine, capturedAt: new Date().toISOString(),
-        profileAction, pilot: poolReaders
-          ? 'mobxPane=mobxSessionPane=mobxChips=0/1; mobxSidebar=1 in both arms'
-          : 'mobxPane=0/1; mobxSidebar=1 in both arms; session-pane and chips legacy',
+        profileAction, reader: 'pool',
         scale: 4, surface: 'full', seed: 4443, repetitions: REPETITIONS, warmups: WARMUPS,
         build: 'ordinary React 19.2.7; minified production; hidden source maps; no state-boundary wrappers',
         samplingIntervalUs: 1000,
-        interleave, order,
+        order,
         metric: 'trusted pointerdown (background: feed delivery) to end of first Chromium Paint after expected DOM change',
         window: 'Raw CPU and trace include setup/tails; analyze only speed:input through the qualifying Paint end.',
         runs, records: profileRecords.map((record) => record.file),

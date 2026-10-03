@@ -1,0 +1,953 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 1`] = `
+{
+  "bytes": 85989,
+  "sha256": "1f96fd083fdb5a9e8e5bee0d0adac0ca968f95138574880323b34caa8fb76f9c",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 2`] = `
+{
+  "bytes": 85989,
+  "sha256": "daa0e967e8e9afe3cd9bd290d014e0fbd487613e5c0b1f1657b72ab7b1f02864",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 3`] = `
+{
+  "bytes": 85989,
+  "sha256": "b0268c957e6a0fa4b30d68a1f41ddef1bb6cc709b4bd8219390725fbacca77d8",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 4`] = `
+{
+  "bytes": 85989,
+  "sha256": "50939aa91bf1e8c1cf433a3df3cb0aa45c70eb7fdbdce06e02491e8661870cee",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 5`] = `
+{
+  "bytes": 85989,
+  "sha256": "0594d1f62860eba3267d792c3ac5752c37b0003a524c2b7c0ccea7af3e0ea93a",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 6`] = `
+{
+  "bytes": 85989,
+  "sha256": "91c22110bb3ebae86c10b280403efbb2d32eac6f0ca52d4b1f19e94cafee9e32",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 7`] = `
+{
+  "bytes": 85989,
+  "sha256": "48e47f4e4e8a3ac210c6f8f42135d52a16c554144d131fa9e060e343c9e2d4d7",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 8`] = `
+{
+  "bytes": 85989,
+  "sha256": "890ef634d7f4b19c1f0407f90b4e2fd68eee6d6b2086d88e6d3bd398b1f7c681",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 9`] = `
+{
+  "bytes": 85989,
+  "sha256": "057d6701d045b605cf573d9d2623de81e3c8e6f67a3c021bc8706b9e16d3f956",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 10`] = `
+{
+  "bytes": 85989,
+  "sha256": "c1051010291527290eaf52f7da3aeac1dde3c04433fea644347cbeeccb37986c",
+}
+`;
+
+exports[`pool command-hold row shortcuts > numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands > sidebar action output 11`] = `
+{
+  "bytes": 85989,
+  "sha256": "c1051010291527290eaf52f7da3aeac1dde3c04433fea644347cbeeccb37986c",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for archived-grandparent > sidebar action output 1`] = `
+{
+  "bytes": 52009,
+  "sha256": "23f09d64ec65f3c5e951ea0098425038934084892ede2a638f16e2cde5a00f06",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for archived-grandparent > sidebar action output 2`] = `
+{
+  "bytes": 52010,
+  "sha256": "4de227847e6ccaf9ebecafcd4b0ff5c1c573947cc03692b7fba316229f35ba12",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for archived-parent > sidebar action output 1`] = `
+{
+  "bytes": 54154,
+  "sha256": "dd50a3e5e191d9cc33561b40bea35249e594e87de80d2c95ae3f3e48db8a6b9f",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for archived-parent > sidebar action output 2`] = `
+{
+  "bytes": 54156,
+  "sha256": "0b89312689726717567db94ef2d7dbc765e8a4790f7f78fc0398d537a3fedf3e",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for archived-starter > sidebar action output 1`] = `
+{
+  "bytes": 54124,
+  "sha256": "b7600b687680a52e8f237c8a0b3a6b4a031aecad2059d1a5ffa1eb19a78aa582",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for archived-starter > sidebar action output 2`] = `
+{
+  "bytes": 54124,
+  "sha256": "3743c2e3fce62e2ae15935ec71060efcdb7bc9065472803a14b6807fc1917f46",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for deleted-parent > sidebar action output 1`] = `
+{
+  "bytes": 54154,
+  "sha256": "dd50a3e5e191d9cc33561b40bea35249e594e87de80d2c95ae3f3e48db8a6b9f",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for deleted-parent > sidebar action output 2`] = `
+{
+  "bytes": 54156,
+  "sha256": "0b89312689726717567db94ef2d7dbc765e8a4790f7f78fc0398d537a3fedf3e",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for departed-spin > sidebar action output 1`] = `
+{
+  "bytes": 57687,
+  "sha256": "0ca1dab8a2b9d73c9a9cf5bd43a78897d8ed0a36f4a124da15be90e62fbd66b6",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for departed-spin > sidebar action output 2`] = `
+{
+  "bytes": 57687,
+  "sha256": "55281ae2eab1822ef1bb0961d3f44a54dbda712d82cd972312b53d22b313fde3",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for filed-chain > sidebar action output 1`] = `
+{
+  "bytes": 56373,
+  "sha256": "75b7009d761525f3aa1c2e57390086346d87cebb4193bd669a7a52abe3b2f0cb",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for filed-chain > sidebar action output 2`] = `
+{
+  "bytes": 56374,
+  "sha256": "1da3824b24f0669968012d433867bc9be93137f0583853475fbeedcf84e26f19",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for grandchild > sidebar action output 1`] = `
+{
+  "bytes": 56714,
+  "sha256": "11f4feaf47e04cc3c457d15cc9219666cd7f6107a8fbc97616e4af016207469f",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for grandchild > sidebar action output 2`] = `
+{
+  "bytes": 56717,
+  "sha256": "0d06e7b4ccfcaed1cde6430c0d0c950d3ddab45543876235efaec64d17f10918",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for headless-starter > sidebar action output 1`] = `
+{
+  "bytes": 54250,
+  "sha256": "07872ea859e53f40af3ec377b808ac78d74242dfcc3bd38e6b23238dd5403bac",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for headless-starter > sidebar action output 2`] = `
+{
+  "bytes": 54250,
+  "sha256": "66c3271f76cf404e08709e0f079ced5c18d7cd6afc1c1b86344a31d5f0f3a5cf",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for headless-starter > sidebar action output 3`] = `
+{
+  "bytes": 54293,
+  "sha256": "230935ef8a2defc6b3fc66bbb4aaca3bb9c66f3d28e1fee9bd5052c808e34e0c",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for headless-starter > sidebar action output 4`] = `
+{
+  "bytes": 54250,
+  "sha256": "66c3271f76cf404e08709e0f079ced5c18d7cd6afc1c1b86344a31d5f0f3a5cf",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for headless-starter > sidebar action output 5`] = `
+{
+  "bytes": 54293,
+  "sha256": "230935ef8a2defc6b3fc66bbb4aaca3bb9c66f3d28e1fee9bd5052c808e34e0c",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for headless-starter > sidebar action output 6`] = `
+{
+  "bytes": 54250,
+  "sha256": "66c3271f76cf404e08709e0f079ced5c18d7cd6afc1c1b86344a31d5f0f3a5cf",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for resume-collapsed-pane > sidebar action output 1`] = `
+{
+  "bytes": 54154,
+  "sha256": "105a197e88a504c41cb888ea02c7d5ef0c122b0c4ed6f163313f8dd261697961",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for resume-collapsed-pane > sidebar action output 2`] = `
+{
+  "bytes": 54154,
+  "sha256": "f9b6abb420c4015ca892ec32c325793bb64d1b7a82b3639abd7db151f96c442d",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for resume-collapsed-starter > sidebar action output 1`] = `
+{
+  "bytes": 55487,
+  "sha256": "9b6f4065eaacfeafb22064afc3c6281805ab8fd0712e32b67193c3bc601881b6",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for resume-collapsed-starter > sidebar action output 2`] = `
+{
+  "bytes": 55489,
+  "sha256": "acdfb821b6a23fc3763161753fcd47dd9da8fe307ee21a385a166a2ef0f136c2",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for shell-and-guest > sidebar action output 1`] = `
+{
+  "bytes": 77392,
+  "sha256": "1e0749e832e61671db15f4b8b4eed92e0c02a3d171c13a49618f109aec229fc5",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for shell-and-guest > sidebar action output 2`] = `
+{
+  "bytes": 77393,
+  "sha256": "47c6853e2e3a98a18ce43eecec9c8bae8e3ad77d24643c002ac9b535f2ab694e",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for unstarted-spin > sidebar action output 1`] = `
+{
+  "bytes": 57671,
+  "sha256": "856f8516326ca0df091aa622c524e70157fb322cdc529c9a5fe0eb540e797734",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for unstarted-spin > sidebar action output 2`] = `
+{
+  "bytes": 57671,
+  "sha256": "edcd65d27012645f79a74159e7b8e541c00ff9170288206ca0d53c9b3aa9fe50",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > keeps a mission file pane, avoids redundant/file traces, and still focuses a sessionless child > sidebar action output 1`] = `
+{
+  "bytes": 55475,
+  "sha256": "a4ecc28af32bca80bf3a1fc77d06210bf56571413b6333f38b9656dd09e06775",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > selects a worktree and its explicit panel with the same trace and mark-read actions > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "37aa2777f33fea793a0f182903384ddeb1ded9c444c31fa7a3693a099db4c0ed",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > selects a worktree and its explicit panel with the same trace and mark-read actions > sidebar action output 2`] = `
+{
+  "bytes": 57595,
+  "sha256": "6965e654a37dd1f4d3b5a893c0a1ac10cd854daeac46ad7ceeb781864d2d64d0",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > selects a worktree and its explicit panel with the same trace and mark-read actions > sidebar action output 3`] = `
+{
+  "bytes": 57595,
+  "sha256": "6965e654a37dd1f4d3b5a893c0a1ac10cd854daeac46ad7ceeb781864d2d64d0",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > selects a worktree and its explicit panel with the same trace and mark-read actions > sidebar action output 4`] = `
+{
+  "bytes": 57595,
+  "sha256": "6965e654a37dd1f4d3b5a893c0a1ac10cd854daeac46ad7ceeb781864d2d64d0",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > selects the mission root, traces the explicit pane and batches read/defer before focus once > sidebar action output 1`] = `
+{
+  "bytes": 57548,
+  "sha256": "e53c205ca6433f998dff8511b3e3fe19a6db6ff433f3279b7d063dece3edca49",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > waits for a loading mission ancestor before navigating or mutating a loaded child > sidebar action output 1`] = `
+{
+  "bytes": 56707,
+  "sha256": "6f7a409274fd94b978cc678dcf89f3a34d1357afd1f852a5f0921b1eb7619fff",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > waits for a loading mission ancestor before navigating or mutating a loaded child > sidebar action output 2`] = `
+{
+  "bytes": 56707,
+  "sha256": "b0472823e6f8eb84ce319c90cad23d709b5ec5a2ecab3d2e32aaf3e95a5796d5",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > waits without a mutation for unloaded rows and loads repeated clicks in one batch > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`pool navigation uses the existing gesture semantics > waits without a mutation for unloaded rows and loads repeated clicks in one batch > sidebar action output 2`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > archives every closed row from the fold footer through the same outbox > sidebar action output 1`] = `
+{
+  "bytes": 57607,
+  "sha256": "f51cb2314aa551452c3ce54c7797089b0c3821d4fb4897a830c9e207ac84c9fd",
+}
+`;
+
+exports[`real pool row mutations and receipts > archives every closed row from the fold footer through the same outbox > sidebar action output 2`] = `
+{
+  "bytes": 48014,
+  "sha256": "c94e9775e37c8eafc65d5d4624a1ee8c8174f17f7a0398c74af203526fa5931e",
+}
+`;
+
+exports[`real pool row mutations and receipts > archives every closed row from the fold footer through the same outbox > sidebar action output 3`] = `
+{
+  "bytes": 48014,
+  "sha256": "c94e9775e37c8eafc65d5d4624a1ee8c8174f17f7a0398c74af203526fa5931e",
+}
+`;
+
+exports[`real pool row mutations and receipts > archives every closed row from the fold footer through the same outbox > sidebar action output 4`] = `
+{
+  "bytes": 52831,
+  "sha256": "20f26a9511d8b0e7742add56b5b391f7d6e3cb9385dc440d2787e4879a6acd4d",
+}
+`;
+
+exports[`real pool row mutations and receipts > archives every closed row from the fold footer through the same outbox > sidebar action output 5`] = `
+{
+  "bytes": 57607,
+  "sha256": "f51cb2314aa551452c3ce54c7797089b0c3821d4fb4897a830c9e207ac84c9fd",
+}
+`;
+
+exports[`real pool row mutations and receipts > archives through the closed-fold dismiss, hides optimistically and returns on refusal > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > archives through the closed-fold dismiss, hides optimistically and returns on refusal > sidebar action output 2`] = `
+{
+  "bytes": 52774,
+  "sha256": "89910cb210ac5bc3764dd0b245e6d91108d514af62ccdb7cf555ce889e7f89b1",
+}
+`;
+
+exports[`real pool row mutations and receipts > archives through the closed-fold dismiss, hides optimistically and returns on refusal > sidebar action output 3`] = `
+{
+  "bytes": 52774,
+  "sha256": "89910cb210ac5bc3764dd0b245e6d91108d514af62ccdb7cf555ce889e7f89b1",
+}
+`;
+
+exports[`real pool row mutations and receipts > archives through the closed-fold dismiss, hides optimistically and returns on refusal > sidebar action output 4`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal > sidebar action output 2`] = `
+{
+  "bytes": 57549,
+  "sha256": "4c62c7aef897acf01a8f4aa0d5e409a6e60b9d1bfe3a9d2502269213653563e9",
+}
+`;
+
+exports[`real pool row mutations and receipts > backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal > sidebar action output 4`] = `
+{
+  "bytes": 57549,
+  "sha256": "a0a35ab751050fb1ec3761914c6194e357ccc8006f79f6a3157905f7b91be374",
+}
+`;
+
+exports[`real pool row mutations and receipts > backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal > sidebar action output 5`] = `
+{
+  "bytes": 57549,
+  "sha256": "4c276496538bf96dbbf3865c4980f076b776c85b73240af32140d2f97655aa29",
+}
+`;
+
+exports[`real pool row mutations and receipts > backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal > sidebar action output 6`] = `
+{
+  "bytes": 57549,
+  "sha256": "57d1f454f8873a8fd03995261a7537faabb31a56a280f760089f2c6a9e3261a4",
+}
+`;
+
+exports[`real pool row mutations and receipts > backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal > sidebar action output 7`] = `
+{
+  "bytes": 57549,
+  "sha256": "5f7c8b6abc53de8821a483eb2bd86fa17e7b99615e9f41e5eb8587ff76f1de89",
+}
+`;
+
+exports[`real pool row mutations and receipts > backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal > sidebar action output 8`] = `
+{
+  "bytes": 57549,
+  "sha256": "4f68d2c0c49f02e57b1db37e9e026a6dd479485340f80856552dcd07a89af5e4",
+}
+`;
+
+exports[`real pool row mutations and receipts > backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal > sidebar action output 9`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > cancels Escape and whitespace edits; menu Rename uses the same editor > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > cancels Escape and whitespace edits; menu Rename uses the same editor > sidebar action output 2`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > cancels Escape and whitespace edits; menu Rename uses the same editor > sidebar action output 3`] = `
+{
+  "bytes": 57513,
+  "sha256": "855fcf2d73f9b7563fa14b67f87541ada81e1788e2ec8ab21fd08727a1b1e138",
+}
+`;
+
+exports[`real pool row mutations and receipts > cancels Escape and whitespace edits; menu Rename uses the same editor > sidebar action output 4`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > closes from Set status with the existing lifecycle action and rewinds a refusal > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > closes from Set status with the existing lifecycle action and rewinds a refusal > sidebar action output 2`] = `
+{
+  "bytes": 57519,
+  "sha256": "bf8143ae1cd2ceb58aba735c3f4f1bc5a36d43e2618ccfd89fe9bdd43a3e0ce7",
+}
+`;
+
+exports[`real pool row mutations and receipts > closes from Set status with the existing lifecycle action and rewinds a refusal > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > crosses the pinned boundary (false) with only the moved row patch > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "ff4dcf00b52d53da6a0a3f06536bab7bfd6ad914f6fae362121315fefab857ee",
+}
+`;
+
+exports[`real pool row mutations and receipts > crosses the pinned boundary (false) with only the moved row patch > sidebar action output 2`] = `
+{
+  "bytes": 57552,
+  "sha256": "616d36a4f73edb97e73c41346953c9f3eaafd32ce0a95e107fe3b59680a813bc",
+}
+`;
+
+exports[`real pool row mutations and receipts > crosses the pinned boundary (false) with only the moved row patch > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "ff4dcf00b52d53da6a0a3f06536bab7bfd6ad914f6fae362121315fefab857ee",
+}
+`;
+
+exports[`real pool row mutations and receipts > crosses the pinned boundary (true) with only the moved row patch > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "ff4dcf00b52d53da6a0a3f06536bab7bfd6ad914f6fae362121315fefab857ee",
+}
+`;
+
+exports[`real pool row mutations and receipts > crosses the pinned boundary (true) with only the moved row patch > sidebar action output 2`] = `
+{
+  "bytes": 57547,
+  "sha256": "4876d38c914f17a1af6624ce562a26f343218d37711dfa2bf8b49d19003b1305",
+}
+`;
+
+exports[`real pool row mutations and receipts > crosses the pinned boundary (true) with only the moved row patch > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "ff4dcf00b52d53da6a0a3f06536bab7bfd6ad914f6fae362121315fefab857ee",
+}
+`;
+
+exports[`real pool row mutations and receipts > dispatches Set status through the existing menu and outbox > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > dispatches Set status through the existing menu and outbox > sidebar action output 2`] = `
+{
+  "bytes": 57549,
+  "sha256": "01b1e00be6adffb5a2da8e839b0b9c6249c7c9e7b5a09c1487323bd275edbd74",
+}
+`;
+
+exports[`real pool row mutations and receipts > dispatches Set status through the existing menu and outbox > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > dispatches Snooze / defer through the existing menu and outbox > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > dispatches Snooze / defer through the existing menu and outbox > sidebar action output 2`] = `
+{
+  "bytes": 57547,
+  "sha256": "ea3470891a3dbf52049e0f32acf1663b22e9f0f73d798e58a52306596abc44af",
+}
+`;
+
+exports[`real pool row mutations and receipts > dispatches Snooze / defer through the existing menu and outbox > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > hands the pool-resolved session to the same shared Handoff menu command > sidebar action output 1`] = `
+{
+  "bytes": 58834,
+  "sha256": "6f78c24f5802503546cf147b349a4758cf7063dbefa61f8a08c2abb90a2581dc",
+}
+`;
+
+exports[`real pool row mutations and receipts > hands the pool-resolved session to the same shared Handoff menu command > sidebar action output 2`] = `
+{
+  "bytes": 58834,
+  "sha256": "6f78c24f5802503546cf147b349a4758cf7063dbefa61f8a08c2abb90a2581dc",
+}
+`;
+
+exports[`real pool row mutations and receipts > keeps Bring back disabled with its explanation after the grace window > sidebar action output 1`] = `
+{
+  "bytes": 57551,
+  "sha256": "de46d4223f04c5965348b3301052411acb7a8dcbc0a4b8ec25d00faf43a236cb",
+}
+`;
+
+exports[`real pool row mutations and receipts > keeps Bring back disabled with its explanation after the grace window > sidebar action output 2`] = `
+{
+  "bytes": 57551,
+  "sha256": "de46d4223f04c5965348b3301052411acb7a8dcbc0a4b8ec25d00faf43a236cb",
+}
+`;
+
+exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 1`] = `
+{
+  "bytes": 57497,
+  "sha256": "15e0a488fa209f3634ba8c916f5fc6260435de415ffcbdc42f6cce278ed2f6bc",
+}
+`;
+
+exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 2`] = `
+{
+  "bytes": 57545,
+  "sha256": "2bded35e215d74e97dd89caf46d6eff561ec90b5ff350641fcd1436606cc3d92",
+}
+`;
+
+exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 3`] = `
+{
+  "bytes": 57497,
+  "sha256": "15e0a488fa209f3634ba8c916f5fc6260435de415ffcbdc42f6cce278ed2f6bc",
+}
+`;
+
+exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 4`] = `
+{
+  "bytes": 57497,
+  "sha256": "c4e3e35dd2279a3f14186aa4125d7f87a7504d54aafa1b0f6bcf5bb71fc388ae",
+}
+`;
+
+exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 5`] = `
+{
+  "bytes": 57497,
+  "sha256": "15e0a488fa209f3634ba8c916f5fc6260435de415ffcbdc42f6cce278ed2f6bc",
+}
+`;
+
+exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 6`] = `
+{
+  "bytes": 57497,
+  "sha256": "15e0a488fa209f3634ba8c916f5fc6260435de415ffcbdc42f6cce278ed2f6bc",
+}
+`;
+
+exports[`real pool row mutations and receipts > moves discovered work to mission through the existing placement action > sidebar action output 1`] = `
+{
+  "bytes": 57691,
+  "sha256": "5beef0686891c941e9cf119d8eaaf60198641ca64ecab4a7e6a4b98ddd530311",
+}
+`;
+
+exports[`real pool row mutations and receipts > moves discovered work to mission through the existing placement action > sidebar action output 2`] = `
+{
+  "bytes": 56269,
+  "sha256": "40c38cc47a3eda53855da9da4732f11b0f695cfe703fd8649458b0bb9143af00",
+}
+`;
+
+exports[`real pool row mutations and receipts > moves discovered work to mission through the existing placement action > sidebar action output 3`] = `
+{
+  "bytes": 57691,
+  "sha256": "5beef0686891c941e9cf119d8eaaf60198641ca64ecab4a7e6a4b98ddd530311",
+}
+`;
+
+exports[`real pool row mutations and receipts > moves discovered work to own through the existing placement action > sidebar action output 1`] = `
+{
+  "bytes": 56198,
+  "sha256": "1acfb589f753ff9e80ba6afc8ed78c6810401a79450d313174163344db169cc1",
+}
+`;
+
+exports[`real pool row mutations and receipts > moves discovered work to own through the existing placement action > sidebar action output 2`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > moves discovered work to own through the existing placement action > sidebar action output 3`] = `
+{
+  "bytes": 56198,
+  "sha256": "1acfb589f753ff9e80ba6afc8ed78c6810401a79450d313174163344db169cc1",
+}
+`;
+
+exports[`real pool row mutations and receipts > offers the same sidebar menu vocabulary and resolves live cascade counts and members on open > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > offers the same sidebar menu vocabulary and resolves live cascade counts and members on open > sidebar action output 2`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > opens the task page without changing the workspace pane > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > opens the task page without changing the workspace pane > sidebar action output 2`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > pins immediately from the actual issue menu and returns to the original band on refusal > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > pins immediately from the actual issue menu and returns to the original band on refusal > sidebar action output 2`] = `
+{
+  "bytes": 57547,
+  "sha256": "05aeb501ce885ab82effae3cee1106cd242c2d032f78d7f343fddf4fc9cd4f23",
+}
+`;
+
+exports[`real pool row mutations and receipts > pins immediately from the actual issue menu and returns to the original band on refusal > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > preserves archive and delete confirmation before enqueuing and rewinds both refusals > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > preserves archive and delete confirmation before enqueuing and rewinds both refusals > sidebar action output 2`] = `
+{
+  "bytes": 52789,
+  "sha256": "2003d08887ac70c38ccdf0c2f2b98653d17ad37fd5a9101a1311d7a51dd8a9ac",
+}
+`;
+
+exports[`real pool row mutations and receipts > preserves archive and delete confirmation before enqueuing and rewinds both refusals > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > preserves archive and delete confirmation before enqueuing and rewinds both refusals > sidebar action output 4`] = `
+{
+  "bytes": 52789,
+  "sha256": "2003d08887ac70c38ccdf0c2f2b98653d17ad37fd5a9101a1311d7a51dd8a9ac",
+}
+`;
+
+exports[`real pool row mutations and receipts > preserves archive and delete confirmation before enqueuing and rewinds both refusals > sidebar action output 5`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > renames inline on Enter, paints before the receipt and rewinds on refusal > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > renames inline on Enter, paints before the receipt and rewinds on refusal > sidebar action output 2`] = `
+{
+  "bytes": 57525,
+  "sha256": "6a496a5cf2bb44d12bb18d2f0f8b878bc0549108017bd3ff4def7cb5b004d047",
+}
+`;
+
+exports[`real pool row mutations and receipts > renames inline on Enter, paints before the receipt and rewinds on refusal > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > retains an accepted rename until the echo, composes a later edit and rewinds only that edit > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > retains an accepted rename until the echo, composes a later edit and rewinds only that edit > sidebar action output 2`] = `
+{
+  "bytes": 57517,
+  "sha256": "52d669d5f212357c63655bf7ca59c22b64ff0cfb9dc33b32ccf5f9dc6ea1495b",
+}
+`;
+
+exports[`real pool row mutations and receipts > retains an accepted rename until the echo, composes a later edit and rewinds only that edit > sidebar action output 3`] = `
+{
+  "bytes": 57541,
+  "sha256": "90dc5a59aeb165c48666c8ea0dfb2c682fb1afe5cd510d4e9e22773fb5f53418",
+}
+`;
+
+exports[`real pool row mutations and receipts > retains an accepted rename until the echo, composes a later edit and rewinds only that edit > sidebar action output 4`] = `
+{
+  "bytes": 57517,
+  "sha256": "52d669d5f212357c63655bf7ca59c22b64ff0cfb9dc33b32ccf5f9dc6ea1495b",
+}
+`;
+
+exports[`real pool row mutations and receipts > sets colour and unread state through the shared menu actions > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > sets colour and unread state through the shared menu actions > sidebar action output 2`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > sets colour and unread state through the shared menu actions > sidebar action output 3`] = `
+{
+  "bytes": 57501,
+  "sha256": "aa59347a074f69025d720ebc7d46d8bf8fe34783fd3d530a91835527a2224f0a",
+}
+`;
+
+exports[`real pool row mutations and receipts > sets colour and unread state through the shared menu actions > sidebar action output 4`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > treats eviction as absence, never requests the evicted row, and accepts readmission > sidebar action output 1`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > treats eviction as absence, never requests the evicted row, and accepts readmission > sidebar action output 2`] = `
+{
+  "bytes": 54020,
+  "sha256": "0f46be9a6610d9da352fe9280021e260212cc7927ba04659bb74472a31c89fc9",
+}
+`;
+
+exports[`real pool row mutations and receipts > treats eviction as absence, never requests the evicted row, and accepts readmission > sidebar action output 3`] = `
+{
+  "bytes": 57549,
+  "sha256": "8f30631f0fbbb8472b2e8ac3e476bf43a5b6b922aca1a0d25c523fe30f9efa22",
+}
+`;
+
+exports[`real pool row mutations and receipts > tucks and brings back with the shared action and keeps a clicked closed row folded > sidebar action output 1`] = `
+{
+  "bytes": 57563,
+  "sha256": "b69360d55fab846f1902d4fa5c667171e8ee0b07eb411f43b9441786a66c2602",
+}
+`;
+
+exports[`real pool row mutations and receipts > tucks and brings back with the shared action and keeps a clicked closed row folded > sidebar action output 2`] = `
+{
+  "bytes": 57607,
+  "sha256": "a6616baada18bdb67a3cdf9a41834c963ad1053e5c5fd85e65d5e9175af90a63",
+}
+`;
+
+exports[`real pool row mutations and receipts > tucks and brings back with the shared action and keeps a clicked closed row folded > sidebar action output 3`] = `
+{
+  "bytes": 57563,
+  "sha256": "b69360d55fab846f1902d4fa5c667171e8ee0b07eb411f43b9441786a66c2602",
+}
+`;
+
+exports[`real pool row mutations and receipts > tucks and brings back with the shared action and keeps a clicked closed row folded > sidebar action output 4`] = `
+{
+  "bytes": 57607,
+  "sha256": "a6616baada18bdb67a3cdf9a41834c963ad1053e5c5fd85e65d5e9175af90a63",
+}
+`;
+
+exports[`real pool row mutations and receipts > tucks and brings back with the shared action and keeps a clicked closed row folded > sidebar action output 5`] = `
+{
+  "bytes": 57607,
+  "sha256": "f7c09dee498d64880c710c5636409e50a08a8e902910ee9ccd7aaf1111fc3b24",
+}
+`;
+
+exports[`real pool row mutations and receipts > tucks and brings back with the shared action and keeps a clicked closed row folded > sidebar action output 6`] = `
+{
+  "bytes": 57607,
+  "sha256": "f7c09dee498d64880c710c5636409e50a08a8e902910ee9ccd7aaf1111fc3b24",
+}
+`;
+
+exports[`real pool row mutations and receipts > tucks and brings back with the shared action and keeps a clicked closed row folded > sidebar action output 7`] = `
+{
+  "bytes": 57563,
+  "sha256": "fb8b271f7a9a1852cc686d4a7bd85f4b57d5a48f792162953e7f6942a24743db",
+}
+`;
+
+exports[`real pool row mutations and receipts > tucks and brings back with the shared action and keeps a clicked closed row folded > sidebar action output 8`] = `
+{
+  "bytes": 57607,
+  "sha256": "f7c09dee498d64880c710c5636409e50a08a8e902910ee9ccd7aaf1111fc3b24",
+}
+`;

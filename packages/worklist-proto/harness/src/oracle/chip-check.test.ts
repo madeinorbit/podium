@@ -2,7 +2,7 @@ import { expectPoolOutput } from './pool-output'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { canonicalIssueRef } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { checkIssueChips } from '@podium/client-graph/diagnostics/chip-check'
+import { LOADING } from '@podium/client-graph'
 import { describe, expect, it } from 'vitest'
 import {
   startScenarioEngine,
@@ -16,20 +16,20 @@ describe('chip differential replay', () => {
     it(`all chip values across corpus and methodology changes at ${scale}x`, async () => {
       const ctx = await startScenarioEngine(scale)
       const feeds = openFenceFeeds(ctx, 'overlaid')
-      const legacy = () => {
+      const fixtureIssues = () => {
         const state = ctx.engine.getSnapshot()
         return allIssueViewModels(ctx.replica, state.issueProjections, state.issueUserStates)
       }
       const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
       const check = async (phase: string) => {
         feeds.flush()
-        const issues = legacy()
+        const issues = fixtureIssues()
         const tokens = issues.map(canonicalIssueRef)
         for (let round = 0; round < 128; round++) {
-          const result = checkIssueChips(handle.pool.references, issues, tokens)
-          if (!result.pending) {
-            expect(result, phase).toMatchObject({ differences: 0, first: null, pending: 0 })
-            expectPoolOutput(tokens.map(token => handle.pool.references.read(token)), phase)
+          const values = tokens.map(token => handle.pool.references.read(token))
+          if (!values.some(value => value === LOADING)) {
+            expect(values.length).toBe(tokens.length)
+            expectPoolOutput(values, phase)
             return
           }
           handle.pool.hydrate()

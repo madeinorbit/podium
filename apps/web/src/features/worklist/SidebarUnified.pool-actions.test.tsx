@@ -1,4 +1,4 @@
-import '@/test-support/mock-pool-fixture'
+import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
 import {
   type ClientRuntime,
   createEngineOutbox,
@@ -17,7 +17,7 @@ import {
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { checkSidebar } from '@podium/client-graph/diagnostics/sidebar-check'
+import { poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { spreadSortKeys } from '@podium/model'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
@@ -199,27 +199,7 @@ async function parity() {
   await act(async () => {
     await Promise.resolve()
   })
-  const store = runtime.getSnapshot()
-  const result = checkSidebar(pool!, store, {
-    pinnedRepos: store.pins.repos,
-    pinnedWorktrees: store.pins.worktrees,
-    projectOrder: store.sidebarSettings.repoOrder,
-    paneA: store.paneA,
-    selectedWorktree: store.selectedWorktree,
-  })
-  expect(result.pending).toBe(0)
-  expect(
-    result.first,
-    JSON.stringify({
-      target: pool!.sidebar.row(TARGET),
-      legacy: allIssueViewModels(
-        runtime.replica,
-        store.issueProjections,
-        store.issueUserStates,
-      ).find((i) => i.id === TARGET),
-    }),
-  ).toBeNull()
-  expect(result.differences).toBe(0)
+  expectPoolOutput(poolSidebarSnapshot(pool!), 'sidebar action output')
 }
 function row(id = TARGET) {
   return document.querySelector<HTMLElement>(`[data-issue-row="${id}"]`)!

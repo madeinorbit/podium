@@ -59,8 +59,6 @@ export function usePoolReclaimCounts(afterDays: number) {
   const read = useMemo(() => (pool: MobxPool) => pool.headerViews.reclaimCounts(afterDays), [afterDays])
   return useWorklistPoolProjection(read, {})
 }
-const readFolded = (pool: MobxPool) => pool.headerViews.folded()
-const readShipping = (pool: MobxPool) => pool.headerViews.shipping()
 
 /** Load-panel session rows are loaded by the one reader in one batch. */
 export function usePoolSessionLabels(ids: readonly string[]) {

@@ -1,10 +1,17 @@
+import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import '@/test-support/model-catalog-mock'
-import { IssuePage } from './IssuePage'
+import { IssuePage as PoolIssuePage } from './IssuePage'
+import { seedPoolFixture } from '@/test-support/pool-fixture'
+
+function IssuePage(props: Parameters<typeof PoolIssuePage>[0]) {
+  seedPoolFixture([props.issue])
+  return <PoolIssuePage {...props} />
+}
 
 // The page's mutation runner reports a refused write through the app's shared
 // <Toaster/>, which lives in AppShell and is not mounted around this page.

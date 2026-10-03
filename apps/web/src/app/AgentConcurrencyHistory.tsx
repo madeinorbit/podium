@@ -5,7 +5,6 @@ import { Popover } from '@base-ui/react/popover'
 import { type JSX, useMemo } from 'react'
 import { StatusMetric } from './StatusMetric'
 import { shareAgentConcurrency } from './status-share'
-import type { Trpc } from './trpc'
 
 const BUCKETS = 24
 const DEFAULT_BUCKET_MS = 30 * 60 * 1_000
@@ -17,10 +16,8 @@ const DEFAULT_BUCKET_MS = 30 * 60 * 1_000
  */
 export function AgentConcurrencyHistory({
   workingSessions,
-  trpc,
 }: {
   workingSessions: readonly Pick<SessionView, 'sessionId' | 'name' | 'title' | 'displayRef' | 'agentKind'>[]
-  trpc: Trpc
 }): JSX.Element {
   const working = workingSessions.length
   const history = usePoolConcurrencyHistory()

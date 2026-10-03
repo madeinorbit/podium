@@ -4,6 +4,9 @@ import '@/test-support/mock-core-store-handle'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { type JSX, useEffect, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
+import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
+import { normalizedFixtureIssues } from '@/test-support/normalized-issues'
 import { LOADING, MobxPool } from '@podium/client-graph'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { missionIssueIds, selectedMissionRoot } from '@podium/client-core/viewmodels'
@@ -43,11 +46,11 @@ const SPINOFF = makeIssue({
 })
 const BASE_ISSUES = [EPIC, CHILD, STRANGER, ARCHIVED, SPINOFF]
 const ROOT_SESSION = { sessionId: 'sess-p', issueId: 'p' } as never
-const poolMode = vi.hoisted(() => ({ enabled: true, pool: null as MobxPool | null }))
+const poolMode = vi.hoisted(() => ({ pool: null as MobxPool | null, signature: '' }))
 const legacyIssueRead = vi.hoisted(() => vi.fn())
 vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPool: () => poolMode.pool,
-  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => poolMode.pool ? read(poolMode.pool) : empty,
+  useWorklistPool: () => fixturePool(),
+  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => read(fixturePool()),
 }))
 
 const state = {
@@ -65,7 +68,7 @@ const state = {
 vi.mock('@/app/store', () => ({
   useStore: () => state as never,
   useStoreSelector: (sel: (s: unknown) => unknown) => sel(state),
-  useReplicaIssues: () => { legacyIssueRead(); return state.issues },
+  useReplicaIssues: () => { legacyIssueRead(); throw new Error('Explorer read legacy issue collection') },
 }))
 
 // The detail is IssuePanelView's job and has its own tests; what this file is
@@ -165,7 +168,7 @@ afterEach(() => {
   state.selectedIssueId = null
   state.issues = BASE_ISSUES
   state.sessions = [] as never[]
-  poolMode.enabled = true
+  poolMode.signature = ''
   poolMode.pool?.dispose()
   poolMode.pool = null
   vi.clearAllMocks()
@@ -566,11 +569,25 @@ function poolIssue(id: string, over: Partial<SliceIssue> = {}): SliceIssue {
 }
 function explorerPool(issues: SliceIssue[], sessions: SliceSession[] = []): MobxPool {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-02T00:00:00Z') })
+  pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
   pool.apply({ type: 'replace', rows: [
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
   ] })
   return pool
+}
+
+function fixturePool(): MobxPool {
+  const signature = JSON.stringify([state.issues, state.sessions])
+  if (!poolMode.pool) poolMode.pool = explorerPool(normalizedFixtureIssues(state), state.sessions)
+  else if (poolMode.signature && poolMode.signature !== signature) {
+    poolMode.pool.apply({ type: 'replace', rows: [
+      ...normalizedFixtureIssues(state).map(value => ({ kind: 'issue' as const, id: value.id, value })),
+      ...state.sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
+    ] })
+  }
+  poolMode.signature = signature
+  return poolMode.pool
 }
 
 describe('pool explorer target', () => {
@@ -652,7 +669,7 @@ describe('pool explorer target', () => {
   })
 
   it('keeps the closed-dock pointer behavior without calling the legacy issue hook', () => {
-    poolMode.enabled = true
+    poolMode.signature = ''
     poolMode.pool = explorerPool([poolIssue('p'), poolIssue('c', { parentId: 'p' })])
     state.selectedIssueId = 'p'
     const view = mount('p', false)

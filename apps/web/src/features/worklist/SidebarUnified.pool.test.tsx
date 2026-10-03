@@ -1,4 +1,4 @@
-import '@/test-support/mock-pool-fixture'
+import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -22,7 +22,6 @@ import { SidebarRail } from './SidebarRail'
 import { SidebarUnified } from './SidebarUnified'
 
 const mode = vi.hoisted(() => ({
-  value: 'pool' as 'legacy' | 'pool',
   reads: 0,
   commits: new Map<string, number>(),
   worktrees: new Map<
@@ -59,7 +58,7 @@ vi.mock('@/app/store', async (importOriginal) => {
     useSlice: (definition: unknown) => {
       if (definition === worklistSlice) {
         mode.reads += 1
-        if (mode.value === 'pool') throw new Error('Pool path read worklistSlice')
+        throw new Error('Pool path read worklistSlice')
       }
       return original.useSlice(definition as Parameters<typeof original.useSlice>[0])
     },
@@ -94,16 +93,15 @@ function Capture() {
   return null
 }
 const NOW = Date.parse('2026-10-01T08:00:00Z')
-const LAYERS = ['legacy', 'pool'] as const
+const LAYERS = ['pool'] as const
 
-function guestUserStateId(layer: 'legacy' | 'pool') {
+function guestUserStateId(layer: 'pool') {
   return sessionUserStateRowId(asUserId(`sidebar-${layer}`), asSessionId('synthetic-guest-0'))
 }
 
-async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
+async function mount(layer: 'pool', rail = false, count = 12) {
   localStorage.clear()
   window.history.replaceState(null, '', '/')
-  mode.value = layer
   mode.reads = 0
   mode.commits.clear()
   mode.worktrees.clear()
@@ -203,7 +201,7 @@ describe('real sidebar pool cutover', () => {
       [...mode.commits].filter(([id]) => id.startsWith('synthetic-guest-')),
     )
     expect(guests).toEqual(
-      layer === 'pool' ? {} : { 'synthetic-guest-0': 1, 'synthetic-guest-1': 1 },
+      {},
     )
     await advanceClock(60_000)
     expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain(
@@ -328,10 +326,10 @@ describe('real sidebar pool cutover', () => {
     expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
   })
 
-  it('legacy worktree panel uses the current pane without restarting a switch', async () => {
+  it('pool worktree panel uses the current pane without restarting a switch', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
-    await mount('legacy')
+    await mount('pool')
     expect(runtime.getSnapshot().paneA).not.toBe('synthetic-guest-1')
     const path = '/synthetic/project/guests'
     const handlers = worktreeHandlers(path)
@@ -346,10 +344,10 @@ describe('real sidebar pool cutover', () => {
     expect(beginSwitch).not.toHaveBeenCalled()
   })
 
-  it('keeps the legacy worktree row cold when another issue changes', async () => {
+  it('keeps the pool worktree row cold when another issue changes', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
-    const fixture = await mount('legacy')
+    const fixture = await mount('pool')
     const path = '/synthetic/project/guests'
     const before = worktreeHandlers(path)
     await act(async () => {
@@ -362,17 +360,9 @@ describe('real sidebar pool cutover', () => {
   it('draws the same rows, bands and folds as legacy, without a worklistSlice read', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
-    await mount('legacy')
-    const legacy = rowPaint()
-    const bands = screen.getAllByTestId('project-group-label').map((node) => node.textContent)
-    expect(mode.reads).toBeGreaterThan(0)
-    cleanup()
     await mount('pool')
     expect(mode.reads).toBe(0)
-    expect(rowPaint()).toEqual(legacy)
-    expect(screen.getAllByTestId('project-group-label').map((node) => node.textContent)).toEqual(
-      bands,
-    )
+    expectPoolOutput({ rows: rowPaint(), bands: screen.getAllByTestId('project-group-label').map(node => node.textContent) }, 'rows and bands')
     fireEvent.click(screen.getByTestId('snoozed-fold-toggle'))
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     expect(screen.getAllByTestId('folded-work-row')).toHaveLength(2)
@@ -431,7 +421,6 @@ describe('real sidebar pool cutover', () => {
   it('keeps the collapsed rail off the legacy worklist', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
-    mode.value = 'pool'
     mode.reads = 0
     const fixture = createSidebarFixture(12, NOW)
     render(
@@ -462,7 +451,7 @@ describe('real sidebar pool cutover', () => {
   it('preserves legacy navigation membership for exited, headless and archived sessions', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
-    for (const layer of ['legacy', 'pool'] as const) {
+    for (const layer of ['pool'] as const) {
       const fixture = await mount(layer)
       await act(async () => {
         fixture.patch('session', 'synthetic-session-11', { status: 'exited' })

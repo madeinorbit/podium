@@ -5,7 +5,7 @@ import type { IssueComment, IssueId, MachineId, SessionId } from '@podium/model/
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowDown, ArrowRight, ArrowUpRight, Ban, Check, CircleAlert, FileText, Folder, History, type LucideIcon, MessageSquare, Play, Truck } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
 import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
@@ -782,10 +782,10 @@ function ProducedAndDeferred({
  * panel is therefore reading forward in time, which is why the history sits
  * last and the address sits just above it.
  */
-const PoolIssuePanelView = lazy(() => import('./pool-issue-page').then(module => ({ default: module.PoolIssuePanelView })))
+import { PoolIssuePanelView } from './pool-issue-page'
 
 export function IssuePanelView(props: Parameters<typeof IssuePanelBody>[0]): JSX.Element {
-  return <Suspense fallback={null}><PoolIssuePanelView {...props} /></Suspense>
+  return <PoolIssuePanelView {...props} />
 }
 
 export function IssuePanelBody({

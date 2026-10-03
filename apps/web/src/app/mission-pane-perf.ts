@@ -1,6 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/viewmodels'
-import { useEffect } from 'react'
 
 /** Counts belong to the existing store owner, never to a second runtime. */
 const counts = new WeakMap<object, Record<string, number>>()
@@ -32,20 +30,4 @@ export function measurePoolMission<T>(owner: object, read: () => T): T {
       if (delta > 0) recordLegacy(owner, 'pool.sessionOwnership', delta)
     }
   })
-}
-export function measureLegacyMission<T>(owner: object, operation: string, read: () => T): T {
-  recordLegacy(owner, operation, 1)
-  return measureWork(owner, 'legacyMs', read)
-}
-export function useMissionPaneCensus(): void {
-  const owner = useStoreHandle()
-  useEffect(() => {
-    const api = { read: () => missionLegacyCountsFor(owner), reset: () => resetMissionLegacyCounts(owner) }
-    const timing = { read: () => ({ ...work.get(owner) }), reset: api.reset }
-    Object.assign(window, { __missionPaneLegacy: api, __missionPaneWork: timing })
-    return () => {
-      if (Reflect.get(window, '__missionPaneLegacy') === api) Reflect.deleteProperty(window, '__missionPaneLegacy')
-      if (Reflect.get(window, '__missionPaneWork') === timing) Reflect.deleteProperty(window, '__missionPaneWork')
-    }
-  }, [owner])
 }

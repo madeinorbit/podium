@@ -44,7 +44,6 @@ import { useSessionHovered } from './session-hover'
 import { CLOSE_RIGHT_PANEL, OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY, readRightPanel } from './shell-state'
 import { useSessionDraft, useStoreSelector } from './store'
 import type { MissionViewValues, MissionRowPresentation, MissionHandoffValues } from '@podium/client-graph/mission-view'
-import { useMissionPaneCensus } from './mission-pane-perf'
 
 
 
@@ -2848,7 +2847,6 @@ export interface FlightDeckSource {
 }
 
 export function FlightDeck(props: FlightDeckProps): JSX.Element {
-  useMissionPaneCensus()
   const developmentEnabled = useFeature('podium-development')
   const [preferredView, setPreferredView] = usePersistedUiState<FlightDeckView>(
     FLIGHT_DECK_MODE_KEY,

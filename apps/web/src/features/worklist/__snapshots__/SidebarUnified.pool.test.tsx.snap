@@ -1,0 +1,8 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`real sidebar pool cutover > draws the same rows, bands and folds as legacy, without a worklistSlice read > rows and bands 1`] = `
+{
+  "bytes": 1837,
+  "sha256": "54e34d62b4a5c712bcb72651199845ba96a6243024ce50f03fdf7117853d8906",
+}
+`;

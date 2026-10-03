@@ -1,6 +1,6 @@
 import type { IssueId } from '@podium/model/browser'
 import type { CSSProperties, JSX } from 'react'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { issueColorHex } from '@/lib/issueColors'
 import { useNow } from '@/lib/useNow'
@@ -51,10 +51,10 @@ import { repoMatesOf, useIssuePageModel } from './issue-page-model'
  * compose/edit flags, the close-reason dialog, the Escape-to-board key handler,
  * and the eviction guard below. Pushing any of those down would duplicate them.
  */
-const PoolIssuePage = lazy(() => import('./pool-issue-page').then(module => ({ default: module.PoolIssuePage })))
+import { PoolIssuePage } from './pool-issue-page'
 
 export function IssuePage(props: Parameters<typeof IssuePageBody>[0]): JSX.Element {
-  return <Suspense fallback={null}><PoolIssuePage issueId={props.issue.id} orderedIds={props.orderedIds} onBack={props.onBack} onNavigate={props.onNavigate} /></Suspense>
+  return <PoolIssuePage issueId={props.issue.id} orderedIds={props.orderedIds} onBack={props.onBack} onNavigate={props.onNavigate} />
 }
 
 export function IssuePageBody({

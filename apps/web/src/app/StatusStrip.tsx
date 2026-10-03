@@ -51,7 +51,7 @@ export function StatusStrip(): JSX.Element {
 
   return (
     <footer className="status-strip" data-testid="status-strip">
-      <AgentConcurrencyHistory workingSessions={workingSessions} trpc={trpc} />
+      <AgentConcurrencyHistory workingSessions={workingSessions} />
       <span className="status-strip-seam" aria-hidden="true" />
       <StatusPerformanceStats trpc={trpc} />
       {typeof issue === 'symbol' && <span className="status-strip-issue" role="status">Loading task…</span>}
