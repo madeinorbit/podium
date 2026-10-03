@@ -7,11 +7,11 @@ import { resolveMobileFile, resolveMobilePackage, resolveRootFile, resolveRootPa
 // which declares them. Ask that owner instead of falling through to another
 // checkout's node_modules while loading a config from the mobile directory.
 const webRequire = createRequire(new URL('../web/package.json', import.meta.url))
-const { defineConfig } = await import(webRequire.resolve('vite'))
-const { default: react } = await import(webRequire.resolve('@vitejs/plugin-react'))
 
 const platform = fileURLToPath(new URL('./test/inbox-platform.tsx', import.meta.url))
-export default defineConfig({
+export default async () => {
+  const { default: react } = await import(webRequire.resolve('@vitejs/plugin-react'))
+  return {
     root: fileURLToPath(new URL('.', import.meta.url)),
     define: { __DEV__: 'true', 'process.env.NODE_ENV': '"development"' },
     plugins: [react()],
@@ -43,4 +43,5 @@ export default defineConfig({
       exclude: ['expo-blur', 'expo-haptics', 'expo-symbols', 'react-native-safe-area-context', 'react-native-svg'],
     },
     server: { host: '127.0.0.1', hmr: false, port: 45172, strictPort: true },
-})
+  }
+}
