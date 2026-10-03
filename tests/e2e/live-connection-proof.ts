@@ -49,11 +49,14 @@ export async function liveConnectionProof() {
           ...[
             ['expo-blur', 'stub-expo-blur.tsx'],
             ['expo-haptics', 'stub-expo-haptics.ts'],
-            ['expo-symbols', 'stub-expo-symbols.tsx'],
           ].map(([find, file]) => ({ find: new RegExp(`^${find}$`), replacement: resolve(root, 'harness', file!) })),
           {
             find: /^react-native-safe-area-context$/,
             replacement: resolve(import.meta.dirname, 'live-connection-safe-area.ts'),
+          },
+          {
+            find: /^expo-symbols$/,
+            replacement: resolve(import.meta.dirname, 'live-connection-symbols.ts'),
           },
           { find: /^\.\/BottomSheet$/, replacement: resolve(root, 'harness/stub-bottom-sheet.tsx') },
           { find: '@', replacement: resolve(root, '../web/src') },
