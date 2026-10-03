@@ -2,7 +2,8 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { asIssueId, asMachineId, asSessionId } from '@podium/model/browser'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { PoolSessionContextMenu } from './PoolSessionContextMenu'
@@ -138,6 +139,11 @@ const props = {
   onRename: () => {},
 }
 
+function MenuClick() {
+  const [open, setOpen] = useState(false)
+  return <><button type="button" onClick={() => setOpen(true)}>Session actions</button>{open && <PoolSessionContextMenu {...props} />}</>
+}
+
 it('batches the addressed cold session and supplies pool inputs with equal click work at 1x and 4x', async () => {
   const work: Array<{ rows: number; derivations: number }> = []
   for (const scale of [1, 4]) {
@@ -145,7 +151,10 @@ it('batches the addressed cold session and supplies pool inputs with equal click
     f.pool = pool
     f.derivations = 0
     const read = vi.spyOn(pool, 'row')
-    render(<PoolSessionContextMenu {...props} />)
+    render(<MenuClick />)
+    expect(read).not.toHaveBeenCalled()
+    expect(f.derivations).toBe(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Session actions' }))
     expect(screen.queryByTestId('pool-session-menu')).toBeNull()
     expect(load).not.toHaveBeenCalled()
     await act(async () => {

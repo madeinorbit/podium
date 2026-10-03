@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { asIssueId, asMachineId, asSessionId, type MachineId } from '@podium/model'
+import { asIssueId, asMachineId, asRepoId, asSessionId, type GitRepositoryWire, type MachineId, type MachineWire } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -39,18 +39,19 @@ vi.mock('@/app/store', () => ({
 
 const LUD = asMachineId('ludovico')
 const MAC = asMachineId('mac')
-const repoWire = (machineId: MachineId, path: string, worktrees: string[]) => ({
+const repoWire = (machineId: MachineId, path: string, worktrees: string[]): GitRepositoryWire => ({
   path,
   kind: 'repository' as const,
   originUrl: 'git@github.com:madeinorbit/podium.git',
-  repoId: 'repo_36de69e6',
+  repoId: asRepoId('repo_36de69e6'),
   machineId,
   worktrees: worktrees.map((w) => ({ path: w, branch: 'issue/779' })),
 })
-const machine = (id: MachineId) => ({
+const machine = (id: MachineId): MachineWire => ({
   id,
   name: id,
   hostname: id,
+  lastSeenAt: 't',
   online: true,
   serviceAssignment: { server: false, agentExecution: true },
   availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },

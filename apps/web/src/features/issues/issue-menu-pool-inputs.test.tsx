@@ -2,8 +2,8 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { asIssueId, asMachineId, asSessionId } from '@podium/model/browser'
-import { act, cleanup, render, screen } from '@testing-library/react'
-import type { ComponentProps } from 'react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { type ComponentProps, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { IssueContextMenu } from './IssueContextMenu'
 import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
@@ -78,6 +78,11 @@ function open(scale: number) {
   return { pool, load }
 }
 
+function MenuClick() {
+  const [open, setOpen] = useState(false)
+  return <><button type="button" onClick={() => setOpen(true)}>Task actions</button>{open && <PoolIssueContextMenu {...props} />}</>
+}
+
 it('loads only the selected members in a batch and keeps task menu click work bounded at 1x and 4x', async () => {
   const work: Array<{ rows: number; derivations: number }> = []
   for (const scale of [1, 4]) {
@@ -85,13 +90,16 @@ it('loads only the selected members in a batch and keeps task menu click work bo
     f.pool = pool
     f.derivations = 0
     const read = vi.spyOn(pool, 'row')
-    render(<PoolIssueContextMenu {...props} />)
+    render(<MenuClick />)
+    expect(read).not.toHaveBeenCalled()
+    expect(f.derivations).toBe(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Task actions' }))
     expect(screen.queryByTestId('pool-task-menu')).toBeNull()
     expect(load).not.toHaveBeenCalled()
     await act(async () => { expect(pool.hydrate()).toBe(1) })
     expect(screen.getByTestId('pool-task-menu').textContent).toBe('Pool task member')
     expect(load.mock.calls).toEqual([['session', 'chosen-session']])
-    expect(read.mock.calls.every(([entity, id]) => entity === 'session' && id === 'chosen-session')).toBe(true)
+    expect(read.mock.calls.filter(([entity]) => entity === 'session').every(([, id]) => id === 'chosen-session')).toBe(true)
     expect(f.menu?.poolInputs.repos.map(repo => repo.path)).toEqual(['/synthetic/menu'])
     expect(f.menu?.poolInputs.machines.map(machine => machine.name)).toEqual(['Menu machine'])
     work.push({ rows: read.mock.calls.length, derivations: f.derivations })

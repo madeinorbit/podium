@@ -1,15 +1,26 @@
+import '@/test-support/mock-pool-fixture'
 import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render as renderComponent, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useStoreSelector as selectFixtureSnapshot } from '@/app/store'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
+import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import {
   IssueCompactControls,
   IssueDecisionBand,
   IssueGitScope,
   resolveTaskAction,
 } from './IssueCompactControls'
+import { IssuePageWorldContext } from './issue-page/issue-page-data'
+
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useStoreHandle: () => ({ getSnapshot: () => fixtureStoreSnapshot(selectFixtureSnapshot(state => state)) }),
+}))
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 // The launch box's model/effort segments read the live catalog through this
@@ -48,6 +59,16 @@ const session = (over: SessionOverride = {}): SessionView =>
 let mockSessions: SessionView[] = []
 /** The replica the controls resolve an origin ref against. */
 let mockIssues: ReturnType<typeof makeIssue>[] = []
+
+function render(element: ReactElement) {
+  return renderComponent(
+    <ConfirmProvider>
+      <IssuePageWorldContext.Provider value={{ issues: mockIssues, sessions: mockSessions }}>
+        {element}
+      </IssuePageWorldContext.Provider>
+    </ConfirmProvider>,
+  )
+}
 
 vi.mock('@/app/store', () => {
   const state = () => ({

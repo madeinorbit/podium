@@ -3,6 +3,7 @@
 import type { Store } from '@podium/client-core/engine'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { reposToViews } from '@podium/client-core/viewmodels'
+import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { RowSourceEvent } from '@podium/client-graph'
 import { MobxPool } from '@podium/client-graph'
 import { attachHeaderSource } from '@podium/client-graph/header-source'
@@ -91,6 +92,7 @@ export function syncPoolFixture(input: Store, sidebarGesture = false) {
       selectedIssueId: state.selectedIssueId ?? null,
       coarseNow: state.coarseNow ?? Date.now(),
     })
+    if (state.uiState) pool.attachPreferences(state.uiState as RoutedUiState)
     pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
     pool.sources.register(['issueExit'], { read: () => ({ kind: undefined }), dispose() {} })
   }
