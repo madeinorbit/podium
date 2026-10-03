@@ -182,7 +182,7 @@ describe('POD-4872: first turn on an online machine', () => {
         issueId: issue.id,
       })
     }
-    const inner = h.registry.modules.issues as unknown as {
+    const inner = h.registry.modules.issues.reports as unknown as {
       list: (...args: unknown[]) => Promise<unknown[]>
     }
     const origList = inner.list.bind(inner)
