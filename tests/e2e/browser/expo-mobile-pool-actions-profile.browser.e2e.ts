@@ -212,7 +212,8 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
   // mission tap so visiting Tasks cannot warm its legacy all-issue cache.
   async function openScreen(label: string, path: string, selector: string) {
     console.info('[phone screen]', label, page.url())
-    const action = page.getByRole('button', { name: label, exact: true })
+    const action = page.getByRole(label === 'Tasks' ? 'tab' : 'button', { name: label, exact: true })
+    await action.waitFor({ state: 'visible', timeout: 15_000 })
     await action.evaluate((element, { path, selector }) => {
       performance.clearMarks('phone:input')
       performance.clearMarks('phone:dom')
