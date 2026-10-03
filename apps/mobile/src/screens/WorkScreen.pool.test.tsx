@@ -2,7 +2,7 @@
  * platform/navigation chrome is stubbed; rows, launch inputs and folds are real. */
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { Profiler, type ReactNode } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { MobileTrpc } from '../client/trpc'
 import type { MobilePool } from '../client/mobile-pool'
@@ -89,6 +89,7 @@ vi.mock('../hooks/useRefreshableTab', async () => {
   const { useRef } = await import('react')
   return { useRefreshableTab: () => ({ listRef: useRef(null), refreshAccessibilityProps: {}, connected: true, refreshing: false, onRefresh: () => {} }) }
 })
+vi.stubEnv('EXPO_OS', 'web')
 const { createMobilePool } = await import('../client/mobile-pool')
 const { WorkScreen } = await import('./WorkScreen')
 
@@ -158,6 +159,7 @@ function output(container: HTMLElement) {
     styles: [...container.querySelectorAll('[style]')].map(el => el.getAttribute('style')) }
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); state.counts.clear() })
+afterAll(() => vi.unstubAllEnvs())
 
 describe('mobile WorkScreen pool consumer', () => {
   for (const scale of [1, 4] as const) it(`same native rows, bands and look at ${scale}x with no legacy reader`, async () => {
