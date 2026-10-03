@@ -1,5 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`mobile pool work-list actions > brings a recent closed row back and returns it to Closed on refusal > accepted menu before Bring back from Closed 1`] = `"c194b672086f1045ae705acfb5c52f66a58e06a2341ed68218a70a2ff9b86011"`;
+
 exports[`mobile pool work-list actions > brings a recent closed row back and returns it to Closed on refusal > last green pilot-ON action output 1`] = `"9128004cfd509ba414e98fa0d96712fecb3b7726dc89a1a8d52f225b31775293"`;
 
 exports[`mobile pool work-list actions > brings a recent closed row back and returns it to Closed on refusal > last green pilot-ON action output 2`] = `"5cdb7a10ac5f2c49272d86c5710ec61fbec05a8e2556c114ca28946594b298dc"`;
@@ -237,6 +239,8 @@ exports[`mobile pool work-list actions > tucks a completed row immediately, roll
 exports[`mobile pool work-list actions > tucks a completed row immediately, rolls back, and holds accepted tuck until echo > last green pilot-ON action output 4`] = `"2379c3d9e1a1347fd3170bcb476767c8596be9410e7d79e9f4a0e46ed888883d"`;
 
 exports[`mobile pool work-list actions > tucks a completed row immediately, rolls back, and holds accepted tuck until echo > last green pilot-ON action output 5`] = `"2379c3d9e1a1347fd3170bcb476767c8596be9410e7d79e9f4a0e46ed888883d"`;
+
+exports[`mobile pool work-list actions > unsnoozes through the fold menu and restores the snoozed lane on refusal > accepted menu before Unsnooze 1`] = `"21a12ae44adfd85bc70cfcaa147042203c4092caa9b306dc54b2579d36accf89"`;
 
 exports[`mobile pool work-list actions > unsnoozes through the fold menu and restores the snoozed lane on refusal > last green pilot-ON action output 1`] = `"9356e225bfeeaf68f41c27a4f26742563c5a1af32915b1268a206fcbeaafd807"`;
 
