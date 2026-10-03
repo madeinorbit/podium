@@ -231,7 +231,6 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
         "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
-        "$TURBO_ROOT$/apps/web/src/features/superagent/fixture.ts",
         "$TURBO_ROOT$/apps/web/test/header-fixture.ts",
         "$TURBO_ROOT$/apps/web/test/sidebar-fixture.ts",
         "$TURBO_ROOT$/apps/web/src/features/setup/**",
