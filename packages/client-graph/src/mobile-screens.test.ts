@@ -33,7 +33,10 @@ const disposals: (() => void)[] = []
 afterEach(() => {
   for (const dispose of disposals.splice(0)) dispose()
 })
-async function setup(rows: ReturnType<typeof issue>[], sessions: { sessionId: string }[] = []) {
+async function setup(
+  rows: ReturnType<typeof issue>[],
+  sessions: { sessionId: string; cwd: string; lastActiveAt: string }[] = [],
+) {
   const load = vi.fn((kind: string, id: string) =>
     kind === 'session'
       ? sessions.find((row) => row.sessionId === id)
