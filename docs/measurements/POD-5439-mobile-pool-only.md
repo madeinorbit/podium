@@ -207,5 +207,21 @@ candidate has not yet run its final gate.
 At `7a299940a4`, all fourteen mobile/dependency compiler tasks passed on the
 rebased candidate. Focused Biome across fourteen files reports no errors;
 graph ESLint across five files is green. The fixture controls now use semantic
-buttons, and unused issue-screen imports are removed. The two affected fixture
-files and four explicit planted-fault proofs are still pending at this checkpoint.
+buttons, and unused issue-screen imports are removed. Both affected fixture
+files passed: twelve checks, with only the closed-page clock case filtered
+until generic-hook retirement. Frozen outputs are unchanged, with parent
+picker row reads 29/29 and derivations 15/15 and archived-menu row reads 6/6.
+
+All four explicit plants were rejected on foreground flatblock from production
+source `77a75343a9`. Eager target payload reads (`064ec6d2f8`) grew 1,229/4,829
+for fourteen choices. Removing the reference-prefix filter (`46adb228a0`)
+grew source visits 23/99. Archived payload reads grew 38/134 for six neighbours,
+and substituting the live/collapsed roster count for the raw delete count
+returned 2 instead of the literal 34. The experiments restored the committed
+production files cleanly. Their counts and exact mutant SHAs are attached in
+`phone-picker-faults.json` and `phone-menu-faults.json`.
+
+The pending production-phone proof enables the existing reader counter when
+its module publishes it, before runtime construction, and asserts zero
+selectors as well as zero row builds and derivations. Its screenshots and
+always-on run still await POD-5081 and final pilot retirement.

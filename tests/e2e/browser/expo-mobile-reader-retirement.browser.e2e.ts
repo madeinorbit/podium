@@ -23,6 +23,8 @@ async function legacyCounts(page: Page) {
   return page.evaluate(() => {
     const counter = Reflect.get(window, '__podiumStoreStats')
     if (!counter) throw new Error('The existing reader counter did not attach')
+    if (!Reflect.get(window, '__podiumReaderProofCounterArmed') || !counter.snapshot().enabled)
+      throw new Error('The reader counter was not enabled before runtime construction')
     const result = { selectors: 0, rowBuilds: 0, derivations: {} as Record<string, number> }
     for (const row of counter.snapshot().runtimes) {
       result.selectors += row.selectorRuns
@@ -39,13 +41,16 @@ test('the production phone opens both launch forms and task details with zero le
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.addInitScript(() => {
-    const timer = setInterval(() => {
-      const counter = Reflect.get(window, '__podiumStoreStats')
-      if (counter) {
-        counter.enable()
-        clearInterval(timer)
+    const defineProperty = Object.defineProperty
+    Object.defineProperty = ((target, property, descriptor) => {
+      const result = defineProperty(target, property, descriptor)
+      if (target === globalThis && property === '__podiumStoreStats') {
+        descriptor.value.enable()
+        Reflect.set(globalThis, '__podiumReaderProofCounterArmed', true)
+        Object.defineProperty = defineProperty
       }
-    }, 0)
+      return result
+    }) as typeof Object.defineProperty
   })
   const repositories = await rpc<string[]>(page, 'repos.list')
   const repoPath =
@@ -61,6 +66,7 @@ test('the production phone opens both launch forms and task details with zero le
   const cells: { screen: string; counts: Awaited<ReturnType<typeof legacyCounts>> }[] = []
   const save = async (screen: string) => {
     const counts = await legacyCounts(page)
+    expect(counts.selectors, screen).toBe(0)
     expect(counts.rowBuilds, screen).toBe(0)
     expect(
       Object.values(counts.derivations).reduce((sum, count) => sum + count, 0),
