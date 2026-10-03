@@ -1,6 +1,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { type APIRequestContext, expect, type Page, type Route, test } from '@playwright/test'
+import {
+  type APIRequestContext,
+  type CDPSession,
+  expect,
+  type Page,
+  type Route,
+  test,
+} from '@playwright/test'
 import { paintOf, traceStart } from '../../../apps/web/harness/browser-paint'
 import { RELAY } from './_harness'
 
@@ -27,13 +34,17 @@ async function rpc<T>(
   if (!result.ok()) throw new Error(`${procedure}: ${result.status()} ${await result.text()}`)
   return (await result.json()).result.data as T
 }
-async function longPress(page: Page, label: string) {
-  const box = await page.getByRole('button', { name: label, exact: true }).boundingBox()
+async function longPress(page: Page, cdp: CDPSession, label: string) {
+  const row = page.getByRole('button', { name: label, exact: true })
+  await row.scrollIntoViewIfNeeded()
+  const box = await row.boundingBox()
   if (!box) throw new Error('Missing native row')
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.down()
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }],
+  })
   await page.waitForTimeout(500)
-  await page.mouse.up()
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
 }
 
 async function launchWork(page: Page, on: boolean, previousOn: boolean) {
@@ -107,9 +118,11 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
     await page.route('**/trpc/issues.update*', (route) => {
       held = route
     })
-    await longPress(page, label)
-    await page.getByRole('button', { name: 'Rename', exact: true }).click()
-    await page.getByRole('textbox', { name: 'Rename task', exact: true }).fill(renamed)
+    await longPress(page, cdp, label)
+    await page.getByRole('button', { name: 'Rename', exact: true }).click({ timeout: 15_000 })
+    await page.getByRole('textbox', { name: 'Rename task', exact: true }).fill(renamed, {
+      timeout: 15_000,
+    })
     const confirm = page.getByRole('button', { name: 'Rename', exact: true })
     if (!parityOnly) {
       await confirm.evaluate((button, expected) => {
@@ -145,7 +158,7 @@ test('production pool mobile menu renames optimistically, rewinds refusal, and o
     }
     const stop = parityOnly ? undefined : await traceStart(cdp)
     try {
-      await confirm.click()
+      await confirm.click({ timeout: 15_000 })
       await expect(page.getByRole('button', { name: renamedLabel, exact: true })).toBeVisible()
       await expect.poll(() => held !== undefined).toBe(true)
       expect(held!.request().postData()).toContain(renamed)
