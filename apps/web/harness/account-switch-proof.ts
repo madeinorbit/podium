@@ -15,6 +15,7 @@ const args = process.argv.slice(2)
 const planted = args.includes('--plant-stale-handler')
 const sharedScopePlant = args.includes('--plant-shared-scope-callback')
 const unkeyedPlant = args.includes('--plant-unkeyed-account')
+const preserveState = args.includes('--preserve-state')
 const pilotArg = args.find(arg => arg.startsWith('--pilot='))?.slice(8)
 if (pilotArg !== undefined && !['0', '1'].includes(pilotArg)) throw new Error('Invalid pilot arm')
 const pilots = pilotArg === undefined ? [0, 1] : [Number(pilotArg)]
@@ -26,7 +27,12 @@ const switches = ['mobxSidebar', 'mobxPane', 'mobxSessionPane', 'mobxChatContext
   'mobxWorkflows', 'mobxBoard', 'mobxSuperagent', 'mobxAutomations', 'mobxSpecs']
 type Lifetime = { principal: string; retired: { name: string; present: boolean; destroyed?: boolean }[] }
 declare global {
-  interface Window { __accountLifetime(): Lifetime; __PODIUM_CLOSE_TAB__?: () => boolean }
+  interface Window {
+    __accountLifetime(): Lifetime
+    __accountEdit(): void
+    __accountUiState(): Record<string, string | null>
+    __PODIUM_CLOSE_TAB__?: () => boolean
+  }
 }
 if (hostname() !== 'flatblock') throw new Error('Account-switch proof runs on flatblock')
 await mkdir(out, { recursive: true })
@@ -49,13 +55,31 @@ await build({
       if (!id.endsWith('/test/sidebar-acceptance.browser.tsx')) return
       // Observe identities through the fixture's existing WeakRefs. This probe
       // returns only scalars and never holds a runtime in a browser handle.
-      return { code: code + `\nObject.assign(window, { __accountLifetime: () => ({
+      return { code: code + `
+      import { THEME_UI_KEYS as lifetimeThemeKeys } from '@podium/model/browser';
+      Object.assign(window, { __accountLifetime: () => ({
         principal: owner?.principal.userId,
         retired: retired.map(({ name, ref }) => {
           const value = ref.deref();
           return { name, present: value !== undefined, destroyed: value?.destroyed };
         }),
-      }) });\n`, map: null }
+      }), __accountEdit: () => {
+        flushSync(() => {
+          owner!.getSnapshot().setSelectedIssueId(asIssueId(targets.visibleRootId));
+          owner!.getSnapshot().openSessionTab(asSessionId(targets.phaseSessionId));
+          const s = owner!.getSnapshot(), ws = s.workspaces[s.workspaceKey()];
+          s.splitWorkspacePane(ws.focusedPaneId, 'row', { tabId: targets.heartbeatSessionId });
+          s.setSessionDraft(asSessionId(targets.phaseSessionId), 'Alice unsent chat draft');
+          s.uiState.set('podium.firstTaskActivation.draft', JSON.stringify({ title: 'Alice first task', description: 'Unsent first task draft' }));
+          s.uiState.set(lifetimeThemeKeys[0], 'light');
+        });
+      }, __accountUiState: () => {
+        const s = owner!.getSnapshot();
+        return { selectedIssueId: s.selectedIssueId, selectedWorktree: s.selectedWorktree,
+          workspaceKey: s.workspaceKey(), layout: JSON.stringify(s.workspaces[s.workspaceKey()]),
+          paneA: s.paneA, paneB: s.paneB, draft: s.drafts[targets.phaseSessionId] ?? '',
+          firstTaskDraft: s.uiState.get('podium.firstTaskActivation.draft'), theme: s.uiState.get(lifetimeThemeKeys[0]) };
+      } });\n`, map: null }
     },
   }],
   build: { ...config.build, outDir: buildDir, minify: 'esbuild', sourcemap: 'hidden' },
@@ -98,6 +122,14 @@ try {
         throw new Error('Startup/corpus guard failed')
       for (const key of switches) if (startup.switches[key] !== String(pilot)) throw new Error(`Missing startup switch ${key}`)
       const cdp = await context.newCDPSession(page)
+      let initialUi: Record<string, string | null> | undefined
+      if (preserveState) {
+        await page.evaluate(() => window.__accountEdit())
+        await settle(page)
+        initialUi = await page.evaluate(() => window.__accountUiState())
+        if (!initialUi.paneA || !initialUi.paneB || !initialUi.draft || !initialUi.firstTaskDraft)
+          throw new Error('State preservation control was not armed')
+      }
       if (planted) await page.evaluate(() => {
         // Keep the actual installed handler, rather than planting a name in the
         // report. Its captured account must make the survivor guard go red.
@@ -111,11 +143,6 @@ try {
         if (beforeGc.principal !== principal) throw new Error('Actual principal did not change')
         if (beforeGc.retired.some(row => row.name.endsWith('.runtime') && row.present && !row.destroyed))
           throw new Error('Retired runtime was not destroyed')
-        // Chromium's console keeps detached DOM nodes (and their React props)
-        // alive while CDP is attached. Drop debugger ownership before probing
-        // application ownership; the retained-handler plant still goes red.
-        await cdp.send('Runtime.discardConsoleEntries')
-        await cdp.send('Log.clear')
         for (let round = 0; round < 5; round++) {
           await cdp.send('HeapProfiler.collectGarbage')
           await page.waitForTimeout(100)
@@ -124,7 +151,10 @@ try {
         const lifetime = await page.evaluate(() => window.__accountLifetime())
         const survivors = await page.evaluate(() => window.__acceptance.survivors())
         const state = await page.evaluate(() => window.__acceptance.state())
-        records.push({ pilot, principal, beforeGc, lifetime, survivors, state })
+        const uiState = preserveState ? await page.evaluate(() => window.__accountUiState()) : undefined
+        records.push({ pilot, principal, beforeGc, lifetime, survivors, state, initialUi, uiState })
+        if (preserveState && principal === 'acceptance-alice' && JSON.stringify(uiState) !== JSON.stringify(initialUi))
+          failures.push(`pilot=${pilot}: returning account UI state changed`)
         console.log(JSON.stringify({ pilot, principal, survivors }))
         if (survivors.length) failures.push(`pilot=${pilot} ${principal}: ${survivors.join(', ')}`)
       }
@@ -133,7 +163,7 @@ try {
     } finally { await context.close() }
   }
   await writeFile(resolve(out, 'report.json'), JSON.stringify({ sourceSha, browser: browser.version(),
-    host: hostname(), seed: 4443, issues: 4867, sessions: 4302, switches, planted, sharedScopePlant, unkeyedPlant, records, failures }, null, 2) + '\n')
+    host: hostname(), seed: 4443, issues: 4867, sessions: 4302, switches, planted, sharedScopePlant, unkeyedPlant, preserveState, records, failures }, null, 2) + '\n')
   if (failures.length) throw new Error(`Account survivors guard failed:\n${failures.join('\n')}`)
   console.log(`Account-switch proof passed: zero retired survivors in startup arms ${pilots.join(', ')}`)
 } finally {
