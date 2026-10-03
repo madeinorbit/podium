@@ -1,4 +1,3 @@
-import { useReplicaIssues } from '@/app/store'
 import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
@@ -9,7 +8,6 @@ import { attentionGroup } from '@podium/client-core/focus'
 import {
   formatClock,
   panelLabel,
-  resolveIssueReference,
   resumeCommand,
   sessionWaking,
 } from '@podium/client-core/viewmodels'
@@ -86,7 +84,7 @@ import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
 import { prettyCwd } from './pretty-cwd'
 import { useTerminalAppearance } from './use-terminal-appearance'
-import { usePaneSession, usePaneMachines, usePaneSpawnConfirmed, usePaneOwnership } from './use-session-pane-inputs'
+import { usePaneSession, usePaneMachines, usePaneSpawnConfirmed, usePaneOwnership, usePaneReferenceStages } from './use-session-pane-inputs'
 import { sessionPaneDataLayer } from './session-pane-data-layer'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
@@ -299,12 +297,12 @@ export function AgentPanel({
   const settleOptimisticFirstPrompt = useCallback(() => {
     setHeldOptimisticFirstPrompt((current) => (current?.sessionId === sessionId ? null : current))
   }, [sessionId])
-  // Terminal chrome and ref underlines share the normalized issue model cache.
-  const issues = useReplicaIssues()
-  // Live stage lookup for native-terminal ref underlines (POD-529). A ref keeps
-  // the getter fresh without remounting the terminal when the replica updates.
-  const issuesRef = useRef(issues)
-  issuesRef.current = issues
+  const referenceStages = usePaneReferenceStages()
+  // Keep the terminal's imperative getter current through pool attachment
+  // without remounting the terminal or changing its transcript subscription.
+  const referenceStagesRef = useRef(referenceStages)
+  referenceStagesRef.current = referenceStages
+  const resolveReferenceStage = useCallback((ref: string) => referenceStagesRef.current.resolveStage(ref), [])
   const { guardedEnd } = useSessionGuard(sessionId, undefined, sessionPaneDataLayer() === 'pool' ? (session ? [session] : []) : undefined)
   // An optimistically-spawned session doesn't exist server-side yet (#119): the
   // terminal's one-shot `hub.attach` would be dropped and never retried, leaving
@@ -646,7 +644,7 @@ export function AgentPanel({
       mounted.view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
-        resolveStage: (ref) => resolveIssueReference(ref, issuesRef.current)?.stage ?? null,
+        resolveStage: resolveReferenceStage,
       })
       // Draft sync between the PTY and chat, both directions (#17/#62/#53,
       // POD-859). Everything it needs from React arrives as a getter, so no
@@ -762,7 +760,7 @@ export function AgentPanel({
   // When THIS mount started waiting for its attach [POD-2290] — zero while
   // attached, restamped on the next wait, so a re-attach is judged on its own
   // window instead of inheriting the first one's age. A render-phase ref write,
-  // like `issuesRef`/`savedModeRef`: it derives from `ready`, holds no state the
+  // like `referenceStagesRef`/`savedModeRef`: it derives from `ready`, holds no state the
   // renderer can disagree with, and an effect would lag the very frame it dates.
   const attachWaitSinceRef = useRef(0)
   if (ready) attachWaitSinceRef.current = 0
@@ -826,18 +824,18 @@ export function AgentPanel({
     })
   }, [mountedRef, openFile, session?.cwd, sessionId])
 
-  // Re-paint stage-coloured underlines when the issue replica changes (POD-529).
-  // resolveStage always reads issuesRef; setRefLinks only needs to schedule.
+  // Pool references repaint only when a demanded stage changes. The legacy
+  // path retains its issue-array update trigger (POD-529).
   // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession
   useEffect(() => {
-    const view = mountedRef.current?.view
-    if (!view) return
-    view.setRefLinks({
+    const paint = () => mountedRef.current?.view.setRefLinks({
       isKnownPrefix: (p) => isKnownRefPrefix(p),
       onActivate: (ref, event) => activateRef(ref, event),
-      resolveStage: (ref) => resolveIssueReference(ref, issuesRef.current)?.stage ?? null,
+      resolveStage: resolveReferenceStage,
     })
-  }, [issues, mountedRef])
+    paint()
+    return referenceStages.subscribe(paint)
+  }, [referenceStages, mountedRef, resolveReferenceStage])
 
   const sendKey = (key: SpecialKey): void => {
     mountedRef.current?.connection.sendInput(keySequence(key))

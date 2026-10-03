@@ -4,6 +4,10 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { Store } from '@podium/client-core/engine'
+import type { IssueReferenceSource } from '@podium/client-core/viewmodels'
+import type { MountedSession } from '@podium/terminal-client/session-mount'
+import type { RefLinkConfig } from '@podium/terminal-client'
+import { asIssueId } from '@podium/model/browser'
 import { bindStoreStatsOwner, readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -13,6 +17,7 @@ import { sessionPaneFixture, SESSION_PANE_NOW } from '@podium/client-graph/diagn
 
 const f = vi.hoisted(() => ({ mode: 'legacy' as 'legacy' | 'pool', state: {} as Store,
   pool: null as MobxPool | null, owner: { transcriptWindow: () => undefined, putTranscriptWindow: vi.fn() },
+  issues: [] as IssueReferenceSource[], mounted: { current: null as MountedSession | null },
   end: vi.fn(async () => ({ ok: true })), resurrect: vi.fn(async () => {}), kill: vi.fn(async () => {}),
   hibernate: vi.fn(async () => {}), configure: vi.fn(async () => ({ ok: true })),
   resolveShell: vi.fn(async () => ({ sessionId: 'pane-19' })),
@@ -22,10 +27,11 @@ const paneStoreHandle = { getSnapshot: () => f.state, subscribe: (_listener: () 
 vi.mock('./session-pane-data-layer', () => ({ sessionPaneDataLayer: () => f.mode }))
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: Store) => unknown) => select(f.state),
-  useReplicaIssues: () => [], useSessionDraft: () => '',
+  useReplicaIssues: vi.fn(() => f.issues), useSessionDraft: () => '',
   useSessionExitKind: () => undefined,
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => f.pool,
   useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T, empty: T) => {
     const view = useMemo(() => f.pool ? createPoolProjection(f.pool, read) : null, [read])
     return useSyncExternalStore(view?.subscribe ?? (() => () => {}), view?.getSnapshot ?? (() => empty))
@@ -37,7 +43,7 @@ vi.mock('@podium/client-core/react', async () => ({
 }))
 vi.mock('@/lib/hooks/use-confirm', () => ({ useConfirm: () => f.confirm }))
 vi.mock('@podium/terminal-client-react', () => ({
-  useTerminalSession: () => ({ containerRef: { current: null }, viewportRef: { current: null }, mountedRef: { current: null },
+  useTerminalSession: () => ({ containerRef: { current: null }, viewportRef: { current: null }, mountedRef: f.mounted,
     ready: true, outputSeen: true, atBottom: true, role: 'controller', echoLatency: null }),
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
   preloadTerminalRuntime: vi.fn(), ArrowSwipeKey: () => null,
@@ -59,11 +65,14 @@ vi.mock('@/lib/useNow', () => ({ useNow: () => SESSION_PANE_NOW }))
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'
 import { useChatSurface } from '../chat/use-chat-surface'
+import { useReplicaIssues } from '@/app/store'
 import { usePaneSession, usePaneMachines, usePanePanelModes, usePaneSpawnConfirmed, useDockPaneInputs, usePaneOwnership } from './use-session-pane-inputs'
 
 let sessions: SessionView[]
 beforeEach(() => {
   f.mode = 'legacy'
+  f.issues = []
+  f.mounted.current = null
   sessions = sessionPaneFixture()
   const state = { sessions, machines: [{ id: 'machine-a', name: 'Host', online: true }, { id: 'machine-b', name: 'Offline host', online: false }],
     panelMode: Object.fromEntries(sessions.map(row => [row.sessionId, 'chat'])), dockShells: { '/synthetic/w19': 'pane-19' },
@@ -78,7 +87,10 @@ beforeEach(() => {
   } as unknown as Store
   f.state = state
   f.pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined,
-    { summaries: SESSION_PANE_SUMMARIES, load: (_entity, id) => sessions.find(row => row.sessionId === id) as never, schedule: () => () => {} })
+    { summaries: SESSION_PANE_SUMMARIES,
+      load: (entity, id) => (entity === 'session' ? sessions.find(row => row.sessionId === id) : f.issues.find(row => row.id === id)) as never,
+      issueIdByRef: ref => f.issues.find(row => row.displayRef === ref)?.id,
+      schedule: () => () => {} })
   f.pool.apply({ type: 'replace', rows: sessions.map(row => ({ kind: 'session', id: row.sessionId, value: row as never })) })
   f.pool.header.apply(state.machines.map(row => ({ kind: 'machine', id: row.id, value: row })))
   f.pool.header.order('machine', state.machines.map(row => row.id))
@@ -86,6 +98,7 @@ beforeEach(() => {
   for (const row of sessions) f.pool.row('session', row.sessionId)
   f.pool.hydrate()
   bindStoreStatsOwner(f.owner, f.owner)
+  bindStoreStatsOwner(paneStoreHandle, f.owner)
   storeStats.enable(); storeStats.reset()
 })
 afterEach(() => { cleanup(); f.pool?.dispose(); f.pool = null; storeStats.enable(false); vi.clearAllMocks() })
@@ -135,7 +148,58 @@ it('has zero legacy pane derivations while mounted and after an unrelated sessio
   expect(counts['sessionPane.session']).toBeGreaterThan(0)
   expect(counts['sessionPane.machines']).toBeGreaterThan(0)
   expect(counts['sessionPane.panelMode']).toBeGreaterThan(0)
+  expect(counts['sessionPane.referenceIssues']).toBeGreaterThan(0)
   legacy.unmount()
+})
+
+it('keeps native reference underlines equal and live without legacy issue reads on the pool path', async () => {
+  const issues = [
+    { seq: 1, stage: 'in_progress' },
+    { seq: 2, stage: 'review', archived: true },
+    { seq: 3, stage: 'done', deletedAt: '2026-10-01' },
+  ].map(patch => ({ id: asIssueId(`underline-${patch.seq}`), prefix: 'POD', displayRef: `POD-${patch.seq}`,
+    title: `Reference ${patch.seq}`, createdAt: '2026-10-01', updatedAt: '2026-10-01', archived: false,
+    worktreePath: null, deps: [], ...patch }) as IssueReferenceSource)
+  f.issues = issues
+  f.pool!.apply({ type: 'update', rows: issues.map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
+  const tokens = ['POD-1', ' POD-01 ', 'POD-2', 'POD-3', 'POD-99', 'POD-1-a', '#1', 'bad']
+  const config = { current: null as RefLinkConfig | null }
+  let stages: Array<string | null> = []
+  const paint = vi.fn((next: RefLinkConfig) => {
+    config.current = next
+    stages = tokens.map(token => next.resolveStage?.(token) ?? null)
+  })
+  f.mounted.current = { setAppearance: vi.fn(), view: { setRefLinks: paint, setFileLinks: vi.fn() } } as unknown as MountedSession
+  const legacy = render(<AgentPanel sessionId={sessions[0]!.sessionId} />)
+  const expected = { ...view(legacy.container), stages }
+  expect(stages).toEqual(['in_progress', 'in_progress', 'review', null, null, null, null, null])
+  legacy.unmount()
+  expect(readRuntimeStoreStats(f.owner)?.slices['sessionPane.referenceIssues']).toBeGreaterThan(0)
+  vi.mocked(useReplicaIssues).mockClear()
+  storeStats.reset()
+  f.mode = 'pool'
+  const actual = render(<AgentPanel sessionId={sessions[0]!.sessionId} />)
+  await waitFor(() => {
+    // Demand lookup is nonblocking while cold identities/rows load locally.
+    f.pool!.hydrate()
+    expect({ ...view(actual.container), stages }).toEqual(expected)
+  })
+  expect(vi.mocked(useReplicaIssues)).not.toHaveBeenCalled()
+  expect(readRuntimeStoreStats(f.owner)).toBeDefined()
+  expect(readRuntimeStoreStats(f.owner)?.slices['sessionPane.referenceIssues'] ?? 0).toBe(0)
+
+  paint.mockClear()
+  const updated = { ...issues[0]!, stage: 'review' as const }
+  act(() => f.pool!.apply({ type: 'update', rows: [{ kind: 'issue', id: updated.id, value: updated as never }] }))
+  expect(stages).toEqual(['review', 'review', 'review', null, null, null, null, null])
+  expect(paint).toHaveBeenCalledTimes(1)
+  paint.mockClear()
+  act(() => f.pool!.apply({ type: 'update', rows: [{ kind: 'issue', id: updated.id, value: { ...updated, title: 'Renamed' } as never }] }))
+  expect(paint).not.toHaveBeenCalled()
+  actual.unmount()
+  act(() => f.pool!.apply({ type: 'update', rows: [{ kind: 'issue', id: updated.id, value: { ...updated, stage: 'done' } as never }] }))
+  expect(paint).not.toHaveBeenCalled()
+  expect(config.current?.resolveStage?.('POD-1')).toBeNull()
 })
 
 it('never accesses legacy session, machine or window collections on the pool input path', () => {

@@ -1,10 +1,13 @@
 import { legacySessionPaneRead } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
 import { sessionById } from '@podium/client-core/store'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionId, MachineWire } from '@podium/model/browser'
-import { useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { resolveIssueReference } from '@podium/client-core/viewmodels'
+import type { IssueStage } from '@podium/model/browser'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
-import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { MobxPool } from '@podium/client-graph'
 import { sessionPaneDataLayer } from './session-pane-data-layer'
 import { effectiveIssueColorHex, issueColorHex } from '@/lib/issueColors'
@@ -92,4 +95,47 @@ function usePoolPaneOwnership(session: SessionView | undefined) {
 export function usePaneOwnership(session: SessionView | undefined) {
   const useRead = sessionPaneDataLayer() === 'pool' ? usePoolPaneOwnership : useLegacyPaneOwnership
   return useRead(session)
+}
+
+export interface PaneReferenceStages {
+  resolveStage(ref: string): IssueStage | null
+  subscribe(paint: () => void): () => void
+}
+const EMPTY_REFERENCE_STAGES: PaneReferenceStages = {
+  resolveStage: () => null,
+  subscribe: () => () => {},
+}
+
+function useLegacyPaneReferenceStages(): PaneReferenceStages {
+  const owner = useStoreHandle()
+  const issues = useReplicaIssues()
+  legacySessionPaneRead(owner, 'referenceIssues', () => issues)
+  const current = useRef(issues)
+  current.current = issues
+  const resolveStage = useCallback((ref: string) => resolveIssueReference(ref, current.current)?.stage ?? null, [])
+  return useMemo(() => ({ resolveStage, subscribe: EMPTY_REFERENCE_STAGES.subscribe }), [issues, resolveStage])
+}
+
+function usePoolPaneReferenceStages(): PaneReferenceStages {
+  const pool = useWorklistPool()
+  const [stages, setStages] = useState(EMPTY_REFERENCE_STAGES)
+  useEffect(() => {
+    let disposed = false
+    let reader: ReturnType<typeof import('./pane-reference-stages')['createPaneReferenceStages']> | undefined
+    setStages(EMPTY_REFERENCE_STAGES)
+    if (pool) {
+      void import('./pane-reference-stages').then(({ createPaneReferenceStages }) => {
+        if (disposed) return
+        reader = createPaneReferenceStages(pool)
+        setStages(reader)
+      })
+    }
+    return () => { disposed = true; reader?.dispose() }
+  }, [pool])
+  return stages
+}
+
+export function usePaneReferenceStages(): PaneReferenceStages {
+  const useRead = sessionPaneDataLayer() === 'pool' ? usePoolPaneReferenceStages : useLegacyPaneReferenceStages
+  return useRead()
 }
