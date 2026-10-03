@@ -58,6 +58,7 @@ controls = [
     ('session-exit-rescope', EXIT_SOURCE, 'for (const id of demanded) dirty.add(id)', 'for (const id of demanded) dirty.delete(id)', 'shares addressed session exits', FILE),
     ('session-exit-disposal', EXIT_SOURCE, 'stop(); demanded.clear()', 'demanded.clear()', 'clears rescope inputs', FILE),
     ('session-exit-hook', HOOKS, '? usePoolSessionExitKind : useLegacySessionExitKind', '? useLegacySessionExitKind : useLegacySessionExitKind', INPUTS, FILE),
+    ('stable-selector-attribution', 'apps/web/test/chat-context.browser.tsx', "const omitArtifactStrip = new URLSearchParams(location.search).get('omitArtifactStrip') === '1'", 'const omitArtifactStrip = false', '@browser', 'apps/web/test/chat-context-proof.ts'),
 ]
 
 def run(args, **kwargs):
@@ -67,6 +68,7 @@ baseline = run(['git', 'rev-parse', 'HEAD'], capture_output=True).stdout.strip()
 if run(['git', 'status', '--porcelain'], capture_output=True).stdout:
     raise SystemExit('Controls require a clean committed candidate')
 env = dict(os.environ, PATH=str(ROOT / '.toolchain') + ':' + os.environ['PATH'])
+env['LD_LIBRARY_PATH'] = str(ROOT / '.toolchain/lib') + (':' + os.environ['LD_LIBRARY_PATH'] if os.environ.get('LD_LIBRARY_PATH') else '')
 output = ROOT / '.artifacts/chat-context/controls'
 output.mkdir(parents=True, exist_ok=True)
 results = []
@@ -102,10 +104,11 @@ try:
         path.write_text(source.replace(old, new))
         run(['git', 'add', file])
         run(['git', '-c', 'user.name=Podium Control', '-c', 'user.email=control@podium.invalid', 'commit', '-q', '-m', 'Red control ' + name])
-        result = subprocess.run(['timeout', '120', 'bun', 'run', 'test:file', '--', test_file, '-t', test], cwd=ROOT, env=env, capture_output=True, text=True)
+        command = ['timeout', '180', 'bun', test_file] if test == '@browser' else ['timeout', '120', 'bun', 'run', 'test:file', '--', test_file, '-t', test]
+        result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
         text = re.sub(r'\x1b\[[0-9;]*m', '', result.stdout + result.stderr)
         (output / (name + '.log')).write_text(text)
-        red = result.returncode == 1 and 'Failed Tests' in text and 'Failed Suites' not in text
+        red = result.returncode == 1 and ('Stable selector attribution failed' in text if test == '@browser' else 'Failed Tests' in text and 'Failed Suites' not in text)
         results.append({'control': name, 'exit': result.returncode, 'red': red, 'candidate': baseline})
         print(json.dumps(results[-1]), flush=True)
         if not red:
