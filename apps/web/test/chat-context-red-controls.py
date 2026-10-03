@@ -50,6 +50,7 @@ controls = [
     ('late-hook-selection', HOOKS, "const useRead = chatContextDataLayer() === 'pool' ? usePoolPorts : useLegacyPorts", "const attached = useWorklistPool(); const useRead = attached ? usePoolPorts : useLegacyPorts", ATTACH, FILE),
     ('controller-readiness', HOOKS, 'ready: initial.current?.id === id, draft:', 'ready: data.ready, draft:', ATTACH, FILE),
     ('comparison-red', WEB + 'chat-context-check.ts', 'const fields = { value: before }', 'const fields = { value: after }', 'detects a planted wrong value', FILE),
+    ('pinned-brief-fixture', WEB + 'ChatView.tsx', 'brief={chat.scroll.pinnedBrief}', 'brief={null}', 'mounts the pinned-brief shelf', WEB + 'ChatView.test.tsx'),
 ]
 
 def run(args, **kwargs):

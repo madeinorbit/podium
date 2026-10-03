@@ -656,11 +656,24 @@ This is agent mail, not the operator's latest prompt.
     })
     await flush()
 
-    const shelf = container.querySelector('[data-testid="pinned-brief"]')
-    const scroller = container.querySelector('[data-feed-scroller]')
-    expect(shelf).not.toBeNull()
+    const scroller = container.querySelector<HTMLElement>('[data-feed-scroller]')
     expect(scroller).not.toBeNull()
-    if (!shelf || !scroller) return
+    if (!scroller) return
+    // The browser scroll controller deliberately ignores a hidden, zero-height
+    // viewport. Give this DOM-order fixture a visible viewport and an actually
+    // scrolled-off prompt, then deliver its position notification.
+    const prompt = scroller.querySelector<HTMLElement>('[data-operator-prompt="true"]')!
+    Object.defineProperties(scroller, {
+      clientHeight: { configurable: true, value: 600 },
+      scrollHeight: { configurable: true, value: 900 },
+    })
+    const viewportRect = vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 100, 800, 600))
+    const promptRect = vi.spyOn(prompt, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 40))
+    act(() => fireEvent.scroll(scroller))
+    await flush()
+    const shelf = container.querySelector('[data-testid="pinned-brief"]')
+    expect(shelf).not.toBeNull()
+    if (!shelf) return
     // The shelf carries the prompt's own words — that copy is the repeat the
     // harness scraped at the bottom of the desktop chat.
     expect(shelf.textContent).toContain(promptText)
@@ -669,6 +682,7 @@ This is agent mail, not the operator's latest prompt.
     expect(shelf.compareDocumentPosition(scroller) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
+    viewportRect.mockRestore(); promptRect.mockRestore()
     // The reported symptom: nothing after the feed tail may repeat the prompt.
     const tail = container.querySelector('[data-testid="feed-tail-slot"]')
     expect(tail).not.toBeNull()
