@@ -57,6 +57,14 @@ export interface IssueBoardSourceRows {
 declare module './source-registry' { interface PoolSourceRows extends IssueBoardSourceRows {} }
 export const ISSUE_BOARD_SOURCE_KEY = 'issue-board'
 export const ISSUE_BOARD_ENTITIES = ['issueBoardWindow', 'issueBoardQuery', 'issueBoardCatalog', 'issueBoardModel', 'issueExplorerModel', 'issueBoardRow'] as const
+export const ISSUE_BOARD_SOURCE_SCHEMA = {
+  issueBoardWindow: { key: 'windowId', source: 'runtime:openIssueId', fields: ['openIssueId'], residency: 'window-scalar' },
+  issueBoardQuery: { key: 'serializedFilter', source: 'pool:resident-index+declared-cold-summaries', fields: ['ids'], residency: 'mounted-demand-ids' },
+  issueBoardCatalog: { key: 'showAgentTasks', source: 'pool:issue-summaries+treeParent', fields: ['scope', 'projectPaths', 'assignees', 'labels'], residency: 'mounted-demand' },
+  issueBoardModel: { key: 'serializedDisplayAndFilter', source: 'pool:issueBoardQuery+issueBoardCatalog+issue-relations', residency: 'mounted-view' },
+  issueExplorerModel: { key: 'serializedTabAndQuery', source: 'pool:issueBoardQuery+issue-relations+session-summaries', residency: 'mounted-view' },
+  issueBoardRow: { key: 'issueId', source: 'pool:issue-summary+repo+treeChildren+pageDependents+pageSessions', residency: 'observed-row' },
+} as const
 /** Core already declares repo, treeParent/treeChildren, pageDependencies,
  * pageDependents and pageSessions. This screen uses those exact relations.
  * Cold cards/filtering need these projection fields, never a document panel. */
