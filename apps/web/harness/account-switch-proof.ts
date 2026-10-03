@@ -103,7 +103,7 @@ await build({
           owner!.getSnapshot().setSelectedIssueId(asIssueId(targets.visibleRootId));
           // Use a registered worktree; the seed retains legacy session display
           // paths which normal startup would replace with its canonical fallback.
-          const worktree = lifetimeReposToViews(owner!.getSnapshot().repos).flatMap(repo => repo.worktrees)[0];
+          const worktree = lifetimeReposToViews(owner!.getSnapshot().repos).flatMap(repo => repo.worktrees).find(row => !row.isMain);
           owner!.getSnapshot().openSessionTab(lifetimeSessionId(targets.phaseSessionId));
           const s = owner!.getSnapshot(), ws = s.workspaces[s.workspaceKey()];
           s.splitWorkspacePane(ws.focusedPaneId, 'row', { tabId: targets.heartbeatSessionId });
@@ -230,6 +230,7 @@ try {
         // Playwright 1.60 keeps the last locator targets in its injected script.
         // Mark an empty set so collector-owned DOM cannot retain retired props.
         await expect(page.locator('[data-acceptance-no-such-target]')).toHaveCount(0)
+        await page.mouse.move(1799, 999)
         const beforeGc = await page.evaluate(() => window.__accountLifetime())
         if (beforeGc.principal !== principal) throw new Error('Actual principal did not change')
         if (
