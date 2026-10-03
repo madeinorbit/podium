@@ -1,7 +1,7 @@
 /** Isolated reader proof, not an Expo app or complete Inbox acceptance. */
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
-import { resolveMobileFile, resolveMobilePackage, resolveRootFile, resolveRootPackage, resolveThroughMobileDep } from './resolve-package'
+import { resolveMobilePackage, resolveRootFile, resolveRootPackage } from './resolve-package'
 
 // The isolated linker puts Vite and its React plugin under the web package,
 // which declares them. Ask that owner instead of falling through to another
@@ -22,12 +22,11 @@ export default async () => {
       alias: [
         { find: /^react-native$/, replacement: resolveMobilePackage('react-native-web') },
         { find: /^lucide-react$/, replacement: webRequire.resolve('lucide-react') },
-        { find: /^@react-native\/assets-registry\/registry$/, replacement: resolveThroughMobileDep('react-native', '@react-native/assets-registry/registry') },
         { find: /^expo-blur$/, replacement: fileURLToPath(new URL('./harness/stub-expo-blur.tsx', import.meta.url)) },
         { find: /^expo-haptics$/, replacement: fileURLToPath(new URL('./harness/stub-expo-haptics.ts', import.meta.url)) },
         { find: /^react-native-safe-area-context$/, replacement: fileURLToPath(new URL('./harness/stub-safe-area.ts', import.meta.url)) },
         { find: /^expo-symbols$/, replacement: fileURLToPath(new URL('./harness/stub-expo-symbols.tsx', import.meta.url)) },
-        { find: /^react-native-svg$/, replacement: resolveMobileFile('react-native-svg/lib/module/ReactNativeSVG.web.js') },
+        { find: /^react-native-svg$/, replacement: fileURLToPath(new URL('./test/inbox-svg.tsx', import.meta.url)) },
         { find: /^react$/, replacement: resolveRootPackage('react') },
         { find: /^react-dom$/, replacement: resolveRootPackage('react-dom') },
         { find: /^react-dom\/client$/, replacement: resolveRootFile('react-dom/client') },
@@ -42,9 +41,6 @@ export default async () => {
     },
     optimizeDeps: {
       entries: ['test/inbox.browser.html'],
-      // The alias selects SVG's web entry; optimize its published CJS parser
-      // dependencies so Chromium receives real ESM named exports.
-      include: ['react-native-svg'],
       exclude: ['expo-blur', 'expo-haptics', 'expo-symbols', 'react-native-safe-area-context'],
     },
     server: { host: '127.0.0.1', hmr: false, port: 45172, strictPort: true },
