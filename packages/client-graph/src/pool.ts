@@ -522,6 +522,7 @@ export class MobxPool {
       | 'disposed'
       | 'object'
       | 'release'
+      | 'hidden'
     >(this, {
       sidebar: false,
       mobileWork: false,
@@ -771,7 +772,7 @@ export class MobxPool {
    * (POD-4753): a hidden issue's visibility reads it instead of its row.
    * Undefined for a row in memory, one held out beside the rule, or unknown.
    */
-  hidden(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
+  private hidden(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
     const residency = this.residency
     if (residency === null) return undefined
     // A row in memory is never hidden, and its reader already tracks its
