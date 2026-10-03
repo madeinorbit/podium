@@ -1,6 +1,7 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import type { PodiumTarget } from '@podium/protocol'
 import { parseSessionRef } from '@podium/protocol'
 import { compareStructural, computed, reaction } from 'mobx'
@@ -132,7 +133,15 @@ export function createMobileInboxViews(pool: MobxPool) {
     const prefixes = pool.row('mobileReferencePrefixes', 'prefixes')
     const known = !!prefixes && prefixes !== LOADING && prefixes.prefixes.includes(prefix)
     const model = known && refKind === 'issue' ? pool.references.read(token) : null
-    return { known, model: model === LOADING ? null : (model ?? null) }
+    const unavailable: IssueReferenceModel | null = known && refKind === 'issue' ? {
+      ref: token.trim(), issueId: null, title: null, stage: null,
+      availability: 'unavailable', accessibleLabel: `Task ${token.trim()} is unavailable`,
+    } : null
+    return {
+      known,
+      model: model === LOADING ? unavailable : (model ?? unavailable),
+      pending: prefixes === LOADING || model === LOADING,
+    }
   }
   function session(identifier: string): Loaded<SessionView> {
     const trimmed = identifier.trim()

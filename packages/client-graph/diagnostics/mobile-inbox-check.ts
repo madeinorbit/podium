@@ -124,7 +124,11 @@ export function checkMobileInbox(
               known,
               model: known && kind === 'issue' ? resolveIssueReference(token, legacy.issues) : null,
             }
-        return { id: String(index), fields: { ...chip } }
+        return {
+          id: String(index),
+          pending: actual && 'pending' in chip && chip.pending,
+          fields: { known: chip.known, model: chip.model },
+        }
       }),
     })
     result.push({

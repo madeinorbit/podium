@@ -29,6 +29,12 @@ const controls = [
     'differences: result.differences',
     'differences: 0',
   ],
+  [
+    'compares every card',
+    views,
+    'pending: prefixes === LOADING || model === LOADING',
+    'pending: true',
+  ],
   ['decided deck order', hooks, 'decided = order.slice(0, index)', 'decided = order.slice(0, 0)'],
   ['reads cold refs', views, 'pool.references.read(token)', 'null'],
   [

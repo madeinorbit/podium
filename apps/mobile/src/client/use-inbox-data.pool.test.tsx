@@ -581,6 +581,9 @@ it('keeps the first replica owner in the resident alias index and hands it to th
       archived: false,
       deps: [],
       displayRef: '#8',
+      repoPath: '/synthetic',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
     } as never,
   })
   pool.apply({ type: 'replace', rows: [row('z'), row('a')] })
