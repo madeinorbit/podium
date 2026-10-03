@@ -216,19 +216,20 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
     await action.evaluate((element, { path, selector }) => {
       performance.clearMarks('phone:input')
       performance.clearMarks('phone:dom')
-      const capture = { input: false, ready: false }
+      const capture = { input: false, dom: false, ready: false }
       Object.assign(window, { __phoneScreenAction: capture })
       element.addEventListener('pointerdown', () => {
         capture.input = true
         performance.mark('phone:input')
       }, { once: true })
       const check = () => {
-        if (capture.ready || !capture.input) return
+        if (capture.dom || !capture.input) return
         if (!location.pathname.endsWith(path) || !document.querySelector(selector)) {
           requestAnimationFrame(check)
           return
         }
         observer.disconnect()
+        capture.dom = true
         performance.mark('phone:dom')
         requestAnimationFrame(() => requestAnimationFrame(() => { capture.ready = true }))
       }
