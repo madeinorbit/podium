@@ -28,6 +28,7 @@ const variantQueries = {
   minimalAttach:'coldStartMinimalAttach=1', residentReplace:'coldStartResidentReplace=1',
   noEntityPayload:'coldStartNoEntityPayload=1',
   chunkWrites:'coldStartChunkWrites=1',
+  chunkQueries:'coldStartChunkWrites=1&coldStartSkipReplaceQueries=1',
   chunkBounded:'coldStartChunkWrites=1&coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartSkipReplaceQueries=1',
   bounded:'coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartSkipReplaceQueries=1',
 }

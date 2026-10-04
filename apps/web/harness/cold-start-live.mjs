@@ -15,8 +15,10 @@ const arm = arg('arm', 'latest'), samples = Number(arg('samples', '8'))
 const dist = resolve(arg('dist', `.artifacts/cold-start/live/${arm}`))
 const baselineDist = arg('baseline-dist', '') ? resolve(arg('baseline-dist','')) : undefined
 const out = resolve(arg('out', `.artifacts/cold-start/live-results/${arm}`))
+const prewarmManifest = arg('prewarm-manifest','')
+const prewarmPaths = prewarmManifest ? JSON.parse(readFileSync(resolve(prewarmManifest),'utf8')) : []
 const variantQueries = {
-  control:'', memo:'coldStartFlatMemo=1', reader:'coldStartNoIssueReaderIndex=1',
+  control:'', bundleReady:'', memo:'coldStartFlatMemo=1', reader:'coldStartNoIssueReaderIndex=1',
   attach:'coldStartNoDormantAttach=1', hydrate:'coldStartNoDiscardedHydrate=1',
   all:'coldStartFlatMemo=1&coldStartNoIssueReaderIndex=1&coldStartNoDormantAttach=1&coldStartNoDiscardedHydrate=1',
   facade:'coldStartLazyFacade=1', targets:'coldStartLazyTargets=1', facts:'coldStartBulkSessionFacts=1',
@@ -27,16 +29,19 @@ const variantQueries = {
   minimalAttach:'coldStartMinimalAttach=1', residentReplace:'coldStartResidentReplace=1',
   noEntityPayload:'coldStartNoEntityPayload=1',
   chunkWrites:'coldStartChunkWrites=1',
+  chunkQueries:'coldStartChunkWrites=1&coldStartSkipReplaceQueries=1',
   chunkBounded:'coldStartChunkWrites=1&coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartSkipReplaceQueries=1',
   bounded:'coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartSkipReplaceQueries=1',
 }
 const variants = baselineDist ? ['baseline','production'] : arg('variants','').split(',').filter(Boolean)
 if(!baselineDist && variants.some(name=>!(name in variantQueries)))throw Error('Unknown live ablation')
+if(variants.includes('bundleReady') && (!prewarmPaths.length || prewarmPaths.some(path=>!/^\/assets\/[^/]+\.js$/.test(path))))throw Error('Bundle ablation requires the control arm startup JS manifest')
 const live = 'http://127.0.0.1:18787'
 const token = execFileSync('podium', ['auth', 'mint-session', '--print-only', '--ttl', '20m'], {encoding:'utf8', stdio:['ignore','pipe','ignore']}).trim()
 if (!token || !Number.isInteger(samples) || samples < 1) throw Error('Invalid live capture setup')
 mkdirSync(out, {recursive:true})
 const result = {version:1, arm, method:'A1 private production preview; connected live backend; fresh browser context per cold sample', transport:'identity HTTP bootstrap, service workers blocked', build:JSON.parse(readFileSync(resolve(dist,'podium-build.json'),'utf8')), collectorSha256:createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'), host:hostname(), samples, variants, query:arg('query',''), startedAt:new Date().toISOString(), actions:[], errors:[], counts:[], pid:process.pid}
+if(prewarmManifest)result.prewarmManifest={paths:prewarmPaths,sha256:createHash('sha256').update(readFileSync(resolve(prewarmManifest))).digest('hex')}
 if(baselineDist)result.baselineBuild=JSON.parse(readFileSync(resolve(baselineDist,'podium-build.json'),'utf8'))
 const save = () => writeFileSync(resolve(out, 'run.json'), JSON.stringify(result,null,2)+'\n')
 writeFileSync(resolve(out,'collector-source.mjs'),readFileSync(new URL(import.meta.url)))
@@ -65,7 +70,7 @@ const preview = previewDist => Bun.serve({
     if (url.pathname === '/__benchmark_blank') return new Response('<!doctype html><title>Preparation</title>',{headers:{'content-type':'text/html'}})
     const pathname = decodeURIComponent(url.pathname)
     const file = Bun.file(resolve(previewDist,'.'+pathname))
-    if (request.method === 'GET' && pathname !== '/' && await file.exists()) return new Response(file,{headers:{'content-type':mime[extname(pathname)]??file.type}})
+    if (request.method === 'GET' && pathname !== '/' && await file.exists()) return new Response(file,{headers:{'content-type':mime[extname(pathname)]??file.type,'cache-control':'max-age=3600'}})
     if (request.method === 'GET' && (pathname==='/' || !/\.(js|css|json|map|png|svg|woff2)$/.test(pathname)) && !/^\/(auth|trpc|sync|version|health|api)(\/|$)/.test(pathname))
       return new Response(Bun.file(resolve(previewDist,'index.html')),{headers:{'content-type':'text/html'}})
     const headers = new Headers(request.headers)
@@ -118,6 +123,20 @@ try {
     page.on('pageerror',error=>result.errors.push({index:sampleIndex,at:new Date().toISOString(),kind:'pageerror',message:error.message.slice(0,250)}))
     page.on('response',response=>{if(response.status()>=400)result.errors.push({index:sampleIndex,at:new Date().toISOString(),kind:'http',status:response.status(),path:new URL(response.url()).pathname})})
     await page.goto(base+'/__benchmark_blank')
+    let preparation
+    if(variant==='bundleReady') {
+      const began=performance.now()
+      // Parse/fetch only: modulepreload does not instantiate the application.
+      // A fresh context and empty IndexedDB preserve cold application state.
+      await page.evaluate(paths=>Promise.all(paths.map(path=>new Promise((done,reject)=>{
+        const link=document.createElement('link');link.rel='modulepreload';link.href=path
+        link.onload=()=>done();link.onerror=()=>reject(Error('Module preload failed'))
+        document.head.append(link)
+      }))),prewarmPaths)
+      const databases=await page.evaluate(async()=>(await indexedDB.databases()).length)
+      if(databases)throw Error('Bundle preparation instantiated application state')
+      preparation={modulepreloads:prewarmPaths.length,ms:performance.now()-began,databasesBeforeNavigation:databases}
+    }
     await page.addInitScript(()=>{
       localStorage.setItem('podium.panelMode','chat')
       localStorage.setItem('podium.panelModeDefault','chat')
@@ -153,9 +172,9 @@ try {
     const paint=events.filter(event=>event.name==='Paint'&&event.ph==='X'&&event.pid===input.pid&&event.ts>=dom.ts).sort((a,b)=>a.ts-b.ts)[0]
     const mainThreadCpuMs=typeof input.tts==='number'&&typeof paint.tts==='number'&&typeof paint.tdur==='number'?(paint.tts+paint.tdur-input.tts)/1000:null
     const phaseMetrics=await page.evaluate(end=>(window.__coldStartMetrics??[]).filter(entry=>entry.end<=end),measured.inputToPaintMs)
-    const assets=await page.evaluate(end=>performance.getEntriesByType('resource').filter(entry=>/\.(js|css)(\?|$)/.test(entry.name)&&entry.startTime<=end).map(entry=>({path:new URL(entry.name).pathname,ms:entry.duration,encodedBytes:entry.encodedBodySize,decodedBytes:entry.decodedBodySize})),measured.inputToPaintMs)
+    const assets=await page.evaluate(end=>performance.getEntriesByType('resource').filter(entry=>/\.(js|css)(\?|$)/.test(entry.name)&&entry.startTime<=end).map(entry=>({path:new URL(entry.name).pathname,ms:entry.duration,encodedBytes:entry.encodedBodySize,decodedBytes:entry.decodedBodySize,transferBytes:entry.transferSize})),measured.inputToPaintMs)
     const paintAt=await page.evaluate(ms=>new Date(performance.timeOrigin+ms).toISOString(),measured.inputToPaintMs)
-    result.actions.push({index,round,variant,query,profiled:profile,load,startedAt,paintAt,...measured,mainThreadCpuMs,phaseMetrics,assets})
+    result.actions.push({index,round,variant,query,profiled:profile,load,startedAt,paintAt,...measured,mainThreadCpuMs,phaseMetrics,assets,...(preparation?{preparation}:{})})
     writeFileSync(resolve(out,`${index}.trace.json.gz`),gzipSync(JSON.stringify(events)))
     const counts=await page.evaluate(async()=>{
       const counts={}
