@@ -890,6 +890,7 @@ try {
         await page.keyboard.press('Control+k')
         await page.getByRole('combobox').fill(title)
         await page.keyboard.press('Escape');await page.keyboard.press('Escape')
+        await page.getByTestId('topbar-nav-workspace').click()
         const trigger=page.getByTestId('right-rail').getByRole('button',{name:'Superagent',exact:true})
         await trigger.click()
         const input=page.getByPlaceholder('Ask across all tasks…')
