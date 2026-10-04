@@ -23,7 +23,7 @@ for arm in ['old', 'new']:
         content = snapshots[digest]
         target = f'podium-test-5501-{arm}/.artifacts/old-vs-new/{file.parent.name}/harness-source.mjs'
         # Folder names come from our capture ledger, never arbitrary shell input.
-        if any(character not in 'abcdefghijklmnopqrstuvwxyz0123456789-/' for character in target):
+        if any(character not in 'abcdefghijklmnopqrstuvwxyz0123456789-' for character in file.parent.name):
             raise RuntimeError('Unexpected capture path')
         command = f'cat > "$HOME/{target}"'
         subprocess.run(['ssh', '-o', 'BatchMode=yes', 'flatblock', command], input=content, check=True)
