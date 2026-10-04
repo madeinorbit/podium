@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { refusalFixture } from '../../../../../packages/worklist-proto/harness/src/refusal-fixture'
+import { refusalFixture } from '../../../../packages/worklist-proto/harness/src/refusal-fixture'
 import { PoolWorkRowSlot } from '../screens/WorkListRow'
 import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'
 

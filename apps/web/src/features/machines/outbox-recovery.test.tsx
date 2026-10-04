@@ -57,6 +57,12 @@ vi.mock('@podium/client-core/react', () => ({
   useStoreHandle: () => ({ getSnapshot: () => storeState() }),
 }))
 
+// The migrated surface gets refusal data through the pool notice hook, rather
+// than the retired store selector. Keep this fixture on the same real queue.
+vi.mock('@/features/chat/use-pool-notices', () => ({
+  usePoolRecovery: () => outbox.deadLetters(),
+}))
+
 const copied = vi.hoisted(() => [] as { text: string; label: string | undefined }[])
 vi.mock('@/lib/clipboard', () => ({
   copyToClipboard: (text: string, label?: string) => copied.push({ text, label }),
