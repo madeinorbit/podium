@@ -32,6 +32,87 @@ const state = (navigation?: NavigationProvider) => ({
 } as unknown as EngineState)
 afterEach(() => { navigationStats.disable(); navigationStats.reset() })
 
+describe('addressed workspace pruning', () => {
+  const file = (id: string, sessionId: string) => ({
+    id, scope: { kind: 'session' as const, sessionId: asSessionId(sessionId) },
+    path: 'notes.txt', worktreePath: '/repo',
+  })
+  function reaction(st: EngineState) {
+    return new Reactions({ state: () => st, publish: patch => Object.assign(st, patch),
+      hub: {} as never, notices: {} as never, isVisible: () => true,
+      markSessionRead: vi.fn(), markIssueRead: vi.fn(), pruneGraceMs: 20 })
+  }
+
+  it('keeps the same membership, spawn and grace results without reading legacy lists', () => {
+    vi.useFakeTimers()
+    const foreign = { ...seat, sessionId: asSessionId('foreign'), issueId: asIssueId('other') }
+    const rows = [seat, foreign, { ...seat, sessionId: asSessionId('unreferenced') }]
+    const reads = vi.fn((id: string) => rows.find(row => row.sessionId === id))
+    const make = (navigation?: NavigationProvider) => {
+      let ws = emptyWorkspace('mission:root')
+      for (const id of [seat.sessionId, foreign.sessionId, 'ghost', 'pending', 'file:live', 'file:gone'])
+        ws = openTab(ws, id, { permanent: true })
+      return { ...state(navigation), sessions: rows, pendingSpawnIds: new Set([asSessionId('pending')]),
+        selectedIssueId: child.id, workspaces: { 'mission:root': ws },
+        fileTabs: [file('file:live', seat.sessionId), file('file:gone', 'missing')] }
+    }
+    const legacy = make(), addressed = make({ ...provider, session: reads })
+    for (const key of ['sessions', 'issueProjections', 'issueDeps'])
+      Object.defineProperty(addressed, key, { get() { throw new Error(`Legacy pruning read: ${key}`) } })
+    const eager = reaction(legacy), pool = reaction(addressed)
+    try {
+      eager.pruneWorkspaces(); pool.pruneWorkspaces()
+      expect(addressed.workspaces).toEqual(legacy.workspaces)
+      expect(addressed.fileTabs).toEqual(legacy.fileTabs)
+      expect(reads.mock.calls.flat()).not.toContain('unreferenced')
+      vi.advanceTimersByTime(25)
+      expect(addressed.workspaces).toEqual(legacy.workspaces)
+      expect(addressed.fileTabs).toEqual([file('file:live', seat.sessionId)])
+      expect(JSON.stringify(addressed.workspaces)).not.toContain('foreign')
+      expect(JSON.stringify(addressed.workspaces)).not.toContain('ghost')
+      expect(JSON.stringify(addressed.workspaces)).toContain('pending')
+    } finally { eager.dispose(); pool.dispose(); vi.useRealTimers() }
+  })
+
+  it('holds cold sessions and their file scopes without starting the missing-row grace clock', () => {
+    vi.useFakeTimers()
+    let ready = false
+    const cold = asSessionId('cold')
+    const row = { ...seat, sessionId: cold }
+    const st = { ...state({ ...provider, session: id => id === cold ? ready ? row : NAVIGATION_LOADING : undefined }),
+      pendingSpawnIds: new Set<ReturnType<typeof asSessionId>>(), selectedIssueId: child.id,
+      workspaces: { 'mission:root': openTab(openTab(emptyWorkspace('mission:root'), cold, { permanent: true }), 'file:cold', { permanent: true }) },
+      fileTabs: [file('file:cold', cold)] }
+    Object.defineProperty(st, 'sessions', { get() { throw new Error('Legacy cold pruning') } })
+    const owner = reaction(st)
+    try {
+      const before = st.workspaces
+      owner.pruneWorkspaces()
+      vi.advanceTimersByTime(100)
+      owner.pruneWorkspaces()
+      expect(st.workspaces).toEqual(before)
+      expect(st.fileTabs).toEqual([file('file:cold', cold)])
+      ready = true
+      owner.pruneWorkspaces()
+      expect(st.workspaces).toEqual(before)
+    } finally { owner.dispose(); vi.useRealTimers() }
+  })
+
+  it('resolves an issue workspace through the provider, including unassigned sessions', () => {
+    const unassigned = { ...seat, issueId: undefined }
+    const st = { ...state({ ...provider, issue: () => ({ ...root, worktreePath: '/repo' }), session: () => unassigned }),
+      pendingSpawnIds: new Set<ReturnType<typeof asSessionId>>(),
+      workspaces: { 'issue:root': openTab(emptyWorkspace('issue:root'), seat.sessionId, { permanent: true }) } }
+    for (const key of ['sessions', 'issueProjections'])
+      Object.defineProperty(st, key, { get() { throw new Error(`Legacy issue pruning: ${key}`) } })
+    const owner = reaction(st)
+    try {
+      owner.pruneWorkspaces()
+      expect(st.workspaces['issue:root']?.panes.p1?.tabs).toEqual([seat.sessionId])
+    } finally { owner.dispose() }
+  })
+})
+
 describe('navigation with an injected pool provider', () => {
   it('preserves selection, mission tabs, URL, history and visit baseline across switches', () => {
     let legacy = state(), pool = state(provider), route = routeDefaults('issues')

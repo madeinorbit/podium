@@ -606,9 +606,11 @@ export function workspaceMembership(
     const issueId = key.slice(6)
     // Resolved for the KEY, not for the session: the old code re-found the same
     // issue for every session that did not name one.
-    const wt = issuesById(st.issueProjections).get(issueId)?.worktreePath
+    const issue = st.navigation ? st.navigation.issue(issueId) : issuesById(st.issueProjections).get(issueId)
+    const wt = issue !== NAVIGATION_LOADING ? issue?.worktreePath : undefined
     return (session) => {
       if (session.issueId !== undefined) return session.issueId === issueId
+      if (issue === NAVIGATION_LOADING) return true
       return Boolean(wt && (session.cwd === wt || session.cwd.startsWith(`${wt}/`)))
     }
   }

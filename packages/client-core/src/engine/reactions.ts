@@ -46,6 +46,30 @@ import {
   overlayState,
 } from './state'
 import type { StoreNotices } from './types'
+import type { SessionView } from '../session-values'
+
+/** Pruning asks only about identities held by this window. Loading rows stay
+ * provisional, including files whose session scope is still loading. */
+function pruningState(state: EngineState): EngineState {
+  if (!state.navigation) return state
+  const ids = referencedTabIds(state)
+  for (const tab of state.fileTabs) {
+    if (tab.scope.kind === 'session') ids.add(tab.scope.sessionId)
+  }
+  const sessions: SessionView[] = []
+  const pending = new Set(state.pendingSpawnIds)
+  for (const id of ids) {
+    if (id.startsWith('file:')) continue
+    const session = state.navigation.session(id)
+    if (session === NAVIGATION_LOADING) pending.add(id as SessionId)
+    else if (session) sessions.push(session)
+  }
+  for (const tab of state.fileTabs) {
+    if (tab.scope.kind === 'session' && pending.has(tab.scope.sessionId))
+      pending.add(tab.id as SessionId)
+  }
+  return overlayState(state, { sessions, pendingSpawnIds: pending })
+}
 
 /** Throttle window (ms) for mark-read-on-view. The FIRST activity on the surface
  *  the operator is looking at marks it read immediately (POD-272 — it is already
@@ -170,7 +194,7 @@ export class Reactions {
    * would empty every workspace the moment a slice was rebuilt.
    */
   pruneWorkspaces(): void {
-    const st = this.ports.state()
+    const st = pruningState(this.ports.state())
     const referenced = referencedTabIds(st)
     const globallyKnown = knownTabIds(st)
     // A session-scoped file RECORD with no workspace tab naming it is still a
