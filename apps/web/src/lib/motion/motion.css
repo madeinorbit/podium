@@ -33,13 +33,10 @@
   --motion-total: #a3a199;
 }
 
-/* THE WORKING MARK — the braille cell held still and lit in a travelling wave
-   (see WorkingMark.tsx). The former eight SVG-circle animations forced Chromium
-   through style and layout on most frames. A generated animated PNG now holds
-   the same wave in one fixed-size alpha-mask cell. Moving a tall external SVG
-   mask repeatedly invalidates its resource and compositing hierarchy in
-   WebKit; image frames avoid both that resource and CSS transform animation
-   (POD-5508). */
+/* THE WORKING MARK — a still, fully lit braille cell (see WorkingMark.tsx).
+   The former animated external SVG masks made WebKit revisit the surrounding
+   compositing hierarchy on every frame, delaying native textarea input.
+   Colour, labels and the timer carry the working state (POD-5508). */
 
 /* One-shot morphs. Every class below runs its animation exactly once when the
    element mounts with the class applied — none of them loop. Consumers gate
@@ -126,37 +123,6 @@
   inset: 0;
   display: block;
   fill: var(--mark-color, var(--motion-working));
-}
-.pod-mark-static circle {
-  transform-box: fill-box;
-  transform-origin: center;
-  opacity: 0.2;
-  transform: scale(0.8);
-}
-.pod-mark-frames {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-  background: var(--mark-color, var(--motion-working));
-  -webkit-mask-repeat: no-repeat;
-  -webkit-mask-size: 100% 100%;
-  mask-repeat: no-repeat;
-  mask-size: 100% 100%;
-}
-.pod-mark-small .pod-mark-frames {
-  -webkit-mask-image: url("./working-mark-small.png");
-  mask-image: url("./working-mark-small.png");
-}
-.pod-mark-medium .pod-mark-frames {
-  -webkit-mask-image: url("./working-mark-medium.png");
-  mask-image: url("./working-mark-medium.png");
-}
-.pod-mark-large .pod-mark-frames {
-  -webkit-mask-image: url("./working-mark-large.png");
-  mask-image: url("./working-mark-large.png");
 }
 
 /* Handover transit wire (POD-337): a session moving to another machine covers
@@ -318,15 +284,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* The wave stops and the cell rests fully lit — the blue mark alone still
-     reads "computing" (colour + the ticking timer carry the state). */
-  .pod-mark-static circle {
-    opacity: 1;
-    transform: none;
-  }
-  .pod-mark-frames {
-    display: none;
-  }
   /* The transit wire stops travelling — the blue carets pointing at the target
      still read as "on its way" — and the veil snaps instead of dissolving. */
   .handover-wire-flow {

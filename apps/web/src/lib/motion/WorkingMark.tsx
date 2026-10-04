@@ -3,15 +3,11 @@
  * right now", on every surface: sidebar rows, tabs, corner badges, pending
  * buttons, and the end of a transcript.
  *
- * It is the braille cell the status strip used to SPIN, held still and lit in a
- * travelling wave instead. Eight dots, two columns of four; one animated raster
- * mask carries the staggered light down a fixed-size cell. No rotation, no canvas,
- * no JavaScript frame loop — and no beat you could point at, which is what lets
- * the same mark sit inside a dense mono row AND be stared at for a minute at the
- * tail of a feed without reading as a terminal artefact. Before this there were
- * two marks for one fact (a stepped braille glyph in rows, a breathing canvas
- * ring at the tail); a tab and the transcript it leads to now describe the same
- * working session with the same shape.
+ * Eight fully lit dots, two columns of four. The cell stays still: animated
+ * masks made WebKit rebuild the compositing hierarchy across the surrounding
+ * page while typing. Colour, the label and the ticking timer carry the working
+ * state without a permanent animation. A tab and its transcript use the same
+ * shape.
  *
  * It renders ONLY while an agent is actually computing (motionPhase ===
  * 'working', or a message in transport to one) — gating stays the caller's job,
@@ -46,14 +42,13 @@ function WorkingMarkCell({
   // Small cells get FATTER dots: at 12px tall a 9.5-unit dot is a grey smudge
   // and the wave has nothing to travel across. Ladder verbatim from the design.
   const r = size >= 18 ? 9.5 : size >= 14 ? 10.5 : 11
-  const density = size >= 18 ? 'large' : size >= 14 ? 'medium' : 'small'
   const width = Math.round(size * 0.66)
   return (
     // Decorative: the timer, label or row beside it carries the state for readers.
     <span
       aria-hidden="true"
       data-testid="working-mark"
-      className={cn('pod-mark', `pod-mark-${density}`, className)}
+      className={cn('pod-mark', className)}
       style={{ width, height: size }}
     >
       <svg
@@ -68,7 +63,6 @@ function WorkingMarkCell({
           <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} />
         ))}
       </svg>
-      <span className="pod-mark-frames" />
     </span>
   )
 }

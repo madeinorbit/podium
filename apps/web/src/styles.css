@@ -2104,10 +2104,8 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
   opacity: 1;
   outline: none;
 }
-/* The braille spinner — the shell's one piece of perpetual motion, reusing the
-   agent-state grammar's frames and cadence. The glyphs sit in one fixed strip;
-   translating that strip preserves the exact sequence without animating
-   `content`, which made Chromium restyle and lay out the shell every frame. */
+/* A still braille cell shares the working mark's shape. The label and colour
+   carry the busy state without a perpetual compositing update (POD-5508). */
 .status-strip-spinner {
   display: inline-block;
   height: 1em;
@@ -2117,21 +2115,10 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
 }
 .status-strip-spinner::after {
   display: block;
-  content: "⠋\A⠙\A⠹\A⠸\A⠼\A⠴\A⠦\A⠧\A⠇\A⠏";
+  content: "⣿";
   white-space: pre;
-  will-change: transform;
-  animation: status-strip-braille 800ms steps(10, end) infinite;
-}
-@keyframes status-strip-braille {
-  to {
-    transform: translate3d(0, -100%, 0);
-  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .status-strip-spinner::after {
-    animation: none;
-    transform: none;
-  }
   .status-strip-history-tooltip {
     transition: none;
   }
