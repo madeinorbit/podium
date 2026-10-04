@@ -44,18 +44,34 @@ describe('shell pool', () => {
         stop = autorun(() => outputs.push([views.chrome(), views.dock()]))
         f.change({ selectedIssueId: f.issues[0]!.id, paneA: f.sessions[1]!.sessionId })
         f.change({ selectedIssueId: f.issues[1]!.id, paneA: f.sessions[0]!.sessionId })
-        demand.push(row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session').length)
-        expect(questions.mock.calls.some(([question]) => question.kind === 'shellIssues')).toBe(false)
+        demand.push(
+          row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session').length,
+        )
+        expect(questions.mock.calls.some(([question]) => question.kind === 'shellIssues')).toBe(
+          false,
+        )
         expect(views.chrome()).toHaveProperty('sessionCount', count)
         const context = views.dock()
         expect(context && context !== LOADING ? context.issues : null).toEqual([])
-        expect(context && context !== LOADING ? context.active?.sessionId : null).toBe(f.sessions[0]!.sessionId)
+        expect(context && context !== LOADING ? context.active?.sessionId : null).toBe(
+          f.sessions[0]!.sessionId,
+        )
         const before = outputs.length
         row.mockClear()
-        f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: f.issues.at(-1)!.id,
-          value: { ...f.issues.at(-1)!, title: 'Changed unrelated history' } }] as never })
+        f.pool.apply({
+          type: 'update',
+          rows: [
+            {
+              kind: 'issue',
+              id: f.issues.at(-1)!.id,
+              value: { ...f.issues.at(-1)!, title: 'Changed unrelated history' },
+            },
+          ] as never,
+        })
         expect(outputs).toHaveLength(before)
-        expect(row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session')).toHaveLength(0)
+        expect(
+          row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session'),
+        ).toHaveLength(0)
         const catalogue = views.dock(true)
         expect(catalogue && catalogue !== LOADING ? catalogue.issues : []).toHaveLength(count)
       } finally {
@@ -75,9 +91,13 @@ describe('shell pool', () => {
       f.change({ paneA: null })
       const read = vi.spyOn(f.pool, 'row')
       const value = shellViews(f.pool).dock()
-      expect(value && value !== LOADING ? value.active?.sessionId : null).toBe(f.sessions[0]!.sessionId)
+      expect(value && value !== LOADING ? value.active?.sessionId : null).toBe(
+        f.sessions[0]!.sessionId,
+      )
       expect(read.mock.calls.filter(([kind]) => kind === 'session').length).toBeLessThan(4)
-      expect(read.mock.calls.some(([kind, id]) => kind === 'issue' && id === f.issues.at(-1)!.id)).toBe(false)
+      expect(
+        read.mock.calls.some(([kind, id]) => kind === 'issue' && id === f.issues.at(-1)!.id),
+      ).toBe(false)
     } finally {
       f.pool.dispose()
     }

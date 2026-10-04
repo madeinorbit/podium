@@ -1,7 +1,6 @@
 /** Synthetic fixture and private count-only replay comparisons. */
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
-import { type IssueViewModel } from '@podium/client-core/replica'
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   allTabIds,
   cwdInWorktree,
@@ -14,6 +13,8 @@ import {
   selectedMissionRoot,
   shippingPanelModel,
 } from '@podium/client-core/values'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { MobxPool } from '../src/pool'
 import { SHELL_SCHEMA, SHELL_SUMMARIES } from '../src/shell-schema'
 import { shellViews } from '../src/shell-views'

@@ -10,9 +10,22 @@ const hostStore = vi.hoisted(() => {
     { id: 'iss_one', prefix: 'POD', seq: 1710, displayRef: 'POD-1710' },
     { id: 'iss_two', prefix: 'POD', seq: 1711, displayRef: 'POD-1711' },
   ]
+  let issues = [...allIssues]
+  let revision = 0
+  const listeners = new Set<() => void>()
   return {
     allIssues,
-    issues: [...allIssues],
+    get issues() { return issues },
+    set issues(rows: typeof issues) {
+      issues = rows
+      revision++
+      for (const listener of listeners) listener()
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    snapshot: () => revision,
     setOpenIssueId: vi.fn(),
     setView: vi.fn(),
     navigateToSession: vi.fn(),
@@ -23,21 +36,27 @@ const hostStore = vi.hoisted(() => {
   }
 })
 
-vi.mock('@/app/shell-data', () => ({
+vi.mock('@/app/shell-data', async () => {
+  const { useSyncExternalStore } = await import('react')
+  return {
   useShellActions: () => ({
-      httpOrigin: 'http://127.0.0.1:18787',
-      setOpenIssueId: hostStore.setOpenIssueId,
-      setView: hostStore.setView,
-      navigateToSession: hostStore.navigateToSession,
-      openArtifact: hostStore.openArtifact,
-      openFileInWorktree: hostStore.openFileInWorktree,
+    httpOrigin: 'http://127.0.0.1:18787',
+    setOpenIssueId: hostStore.setOpenIssueId,
+    setView: hostStore.setView,
+    navigateToSession: hostStore.navigateToSession,
+    openArtifact: hostStore.openArtifact,
+    openFileInWorktree: hostStore.openFileInWorktree,
   }),
-  useShellLinks: () => ({
-    readIssues: hostStore.readIssues,
-    readSessions: hostStore.readSessions,
-    artifactIssue: () => undefined,
-  }),
-}))
+  useShellLinks: () => {
+    useSyncExternalStore(hostStore.subscribe, hostStore.snapshot)
+    return {
+      readIssues: hostStore.readIssues,
+      readSessions: hostStore.readSessions,
+      artifactIssue: () => undefined,
+    }
+  },
+  }
+})
 
 import {
   PODIUM_LINK_QUEUE_CAPACITY,
@@ -72,6 +91,7 @@ describe('PodiumLinkHost native delivery', () => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
+    // biome-ignore lint/security/noGlobalEval: Run the trusted checked-in native bridge in this hermetic DOM fixture.
     window.eval(nativeOpenBridge)
   })
 

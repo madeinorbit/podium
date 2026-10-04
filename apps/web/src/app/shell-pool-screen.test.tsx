@@ -1,5 +1,5 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { asClientPrincipal } from '@podium/client-core/principal'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { observer } from '@podium/client-graph/react'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, render, waitFor } from '@testing-library/react'

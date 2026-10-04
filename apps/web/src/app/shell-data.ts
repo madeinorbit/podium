@@ -76,28 +76,34 @@ const EMPTY_ISSUES: IssueViewModel[] = []
 export function useShellLinks() {
   const pool = useWorklistPool(),
     views = pool ? shellViews(pool) : null
-  return useMemo(() => ({
-    readSessions: () => {
-      const sessions = views?.sessions()
-      return sessions && sessions !== LOADING ? sessions : EMPTY_SESSIONS
-    },
-    readIssues: () => {
-      const issues = views?.issues()
-      return issues && issues !== LOADING ? issues : EMPTY_ISSUES
-    },
-    artifactIssue: (id: string) => {
-      const row = views?.issue(id, true)
-      return row && row !== LOADING ? (row as IssueViewModel) : undefined
-    },
-    pool,
-  }), [pool, views])
+  return useMemo(
+    () => ({
+      readSessions: () => {
+        const sessions = views?.sessions()
+        return sessions && sessions !== LOADING ? sessions : EMPTY_SESSIONS
+      },
+      readIssues: () => {
+        const issues = views?.issues()
+        return issues && issues !== LOADING ? issues : EMPTY_ISSUES
+      },
+      artifactIssue: (id: string) => {
+        const row = views?.issue(id, true)
+        return row && row !== LOADING ? (row as IssueViewModel) : undefined
+      },
+      pool,
+    }),
+    [pool, views],
+  )
 }
 export function useShellSessionResolver() {
   const pool = useWorklistPool()
-  return useMemo(() => (id: string) => {
-    const value = pool ? shellViews(pool).session(id) : undefined
-    return value && value !== LOADING ? value : undefined
-  }, [pool])
+  return useMemo(
+    () => (id: string) => {
+      const value = pool ? shellViews(pool).session(id) : undefined
+      return value && value !== LOADING ? value : undefined
+    },
+    [pool],
+  )
 }
 export function useShellSessions() {
   const pool = useWorklistPool(),

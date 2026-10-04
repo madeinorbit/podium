@@ -104,14 +104,17 @@ export function createShellViews(pool: MobxPool) {
       return LOADING
     }
     return row
-      ? Object.fromEntries(
+      ? (Object.fromEntries(
           SHELL_SUMMARIES.session.map((key) => [key, (row as Record<string, unknown>)[key]]),
-        ) as unknown as SessionView
+        ) as unknown as SessionView)
       : undefined
   }
   function sessionCount(): number {
-    return memo('sessionCount', () =>
-      pool.queries.ids({ kind: 'shellSessions' }).filter((id) => !pool.queries.collapsed(id)).length,
+    return memo(
+      'sessionCount',
+      () =>
+        pool.queries.ids({ kind: 'shellSessions' }).filter((id) => !pool.queries.collapsed(id))
+          .length,
     )
   }
   function issues(): Loaded<IssueViewModel[]> {
@@ -253,7 +256,8 @@ export function createShellViews(pool: MobxPool) {
   function dock(includeIssues = false): Loaded<ShellDockData> {
     return memo(includeIssues ? 'dockCatalog' : 'dock', () => {
       if (includeIssues) {
-        const context = dock(), tasks = issues()
+        const context = dock(),
+          tasks = issues()
         return !context || context === LOADING || tasks === LOADING
           ? LOADING
           : { ...context, issues: tasks ?? [] }
@@ -261,12 +265,7 @@ export function createShellViews(pool: MobxPool) {
       const state = window(),
         fileTabs = files(),
         shipLanes = lanes()
-      if (
-        !state ||
-        state === LOADING ||
-        fileTabs === LOADING ||
-        shipLanes === LOADING
-      )
+      if (!state || state === LOADING || fileTabs === LOADING || shipLanes === LOADING)
         return LOADING
       let active: ActiveWorktree | null = null
       const selectedFile = fileTabs?.find((file) => file.id === state.paneA)
@@ -323,9 +322,8 @@ export function createShellViews(pool: MobxPool) {
           )
             containing = candidate
         }
-      const attachedId =
-        active?.issueId ?? activeSession?.issueId
-      const attached = attachedId ? issue(attachedId) as Loaded<IssueViewModel> : containing
+      const attachedId = active?.issueId ?? activeSession?.issueId
+      const attached = attachedId ? (issue(attachedId) as Loaded<IssueViewModel>) : containing
       if (attached === LOADING) return LOADING
       let scope: ShellDockData['scope'] = null
       if (active)
@@ -351,16 +349,15 @@ export function createShellViews(pool: MobxPool) {
       const scoped = scope?.repoId
         ? shipOrders.filter((order) => order.repoId === scope!.repoId)
         : []
-      const explicitGitIssue = active?.issueId ? issue(active.issueId) as Loaded<IssueViewModel> : undefined
+      const explicitGitIssue = active?.issueId
+        ? (issue(active.issueId) as Loaded<IssueViewModel>)
+        : undefined
       if (explicitGitIssue === LOADING) return LOADING
       return {
         active,
         scope,
-        gitIssue:
-          explicitGitIssue ?? containing,
-        mailIssueId:
-          activeSession?.issueId ??
-          containing?.id,
+        gitIssue: explicitGitIssue ?? containing,
+        mailIssueId: activeSession?.issueId ?? containing?.id,
         issues: [],
         shipOrders,
         shipLanes: shipLanes ?? [],

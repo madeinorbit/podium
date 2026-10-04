@@ -84,8 +84,8 @@ function PodiumLinkHostView({
   const [pendingRevision, setPendingRevision] = useState(0)
   // Idle registration does not retain the global catalogues. Pending native
   // URLs still observe arriving rows so hydration retries the queue.
-  const issues = pendingHrefs.current.length || browserArtifacts.current.length
-    ? readIssues() : EMPTY_LINK_ROWS
+  const issues =
+    pendingHrefs.current.length || browserArtifacts.current.length ? readIssues() : EMPTY_LINK_ROWS
   const sessions = pendingHrefs.current.length ? readSessions() : EMPTY_LINK_ROWS
 
   useEffect(() => {
@@ -113,8 +113,8 @@ function PodiumLinkHostView({
 
   useEffect(() => {
     setPodiumTargetActivator((target) => {
-      let targets = target.kind === 'issue' || target.kind === 'artifact'
-        ? readIssues() : EMPTY_LINK_ROWS
+      let targets =
+        target.kind === 'issue' || target.kind === 'artifact' ? readIssues() : EMPTY_LINK_ROWS
       if (target.kind === 'artifact') {
         const linked = findLinkedIssue(target.issue, targets)
         const full = linked ? artifactIssue(linked.id) : undefined

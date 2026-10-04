@@ -24,7 +24,10 @@ const h = vi.hoisted(() => {
     success: vi.fn(),
   })
   const resolveSession = vi.fn(() => ({
-    sessionId: 's1', name: 'Remote Codex', title: '', agentKind: 'codex',
+    sessionId: 's1',
+    name: 'Remote Codex',
+    title: '',
+    agentKind: 'codex',
   }))
   return { handlers, hub, toast, resolveSession }
 })

@@ -19,8 +19,8 @@ import type { ShippingPanelCommands } from '@/features/shipping/ShippingPanel'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useOperatorFocus } from './operator-focus'
-import type { RightPanelTab } from './shell-state'
 import { useShellActions, useShellDock } from './shell-data'
+import type { RightPanelTab } from './shell-state'
 
 const WorktreeFileTree = lazy(() =>
   throughRestarts(() => import('@/features/files/WorktreeFileTree')).then((module) => ({
@@ -106,7 +106,16 @@ export const RightDock = observer(function RightDock({
   onClose: () => void
 }): JSX.Element {
   const { trpc, setSelectedIssueId } = useShellActions()
-  const { active, scope: mergeQueueScope, gitIssue, mailIssueId, issues, shipOrders, shipLanes, coarseNow } = useShellDock(tab === 'merge-queue' || tab === 'shipping')
+  const {
+    active,
+    scope: mergeQueueScope,
+    gitIssue,
+    mailIssueId,
+    issues,
+    shipOrders,
+    shipLanes,
+    coarseNow,
+  } = useShellDock(tab === 'merge-queue' || tab === 'shipping')
   const { setFocusedIssueId } = useOperatorFocus()
   const shippingCommands = useMemo<ShippingPanelCommands>(
     () => ({
@@ -180,9 +189,7 @@ export const RightDock = observer(function RightDock({
                 key={active.cwd}
                 cwd={active.cwd}
                 machineId={active.machineId}
-                issue={
-                  gitIssue
-                }
+                issue={gitIssue}
               />
             ) : (
               <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
@@ -192,9 +199,7 @@ export const RightDock = observer(function RightDock({
               <MessageLedgerView
                 key={active.sessionId ?? active.cwd}
                 sessionId={active.sessionId}
-                issueId={
-                  mailIssueId
-                }
+                issueId={mailIssueId}
               />
             ) : (
               <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
