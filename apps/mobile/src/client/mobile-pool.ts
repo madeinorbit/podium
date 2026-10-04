@@ -32,8 +32,6 @@ export interface MobilePool {
 /** One host per app load; a principal rebuild retains its normal teardown. */
 export function createMobilePool(dev: boolean): MobilePool {
   const host = createPoolHost({
-    start(runtime) {
-    },
     screens: [
       navigationPoolScreen,
       {

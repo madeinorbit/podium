@@ -1,16 +1,10 @@
 import { createPoolHost } from '@podium/client-graph/host'
-import { initializePoolTransactions, poolTransactionsEnabled } from '@/lib/pool-transactions-switch'
 import { poolBackedScreens } from './pool-screens'
 
 /** The web's pool host: the shared host over this app's screen list. */
 const host = createPoolHost({
   screens: poolBackedScreens,
   dev: import.meta.env.DEV,
-  start(runtime) {
-    if (runtime.ui) initializePoolTransactions(runtime.ui)
-  },
-  // The host's default owns optimism; the revert override hands it back.
-  options: () => (poolTransactionsEnabled() ? {} : { owns: [] }),
 })
 
 /** StoreProvider owns this teardown, including while the import is in flight. */

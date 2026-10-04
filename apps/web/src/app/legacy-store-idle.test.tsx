@@ -57,7 +57,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 const sid = asSessionId('synthetic-session-0')
-const ZERO = { replicaRowReads: 0, sessionViewBuilds: 0, ledgerFolds: 0, topologyScans: 0 }
 
 it.each([
   1, 4,
@@ -184,7 +183,4 @@ it.each([
     data.replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 'synthetic-added' })
   })
   expect(failures).toEqual([])
-
-  // A real legacy subscription is the negative control: the same counter
-  // must detect a whole session-list read after the next addressed batch.
 })

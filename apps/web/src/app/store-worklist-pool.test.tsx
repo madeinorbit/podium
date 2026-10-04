@@ -111,7 +111,7 @@ describe('StoreProvider owns the sidebar pool', () => {
     render()
     const pool = await ready()
     expect(create).toHaveBeenCalledTimes(1)
-    // POD-5432: the pool owns the host's default kinds (no revert override here).
+    // Both client transaction kinds belong to the pool.
     expect(create).toHaveBeenCalledExactlyOnceWith(runtime, {
       owns: POOL_OWNED_KINDS,
       ...screenOptions(poolBackedScreens, runtime!),
@@ -122,6 +122,20 @@ describe('StoreProvider owns the sidebar pool', () => {
     expect(await ready()).toBe(pool)
     expect(create).toHaveBeenCalledTimes(1)
     expect(errors).toEqual([])
+  })
+
+  it('keeps both transaction owners when a retired revert URL is opened', async () => {
+    const previous = window.location.href
+    history.replaceState(null, '', '/?poolTransactions=0')
+    const create = vi.spyOn(runtimePool, 'createRuntimeWorklistPool')
+    try {
+      render()
+      await ready()
+      expect(create.mock.calls[0]?.[1]?.owns).toEqual(POOL_OWNED_KINDS)
+      expect(errors).toEqual([])
+    } finally {
+      history.replaceState(null, '', previous)
+    }
   })
 
   it.each([
