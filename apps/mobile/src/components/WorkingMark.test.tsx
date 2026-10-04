@@ -45,8 +45,14 @@ describe('WorkingMark', () => {
   it('draws a fully lit braille cell: two columns of four', () => {
     render(<WorkingMark size={12} />)
     expect(drawn.map((dot) => [dot.cx, dot.cy])).toEqual([
-      [17, 18], [49, 18], [17, 39], [49, 39],
-      [17, 61], [49, 61], [17, 82], [49, 82],
+      [17, 18],
+      [49, 18],
+      [17, 39],
+      [49, 39],
+      [17, 61],
+      [49, 61],
+      [17, 82],
+      [49, 82],
     ])
     for (const dot of drawn) {
       expect(dot.opacity).toBeUndefined()
@@ -55,14 +61,22 @@ describe('WorkingMark', () => {
   })
 
   it.each([
-    [24, 9.5], [18, 9.5], [15, 10.5], [14, 10.5], [12, 11], [7, 11],
+    [24, 9.5],
+    [18, 9.5],
+    [15, 10.5],
+    [14, 10.5],
+    [12, 11],
+    [7, 11],
   ])('fattens the dots as the cell shrinks (%spx tall → r %s)', (size, radius) => {
     render(<WorkingMark size={size} />)
     for (const dot of drawn) expect(dot.r).toBe(radius)
   })
 
   it.each([
-    [24, 16], [12, 8], [11, 7], [7, 5],
+    [24, 16],
+    [12, 8],
+    [11, 7],
+    [7, 5],
   ])('keeps the 66:100 cell at every size (%spx tall → %spx wide)', (size, width) => {
     render(<WorkingMark size={size} />)
     expect(cells).toHaveLength(1)
@@ -89,7 +103,12 @@ describe('WorkingMark', () => {
   })
 
   it('mounting and unmounting multiple marks schedules no UI-runtime animation', () => {
-    const { unmount } = render(<><WorkingMark /><WorkingMark size={18} /></>)
+    const { unmount } = render(
+      <>
+        <WorkingMark />
+        <WorkingMark size={18} />
+      </>,
+    )
     unmount()
     for (const callback of Object.values(animation)) expect(callback).not.toHaveBeenCalled()
   })

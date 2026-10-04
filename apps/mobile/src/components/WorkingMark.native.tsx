@@ -1,10 +1,6 @@
 import Svg, { Circle } from 'react-native-svg'
 import { color } from '../theme/theme'
-import {
-  WORKING_MARK_DOTS,
-  type WorkingMarkProps,
-  workingMarkRadius,
-} from './WorkingMark.shared'
+import { WORKING_MARK_DOTS, type WorkingMarkProps, workingMarkRadius } from './WorkingMark.shared'
 
 /** A fully lit native status cell; it owns no UI-runtime clock or animation. */
 export function WorkingMark({
