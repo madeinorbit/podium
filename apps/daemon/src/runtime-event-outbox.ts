@@ -71,15 +71,16 @@ function fsyncDirectory(dir: string): void {
   }
 }
 
-interface TypingRecord { sessionId: SessionId; rowId: string }
+interface TypingRecord { sessionId: SessionId; rowId: string; startedAt: string }
 const rowKey = (sessionId: SessionId, rowId: string): string => JSON.stringify([sessionId, rowId])
 
 function parseTyping(value: unknown): TypingRecord {
   const entry = value as Partial<TypingRecord> | null
-  if (!entry || typeof entry.sessionId !== 'string' || typeof entry.rowId !== 'string') {
+  if (!entry || typeof entry.sessionId !== 'string' || typeof entry.rowId !== 'string' ||
+      typeof entry.startedAt !== 'string' || !Number.isFinite(Date.parse(entry.startedAt))) {
     throw new Error('invalid runtime delivery typing record')
   }
-  return { sessionId: entry.sessionId, rowId: entry.rowId }
+  return { sessionId: entry.sessionId, rowId: entry.rowId, startedAt: entry.startedAt }
 }
 
 function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent[]; typing: TypingRecord[] } {
@@ -95,7 +96,7 @@ function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent
   if (parsed.typing !== undefined && !Array.isArray(parsed.typing)) {
     throw new Error(`invalid runtime delivery journal: ${path}`)
   }
-  return { events, typing: (parsed.typing as unknown[] | undefined ?? []).map(parseTyping) }
+  return { events, typing: ((parsed.typing as unknown[] | undefined) ?? []).map(parseTyping) }
 }
 
 /**
@@ -171,10 +172,10 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     pending?.delete(deliveryId)
     if (pending?.size === 0) {
       byRow.delete(key)
-      // An accepted hold is not settled. A final server ack retires its
-      // typing fence; the server no longer forwards that row after this ack.
-      if (event.event.outcome !== 'accepted') typing.delete(key)
     }
+    // An accepted hold is not settled. A final server ack retires its fence
+    // even if an earlier accepted report is still awaiting acknowledgement.
+    if (event.event.outcome !== 'accepted') typing.delete(key)
   }
   const loadSnapshot = (snapshot: ReturnType<typeof parseSnapshot>): void => {
     events = new Map(snapshot.events.map((event) => [event.deliveryId, event]))
@@ -209,8 +210,13 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   let validBytes = 0
   let tornTail = false
   if (existsSync(journalPath)) {
-    for (const line of readFileSync(journalPath, 'utf8').split('\n')) {
-      if (!line) continue
+    const lines = readFileSync(journalPath, 'utf8').split('\n')
+    for (const [index, line] of lines.entries()) {
+      if (index === lines.length - 1) {
+        tornTail = line.length > 0
+        break
+      }
+      if (!line) { validBytes += 1; continue }
       let record: { op?: unknown; deliveryId?: unknown; event?: unknown; sessionId?: unknown; rowId?: unknown }
       try {
         record = JSON.parse(line) as typeof record
@@ -226,11 +232,14 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
         retire(record.deliveryId)
         continue
       }
-      if (record.op === 'typing' || record.op === 'untyped') {
+      if (record.op === 'typing') {
         const entry = parseTyping(record)
         const key = rowKey(entry.sessionId, entry.rowId)
-        if (record.op === 'typing') typing.set(key, entry)
-        else typing.delete(key)
+        typing.set(key, entry)
+        continue
+      }
+      if (record.op === 'untyped' && typeof record.sessionId === 'string' && typeof record.rowId === 'string') {
+        typing.delete(rowKey(record.sessionId as SessionId, record.rowId))
         continue
       }
       if (record.op === 'add' && record.event) {
@@ -315,7 +324,7 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
         start(rowId) {
           const key = rowKey(sessionId, rowId)
           if (typing.has(key)) return
-          const entry = { sessionId, rowId }
+          const entry = { sessionId, rowId, startedAt: new Date().toISOString() }
           append(`${JSON.stringify({ op: 'typing', ...entry })}\n`)
           typing.set(key, entry)
           maybeCompact()

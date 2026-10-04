@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { withDeliveryQueue } from './delivery-queue.js'
+import { withDeliveryQueue, type DeliveryJournal } from './delivery-queue.js'
 import type { AgentSessionHandle } from './driver.js'
 import type { SendOptions, TurnInput } from './turns.js'
 import type { RuntimeEventBody } from './events.js'
@@ -10,17 +10,15 @@ describe('daemon restart before typing (POD-5556)', () => {
   const options = { origin: 'mail', delivery: 'when-ready' } as const
   const input = { id: 'held-mail', rowId: 'held-mail', text: 'send after the turn' }
 
-  function owner(journal: { read(id: string): { typingStarted: true } | undefined; start(id: string): void; clear(id: string): void }) {
+  function owner(journal: DeliveryJournal) {
     let phase = 'working'
     const emit = vi.fn<(event: RuntimeEventBody) => void>()
-    const send = vi.fn(async () => ({
-      outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready',
-      provenBy: 'protocol-ack', at: new Date().toISOString(),
-    }))
-    // The extra host port is ignored by the old queue: the regression must
-    // fail on its unconfirmed outcome, before a journal implementation exists.
-    const queue = withDeliveryQueue as (...args: [...Parameters<typeof withDeliveryQueue>, typeof journal]) => AgentSessionHandle
-    const handle = queue({
+    const send = vi.fn(async (_input: TurnInput, options: SendOptions) => {
+      options.onTypingStarted?.()
+      return { outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack', at: new Date().toISOString() }
+    })
+    const handle = withDeliveryQueue({
       send, state: async () => ({ phase }), stop: async () => {},
     } as unknown as AgentSessionHandle, emit, undefined, undefined, journal)
     return { handle, send, emit, idle: () => { phase = 'idle' } }
@@ -52,7 +50,7 @@ describe('daemon restart before typing (POD-5556)', () => {
     await vi.advanceTimersByTimeAsync(200)
     expect(before.send).not.toHaveBeenCalled()
     expect(after.send).toHaveBeenCalledTimes(1)
-    expect(after.emit.mock.calls.map(([event]) => event.outcome)).toEqual(['delivered', 'delivered'])
+    expect(after.emit.mock.calls.map(([event]) => event.t === 'delivery' && event.outcome)).toEqual(['delivered', 'delivered'])
     await after.handle.stop()
   })
 

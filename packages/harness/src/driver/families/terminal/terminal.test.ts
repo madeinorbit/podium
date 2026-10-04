@@ -256,6 +256,26 @@ const ORIGINS: readonly InputOrigin[] = [
 ]
 
 describe('whose write it is (POD-4888)', () => {
+  it('runs the durable delivery fence before the first message byte', async () => {
+    const { ports, written } = terminal()
+    const onTypingStarted = vi.fn(() => expect(written).toEqual([]))
+    await createTerminalInjection(ports).deliver('held mail', {
+      origin: 'mail', delivery: 'when-ready', turnId: 'row-1', onTypingStarted,
+    })
+    expect(onTypingStarted).toHaveBeenCalledTimes(1)
+    expect(pasted(written[0]!)).toBe('held mail')
+  })
+
+  it('writes no bytes if the delivery journal cannot persist the fence', async () => {
+    const { ports, written } = terminal()
+    const error = new Error('journal fsync failed')
+    await expect(createTerminalInjection(ports).deliver('held mail', {
+      origin: 'mail', delivery: 'when-ready',
+      onTypingStarted: () => { throw error },
+    })).rejects.toBe(error)
+    expect(written).toEqual([])
+  })
+
   /** Timers fire in order at once, moving a virtual clock to their due time. */
   const virtualClock = (ports: TerminalInjectionPorts): void => {
     let clock = 0

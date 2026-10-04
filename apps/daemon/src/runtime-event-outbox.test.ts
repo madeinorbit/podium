@@ -146,6 +146,95 @@ describe('coarse runtime event outbox', () => {
   })
 })
 
+describe('delivery typing state in the runtime-event journal (POD-5556)', () => {
+  const sessionId = event('unused').sessionId
+
+  it('retains a typing fence without an event, and clears a proven no-write across reopen', () => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    expect(first.deliveryJournal(sessionId).read('row-1')).toBeUndefined()
+    first.deliveryJournal(sessionId).start('row-1')
+    first.close()
+    const after = createRuntimeEventOutbox(dir)
+    expect(after.pending()).toEqual([])
+    expect(after.deliveryJournal(sessionId).read('row-1')).toEqual({ typingStarted: true })
+    expect(after.deliveryJournal('other-session' as SessionId).read('row-1')).toBeUndefined()
+    after.deliveryJournal(sessionId).clear('row-1')
+    after.close()
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.deliveryJournal(sessionId).read('row-1')).toBeUndefined()
+    reopened.close()
+  })
+
+  it('replays the recorded outcome and prunes the fence after its final acknowledgement', () => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    first.deliveryJournal(sessionId).start('row-1')
+    first.enqueue(event('delivered'))
+    first.close()
+    const after = createRuntimeEventOutbox(dir)
+    expect(after.deliveryJournal(sessionId).read('row-1')).toEqual({
+      typingStarted: true, outcome: { t: 'delivery', rowId: 'row-1', outcome: 'delivered' },
+    })
+    after.acknowledge('delivered')
+    after.close()
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.deliveryJournal(sessionId).read('row-1')).toBeUndefined()
+    expect(reopened.pending()).toEqual([])
+    expect(JSON.parse(readFileSync(join(dir, 'runtime-event-outbox.json'), 'utf8')).typing).toEqual([])
+    reopened.close()
+  })
+
+  it.each(['accepted-first', 'final-first'] as const)('prunes settled rows with %s acknowledgements', (order) => {
+    const dir = makeDir()
+    const outbox = createRuntimeEventOutbox(dir)
+    outbox.deliveryJournal(sessionId).start('row-1')
+    const accepted: DurableRuntimeEvent = {
+      ...event('accepted'), event: { ...event('accepted').event, t: 'delivery', rowId: 'row-1', outcome: 'accepted', held: 'durable' },
+    }
+    outbox.enqueue(accepted)
+    outbox.enqueue(event('final'))
+    for (const id of order === 'accepted-first' ? ['accepted', 'final'] : ['final', 'accepted']) outbox.acknowledge(id)
+    outbox.close()
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.pending()).toEqual([])
+    expect(reopened.deliveryJournal(sessionId).read('row-1')).toBeUndefined()
+    reopened.close()
+  })
+
+  it('keeps a durable program hold through acknowledgement and journal compaction', () => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    first.deliveryJournal(sessionId).start('row-1')
+    first.enqueue({ ...event('accepted'), event: { ...event('accepted').event, t: 'delivery', rowId: 'row-1', outcome: 'accepted', held: 'durable' } })
+    first.acknowledge('accepted')
+    for (let index = 0; index < 520; index++) {
+      first.deliveryJournal(sessionId).start(`waiting-${index}`)
+      first.deliveryJournal(sessionId).clear(`waiting-${index}`)
+    }
+    first.close()
+    const after = createRuntimeEventOutbox(dir)
+    expect(after.deliveryJournal(sessionId).read('row-1')).toEqual({ typingStarted: true })
+    expect(after.pending()).toEqual([])
+    after.close()
+  })
+
+  it.each(['{"op":"typing"', '{"op":"ack","deliveryId":"absent"}'])('preserves new typing records appended after a torn tail: %s', (tail) => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    first.deliveryJournal(sessionId).start('row-1')
+    first.close()
+    appendFileSync(join(dir, 'runtime-event-outbox.log'), tail)
+    const after = createRuntimeEventOutbox(dir)
+    after.deliveryJournal(sessionId).start('row-2')
+    after.close()
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.deliveryJournal(sessionId).read('row-1')).toEqual({ typingStarted: true })
+    expect(reopened.deliveryJournal(sessionId).read('row-2')).toEqual({ typingStarted: true })
+    reopened.close()
+  })
+})
+
 
 describe('runtime event delivery preparation', () => {
   it.each(['state', 'workspace', 'draft'] as const)('sends live %s without touching the journal', (kind) => {
