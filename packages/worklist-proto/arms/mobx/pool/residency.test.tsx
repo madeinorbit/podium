@@ -7,7 +7,7 @@
  * their pending marker, and every transition `residency.ts` names.
  */
 
-import { autorun, observable, runInAction, spy } from 'mobx'
+import { autorun, runInAction, spy } from 'mobx'
 import { act } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
@@ -1191,21 +1191,17 @@ describe('history rule warming', () => {
 
 describe('excluded issue filings', () => {
   it('retains a stage-excluded filing for an optimistic stage change', () => {
-    const pending = observable.map<string, Readonly<Record<string, unknown>>>(undefined, { deep: false })
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow }, undefined, undefined, {
-      pending: (entity, id) => pending.get(`${entity}:${id}`),
-      edit: () => { throw new Error('this test paints the pending seam directly') },
-    })
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
     const id = 'history-stage-filing'
     const old = new Date(corpus.fixedNow - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const row: SliceIssue = { id, seq: 99999, title: 'Stage filing', createdAt: old, updatedAt: old,
+      repoPath: '/history-stage-filing', audience: 'human', stage: 'proposed' }
     try {
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: {
-        id, seq: 99999, title: 'Stage filing', createdAt: old, updatedAt: old,
-        repoPath: '/history-stage-filing', audience: 'human', stage: 'proposed',
-      } }] })
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: row }] })
       expect(pool.worklist.tracks(id)).toBe(true)
       expect(tracked(() => visibleOrderOf(pool).includes(id))).toBe(false)
-      runInAction(() => pending.set(`issue:${id}`, { stage: 'in_progress' }))
+      // POD-5432: the optimistic stage arrives as the row the transaction log painted.
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: { ...row, stage: 'in_progress' } }] })
       expect(tracked(() => visibleOrderOf(pool).includes(id))).toBe(true)
     } finally {
       pool.dispose()

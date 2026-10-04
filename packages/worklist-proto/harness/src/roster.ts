@@ -22,7 +22,7 @@
  * must take its allowance with it.
  */
 
-import { harnessMobxPoolArm, harnessWritableMobxPoolArm } from './adapters/mobx-pool'
+import { harnessMobxPoolArm } from './adapters/mobx-pool'
 import { harnessHandPoolArm, harnessWritableHandPoolArm } from './adapters/hand-pool'
 import type { ArmHandle, CheckableArm } from '../../shared/src/arm'
 import type { RowSourceMode } from '@podium/client-graph/shared/row-source'
@@ -95,6 +95,13 @@ export interface RosterArm {
    */
   writable?(transport: WriteTransport): CheckableArm
   /**
+   * POD-5432 — the arm owns its optimism the product's way instead: the same
+   * `armFor` arm on the `owned` feed, its pool given the runtime's transaction
+   * log (`writable-arm.ts`, `holdingServer`). The work check and the census
+   * run it idle and with pending edits, like `writable`.
+   */
+  ownsOptimism?: true
+  /**
    * POD-4934 — a measured arm: the work-per-change check (`work-per-change.test.tsx`)
    * still runs every scenario and asserts parity, but REPORTS each work
    * verdict (pass or fail, with rows, derivations and elements at 1x and 4x
@@ -118,7 +125,7 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     folder: 'mobx',
     mode: 'overlaid',
     armFor: () => harnessMobxPoolArm,
-    writable: (transport) => harnessWritableMobxPoolArm(transport),
+    ownsOptimism: true,
   },
   {
     // POD-4934: the round-three hand-rolled pool, measured on the same bar as

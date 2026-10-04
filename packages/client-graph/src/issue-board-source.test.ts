@@ -3,7 +3,7 @@ import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
-import { MobxPool, type WriteSeam } from './pool'
+import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 const now = Date.parse('2026-10-03T12:00:00Z')
@@ -25,16 +25,10 @@ const row = (id: string, overrides: object = {}) => ({
 })
 function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' })]) {
   const load = vi.fn((_entity: string, id: string) => rows.find((row) => row.id === id))
-  const pending = observable.map<string, Record<string, unknown>>(undefined, { deep: false })
-  const writes = {
-    pending: (_entity: string, id: string) => pending.get(id),
-    edit: vi.fn(),
-  } as unknown as WriteSeam
   const pool = new MobxPool(
     { selectedIssueId: null, coarseNow: now },
     undefined,
     { load, summaries: ISSUE_BOARD_SUMMARIES, schedule: () => () => {} },
-    writes,
   )
   pool.apply({
     type: 'replace',
@@ -45,7 +39,15 @@ function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' }
     pool,
     source,
     load,
-    pending,
+    // POD-5432: a pending change arrives as the row the transaction log
+    // painted, and its rollback as the server row.
+    paint: (id: string, patch: object) =>
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'issue', id, value: { ...rows.find((r) => r.id === id), ...patch } as never }],
+      }),
+    rebase: (id: string) =>
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: rows.find((r) => r.id === id) as never }] }),
     stop: () => {
       source.dispose()
       pool.dispose()
@@ -240,8 +242,8 @@ it('preserves an opaque parent reference without loading an absent parent', () =
     stop()
   }
 })
-it('updates overlays, parent scope, archive and replacement without a cold standing index', () => {
-  const { source, pool, pending, stop } = setup([
+it('updates painted changes, parent scope, archive and replacement without a cold standing index', () => {
+  const { source, pool, paint, rebase, stop } = setup([
     row('parent'),
     row('child', { audience: 'agent', parentId: 'parent' }),
     row('draft', { isDraftVessel: true }),
@@ -253,9 +255,9 @@ it('updates overlays, parent scope, archive and replacement without a cold stand
   })
   try {
     expect(ids).toEqual(['child', 'parent'])
-    runInAction(() => pending.set('parent', { audience: 'agent' }))
+    paint('parent', { audience: 'agent' })
     expect(ids).toEqual([])
-    runInAction(() => pending.delete('parent'))
+    rebase('parent')
     expect(ids).toEqual(['child', 'parent'])
     pool.apply({
       type: 'update',

@@ -51,7 +51,7 @@ describe('browser entries mount the round-three pools', () => {
     )
   })
 
-  it('mobx-write and mobx-pending resolve to the harness writable arm over the product write arm (POD-4825, POD-4944)', () => {
+  it('mobx-write and mobx-pending resolve to the harness arm over the product pool and its transaction log (POD-4825, POD-4944, POD-5432)', () => {
     for (const name of ['mobx-write', 'mobx-pending']) {
       const graph = moduleGraphOf(join(PACKAGE_DIR, `harness/web/entries/${name}.ts`))
       expect(graph, `${name}: the harness adapter`).toContain(
@@ -60,13 +60,9 @@ describe('browser entries mount the round-three pools', () => {
       expect(graph, `${name}: the product pool under the adapter`).toContain(
         resolve(PACKAGE_DIR, '../client-graph/src/pool.ts'),
       )
-      expect(graph, `${name}: its overlay`).toContain(
-        resolve(PACKAGE_DIR, '../client-graph/src/write/overlay.ts'),
-      )
-      // POD-4944: the harness adapter wraps the product write arm (the ONE
-      // writable entry point), so the product write wiring is on the path.
-      expect(graph, `${name}: the product write arm under the adapter`).toContain(
-        join(PACKAGE_DIR, 'arms/mobx/pool/write/arm.ts'),
+      // POD-5432: the arm owns optimism through the product's transaction log.
+      expect(graph, `${name}: the product transaction log`).toContain(
+        resolve(PACKAGE_DIR, '../client-graph/src/write/transactions.ts'),
       )
     }
   })

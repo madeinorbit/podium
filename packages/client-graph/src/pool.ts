@@ -35,10 +35,10 @@ import { PoolSources, mergePoolSummaries, type PoolSourceRows, type PoolSummaryF
  *
  * READ PATH. Every row a model, view, visibility part, roll-up or group
  * placement reads comes from ONE reader, `row(entity, id, absent)`
- * (POD-4743): the server row with the write layer's pending edits overlaid
- * (`WriteSeam`, the seam the write layer passes at construction), the server
- * object itself when nothing is pending, and for a row not in memory the
- * answer the caller names (`AbsentRead`: `LOADING` with its load queued,
+ * (POD-4743): the table's row, which is already the visible row (the pool's
+ * transaction log writes pending changes into it, POD-5431/POD-5432, so the
+ * reader lays nothing over it), and for a row not in memory the answer the
+ * caller names (`AbsentRead`: `LOADING` with its load queued,
  * `LOADING` alone, or its current value by id through the feed). Every table
  * read goes through the tables, every relation read through the relation
  * engine. Derivations run lazily: a row field computes when a mounted row
@@ -56,7 +56,6 @@ import type { PreferenceRow } from './preference-schema'
 import { SidebarIndex } from './worklist/sidebar'
 import { MobileWorkIndex } from './worklist/mobile'
 import { SidebarRosterIndex } from './worklist/sidebar-roster'
-import { overlayRow } from './shared/overlay-row'
 import {
   compareStructural,
   type IObservableArray,
@@ -176,26 +175,6 @@ export interface PoolLazyOptions {
   readonly schedule?: Schedule
 }
 
-/**
- * The write layer, as the pool sees it: the seam the write layer implements
- * and passes at construction (`write/overlay.ts`), so no reader is ever
- * replaced.
- * - `pending` is what the one reader lays over a row. Its tracked entry for
- *   `entity:id` (present or not) follows pending display changes. Cold
- *   summary readers can share their residency key when `observePending`
- *   supplies those notifications. It holds pending fields, never a row.
- * - `edit` is a model's setter (`issue.title = x`, `issue.update(patch)`):
- *   one transaction of the write layer's edit log.
- */
-export interface WriteSeam {
-  /** The newest pending value per edited field of `entity:id`, or undefined when nothing is pending. */
-  pending(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined
-  /** Optional key notifications, synchronous inside the write action, including removal. */
-  observePending?(changed: (entity: EntityName, id: string) => void): () => void
-  /** One transaction: paint the patch at once, remember the prior values, send. */
-  edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
-}
-
 /** The transaction log as the pool sees it (`write/transactions.ts`). */
 export interface PoolMutator {
   mutate<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): TxId
@@ -278,18 +257,15 @@ export class MobxPool {
   readonly foldLatch: IObservableValue<boolean>
   /** Residency (POD-4567); null when the pool holds every row. */
   readonly residency: Residency | null
-  /** The write layer (pending edits and model edits); null without one. */
-  readonly writes: WriteSeam | null
   /**
    * The pool's transaction log (POD-5431, `write/transactions.ts`), attached
    * after construction because it repaints through the row source the pool is
-   * built from. Null while the switch is off. It writes visible rows into the
-   * tables, so the one reader has nothing to lay over them.
+   * built from. Null without one (a read-only pool). It writes visible rows
+   * into the tables, so the one reader has nothing to lay over them.
    */
   private transactions: PoolMutator | null = null
   /** The log whose spawn placeholders pool screens read (it owns sessions). */
   private spawnLog: PoolMutator | null = null
-  private readonly stopPending: (() => void) | undefined
   /** The one object per row, by entity: built on first request, never twice. */
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
   private readonly target: IngestTarget
@@ -317,7 +293,6 @@ export class MobxPool {
     locals: SliceLocals,
     schema?: ModelSchema,
     lazy?: PoolLazyOptions,
-    writes?: WriteSeam,
   ) {
     this.issueIdByRef = lazy?.issueIdByRef
     this.settingsEnabled = lazy?.settings === true
@@ -325,7 +300,6 @@ export class MobxPool {
     this.setupOrderVersion = this.settingsEnabled ? observable.box(0, {
       name: debugName(() => 'pool.setupOrderVersion'),
     }) : undefined
-    this.writes = writes ?? null
     this.tables = createObservableTables()
     this.queries = new ReaderQueries(this, schema ?? SCHEMA, lazy?.cold)
     const tables = this.tables
@@ -350,8 +324,6 @@ export class MobxPool {
             lanes: () => this.graph,
           })
     this.residency = residency
-    this.stopPending = residency === null ? undefined :
-      this.writes?.observePending?.((entity, id) => residency.notify(entity, id))
     /**
      * The explicit seats (`issue.sessions`), maintained SORTED from the
      * relation's own bucket deltas (one element per move: binary search +
@@ -469,8 +441,8 @@ export class MobxPool {
     this.mobileWork = new MobileWorkIndex(this)
     this.selectedId = null
     // Every row below comes from the one reader (`row`); none of these
-    // functions is replaced after construction (the write layer's pending
-    // edits arrive through `writes`). A view reads rows in memory: a row that
+    // functions is replaced after construction (pending changes arrive as
+    // rows, from the transaction log). A view reads rows in memory: a row that
     // is not answers undefined, its load queued.
     const inMemory = (row: Loaded<object>): object | undefined => (row === LOADING ? undefined : row)
     const links = relationLinks(this.relations, this.graph.schema)
@@ -555,7 +527,6 @@ export class MobxPool {
       | 'referenceReader'
       | 'issueIdByRef'
       | 'disposed'
-      | 'stopPending'
       | 'object'
       | 'release'
       | 'hidden'
@@ -568,7 +539,6 @@ export class MobxPool {
       referenceReader: false,
       issueIdByRef: false,
       disposed: false,
-      stopPending: false,
       sidebarRosters: false,
       tables: false,
       queries: false,
@@ -601,7 +571,6 @@ export class MobxPool {
       worklist: false,
       groups: false,
       foldLatch: false,
-      writes: false,
       rollupInputs: false,
       object: false,
       issueObject: false,
@@ -651,12 +620,11 @@ export class MobxPool {
    * part, roll-up or placement reads comes from here, so they all see one
    * value.
    *
-   * In memory: the server row with the write layer's pending edits overlaid
-   * (`WriteSeam`), or the server object itself when nothing is pending (same
-   * identity, so an idle write layer adds no commit). The overlaid view is
-   * weakly memoised and never installed in a table. Resident readers subscribe to the table slot
-   * and overlay entry; cold summary readers share the residency key when
-   * the write seam supplies pending-change notifications.
+   * In memory: the table's row as it stands, the same object on every read.
+   * Pending changes are already in it: the transaction log rebases a row and
+   * writes the result into the table (POD-5432), so there is no read-time
+   * overlay, no Proxy and no per-read pending lookup. Resident readers
+   * subscribe to the table slot.
    *
    * Not in memory (cold, POD-4567): what `absent` names (`AbsentRead`). A
    * cold row's value is read by id through the feed; it is tracked by
@@ -710,9 +678,7 @@ export class MobxPool {
       } else server = core === 'session' ? residency.summary(core, id) ?? residency.read(core, id) : residency.read(core, id)
       if (server === undefined) return undefined
     }
-    const pending = coldSummary && this.stopPending
-      ? untracked(() => this.writes?.pending(core, id)) : this.writes?.pending(core, id)
-    return pending === undefined ? server : overlayRow(server, pending)
+    return server
   }
 
   /** Scalar maintained at issue deltas and hydration, including archived and
@@ -740,15 +706,11 @@ export class MobxPool {
   rosterColdPending(path: string): boolean { return this.sidebarRosters.coldPending(path) }
 
   /**
-   * TRACKED: an issue's read cursor, pending mark-read first (the overlay's
-   * `readAt`, an explicit null included), else the read-state lane (POD-4686:
-   * server truth, per key, so a mark-read re-validates only its own row).
+   * TRACKED: an issue's read cursor, from the read-state lane (POD-4686: per
+   * key, so a mark-read re-validates only its own row). A pending mark-read is
+   * already in it: the lane follows the visible row the log painted.
    */
   readCursor(id: string): string | null | undefined {
-    const pending = this.writes?.pending('issue', id)
-    if (pending !== undefined && pending['readAt'] !== undefined) {
-      return pending['readAt'] as string | null
-    }
     return this.readStates.get(id)
   }
 
@@ -801,24 +763,21 @@ export class MobxPool {
     return known ? this.issueObject(id) : undefined
   }
 
-  /** A model's edit (`issue.title = x`): one transaction of the write layer's log. */
+  /** A model's edit (`issue.title = x`): one transaction of the pool's log. */
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId {
-    if (this.writes === null) {
-      if (this.transactions !== null) {
-        const command = commandFor(entity, id, patch)
-        return this.transactions.mutate(command.kind, command.input)
-      }
-      throw new WriteContractError(`the pool has no write layer: cannot edit ${entity} ${id}`)
+    if (this.transactions === null) {
+      throw new WriteContractError(`the pool has no transaction log: cannot edit ${entity} ${id}`)
     }
-    return this.writes.edit(entity, id, patch)
+    const command = commandFor(entity, id, patch)
+    return this.transactions.mutate(command.kind, command.input)
   }
 
   /** Attach the transaction log (POD-5431); one per pool, before any change.
    * `ownsSessions` (POD-5432, plan step 6): the log, not the ledger, paints
    * session rows, so the spawn placeholders are read from it too. */
   attachTransactions(transactions: PoolMutator, ownsSessions = true): void {
-    if (this.writes !== null || this.transactions !== null) {
-      throw new WriteContractError('the pool already has a write layer')
+    if (this.transactions !== null) {
+      throw new WriteContractError('the pool already has a transaction log')
     }
     this.transactions = transactions
     this.spawnLog = ownsSessions ? transactions : null
@@ -1040,7 +999,6 @@ export class MobxPool {
   dispose(): void {
     this.queries.dispose()
     this.disposed = true
-    this.stopPending?.()
     this.preferenceSource?.dispose()
     this.sources.dispose()
     this.settingsViews.clear()

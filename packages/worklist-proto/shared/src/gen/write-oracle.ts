@@ -47,15 +47,14 @@ import type { Replica } from '@podium/client-core/replica'
 import { baseOf, subscribeReceipts } from '@podium/client-graph/shared/receipts'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
-  createPendingLog,
   type EditPatch,
   editForPendingWrite,
   type OutboxPendingWrite,
-  type PendingLog,
   type TxId,
 } from '@podium/client-graph/shared/write-contract'
 import { snapshotFromStore } from '../../../harness/src/oracle/index'
 import type { RowSource } from '../arm'
+import { createPendingLog, type PendingLog } from '../pending-log'
 import type { ScenarioEngine } from '../scenarios'
 import type { GenRun, StepResult } from './run'
 

@@ -1,5 +1,5 @@
 import type { LocalsSource, RowSource } from './shared/source'
-import { MobxPool, type PoolLazyOptions, type WriteSeam } from './pool'
+import { MobxPool, type PoolLazyOptions } from './pool'
 
 export interface WorklistPoolHandle {
   readonly pool: MobxPool
@@ -11,7 +11,6 @@ export function createWorklistPool(
   source: RowSource,
   locals: LocalsSource,
   loader: Omit<PoolLazyOptions, 'load' | 'issueIdByRef'> = {},
-  writes?: WriteSeam,
 ): WorklistPoolHandle {
   const row = source.row?.bind(source)
   if (row === undefined) {
@@ -21,7 +20,7 @@ export function createWorklistPool(
   }
   const pool = new MobxPool(locals.get(), undefined, {
     ...loader, load: row, issueIdByRef: source.issueIdByRef?.bind(source), cold: source.cold?.bind(source),
-  }, writes)
+  })
   pool.apply({
     type: 'replace',
     rows: [

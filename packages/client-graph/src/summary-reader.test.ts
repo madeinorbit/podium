@@ -1,8 +1,7 @@
-import { observable, reaction, runInAction } from 'mobx'
+import { reaction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { MobxPool, type WriteSeam } from './pool'
+import { MobxPool } from './pool'
 import { mergePoolSummaries } from './source-registry'
-import { PendingOverlay } from './write/overlay'
 import { LOADING } from './worklist/rollup'
 
 // If hidden() becomes public again, the unused directive fails typecheck.
@@ -15,15 +14,19 @@ const now = Date.parse('2026-10-02T12:00:00Z')
 const row = (id: string, archived: boolean) => ({ id, seq: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
   stage: archived ? 'done' : 'in_progress', archived, title: 'Declared title', privateBody: 'Must not be stored cold', repoPath: '/synthetic', deps: [],
 })
-function setup(seam?: WriteSeam) {
+function setup() {
   const cold = row('cold', true), hot = row('hot', false)
   const load = vi.fn((_entity: string, id: string) => id === 'cold' ? cold : undefined)
-  const pending = observable.map<string, Readonly<Record<string, unknown>>>(undefined, { deep: false })
-  const writes = { pending: (entity: string, id: string) => pending.get(`${entity}:${id}`), edit: vi.fn() } as unknown as WriteSeam
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined,
-    { load, summaries: { issue: ['title'] }, schedule: () => () => {} }, seam ?? writes)
+    { load, summaries: { issue: ['title'] }, schedule: () => () => {} })
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'cold', value: cold }, { kind: 'issue', id: 'hot', value: hot }] })
-  return { pool, pending, load, cold, hot }
+  const server: Record<string, object> = { cold, hot }
+  // POD-5432: a pending change reaches the pool as the visible row the
+  // transaction log painted (`pooled` feed), and its rollback as the server row.
+  const paint = (id: string, patch: Record<string, unknown>) =>
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: { ...server[id], ...patch } as never }] })
+  const rebase = (id: string) => pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: server[id] as never }] })
+  return { pool, paint, rebase, load, cold, hot }
 }
 
 it('summary declarations compose and exclude undeclared cold payloads', () => {
@@ -40,65 +43,62 @@ it('summary declarations compose and exclude undeclared cold payloads', () => {
   } finally { pool.dispose() }
 })
 
-it('summary mode overlays pending edits on both resident and cold rows', () => {
-  const { pool, pending } = setup()
+it('summary mode shows a painted change on both resident and cold rows', () => {
+  const { pool, paint, load } = setup()
   try {
-    runInAction(() => { pending.set('issue:cold', { title: 'Pending cold' }); pending.set('issue:hot', { title: 'Pending hot' }) })
+    paint('cold', { title: 'Pending cold' })
+    paint('hot', { title: 'Pending hot' })
     expect(pool.row('issue', 'cold', 'summary')).toMatchObject({ title: 'Pending cold' })
     expect(pool.row('issue', 'hot', 'summary')).toMatchObject({ title: 'Pending hot' })
+    expect(pool.tables.issue.has('cold')).toBe(false)
+    expect(load).not.toHaveBeenCalled()
   } finally { pool.dispose() }
 })
 
-it.each(['summary', 'summary-fields'] as const)('%s follows pending changes and cold/resident transitions through the canonical overlay', mode => {
-  const overlay = new PendingOverlay()
-  const { pool, cold, load } = setup(overlay)
+it.each(['summary', 'summary-fields'] as const)('%s follows painted changes and cold/resident transitions without loading', mode => {
+  const { pool, paint, rebase, cold, load } = setup()
   const seen: (string | undefined)[] = []
   const stop = reaction(() => {
     const value = pool.row('issue', 'cold', mode)
     return value === LOADING ? 'loading' : (value as { title: string } | undefined)?.title
   }, title => seen.push(title), { fireImmediately: true })
-  const notify = vi.spyOn(pool.residency!, 'notify')
   try {
     expect(seen).toEqual(['Declared title'])
-    runInAction(() => overlay.set('cold', { title: 'Pending cold' }))
+    paint('cold', { title: 'Pending cold' })
     expect(seen.at(-1)).toBe('Pending cold')
-    runInAction(() => overlay.set('other', { title: 'Unrelated' }))
+    paint('hot', { title: 'Unrelated' })
     expect(seen).toHaveLength(2)
-    runInAction(() => overlay.delete('cold'))
+    rebase('cold')
     expect(seen.at(-1)).toBe('Declared title')
-    runInAction(() => overlay.set('cold', { title: 'Pending again' }))
-    runInAction(() => overlay.clear())
+    paint('cold', { title: 'Pending again' })
+    rebase('cold')
     expect(seen.slice(-2)).toEqual(['Pending again', 'Declared title'])
     expect(pool.hydrate()).toBe(0)
     expect(load).not.toHaveBeenCalled()
 
     expect(pool.row('issue', 'cold')).toBe(LOADING)
     expect(pool.hydrate()).toBe(1)
-    runInAction(() => overlay.set('cold', { title: 'Pending resident' }))
+    paint('cold', { title: 'Pending resident' })
     expect(seen.at(-1)).toBe('Pending resident')
-    runInAction(() => overlay.clear())
+    rebase('cold')
     expect(seen.at(-1)).toBe('Declared title')
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'cold', value: undefined }] })
     expect(seen.at(-1)).toBeUndefined()
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'cold', value: { ...cold, title: 'Returned cold' } }] })
     expect(pool.tables.issue.has('cold')).toBe(false)
     expect(seen.at(-1)).toBe('Returned cold')
-    runInAction(() => overlay.set('cold', { title: 'Pending returned' }))
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'cold', value: { ...cold, title: 'Pending returned' } }] })
     expect(seen.at(-1)).toBe('Pending returned')
   } finally { stop(); pool.dispose() }
-  notify.mockClear()
-  runInAction(() => overlay.set('cold', { title: 'After disposal' }))
-  expect(notify).not.toHaveBeenCalled()
-  notify.mockRestore()
 })
 
-it('cold model parent reads overlay pending edits without loading the row', () => {
-  const { pool, pending, load } = setup()
+it('a cold model parent follows a painted change without loading the row', () => {
+  const { pool, paint, rebase, load } = setup()
   try {
     const issue = pool.issueObject('cold')
-    runInAction(() => pending.set('issue:cold', { parentId: 'pending-parent' }))
+    paint('cold', { parentId: 'pending-parent' })
     expect(issue.parentRef).toBe('pending-parent')
-    runInAction(() => pending.clear())
+    rebase('cold')
     expect(issue.parentRef).toBeNull()
     expect(pool.hydrate()).toBe(0)
     expect(load).not.toHaveBeenCalled()

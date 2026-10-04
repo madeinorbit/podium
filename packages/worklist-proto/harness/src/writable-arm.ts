@@ -1,22 +1,22 @@
 /**
  * POD-4825 (item 1) — the arm that owns optimism, as the instruments run it.
- *
- * `writableMobxPoolArm` is the MobX pool with its write layer (the
- * `PendingOverlay` the pool is built with, the pending log, the edit api).
  * The work check (`work-per-change.test.tsx`), the census
  * (`arms/mobx/pool/tracking-counts.test.ts`) and the web pages
  * (`harness/web/entries/mobx-write.ts`, `mobx-pending.ts`) run it twice:
  *
- * - `idle`: the layer attached, nothing pending (it must cost what the bare
- *   pool costs, or say what it adds);
+ * - `idle`: nothing pending (it must cost what the bare pool costs, or say
+ *   what it adds);
  * - `pending`: {@link PENDING_TITLE_EDITS} title edits queued in the kernel
- *   outbox when the arm is created. The arm re-applies them at once
- *   (`bootstrap`, W11), exactly as a reload with a queued outbox does, and
- *   none is ever receipted, so none expires: they stay pending for every step.
+ *   outbox before the arm is built, exactly as a reload with a queued outbox,
+ *   and never answered, so none settles or expires: they stay pending for
+ *   every step.
  *
- * Both run on the `overlaid` feed, like the bare pool: the scenarios' own
- * optimistic writes are the kernel's (#9a-#9c), and they reach every arm
- * folded, as the app paints them.
+ * POD-5432: for the MobX pool that arm is the product's own path: the pool on
+ * the `owned` feed with the runtime's transaction log, its pending edits real
+ * outbox records against a server that holds them (the helpers at the end of
+ * this file). It replaced the pool-side `PendingOverlay` and its edit log. The
+ * silent transport below remains for the hand-rolled arm's own write layer,
+ * which runs on the `overlaid` feed.
  *
  * The edits are TITLES of open, non-draft rows in the list's first window
  * that no scenario targets, taken from the window's end: a title is drawn on
@@ -26,6 +26,9 @@
  */
 
 import type { SliceIssue, SliceOrder, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import type { PoolTransactions } from '@podium/client-graph/write/transactions'
+import { asIssueId } from '@podium/model'
+import type { EngineOptions, ScenarioEngine, ScenarioServer } from '../../shared/src/scenarios'
 import type { RowRecord } from '../../shared/src/stats'
 import type { OutboxPendingWrite, TxId, WriteTransport } from '@podium/client-graph/shared/write-contract'
 
@@ -164,3 +167,68 @@ export function targetIds(targets: object): Set<string> {
  * row is one a page draws.
  */
 export const PENDING_WINDOW_ROWS = 96
+
+/**
+ * POD-5432 — the MobX arm owns its optimism the way the product does: on the
+ * `owned` feed (`openFenceFeeds(ctx, 'owned')`), its pool takes the runtime's
+ * transaction log (`write/transactions.ts`) and the runtime's actions route
+ * through it. Its pending edits are real outbox records, so the log rebuilds
+ * them when the feeds open, exactly as a reload with a queued outbox does.
+ *
+ * They must stay pending for every step, so the engine runs the kernel outbox
+ * (per-issue partitions: a held edit holds only its own issue, never a
+ * scenario's write) against a server that answers an update of a held issue
+ * with a transient failure (503: retried with backoff, never definitive) and
+ * every other one as applied, as the default server does. Not a request that
+ * never answers: the kernel's drain pass awaits every partition's send, so a
+ * hung send would stall every other issue's writes too.
+ */
+export function holdingServer(): {
+  readonly server: ScenarioServer
+  hold(ids: Iterable<string>): void
+} {
+  const held = new Set<string>()
+  return {
+    server: {
+      issueUpdate: (input) =>
+        held.has(input.id)
+          ? Promise.reject(
+              Object.assign(new Error('held by the harness'), {
+                data: { code: 'SERVICE_UNAVAILABLE', httpStatus: 503 },
+              }),
+            )
+          : Promise.resolve({}),
+    },
+    hold(ids) {
+      for (const id of ids) held.add(id)
+    },
+  }
+}
+
+/** The engine a pool-owned arm's run boots: the kernel outbox and `server`. */
+export function ownedEngineOptions(server: ScenarioServer): EngineOptions {
+  return { outbox: 'kernel', server }
+}
+
+/**
+ * Queue one title edit per row in the engine's own outbox, through the
+ * ledger's enqueue (never routed: no pool exists yet), and wait until each is
+ * durable. The `server` must hold these rows first (`holdingServer`).
+ */
+export async function queuePendingTitles(
+  engine: Pick<ScenarioEngine['engine'], 'enqueueOverlayed'>,
+  titles: ReadonlyMap<string, string>,
+): Promise<void> {
+  for (const [id, title] of titles) {
+    await engine.enqueueOverlayed('issueUpdate', { id: asIssueId(id), patch: { title } })
+  }
+}
+
+/** The rows of `titles` the feeds' transaction log still holds pending. */
+export function stillPending(
+  feeds: { readonly transactions?: PoolTransactions },
+  titles: ReadonlyMap<string, string>,
+): string[] {
+  const rows = feeds.transactions?.pending.byRow('issueProjections')
+  return [...titles.keys()].filter((id) => rows?.has(id) === true)
+}

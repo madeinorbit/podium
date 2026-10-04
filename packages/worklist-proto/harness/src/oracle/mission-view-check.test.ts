@@ -31,7 +31,7 @@ import { tracked } from '../adapters/mobx-pool'
 import { FENCE_SCENARIOS, openFenceFeeds } from '../fence-scenarios'
 import { FIXED_NOW } from '../fixture/corpus'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { expectPoolOutput } from './pool-output'
+import { expectFrozenPoolOutput, expectPoolOutput } from './pool-output'
 
 installMobxWarnTrap({ errors: true })
 beforeEach(() => {
@@ -65,7 +65,16 @@ function settle(pool: MobxPool, ids: readonly string[]) {
   }
   throw new Error(`Mission pane batched loads did not settle: ${last.slice(-8).join(',')}`)
 }
-function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, all = true) {
+/** POD-5432: the owned variant's test-name suffix; it is held to the plain run's frozen output. */
+const OWNED = ' (pool owns optimism)'
+
+function compare(
+  pool: MobxPool,
+  store: Store<PodiumClientApi>,
+  label: string,
+  all = true,
+  owned = false,
+) {
   const ids = roots(store)
   const selections = all
     ? ids
@@ -101,12 +110,12 @@ function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, a
         )
       }
       for (const mode of ['full', 'working', 'needs-you'] as const) {
-        expectPoolOutput(
+        const output =
           id === null
             ? runInAction(() => poolMissionViewSnapshot(pool, id, mode))
-            : tracked(() => poolMissionViewSnapshot(pool, id, mode)),
-          `${label} ${id} ${mode}`,
-        )
+            : tracked(() => poolMissionViewSnapshot(pool, id, mode))
+        if (owned) expectFrozenPoolOutput(output, `${label} ${id} ${mode}`, OWNED)
+        else expectPoolOutput(output, `${label} ${id} ${mode}`)
       }
     } finally {
       stop()
@@ -118,7 +127,7 @@ describe('mission pane value differential', () => {
   // POD-5432: 'owned' is the pool owning optimism, against the same oracle.
   for (const mode of ['overlaid', 'owned'] as const)
     for (const scale of [1, 4] as const)
-      it(`${scale === 1 ? 'all' : 'representative'} synthetic missions and focused change gates at ${scale}x${mode === 'owned' ? ' (pool owns optimism)' : ''}`, async () => {
+      it(`${scale === 1 ? 'all' : 'representative'} synthetic missions and focused change gates at ${scale}x${mode === 'owned' ? OWNED : ''}`, async () => {
         const ctx = await startScenarioEngine(scale)
         const feeds = openFenceFeeds(ctx, mode)
         const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
@@ -126,18 +135,24 @@ describe('mission pane value differential', () => {
         })
         feeds.attachPool(handle.pool)
         try {
-          compare(handle.pool, ctx.engine.getSnapshot(), 'corpus', scale === 1)
+          compare(handle.pool, ctx.engine.getSnapshot(), 'corpus', scale === 1, mode === 'owned')
           for (const scenario of FENCE_SCENARIOS) {
             await scenario.write(ctx)
             feeds.flush()
-            compare(handle.pool, ctx.engine.getSnapshot(), scenario.scenario, false)
+            compare(
+              handle.pool,
+              ctx.engine.getSnapshot(),
+              scenario.scenario,
+              false,
+              mode === 'owned',
+            )
           }
           await writeRescopeGrow(ctx)
           feeds.flush()
-          compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeGrowth', false)
+          compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeGrowth', false, mode === 'owned')
           await writeRescopeBack(ctx)
           feeds.flush()
-          compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeBack', false)
+          compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeBack', false, mode === 'owned')
         } finally {
           handle.dispose()
           feeds.dispose()

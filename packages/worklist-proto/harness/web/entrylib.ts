@@ -121,7 +121,12 @@ import { upsertIssue } from '../../shared/src/scenarios'
 import { issueActivityAt, MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
 import { activityAfterRead } from '@podium/client-core/viewmodels'
 import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
-import { createRowSource, type RowSourceHandle } from '@podium/client-graph/shared/row-source'
+import {
+  createRowSource,
+  type RowSourceHandle,
+  type RowSourceOptions,
+  type RowSourceRepaint,
+} from '@podium/client-graph/shared/row-source'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { asIssueId } from '@podium/model'
 import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
@@ -135,6 +140,7 @@ import {
   applyHeartbeat,
   applyStageMove,
   applyTitleRename,
+  type EngineOptions,
   echoAcknowledgedMarkReads,
   FIXTURE_SEED,
   pendingWrites,
@@ -485,6 +491,26 @@ export interface MountPageOptions {
    * rebuilds the arm, and its edits, over the new engine).
    */
   expected?: (oracle: SliceSnapshot) => SliceSnapshot
+  /**
+   * POD-5432: the arm owns its optimism the product's way: a `pooled` feed
+   * over the runtime's transaction log, built per engine by the page (so the
+   * log's code is only in that page's bundle). Absent: the `overlaid` feed.
+   */
+  owned?: (over: ScenarioEngine) => OwnedFeed
+  /** What a principal switch's fresh engine boots with (the boot engine's own). */
+  engineOptions?: EngineOptions
+  /** Untimed, on a principal switch's fresh engine before the arm is built. */
+  prepareEngine?: (engine: ScenarioEngine) => Promise<void>
+}
+
+/** One engine's transaction log, as `mountPage` wires it (POD-5432). */
+export interface OwnedFeed {
+  readonly options: RowSourceOptions
+  /** The feed is built: the log repaints through it and the actions route. */
+  bind(source: RowSourceHandle & RowSourceRepaint): void
+  /** The arm is built: its pool takes the log. */
+  attach(handle: ArmHandle): void
+  release(): void
 }
 
 export function readScale(): 1 | 2 | 4 {
@@ -559,6 +585,8 @@ interface LiveArm {
   handle: ArmHandle
   unmount: () => void
   offBridge: (() => void) | null
+  /** An owned arm's transaction log and its routing (POD-5432). */
+  release: () => void
 }
 
 export function mountPage(options: MountPageOptions): void {
@@ -566,6 +594,7 @@ export function mountPage(options: MountPageOptions): void {
   // runtime on a principal switch: nothing on the page keeps the old one
   // alive, so the switch's retained heap is the arm's, not the harness's.
   const { createArm, scale, counts, runtimeSha, el, scriptAt, parityAllowance, expected } = options
+  const { owned, engineOptions, prepareEngine } = options
   const cell = options.cell ?? null
   const windowRows = firstWindowRows()
   const armName = options.arm
@@ -610,11 +639,15 @@ export function mountPage(options: MountPageOptions): void {
    * land after it returns (the timer's window catches them).
    */
   function build(over: ScenarioEngine): LiveArm {
-    const source = createRowSource(over.engine, over.replica, { mode: 'overlaid' })
+    const feed = owned?.(over) ?? null
+    const source = createRowSource(over.engine, over.replica, feed?.options ?? { mode: 'overlaid' })
+    feed?.bind(source)
+    const release = (): void => feed?.release()
     // The locals channel is the ENGINE's (POD-4608): a click and a tick are
     // engine writes, and every arm hears them here.
     const locals = createEngineLocals(over.engine)
     const handle = createArm(over, source.source).create(source.source, locals.source)
+    feed?.attach(handle)
     // Round-two stores predate the channel (they read `locals.get()` once and
     // are driven by `setSelection` / `setCoarseNow`): the page bridges it.
     const roundTwo = (
@@ -636,7 +669,7 @@ export function mountPage(options: MountPageOptions): void {
     withCommitLog(log, () => {
       unmount = handle.mountWeb(el)
     })
-    return { boot: over, source, locals, handle, unmount, offBridge }
+    return { boot: over, source, locals, handle, unmount, offBridge, release }
   }
 
   /** Everything `build` made, released: what a principal switch throws away. */
@@ -645,6 +678,7 @@ export function mountPage(options: MountPageOptions): void {
     arm.handle.dispose()
     arm.offBridge?.()
     arm.locals.dispose()
+    arm.release()
     arm.source.dispose()
   }
 
@@ -1138,8 +1172,10 @@ export function mountPage(options: MountPageOptions): void {
    *  cache) on the same corpus, as a switch receives it from the kernel. */
   async function prepareRebuild(principal: string): Promise<void> {
     const began = performance.now()
-    const fresh = await startEngineOnCorpus(live().boot.corpus, { principal })
-    prepared = { principal, boot: fresh, engineMs: performance.now() - began }
+    const fresh = await startEngineOnCorpus(live().boot.corpus, { ...engineOptions, principal })
+    const engineMs = performance.now() - began
+    await prepareEngine?.(fresh)
+    prepared = { principal, boot: fresh, engineMs }
     await settleQuiet()
   }
 

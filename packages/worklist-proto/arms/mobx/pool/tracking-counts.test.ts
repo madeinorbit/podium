@@ -66,14 +66,17 @@
  * rewrites the file from the measured counts (and still checks nothing else).
  *
  * THE WRITE LAYER (POD-4825). The same census runs twice more on the arm that
- * owns optimism (`harnessWritableMobxPoolArm`, the pool built with its
- * `PendingOverlay`): `write-idle` (the layer attached, nothing pending) and
- * `write-pending` (title edits on the last rows of the paint window queued in
- * the kernel outbox, re-applied at creation by the layer's `bootstrap`,
- * never receipted: `harness/src/writable-arm.ts`). Their counts are keyed
+ * owns optimism: `write-idle` (nothing pending) and `write-pending` (title
+ * edits on the last rows of the paint window queued in the kernel outbox,
+ * never answered: `harness/src/writable-arm.ts`). Their counts are keyed
  * `write-idle.<scale>x.*` and `write-pending.<scale>x.*` in the same
- * baseline; the bare pool keeps its `<scale>x.*` keys. The layer's own
- * construction and its bootstrap are charged to `create`.
+ * baseline; the bare pool keeps its `<scale>x.*` keys.
+ *
+ * POD-5432: that arm is now the product's own path, the pool on the `owned`
+ * feed with the runtime's transaction log (it replaced the pool-side
+ * `PendingOverlay` and its edit log). The log is built and rebuilds the queued
+ * edits when the feeds open, before the census starts; `create` is the pool
+ * and its attachment to the log, and the pending titles arrive as rows.
  *
  * PLANTS (proven red, restored with cp; POD-4748): one extra computed
  * declared on every issue object (then `IssueNode`, now `IssueModel`), and one
@@ -101,21 +104,23 @@ import {
 } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import {
+  holdingServer,
+  ownedEngineOptions,
   PENDING_TITLE_EDITS,
   pendingTitleEditsOn,
-  silentTransport,
+  queuePendingTitles,
+  stillPending,
   WRITE_VARIANTS,
   type WriteVariant,
 } from '../../../harness/src/writable-arm'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { createReadFence } from '../../../shared/src/instrument/reads'
 import { ROW_DISPLAYED_FIELDS } from '@podium/client-graph/shared/row-view'
 import { type FixtureScale, startScenarioEngine } from '../../../shared/src/scenarios'
 import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '@podium/client-graph/shared/schema'
 import {
   harnessMobxPoolArm,
-  harnessWritableMobxPoolArm,
   poolPendingLoads,
-  type HarnessWritableMobxPoolHandle,
 } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -387,8 +392,28 @@ const keyOf = (variant: Variant, scale: FixtureScale): string =>
 const NEVER_LOAD = { schedule: () => () => {} } as const
 
 async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCounts> {
-  const ctx = await startScenarioEngine(scale)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const held = variant === 'pool' ? null : holdingServer()
+  const ctx = await startScenarioEngine(scale, held === null ? {} : ownedEngineOptions(held.server))
+  // The pending variant's outbox, read off a probe feed and queued before the
+  // feeds open: the log rebuilds it there, as a reload does.
+  let titles: ReadonlyMap<string, string> = new Map()
+  if (variant === 'pending' && held !== null) {
+    const probe = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    try {
+      titles = pendingTitleEditsOn(
+        probe.source.snapshot('issue'),
+        snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)).order,
+        () => false,
+        WINDOW_ROWS,
+        parityLocals(ctx).coarseNow,
+      ).titles
+    } finally {
+      probe.dispose()
+    }
+    held.hold(titles.keys())
+    await queuePendingTitles(ctx.engine, titles)
+  }
+  const feeds = openFenceFeeds(ctx, variant === 'pool' ? 'overlaid' : 'owned')
   const facts = rowFacts(ctx, feeds)
   const reads = createReadFence({ enabled: true })
   const census = startCensus({
@@ -401,40 +426,19 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
     },
   })
   const unwrap = wrapPhases(census)
-  // The pending variant's outbox, read off the feed before anything is counted.
-  const pending =
-    variant === 'pending'
-      ? pendingTitleEditsOn(
-          feeds.rows.source.snapshot('issue'),
-          snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)).order,
-          () => false,
-          WINDOW_ROWS,
-          parityLocals(ctx).coarseNow,
-        )
-      : null
-  const transport = silentTransport(pending?.queued ?? [])
   let handle: { pool: MobxPool; dispose(): void } | null = null
   let stopPaint: (() => void) | null = null
   try {
     census.enter('create')
     const source = reads.wrapSource(feeds.rows.source)
-    handle =
-      variant === 'pool'
-        ? harnessMobxPoolArm.create(source, feeds.locals.source, reads, NEVER_LOAD)
-        : (harnessWritableMobxPoolArm(transport, NEVER_LOAD).create(
-            source,
-            feeds.locals.source,
-            reads,
-          ) as HarnessWritableMobxPoolHandle)
+    handle = harnessMobxPoolArm.create(source, feeds.locals.source, reads, NEVER_LOAD)
+    if (variant !== 'pool') feeds.attachPool(handle.pool)
     census.exit()
-    if (pending !== null) {
-      const { write } = handle as HarnessWritableMobxPoolHandle
-      const shown = [...pending.titles.keys()].filter(
-        (id) => write.pendingDisplay('issue', id) !== undefined,
+    if (variant === 'pending') {
+      expect(stillPending(feeds, titles), 'the queued edits are pending after create').toHaveLength(
+        PENDING_TITLE_EDITS,
       )
-      expect(shown, 'the queued edits are pending after create').toHaveLength(PENDING_TITLE_EDITS)
     }
-    expect(transport.sent, 'the write layer re-applies the outbox without sending').toEqual([])
     const startup = checkpoint(census.snapshot(), facts)
     census.enter('firstPaint')
     stopPaint = paintWindow(handle.pool)
@@ -466,7 +470,7 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
         firstPaint: paint,
         phases,
         pendingLoadsAfterPaint: poolPendingLoads(handle.pool),
-        pendingEdits: pending === null ? [] : [...pending.titles.keys()],
+        pendingEdits: [...titles.keys()],
       },
     }
   } finally {

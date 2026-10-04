@@ -1,6 +1,5 @@
 export { createWorklistPool, type WorklistPoolHandle } from './create'
-export { createWritableWorklistPool, type WritableWorklistPoolHandle } from './write/create'
-export { MobxPool, type PoolLazyOptions, type WriteSeam } from './pool'
+export { MobxPool, type PoolLazyOptions } from './pool'
 export { LOADING } from './worklist/rollup'
 export type { IssueModel, SessionModel, ModelOf } from './models'
 export type { RowSource, RowRecord, RowSourceEvent, LocalsSource } from './shared/source'

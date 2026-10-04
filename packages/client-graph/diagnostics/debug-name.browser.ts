@@ -3,7 +3,6 @@ import { autorun } from 'mobx'
 import { enableDebugNames } from '../src/debug-name'
 import { MobxPool } from '../src/pool'
 import type { RowRecord } from '../src/shared/source'
-import { PendingOverlay } from '../src/write/overlay'
 
 if (new URLSearchParams(location.search).get('toolNames') === '1') enableDebugNames()
 
@@ -27,7 +26,7 @@ rows.push({ kind: 'worktree', id: '/repo', value: {
   path: '/repo', repoId: 'R', repoPath: '/repo', prefix: 'POD',
 } as RowRecord['value'] })
 
-const pool = new MobxPool({ selectedIssueId: 'heap-issue-0', coarseNow: now }, undefined, undefined, new PendingOverlay())
+const pool = new MobxPool({ selectedIssueId: 'heap-issue-0', coarseNow: now })
 pool.apply({ type: 'replace', rows })
 const stops = [autorun(() => {
   for (let i = 0; i < count; i++) {

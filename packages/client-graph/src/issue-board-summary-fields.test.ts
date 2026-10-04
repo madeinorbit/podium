@@ -1,6 +1,5 @@
-import { observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { MobxPool, type WriteSeam } from './pool'
+import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 function setup() {
@@ -18,24 +17,19 @@ function setup() {
   }
   const hot = { ...cold, id: 'hot', archived: false, stage: 'in_progress' }
   const load = vi.fn((_kind: string, id: string) => (id === 'cold' ? cold : undefined))
-  const pending = observable.map<string, Readonly<Record<string, unknown>>>(undefined, {
-    deep: false,
-  })
-  const writes = {
-    pending: (_kind: string, id: string) => pending.get(id),
-    edit: vi.fn(),
-  } as unknown as WriteSeam
   const pool = new MobxPool(
     { selectedIssueId: null, coarseNow: Date.parse('2026-10-03T12:00:00Z') },
     undefined,
     { load, summaries: { issue: ['title'] }, schedule: () => () => {} },
-    writes,
   )
   pool.apply({
     type: 'replace',
     rows: [cold, hot].map((value) => ({ kind: 'issue' as const, id: value.id, value })),
   })
-  return { pool, pending, load, hot }
+  // POD-5432: a pending change arrives as the row the transaction log painted.
+  const paint = (value: { id: string; title: string }) =>
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: value.id, value: value as never }] })
+  return { pool, paint, load, cold, hot }
 }
 
 it('keeps existing worklist decoration and returns declared fields without copying them', () => {
@@ -57,19 +51,19 @@ it('keeps existing worklist decoration and returns declared fields without copyi
   }
 })
 
-it('overlays pending summary fields and restores the original declared object', () => {
-  const { pool, pending } = setup()
+it('shows painted summary fields and returns to the declared ones on rollback', () => {
+  const { pool, paint, load, cold, hot } = setup()
   try {
     const original = pool.row('issue', 'cold', 'summary-fields')
-    runInAction(() => {
-      pending.set('cold', { title: 'Pending cold' })
-      pending.set('hot', { title: 'Pending hot' })
-    })
+    paint({ ...cold, title: 'Pending cold' })
+    paint({ ...hot, title: 'Pending hot' })
     expect(pool.row('issue', 'cold', 'summary-fields')).toMatchObject({ title: 'Pending cold' })
     expect(pool.row('issue', 'hot', 'summary-fields')).toMatchObject({ title: 'Pending hot' })
     expect(original).toMatchObject({ title: 'Declared title' })
-    runInAction(() => pending.delete('cold'))
-    expect(pool.row('issue', 'cold', 'summary-fields')).toBe(original)
+    paint(cold)
+    expect(pool.row('issue', 'cold', 'summary-fields')).toMatchObject({ title: 'Declared title' })
+    expect(pool.hydrate()).toBe(0)
+    expect(load).not.toHaveBeenCalled()
   } finally {
     pool.dispose()
   }

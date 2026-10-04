@@ -19,9 +19,9 @@
  *   fences, gates and lanes run. It wraps the product arm's handle
  *   (`mobxPoolArm.create`, the ONE entry point) and adds only the
  *   harness snapshot / rebuild / drain hooks plus the flush bookkeeping;
- * - `harnessWritableMobxPoolArm`: the same over the product write arm
- *   (`writableMobxPoolArm(...).create(...)`), with the optimism-aware
- *   rebuild on top.
+ * - POD-5432: the arm that owns optimism is this same arm on the `owned`
+ *   feed, its pool given the feeds' transaction log (`feeds.attachPool`);
+ *   its rows already carry the pending changes, so no rebuild overlay.
  *
  * The load queue is observed from outside (POD-4945): the adapter wraps the
  * window's `schedule`, so an armed window means loads are pending
@@ -42,17 +42,13 @@ import type {
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { compareRank } from '@podium/client-graph/shared/row-view'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
-import type { ArmStats, RowRecord } from '../../../shared/src/stats'
-import type { WriteTransport } from '@podium/client-graph/shared/write-contract'
+import type { ArmStats } from '../../../shared/src/stats'
 import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
-import type { MobxPool, PoolLazyOptions, WriteSeam } from '@podium/client-graph/pool'
+import type { MobxPool, PoolLazyOptions } from '@podium/client-graph/pool'
 import { rebuildSnapshot } from './mobx-rebuild'
 import { rowViewOf } from '@podium/client-graph/models'
 import { sliceOrderOf, type Layout } from '@podium/client-graph/worklist/groups'
 import { sliceRowOf } from '@podium/client-graph/shared/row-view'
-import type { MobxWriteApi } from '@podium/client-graph/write/edit'
-import { writableMobxPoolArm } from '../../../arms/mobx/pool/write/arm'
-import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { Schedule } from '@podium/client-graph/residency'
 
 /** Load rounds the harness drain allows before it gives up (a load that never lands). */
@@ -270,11 +266,6 @@ export type HarnessMobxPoolHandle = CheckableArmHandle & LazyArmHandle & {
   readonly pool: MobxPool
 }
 
-/** The harness writable handle: the live pool and the write api. */
-export type HarnessWritableMobxPoolHandle = CheckableArmHandle & LazyArmHandle & {
-  readonly pool: MobxPool
-  readonly write: MobxWriteApi
-}
 
 /**
  * The harness MobX arm over the product pool: a `CheckableArm` +
@@ -291,10 +282,9 @@ export const harnessMobxPoolArm = {
     locals: LocalsSource,
     reads: ReadFence = DISABLED_READ_FENCE,
     loader: Omit<PoolLazyOptions, 'load'> = {},
-    writes?: WriteSeam,
   ): HarnessMobxPoolHandle {
     const watched = watchWindows(loader)
-    const base = mobxPoolArm.create(source, locals, watched.loader, writes)
+    const base = mobxPoolArm.create(source, locals, watched.loader)
     const pool = base.pool
     captureRelations(pool, reads)
     armedByPool.set(pool, watched.armed)
@@ -328,88 +318,3 @@ export const harnessMobxPoolArm = {
   },
 } satisfies CheckableArm
 
-/**
- * The harness writable MobX arm: the product pool with the write layer
- * attached, for the write gates. It creates the pool through the product
- * write arm (`writableMobxPoolArm(...).create(...)`, the ONE writable entry
- * point — including its feed and receipt wiring) and adds only what the
- * harness needs: the settling snapshot, the drain hooks, the flush
- * bookkeeping, and the optimism-aware rebuild, which overlays the pending
- * display onto the feed's server rows before deriving, so a gate with
- * pending edits outstanding compares the live pending view with a pending
- * rebuild — never with server truth.
- */
-export function harnessWritableMobxPoolArm(
-  transport: WriteTransport,
-  loader: Omit<PoolLazyOptions, 'load'> = {},
-): CheckableArm {
-  return {
-    create(
-      source: RowSource,
-      locals: LocalsSource,
-      reads: ReadFence = DISABLED_READ_FENCE,
-    ): HarnessWritableMobxPoolHandle {
-      const watched = watchWindows(loader)
-      const product = writableMobxPoolArm(transport, watched.loader).create(source, locals)
-      const pool = product.pool
-      captureRelations(pool, reads)
-      const write = product.write
-      armedByPool.set(pool, watched.armed)
-      let webMounts = 0
-      const originalMountWeb = product.mountWeb.bind(product)
-      const originalDispose = product.dispose.bind(product)
-      const pendingSource: RowSource = {
-        ...source,
-        snapshot: (kind: RowRecord['kind']): RowRecord[] => {
-          const rows = source.snapshot(kind)
-          if (kind !== 'issue') return rows
-          return rows.map((record) => {
-            if (record.value === undefined) return record
-            const pending = write.pendingDisplay('issue', record.id) as
-              | Partial<SliceIssue>
-              | undefined
-            if (pending === undefined) return record
-            return { ...record, value: { ...(record.value as SliceIssue), ...pending } }
-          })
-        },
-        ...(source.row === undefined
-          ? {}
-          : {
-              row: ((kind: 'issue' | 'session', id: string) => {
-                const value = source.row!(kind, id)
-                if (kind !== 'issue' || value === undefined) return value
-                const pending = write.pendingDisplay('issue', id) as
-                  | Partial<SliceIssue>
-                  | undefined
-                return pending === undefined ? value : { ...value, ...pending }
-              }) as RowSource['row'],
-            }),
-      }
-      return {
-        pool,
-        write,
-        stats: zeroStats(),
-        snapshot: () => snapshotPool(pool),
-        rebuildFromScratch: () => rebuildSnapshot(pendingSource, locals),
-        settleLoads: () => settleWithFlush(pool, () => webMounts > 0),
-        pendingLoads: () => poolPendingLoads(pool),
-        dispose(): void {
-          webMounts = 0
-          originalDispose()
-        },
-        mountWeb(el: Element): () => void {
-          webMounts += 1
-          const unmount = originalMountWeb(el)
-          let done = false
-          return () => {
-            if (done) return
-            done = true
-            webMounts -= 1
-            unmount()
-          }
-        },
-        mountNative: () => product.mountNative(),
-      }
-    },
-  }
-}

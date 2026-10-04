@@ -23,7 +23,7 @@ import { FENCE_SCENARIOS, openFenceFeeds } from '../fence-scenarios'
 import { FIXED_NOW } from '../fixture/corpus'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { writeResult } from '../results'
-import { expectPoolOutput } from './pool-output'
+import { expectFrozenPoolOutput, expectPoolOutput } from './pool-output'
 
 installMobxWarnTrap()
 beforeEach(() => {
@@ -419,12 +419,14 @@ describe('sidebar readiness', () => {
     }, 120_000)
 })
 
+const OWNED = ' (pool owns optimism)'
+
 describe('sidebar differential replay', () => {
   // POD-5432: 'owned' is the pool owning optimism (its log paints, the
   // runtime's actions route through it), against the same legacy oracle.
   for (const mode of ['overlaid', 'owned'] as const)
     for (const scale of [1, 4] as const)
-      it(`corpus and every methodology change at ${scale}x${mode === 'owned' ? ' (pool owns optimism)' : ''}`, async () => {
+      it(`corpus and every methodology change at ${scale}x${mode === 'owned' ? OWNED : ''}`, async () => {
         const ctx = await startScenarioEngine(scale)
         const feeds = openFenceFeeds(ctx, mode)
         const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
@@ -446,10 +448,11 @@ describe('sidebar differential replay', () => {
           }
           const result = tracked(() => poolSidebarSnapshot(handle.pool, state))
           expect(result.pending, scenario).toBe(0)
-          expectPoolOutput(
-            tracked(() => poolSidebarSnapshot(handle.pool, state)),
-            scenario,
-          )
+          const output = tracked(() => poolSidebarSnapshot(handle.pool, state))
+          // POD-5432: owning optimism, the pool must show exactly the frozen
+          // output of the plain run, step for step (no second snapshot copy).
+          if (mode === 'owned') expectFrozenPoolOutput(output, scenario, OWNED)
+          else expectPoolOutput(output, scenario)
           checks.push({
             scenario,
             rows: result.sections.reduce((sum, section) => sum + section.rows.length, 0),

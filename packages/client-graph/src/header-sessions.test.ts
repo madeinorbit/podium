@@ -1,10 +1,10 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { createHostSessionAggregatesSelector } from '@podium/client-core/viewmodels'
 import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, isAgentConfirmedComputing, type MachineId } from '@podium/model/browser'
-import { autorun, observable, observe, runInAction } from 'mobx'
+import { autorun, observe, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { EMPTY_HOST_AGGREGATE } from './header-session'
-import { MobxPool, type WriteSeam } from './pool'
+import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 const NOW = Date.parse('2026-10-03T00:00:00Z')
@@ -18,7 +18,7 @@ function session(id: string, patch: Partial<SessionView> = {}): SessionView {
     lastActiveAt: stamp(), agentState: state('idle'), ...patch } as SessionView
 }
 
-function fixture(coldCount = 0, writes?: WriteSeam) {
+function fixture(coldCount = 0) {
   const rows = new Map<string, SessionView>()
   for (let index = 0; index < 32; index++) {
     const id = `resident-${index}`
@@ -30,7 +30,7 @@ function fixture(coldCount = 0, writes?: WriteSeam) {
   }
   const load = vi.fn((_entity: string, id: string) => rows.get(id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW }, undefined,
-    { header: true, load, schedule: () => () => {} }, writes)
+    { header: true, load, schedule: () => () => {} })
   const apply = (id: string, value: SessionView | undefined) => {
     if (value) rows.set(id, value)
     else rows.delete(id)
@@ -43,7 +43,12 @@ function fixture(coldCount = 0, writes?: WriteSeam) {
   const stopEdges = observe(pool.tables.session, change => pool.header.change('session', change.name,
     change.type === 'delete' ? undefined : pool.row('session', change.name) as object | undefined))
   runInAction(() => { for (const [id, value] of rows) if (pool.tables.session.has(id)) pool.header.change('session', id, value) })
-  return { pool, rows, load, apply, change(id: string, patch: Partial<SessionView>) { apply(id, { ...rows.get(id)!, ...patch }) },
+  // POD-5432: a pending change arrives as the row the transaction log painted
+  // (the server row in `rows` stays), and its rollback as the server row.
+  const paint = (id: string, patch: Partial<SessionView>) =>
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: { ...rows.get(id)!, ...patch } as never }] })
+  const rebase = (id: string) => pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: rows.get(id) as never }] })
+  return { pool, rows, load, apply, paint, rebase, change(id: string, patch: Partial<SessionView>) { apply(id, { ...rows.get(id)!, ...patch }) },
     dispose() { stopEdges(); pool.dispose() } }
 }
 
@@ -64,18 +69,17 @@ function visits(pool: MobxPool) {
 }
 
 describe('incremental header sessions', () => {
-  it('reads pending fields of a working cold session without hydrating it', () => {
-    const pending = observable.map<string, Readonly<Record<string, unknown>>>(undefined, { deep: false })
-    const f = fixture(1, { pending: (_kind: string, id: string) => pending.get(id), edit: vi.fn() } as unknown as WriteSeam)
+  it('reads painted fields of a working cold session without hydrating it', () => {
+    const f = fixture(1)
     f.change('cold-0', { status: 'live', agentState: state('working') })
     let working: ReturnType<typeof f.pool.headerViews.working> = []
     const stop = autorun(() => { working = f.pool.headerViews.working() })
     try {
-      runInAction(() => pending.set('cold-0', { title: 'Pending title', name: 'Pending name' }))
+      f.paint('cold-0', { title: 'Pending title', name: 'Pending name' })
       expect(working).toEqual([expect.objectContaining({ sessionId: 'cold-0', title: 'Pending title', name: 'Pending name' })])
-      runInAction(() => pending.set('cold-0', { archived: true }))
+      f.paint('cold-0', { archived: true })
       expect(working).toEqual([])
-      runInAction(() => pending.clear())
+      f.rebase('cold-0')
       expect(working).toEqual([expect.objectContaining({ sessionId: 'cold-0', title: 'cold-0' })])
       expect(f.pool.tables.session.has('cold-0')).toBe(false)
       expect(f.pool.hydrate()).toBe(0)
@@ -217,25 +221,28 @@ describe('incremental header sessions', () => {
     } finally { count.restore(); stop(); f.dispose() }
   })
 
-  it('follows resident pending edits through the one reader and releases subscriptions on clear', () => {
-    const pending = observable.map<string, Readonly<Record<string, unknown>>>(undefined, { deep: false })
-    const f = fixture(0, { pending: (_kind, id) => pending.get(id), edit: vi.fn() } as WriteSeam)
+  it('follows resident painted changes through the one reader and releases subscriptions on clear', () => {
+    const f = fixture(0)
     let ids: string[] = [], count = 0
     const stop = autorun(() => { ids = f.pool.headerViews.working().map(row => row.sessionId); count = f.pool.headerViews.aggregate(HOSTS[0]).count })
     try {
-      runInAction(() => pending.set('resident-0', { agentState: { phase: 'working', since: stamp() } }))
+      f.paint('resident-0', { agentState: state('working') })
       expect(ids).toEqual(['resident-0'])
-      runInAction(() => pending.set('resident-0', { archived: true }))
+      f.paint('resident-0', { archived: true })
       expect(ids).toEqual([])
       expect(count).toBe(31)
-      runInAction(() => pending.clear())
+      f.rebase('resident-0')
       expect(count).toBe(32)
       stop()
       f.pool.headerViews.clear()
       const reads = visits(f.pool)
       try {
-        runInAction(() => pending.set('resident-0', { archived: true }))
-        expect(reads.ids).toEqual([])
+        f.paint('resident-0', { archived: true })
+        // The change arrives as a row (POD-5432), so the fixture's own edge
+        // forwarder (the `observe` above) and the header source read that one
+        // row; no header view re-runs after clear, and no other row is read.
+        expect(reads.ids.length).toBeGreaterThan(0)
+        expect(new Set(reads.ids)).toEqual(new Set(['resident-0']))
       } finally { reads.restore() }
       expect(f.pool.headerViews.aggregate(HOSTS[0]).count).toBe(31)
     } finally { stop(); f.dispose() }

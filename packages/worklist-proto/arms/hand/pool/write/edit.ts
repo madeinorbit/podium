@@ -73,7 +73,6 @@ import {
   editForPendingWrite,
   type EditPatch,
   type FieldValues,
-  type PendingLog,
   type Rejection,
   type TxId,
   type WritableKind,
@@ -82,7 +81,7 @@ import {
 } from '@podium/client-graph/shared/write-contract'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { HandPool } from '../pool'
-import { createPendingLog } from './pending'
+import { createPendingLog, type PendingLog } from './pending'
 
 /** The editable fields of an issue row, as the overlay holds them. */
 type IssueOverlay = { title?: string; stage?: string; readAt?: string | null }

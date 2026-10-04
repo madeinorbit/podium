@@ -493,7 +493,16 @@ export async function runFenceStep(
    * POD-4825: the oracle's list as this arm must show it — the arm's own
    * pending edits laid over it (`writable-arm.ts`, `withPendingTitles`).
    */
-  options: { expected?: (oracle: SliceSnapshot) => SliceSnapshot } = {},
+  options: {
+    expected?: (oracle: SliceSnapshot) => SliceSnapshot
+    /**
+     * POD-5432: the arm's own edits the server holds unanswered for the whole
+     * run (`writable-arm.ts`, `holdingServer`), as `entity:id`: real outbox
+     * records, so the step-isolation check below sees them; they are pending
+     * by design, not left behind by the step.
+     */
+    held?: readonly string[]
+  } = {},
 ): Promise<FenceStep> {
   const step = `${entry.methodology} ${entry.scenario}`
   const readsBudget = entry.readsBudget(ctx)
@@ -586,7 +595,8 @@ export async function runFenceStep(
   // STEP ISOLATION (POD-4618): a write still awaiting truth after its step is
   // retired later by the runtime's 60 s wall-clock sweep, in whichever step is
   // running then, and charged to it. Refuse it here, where it was written.
-  const pending = pendingWrites(ctx)
+  const held = new Set(options.held ?? [])
+  const pending = pendingWrites(ctx).filter((key) => !held.has(key))
   const allowed = entry.leavesPending?.(ctx) ?? []
   if (!isDeepStrictEqual(pending, allowed)) {
     throw new Error(

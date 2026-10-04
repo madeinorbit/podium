@@ -32,6 +32,10 @@
  * with pending title edits queued in the outbox at creation, which stay
  * pending through every step (`writable-arm.ts`). Parity is then held to the
  * oracle with those titles laid over it. Same check, same allowances.
+ * POD-5432: the MobX arm owns optimism the product's way
+ * (`RosterArm.ownsOptimism`): the same two variants on the `owned` feed, its
+ * pool given the runtime's transaction log, the pending edits real outbox
+ * records the log rebuilds when the feeds open.
  *
  * The roster's `windowLayout` additionally runs the actual windowed web
  * list with a harness-supplied box, at the browser lane's 5800px height.
@@ -44,14 +48,16 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { IssueModel } from '@podium/client-graph/models'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
-import type { RowSourceMode } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import type { SliceIssue, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { reaction } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Arm } from '../../shared/src/arm'
 import {
+  type EngineOptions,
   type FixtureScale,
   type ScenarioEngine,
   startScenarioEngine,
@@ -60,6 +66,7 @@ import { harnessMobxPoolArm } from './adapters/mobx-pool'
 import { createReplaySource, mountArmForCounts } from './count-harness'
 import {
   FENCE_SCENARIOS,
+  type FenceFeedMode,
   type FenceFeeds,
   openFenceFeeds,
   parityLocals,
@@ -92,10 +99,14 @@ import {
 } from './screen-work-ratios'
 import { stubWindowLayout, type WindowLayout } from './window-layout'
 import {
+  holdingServer,
+  ownedEngineOptions,
   PENDING_TITLE_EDITS,
   PENDING_WINDOW_ROWS,
   pendingTitleEditsOn,
+  queuePendingTitles,
   silentTransport,
+  stillPending,
   targetIds,
   WRITE_VARIANTS,
   type WriteVariant,
@@ -257,17 +268,28 @@ interface CellArm {
   expected?: (oracle: SliceSnapshot) => SliceSnapshot
   /** Runs after the last step, before unmount (the pending edits are still pending). */
   after?: (handle: unknown) => void
+  /** The arm's own held outbox edits, as `entity:id` (`runFenceStep`'s `held`). */
+  held?: () => readonly string[]
 }
 type ArmBuilder = (ctx: ScenarioEngine, feeds: FenceFeeds) => CellArm
+
+/** What one cell's engine boots with, and what runs on it before the feeds open. */
+interface CellSetup {
+  engine?: EngineOptions
+  before?(ctx: ScenarioEngine): Promise<void>
+}
 
 /** Every fence scenario on one engine at `scale`, work counted. Parity must hold. */
 async function cellsAt(
   scale: FixtureScale,
-  mode: RowSourceMode,
+  mode: FenceFeedMode,
   build: ArmBuilder,
   scenarios = FENCE_SCENARIOS,
+  setup: () => CellSetup = () => ({}),
 ): Promise<ScaleCell[]> {
-  const ctx = await startScenarioEngine(scale)
+  const cell = setup()
+  const ctx = await startScenarioEngine(scale, cell.engine)
+  await cell.before?.(ctx)
   const feeds = openFenceFeeds(ctx, mode)
   const built = build(ctx, feeds)
   const restoreLayout =
@@ -294,13 +316,10 @@ async function cellsAt(
     }
     const cells: ScaleCell[] = []
     for (const entry of scenarios) {
-      const step = await runFenceStep(
-        mounted,
-        ctx,
-        feeds.flush,
-        entry,
-        built.expected === undefined ? {} : { expected: built.expected },
-      )
+      const step = await runFenceStep(mounted, ctx, feeds.flush, entry, {
+        ...(built.expected === undefined ? {} : { expected: built.expected }),
+        ...(built.held === undefined ? {} : { held: built.held() }),
+      })
       const { result } = step
       expect(result.parity, `${scale}x ${result.methodology}: ${result.parityDiff ?? ''}`).toBe(
         true,
@@ -372,17 +391,83 @@ function writableBuilder(entry: RosterArm, variant: WriteVariant): ArmBuilder {
   }
 }
 
+/**
+ * POD-5432 — the arm that owns optimism the product's way, in one variant:
+ * the roster arm on the `owned` feed, its pool given the feeds' transaction
+ * log. `pending` queues title edits as real outbox records before the feeds
+ * open (the server holds them unanswered), so the log rebuilds them at boot;
+ * they must still be pending after the last step.
+ */
+function ownedVariant(
+  entry: RosterArm,
+  variant: WriteVariant,
+): { build: ArmBuilder; setup: () => CellSetup } {
+  let titles: ReadonlyMap<string, string> = new Map()
+  return {
+    setup: () => {
+      const held = holdingServer()
+      titles = new Map()
+      return {
+        engine: ownedEngineOptions(held.server),
+        before: async (ctx) => {
+          if (variant === 'idle') return
+          const excluded = targetIds(ctx.targets)
+          const probe = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+          try {
+            titles = pendingTitleEditsOn(
+              probe.source.snapshot('issue'),
+              snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)).order,
+              (id) => excluded.has(id),
+              PENDING_WINDOW_ROWS,
+              parityLocals(ctx).coarseNow,
+            ).titles
+          } finally {
+            probe.dispose()
+          }
+          held.hold(titles.keys())
+          await queuePendingTitles(ctx.engine, titles)
+        },
+      }
+    },
+    build: (ctx, feeds) => {
+      const arm = entry.armFor(ctx)
+      return {
+        arm: {
+          ...arm,
+          create(...args: Parameters<typeof arm.create>) {
+            const handle = arm.create(...args)
+            feeds.attachPool((handle as unknown as { pool: MobxPool }).pool)
+            return handle
+          },
+        },
+        ...(variant === 'pending'
+          ? {
+              expected: (oracle: SliceSnapshot) => withPendingTitles(oracle, titles),
+              held: () => [...titles.keys()].map((id) => `issueProjections:${id}`),
+              after: () =>
+                expect(
+                  stillPending(feeds, titles),
+                  'every pending edit is still pending after the last step',
+                ).toHaveLength(PENDING_TITLE_EDITS),
+            }
+          : {}),
+      }
+    },
+  }
+}
+
 /** THE check on one arm, with its named allowances; the cells go to `work-<file>.json`. */
 async function checkWork(
   name: string,
   file: string,
-  mode: RowSourceMode,
+  mode: FenceFeedMode,
   build: ArmBuilder,
   allowances: RosterAllowances | undefined,
   measuredOnly: boolean,
+  setup?: () => CellSetup,
 ): Promise<void> {
-  const at1x = await cellsAt(1, mode, build)
-  const at4x = await cellsAt(4, mode, build)
+  const at1x = await cellsAt(1, mode, build, FENCE_SCENARIOS, setup)
+  const at4x = await cellsAt(4, mode, build, FENCE_SCENARIOS, setup)
   const verdicts = scaleVerdicts(at1x, at4x)
   const known = allowances?.work ?? []
   writeCells(`work-${file}.json`, {
@@ -436,6 +521,24 @@ for (const entry of ROUND_THREE_ARMS) {
         )
       }, 1_200_000)
     })
+  }
+  if (entry.ownsOptimism === true) {
+    for (const variant of WRITE_VARIANTS) {
+      describe(`work per change: ${entry.name} owning its optimism (${variant})`, () => {
+        it('does the same work at 1x and 4x, or more by at most the changed items’ neighbourhood', async () => {
+          const owned = ownedVariant(entry, variant)
+          await checkWork(
+            `${entry.name} + transaction log (${variant})`,
+            `${entry.folder}-write-${variant}`,
+            'owned',
+            owned.build,
+            entry.allowances,
+            entry.measuredOnly === true,
+            owned.setup,
+          )
+        }, 1_200_000)
+      })
+    }
   }
   if (entry.writable === undefined) continue
   for (const variant of WRITE_VARIANTS) {
