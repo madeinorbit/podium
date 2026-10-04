@@ -1,3 +1,4 @@
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { type EngineState, workspaceKeyForState } from '@podium/client-core/engine'
 import { routeDefaults } from '@podium/client-core/ui-state'
@@ -91,6 +92,7 @@ it('renders identical workspace labels, tab order and layout after pool navigati
   const provider = createPoolNavigationProvider(handle.pool)
   try {
     const initial = referenceState(runtime)
+    initial.navigation = fixtureNavigation({ issues: () => initial.issueProjections, sessions: () => initial.sessions, markers: () => initial.issueUserStates })
     const target = asIssueId(ctx.targets.visibleRootId)
     const child = initial.issueProjections.find(
       (row) => row.parentId === target && !row.archived && !row.deletedAt,

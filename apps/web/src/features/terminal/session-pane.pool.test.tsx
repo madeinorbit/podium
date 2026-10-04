@@ -1,3 +1,5 @@
+import { createPoolTransactions } from '@podium/client-graph/write/transactions'
+import { setFixtureSpawnPrompt } from '@podium/client-graph/diagnostics/session-pane-fixture'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
 type Store = ReferenceState<import('@/app/trpc').Trpc>
@@ -154,6 +156,7 @@ import {
   usePaneSpawnConfirmed,
 } from './use-session-pane-inputs'
 
+let paneTransactions: ReturnType<typeof createPoolTransactions>
 let sessions: SessionView[]
 beforeEach(() => {
   f.issues = []
@@ -208,6 +211,11 @@ beforeEach(() => {
     issueIdByRef: (ref) => f.issues.find((row) => row.displayRef === ref)?.id,
     schedule: () => () => {},
   })
+  paneTransactions = createPoolTransactions({
+    userId: 'operator', outbox: { pending: () => [], awaiting: () => [], deadLetters: () => [], subscribe: () => () => {} },
+    outcomes: () => () => {}, addressed: () => () => {}, enqueue: async () => {},
+  })
+  f.pool.attachTransactions(paneTransactions)
   f.pool.apply({
     type: 'replace',
     rows: sessions.map((row) => ({ kind: 'session', id: row.sessionId, value: row as never })),
@@ -230,6 +238,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  paneTransactions.dispose()
   f.pool?.dispose()
   f.pool = null
   storeStats.enable(false)
@@ -261,10 +270,10 @@ it('renders the same real AgentPanel header, lifecycle text and controls for eve
 
 it('retains the keyed spawn prompt through confirmation and a parked surface until the transcript echoes it', () => {
   const row = sessions[0]!
-  f.state.pendingSpawnPrompts = { [row.sessionId]: 'First operator prompt' }
+  setFixtureSpawnPrompt(paneTransactions, row.sessionId, 'First operator prompt')
   const panel = render(<AgentPanel sessionId={row.sessionId} />)
   expect(panel.getByTestId('spawn-prompt').textContent).toBe('First operator prompt')
-  f.state.pendingSpawnPrompts = {}
+  act(() => setFixtureSpawnPrompt(paneTransactions, row.sessionId, undefined))
   act(() =>
     f.pool!.apply({
       type: 'update',
@@ -277,7 +286,7 @@ it('retains the keyed spawn prompt through confirmation and a parked surface unt
   expect(panel.getByTestId('spawn-prompt').textContent).toBe('First operator prompt')
   fireEvent.click(panel.getByTestId('spawn-prompt'))
   expect(panel.queryByTestId('spawn-prompt')).toBeNull()
-  f.state.pendingSpawnPrompts = { [row.sessionId]: 'Later prompt' }
+  act(() => setFixtureSpawnPrompt(paneTransactions, row.sessionId, 'Later prompt'))
   panel.rerender(<AgentPanel sessionId={row.sessionId} />)
   expect(panel.getByTestId('spawn-prompt').textContent).toBe('Later prompt')
   panel.rerender(<AgentPanel sessionId={sessions[1]!.sessionId} />)

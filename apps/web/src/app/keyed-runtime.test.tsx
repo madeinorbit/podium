@@ -1,4 +1,4 @@
-import { tracked } from '../../../../packages/worklist-proto/harness/src/adapters/mobx-pool'
+import { setFixtureSpawnPrompt } from '@podium/client-graph/diagnostics/session-pane-fixture'
 import { useSyncExternalStore } from 'react'
 import { MobxPool } from '@podium/client-graph'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
@@ -27,11 +27,7 @@ vi.mock('./store-worklist-pool', () => ({
 let state: EngineState
 let inputs: KeyedInputsChannel
 let transactions: ReturnType<typeof createPoolTransactions>
-const prompt = (id: string, text: string | null | undefined) => {
-  // Test at the transaction's observable map boundary. Production writes use its spawn owner.
-  const map = transactions.spawnPrompts as Map<string, string | null>
-  tracked(() => { if (text === undefined) map.delete(id); else map.set(id, text) })
-}
+const prompt = (id: string, text: string | null | undefined) => setFixtureSpawnPrompt(transactions, id, text)
 const sid = asSessionId('first'),
   other = asSessionId('other')
 

@@ -8,16 +8,6 @@
  * transport. The kernel's answer settles it: a receipt forgets the entry, a
  * rejection rewinds the object. Fast first, truthful second.
  *
- * WHAT THE PROTOTYPE DOES NOT CONSULT. The kernel's optimistic FOLD — the
- * painted `EngineState.issues/sessions/issueProjections` arrays and the
- * `OptimismLedger` that builds them (`overlaysFor`, `foldStable`, the
- * awaiting-truth stage and its `retired` event). The kernel keeps running it
- * for the legacy surfaces; the prototype's display is decided by this file's
- * rules alone. Consequently the per-row feed a phase-c arm subscribes to must
- * carry SERVER TRUTH (replica rows, no ledger overlay): with the overlay in the
- * feed, a remote value landing on a pending field is invisible and a rejection
- * is rewound twice.
- *
  * THE RULES are stated in `docs/plans/pod-4545-round-three-write-contract.md`
  * and numbered there (W1–W12); the comments below cite them.
  *

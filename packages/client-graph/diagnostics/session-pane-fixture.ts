@@ -1,5 +1,16 @@
 import { asSessionId } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
+import { runInAction } from 'mobx'
+import type { PoolTransactions } from '../src/write/transactions'
+
+/** Drive the transaction map directly when a UI fixture has no create transport. */
+export function setFixtureSpawnPrompt(transactions: PoolTransactions, id: string, text: string | null | undefined): void {
+  runInAction(() => {
+    const prompts = transactions.spawnPrompts as Map<string, string | null>
+    if (text === undefined) prompts.delete(id)
+    else prompts.set(id, text)
+  })
+}
 
 export const SESSION_PANE_NOW = Date.parse('2026-10-02T00:00:00Z')
 /** Covers process, urgency, queue, capabilities, recovery and model provenance. */

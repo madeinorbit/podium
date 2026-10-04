@@ -1,3 +1,5 @@
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
+import type { IssueProjection } from '@podium/model/browser'
 import { issueActivityAt } from '@podium/client-graph/diagnostics/reference-state'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import {
@@ -116,6 +118,7 @@ describe('web pool navigation', () => {
       fileTabs,
     } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
     const keys: WorkspaceKey[] = ['mission:root', 'mission:other', 'mission:absent']
+    legacy.navigation = fixtureNavigation({ issues: () => rows as unknown as IssueProjection[], sessions: () => sessions })
     const expected = keys.map((key) => [...knownTabIdsForWorkspace(legacy, key)].sort())
     const load = vi.fn((_kind: string, id: string) => rows.find((row) => row.id === id))
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
@@ -242,21 +245,19 @@ describe('web pool navigation', () => {
   })
 
   it('switches sessions with identical layouts and no legacy mission entries while pruning runs', async () => {
-    const results: unknown[] = []
     const prune = vi.spyOn(Reactions.prototype, 'pruneWorkspaces')
-    for (const enabled of [false, true]) {
+    {
       const ctx = await startScenarioEngine(1, { ownRows: true })
       const runtime = ctx.engine
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-      const handle = enabled
-        ? createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
-        : undefined
+      const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
       try {
         if (handle) {
 
           runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
         }
         const before = referenceState(runtime)
+        before.navigation = fixtureNavigation({ issues: () => before.issueProjections, sessions: () => before.sessions })
         const seats = before.sessions.filter(
           (row) =>
             !row.archived &&
@@ -278,19 +279,11 @@ describe('web pool navigation', () => {
         referenceState(runtime).navigateToSession(next.sessionId)
         await vi.waitFor(() => expect(referenceState(runtime).paneA).toBe(next.sessionId))
         expect(prune).toHaveBeenCalled()
-        if (enabled)
-          expect(missionLegacyStats.read()).toEqual({ missionIssueIds: 0, indexMissionSessions: 0 })
-        else expect(missionLegacyStats.read().missionIssueIds).toBeGreaterThan(0)
+        expect(missionLegacyStats.read()).toEqual({ missionIssueIds: 0, indexMissionSessions: 0 })
         const st = referenceState(runtime)
-        results.push({
-          selectedIssueId: st.selectedIssueId,
-          key: st.workspaceKey(),
-          paneA: st.paneA,
-          paneB: st.paneB,
-          focusedPane: st.focusedPane,
-          workspaces: st.workspaces,
-          route: runtime.router.current(),
-        })
+        expect(st.selectedIssueId).toBe(next.issueId)
+        expect(st.paneA).toBe(next.sessionId)
+        expect(st.workspaceKey()).toBe(workspaceKeyForState({ ...before, selectedIssueId: next.issueId! }))
       } finally {
         missionLegacyStats.disable()
         runtime.setNavigationProvider(loadingNavigationProvider)
@@ -298,7 +291,6 @@ describe('web pool navigation', () => {
         runtime.destroy()
       }
     }
-    expect(results[1]).toEqual(results[0])
   })
 
   it('agrees with legacy keys for hidden ancestors, drafts, absent parents and direct missing ids', () => {
@@ -322,6 +314,7 @@ describe('web pool navigation', () => {
     try {
       for (const id of [...rows.map((row) => row.id), 'absent', null]) {
         const st = {
+          navigation: fixtureNavigation({ issues: () => rows as unknown as IssueProjection[], sessions: () => [] }),
           issueProjections: rows,
           selectedIssueId: id,
           selectedWorktree: '/repo',
@@ -687,7 +680,7 @@ describe('web pool navigation', () => {
   })
 
   it('follows a session rehome after pool delivery and preserves the active tab', async () => {
-    for (const enabled of [false, true]) {
+    {
       const ctx = await startScenarioEngine(1, { ownRows: true })
       const runtime = ctx.engine
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
@@ -787,6 +780,7 @@ describe('web pool navigation', () => {
     const provider = createPoolNavigationProvider(handle.pool)
     try {
       const st = referenceState(runtime)
+      st.navigation = fixtureNavigation({ issues: () => st.issueProjections, sessions: () => st.sessions, markers: () => st.issueUserStates })
       const check = (id: string) =>
         tracked(() =>
           planNavigation(

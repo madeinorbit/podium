@@ -190,6 +190,11 @@
       "types": "./test-support/local-store.ts",
       "import": "./test-support/local-store.ts"
     },
+    "./test-support/navigation": {
+      "@podium/source": "./test-support/navigation.ts",
+      "types": "./test-support/navigation.ts",
+      "import": "./test-support/navigation.ts"
+    },
     "./test-support/keyed-inputs": {
       "@podium/source": "./test-support/keyed-inputs.ts",
       "types": "./test-support/keyed-inputs.ts",
