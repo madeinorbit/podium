@@ -14,6 +14,8 @@ const stamp = '2026-10-04T12:00:00Z'
 function fixture(scale: 1 | 4) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
     header: true,
+    load: () => undefined,
+    schedule: () => () => {},
   })
   const scan = (id: string, path: string, machineId?: string, worktrees: string[] = []) =>
     ({
