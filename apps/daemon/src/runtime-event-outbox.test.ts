@@ -89,7 +89,7 @@ describe('coarse runtime event outbox', () => {
     for (let i = 0; i < 8; i += 1) expect(outbox.acknowledge(`delivery-${i}`)).toBe(true)
 
     // Draining to empty is the cheapest moment to fold the journal away.
-    expect(statSync(journal).size).toBe(0)
+    expect(readFileSync(journal, 'utf8').trim().split('\n').map((line) => JSON.parse(line).op)).toEqual(['coverage'])
     expect(outbox.pending()).toEqual([])
     expect(createRuntimeEventOutbox(dir).pending()).toEqual([])
     outbox.close()
@@ -148,6 +148,53 @@ describe('coarse runtime event outbox', () => {
 
 describe('delivery typing state in the runtime-event journal (POD-5556)', () => {
   const sessionId = event('unused').sessionId
+
+  it('retains a fresh stored row across reopen, including a proven no-write', () => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    first.deliveryJournal(sessionId).store('row-1')
+    first.close()
+    const after = createRuntimeEventOutbox(dir)
+    expect(after.deliveryJournal(sessionId).read('row-1')).toEqual({ typingStarted: false })
+    after.deliveryJournal(sessionId).start('row-1')
+    after.deliveryJournal(sessionId).clear('row-1')
+    after.close()
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.deliveryJournal(sessionId).read('row-1')).toEqual({ typingStarted: false })
+    reopened.close()
+  })
+
+  it.each(['missing-log', 'missing-snapshot', 'reset-snapshot', 'torn-snapshot'] as const)(
+    'discards stored-only proof on %s but retains known write evidence', (damage) => {
+      const dir = makeDir()
+      const first = createRuntimeEventOutbox(dir)
+      first.deliveryJournal(sessionId).store('held')
+      first.deliveryJournal(sessionId).start('started')
+      // Force a snapshot carrying both entries, leaving a valid anchored log.
+      for (let index = 0; index < 510; index++) first.enqueue(event(`queued-${index}`, index))
+      first.close()
+      const snapshot = join(dir, 'runtime-event-outbox.json')
+      if (damage === 'missing-log') rmSync(join(dir, 'runtime-event-outbox.log'))
+      else if (damage === 'missing-snapshot') rmSync(snapshot)
+      else {
+        const saved = JSON.parse(readFileSync(snapshot, 'utf8'))
+        if (damage === 'reset-snapshot') saved.typing = [{ sessionId, rowId: 'held', storedAt: '2026-10-04T00:00:00.000Z' }]
+        else delete saved.typing
+        writeFileSync(snapshot, JSON.stringify(saved))
+      }
+      const after = createRuntimeEventOutbox(dir)
+      expect(after.deliveryJournal(sessionId).read('held')).toBeUndefined()
+      if (damage === 'missing-log') expect(after.deliveryJournal(sessionId).read('started')).toEqual({ typingStarted: true })
+      after.close()
+      const reopened = createRuntimeEventOutbox(dir)
+      expect(reopened.deliveryJournal(sessionId).read('held')).toBeUndefined()
+      reopened.deliveryJournal(sessionId).store('new-after-repair')
+      reopened.close()
+      const covered = createRuntimeEventOutbox(dir)
+      expect(covered.deliveryJournal(sessionId).read('new-after-repair')).toEqual({ typingStarted: false })
+      covered.close()
+    },
+  )
 
   it('retains a typing fence without an event, and clears a proven no-write across reopen', () => {
     const dir = makeDir()

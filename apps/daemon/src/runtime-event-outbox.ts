@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   appendFileSync,
   closeSync,
@@ -72,8 +72,9 @@ function fsyncDirectory(dir: string): void {
   }
 }
 
-interface TypingRecord { sessionId: SessionId; rowId: string; startedAt?: string; outcome?: DeliveryOutcome }
+interface TypingRecord { sessionId: SessionId; rowId: string; storedAt?: string; startedAt?: string; outcome?: DeliveryOutcome }
 const rowKey = (sessionId: SessionId, rowId: string): string => JSON.stringify([sessionId, rowId])
+const snapshotHash = (body: string): string => createHash('sha256').update(body).digest('hex')
 
 function deliveryBody(value: unknown): DeliveryOutcome {
   const parsed = RuntimeEventBodySchema.parse(value)
@@ -84,19 +85,21 @@ function deliveryBody(value: unknown): DeliveryOutcome {
 function parseTyping(value: unknown): TypingRecord {
   const entry = value as Partial<TypingRecord> | null
   if (!entry || typeof entry.sessionId !== 'string' || typeof entry.rowId !== 'string' ||
+      (entry.storedAt !== undefined && (typeof entry.storedAt !== 'string' || !Number.isFinite(Date.parse(entry.storedAt)))) ||
       (entry.startedAt !== undefined && (typeof entry.startedAt !== 'string' || !Number.isFinite(Date.parse(entry.startedAt)))) ||
-      (entry.startedAt === undefined && entry.outcome === undefined)) {
+      (entry.storedAt === undefined && entry.startedAt === undefined && entry.outcome === undefined)) {
     throw new Error('invalid runtime delivery typing record')
   }
   const outcome = entry.outcome === undefined ? undefined : deliveryBody(entry.outcome)
   if (outcome && outcome.rowId !== entry.rowId) throw new Error('runtime delivery outcome row mismatch')
   return { sessionId: entry.sessionId, rowId: entry.rowId,
+    ...(entry.storedAt ? { storedAt: entry.storedAt } : {}),
     ...(entry.startedAt ? { startedAt: entry.startedAt } : {}), ...(outcome ? { outcome } : {}),
   }
 }
 
-function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent[]; typing: TypingRecord[] } {
-  const parsed = JSON.parse(raw) as { version?: unknown; events?: unknown; typing?: unknown }
+function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent[]; typing: TypingRecord[]; typingEpoch?: string } {
+  const parsed = JSON.parse(raw) as { version?: unknown; events?: unknown; typing?: unknown; typingEpoch?: unknown }
   if (parsed.version !== FILE_VERSION || !Array.isArray(parsed.events)) {
     throw new Error(`invalid runtime event outbox: ${path}`)
   }
@@ -108,7 +111,10 @@ function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent
   if (parsed.typing !== undefined && !Array.isArray(parsed.typing)) {
     throw new Error(`invalid runtime delivery journal: ${path}`)
   }
-  return { events, typing: ((parsed.typing as unknown[] | undefined) ?? []).map(parseTyping) }
+  return { events, typing: ((parsed.typing as unknown[] | undefined) ?? []).map(parseTyping),
+    ...(Array.isArray(parsed.typing) && typeof parsed.typingEpoch === 'string' && parsed.typingEpoch.length > 0
+      ? { typingEpoch: parsed.typingEpoch } : {}),
+  }
 }
 
 /**
@@ -143,8 +149,8 @@ function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent
  * Steady state is now an append of ONE record to a journal held open for the
  * process lifetime, plus one fsync on that descriptor: O(1) per event, no
  * reopen, no rename, no directory fsync. The snapshot is rewritten only once per
- * {@link COMPACT_AFTER_RECORDS} records, or opportunistically when the backlog
- * drains to empty, which is the cheapest moment to do it.
+ * {@link COMPACT_AFTER_RECORDS} records, opportunistically when the backlog
+ * drains to empty, or when boot must establish/repair typing coverage.
  *
  * DURABILITY IS DELIBERATELY UNCHANGED. Every mutation still fsyncs before the
  * call returns, so a reopen immediately after an enqueue still sees the event —
@@ -154,9 +160,10 @@ function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent
  * that this contract exists to close.
  *
  * A TORN TRAILING RECORD IS EXPECTED, not corruption: a crash mid-append leaves
- * a partial final line. Recovery stops at the last parseable record, because the
+ * a partial final line. Recovery stops at the last complete record, because the
  * alternative — refusing to open — would strand every earlier event that IS
- * intact.
+ * intact. A torn tail invalidates stored-only no-write witnesses: a later
+ * typing fence might have been lost. Positive write/outcome evidence survives.
  */
 export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -165,6 +172,8 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   const journalPath = join(dir, JOURNAL_NAME)
   let events = new Map<string, DurableRuntimeEvent>()
   const typing = new Map<string, TypingRecord>()
+  let typingEpoch: string | undefined
+  let snapshotBody: string | undefined
   // Queue receipts and outbound events share this journal. Record the receipt
   // synchronously even when a family's event stream is consumed asynchronously.
   const retainOutcome = (sessionId: SessionId, outcome: DeliveryOutcome): boolean => {
@@ -204,6 +213,7 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
         (!saved || JSON.stringify(saved) === JSON.stringify(deliveryBody(event.event)))) typing.delete(key)
   }
   const loadSnapshot = (snapshot: ReturnType<typeof parseSnapshot>): void => {
+    typingEpoch = snapshot.typingEpoch
     events = new Map(snapshot.events.map((event) => [event.deliveryId, event]))
     for (const entry of snapshot.typing) typing.set(rowKey(entry.sessionId, entry.rowId), entry)
     for (const event of snapshot.events) track(event)
@@ -212,7 +222,8 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   if (existsSync(temporary)) {
     let recovered: ReturnType<typeof parseSnapshot> | undefined
     try {
-      recovered = parseSnapshot(readFileSync(temporary, 'utf8'), temporary)
+      snapshotBody = readFileSync(temporary, 'utf8')
+      recovered = parseSnapshot(snapshotBody, temporary)
     } catch (error) {
       if (!existsSync(path)) throw error
     }
@@ -221,10 +232,12 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
       renameSync(temporary, path)
       fsyncDirectory(dir)
     } else {
-      loadSnapshot(parseSnapshot(readFileSync(path, 'utf8'), path))
+      snapshotBody = readFileSync(path, 'utf8')
+      loadSnapshot(parseSnapshot(snapshotBody, path))
     }
   } else if (existsSync(path)) {
-    loadSnapshot(parseSnapshot(readFileSync(path, 'utf8'), path))
+    snapshotBody = readFileSync(path, 'utf8')
+    loadSnapshot(parseSnapshot(snapshotBody, path))
   }
 
   /**
@@ -235,8 +248,16 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   let journalRecords = 0
   let validBytes = 0
   let tornTail = false
+  let coverageTrusted = false
   if (existsSync(journalPath)) {
     const lines = readFileSync(journalPath, 'utf8').split('\n')
+    try {
+      const header = JSON.parse(lines[0]!) as { op?: unknown; epoch?: unknown; snapshotHash?: unknown }
+      // The epoch catches a lost component/interrupted compaction; the hash
+      // also catches a reset snapshot that still carries its old epoch.
+      coverageTrusted = snapshotBody !== undefined && typingEpoch !== undefined &&
+        header.op === 'coverage' && header.epoch === typingEpoch && header.snapshotHash === snapshotHash(snapshotBody)
+    } catch { /* Legacy, empty or damaged journal: absence is not no-write proof. */ }
     for (const [index, line] of lines.entries()) {
       if (index === lines.length - 1) {
         tornTail = line.length > 0
@@ -254,6 +275,11 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
       }
       journalRecords += 1
       validBytes += Buffer.byteLength(line, 'utf8') + 1
+      if (record.op === 'coverage') {
+        if (index !== 0) coverageTrusted = false
+        journalRecords -= 1
+        continue
+      }
       if (record.op === 'ack' && typeof record.deliveryId === 'string') {
         retire(record.deliveryId)
         continue
@@ -264,14 +290,26 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
         typing.set(key, { ...typing.get(key), ...entry })
         continue
       }
+      if (record.op === 'stored') {
+        if (coverageTrusted) {
+          const entry = parseTyping(record)
+          const key = rowKey(entry.sessionId, entry.rowId)
+          typing.set(key, { ...typing.get(key), ...entry })
+        }
+        continue
+      }
       if (record.op === 'outcome' && typeof record.sessionId === 'string') {
         retainOutcome(record.sessionId as SessionId, deliveryBody(record.event))
         continue
       }
       if (record.op === 'untyped' && typeof record.sessionId === 'string' && typeof record.rowId === 'string') {
+        if (!coverageTrusted) continue
         const key = rowKey(record.sessionId as SessionId, record.rowId)
         const saved = typing.get(key)
-        if (saved?.outcome) typing.set(key, { sessionId: saved.sessionId, rowId: saved.rowId, outcome: saved.outcome })
+        if (saved?.outcome || saved?.storedAt) {
+          const { startedAt: _started, ...untyped } = saved
+          typing.set(key, untyped)
+        }
         else typing.delete(key)
         continue
       }
@@ -280,20 +318,33 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
         if (!parsed.deliveryId) continue
         events.set(parsed.deliveryId, { ...parsed, deliveryId: parsed.deliveryId })
         track({ ...parsed, deliveryId: parsed.deliveryId })
+        continue
       }
+      coverageTrusted = false
     }
   }
   // Never append a new typing fence behind a torn record: a subsequent reopen
   // would stop at that record and mistake the new attempt for never typed.
   if (tornTail) truncateSync(journalPath, validBytes)
 
+  // Both files must prove a continuous covered lifetime. Missing/reset files,
+  // interrupted compaction and torn records may have lost a later typing fence.
+  // Keep positive write/outcome evidence; discard every negative write witness.
+  if (!coverageTrusted || tornTail) {
+    for (const [key, saved] of typing) {
+      const { storedAt: _stored, ...uncertain } = saved
+      if (uncertain.startedAt || uncertain.outcome) typing.set(key, uncertain)
+      else typing.delete(key)
+    }
+  }
+
   /** The journal descriptor, held open so steady state never pays an open/close. */
   let journalFd: number | undefined = openSync(journalPath, 'a', 0o600)
   fsyncSync(journalFd)
   fsyncDirectory(dir)
 
-  const writeSnapshot = (next: Map<string, DurableRuntimeEvent>): void => {
-    const body = `${JSON.stringify({ version: FILE_VERSION, events: [...next.values()], typing: [...typing.values()] }, null, 2)}\n`
+  const writeSnapshot = (next: Map<string, DurableRuntimeEvent>): string => {
+    const body = `${JSON.stringify({ version: FILE_VERSION, events: [...next.values()], typing: [...typing.values()], typingEpoch }, null, 2)}\n`
     const fd = openSync(temporary, 'w', 0o600)
     try {
       writeFileSync(fd, body)
@@ -303,11 +354,13 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     }
     renameSync(temporary, path)
     fsyncDirectory(dir)
+    return snapshotHash(body)
   }
 
   /** Fold the journal into the snapshot and start a fresh one. */
   const compact = (): void => {
-    writeSnapshot(events)
+    typingEpoch = randomUUID()
+    const hash = writeSnapshot(events)
     if (journalFd !== undefined) {
       closeSync(journalFd)
       journalFd = undefined
@@ -315,6 +368,7 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     rmSync(journalPath, { force: true })
     fsyncDirectory(dir)
     journalFd = openSync(journalPath, 'a', 0o600)
+    appendFileSync(journalFd, `${JSON.stringify({ op: 'coverage', epoch: typingEpoch, snapshotHash: hash })}\n`)
     fsyncSync(journalFd)
     fsyncDirectory(dir)
     journalRecords = 0
@@ -339,6 +393,8 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     }
   }
 
+  if (!coverageTrusted || tornTail) compact()
+
   return {
     deliveryJournal(sessionId) {
       return {
@@ -353,7 +409,15 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
               ...(transcriptItem ? { transcriptItem } : {}), ...(harnessRef ? { harnessRef } : {}),
             } }
           }
-          return saved ? { typingStarted: true } : undefined
+          return saved ? { typingStarted: saved.startedAt !== undefined } : undefined
+        },
+        store(rowId) {
+          const key = rowKey(sessionId, rowId)
+          if (typing.has(key)) return
+          const entry = { sessionId, rowId, storedAt: new Date().toISOString() }
+          append(`${JSON.stringify({ op: 'stored', ...entry })}\n`)
+          typing.set(key, entry)
+          maybeCompact()
         },
         start(rowId) {
           const key = rowKey(sessionId, rowId)
@@ -368,7 +432,10 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
           if (!typing.get(key)?.startedAt) return
           append(`${JSON.stringify({ op: 'untyped', sessionId, rowId })}\n`)
           const saved = typing.get(key)!
-          if (saved.outcome) typing.set(key, { sessionId, rowId, outcome: saved.outcome })
+          if (saved.outcome || saved.storedAt) {
+            const { startedAt: _started, ...untyped } = saved
+            typing.set(key, untyped)
+          }
           else typing.delete(key)
           maybeCompact()
         },

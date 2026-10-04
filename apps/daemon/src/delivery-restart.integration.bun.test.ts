@@ -123,6 +123,24 @@ describe('daemon delivery journal across SIGKILL (POD-5556)', () => {
     await after.handle.stop()
   }, 20_000)
 
+  it('never trusts an older stored snapshot when its later typing log was deleted', async () => {
+    const dir = await crash('held')
+    const before = open(dir)
+    // The next compaction still says stored, never typed. The subsequent
+    // first-byte fence exists only in the append log that is then lost.
+    for (let index = 0; index < 511; index++) before.deliveryJournal(sessionId).start(`other-${index}`)
+    before.deliveryJournal(sessionId).start(input.rowId)
+    before.close()
+    rmSync(join(dir, 'runtime-event-outbox.log'))
+    const after = owner(open(dir))
+    after.idle()
+    await after.handle.send(input, options)
+    await Bun.sleep(250)
+    expect(after.write).not.toHaveBeenCalled()
+    expect(after.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }))
+    await after.handle.stop()
+  }, 20_000)
+
   it('holds never-typed mail on the new owner, then types it exactly once at idle', async () => {
     const dir = await crash('held')
     const outbox = open(dir)

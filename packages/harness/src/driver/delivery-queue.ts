@@ -35,12 +35,14 @@ const EXACT_HISTORY_IDS: ReadonlySet<string> = new Set([
 
 export type DeliveryOutcome = Extract<RuntimeEventBody, { t: 'delivery' }>
 
-/** The daemon's existing runtime-event journal, scoped to this session. A
- * missing record proves this owner has never started writing the row. Outcomes
- * are recorded before the event sink (some families consume it asynchronously)
- * and pruned by the ordinary runtime-event server acknowledgement. */
+/** The daemon's existing runtime-event journal, scoped to this session. Only
+ * a retained stored record proves coverage of a row's first admission; a missing
+ * record may predate this journal or mean it was lost. Outcomes are recorded
+ * before the event sink and pruned by the ordinary server acknowledgement. */
 export interface DeliveryJournal {
-  read(rowId: string): { typingStarted: true; outcome?: DeliveryOutcome } | undefined
+  read(rowId: string): { typingStarted: boolean; outcome?: DeliveryOutcome } | undefined
+  /** Record a fresh (never reserved before) row before admitting it to the queue. */
+  store(rowId: string): void
   /** Must be durable before returning, before the driver's first byte. */
   start(rowId: string): void
   /** A driver refusal proved that this attempt wrote nothing. */
@@ -326,9 +328,8 @@ export function withDeliveryQueue(
           )
           continue
         }
-        // Only a daemon typing record establishes a possible write. A server
-        // reservation alone also covers rows held, untyped, through a restart.
-        // Without a journal retain the conservative legacy recovery path.
+        // A stored, never-typed journal record proves a covered first admission.
+        // Missing evidence, including an old or reset journal, remains ambiguous.
         if (row.input.deliveryRecovery) {
           settle(
             id,
@@ -572,6 +573,8 @@ export function withDeliveryQueue(
     if (options.delivery === 'at-boundary') {
       return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
     }
+    if (!input.deliveryRecovery && !finished.has(input.rowId) && !rows.has(input.rowId) && !held.has(input.rowId) &&
+        !journal?.read(input.rowId)) journal?.store(input.rowId)
     const recovered = journal?.read(input.rowId)
     const recorded = recovered?.outcome
     const prior = finished.get(input.rowId) ?? (recorded?.outcome !== 'accepted' ? recorded : undefined)
@@ -583,7 +586,8 @@ export function withDeliveryQueue(
       admit(input.rowId, {
         input: journal
           ? { ...input,
-              deliveryRecovery: recovered !== undefined || (input.deliveryRecovery && input.held === 'durable'),
+              deliveryRecovery: recovered?.typingStarted === true || recorded?.outcome === 'accepted' ||
+                (input.deliveryRecovery === true && (!recovered || input.held === 'durable')),
               ...(recorded?.outcome === 'accepted' && recorded.held === 'durable' ? { held: 'durable' } : {}),
             }
           : input,
@@ -624,7 +628,7 @@ export function withDeliveryQueue(
     const recovered = journal?.read(id)
     const recorded = recovered?.outcome
     const prior = finished.get(id) ?? (recorded?.outcome !== 'accepted' ? recorded : undefined)
-    if (!prior && recovered) return { reason: 'busy', detail: 'typing already started', tooLate: 'typing' }
+    if (!prior && recovered && (recovered.typingStarted || recorded)) return { reason: 'busy', detail: 'typing already started', tooLate: 'typing' }
     if (!prior) {
       settle(id, 'dropped')
       return { ok: true }
