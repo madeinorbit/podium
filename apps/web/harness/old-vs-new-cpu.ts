@@ -250,7 +250,7 @@ for (const action of run.actions) {
     }
     const kind = bucket(chain)
     add(buckets, kind, ms); sampledMs += ms
-    if (chain.some(({source}) => source && /packages\/client-core\/(?:src\/)?(engine|viewmodels|replica)|packages\/client-graph\/|apps\/(?:web|mobile)\/src\/.*store/.test(source.file))) storeDeriveInclusiveMs += ms
+    if (chain.some(({source}) => source && /packages\/client-core\/(?:src\/)?(engine|viewmodels|replica|store)|packages\/client-graph\/|packages\/worklist-proto\/shared\/src\/|apps\/(?:web|mobile)\/src\/.*store/.test(source.file))) storeDeriveInclusiveMs += ms
     if (chain.some(({frame, source}) => frame.url.endsWith('.js') && !source)) unmappedMs += ms
   }
   const activeSampledMs=sampledMs-(buckets.idle??0)
