@@ -53,8 +53,13 @@ function useResidencyBudget(): number {
  * Sessions beyond the budget are evicted (the caller unmounts them); selecting
  * one re-enters the warm set and remounts it through the existing cold route.
  */
-export function useWarmSet(allSessionIds: SessionId[], activeIds: SessionId[]): Set<SessionId> {
-  const recency = useRef<SessionId[]>([])
+export function useWarmSet(
+  allSessionIds: SessionId[],
+  activeIds: SessionId[],
+  retained?: { current: SessionId[] },
+): Set<SessionId> {
+  const ownRecency = useRef<SessionId[]>([])
+  const recency = retained ?? ownRecency
   const [warm, setWarm] = useState<Set<SessionId>>(() => new Set(activeIds))
   const budget = useResidencyBudget()
   // Recompute whenever the active pane(s) or the open-session set changes.
@@ -63,6 +68,6 @@ export function useWarmSet(allSessionIds: SessionId[], activeIds: SessionId[]): 
     recency.current = updateRecency(recency.current, activeIds, allSessionIds)
     setWarm(computeWarmSet(recency.current, activeIds, budget))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, budget])
+  }, [key, budget, recency])
   return warm
 }

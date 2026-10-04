@@ -6,7 +6,6 @@ import {
   allTabIds,
   emptyWorkspace,
   isCoordinatorSession,
-  orphanSessionFor,
   reposToViews,
   resizeSplit,
   type SplitAxis,
@@ -70,7 +69,7 @@ import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
 import type { FileTab } from './store'
 import { closeActiveWorkspaceTab } from './workspace-close'
-import { useWorkspaceInputs } from './workspace-inputs'
+import { useOrphanWorkspaceSession, useWorkspaceInputs } from './workspace-inputs'
 import type {
   PendingTabDragActivation,
   TabDragComponents,
@@ -233,8 +232,14 @@ export function Workspace({
 }: {
   loadDragRuntime?: LoadWorkspaceTabDrag
 } = {}): JSX.Element {
+  const warmRecency = useRef<SessionId[]>([])
+  // Subscribe to the addressed raw value; unrelated UI publications do not
+  // invalidate the pending-launch recovery check.
+  const activationDraftRaw = useRuntimeUiValue(FIRST_TASK_ACTIVATION_DRAFT_KEY)
+  const activationDraft = readFirstTaskDraft(activationDraftRaw)
   const {
     sessions,
+    pendingIssueHasSession,
     selectedWorktree,
     paneA,
     fileTabs,
@@ -254,13 +259,7 @@ export function Workspace({
     closeWorkspacePane,
     focusWorkspacePane,
     resizeWorkspaceSplit,
-  } = useWorkspaceInputs()
-  // Subscribe to the addressed raw value, not the ui-state collection object.
-  // The runtime may replace that wrapper on unrelated publications; selecting
-  // the string keeps this hot subtree asleep while still observing a launch
-  // failure that arrives after the optimistic session has been removed.
-  const activationDraftRaw = useRuntimeUiValue(FIRST_TASK_ACTIVATION_DRAFT_KEY)
-  const activationDraft = readFirstTaskDraft(activationDraftRaw)
+  } = useWorkspaceInputs(warmRecency.current, activationDraft.pendingIssueId)
   const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
   // The tab being dragged, for the overlay and for mounting the drop zones only
   // while a drag is in flight.
@@ -829,13 +828,10 @@ export function Workspace({
   // way to own sessions, so the deck of mounted panels is the current workspace's
   // tabs UNION the most-recently-viewed sessions from previously-viewed issues,
   // kept warm up to an LRU cap (3 desktop / 2 mobile). Feeding the warm set the
-  // GLOBAL live-session universe (not just this workspace's tabs) is what lets a
-  // foreign session stay in the recency list across the switch instead of being
-  // pruned the moment its issue leaves the strip — so re-selecting it is a warm
-  // reveal (chat:cache-hit), not a cold panel:mount. Sorted so incidental
-  // reordering of the session list doesn't churn the warm-recompute key. Archived
-  // and dock-owned sessions are excluded (a killed session simply leaves
-  // `sessions`), so an archived/killed foreign panel drops from the deck.
+  // previously visited identities (including foreign sessions) lets recency
+  // survive issue switches without reading every unvisited session. Sorted so
+  // incidental row reordering does not churn the recompute key. Addressed row
+  // subscriptions drop archived, killed, collapsed and dock-owned sessions.
   const knownSessionIds = new Set(
     sessions.filter((s) => !s.archived && !dockShellIds.has(s.sessionId)).map((s) => s.sessionId),
   )
@@ -843,7 +839,7 @@ export function Workspace({
   const activeIds = visiblePanes
     .map((candidate) => candidate.activeTabId)
     .filter((x): x is SessionId => x != null)
-  const warm = useWarmSet(warmUniverse, activeIds)
+  const warm = useWarmSet(warmUniverse, activeIds, warmRecency)
 
   // Closing a tab closes the VIEW. A session tab's session is never archived or
   // otherwise touched by the close itself — that lives in the flight deck now —
@@ -893,7 +889,7 @@ export function Workspace({
   const partialLaunchNeedsRecovery =
     activationDraft.pendingIssueId !== '' &&
     activationDraft.pendingIssueId === selectedIssueId &&
-    !sessions.some((candidate) => candidate.issueId === activationDraft.pendingIssueId)
+    !pendingIssueHasSession
   if (partialLaunchNeedsRecovery) {
     return (
       <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
@@ -928,18 +924,7 @@ export function Workspace({
     // AgentPanel renders it read-only and its exited banner explains the worktree
     // is gone. Only fall back to the placeholder when there's genuinely nothing
     // to show (no selection, or the path has no sessions).
-    const orphan = orphanSessionFor({ selectedWorktree, sessions, paneA })
-    if (orphan)
-      return (
-        <div className="flex min-w-0 flex-1">
-          <AgentPanelBoundary sessionId={orphan.sessionId} active />
-        </div>
-      )
-    return (
-      <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground/70">
-        Select a worktree.
-      </div>
-    )
+    return <OrphanWorkspace selectedWorktree={selectedWorktree} paneA={paneA} />
   }
 
   /**
@@ -1106,6 +1091,22 @@ export function Workspace({
         </div>
       </div>
     </section>
+  )
+}
+
+function OrphanWorkspace({ selectedWorktree, paneA }: {
+  selectedWorktree: string | null
+  paneA: string | null
+}): JSX.Element {
+  const orphan = useOrphanWorkspaceSession(selectedWorktree, paneA)
+  return orphan ? (
+    <div className="flex min-w-0 flex-1">
+      <AgentPanelBoundary sessionId={orphan.sessionId} active />
+    </div>
+  ) : (
+    <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground/70">
+      Select a worktree.
+    </div>
   )
 }
 
