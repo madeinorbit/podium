@@ -1,6 +1,6 @@
 # OLD versus NEW whole-app measurements
 
-CURRENT at 96f705cd4e is a mixed result at 1x: session switching improves 802→389 ms, mark-read 925→139 ms, and issue-page opening 122→73 ms. Cold startup is slower (2291→3391 ms), warm-data reload is slower (1068→2551 ms), and populated project expansion is slower (113→252 ms). This is the first matched pair: eight unprofiled observations per ordinary action and four per startup case. The second pair, 4x, phone, heap and source attribution remain pending, so the whole-app verdict is still open. OLD phone refuses the shared corpus; no relative phone win is established.
+CURRENT at 96f705cd4e is a mixed result at 1x: session switching improves 806→398 ms, mark-read 882→139 ms, and issue-page opening 105→72 ms. Cold startup is slower (2449→3456 ms), warm-data reload is slower (1121→2260 ms), and populated project expansion is slower (93→243 ms). Two matched OLD/CURRENT pairs supply 16 unprofiled observations per ordinary action and eight per startup case. The 4x comparison is next; phone, heap and source attribution remain pending, so the whole-app verdict is still open. OLD phone refuses the shared corpus; no relative phone win is established.
 
 ## Compared applications
 
@@ -10,7 +10,7 @@ CURRENT at 96f705cd4e is a mixed result at 1x: session switching improves 802→
 
 OLD corpus seed 4443: 4,867 issues and 4,304 sessions at 1x; 19,468 issues and 17,216 sessions at 4x. Two real isolated control issues and their live agents exercise mutations. OLD controls are matched to their contemporary NEW build using comparisonArm; later OLD controls are not pooled into the earlier NEW comparison. Both arms consume the same serialized semantic corpus; the per-run digest proves the match. OLD receives its legacy issue and issue-projection rows; NEW receives normalized issue/session personal state and git/machine facts. Optional null strings are omitted to satisfy the production wire schema.
 
-Performance evidence: 12 completed measurement runs and 4 failed measurement runs. 1 failed run(s) retain a separately completed action phase; their failed background preparation contributes no CPU windows. 43 calibration, superseded or diagnostic runs are retained separately and excluded from comparisons.
+Performance evidence: 15 completed measurement runs and 4 failed measurement runs. 1 failed run(s) retain a separately completed action phase; their failed background preparation contributes no CPU windows. 43 calibration, superseded or diagnostic runs are retained separately and excluded from comparisons.
 
 This is a comparison of shipped application revisions, including their other changes and different data representations. It does not isolate MobX as the sole cause. The operator requested NEW be repinned from 22b676a741 to 1aa0ec71f6 during collection, and later requested the current dev/mw operator build be compared first; it is pinned at build time to 96f705cd4e. The deletion revision e22a8b6bd9 remains a separate named snapshot. The earlier 22b676 captures are retained as superseded evidence and do not enter the verdict.
 
@@ -20,32 +20,58 @@ Lower is better. Percent change is `(NEW / OLD − 1) × 100`. Percentiles use n
 
 | Surface | Scale | Action | NEW arm | OLD n | NEW n | OLD median | NEW median | OLD p95 | NEW p95 | Median change | p95 change | OLD max | NEW max | NEW boundary | Verdict |
 |---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
-| web | 1 | app-cold-start | new-current | 4 | 4 | 2,291.5 | 3,391.3 | 2,786.9 | 3,511.8 | 48.0% | 26.0% | 2,786.9 | 3,511.8 | Paint | slower |
-| web | 1 | app-warm-start | new-current | 4 | 4 | 1,068.0 | 2,551.4 | 1,432.9 | 2,716.0 | 138.9% | 89.5% | 1,432.9 | 2,716.0 | Paint | slower |
-| web | 1 | board-open | new-current | 8 | 8 | 308.1 | 404.4 | 322.3 | 597.8 | 31.3% | 85.5% | 322.3 | 597.8 | Paint | slower |
-| web | 1 | board-search | new-current | 8 | 8 | 82.7 | 89.5 | 100.4 | 140.8 | 8.2% | 40.2% | 100.4 | 140.8 | Paint | similar median, worse tail |
-| web | 1 | command-palette | new-current | 8 | 8 | 127.4 | 97.3 | 416.9 | 417.5 | -23.6% | 0.2% | 416.9 | 417.5 | Paint | faster |
-| web | 1 | dock-close | new-current | 8 | 8 | 89.0 | 66.1 | 119.9 | 81.1 | -25.7% | -32.3% | 119.9 | 81.1 | Paint | faster |
-| web | 1 | dock-open | new-current | 8 | 8 | 109.9 | 84.0 | 137.6 | 108.4 | -23.5% | -21.2% | 137.6 | 108.4 | Paint | faster |
-| web | 1 | flight-deck-collapse | new-current | 8 | 8 | 36.8 | 55.0 | 57.2 | 85.3 | 49.4% | 49.2% | 57.2 | 85.3 | Paint | slower |
-| web | 1 | flight-deck-expand | new-current | 8 | 8 | 51.8 | 48.9 | 56.3 | 60.5 | -5.7% | 7.6% | 56.3 | 60.5 | Paint | no clear improvement |
-| web | 1 | header-menu | new-current | 8 | 8 | 45.3 | 36.5 | 103.2 | 61.2 | -19.4% | -40.7% | 103.2 | 61.2 | Paint | faster |
-| web | 1 | issue-page-open | new-current | 8 | 8 | 121.9 | 73.0 | 208.5 | 119.4 | -40.1% | -42.7% | 208.5 | 119.4 | Paint | faster |
-| web | 1 | issue-picker-search | new-current | 8 | 8 | 30.0 | 69.8 | 56.7 | 141.3 | 132.6% | 149.3% | 56.7 | 141.3 | Paint | slower |
-| web | 1 | issue-rename | new-current | 8 | 8 | 276.8 | 35.3 | 610.0 | 50.0 | -87.3% | -91.8% | 610.0 | 50.0 | Paint | faster |
-| web | 1 | large-mission-switch | new-current | 8 | 8 | 768.5 | 572.9 | 1,310.6 | 1,251.3 | -25.5% | -4.5% | 1,310.6 | 1,251.3 | Paint | faster |
-| web | 1 | mark-read | new-current | 8 | 8 | 925.3 | 139.0 | 2,144.8 | 192.7 | -85.0% | -91.0% | 2,144.8 | 192.7 | Paint | faster |
-| web | 1 | mission-switch | new-current | 8 | 8 | 380.3 | 235.3 | 427.1 | 267.3 | -38.1% | -37.4% | 427.1 | 267.3 | Paint | faster |
+| web | 1 | app-cold-start | new-current | 8 | 8 | 2,449.4 | 3,456.1 | 2,786.9 | 4,246.5 | 41.1% | 52.4% | 2,786.9 | 4,246.5 | Paint | slower |
+| web | 1 | app-warm-start | new-current | 8 | 8 | 1,121.5 | 2,260.4 | 1,432.9 | 2,716.0 | 101.6% | 89.5% | 1,432.9 | 2,716.0 | Paint | slower |
+| web | 1 | board-open | new-current | 16 | 16 | 291.6 | 383.1 | 322.3 | 597.8 | 31.3% | 85.5% | 322.3 | 597.8 | Paint | slower |
+| web | 1 | board-search | new-current | 16 | 16 | 58.5 | 89.5 | 100.4 | 144.2 | 53.0% | 43.6% | 100.4 | 144.2 | Paint | slower |
+| web | 1 | command-palette | new-current | 16 | 16 | 96.7 | 135.5 | 416.9 | 451.1 | 40.1% | 8.2% | 416.9 | 451.1 | Paint | slower |
+| web | 1 | dock-close | new-current | 16 | 16 | 76.3 | 66.1 | 119.9 | 81.1 | -13.4% | -32.3% | 119.9 | 81.1 | Paint | faster |
+| web | 1 | dock-open | new-current | 16 | 16 | 98.7 | 75.2 | 137.6 | 108.4 | -23.8% | -21.2% | 137.6 | 108.4 | Paint | faster |
+| web | 1 | flight-deck-collapse | new-current | 16 | 16 | 36.9 | 64.2 | 57.2 | 89.6 | 74.0% | 56.8% | 57.2 | 89.6 | Paint | slower |
+| web | 1 | flight-deck-expand | new-current | 16 | 16 | 53.1 | 53.7 | 65.0 | 72.8 | 1.1% | 12.1% | 65.0 | 72.8 | Paint | similar median, worse tail |
+| web | 1 | header-menu | new-current | 16 | 16 | 33.9 | 33.2 | 103.2 | 61.2 | -2.2% | -40.7% | 103.2 | 61.2 | Paint | no clear improvement |
+| web | 1 | issue-page-open | new-current | 16 | 16 | 105.2 | 71.6 | 208.5 | 119.4 | -31.9% | -42.7% | 208.5 | 119.4 | Paint | faster |
+| web | 1 | issue-picker-search | new-current | 16 | 16 | 22.6 | 53.3 | 56.7 | 141.3 | 135.7% | 149.3% | 56.7 | 141.3 | Paint | slower |
+| web | 1 | issue-rename | new-current | 16 | 16 | 276.8 | 36.1 | 610.0 | 50.0 | -87.0% | -91.8% | 610.0 | 50.0 | Paint | faster |
+| web | 1 | large-mission-switch | new-current | 16 | 16 | 750.1 | 624.3 | 1,310.6 | 1,439.9 | -16.8% | 9.9% | 1,310.6 | 1,439.9 | Paint | faster |
+| web | 1 | mark-read | new-current | 16 | 16 | 882.1 | 139.0 | 2,144.8 | 254.8 | -84.2% | -88.1% | 2,144.8 | 254.8 | Paint | faster |
+| web | 1 | mission-switch | new-current | 16 | 16 | 369.2 | 237.5 | 427.1 | 279.4 | -35.7% | -34.6% | 427.1 | 279.4 | Paint | faster |
 | web | 1 | session-composer-typing | new-current | 0 | 0 | — | — | — | — | — | — | — | — |  | not measured |
-| web | 1 | session-switch | new-current | 8 | 8 | 802.4 | 388.8 | 1,059.8 | 770.1 | -51.5% | -27.3% | 1,059.8 | 770.1 | Paint | faster |
-| web | 1 | sidebar-collapse | new-current | 8 | 8 | 82.4 | 97.4 | 110.4 | 122.5 | 18.2% | 11.0% | 110.4 | 122.5 | Paint | slower |
-| web | 1 | sidebar-drag-drop | new-current | 8 | 8 | 228.4 | 93.6 | 261.5 | 195.0 | -59.0% | -25.4% | 261.5 | 195.0 | Paint | faster |
-| web | 1 | sidebar-drag-start | new-current | 8 | 8 | 23.6 | 35.3 | 31.6 | 42.7 | 49.4% | 35.5% | 31.6 | 42.7 | Paint | slower |
-| web | 1 | sidebar-expand | new-current | 8 | 8 | 160.9 | 198.7 | 189.6 | 215.9 | 23.5% | 13.9% | 189.6 | 215.9 | Paint | slower |
-| web | 1 | sidebar-group-collapse | new-current | 8 | 8 | 44.6 | 82.3 | 59.5 | 88.0 | 84.6% | 47.9% | 59.5 | 88.0 | Paint | slower |
-| web | 1 | sidebar-group-expand | new-current | 8 | 8 | 112.7 | 252.4 | 131.6 | 321.1 | 123.9% | 144.0% | 131.6 | 321.1 | Paint | slower |
-| web | 1 | sidebar-select | new-current | 8 | 8 | 264.7 | 168.0 | 433.3 | 256.2 | -36.5% | -40.9% | 433.3 | 256.2 | Paint | faster |
-| web | 1 | superagent-composer-typing | new-current | 8 | 8 | 12.8 | 11.0 | 20.2 | 58.5 | -14.6% | 190.0% | 20.2 | 58.5 | Paint | faster median, worse tail |
+| web | 1 | session-switch | new-current | 16 | 16 | 806.0 | 398.1 | 1,059.8 | 770.1 | -50.6% | -27.3% | 1,059.8 | 770.1 | Paint | faster |
+| web | 1 | sidebar-collapse | new-current | 16 | 16 | 91.4 | 103.0 | 139.5 | 148.9 | 12.7% | 6.7% | 139.5 | 148.9 | Paint | slower |
+| web | 1 | sidebar-drag-drop | new-current | 16 | 16 | 231.5 | 93.6 | 261.5 | 241.7 | -59.6% | -7.6% | 261.5 | 241.7 | Paint | faster |
+| web | 1 | sidebar-drag-start | new-current | 16 | 16 | 24.7 | 33.3 | 44.0 | 44.7 | 34.6% | 1.6% | 44.0 | 44.7 | Paint | slower |
+| web | 1 | sidebar-expand | new-current | 16 | 16 | 176.3 | 204.3 | 297.6 | 246.9 | 15.9% | -17.1% | 297.6 | 246.9 | Paint | slower |
+| web | 1 | sidebar-group-collapse | new-current | 16 | 16 | 42.6 | 67.8 | 59.5 | 88.0 | 59.2% | 47.9% | 59.5 | 88.0 | Paint | slower |
+| web | 1 | sidebar-group-expand | new-current | 16 | 16 | 93.2 | 242.8 | 131.6 | 339.7 | 160.4% | 158.1% | 131.6 | 339.7 | Paint | slower |
+| web | 1 | sidebar-select | new-current | 16 | 16 | 320.6 | 151.7 | 511.7 | 256.2 | -52.7% | -49.9% | 511.7 | 256.2 | Paint | faster |
+| web | 1 | superagent-composer-typing | new-current | 16 | 16 | 12.4 | 12.0 | 20.2 | 58.5 | -3.8% | 190.0% | 20.2 | 58.5 | Paint | similar median, worse tail |
+| web | 4 | app-cold-start | new-current | 4 | 0 | 6,895.0 | — | 7,583.0 | — | — | — | 7,583.0 | — |  | not comparable |
+| web | 4 | app-warm-start | new-current | 4 | 0 | 4,002.1 | — | 4,425.7 | — | — | — | 4,425.7 | — |  | not comparable |
+| web | 4 | board-open | new-current | 8 | 0 | 749.2 | — | 3,183.7 | — | — | — | 3,183.7 | — |  | not comparable |
+| web | 4 | board-search | new-current | 8 | 0 | 142.3 | — | 187.2 | — | — | — | 187.2 | — |  | not comparable |
+| web | 4 | command-palette | new-current | 8 | 0 | 276.1 | — | 654.4 | — | — | — | 654.4 | — |  | not comparable |
+| web | 4 | dock-close | new-current | 8 | 0 | 219.8 | — | 2,015.4 | — | — | — | 2,015.4 | — |  | not comparable |
+| web | 4 | dock-open | new-current | 8 | 0 | 265.3 | — | 324.3 | — | — | — | 324.3 | — |  | not comparable |
+| web | 4 | flight-deck-collapse | new-current | 8 | 0 | 127.8 | — | 177.2 | — | — | — | 177.2 | — |  | not comparable |
+| web | 4 | flight-deck-expand | new-current | 8 | 0 | 175.2 | — | 215.2 | — | — | — | 215.2 | — |  | not comparable |
+| web | 4 | header-menu | new-current | 8 | 0 | 59.5 | — | 147.3 | — | — | — | 147.3 | — |  | not comparable |
+| web | 4 | issue-page-open | new-current | 8 | 0 | 348.8 | — | 406.5 | — | — | — | 406.5 | — |  | not comparable |
+| web | 4 | issue-picker-search | new-current | 8 | 0 | 53.2 | — | 92.0 | — | — | — | 92.0 | — |  | not comparable |
+| web | 4 | issue-rename | new-current | 8 | 0 | 2,288.8 | — | 3,424.6 | — | — | — | 3,424.6 | — |  | not comparable |
+| web | 4 | large-mission-switch | new-current | 8 | 0 | 3,485.1 | — | 4,255.0 | — | — | — | 4,255.0 | — |  | not comparable |
+| web | 4 | mark-read | new-current | 8 | 0 | 10,021.7 | — | 15,590.7 | — | — | — | 15,590.7 | — |  | not comparable |
+| web | 4 | mission-switch | new-current | 8 | 0 | 2,512.3 | — | 2,810.4 | — | — | — | 2,810.4 | — |  | not comparable |
+| web | 4 | session-composer-typing | new-current | 0 | 0 | — | — | — | — | — | — | — | — |  | not measured |
+| web | 4 | session-switch | new-current | 8 | 0 | 5,537.2 | — | 6,177.3 | — | — | — | 6,177.3 | — |  | not comparable |
+| web | 4 | sidebar-collapse | new-current | 8 | 0 | 351.9 | — | 497.7 | — | — | — | 497.7 | — |  | not comparable |
+| web | 4 | sidebar-drag-drop | new-current | 8 | 0 | 2,299.7 | — | 2,587.4 | — | — | — | 2,587.4 | — |  | not comparable |
+| web | 4 | sidebar-drag-start | new-current | 8 | 0 | 85.6 | — | 102.0 | — | — | — | 102.0 | — |  | not comparable |
+| web | 4 | sidebar-expand | new-current | 8 | 0 | 830.9 | — | 1,244.1 | — | — | — | 1,244.1 | — |  | not comparable |
+| web | 4 | sidebar-group-collapse | new-current | 8 | 0 | 126.2 | — | 148.2 | — | — | — | 148.2 | — |  | not comparable |
+| web | 4 | sidebar-group-expand | new-current | 8 | 0 | 279.6 | — | 350.1 | — | — | — | 350.1 | — |  | not comparable |
+| web | 4 | sidebar-select | new-current | 8 | 0 | 2,109.4 | — | 2,510.4 | — | — | — | 2,510.4 | — |  | not comparable |
+| web | 4 | superagent-composer-typing | new-current | 8 | 0 | 32.8 | — | 41.7 | — | — | — | 41.7 | — |  | not comparable |
 | phone | 1 | app-cold-start | new | 0 | 8 | — | 4,032.0 | — | 5,152.1 | — | — | — | 5,152.1 | Paint | not comparable |
 | phone | 1 | app-warm-start | new | 0 | 8 | — | 2,701.5 | — | 3,921.7 | — | — | — | 3,921.7 | Paint | not comparable |
 | phone | 1 | phone-composer-typing | new | 0 | 16 | — | 14.9 | — | 21.5 | — | — | — | 21.5 | Paint | not comparable |
@@ -131,32 +157,58 @@ Main-thread CPU uses Chromium trace thread timestamps (tts/tdur), from the trust
 
 | Surface | Scale | Action | NEW arm | OLD CPU median | NEW CPU median | Median change | OLD CPU p95 | NEW CPU p95 | OLD CPU max | NEW CPU max | OLD layout CPU | NEW layout CPU |
 |---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| web | 1 | app-cold-start | new-current | 1,700.1 | 2,780.7 | 63.6% | 1,957.0 | 2,811.0 | 1,957.0 | 2,811.0 | 92.8 | 82.4 |
-| web | 1 | app-warm-start | new-current | 790.0 | 1,741.9 | 120.5% | 915.9 | 1,932.5 | 915.9 | 1,932.5 | 61.5 | 55.5 |
-| web | 1 | board-open | new-current | 249.1 | 316.6 | 27.1% | 268.6 | 350.5 | 268.6 | 350.5 | 60.5 | 64.2 |
-| web | 1 | board-search | new-current | 64.3 | 89.1 | 38.5% | 84.7 | 136.1 | 84.7 | 136.1 | 9.3 | 8.1 |
-| web | 1 | command-palette | new-current | 93.2 | 79.4 | -14.9% | 235.3 | 363.8 | 235.3 | 363.8 | 6.8 | 6.7 |
-| web | 1 | dock-close | new-current | 60.1 | 52.0 | -13.5% | 82.1 | 57.9 | 82.1 | 57.9 | 3.6 | 3.1 |
-| web | 1 | dock-open | new-current | 76.2 | 64.1 | -15.8% | 97.5 | 74.5 | 97.5 | 74.5 | 3.7 | 3.8 |
+| web | 1 | app-cold-start | new-current | 1,671.8 | 2,780.7 | 66.3% | 1,957.0 | 3,005.3 | 1,957.0 | 3,005.3 | 81.8 | 82.4 |
+| web | 1 | app-warm-start | new-current | 776.4 | 1,720.6 | 121.6% | 915.9 | 1,932.5 | 915.9 | 1,932.5 | 62.6 | 55.5 |
+| web | 1 | board-open | new-current | 246.5 | 316.6 | 28.4% | 268.6 | 350.5 | 268.6 | 350.5 | 60.2 | 64.0 |
+| web | 1 | board-search | new-current | 55.9 | 89.1 | 59.2% | 84.7 | 141.6 | 84.7 | 141.6 | 8.6 | 8.5 |
+| web | 1 | command-palette | new-current | 87.3 | 120.1 | 37.6% | 253.9 | 363.8 | 253.9 | 363.8 | 6.2 | 6.7 |
+| web | 1 | dock-close | new-current | 60.1 | 52.0 | -13.5% | 89.1 | 57.9 | 89.1 | 57.9 | 3.3 | 3.2 |
+| web | 1 | dock-open | new-current | 74.4 | 60.6 | -18.6% | 97.5 | 83.8 | 97.5 | 83.8 | 3.7 | 3.8 |
 | web | 1 | flight-deck-collapse | new-current | 30.9 | 42.4 | 37.5% | 44.8 | 56.9 | 44.8 | 56.9 | 1.6 | 3.5 |
-| web | 1 | flight-deck-expand | new-current | 41.9 | 34.6 | -17.3% | 47.5 | 43.2 | 47.5 | 43.2 | 4.4 | 4.5 |
-| web | 1 | header-menu | new-current | 21.5 | 23.6 | 9.7% | 50.1 | 46.5 | 50.1 | 46.5 | 4.3 | 4.5 |
-| web | 1 | issue-page-open | new-current | 83.3 | 59.9 | -28.1% | 122.4 | 98.7 | 122.4 | 98.7 | 28.5 | 28.2 |
-| web | 1 | issue-picker-search | new-current | 22.2 | 41.8 | 87.9% | 34.5 | 54.7 | 34.5 | 54.7 | 3.8 | 5.5 |
-| web | 1 | issue-rename | new-current | 219.1 | 28.8 | -86.9% | 254.2 | 35.1 | 254.2 | 35.1 | 2.3 | 2.2 |
-| web | 1 | large-mission-switch | new-current | 664.8 | 539.8 | -18.8% | 1,197.9 | 1,178.1 | 1,197.9 | 1,178.1 | 139.4 | 167.2 |
-| web | 1 | mark-read | new-current | 883.2 | 86.8 | -90.2% | 1,541.6 | 99.5 | 1,541.6 | 99.5 | 6.3 | 4.1 |
-| web | 1 | mission-switch | new-current | 346.7 | 189.6 | -45.3% | 366.1 | 221.9 | 366.1 | 221.9 | 52.6 | 57.2 |
+| web | 1 | flight-deck-expand | new-current | 43.0 | 34.1 | -20.8% | 51.9 | 45.2 | 51.9 | 45.2 | 4.4 | 4.5 |
+| web | 1 | header-menu | new-current | 20.2 | 22.0 | 9.1% | 50.1 | 46.5 | 50.1 | 46.5 | 4.0 | 4.4 |
+| web | 1 | issue-page-open | new-current | 83.3 | 59.1 | -29.1% | 139.9 | 101.5 | 139.9 | 101.5 | 28.8 | 28.0 |
+| web | 1 | issue-picker-search | new-current | 20.7 | 30.3 | 46.6% | 34.5 | 54.7 | 34.5 | 54.7 | 3.6 | 4.7 |
+| web | 1 | issue-rename | new-current | 219.1 | 29.7 | -86.4% | 282.0 | 35.1 | 282.0 | 35.1 | 2.3 | 2.3 |
+| web | 1 | large-mission-switch | new-current | 664.8 | 539.8 | -18.8% | 1,197.9 | 1,178.1 | 1,197.9 | 1,178.1 | 139.4 | 161.3 |
+| web | 1 | mark-read | new-current | 839.2 | 79.2 | -90.6% | 1,541.6 | 107.4 | 1,541.6 | 107.4 | 5.8 | 3.8 |
+| web | 1 | mission-switch | new-current | 336.7 | 184.3 | -45.3% | 366.1 | 221.9 | 366.1 | 221.9 | 52.0 | 54.7 |
 | web | 1 | session-composer-typing | new-current | — | — | — | — | — | — | — | — | — |
-| web | 1 | session-switch | new-current | 746.3 | 149.7 | -79.9% | 867.5 | 360.8 | 867.5 | 360.8 | 33.5 | 33.3 |
-| web | 1 | sidebar-collapse | new-current | 77.3 | 88.0 | 13.9% | 90.5 | 112.3 | 90.5 | 112.3 | 16.7 | 15.1 |
-| web | 1 | sidebar-drag-drop | new-current | 27.9 | 29.9 | 7.1% | 40.1 | 115.4 | 40.1 | 115.4 | 3.6 | 3.6 |
-| web | 1 | sidebar-drag-start | new-current | 20.7 | 28.2 | 36.5% | 26.2 | 32.2 | 26.2 | 32.2 | 1.4 | 1.5 |
-| web | 1 | sidebar-expand | new-current | 156.5 | 180.8 | 15.5% | 184.6 | 187.3 | 184.6 | 187.3 | 41.9 | 39.5 |
-| web | 1 | sidebar-group-collapse | new-current | 37.8 | 61.6 | 63.0% | 45.0 | 66.5 | 45.0 | 66.5 | 1.4 | 1.6 |
-| web | 1 | sidebar-group-expand | new-current | 109.0 | 221.7 | 103.5% | 119.9 | 264.6 | 119.9 | 264.6 | 25.8 | 25.5 |
-| web | 1 | sidebar-select | new-current | 252.5 | 129.7 | -48.6% | 329.1 | 166.3 | 329.1 | 166.3 | 36.4 | 38.7 |
-| web | 1 | superagent-composer-typing | new-current | 11.5 | 9.9 | -13.9% | 13.6 | 28.9 | 13.6 | 28.9 | 2.1 | 2.3 |
+| web | 1 | session-switch | new-current | 746.3 | 149.7 | -79.9% | 867.5 | 360.8 | 867.5 | 360.8 | 31.6 | 33.7 |
+| web | 1 | sidebar-collapse | new-current | 79.5 | 92.9 | 16.9% | 104.4 | 139.6 | 104.4 | 139.6 | 18.1 | 16.5 |
+| web | 1 | sidebar-drag-drop | new-current | 27.3 | 29.3 | 7.6% | 40.1 | 115.4 | 40.1 | 115.4 | 3.6 | 3.9 |
+| web | 1 | sidebar-drag-start | new-current | 21.3 | 27.4 | 28.8% | 36.6 | 32.6 | 36.6 | 32.6 | 1.5 | 1.5 |
+| web | 1 | sidebar-expand | new-current | 162.5 | 184.4 | 13.5% | 199.4 | 242.3 | 199.4 | 242.3 | 43.4 | 42.1 |
+| web | 1 | sidebar-group-collapse | new-current | 34.9 | 53.1 | 52.3% | 45.0 | 66.5 | 45.0 | 66.5 | 1.4 | 1.5 |
+| web | 1 | sidebar-group-expand | new-current | 88.7 | 219.7 | 147.5% | 119.9 | 264.6 | 119.9 | 264.6 | 23.2 | 25.5 |
+| web | 1 | sidebar-select | new-current | 260.7 | 128.1 | -50.9% | 334.8 | 169.0 | 334.8 | 169.0 | 37.3 | 36.5 |
+| web | 1 | superagent-composer-typing | new-current | 11.5 | 10.6 | -8.0% | 18.4 | 28.9 | 18.4 | 28.9 | 2.1 | 2.7 |
+| web | 4 | app-cold-start | new-current | 5,515.0 | — | — | 5,742.2 | — | 5,742.2 | — | 216.9 | — |
+| web | 4 | app-warm-start | new-current | 3,228.3 | — | — | 3,846.2 | — | 3,846.2 | — | 169.8 | — |
+| web | 4 | board-open | new-current | 683.9 | — | — | 912.5 | — | 912.5 | — | 154.2 | — |
+| web | 4 | board-search | new-current | 141.5 | — | — | 185.7 | — | 185.7 | — | 11.0 | — |
+| web | 4 | command-palette | new-current | 261.5 | — | — | 618.7 | — | 618.7 | — | 8.9 | — |
+| web | 4 | dock-close | new-current | 179.8 | — | — | 224.3 | — | 224.3 | — | 5.5 | — |
+| web | 4 | dock-open | new-current | 225.5 | — | — | 286.9 | — | 286.9 | — | 5.4 | — |
+| web | 4 | flight-deck-collapse | new-current | 110.0 | — | — | 141.0 | — | 141.0 | — | 2.7 | — |
+| web | 4 | flight-deck-expand | new-current | 131.4 | — | — | 152.5 | — | 152.5 | — | 7.2 | — |
+| web | 4 | header-menu | new-current | 32.6 | — | — | 92.7 | — | 92.7 | — | 5.7 | — |
+| web | 4 | issue-page-open | new-current | 305.0 | — | — | 366.9 | — | 366.9 | — | 92.9 | — |
+| web | 4 | issue-picker-search | new-current | 48.6 | — | — | 60.1 | — | 60.1 | — | 7.8 | — |
+| web | 4 | issue-rename | new-current | 2,060.0 | — | — | 3,414.2 | — | 3,414.2 | — | 4.1 | — |
+| web | 4 | large-mission-switch | new-current | 3,423.9 | — | — | 4,121.8 | — | 4,121.8 | — | 215.2 | — |
+| web | 4 | mark-read | new-current | 9,812.1 | — | — | 14,962.3 | — | 14,962.3 | — | 34.8 | — |
+| web | 4 | mission-switch | new-current | 2,423.9 | — | — | 2,716.3 | — | 2,716.3 | — | 151.2 | — |
+| web | 4 | session-composer-typing | new-current | — | — | — | — | — | — | — | — | — |
+| web | 4 | session-switch | new-current | 5,455.7 | — | — | 6,101.5 | — | 6,101.5 | — | 111.9 | — |
+| web | 4 | sidebar-collapse | new-current | 332.5 | — | — | 480.8 | — | 480.8 | — | 59.0 | — |
+| web | 4 | sidebar-drag-drop | new-current | 94.1 | — | — | 183.9 | — | 183.9 | — | 12.4 | — |
+| web | 4 | sidebar-drag-start | new-current | 72.1 | — | — | 83.6 | — | 83.6 | — | 2.3 | — |
+| web | 4 | sidebar-expand | new-current | 810.0 | — | — | 1,235.7 | — | 1,235.7 | — | 150.3 | — |
+| web | 4 | sidebar-group-collapse | new-current | 98.9 | — | — | 109.6 | — | 109.6 | — | 2.8 | — |
+| web | 4 | sidebar-group-expand | new-current | 252.2 | — | — | 303.6 | — | 303.6 | — | 33.6 | — |
+| web | 4 | sidebar-select | new-current | 2,072.8 | — | — | 2,442.6 | — | 2,442.6 | — | 113.4 | — |
+| web | 4 | superagent-composer-typing | new-current | 31.4 | — | — | 37.6 | — | 37.6 | — | 5.1 | — |
 | phone | 1 | app-cold-start | new | — | 3,153.1 | — | — | 3,902.1 | — | 3,902.1 | — | 44.4 |
 | phone | 1 | app-warm-start | new | — | 2,015.8 | — | — | 2,258.4 | — | 2,258.4 | — | 57.3 |
 | phone | 1 | phone-composer-typing | new | — | 14.0 | — | — | 17.6 | — | 17.6 | — | 1.4 |
@@ -261,27 +313,35 @@ Update CPU is the CDP main-thread TaskDuration delta with Performance.enable(tim
 | new | web | 4 | issue-change | 10 | 276.2 | 296.0 |
 | new | web | 4 | quiet | 8 | 29.4 | 97.7 |
 | new | web | 4 | session-output | 10 | 59.5 | 104.2 |
-| new-current | web | 1 | heartbeat | 10 | 51.9 | 69.8 |
-| new-current | web | 1 | issue-change | 10 | 28.8 | 85.7 |
-| new-current | web | 1 | quiet | 8 | 16.9 | 23.0 |
-| new-current | web | 1 | session-output | 10 | 24.0 | 36.7 |
+| new-current | web | 1 | heartbeat | 20 | 50.0 | 69.8 |
+| new-current | web | 1 | issue-change | 20 | 27.9 | 49.6 |
+| new-current | web | 1 | quiet | 16 | 16.9 | 30.5 |
+| new-current | web | 1 | session-output | 20 | 24.0 | 36.8 |
 | old → new | web | 4 | heartbeat | 10 | 1,300.2 | 1,382.7 |
 | old → new | web | 4 | issue-change | 10 | 1,456.3 | 1,594.7 |
 | old → new | web | 4 | quiet | 8 | 1,188.7 | 2,508.1 |
 | old → new | web | 4 | session-output | 10 | 39.6 | 370.1 |
-| old → new-current | web | 1 | heartbeat | 10 | 198.3 | 215.2 |
-| old → new-current | web | 1 | issue-change | 10 | 197.5 | 219.8 |
-| old → new-current | web | 1 | quiet | 8 | 8.5 | 17.9 |
-| old → new-current | web | 1 | session-output | 10 | 24.2 | 37.2 |
+| old → new-current | web | 1 | heartbeat | 20 | 188.4 | 209.3 |
+| old → new-current | web | 1 | issue-change | 20 | 185.9 | 213.6 |
+| old → new-current | web | 1 | quiet | 16 | 7.3 | 288.6 |
+| old → new-current | web | 1 | session-output | 20 | 21.5 | 34.7 |
+| old → new-current | web | 4 | heartbeat | 10 | 1,316.0 | 3,022.9 |
+| old → new-current | web | 4 | issue-change | 10 | 1,322.3 | 1,430.6 |
+| old → new-current | web | 4 | quiet | 8 | 820.2 | 1,479.5 |
+| old → new-current | web | 4 | session-output | 10 | 42.8 | 74.0 |
 
 Matched update-window comparisons, without subtracting quiet-window CPU:
 
 | Surface | Scale | NEW arm | Update | n OLD/NEW | OLD CPU median ms | NEW CPU median ms | Change | OLD p95 | NEW p95 | OLD window ms | NEW window ms |
 |---|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|
-| web | 1 | new-current | quiet | 8/8 | 8.5 | 16.9 | 99.0% | 17.9 | 23.0 | 233.2 | 223.3 |
-| web | 1 | new-current | heartbeat | 10/10 | 198.3 | 51.9 | -73.8% | 215.2 | 69.8 | 289.9 | 226.9 |
-| web | 1 | new-current | session-output | 10/10 | 24.2 | 24.0 | -0.6% | 37.2 | 36.7 | 235.6 | 224.8 |
-| web | 1 | new-current | issue-change | 10/10 | 197.5 | 28.8 | -85.4% | 219.8 | 85.7 | 257.8 | 231.6 |
+| web | 1 | new-current | quiet | 16/16 | 7.3 | 16.9 | 132.2% | 288.6 | 30.5 | 229.6 | 223.9 |
+| web | 1 | new-current | heartbeat | 20/20 | 188.4 | 50.0 | -73.4% | 209.3 | 69.8 | 253.7 | 227.1 |
+| web | 1 | new-current | session-output | 20/20 | 21.5 | 24.0 | 11.8% | 34.7 | 36.8 | 232.1 | 224.8 |
+| web | 1 | new-current | issue-change | 20/20 | 185.9 | 27.9 | -85.0% | 213.6 | 49.6 | 240.2 | 224.8 |
+| web | 4 | new-current | quiet | 8/0 | 820.2 | — | — | 1,479.5 | — | 833.9 | — |
+| web | 4 | new-current | heartbeat | 10/0 | 1,316.0 | — | — | 3,022.9 | — | 1,353.6 | — |
+| web | 4 | new-current | session-output | 10/0 | 42.8 | — | — | 74.0 | — | 226.5 | — |
+| web | 4 | new-current | issue-change | 10/0 | 1,322.3 | — | — | 1,430.6 | — | 1,361.3 | — |
 | phone | 1 | new | quiet | 0/16 | — | 3.1 | — | — | 8.3 | — | 227.4 |
 | phone | 1 | new | heartbeat | 0/20 | — | 46.6 | — | — | 58.6 | — | 225.3 |
 | phone | 1 | new | session-output | 0/20 | — | 12.6 | — | — | 16.4 | — | 228.5 |
@@ -301,6 +361,8 @@ The **observed** profile approximates the [September 18 operator publication cen
 |---|---|---:|---|---:|---|---:|---:|
 | new-current | web | 1 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 4,409.3 | 7.3 |
 | new-current | web | 1 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 5,248.3 | 8.7 |
+| new-current | web | 1 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 4,270.3 | 7.1 |
+| new-current | web | 1 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 5,131.2 | 8.6 |
 | new | phone | 1 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 1,502.3 | 2.5 |
 | new | phone | 1 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 3,461.3 | 5.8 |
 | new | phone | 1 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 1,395.3 | 2.3 |
@@ -311,15 +373,21 @@ The **observed** profile approximates the [September 18 operator publication cen
 | new | web | 4 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 26,515.6 | 44.2 |
 | old | web | 1 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 5,473.8 | 9.1 |
 | old | web | 1 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 11,137.2 | 18.6 |
+| old | web | 1 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 4,993.4 | 8.3 |
+| old | web | 1 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 10,257.6 | 17.1 |
 | old | web | 4 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 28,310.2 | 47.2 |
 | old | web | 4 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 54,803.7 | 91.3 |
+| old | web | 4 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 26,315.1 | 43.9 |
+| old | web | 4 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 56,813.3 | 94.7 |
 
 Median of the separate 60-second windows:
 
 | Surface | Scale | NEW arm | Profile | n OLD/NEW | OLD one-core CPU % | NEW one-core CPU % | Change |
 |---|---:|---|---|---|---:|---:|---:|
-| web | 1 | new-current | observed | 1/1 | 9.1 | 7.3 | -19.4% |
-| web | 1 | new-current | busy | 1/1 | 18.6 | 8.7 | -52.9% |
+| web | 1 | new-current | observed | 2/2 | 8.7 | 7.2 | -17.1% |
+| web | 1 | new-current | busy | 2/2 | 17.8 | 8.6 | -51.5% |
+| web | 4 | new-current | observed | 1/0 | 43.9 | — | — |
+| web | 4 | new-current | busy | 1/0 | 94.7 | — | — |
 | phone | 1 | new | observed | 0/2 | — | 2.4 | — |
 | phone | 1 | new | busy | 0/2 | — | 6.0 | — |
 | phone | 4 | new | observed | 0/1 | — | 7.5 | — |
@@ -345,6 +413,10 @@ Consequently OLD has **no phone latency, action CPU, incoming-update CPU, connec
 
 Inbox has no production route/tab in the measured revisions. Its detached component is excluded. The desktop session Chat composer is not available in the isolated agent fixture, despite advertising transcript capability; its typing latency is unavailable in both arms. The desktop global Superagent composer and phone mission composer are measured. This leaves session Chat typing and Inbox performance unresolved.
 
+The web issue-picker-search row measures task-result search in the Control+k command palette combobox. The phone issue-picker row measures the mission parent picker. These are different production controls; neither row claims editor mention-picker coverage. Real server updates continue to pass through the relay alongside the synthetic replay. Busy idle windows record upstream counter snapshots; the historical-rate windows do not separately count incidental upstream frames. Thus the recipe describes injected rates, not the entire observed traffic rate.
+
+Performance regressions are recorded separately from this measurement work: POD-5513 covers startup, POD-5514 covers palette opening and populated group expansion, and POD-5555 records repeated Tasks-board opening. POD-5371 concerns initial board-index attachment. No product fixes are included here.
+
 - NEW phone 1x: **phone-inbox** — Error: No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement
 - NEW phone 4x: **phone-inbox** — Error: No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement
 - NEW web 1x: **large-mission-switch** — TimeoutError: waitForFunction: Timeout 20000ms exceeded.
@@ -361,7 +433,7 @@ Individual failed attempts, diagnostics, exclusions and exact errors remain in t
 
 The first current OLD and NEW 1x large-mission attempts loaded the same incorrect collector witness: the mission root is a header, while the tested row attribute belongs to its children. Those attempts have no large-mission latency and remain collector failures, not application defects. Corrected second rounds supply eight samples for each arm in that cell. Other actions from the first runs remain valid.
 
-The first 1x background windows are excluded from background comparisons because OLD issue updates omitted the legacy issue row and the action workflow could leave different resident panes. Four dedicated background-only captures repeat OLD/NEW/OLD/NEW with complete logical issue updates and fresh matched UI contexts. All later background windows use that corrected recipe. Original observations remain raw; these are collector corrections, not product changes.
+The first baseline 1x background windows are excluded because OLD issue updates omitted the legacy issue row and the action workflow could leave different resident panes. Replacement background-only captures use OLD/NEW/OLD/NEW with complete logical issue updates and fresh matched UI contexts; only completed replacements enter the table. All CURRENT background windows use that corrected recipe. Original observations remain raw; these are collector corrections, not product changes.
 
 The first OLD 4x run also lost sidebar-selection samples when its unmeasured preparation exceeded the initial 10-second allowance. Its first large-root selector chose i4089, whose deferUntil is in November; the Work sidebar correctly hides that mission. Later collectors allow 60 seconds for preparation and choose the two largest roots that are not deferred or tucked. The project-fold corpus repository stays unchanged. The table reports available counts for those two cells. These missing attempts do not enter latency statistics.
 
@@ -374,6 +446,8 @@ Rendered DOM counts describe the work selected by each revision; they are not vi
 |---|---:|---:|---|---:|---|---|---:|---:|
 | new-current | 1 | 30 | i1543 | 117 | 117 | i1766 | 306 | 176 |
 | new-current | 1 | 30 | i1543 | 117 | 117 | i938 | 186 | 106 |
+| new-current | 1 | 31 | i1543 | 117 | 117 | i1766 | 306 | 176 |
+| new-current | 1 | 31 | i1543 | 117 | 117 | i938 | 186 | 106 |
 | new | 1 | 10 | i1543 | 117 | 117 | — | — | — |
 | new | 1 | 11 | i1543 | 117 | 117 | i1766 | 306 | 176 |
 | new | 1 | 11 | i1543 | 117 | 117 | i938 | 186 | 106 |
@@ -386,9 +460,13 @@ Rendered DOM counts describe the work selected by each revision; they are not vi
 | old | 1 | 11 | i1543 | 112 | repo-000112 | i938 | 186 | 106 |
 | old | 1 | 30 | i1543 | 112 | repo-000112 | i1766 | 306 | 176 |
 | old | 1 | 30 | i1543 | 112 | repo-000112 | i938 | 186 | 106 |
+| old | 1 | 31 | i1543 | 112 | repo-000112 | i1766 | 306 | 176 |
+| old | 1 | 31 | i1543 | 112 | repo-000112 | i938 | 186 | 106 |
 | old | 4 | 10 | i4892 | 151 | repo-004151 | — | — | — |
 | old | 4 | 11 | i4892 | 151 | repo-004151 | i13916 | 324 | 172 |
 | old | 4 | 11 | i4892 | 151 | repo-004151 | i8355 | 242 | 131 |
+| old | 4 | 30 | i4892 | 151 | repo-004151 | i13916 | 324 | 172 |
+| old | 4 | 30 | i4892 | 151 | repo-004151 | i8355 | 242 | 131 |
 
 ## Run order, provenance, host load
 
@@ -455,12 +533,16 @@ Runs execute sequentially on flatblock, one implementation per process. Leases a
 | 2026-10-04T18:02:52.642Z | timing | new | phone | 4 | 17 | failed | superseded | 7.4, 8.7, 10.3 | 3.7, 7.4, 9.3 | 153.0.8010.12 |
 | 2026-10-04T18:27:26.226Z | timing | old | web | 1 | 30 | complete | measurement | 5.3, 8.8, 8.4 | 11.6, 11.8, 9.8 | 153.0.8010.12 |
 | 2026-10-04T18:35:20.541Z | timing | new-current | web | 1 | 30 | complete | measurement | 10.7, 11.5, 9.8 | 4.8, 7.6, 8.7 | 153.0.8010.12 |
+| 2026-10-04T18:42:37.962Z | timing | old | web | 1 | 31 | complete | measurement | 4.2, 7.3, 8.6 | 10.8, 9.7, 9.4 | 153.0.8010.12 |
+| 2026-10-04T18:52:32.674Z | timing | new-current | web | 1 | 31 | complete | measurement | 5.5, 8.3, 9.0 | 7.6, 9.6, 9.6 | 153.0.8010.12 |
+| 2026-10-04T19:06:36.087Z | timing | old | web | 4 | 30 | complete | measurement | 8.7, 8.7, 9.2 | 7.0, 6.8, 7.8 | 153.0.8010.12 |
 
 Host CPU utilization below is the /proc/stat delta across capture, all logical cores; it includes other processes. It is separate from measured renderer CPU.
 
 | Arm | Surface | Scale | Round | CPU model | Logical cores | Host CPU busy % | Harness digest |
 |---|---|---:|---:|---|---:|---:|---|
 | new-current | web | 1 | 30 | AMD EPYC Processor (with IBPB) | 8 | 54.5 | ae1b27a87439e436 |
+| new-current | web | 1 | 31 | AMD EPYC Processor (with IBPB) | 8 | 66.9 | ae1b27a87439e436 |
 | new | phone | 1 | 14 | AMD EPYC Processor (with IBPB) | 8 | 66.6 | eab4434cbf3b465d |
 | new | phone | 1 | 15 | AMD EPYC Processor (with IBPB) | 8 | 74.1 | eab4434cbf3b465d |
 | new | phone | 4 | 14 | AMD EPYC Processor (with IBPB) | 8 | 58.0 | eab4434cbf3b465d |
@@ -474,13 +556,25 @@ Host CPU utilization below is the /proc/stat delta across capture, all logical c
 | old | web | 1 | 10 | AMD EPYC Processor (with IBPB) | 8 | 49.9 | 4b4ad7b2ad639fd5 |
 | old | web | 1 | 11 | AMD EPYC Processor (with IBPB) | 8 | 49.0 | 5a00f752eca2f258 |
 | old | web | 1 | 30 | AMD EPYC Processor (with IBPB) | 8 | 72.5 | ae1b27a87439e436 |
+| old | web | 1 | 31 | AMD EPYC Processor (with IBPB) | 8 | 64.6 | ae1b27a87439e436 |
 | old | web | 4 | 10 | AMD EPYC Processor (with IBPB) | 8 | 55.8 | e0d8a84eb2258bd1 |
 | old | web | 4 | 11 | AMD EPYC Processor (with IBPB) | 8 | 64.0 | 2220f5ddbd4f6b5b |
+| old | web | 4 | 30 | AMD EPYC Processor (with IBPB) | 8 | 50.0 | ae1b27a87439e436 |
 
 ## Evidence and reproduction
 
 Run and per-sample timestamps, SHAs, semantic/product digests, exact bootstrap counts, captured process IDs, lease grant, load, CPU deltas and failures are in the [raw run files](POD-4286-old-vs-new/raw/) and [machine-readable comparisons](POD-4286-old-vs-new/results.json). Compressed Chromium traces and sampled profiles are preserved in the isolated flatblock checkouts; their issue-attachment manifest is published with the final report.
 
-Preparation uses each arm’s own .toolchain/bun and checkout-local dependencies: bun run setup:worktree, then bun scripts/browser-lane.ts --build-only. old-vs-new-corpus.mjs serializes the OLD seed once and adapts that same JSON to NEW’s schema; old-vs-new.mjs validates the augmented stream through the production decoder before capture. Run old-vs-new-remote.py from ludovico with --arm, --surface, --scale, --mode and --round; it runs one foreground SSH process, acquires bench:flatblock for timing or meter:flatblock for heap/diagnostic captures, delivers the lease grant to the arm, and releases at CAPTURE_FINISHED. Timing rounds alternate OLD/NEW. All browser contexts and the recorded server PID are torn down before the next arm. Four cold/warm pairs per round are unprofiled; one additional pair and the last two repetitions of each action are profiled separately. Cold means fresh app storage against an already-running isolated server; warm means reload with retained durable rows and preferences. HTTP cache is disabled by the bootstrap route in both arms, so these are warm-data reloads, not measurements of production HTTP-cache savings. [Playwright routing documentation](https://playwright.dev/docs/api/class-browsercontext#browser-context-route). Neither measures desktop sidecar spawn, a physical phone, network conditions or real agent startup. No test suite or product-code edits are part of these captures.
+Preparation uses each arm’s own .toolchain/bun and checkout-local dependencies: bun run setup:worktree, then the revision’s supported production build. Earlier web arms use bun scripts/browser-lane.ts --build-only; CURRENT uses bun run build, whose configuration also builds the mobile web assets. old-vs-new-corpus.mjs serializes the OLD seed once and adapts that same JSON to NEW’s schema; old-vs-new.mjs validates the augmented stream through the production decoder before capture. Run old-vs-new-remote.py from ludovico with --arm, --surface, --scale, --mode and --round; it runs one foreground SSH process, acquires bench:flatblock for timing or meter:flatblock for heap/diagnostic captures, delivers the lease grant to the arm, and releases at CAPTURE_FINISHED. Timing rounds alternate OLD/NEW. All browser contexts and the recorded server PID are torn down before the next arm. Four cold/warm pairs per round are unprofiled; one additional pair and the last two repetitions of each action are profiled separately. Cold means fresh app storage against an already-running isolated server; warm means reload with retained durable rows and preferences. HTTP cache is disabled by the bootstrap route in both arms, so these are warm-data reloads, not measurements of production HTTP-cache savings. [Playwright routing documentation](https://playwright.dev/docs/api/class-browsercontext#browser-context-route). Neither measures desktop sidecar spawn, a physical phone, network conditions or real agent startup. No test suite or product-code edits are part of these captures.
 
 Startup ends at the first qualifying Paint after an unobscured task row appears inside the viewport and the boot splash is absent. It measures first task content, not completion of every asynchronous child or agent startup. The final action context additionally proves the complete requested corpus reached durable client storage. Warm reload retains storage and preferences, with HTTP cache disabled by routing, and still receives the same augmented bootstrap replay; it does not model a production cursor-resume optimization. The baseline NEW 4x phone round 15 lost the early navigation trace mark during its separately profiled fifth cold start. That run and its matched OLD attempt are excluded. The round-17 replacement hit shared-host ENOSPC and is also excluded; the coordinator then prioritized CURRENT web before further baseline phone repeats; eight completed unprofiled startup values remain raw. A failed neutral health-response preparation in round 16 never navigated to the app. Later collectors prime the renderer with routed blank HTML at the same origin before tracing; no app assets or data are loaded by that step. The qualifying paint definition stays unchanged. Preparation waits may be longer than measured paint times: ordinary actionability permits 60 seconds after the first 4x OLD preparation exceeded the initial 10-second allowance, while semantic capture waits are 20 seconds after dispatch returns. Every failed attempt is retained.
+
+
+### Attached raw archives
+
+Download every numbered part of an archive, concatenate in order, verify the complete SHA-256, then extract the tar.gz. Part sizes and checksums are in [the archive manifest](POD-4286-old-vs-new/archives.json). Diagnostic archives preserve excluded attempts; they do not enter the comparisons.
+
+| Checkout | Evidence kind | Bytes | Complete SHA-256 | Attached parts |
+|---|---|---:|---|---|
+| old | diagnostics | 297725845 | 7e59764f684305dcc87d23ac72072da97246f634df1b38f0d16086361e44730c | [part 1](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/d704456a7cdd/old-diagnostics.tar.gz.part001), [part 2](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/8e78b577b2ea/old-diagnostics.tar.gz.part002), [part 3](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/7c3927bea573/old-diagnostics.tar.gz.part003), [part 4](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/d42c6074b385/old-diagnostics.tar.gz.part004) |
+| new | diagnostics | 750871948 | 2dfb9822703aee436ae7b177dbc2f16001e5be4ca5637f5642f15a63e7233868 | [part 1](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/bc93a62d034d/new-diagnostics.tar.gz.part001), [part 2](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/d0fea706c71d/new-diagnostics.tar.gz.part002), [part 3](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/1c4a4292b783/new-diagnostics.tar.gz.part003), [part 4](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/f7343f550abb/new-diagnostics.tar.gz.part004), [part 5](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/e35f74dc902c/new-diagnostics.tar.gz.part005), [part 6](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/8d1b6afd322d/new-diagnostics.tar.gz.part006), [part 7](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/83ff26e90ceb/new-diagnostics.tar.gz.part007), [part 8](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/64ea319198fa/new-diagnostics.tar.gz.part008) |

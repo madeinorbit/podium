@@ -1,9 +1,22 @@
 {
-  "summary": "CURRENT at 96f705cd4e is a mixed result at 1x: session switching improves 802\u2192389 ms, mark-read 925\u2192139 ms, and issue-page opening 122\u219273 ms. Cold startup is slower (2291\u21923391 ms), warm-data reload is slower (1068\u21922551 ms), and populated project expansion is slower (113\u2192252 ms). This is the first matched pair: eight unprofiled observations per ordinary action and four per startup case. The second pair, 4x, phone, heap and source attribution remain pending, so the whole-app verdict is still open. OLD phone refuses the shared corpus; no relative phone win is established.",
+  "summary": "CURRENT at 96f705cd4e is a mixed result at 1x: session switching improves 806\u2192398 ms, mark-read 882\u2192139 ms, and issue-page opening 105\u219272 ms. Cold startup is slower (2449\u21923456 ms), warm-data reload is slower (1121\u21922260 ms), and populated project expansion is slower (93\u2192243 ms). Two matched OLD/CURRENT pairs supply 16 unprofiled observations per ordinary action and eight per startup case. The 4x comparison is next; phone, heap and source attribution remain pending, so the whole-app verdict is still open. OLD phone refuses the shared corpus; no relative phone win is established.",
   "currentArm": {
     "sha": "96f705cd4ee836646d1d4539f411c307b5d6eab5",
-    "status": "First web1x OLD/CURRENT pair complete; further matrix capturing",
+    "status": "Two web1x pairs complete; OLD4x r30 complete and CURRENT4x queued",
     "priority": "Fresh OLD/CURRENT 1x pair and immediate table, then 4x; morning follow-up deferred.",
     "workspaceBuildSeconds": 181.073
-  }
+  },
+  "defects": [
+    {
+      "issue": "POD-5555",
+      "scope": "Repeated Tasks-board opening",
+      "newArm": "new-current",
+      "scale": 1,
+      "oldMedianMs": 291.6385,
+      "newMedianMs": 383.0645,
+      "oldP95Ms": 322.269,
+      "newP95Ms": 597.825,
+      "nPerArm": 16
+    }
+  ]
 }
