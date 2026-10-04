@@ -17,16 +17,11 @@ import {
 import { DISABLED_READ_FENCE } from '../../../packages/worklist-proto/shared/src/instrument/reads'
 
 const requested = new URLSearchParams(location.search).get('mobxSidebar') === '1' ? 'lean' : 'hand'
-const originalUrl = new URL(location.href)
-const legacyUrl = new URL(location.href)
-legacyUrl.searchParams.set('mobxSidebar', '0')
-history.replaceState(null, '', legacyUrl)
 await import('../test/pool-memory.browser')
 const memory = window.__memory
 const originalReady = memory.ready.bind(memory)
 memory.ready = () => false
 while (!originalReady()) await new Promise((done) => setTimeout(done, 25))
-history.replaceState(null, '', originalUrl)
 const originalState = memory.state.bind(memory)
 const originalOwners = memory.owners.bind(memory)
 const owners = originalOwners()
