@@ -9,10 +9,10 @@ import {
   archivedSessionsForIssue, buildFlightDeckRows, deckIssueState, deriveHandoffNext,
   deriveHandoffNow, issueContinuation, issueDisplayTitle, issueNote, missionDepartures,
   missionIssueIds, missionProgress, missionRootFor, missionSessions, presenceNote, reposToViews,
-  selectedMissionRoot, type FlightDeckMode, type FlightDeckRow, type IssueNavigationModel,
+  selectedMissionRoot, selectLatestPromptSession, type FlightDeckMode, type FlightDeckRow, type IssueNavigationModel,
 } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '../src/pool'
-import { missionView, readMissionView, readMissionHandoff, readWorkspaceMission, type MissionViewValues, type MissionHandoffValues } from '../src/mission-view'
+import { EMPTY_MISSION_HANDOFF, missionView, readMissionView, readMissionHandoff, readWorkspaceMission, type MissionViewValues, type MissionHandoffValues } from '../src/mission-view'
 import { LOADING } from '../src/worklist/rollup'
 import { ISSUE_CONTENT_FIELDS, sessionComparable } from './oracle'
 import { compareSidebarSnapshots, type CheckSection, type SidebarCheckResult, type SidebarSnapshot, type SidebarDifference } from './sidebar-check'
@@ -59,7 +59,7 @@ const rowFields = (row: FlightDeckRow) => ({
   collapsedSummary: { ...row.collapsedSummary, crew: row.collapsedSummary.crew.map(sessionFields) },
 })
 
-function snapshot(values: MissionViewValues, handoff: MissionHandoffValues | typeof LOADING): SidebarSnapshot {
+function snapshot(values: Omit<MissionViewValues, 'archivedCount'>, archived: readonly SessionView[], handoff: MissionHandoffValues | typeof LOADING): SidebarSnapshot {
   const rows: CheckSection[] = [
     { key: 'mission', fields: { root: values.root?.id ?? null, members: [...values.members].sort(),
       progress: values.progress, continuation: continuationFields(values.continuation), note: noteFields(values.note), presence: values.presence }, rows: [] },
@@ -69,11 +69,12 @@ function snapshot(values: MissionViewValues, handoff: MissionHandoffValues | typ
       note: noteFields(values.rowPresentation.get(row.issue.id)?.note ?? null),
       presence: values.rowPresentation.get(row.issue.id)?.presence,
     } })) },
-    { key: 'archived', fields: {}, rows: values.archived.map(session => ({ id: session.sessionId, fields: sessionFields(session) })) },
+    { key: 'archived', fields: {}, rows: archived.map(session => ({ id: session.sessionId, fields: sessionFields(session) })) },
     { key: 'departures', fields: {}, rows: values.departures.map(value => ({ id: value.issue.id, fields: { issue: issueFields(value.issue), originId: value.originId, state: value.state } })) },
     { key: 'handoff', fields: handoff === LOADING ? {} : {
       crew: handoff.crew.map(sessionFields), current: handoff.current, next: handoff.next,
-    }, pendingFields: handoff === LOADING ? ['crew', 'current', 'next'] : [], rows: [] },
+      retired: { count: handoff.retired.count, latestPrompt: handoff.retired.latestPrompt?.sessionId ?? null },
+    }, pendingFields: handoff === LOADING ? ['crew', 'retired', 'current', 'next'] : [], rows: [] },
   ]
   return { sections: rows, pending: handoff === LOADING ? 1 : 0 }
 }
@@ -87,7 +88,7 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
   for (const row of rows) for (const session of archivedSessionsForIssue(row.issue, sessions as SessionView[], worktreePaths)) {
     if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
   }
-  return snapshot({ root, rows, byId, sessions, archived,
+  return snapshot({ root, rows, byId, sessions,
     members: root ? missionIssueIds(issues, root.id, sessions) : new Set(),
     titles: new Map(rows.map(row => [row.issue.id, issueDisplayTitle(row.issue, sessions, worktreePaths)])),
     progress: missionProgress(issues, sessions, root?.id),
@@ -97,14 +98,26 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
     presence: root ? presenceNote(root, rows[0]?.sessions ?? [], byId, sessions) : null,
     rowPresentation: new Map(rows.map(row => [row.issue.id, { state: deckIssueState(row.issue, row.sessions, byId),
       note: issueNote(row.issue, byId, row.sessions), presence: presenceNote(row.issue, row.sessions, byId) }])),
-  }, root ? { crew: missionSessions(issues, sessions, root.id, true), current: deriveHandoffNow(issues, sessions, root.id),
-    next: deriveHandoffNext(issues, sessions, root.id) } : { crew: [], current: [], next: [] })
+  }, archived, root ? legacyHandoff(issues, sessions, root.id) : EMPTY_MISSION_HANDOFF)
+}
+
+/** The legacy handoff in the pane's contract: the seated crew, and the
+ * archived senders as a count and their latest prompt. */
+function legacyHandoff(issues: readonly IssueNavigationModel[], sessions: readonly SessionView[], rootId: string): MissionHandoffValues {
+  const all = missionSessions(issues, sessions, rootId, true), archived = all.filter(session => session.archived)
+  return { crew: all.filter(session => !session.archived), retired: { count: archived.length, latestPrompt: selectLatestPromptSession(archived) },
+    current: deriveHandoffNow(issues, sessions, rootId), next: deriveHandoffNext(issues, sessions, rootId) }
 }
 
 export function poolMissionViewSnapshot(pool: MobxPool, selectedId: string | null, mode: FlightDeckMode = 'full'): SidebarSnapshot | typeof LOADING {
   const reader = missionView(pool), values = readMissionView(reader, selectedId, mode)
   if (values === LOADING) return LOADING
-  return snapshot(values, values.root ? readMissionHandoff(reader, values.root.id) : { crew: [], current: [], next: [] })
+  // The deck reads its count from the pane and the list only while shown;
+  // compare the list the expanded section draws, and that the count agrees.
+  const archived = values.root ? reader.archive(values.root.id, mode) : []
+  if (archived === LOADING) return LOADING
+  if (archived.length !== values.archivedCount) throw new Error(`Archived count ${values.archivedCount} disagrees with its list (${archived.length})`)
+  return snapshot(values, archived, values.root ? readMissionHandoff(reader, values.root.id) : EMPTY_MISSION_HANDOFF)
 }
 
 export function checkMissionView(pool: MobxPool, issues: readonly IssueNavigationModel[], sessions: readonly SessionView[], selectedId: string | null,

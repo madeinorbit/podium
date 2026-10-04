@@ -294,6 +294,37 @@ describe('rendered mission pane parity', () => {
     )
   }, 120_000)
 
+  it('selecting another row of the same mission reuses the mission derived for its root', async () => {
+    const child = issues.find(
+      (issue) =>
+        !issue.archived &&
+        !issue.deletedAt &&
+        issue.parentId &&
+        issues.some(
+          (parent) =>
+            parent.id === issue.parentId && !parent.archived && !parent.deletedAt && !parent.parentId,
+        ),
+    )
+    if (!child?.parentId) throw new Error('Missing mission child fixture')
+    state.selectedIssueId = child.parentId
+    const reader = missionView(pool)
+    const current = mount('full')
+    await settled()
+    expect(reader.stats.values).toBe(1)
+    const rows = () =>
+      [...current.container.querySelectorAll('[data-flight-issue]')].map((node) =>
+        node.getAttribute('data-flight-issue'),
+      )
+    const before = rows()
+    expect(before).toContain(child.id)
+    state.selectedIssueId = child.id
+    current.rerender(deck())
+    await settled()
+    // Review finding 2: the pane is cached per mission root, not per selection.
+    expect(reader.stats.values).toBe(1)
+    expect(rows()).toEqual(before)
+  }, 120_000)
+
   for (const view of ['full', 'working', 'needs-you', 'waterfall', 'handoff'] as const)
     it(`preserves visible words, labels, order and layout in ${view}`, async () => {
       const root = issues.find(

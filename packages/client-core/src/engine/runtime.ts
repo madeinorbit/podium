@@ -1070,11 +1070,25 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   private watchNavigation(): void {
-    this.stopNavigationWatch?.()
+    // Attach the new watch before releasing the old one, so the provider's
+    // cached reads (activity roll-ups, mission roots) stay observed across a
+    // click instead of being dropped and rebuilt from scratch.
+    const previous = this.stopNavigationWatch
     this.stopNavigationWatch = undefined
     const provider = this.state.navigation
-    if (!provider?.watch) return
-    this.stopNavigationWatch = provider.watch(() => {
+    if (!provider?.watch) {
+      previous?.()
+      return
+    }
+    try {
+      this.stopNavigationWatch = this.attachNavigationWatch(provider, provider.watch)
+    } finally {
+      previous?.()
+    }
+  }
+
+  private attachNavigationWatch(provider: NavigationProvider, watch: NonNullable<NavigationProvider['watch']>): () => void {
+    return watch.call(provider, () => {
       const st = this.state
       const focused = focusedPaneSession(st)
       const session = focused ? provider.session(focused) : undefined

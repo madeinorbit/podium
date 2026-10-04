@@ -12,9 +12,13 @@ import type { SliceIssue, SliceSession } from './shared/slice-types'
 import { isSessionWorking } from './worklist/rollup'
 import { headerHostSession, type HeaderAggregate } from './header-session'
 import { HeaderSessions } from './header-sessions'
+import { missions } from './mission'
+import { sessionSeats } from './session-seats'
 export { EMPTY_HOST_AGGREGATE, type HeaderAggregate } from './header-session'
 const sessionPresentOnTask = (session: SessionView) => !session.archived && session.status !== 'exited'
 const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+const FOLDED_LOADING = { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading: true }
+const FOLDED_NONE = { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading: false }
 const contains = (cwd: string, root: string) => cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
 
 /** Views over one pool. Memos exist only while observed, and are released when
@@ -86,88 +90,82 @@ export function createHeaderViews(pool: MobxPool) {
   }
   function folded() {
     return memo('folded', () => {
-      let root = selectedIssue()
-      if (root === LOADING) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading: true }
-      const seen = new Set<string>()
-      while (root?.parentId && !seen.has(root.id)) {
-        seen.add(root.id)
-        const parent = issue(root.parentId)
-        if (parent === LOADING) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading: true }
-        if (!parent || parent.archived || parent.deletedAt) break
-        root = { ...parent, displayRef: pool.model('issue', parent.id)?.displayRef ?? `#${parent.seq}` }
-      }
-      if (!root || root.archived || root.deletedAt) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading: false }
-      const ids = new Set<string>(), sessions = new Map<string, SliceSession>()
-      let loading = false, needs = 0
-      // The formal closure is taken once. Provenance admits individual issues,
-      // not their formal children (mission.ts computeMissionIssueIds).
-      function formal(id: string): void {
-        if (ids.has(id)) return
-        ids.add(id)
-        for (const child of pool.graph.many('issue', id, 'children')) formal(child)
-      }
-      formal(root.id)
-      const queue = [...ids]
-      for (let index = 0; index < queue.length; index++) {
-        for (const sid of pool.graph.many('issue', queue[index]!, 'sessions')) {
-          for (const child of pool.graph.many('session', sid, 'startedIssues')) {
-            if (ids.has(child)) continue
-            const spawned = issue(child)
-            if (spawned === LOADING) { loading = true; continue }
-            if (!spawned || (!['backlog', 'proposed'].includes(spawned.stage) && spawned.deps?.some((dep) => dep.type === 'discovered-from'))) continue
-            ids.add(child)
-            queue.push(child)
-          }
-        }
-      }
-      // Placement can hide a provenance branch behind an archived owner.
-      // Keep formal edges when their parent is in the mission; otherwise graft
-      // under the starter's owner, falling back to the selected mission root.
-      const grafts = new Map<string, string[]>()
-      for (const id of ids) {
-        if (id === root.id) continue
-        const value = issue(id)
-        if (value === LOADING) { loading = true; continue }
-        if (!value || value.archived || value.deletedAt || (value.parentId && ids.has(value.parentId))) continue
-        const owner = value.startedBySession ? sessionSummary(value.startedBySession)?.issueId : undefined
-        const parent = owner && ids.has(owner) && owner !== id ? owner : root.id
-        const siblings = grafts.get(parent) ?? []
-        siblings.push(id)
-        grafts.set(parent, siblings)
-      }
-      const visible = new Set<string>()
-      function collect(id: string): void {
-        if (visible.has(id)) return
-        const value = issue(id)
-        if (value === LOADING) { loading = true; return }
-        if (!value || value.archived || value.deletedAt) return
-        visible.add(id)
-        const ownIds = [...pool.graph.many('issue', id, 'sessions')]
-        let asking = false, staffed = false
-        for (const sid of ownIds) {
-          const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
-          if (member === LOADING) { loading = true; continue }
-          if (!member || member.archived || member.headless || member.agentKind === 'shell') continue
-          sessions.set(sid, member)
-          staffed ||= sessionPresentOnTask(member as SessionView)
-          asking ||= member.agentState?.phase === 'needs_user' || member.agentState?.phase === 'errored' || !!member.offer
-        }
-        const vacated = !staffed && pool.graph.size('issue', id, 'spinOffs') > 0
-        if (value.stage !== 'done' && !value.closedReason && (asking || value.needsHuman || (value.stage === 'review' && !vacated))) needs++
-        for (const child of pool.graph.many('issue', id, 'children')) collect(child)
-        for (const child of grafts.get(id) ?? []) collect(child)
-      }
-      collect(root.id)
-      const crew = [...sessions.values()].filter((member) => sessionPresentOnTask(member as SessionView))
-      if (root.isDraftVessel && !root.worktreePath && ![...pool.graph.many('issue', root.id, 'sessions')].some((sid) => {
-        const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
-        return member && member !== LOADING && !member.archived
-      })) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }
-      const sidebar = pool.model('issue', root.id)?.sidebar
-      if (sidebar === LOADING) loading = true
-      return { root, progress: sidebar && sidebar !== LOADING ? sidebar.progress : NO_PROGRESS,
-        live: crew.length, working: crew.filter(isSessionWorking).length, needs, loading }
+      const selected = selectedIssue()
+      if (selected === LOADING) return FOLDED_LOADING
+      if (!selected) return FOLDED_NONE
+      // The one mission reader answers the root and its members (review
+      // findings 4 and 23): no second closure rule, no member-history loads.
+      const rootId = missions(pool).rootFor(selected.id)
+      if (rootId === LOADING) return FOLDED_LOADING
+      if (!rootId) return FOLDED_NONE
+      // Another row of the same mission reuses the mission's cached summary.
+      return memo(`foldedMission:${rootId}`, () => foldedMission(rootId))
     })
+  }
+  function foldedMission(rootId: string) {
+    const value = issue(rootId)
+    if (value === LOADING) return FOLDED_LOADING
+    // The same root value selectedIssue() gives when the root is selected.
+    const root = value && { ...value, displayRef: pool.model('issue', value.id)?.displayRef ?? `#${value.seq}` }
+    if (!root || root.archived || root.deletedAt) return FOLDED_NONE
+    const ids = missions(pool).members(root.id)
+    if (ids === LOADING) return FOLDED_LOADING
+    const seats = sessionSeats(pool)
+    const sessions = new Map<string, SliceSession>()
+    let loading = false, needs = 0
+    // Placement can hide a provenance branch behind an archived owner.
+    // Keep formal edges when their parent is in the mission; otherwise graft
+    // under the starter's owner, falling back to the selected mission root.
+    const grafts = new Map<string, string[]>()
+    for (const id of ids) {
+      if (id === root.id) continue
+      const value = issue(id)
+      if (value === LOADING) { loading = true; continue }
+      if (!value || value.archived || value.deletedAt || (value.parentId && ids.has(value.parentId))) continue
+      const owner = value.startedBySession ? sessionSummary(value.startedBySession)?.issueId : undefined
+      const parent = owner && ids.has(owner) && owner !== id ? owner : root.id
+      const siblings = grafts.get(parent) ?? []
+      siblings.push(id)
+      grafts.set(parent, siblings)
+    }
+    /** Seated members, and cold ones whose summary does not say: their rows
+     * settle the flag below. Known archived history is never read. */
+    function present(id: string): readonly string[] {
+      const partition = seats.partition('sessions', id)
+      if (partition === LOADING) { loading = true; return [] }
+      return partition.unknown.length ? [...partition.present, ...partition.unknown] : partition.present
+    }
+    const visible = new Set<string>()
+    function collect(id: string): void {
+      if (visible.has(id)) return
+      const value = issue(id)
+      if (value === LOADING) { loading = true; return }
+      if (!value || value.archived || value.deletedAt) return
+      visible.add(id)
+      let asking = false, staffed = false
+      for (const sid of present(id)) {
+        const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
+        if (member === LOADING) { loading = true; continue }
+        if (!member || member.archived || member.headless || member.agentKind === 'shell') continue
+        sessions.set(sid, member)
+        staffed ||= sessionPresentOnTask(member as SessionView)
+        asking ||= member.agentState?.phase === 'needs_user' || member.agentState?.phase === 'errored' || !!member.offer
+      }
+      const vacated = !staffed && pool.graph.size('issue', id, 'spinOffs') > 0
+      if (value.stage !== 'done' && !value.closedReason && (asking || value.needsHuman || (value.stage === 'review' && !vacated))) needs++
+      for (const child of pool.graph.many('issue', id, 'children')) collect(child)
+      for (const child of grafts.get(id) ?? []) collect(child)
+    }
+    collect(root.id)
+    const crew = [...sessions.values()].filter((member) => sessionPresentOnTask(member as SessionView))
+    if (root.isDraftVessel && !root.worktreePath && !present(root.id).some((sid) => {
+      const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
+      return member && member !== LOADING && !member.archived
+    })) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }
+    const sidebar = pool.model('issue', root.id)?.sidebar
+    if (sidebar === LOADING) loading = true
+    return { root, progress: sidebar && sidebar !== LOADING ? sidebar.progress : NO_PROGRESS,
+      live: crew.length, working: crew.filter(isSessionWorking).length, needs, loading }
   }
   function shipping() {
     return memo('shipping', () => {

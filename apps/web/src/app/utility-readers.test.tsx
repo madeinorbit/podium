@@ -190,9 +190,10 @@ it('FlightDeckHandoff acquires review events without a snapshot subscription', a
     <FlightDeckHandoff
       rootIssue={issue}
       issues={[issue]}
-      sessions={[]}
+      lookupSession={() => undefined}
       poolValues={{
         crew: [],
+        retired: { count: 0, latestPrompt: null },
         current: [{ kind: 'review', issueId: issue.id, text: 'Ready for review.' }],
         next: [],
       }}

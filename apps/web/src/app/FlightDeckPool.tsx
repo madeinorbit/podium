@@ -1,10 +1,12 @@
 import { useStoreHandle } from '@podium/client-core/react'
+import type { SessionView } from '@podium/client-core/session-values'
+import type { FlightDeckMode } from '@podium/client-core/viewmodels'
 import { shallowEqual } from '@podium/client-core/store'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import { compareStructural, computed, observer } from '@podium/client-graph/react'
-import { type ComponentProps, type JSX, useCallback, useMemo } from 'react'
+import { type ComponentProps, type JSX, type ReactNode, useCallback, useMemo } from 'react'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import {
   FlightDeckContent,
@@ -65,10 +67,10 @@ export default observer(function PoolFlightDeck(
       handoff: values.handoff,
       agentHosts: values.hosts,
       IssueMenu: PoolIssueContextMenu,
+      ArchivedSessions: PoolArchivedSessions,
       issues: [...values.mission.byId.values()].sort((a, b) =>
         a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
       ),
-      sessions: [...values.mission.sessions],
       allWorktreePaths: [],
       issue: (id) => {
         const issue = reader.issue(id)
@@ -90,6 +92,23 @@ export default observer(function PoolFlightDeck(
   }, [pool, values])
   return source ? <FlightDeckContent {...props} source={source} /> : <SettlingDeck />
 })
+
+/** The archived list is read only while its section is open: the pane carries
+ * its count, so archived rows never re-derive the deck (review finding 2). */
+function PoolArchivedSessions(props: {
+  rootId: string
+  mode: FlightDeckMode
+  children: (sessions: readonly SessionView[]) => ReactNode
+}) {
+  const owner = useStoreHandle()
+  const { rootId, mode } = props
+  const read = useCallback(
+    (pool: MobxPool) => measurePoolMission(owner, () => missionView(pool).archive(rootId, mode)),
+    [owner, rootId, mode],
+  )
+  const sessions = useWorklistPoolProjection(read, LOADING)
+  return sessions === LOADING ? null : props.children(sessions)
+}
 
 function PoolIssueContextMenu(props: Omit<ComponentProps<typeof IssueContextMenu>, 'poolInputs'>) {
   const owner = useStoreHandle()

@@ -41,29 +41,55 @@ export function cachedGroup<T extends { readonly id: string }, V>(
   compute: (target: T) => V,
   equals: (previous: V, next: V) => boolean = compareStructural,
 ): (target: T) => V {
-  const live = new Map<T, IComputedValue<V>>()
-  return (target) => {
-    const cached = live.get(target)
+  return liveCache((target: T) => `${debugNameOf(target)}.${group}`, compute, equals, true)
+}
+
+/**
+ * The same cache keyed by a plain id, for a service with no per-id object
+ * (`mission.ts`). Named `<owner>@<key>.<group>`, released when unobserved,
+ * and never kept alive by a reaction of its own. A gesture (a click handler,
+ * the navigation port) reads it outside every derivation by design: that read
+ * computes afresh, as {@link cachedGroup}'s does, without the warning.
+ */
+export function cachedKey<V>(
+  owner: string,
+  group: string,
+  compute: (key: string) => V,
+  equals: (previous: V, next: V) => boolean = compareStructural,
+): (key: string) => V {
+  return liveCache((key: string) => `${owner}@${key}.${group}`, compute, equals, false)
+}
+
+function liveCache<K, V>(
+  nameOf: (key: K) => string,
+  compute: (key: K) => V,
+  equals: (previous: V, next: V) => boolean,
+  /** cachedGroup: the key object owns the computed, and an unobserved read warns. */
+  ownedByKey: boolean,
+): (key: K) => V {
+  const live = new Map<K, IComputedValue<V>>()
+  return (key) => {
+    const cached = live.get(key)
     if (cached !== undefined) return cached.get()
     if (!_isComputingDerivation()) {
       // As a computed read with no observer: silent inside a batch (an action,
       // a reaction's run, an untracked read inside one), warned outside all.
       const state = _getGlobalState()
-      if (state.inBatch === 0 && state.computedRequiresReaction) {
+      if (ownedByKey && state.inBatch === 0 && state.computedRequiresReaction) {
         console.warn(
-          `[mobx] Computed value '${debugName(() => `${debugNameOf(target)}.${group}`) ?? 'ComputedValue'}' is being read outside a reactive context. Doing a full recompute.`,
+          `[mobx] Computed value '${debugName(() => nameOf(key)) ?? 'ComputedValue'}' is being read outside a reactive context. Doing a full recompute.`,
         )
       }
-      return compute(target)
+      return compute(key)
     }
-    const value = computed(() => compute(target), {
-      name: debugName(() => `${debugNameOf(target)}.${group}`),
+    const value = computed(() => compute(key), {
+      name: debugName(() => nameOf(key)),
       equals,
-      context: target,
+      ...(ownedByKey ? { context: key } : {}),
     })
-    live.set(target, value)
+    live.set(key, value)
     onBecomeUnobserved(value, () => {
-      live.delete(target)
+      if (live.get(key) === value) live.delete(key)
     })
     return value.get()
   }

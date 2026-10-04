@@ -228,10 +228,13 @@ function assertObservedParity(
 export async function poolScreenCellsAt(
   scale: FixtureScale,
   onCell?: (cell: ScreenWorkCell) => void,
+  /** Mount only these readers: a focused gate for one screen's fix. The
+   * full guard mounts every reader, as the app does. */
+  only?: ReadonlySet<string>,
 ): Promise<ScreenWorkRun> {
   const ctx = await startScenarioEngine(scale, { ownRows: true })
   try {
-    return await measureScreenCells(ctx, scale, onCell)
+    return await measureScreenCells(ctx, scale, onCell, only)
   } finally {
     ctx.engine.destroy()
   }
@@ -241,6 +244,7 @@ async function measureScreenCells(
   ctx: ScenarioEngine,
   scale: FixtureScale,
   onCell?: (cell: ScreenWorkCell) => void,
+  only?: ReadonlySet<string>,
 ): Promise<ScreenWorkRun> {
   const progress = (message: string) => process.stdout.write(`[screen work] ${scale}x ${message}\n`)
   progress('kernel ready')
@@ -323,8 +327,9 @@ async function measureScreenCells(
     )
     const selected = () => window.get().selectedIssueId ?? ROOT
     const readers: ScreenReader[] = []
-    const add = (name: string, consumers: readonly string[], read: () => unknown) =>
-      readers.push({ name, consumers, read })
+    const add = (name: string, consumers: readonly string[], read: () => unknown) => {
+      if (!only || only.has(name)) readers.push({ name, consumers, read })
+    }
     add('sidebar.sections', ['PoolSidebar', 'PoolSidebarRail', 'useSidebarProjectSections'], () =>
       pool.sidebar.sections(layout),
     )
@@ -676,8 +681,8 @@ async function measureScreenCells(
       await drain(pool)
       assertObservedParity(readers, values)
       proveAction(action)
-      const pane = values.get('mission.pane') as ReturnType<typeof readMissionPane>
-      if (pane === LOADING || pane.mission.root?.id !== ROOT)
+      const pane = values.get('mission.pane') as ReturnType<typeof readMissionPane> | undefined
+      if (values.has('mission.pane') && (pane === LOADING || pane?.mission.root?.id !== ROOT))
         throw new Error('Mission output lost its root')
       const row = pool.row('issue', ROOT)
       if (!row || row === LOADING || Reflect.get(row, 'title') !== ROOT)

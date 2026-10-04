@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runInAction } from 'mobx'
+import { reaction, runInAction } from 'mobx'
 import { dedupeSessions } from '@podium/client-core/engine'
 import { missionIssueIds, missionRootFor, missionIndexStats, type MissionIssueTopology } from '@podium/client-core/viewmodels'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -101,6 +101,8 @@ describe('declared pool mission', () => {
     const ctx = open([issue('a'), issue('b'), issue('c'), issue('child', { parentId: 'a' }),
       issue('spin', { startedBySession: 'sender' })], [session('sender', 'child'), session('unrelated', 'c')])
     const legacy = missionIndexStats()
+    // A mounted pane/row observes these; the cache lives exactly that long.
+    const mounted = reaction(() => [ctx.view.members('a'), ctx.view.members('b'), ctx.view.members('c'), ctx.view.rootFor('child')], () => {})
     const c = tracked(() => ctx.view.members('c')), a = tracked(() => ctx.view.members('a')), b = tracked(() => ctx.view.members('b'))
     tracked(() => ctx.view.rootFor('child'))
     const count = { ...ctx.view.stats }
@@ -119,6 +121,27 @@ describe('declared pool mission', () => {
     expect(missionIndexStats()).toEqual(legacy)
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
     expect(missions(ctx.pool)).toBe(ctx.view)
+    mounted()
+  })
+
+  it('releases every root and member memo with its last observer; no keep-alive reaction', () => {
+    const ctx = open([issue('a'), issue('child', { parentId: 'a' }), issue('b')])
+    const mounted = reaction(() => [ctx.view.members('a'), ctx.view.rootFor('child')], () => {})
+    const before = { ...ctx.view.stats }
+    // While observed, a gesture read shares the mounted memo.
+    expect(runInAction(() => ctx.view.members('a'))).toEqual(new Set(['a', 'child']))
+    expect(tracked(() => ctx.view.rootFor('child'))).toBe('a')
+    expect(ctx.view.stats).toEqual(before)
+    // A visited id that nothing observes keeps nothing alive.
+    tracked(() => ctx.view.members('b'))
+    tracked(() => ctx.view.members('b'))
+    expect(ctx.view.stats.members - before.members).toBe(2)
+    mounted()
+    // Unmounted: the next read recomputes, so no memo survived its observers.
+    tracked(() => ctx.view.members('a'))
+    tracked(() => ctx.view.rootFor('child'))
+    expect(ctx.view.stats.members - before.members).toBe(3)
+    expect(ctx.view.stats.roots - before.roots).toBe(1)
   })
 
   it('follows spin-off departure, sender eviction and resume collapse', () => {

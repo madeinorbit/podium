@@ -207,9 +207,10 @@ function Surface() {
           <FlightDeckHandoff
             rootIssue={issue}
             issues={[issue]}
-            sessions={[session]}
+            lookupSession={(id) => (id === session.sessionId ? session : undefined)}
             poolValues={{
               crew: [session],
+              retired: { count: 0, latestPrompt: null },
               current: [{ kind: 'review', issueId: issue.id, text: 'Ready for review.' }],
               next: [],
             }}

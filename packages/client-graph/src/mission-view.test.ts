@@ -43,8 +43,12 @@ it('uses archived-inclusive relations, small scalar summaries and one batched lo
   const values = tracked(() => readMissionView(reader, 'root'))
   expect(values).not.toBe(LOADING)
   if (values === LOADING) throw new Error('Unsettled fixture')
-  expect(values.archived.map(session => session.sessionId)).toEqual(['old'])
-  expect(values.archived[0]?.name).toBe('Named agent')
+  expect(values.archivedCount).toBe(1)
+  // The list is its own read, made only while the archived section is open.
+  const archived = tracked(() => reader.archive('root', 'full'))
+  if (archived === LOADING) throw new Error('Unsettled archive')
+  expect(archived.map(session => session.sessionId)).toEqual(['old'])
+  expect(archived[0]?.name).toBe('Named agent')
 })
 
 it('a missing declared cold summary cannot invent an empty roster', () => {

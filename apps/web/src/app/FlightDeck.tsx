@@ -2919,7 +2919,6 @@ export interface FlightDeckPreferences {
 }
 export interface FlightDeckSource {
   issues: IssueNavigationModel[]
-  sessions: SessionView[]
   allWorktreePaths: string[]
   mission: MissionViewValues
   handoff?: MissionHandoffValues
@@ -2931,6 +2930,12 @@ export interface FlightDeckSource {
   IssueMenu: import('react').ComponentType<
     Omit<import('react').ComponentProps<typeof IssueContextMenu>, 'poolInputs'>
   >
+  /** Reads a mission's archived list while mounted (the open section). */
+  ArchivedSessions: (props: {
+    rootId: string
+    mode: FlightDeckMode
+    children: (sessions: readonly SessionView[]) => ReactNode
+  }) => ReactNode
 }
 
 export function FlightDeck(props: FlightDeckProps): JSX.Element {
@@ -2963,7 +2968,7 @@ export function FlightDeckContent({
   source: FlightDeckSource
   preferences: FlightDeckPreferences
 }): JSX.Element {
-  const { issues, sessions, allWorktreePaths } = source
+  const { issues, allWorktreePaths } = source
   const { view, mode, modes, setPreferredView } = preferences
   const poolValues = source.mission
   const IssueMenu = source.IssueMenu
@@ -3327,9 +3332,11 @@ export function FlightDeckContent({
    * lived; they are views now, so it comes here with the rest of session
    * lifecycle. Archived sessions are absent from `rows` by construction
    * (`sessionsForIssueNav` drops them), so they are gathered per mission issue
-   * and de-duplicated — one session may be a member of two.
+   * and de-duplicated — one session may be a member of two. The pane carries
+   * only their count; the list is read while the section is open.
    */
-  const archivedSessions = poolValues.archived
+  const archivedCount = poolValues.archivedCount
+  const ArchivedSessions = source.ArchivedSessions
   const [archivedOpen, setArchivedOpen] = useState(false)
   const missionSessionIds = useMemo(() => {
     const ids = new Set<string>()
@@ -4053,7 +4060,7 @@ export function FlightDeckContent({
                 rootIssue={root}
                 poolValues={source.handoff!}
                 issues={issues}
-                sessions={sessions}
+                lookupSession={source.session}
                 visitReadAt={
                   issueVisitBaseline?.issueId === root.id ? issueVisitBaseline.readAt : null
                 }
@@ -4241,7 +4248,7 @@ export function FlightDeckContent({
                 the roster STOPS: it opened 10px under the last agent, which read
                 as a fifth row in the same list rather than as the end of it. The
                 extra 14px is the whole distinction. */}
-              {archivedSessions.length > 0 && (
+              {archivedCount > 0 && root && (
                 <DeckSection label="Archived" className="mt-6" testId="flight-archived">
                   <button
                     data-pressable
@@ -4255,12 +4262,14 @@ export function FlightDeckContent({
                     <span className="truncate">
                       {archivedOpen
                         ? 'Hide archived'
-                        : `${archivedSessions.length} archived session${
-                            archivedSessions.length === 1 ? '' : 's'
+                        : `${archivedCount} archived session${
+                            archivedCount === 1 ? '' : 's'
                           }`}
                     </span>
                   </button>
                   {archivedOpen && (
+                    <ArchivedSessions rootId={root.id} mode={mode}>
+                      {(archivedSessions) => (
                     <div className="mt-1 flex flex-col gap-0.5">
                       {archivedSessions.map((session) => (
                         <SessionRow
@@ -4281,6 +4290,8 @@ export function FlightDeckContent({
                         />
                       ))}
                     </div>
+                      )}
+                    </ArchivedSessions>
                   )}
                 </DeckSection>
               )}

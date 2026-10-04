@@ -239,7 +239,7 @@ function ExpandRows({ count, onClick }: { count: number; onClick: () => void }):
 export function FlightDeckHandoff({
   rootIssue,
   issues,
-  sessions,
+  lookupSession,
   visitReadAt,
   proposed,
   onOpenTranscript,
@@ -249,7 +249,8 @@ export function FlightDeckHandoff({
 }: {
   rootIssue: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
-  sessions: readonly SessionView[]
+  /** A mission sender by id, archived included. */
+  lookupSession: (id: string) => SessionView | undefined
   visitReadAt: string | null
   proposed: ReactNode
   onOpenTranscript: (sessionId: SessionId, itemKey: string) => void
@@ -257,9 +258,18 @@ export function FlightDeckHandoff({
   onOpenIssue: (issueId: IssueId) => void
   poolValues: MissionHandoffValues
 }): JSX.Element {
-  const { crew, current, next } = poolValues
-  const transcript = useHandoffTranscript(true, crew)
-  const summary = useMemo(() => summarizeHandoffSessions(crew), [crew])
+  const { crew, retired, current, next } = poolValues
+  // Archived senders arrive summarized: their latest prompt competes with the
+  // seated crew's, and every one of them counts as exited or archived.
+  const candidates = useMemo(
+    () => (retired.latestPrompt ? [...crew, retired.latestPrompt] : crew),
+    [crew, retired.latestPrompt],
+  )
+  const transcript = useHandoffTranscript(true, candidates)
+  const summary = useMemo(() => {
+    const seated = summarizeHandoffSessions(crew)
+    return { ...seated, exited: seated.exited + retired.count }
+  }, [crew, retired.count])
   const [currentLimit, setCurrentLimit] = useState(INITIAL_ROWS)
   const [nextLimit, setNextLimit] = useState(INITIAL_ROWS)
   const displayedCurrent = useMemo(() => current.slice(0, currentLimit), [current, currentLimit])
@@ -270,10 +280,6 @@ export function FlightDeckHandoff({
     setNextLimit(INITIAL_ROWS)
   }, [rootIssue.id])
   const issueById = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues])
-  const sessionById = useMemo(
-    () => new Map(sessions.map((session) => [session.sessionId, session])),
-    [sessions],
-  )
   const pair = transcript.pair
   const answer = pair?.answer
   const answerAt = answer?.item.ts ? Date.parse(answer.item.ts) : Number.NaN
@@ -382,9 +388,7 @@ export function FlightDeckHandoff({
               const issue = issueById.get(entry.issueId)
               if (!issue) return null
               const session =
-                'sessionId' in entry && entry.sessionId
-                  ? sessionById.get(entry.sessionId)
-                  : undefined
+                'sessionId' in entry && entry.sessionId ? lookupSession(entry.sessionId) : undefined
               const returnCount = returns.get(entry.issueId) ?? 0
               const text =
                 returnCount > 1
@@ -443,7 +447,7 @@ export function FlightDeckHandoff({
             {next.slice(0, nextLimit).map((entry, index) => {
               const issue = issueById.get(entry.issueId)
               if (!issue) return null
-              const session = entry.sessionId ? sessionById.get(entry.sessionId) : undefined
+              const session = entry.sessionId ? lookupSession(entry.sessionId) : undefined
               return (
                 <HandoffEntry
                   key={`${entry.issueId}:${entry.afterIssueId ?? 'ready'}`}

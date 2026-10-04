@@ -102,6 +102,17 @@ export class ReaderQueries {
     this.counts.returnedIds += ids.length
     return entity === 'session' ? ids.sort() : ids
   }
+  /** The row source's candidates alone, for an identity facet no pool-side
+   * edit can change: a session's server-assigned birth reference. The source
+   * files every row it emits, overlaid spawn placeholders included, so the
+   * resident union `ids` adds would only enumerate every resident session. */
+  indexed(question: Extract<ReaderQuestion, { kind: 'sessionReference' }>): string[] {
+    const index = this.watch(JSON.stringify(question), (value) => value.readerRevision(question))
+    const ids = index.readerIds(question)
+    this.counts.questions++
+    this.counts.returnedIds += ids.length
+    return ids
+  }
   count(entity: 'issue' | 'session'): number {
     const question: ReaderQuestion = {
       kind: entity === 'issue' ? 'commandIssues' : 'commandSessions',

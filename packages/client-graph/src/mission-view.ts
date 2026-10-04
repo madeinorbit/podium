@@ -2,7 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { issueDisplayRef as joinedIssueRef } from '@podium/client-core/replica'
 import {
   deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
-  motionPhase, panelLabel, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
+  motionPhase, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
   sessionSettled, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
   type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
   type PresenceNote, type HandoffNowEntry, type HandoffNextEntry,
@@ -13,6 +13,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
+import { type SeatRelation, sessionSeats } from './session-seats'
 import { overlayRow } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -26,8 +27,11 @@ export interface MissionViewValues {
   rows: FlightDeckRow[]
   members: ReadonlySet<string>
   byId: ReadonlyMap<string, IssueNavigationModel>
+  /** The mission's seated (non-archived) senders, in session order. */
   sessions: readonly SessionView[]
-  archived: SessionView[]
+  /** How many archived sessions the drawn rows hold; the list itself is
+   * read only while shown ({@link MissionViewReader.archive}). */
+  archivedCount: number
   titles: ReadonlyMap<string, string>
   progress: MissionProgress
   departures: MissionDeparture[]
@@ -40,9 +44,77 @@ export interface MissionViewValues {
 const NO_PROGRESS: MissionProgress = Object.freeze({ total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 })
 export const EMPTY_MISSION_VIEW: MissionViewValues = Object.freeze({
   root: undefined, rows: [], members: new Set<string>(), byId: new Map<string, IssueNavigationModel>(),
-  sessions: [], archived: [], titles: new Map<string, string>(), progress: NO_PROGRESS,
+  sessions: [], archivedCount: 0, titles: new Map<string, string>(), progress: NO_PROGRESS,
   departures: [], continuation: null, note: null, presence: null, rowPresentation: new Map<string, MissionRowPresentation>(),
 })
+
+/** An issue's archived mission senders, cached apart from its seats: a
+ * seated heartbeat never re-reads history (review finding 2). */
+export interface MissionHistory {
+  /** Archived senders with a row. */
+  readonly count: number
+  /** Of those, the ones a roster draws (neither headless nor a shell). */
+  readonly roster: number
+  /** `newestSession` of the archived senders, by id. */
+  readonly newest: string | undefined
+  /** The first archived sender, in session order, that moved elsewhere. */
+  readonly moved: string | undefined
+  /** `selectLatestPromptSession` of the archived senders, by id. */
+  readonly latestPrompt: string | undefined
+}
+
+/** The fields history aggregates read of one session: a read marker or any
+ * other display change leaves them, and so every aggregate, untouched. */
+interface SessionFacts {
+  readonly sessionId: string
+  readonly lastActiveAt: string
+  readonly lastInputAt?: string | null
+  readonly transcriptAvailable?: boolean
+  readonly agentKind: SessionView['agentKind']
+  readonly moved: boolean
+  readonly phase: string
+  readonly archived: boolean
+  /** Drawn in a roster: neither headless nor a shell. */
+  readonly roster: boolean
+}
+const factsOf = (session: SessionView): SessionFacts => ({
+  sessionId: session.sessionId, lastActiveAt: session.lastActiveAt, lastInputAt: session.lastInputAt,
+  transcriptAvailable: session.transcriptAvailable, agentKind: session.agentKind,
+  moved: Boolean(session.handoffTarget), phase: session.agentState?.phase ?? 'unknown',
+  archived: Boolean(session.archived), roster: !session.headless && session.agentKind !== 'shell',
+})
+/** `selectLatestPromptSession` reads only these fields. */
+const latestPromptOf = (facts: readonly SessionFacts[]) =>
+  selectLatestPromptSession(facts as unknown as readonly SessionView[])?.sessionId
+
+/** The member summary an issue model carries, as composable facts. */
+interface MemberFacts {
+  readonly count: number
+  /** Phase → its member count and the smallest member id with it (legacy key order). */
+  readonly phases: ReadonlyMap<string, { readonly count: number; readonly first: string }>
+  /** Latest finite member activity, ms (-Infinity when none). */
+  readonly latest: number
+}
+function memberFacts(sessions: readonly Pick<SessionFacts, 'sessionId' | 'lastActiveAt' | 'phase'>[]): MemberFacts {
+  const phases = new Map<string, { count: number; first: string }>()
+  let latest = -Infinity
+  for (const session of sessions) {
+    const phase = session.phase, seen = phases.get(phase)
+    if (!seen) phases.set(phase, { count: 1, first: session.sessionId })
+    else { seen.count++; if (session.sessionId < seen.first) seen.first = session.sessionId }
+    const at = Date.parse(session.lastActiveAt)
+    if (at > latest) latest = at
+  }
+  return { count: sessions.length, phases, latest }
+}
+function mergeMemberFacts(a: MemberFacts, b: MemberFacts): MemberFacts {
+  const phases = new Map(a.phases)
+  for (const [phase, value] of b.phases) {
+    const seen = phases.get(phase)
+    phases.set(phase, seen ? { count: seen.count + value.count, first: seen.first < value.first ? seen.first : value.first } : value)
+  }
+  return { count: a.count + b.count, phases, latest: Math.max(a.latest, b.latest) }
+}
 
 /** IDs only in these handles. Computed groups live only while a pane/diagnostic
  * observes them; row values are borrowed through the pool's one reader. */
@@ -51,11 +123,47 @@ class MissionNode {
 }
 const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id))
 const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
-const paneValues = {
-  full: cachedGroup('missionPaneFull', (node: MissionNode) => deriveMissionView(node.view, node.id, 'full')),
-  working: cachedGroup('missionPaneWorking', (node: MissionNode) => deriveMissionView(node.view, node.id, 'working')),
-  'needs-you': cachedGroup('missionPaneNeedsYou', (node: MissionNode) => deriveMissionView(node.view, node.id, 'needs-you')),
-}
+const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id))
+const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id))
+const factsValue = cachedGroup('missionSessionFacts', (node: MissionNode) => {
+  const session = node.view.session(node.id)
+  return session === LOADING || !session ? session : factsOf(session)
+})
+const memberIdsValue = cachedGroup('missionMemberIds', (node: MissionNode) =>
+  [...node.view.pool.graph.many('issue', node.id, 'pageSessions')].sort().map(asSessionId))
+const memberHistoryValue = cachedGroup('missionMemberHistory', (node: MissionNode) => node.view.readMemberHistory(node.id))
+const MODES = ['full', 'working', 'needs-you'] as const
+type PaneGroups<V> = Record<FlightDeckMode, (node: MissionNode) => V>
+const paneGroups = <V>(name: string, read: (node: MissionNode, mode: FlightDeckMode) => V): PaneGroups<V> =>
+  Object.fromEntries(MODES.map(mode => [mode, cachedGroup(`${name}${mode === 'full' ? 'Full' : mode === 'working' ? 'Working' : 'NeedsYou'}`,
+    (node: MissionNode) => read(node, mode))])) as PaneGroups<V>
+/** The pane without its archived list: everything a seated heartbeat can change. */
+const paneCore = paneGroups('missionPaneCore', (node, mode) => deriveMissionView(node.view, node.id, mode))
+/** The drawn rows' ids only, so the archived list survives a re-derived pane. */
+const paneRows = paneGroups('missionPaneRows', (node, mode) => {
+  const core = paneCore[mode](node)
+  return core === LOADING ? LOADING : core.rows.map(row => row.issue.id)
+})
+/** The drawn rows' archived list, read only while it is shown. */
+const paneArchive = paneGroups('missionPaneArchive', (node, mode) => deriveMissionArchive(node.view, paneRows[mode](node)))
+/** Its length from the rows' cached history facts: no archived row is re-read. */
+const paneArchiveCount = paneGroups('missionPaneArchiveCount', (node, mode) => {
+  const rowIds = paneRows[mode](node)
+  if (rowIds === LOADING) return LOADING
+  let count = 0
+  for (const id of rowIds) {
+    const history = node.view.history(id)
+    if (history === LOADING) return LOADING
+    count += history.roster
+  }
+  return count
+})
+const paneValues = paneGroups('missionPane', (node, mode): MissionViewValues | typeof LOADING => {
+  const core = paneCore[mode](node)
+  if (core === LOADING) return LOADING
+  const archivedCount = paneArchiveCount[mode](node)
+  return archivedCount === LOADING ? LOADING : { ...core, archivedCount }
+})
 const handoffValue = cachedGroup('missionHandoff', (node: MissionNode) => deriveMissionHandoff(node.view, node.id))
 const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 const visible = (issue: { archived?: boolean; deletedAt?: string | null }) => !issue.archived && !issue.deletedAt
@@ -75,8 +183,14 @@ export class MissionViewReader {
     return node
   }
   constructor(readonly pool: MobxPool) {}
+  /** The pane is cached per mission ROOT and mode. The selection only picks
+   * the root (an addressed ancestry read), so another row of the same mission
+   * reuses the derived pane instead of rebuilding it (review finding 2). */
   values(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
-    return id ? paneValues[mode](this.node(id)) : EMPTY_MISSION_VIEW
+    if (!id) return EMPTY_MISSION_VIEW
+    const rootId = this.rootFor(id)
+    if (rootId === LOADING) return LOADING
+    return rootId ? paneValues[mode](this.node(rootId)) : EMPTY_MISSION_VIEW
   }
   handoff(id: string): MissionHandoffValues | typeof LOADING { return handoffValue(this.node(id)) }
   issue(id: string): Loaded<IssueNavigationModel> { return issueValue(this.node(id)) }
@@ -89,11 +203,34 @@ export class MissionViewReader {
     const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
     return overlayRow(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
   }
+  /** Every explicit mission sender, archived history included, in session
+   * order. Only whole-list readers (menus) ask for it; mission derivations
+   * compose {@link present} and {@link history} so a seated heartbeat never
+   * re-reads history. */
   attached(id: string): readonly SessionView[] | typeof LOADING { return attachedValue(this.node(id)) }
-  sessionOrder = (a: SessionView, b: SessionView): number => {
-    const left = this.pool.graph.orderKey('session', a.sessionId), right = this.pool.graph.orderKey('session', b.sessionId)
-    return (left < right ? -1 : left > right ? 1 : 0) || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0)
+  /** Non-archived mission senders, in session order. */
+  present(id: string): readonly SessionView[] | typeof LOADING { return presentValue(this.node(id)) }
+  /** What derivations need from the archived mission senders. */
+  history(id: string): MissionHistory | typeof LOADING { return historyValue(this.node(id)) }
+  /** The archived list under a mission root's drawn rows, in row order. */
+  archive(rootId: string, mode: FlightDeckMode): SessionView[] | typeof LOADING { return paneArchive[mode](this.node(rootId)) }
+  private facts(sessionId: string): SessionFacts | typeof LOADING | undefined { return factsValue(this.node(sessionId)) }
+  private idOrder = (a: string, b: string): number => {
+    const left = this.pool.graph.orderKey('session', a), right = this.pool.graph.orderKey('session', b)
+    return (left < right ? -1 : left > right ? 1 : 0) || (a < b ? -1 : a > b ? 1 : 0)
   }
+  /** Facts of the given sessions in session order; LOADING while any row loads. */
+  private factsOfIds(ids: readonly string[]): SessionFacts[] | typeof LOADING {
+    const found: SessionFacts[] = []
+    let pending = false
+    for (const sessionId of ids) {
+      const facts = this.facts(sessionId)
+      if (facts === LOADING) pending = true
+      else if (facts) found.push(facts)
+    }
+    return pending ? LOADING : found.sort((a, b) => this.idOrder(a.sessionId, b.sessionId))
+  }
+  sessionOrder = (a: SessionView, b: SessionView): number => this.idOrder(a.sessionId, b.sessionId)
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
     let row = this.pool.row('session', id, 'summary')
@@ -101,34 +238,112 @@ export class MissionViewReader {
     if (summary && summary !== LOADING && !['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(summary, key))) row = this.pool.row('session', id)
     return row as Loaded<SessionView>
   }
-  readAttached(id: string): readonly SessionView[] | typeof LOADING {
+  /** The seated or archived side's ids, and the cold ones whose summary
+   * does not say which: those settle from their rows (read here anyway). */
+  private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
+    const partition = sessionSeats(this.pool).partition(relation, id)
+    if (partition === LOADING) return LOADING
+    const known = archived ? partition.archived : partition.present
+    return partition.unknown.length ? [...known, ...partition.unknown] : known
+  }
+  private seatRows(relation: SeatRelation, id: string, archived: boolean): SessionView[] | typeof LOADING {
+    const ids = this.seatIds(relation, id, archived)
+    if (ids === LOADING) return LOADING
     const found: SessionView[] = []
     let pending = false
-    for (const sessionId of this.pool.graph.many('issue', id, 'missionSessions')) {
+    for (const sessionId of ids) {
       this.stats.attachmentEdges++
       const session = this.session(sessionId)
       if (session === LOADING) pending = true
-      else if (session) found.push(session)
+      else if (session && Boolean(session.archived) === archived) found.push(session)
     }
-    return pending ? LOADING : found.sort(this.sessionOrder)
+    return pending ? LOADING : found
+  }
+  readPresent(id: string): readonly SessionView[] | typeof LOADING {
+    const found = this.seatRows('missionSessions', id, false)
+    return found === LOADING ? LOADING : found.sort(this.sessionOrder)
+  }
+  readHistory(id: string): MissionHistory | typeof LOADING {
+    const ids = this.seatIds('missionSessions', id, true)
+    if (ids === LOADING) return LOADING
+    const all = this.factsOfIds(ids)
+    if (all === LOADING) return LOADING
+    const facts = all.filter(session => session.archived)
+    let newest: SessionFacts | undefined
+    for (const session of facts) if (!newest || session.lastActiveAt > newest.lastActiveAt) newest = session
+    return { count: facts.length, roster: facts.filter(session => session.roster).length, newest: newest?.sessionId,
+      moved: facts.find(session => session.moved)?.sessionId, latestPrompt: latestPromptOf(facts) }
+  }
+  readAttached(id: string): readonly SessionView[] | typeof LOADING {
+    const present = this.present(id), archived = this.seatRows('missionSessions', id, true)
+    if (present === LOADING || archived === LOADING) return LOADING
+    return [...present, ...archived].sort(this.sessionOrder)
+  }
+  /** Archived raw members' contribution to an issue's member summary. */
+  readMemberHistory(id: string): MemberFacts | typeof LOADING {
+    const ids = this.seatIds('pageSessions', id, true)
+    if (ids === LOADING) return LOADING
+    const facts = this.factsOfIds(ids)
+    return facts === LOADING ? LOADING : memberFacts(facts.filter(session => session.archived))
+  }
+  /** The present and archived seats are both settled (history rows loaded). */
+  settled(id: string): boolean {
+    return this.present(id) !== LOADING && this.history(id) !== LOADING
+  }
+  /** First session in session order among the present and archived candidates. */
+  earlier(present: SessionView | undefined, archived: SessionView | undefined): SessionView | undefined {
+    return !present ? archived : !archived ? present : this.sessionOrder(present, archived) <= 0 ? present : archived
+  }
+  /** `newestSession` over the whole roster: the latest activity, earlier session order on a tie. */
+  newest(id: string): SessionView | undefined {
+    const present = this.present(id), history = this.history(id)
+    if (present === LOADING || history === LOADING) throw LOADING
+    const left = newestSession(present), right = this.resolve(history.newest)
+    if (!left || !right || left.lastActiveAt === right.lastActiveAt) return this.earlier(left, right)
+    return left.lastActiveAt > right.lastActiveAt ? left : right
+  }
+  /** The first session, present or archived, that moved to another issue. */
+  moved(id: string): SessionView | undefined {
+    const present = this.present(id), history = this.history(id)
+    if (present === LOADING || history === LOADING) throw LOADING
+    return this.earlier(present.find(session => session.handoffTarget), this.resolve(history.moved))
+  }
+  /** One session's row by id, for an aggregate's chosen member. */
+  resolve(sessionId: string | undefined): SessionView | undefined {
+    if (sessionId === undefined) return undefined
+    const session = this.session(sessionId)
+    if (session === LOADING) throw LOADING
+    return session
+  }
+  /** The latest prompt among the given archived senders' winners. */
+  latestPrompt(ids: Iterable<string>): string | undefined {
+    const winners: SessionFacts[] = []
+    for (const id of ids) {
+      const facts = this.facts(id)
+      if (facts === LOADING) throw LOADING
+      if (facts) winners.push(facts)
+    }
+    return latestPromptOf(winners)
+  }
+  /** An explicit mission sender of this issue, by id, without reading its roster. */
+  member(id: string, sessionId: string): SessionView | undefined {
+    if (this.pool.graph.one('session', sessionId, 'missionIssue') !== id) return undefined
+    const session = this.session(sessionId)
+    if (session === LOADING) throw LOADING
+    return session
   }
   readIssue(id: string): Loaded<IssueNavigationModel> {
     this.stats.issueReads++
     const raw = this.pool.row('issue', id)
     if (raw === LOADING || !raw) return raw
     const row = raw as Omit<IssueNavigationModel, 'description' | 'notes'> & { description: string | { value: string }; notes?: string | { value: string } }
-    const attached = this.attached(id)
-    if (attached === LOADING) return LOADING
+    if (!this.settled(id)) return LOADING
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
-    const memberIds = [...this.pool.graph.many('issue', id, 'pageSessions')].sort()
-    const members: SessionView[] = []
-    let pending = false
-    for (const sessionId of memberIds) {
-      const session = this.session(sessionId)
-      if (session === LOADING) pending = true
-      else if (session) members.push(session)
-    }
+    // Archived members contribute through their own cached facts.
+    const memberIds = memberIdsValue(this.node(id))
+    const present = this.seatRows('pageSessions', id, false), archived = memberHistoryValue(this.node(id))
+    let pending = present === LOADING || archived === LOADING
     const childIds = [...this.pool.graph.many('issue', id, 'treeChildren')]
     let childDoneCount = 0
     for (const childId of childIds) {
@@ -146,17 +361,15 @@ export class MissionViewReader {
         if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
       }
     }
-    if (pending) return LOADING
+    if (pending || present === LOADING || archived === LOADING) return LOADING
     const repoId = this.pool.graph.one('issue', id, 'repo')
     const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
+    const members = mergeMemberFacts(memberFacts(present.map(factsOf)), archived)
     const byPhase: Record<string, number> = {}
+    for (const [phase, { count }] of [...members.phases].sort((a, b) => a[1].first < b[1].first ? -1 : 1)) byPhase[phase] = count
     const readAt = this.pool.readCursor(id) ?? null
     let unread = !readAt || !Number.isFinite(Date.parse(readAt)) || Date.parse(row.updatedAt) > Date.parse(readAt)
-    for (const session of members) {
-      const phase = session.agentState?.phase ?? 'unknown'
-      byPhase[phase] = (byPhase[phase] ?? 0) + 1
-      unread ||= Date.parse(session.lastActiveAt) > Date.parse(readAt ?? '')
-    }
+    unread ||= members.latest > Date.parse(readAt ?? '')
     const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
     const deferred = Number.isFinite(deferAt) && !this.pool.clock.reached(deferAt)
     return overlayRow(row, {
@@ -164,15 +377,17 @@ export class MissionViewReader {
       notes: typeof row.notes === 'string' ? row.notes : row.notes?.value,
       worktreePath: row.worktreePath ?? null, branch: row.branch ?? null,
       prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
-      readAt, memberSessionIds: memberIds.map(asSessionId),
+      readAt, memberSessionIds: memberIds,
       childIds: [...childIds].sort().map(asIssueId), childCount: childIds.length, childDoneCount,
       deferred, ready: !row.blocked && !deferred && row.stage !== 'done', dependents,
-      unread: row.deletedAt ? false : unread, sessionSummary: { total: members.length, byPhase },
+      unread: row.deletedAt ? false : unread, sessionSummary: { total: members.count, byPhase },
     }) as IssueNavigationModel
   }
   roster(id: string, archived = false): readonly SessionView[] | typeof LOADING {
-    const attached = this.attached(id)
-    return attached === LOADING ? LOADING : attached.filter(session => !session.headless && session.agentKind !== 'shell' && Boolean(session.archived) === archived)
+    const seats = archived ? this.seatRows('missionSessions', id, true) : this.present(id)
+    if (seats === LOADING) return LOADING
+    return (archived ? [...seats].sort(this.sessionOrder) : seats)
+      .filter(session => !session.headless && session.agentKind !== 'shell' && Boolean(session.archived) === archived)
   }
   rootFor(selectedId: string | null): Loaded<string> {
     const root = missions(this.pool).rootFor(selectedId)
@@ -193,11 +408,15 @@ export class MissionViewReader {
   selectedRoot(selectedId: string | null): Loaded<IssueNavigationModel> {
     const rootId = this.rootFor(selectedId)
     if (rootId === LOADING || !rootId) return rootId === LOADING ? LOADING : undefined
+    return this.shownRoot(rootId)
+  }
+  /** A mission root as the pane shows it: visible, and a draft only while occupied. */
+  shownRoot(rootId: string): Loaded<IssueNavigationModel> {
     const root = this.issue(rootId)
     if (root === LOADING || !root || !visible(root)) return root === LOADING ? LOADING : undefined
     if (root.isDraftVessel && !root.worktreePath) {
-      const sessions = this.attached(rootId)
-      if (sessions === LOADING) return LOADING
+      const sessions = this.present(rootId)
+      if (sessions === LOADING || this.history(rootId) === LOADING) return LOADING
       if (!sessions.some(session => !session.archived)) return undefined
     }
     return root
@@ -243,9 +462,9 @@ export class MissionViewReader {
       if (issue === LOADING) pending = true
       else if (issue && tips.has(id)) for (const dep of issue.deps) {
         if (this.issue(dep.id) === LOADING) pending = true
-        if (this.attached(dep.id) === LOADING) pending = true
+        if (!this.settled(dep.id)) pending = true
       }
-      if (this.attached(id) === LOADING) pending = true
+      if (!this.settled(id)) pending = true
     }
     return !pending
   }
@@ -268,8 +487,9 @@ class MissionContext {
     if (value) this.byId.set(id, value)
     return value
   }
-  attached(id: string): readonly SessionView[] {
-    const value = this.view.attached(id)
+  /** Non-archived senders: every rule that asks whether work is present. */
+  present(id: string): readonly SessionView[] {
+    const value = this.view.present(id)
     if (value === LOADING) throw LOADING
     return value
   }
@@ -278,9 +498,9 @@ class MissionContext {
     if (value === LOADING) throw LOADING
     return [...value]
   }
-  live(id: string) { return this.attached(id).some(openSession) }
+  live(id: string) { return this.present(id).some(openSession) }
   lastActive(issue: IssueNavigationModel, local: boolean) {
-    return local ? issue.updatedAt : this.attached(issue.id).reduce((latest, session) =>
+    return local ? issue.updatedAt : this.present(issue.id).reduce((latest, session) =>
       !session.archived && session.lastActiveAt > latest ? session.lastActiveAt : latest, issue.updatedAt)
   }
   preferred(candidates: readonly IssueNavigationModel[], local = false): IssueNavigationModel | undefined {
@@ -339,7 +559,7 @@ class MissionContext {
         { kind: 'duplicate', ...(target ? { target } : {}), short: ref,
           full: `The same work is tracked in ${ref}`, line: `duplicate · ${ref}` }
     }
-    if ((local ? this.roster(issue.id) : this.attached(issue.id)).some(openSession)) return null
+    if ((local ? this.roster(issue.id) : this.present(issue.id)).some(openSession)) return null
     const tip = this.preferred(this.tips(issue.id, local), local)
     if (!tip) return null
     const ref = issueDisplayRef(tip)
@@ -389,9 +609,11 @@ class MissionContext {
     }
     return null
   }
-  presence(issue: IssueNavigationModel, sessions: readonly SessionView[], local = false): PresenceNote | null {
+  /** `sessions` is a drawn roster; `roster` names the issue whose whole
+   * roster (archived included) answers which session moved. */
+  presence(issue: IssueNavigationModel, sessions: readonly SessionView[], local = false, roster?: string): PresenceNote | null {
     if (sessions.some(openSession)) return null
-    const moved = sessions.find(session => session.handoffTarget)
+    const moved = roster === undefined ? sessions.find(session => session.handoffTarget) : this.view.moved(roster)
     if (moved) return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
     const continuation = this.continuation(issue, local)
     if (continuation) return { kind: 'moved', text: continuation.full, attention: false }
@@ -554,10 +776,25 @@ function progressFor(ctx: MissionContext, root: IssueNavigationModel, members: R
 export function readMissionView(view: MissionViewReader, selectedId: string | null, mode: FlightDeckMode = 'full'): MissionViewValues | typeof LOADING {
   return view.values(selectedId, mode)
 }
-function deriveMissionView(view: MissionViewReader, selectedId: string, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
+/** The pane's archived list: the drawn rows' archived rosters, de-duplicated
+ * in row order. Reads only the row ids and archived history, so a seated
+ * heartbeat that re-derives the pane leaves this list cached. */
+function deriveMissionArchive(view: MissionViewReader, rowIds: readonly string[] | typeof LOADING): SessionView[] | typeof LOADING {
+  if (rowIds === LOADING) return LOADING
+  const seen = new Set<string>(), archived: SessionView[] = []
+  for (const id of rowIds) {
+    const roster = view.roster(id, true)
+    if (roster === LOADING) return LOADING
+    for (const session of roster) {
+      if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
+    }
+  }
+  return archived
+}
+function deriveMissionView(view: MissionViewReader, rootId: string, mode: FlightDeckMode): Omit<MissionViewValues, 'archivedCount'> | typeof LOADING {
   view.stats.values++
   try {
-    const root = view.selectedRoot(selectedId)
+    const root = view.shownRoot(rootId)
     if (root === LOADING) return LOADING
     if (!root) return EMPTY_MISSION_VIEW
     const members = missions(view.pool).members(root.id)
@@ -566,12 +803,9 @@ function deriveMissionView(view: MissionViewReader, selectedId: string, mode: Fl
     const ctx = new MissionContext(view)
     ctx.byId.set(root.id, root)
     const rows = buildRows(ctx, root, members, mode)
-    const seenArchived = new Set<string>(), archived: SessionView[] = [], titles = new Map<string, string>()
+    const titles = new Map<string, string>()
     const rowPresentation = new Map<string, MissionRowPresentation>()
     for (const row of rows) {
-      for (const session of ctx.roster(row.issue.id, true)) {
-        if (!seenArchived.has(session.sessionId)) { seenArchived.add(session.sessionId); archived.push(session) }
-      }
       const title = view.title(row.issue)
       if (title === LOADING) return LOADING
       titles.set(row.issue.id, title)
@@ -594,10 +828,10 @@ function deriveMissionView(view: MissionViewReader, selectedId: string, mode: Fl
       }
     }
     const progress = progressFor(ctx, root, members)
-    // API/handoff/gesture consumers need explicit members, archived included.
-    // Never reconstruct ownership by scanning a global session array.
-    const sessions = [...new Map([...ctx.byId.keys()].flatMap(id => ctx.attached(id)).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
-    return { root, rows, members, byId: ctx.byId, sessions, archived, titles, progress,
+    // The close guards read seated members only. Archived history stays in
+    // its own cached groups. Never scan a global session array for ownership.
+    const sessions = [...new Map([...ctx.byId.keys()].flatMap(id => ctx.present(id)).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
+    return { root, rows, members, byId: ctx.byId, sessions, titles, progress,
       departures: departures.sort((a, b) => a.issue.seq - b.issue.seq), continuation, note, presence, rowPresentation }
   } catch (error) { if (error === LOADING) return LOADING; throw error }
 }
@@ -625,14 +859,12 @@ function poolHandoffNow(ctx: MissionContext, issues: readonly IssueNavigationMod
   for (const issue of issues) {
     if (!memberIds.has(issue.id) || issue.stage === 'proposed' || issue.archived || issue.deletedAt)
       continue
-    const crew = ctx.attached(issue.id)
+    const crew = ctx.present(issue.id)
     const present = crew.filter(sessionPresentOnTask)
     const asking = present.find(
       (session) => sessionAsksOnIssue(issue, session) || motionPhase(session) === 'waiting',
     )
-    const askedBy = issue.asked?.by
-      ? crew.find((session) => session.sessionId === issue.asked?.by)
-      : undefined
+    const askedBy = issue.asked?.by ? ctx.view.member(issue.id, issue.asked.by) : undefined
     const explicitNeed = issue.needsHuman === true || asking !== undefined
     let entry: HandoffNowEntry | null = null
 
@@ -656,11 +888,11 @@ function poolHandoffNow(ctx: MissionContext, issues: readonly IssueNavigationMod
           sessionId: working.sessionId,
           text:
             (issue.blocked ? ctx.blockLabel(issue) : null) ??
-            ctx.presence(issue, crew)?.text ??
+            ctx.presence(issue, crew, false, issue.id)?.text ??
             'Agent computing now.',
         }
       } else if (issue.stage === 'review' && !issue.blocked) {
-        const session = newestSession(crew)
+        const session = ctx.view.newest(issue.id)
         entry = {
           kind: 'review',
           issueId: issue.id,
@@ -675,7 +907,7 @@ function poolHandoffNow(ctx: MissionContext, issues: readonly IssueNavigationMod
           ...(session ? { sessionId: session.sessionId } : {}),
           text:
             (issue.blocked ? ctx.blockLabel(issue) : null) ??
-            ctx.presence(issue, crew)?.text ??
+            ctx.presence(issue, crew, false, issue.id)?.text ??
             'Waiting on dependency.',
         }
       } else if (
@@ -686,7 +918,7 @@ function poolHandoffNow(ctx: MissionContext, issues: readonly IssueNavigationMod
           kind: 'stalled',
           issueId: issue.id,
           text:
-            ctx.presence(issue, crew)?.text ??
+            ctx.presence(issue, crew, false, issue.id)?.text ??
             'Started with no present session.',
         }
       }
@@ -743,7 +975,7 @@ function poolHandoffNext(ctx: MissionContext, issues: readonly IssueNavigationMo
         Boolean(candidate && !issueClosed(candidate)),
       )
     const children = poolOpenChildren(ctx, memberIds, issue.id)
-    const session = newestSession(ctx.attached(issue.id))
+    const session = ctx.view.newest(issue.id)
     let entry: HandoffNextEntry | null = null
 
     if (issue.stage === 'review' && openBlockers.length === 0) {
@@ -787,10 +1019,16 @@ function poolOpenChildren(ctx: MissionContext, members: ReadonlySet<string>, par
   }).sort(rowOrder)
 }
 export interface MissionHandoffValues {
+  /** The mission's seated (non-archived) senders, in session order. */
   crew: readonly SessionView[]
+  /** Archived senders, summarized: how many, and the latest prompt among them. */
+  retired: { readonly count: number; readonly latestPrompt: SessionView | null }
   current: readonly HandoffNowEntry[]
   next: readonly HandoffNextEntry[]
 }
+export const EMPTY_MISSION_HANDOFF: MissionHandoffValues = Object.freeze({
+  crew: [], retired: Object.freeze({ count: 0, latestPrompt: null }), current: [], next: [],
+})
 
 export function readWorkspaceMission(view: MissionViewReader, selectedId: string | null, focusedId: string | null) {
   const selected = selectedId ? view.issue(selectedId) : undefined
@@ -807,7 +1045,7 @@ export function readWorkspaceMission(view: MissionViewReader, selectedId: string
     const issue = view.issue(id)
     if (issue === LOADING) pending = true
     else if (issue) missionIssues.push(issue)
-    if (view.attached(id) === LOADING) pending = true
+    if (!view.settled(id)) pending = true
   }
   if (pending) return LOADING
   const focused = focusedId && missionIds.has(focusedId) ? view.issue(focusedId) : undefined
@@ -871,7 +1109,17 @@ function deriveMissionHandoff(view: MissionViewReader, rootId: string): MissionH
     if (!view.prepare(members)) return LOADING
     const ctx = new MissionContext(view)
     const issues = [...members].sort().flatMap(id => { const issue = ctx.issue(id); return issue ? [issue] : [] })
-    const crew = [...new Map([...members].flatMap(id => ctx.attached(id)).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
-    return { crew, current: poolHandoffNow(ctx, issues, members), next: poolHandoffNext(ctx, issues, members) }
+    const crew = [...new Map([...members].flatMap(id => ctx.present(id)).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
+    // A session has one issue, so member histories never overlap.
+    let count = 0
+    const winners: string[] = []
+    for (const id of members) {
+      const history = view.history(id)
+      if (history === LOADING) return LOADING
+      count += history.count
+      if (history.latestPrompt !== undefined) winners.push(history.latestPrompt)
+    }
+    const latestPrompt = view.resolve(view.latestPrompt(winners)) ?? null
+    return { crew, retired: { count, latestPrompt }, current: poolHandoffNow(ctx, issues, members), next: poolHandoffNext(ctx, issues, members) }
   } catch (error) { if (error === LOADING) return LOADING; throw error }
 }
