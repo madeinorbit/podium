@@ -12,7 +12,7 @@ import type { ReaderQuestion } from '@podium/client-graph/shared/reader-question
 import type { RowRecord } from '@podium/client-graph/shared/source'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
 import type { SessionView } from '@podium/client-core/session-values'
-import { issueIsActionable } from '@podium/client-core/viewmodels'
+import { issueIsActionable } from '@podium/client-core/values'
 import { autorun, compareStructural, untracked } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { poolScreenCellsAt } from './pool-screen-work'

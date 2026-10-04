@@ -34,6 +34,47 @@ import { LOADING } from './worklist/rollup'
 
 const now = Date.parse('2026-10-03T12:00:00Z'),
   old = '2020-01-01T00:00:00Z'
+
+it('keeps spawn placement in its declared source subset across reassignment, readmission and rescope', () => {
+  const issue = (id: string, patch: object = {}): RowRecord => ({ kind: 'issue', id, value: {
+    id, title: id, seq: 1, stage: 'planning', createdAt: old, updatedAt: old,
+    repoId: 'wanted', repoPath: '/wanted', archived: false, deletedAt: null, ...patch,
+  } } as RowRecord)
+  const archived = issue('archived-repo', { archived: true, repoPath: '/other' })
+  const unassigned = issue('unassigned-path', { repoId: null })
+  const deleted = issue('deleted-repo', { deletedAt: old })
+  const rows = [archived, unassigned, deleted,
+    issue('foreign-repo', { repoId: 'other' }),
+    issue('unassigned-other-path', { repoId: null, repoPath: '/other' })]
+  const source = createColdIndex(SCHEMA)
+  source.apply({ type: 'replace', rows })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+    cold: () => source, schedule: () => () => {},
+  })
+  pool.apply({ type: 'replace', rows: [...rows, issue('resident-only')] })
+  const query = { kind: 'spawnIssues', repoId: 'wanted', repoPath: '/wanted' } as const
+  let seen: string[] = []
+  const stop = autorun(() => { seen = pool.queries.ids(query).sort() })
+  const publish = (event: Parameters<ColdIndex['apply']>[0]) => {
+    source.apply(event)
+    pool.apply(event)
+  }
+  try {
+    expect(pool.queries.indexed(query).sort()).toEqual(['archived-repo', 'unassigned-path'])
+    expect(seen).toEqual(['archived-repo', 'unassigned-path'])
+    publish({ type: 'update', rows: [issue('unassigned-path', { repoId: 'other' })] })
+    expect(seen).toEqual(['archived-repo'])
+    publish({ type: 'update', rows: [issue('deleted-repo')] })
+    expect(seen).toEqual(['archived-repo', 'deleted-repo'])
+    publish({ type: 'update', rows: [{ kind: 'issue', id: 'deleted-repo', value: undefined }] })
+    expect(seen).toEqual(['archived-repo'])
+    publish({ type: 'update', rows: [issue('deleted-repo')] })
+    expect(seen).toEqual(['archived-repo', 'deleted-repo'])
+    publish({ type: 'replace', rows: [archived] })
+    expect(seen).toEqual(['archived-repo'])
+  } finally { stop(); pool.dispose() }
+})
+
 function fixture(scale = 1, bootOnly = false) {
   let rows: RowRecord[] = []
   const issue = (id: string, extra: object = {}) =>

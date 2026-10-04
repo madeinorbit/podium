@@ -77,6 +77,7 @@ export class ReaderQueries {
   private sourceOnly(question: ReaderQuestion): boolean {
     return (
       question.kind === 'mobileIssueTargets' ||
+      question.kind === 'spawnIssues' ||
       (question.kind === 'commandIssueSessions' &&
         (question.archived !== undefined || question.includeShells !== undefined))
     )

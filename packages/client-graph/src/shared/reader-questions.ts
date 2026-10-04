@@ -408,6 +408,10 @@ export function createReaderIndex() {
         case 'sessionReference': return has(`session:ref:${question.ref}`)
         case 'commandIssueSessions': return has(commandIssueKey(question))
         case 'boardCounts': return has('issue:live')
+        case 'spawnIssues':
+          return has('issue:undeleted') &&
+            ((question.repoId !== undefined && has(`issue:repo:${question.repoId}`)) ||
+              (has('issue:repo:') && has(`issue:path:${question.repoPath}`)))
         case 'containingIssues': {
           if (has(`issue:root:${question.cwd}`)) return true
           for (let at = question.cwd.indexOf('/'); at >= 0; at = question.cwd.indexOf('/', at + 1))
