@@ -69,6 +69,7 @@ async function mount(
     interruptError?: string | null
     transcriptFreshness?: 'checking' | 'rendering' | 'saved' | null
     deliverable?: boolean
+    autoFocusKey?: string
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const taRef = createRef<HTMLTextAreaElement>()
@@ -97,7 +98,7 @@ async function mount(
           turnError={opts.turnError ?? null}
           transcriptFreshness={opts.transcriptFreshness ?? null}
           offlineAsOf={null}
-          autoFocusKey="s1"
+          autoFocusKey={opts.autoFocusKey ?? 's1'}
           transcriptSettled
         />
       </PanelVisible>,
@@ -128,6 +129,64 @@ afterEach(() => {
   sizingStyles.remove()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+})
+
+describe.each([false, true])('draft selection, compact=%s', (compact) => {
+  it('keeps the caret after typing in the middle across synchronous draft renders', async () => {
+    const onDraftChange = vi.fn()
+    const { ta } = await mount({ compact, draft: 'abcdef', onDraftChange })
+    const initialDefault = ta.defaultValue
+    const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    const valueWrites = vi.spyOn(HTMLTextAreaElement.prototype, 'value', 'set')
+    ta.focus()
+    ta.setSelectionRange(3, 3)
+    act(() => {
+      // A browser edit changes value and selection before dispatching input.
+      nativeSet.call(ta, 'abcZdef')
+      ta.setSelectionRange(4, 4)
+      ta.dispatchEvent(new InputEvent('input', { bubbles: true, data: 'Z' }))
+    })
+    expect(onDraftChange).toHaveBeenLastCalledWith('abcZdef')
+    await mount({ compact, draft: 'abcZdef', onDraftChange })
+    expect(ta.selectionStart).toBe(4)
+    expect(ta.selectionEnd).toBe(4)
+    expect(ta.defaultValue).toBe(initialDefault)
+    expect(valueWrites).not.toHaveBeenCalled()
+
+    // A second edit replaces a selection rather than appending at the end.
+    ta.setSelectionRange(2, 5, 'backward')
+    act(() => {
+      nativeSet.call(ta, 'abQef')
+      ta.setSelectionRange(3, 3)
+      ta.dispatchEvent(new InputEvent('input', { bubbles: true, data: 'Q' }))
+    })
+    await mount({ compact, draft: 'abQef', onDraftChange })
+    expect(ta.selectionStart).toBe(3)
+    expect(ta.selectionEnd).toBe(3)
+    expect(ta.defaultValue).toBe(initialDefault)
+    expect(valueWrites).not.toHaveBeenCalled()
+  })
+
+  it('preserves a focused selection on external draft sync and clamps it on clear', async () => {
+    const { ta } = await mount({ compact, draft: 'abcdef' })
+    ta.focus()
+    ta.setSelectionRange(2, 5, 'backward')
+    await mount({ compact, draft: 'abcdef appended' })
+    expect(ta.value).toBe('abcdef appended')
+    expect([ta.selectionStart, ta.selectionEnd, ta.selectionDirection]).toEqual([2, 5, 'backward'])
+    await mount({ compact, draft: '' })
+    expect(ta.value).toBe('')
+    expect([ta.selectionStart, ta.selectionEnd]).toEqual([0, 0])
+  })
+
+  it('adopts a different session draft without transferring the old selection', async () => {
+    const { ta } = await mount({ compact, draft: 'abcdef' })
+    ta.focus()
+    ta.setSelectionRange(2, 4, 'backward')
+    await mount({ compact, draft: 'other session', autoFocusKey: 's2' })
+    expect(ta.value).toBe('other session')
+    expect([ta.selectionStart, ta.selectionEnd]).toEqual([13, 13])
+  })
 })
 
 describe('ChatComposer, compact (the Superagent box)', () => {

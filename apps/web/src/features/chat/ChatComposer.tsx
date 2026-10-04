@@ -2,7 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { usePanelVisible } from '@/app/panel-visible'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -50,7 +50,7 @@ function PromptAutoGrow({
  * THE DRAFT GOES THROUGH THE ACTIONS SEAM, AND THIS COMPONENT HOLDS NO MERGE
  * ---------------------------------------------------------------------------
  *
- * `value` in, `onChange` out — one action call (`setSessionDraft`, POD-402) per
+ * `draft` in, `onChange` out — one action call (`setSessionDraft`, POD-402) per
  * keystroke, and no reconciliation of any kind in here. That is deliberate and
  * it is the one thing in this refactor that a future phase depends on:
  *
@@ -186,6 +186,32 @@ export function ChatComposer({
   onBackendEffortChange?: (effort: string) => void
 }): JSX.Element {
   const lastInterruptEscapeAt = useRef<number | null>(null)
+  const initialDraft = useRef(draft)
+  const draftOwner = useRef(autoFocusKey)
+
+  // Native input already contains the synchronous draft. A controlled textarea
+  // also mirrors every edit into defaultValue (its child text), which can move
+  // the caret. Seed it once; adopt only actual external changes, preserving a
+  // focused selection within the same session. The draft action remains the
+  // sole owner of the text; this is a DOM bridge, not another draft store.
+  useLayoutEffect(() => {
+    const ownerChanged = draftOwner.current !== autoFocusKey
+    draftOwner.current = autoFocusKey
+    const ta = taRef.current
+    if (!ta || ta.value === draft) return
+    const selection =
+      !ownerChanged && document.activeElement === ta
+        ? { start: ta.selectionStart, end: ta.selectionEnd, direction: ta.selectionDirection }
+        : null
+    ta.value = draft
+    if (selection) {
+      ta.setSelectionRange(
+        Math.min(selection.start, draft.length),
+        Math.min(selection.end, draft.length),
+        selection.direction,
+      )
+    }
+  }, [draft, autoFocusKey, taRef])
   // THE FOCUS CHORD (POD-993). ⌘/ puts the caret here from anywhere in the pane,
   // and the box says so in its corner while it is unfocused and empty — the one
   // thing about a prompt box a reader cannot discover by looking at it. What the
@@ -668,7 +694,7 @@ export function ChatComposer({
                     // above it, so what you type looks like what you sent.
                     '[field-sizing:content] placeholder-shown:[field-sizing:fixed] block min-h-[1lh] max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
               )}
-              value={draft}
+              defaultValue={initialDraft.current}
               onChange={(e) => {
                 onDraftChange(e.target.value)
                 trigger.sync()

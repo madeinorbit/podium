@@ -663,6 +663,7 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
   valueWrites.mockClear()
   const work = { ...corpus.source.counts }
   const textarea = mounted.container.querySelector('textarea')!
+  const initialDefault = textarea.defaultValue
   for (let i = 1; i <= 60; i++) {
     await act(async () => {
       nativeSet.call(textarea, 'x'.repeat(i))
@@ -672,8 +673,23 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
     expect(textarea.value).toBe('x'.repeat(i))
     expect(outside).toEqual({ shell: 0, transcript: 0 })
     expect(valueWrites).not.toHaveBeenCalled()
+    expect(textarea.defaultValue).toBe(initialDefault)
   }
   expect(corpus.state().drafts[id]).toBe('x'.repeat(60))
+  textarea.focus()
+  textarea.setSelectionRange(5, 8, 'backward')
+  const edited = `${textarea.value.slice(0, 5)}Z${textarea.value.slice(8)}`
+  await act(async () => {
+    nativeSet.call(textarea, edited)
+    textarea.setSelectionRange(6, 6)
+    fireEvent.input(textarea)
+    await Promise.resolve()
+  })
+  expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([6, 6])
+  expect(corpus.state().drafts[id]).toBe(edited)
+  expect(textarea.defaultValue).toBe(initialDefault)
+  expect(valueWrites).not.toHaveBeenCalled()
+  expect(outside).toEqual({ shell: 0, transcript: 0 })
   expect(corpus.source.counts.outboxReads).toBe(work.outboxReads)
   expect(corpus.source.counts.orderLists).toBe(work.orderLists)
   expect(corpus.source.counts.orderIds).toBe(work.orderIds)
