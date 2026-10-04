@@ -201,7 +201,7 @@ function bucket(chain: { frame: Frame; source: Location | null }[]) {
 }
 
 const runFile = resolve(arg('run', 'run.json'))
-const run = await read<{actions: {profiled: boolean; cpu: string | null; action: string; trace: string}[]}>(runFile)
+const run = await read<{actions: {profiled: boolean; cpu: string | null; action: string; trace: string; mainThreadCpuMs: number | null}[]}>(runFile)
 const maps = new Maps()
 const summaries = []
 for (const action of run.actions) {
@@ -216,6 +216,7 @@ for (const action of run.actions) {
   const input = events.find(e => e.name === (action.action.startsWith('app-')?'comparison:navigation-start':'comparison:input'))!
   const dom = events.find(e => e.name === (action.action.startsWith('app-')?'comparison:startup-dom':'comparison:dom'))!
   const paint = events.filter(e => e.name === 'Paint' && e.ph === 'X' && e.pid === input.pid && e.ts >= dom.ts).sort((a,b) => a.ts-b.ts)[0]!
+  if(!paint){summaries.push({action:action.action,cpu:action.cpu,unavailable:'Compositor-only action has no raster Paint boundary for source attribution'});continue}
   const end = paint.ts + (paint.dur ?? 0)
   let cursor = profile.startTime
   let sampledMs = 0, storeDeriveInclusiveMs = 0, unmappedMs = 0
@@ -236,7 +237,10 @@ for (const action of run.actions) {
     if (chain.some(({source}) => source && /packages\/client-core\/(?:src\/)?(engine|viewmodels|replica)|packages\/client-graph\/|apps\/(?:web|mobile)\/src\/.*store/.test(source.file))) storeDeriveInclusiveMs += ms
     if (chain.some(({frame, source}) => frame.url.endsWith('.js') && !source)) unmappedMs += ms
   }
-  summaries.push({action:action.action,cpu:action.cpu,sampledMs,buckets,storeDeriveInclusiveMs,unmappedMs})
+  const activeSampledMs=sampledMs-(buckets.idle??0)
+  const cpuPerWall=action.mainThreadCpuMs!==null && activeSampledMs>0?action.mainThreadCpuMs/activeSampledMs:null
+  const cpuEstimates=Object.fromEntries(Object.entries(buckets).filter(([name])=>name!=='idle').map(([name,ms])=>[name,cpuPerWall===null?null:ms*cpuPerWall]))
+  summaries.push({action:action.action,cpu:action.cpu,mainThreadCpuMs:action.mainThreadCpuMs,sampledMs,buckets,storeDeriveInclusiveMs,unmappedMs,storeDeriveCpuEstimateMs:cpuPerWall===null?null:storeDeriveInclusiveMs*cpuPerWall,cpuEstimates})
 }
-await writeFile(resolve(runFile, '..', 'cpu-attribution.json'), JSON.stringify({method:'V8 sampled stack wall time at 100 microsecond requested interval; inclusive store/derive overlaps React categories, never add them. Profiles are clipped to trusted input through qualifying Paint; sampled time is approximate wall-time attribution, not hardware CPU. Idle/program/unmapped samples remain explicit.',summaries},null,2)+'\n')
+await writeFile(resolve(runFile, '..', 'cpu-attribution.json'), JSON.stringify({method:'V8 sampled stack wall time at 100 microsecond requested interval; inclusive store/derive overlaps React categories, never add them. Profiles are clipped to trusted input through qualifying Paint; sampled time is approximate wall-time attribution, not hardware CPU. CPU estimates multiply measured thread CPU by each category’s non-idle sampled wall-time share; OS descheduling and sampling bias limit these estimates. Idle/program/unmapped samples remain explicit.',summaries},null,2)+'\n')
 console.log(`Attributed ${summaries.length} action profiles`)

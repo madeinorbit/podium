@@ -58,7 +58,7 @@ const metrics = async cdp => Object.fromEntries((await cdp.send('Performance.get
 async function trace(cdp) {
   const events = [], collect = ({value}) => events.push(...value)
   cdp.on('Tracing.dataCollected',collect)
-  await cdp.send('Tracing.start',{categories:'toplevel,devtools.timeline,blink.user_timing,disabled-by-default-devtools.timeline',transferMode:'ReportEvents'})
+  await cdp.send('Tracing.start',{categories:'toplevel,devtools.timeline,blink.user_timing,disabled-by-default-devtools.timeline,disabled-by-default-devtools.timeline.frame,cc,viz,benchmark',transferMode:'ReportEvents'})
   return async () => {
     const completed = new Promise(done => cdp.once('Tracing.tracingComplete',done))
     await cdp.send('Tracing.end'); await completed; cdp.off('Tracing.dataCollected',collect); return events
@@ -226,8 +226,8 @@ async function population(page) {
     for(const info of await indexedDB.databases()) {
       const db=await new Promise((yes,no)=>{const request=indexedDB.open(info.name);request.onsuccess=()=>yes(request.result);request.onerror=()=>no(request.error)})
       if(db.objectStoreNames.contains('entities'))await new Promise((yes,no)=>{
-        const request=db.transaction('entities','readonly').objectStore('entities').openCursor()
-        request.onsuccess=()=>{const cursor=request.result;if(!cursor)return yes();const kind=cursor.value.entity;counts[kind]=(counts[kind]??0)+1;cursor.continue()};request.onerror=()=>no(request.error)
+        const request=db.transaction('entities','readonly').objectStore('entities').getAll()
+        request.onsuccess=()=>{for(const row of request.result)counts[row.entity]=(counts[row.entity]??0)+1;yes()};request.onerror=()=>no(request.error)
       })
       db.close()
     }
@@ -262,6 +262,10 @@ async function capture(fixture,name,perform,expected,{manual=false,profile=false
     document.addEventListener('input',observe)
     window.__comparison.removeInput=()=>document.removeEventListener('input',observe)
     observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true})
+    // History and compositor-only transitions can change the active route
+    // without a DOM mutation. Poll that same semantic witness once per frame.
+    const poll=()=>{if(!window.__comparison || window.__comparison.ready)return;observe();requestAnimationFrame(poll)}
+    requestAnimationFrame(poll)
     if(manual){window.__comparison.input=true;performance.mark('comparison:input')}
     window.__comparison.observer=observer
   },{expectation,manual})
@@ -271,15 +275,31 @@ async function capture(fixture,name,perform,expected,{manual=false,profile=false
   let events, cpu
   try {await perform();await page.waitForFunction(()=>window.__comparison?.twoRaf,undefined,{timeout:20000})}
   finally {if(profile)cpu=(await cdp.send('Profiler.stop')).profile;events=await stop();await page.evaluate(()=>{window.__comparison?.observer?.disconnect();window.__comparison?.removeInput?.();window.__comparison=null})}
-  const after=await metrics(cdp), measured=paintOf(events,'comparison:input','comparison:dom')
+  const after=await metrics(cdp)
+  const stem=`${String(recordIndex++).padStart(4,'0')}-${name}`
+  writeFileSync(resolve(out,`${stem}.trace.json.gz`),gzipSync(JSON.stringify(events)))
+  if(cpu)writeFileSync(resolve(out,`${stem}.cpuprofile`),JSON.stringify(cpu))
+  let measured, boundary='Paint'
+  try{measured=paintOf(events,'comparison:input','comparison:dom')}catch(error){
+    if(!['phone-work-screen','phone-issue-screen'].includes(name) || !String(error).includes('No actual Chromium Paint'))throw error
+    const input=events.find(x=>x.name==='comparison:input'), dom=events.find(x=>x.name==='comparison:dom')
+    const drawn=events.filter(x=>['DrawFrame','FramePresented'].includes(x.name) && x.ts>=dom.ts && x.pid===input.pid).sort((a,b)=>a.ts-b.ts)[0]
+    if(!drawn)throw Error('No qualifying compositor frame after active Work screen; see retained trace')
+    boundary=drawn.name+' (compositor, no new raster Paint)'
+    measured={inputToPaintMs:(drawn.ts+(drawn.dur??0)-input.ts)/1000,selectedDomMs:(dom.ts-input.ts)/1000}
+  }
   const input=events.find(x=>x.name==='comparison:input'), dom=events.find(x=>x.name==='comparison:dom')
   const paint=events.filter(e=>e.name==='Paint' && e.ph==='X' && e.pid===input.pid && e.ts>=dom.ts).sort((a,b)=>a.ts-b.ts)[0]
-  const end=paint.ts+(paint.dur??0), stem=`${String(recordIndex++).padStart(4,'0')}-${name}`
+  if(!paint){
+    const row={action:name,index:recordIndex-1,startedAt:began,load,...measured,boundary,profiled:profile,mainThreadCpuMs:null,layoutCpuMs:null,mainThreadBusyMs:null,layoutMs:null,taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000,trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null}
+    result.actions.push(row);save();console.log(`${name}: ${measured.inputToPaintMs.toFixed(1)} ms (${boundary})`);return row
+  }
+  const end=paint.ts+(paint.dur??0)
   if(typeof input.tts!=='number' || typeof paint.tts!=='number' || typeof paint.tdur!=='number')throw Error('CPU thread timestamps absent; no hardware CPU claim permitted')
   const cpuEnd=paint.tts+paint.tdur
   writeFileSync(resolve(out,`${stem}.trace.json.gz`),gzipSync(JSON.stringify(events)))
   if(cpu)writeFileSync(resolve(out,`${stem}.cpuprofile`),JSON.stringify(cpu))
-  const row={action:name,index:recordIndex-1,startedAt:began,load,...measured,profiled:profile,mainThreadCpuMs:(cpuEnd-input.tts)/1000,layoutCpuMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.tts,cpuEnd,true),mainThreadBusyMs:intervalMs(events,['RunTask','ThreadControllerImpl::RunTask','ThreadControllerImpl::DoWork'],input.pid,paint.tid,input.ts,end),layoutMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.ts,end),scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000,trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null}
+  const row={action:name,index:recordIndex-1,startedAt:began,load,...measured,boundary,profiled:profile,mainThreadCpuMs:(cpuEnd-input.tts)/1000,layoutCpuMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.tts,cpuEnd,true),mainThreadBusyMs:intervalMs(events,['RunTask','ThreadControllerImpl::RunTask','ThreadControllerImpl::DoWork'],input.pid,paint.tid,input.ts,end),layoutMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.ts,end),scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000,trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null}
   result.actions.push(row); save(); console.log(`${name}: ${measured.inputToPaintMs.toFixed(1)} ms`)
   return row
 }
@@ -542,7 +562,7 @@ async function runActions(f) {
       await inspect(page,'phone-board')
       const task=()=>page.getByRole('button',{name:new RegExp(`^Task .*${title}`)}).first()
       for(let i=0;i<samples+2;i++) {
-        await capture(f,'phone-issue-open',()=>task().click(),'[data-testid="issue-keyboard-avoider"]')
+        await capture(f,'phone-issue-open',()=>task().click(),`()=>location.pathname==='/mobile/issue/${issue.id}' && !!document.querySelector('[data-testid="issue-keyboard-avoider"]')`)
         await page.getByRole('button',{name:'Back',exact:true}).click()
       }
       await task().click();await inspect(page,'phone-issue')
@@ -558,7 +578,9 @@ async function runActions(f) {
         const wanted=i%2?alternative:otherTitle, unwanted=i%2?otherTitle:alternative
         await capture(f,'phone-issue-picker-search',()=>input.fill(wanted),`()=>{const input=document.querySelector('[aria-label="Search parent"]');const scope=input?.closest('[aria-modal="true"],[role="dialog"]');const labels=[...(scope?.querySelectorAll('[role="button"]')??[])].map(x=>x.getAttribute('aria-label'));return input?.value===${JSON.stringify(wanted)} && labels.some(x=>x?.endsWith(${JSON.stringify(wanted)})) && !labels.some(x=>x?.endsWith(${JSON.stringify(unwanted)}))}`)
       }
-      await page.getByRole('button',{name:'Cancel',exact:true}).click()
+      const cancel=page.getByRole('button',{name:'Cancel',exact:true})
+      if(await cancel.isVisible().catch(()=>false))await cancel.click()
+      else await page.keyboard.press('Escape')
     })
     await attempt('phone-issue-rename',async()=>{
       for(let i=0;i<samples+2;i++){
