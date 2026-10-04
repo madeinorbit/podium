@@ -327,11 +327,7 @@ export class MobxPool {
     return this.referenceReader
   }
 
-  constructor(
-    locals: SliceLocals,
-    schema?: ModelSchema,
-    lazy?: PoolLazyOptions,
-  ) {
+  constructor(locals: SliceLocals, schema?: ModelSchema, lazy?: PoolLazyOptions) {
     this.issueIdByRef = lazy?.issueIdByRef
     this.settingsEnabled = lazy?.settings === true
     this.setupOrderVersion = this.settingsEnabled

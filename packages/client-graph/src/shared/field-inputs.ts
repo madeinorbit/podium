@@ -12,8 +12,7 @@ export function createFieldInputs<T extends object>(
 ) {
   let values: Partial<T> = typeof initial === 'function' ? {} : { ...initial }
   let borrowed = typeof initial === 'function' ? initial : undefined
-  const valueAt = (key: keyof T) =>
-    Object.hasOwn(values, key) ? values[key] : borrowed?.(key)
+  const valueAt = (key: keyof T) => (Object.hasOwn(values, key) ? values[key] : borrowed?.(key))
   const atoms = new Map<keyof T, IAtom>()
   const row = Object.freeze(
     Object.defineProperties(
@@ -27,9 +26,11 @@ export function createFieldInputs<T extends object>(
               if (_isComputingDerivation()) {
                 let atom = atoms.get(key)
                 if (!atom) {
-                  atom = borrowAtom?.(key) ?? createAtom(`${name}:${String(key)}`, undefined, () => {
-                    atoms.delete(key)
-                  })
+                  atom =
+                    borrowAtom?.(key) ??
+                    createAtom(`${name}:${String(key)}`, undefined, () => {
+                      atoms.delete(key)
+                    })
                   atoms.set(key, atom)
                 }
                 atom.reportObserved()

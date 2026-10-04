@@ -184,10 +184,12 @@ export function put(
       inputs.replace(read)
     } else {
       inputs = createFieldInputs<RepoInputs>(
-        ['id', 'prefix', 'repoPath'], read, `repo:${id}`,
+        ['id', 'prefix', 'repoPath'],
+        read,
+        `repo:${id}`,
         // row(repo) tracks presence separately. Its existing value atom can
         // serve the most common field without adding a tracking object.
-        (key) => key === 'prefix' && table.has(id) ? getAtom(table, id) as IAtom : undefined,
+        (key) => (key === 'prefix' && table.has(id) ? (getAtom(table, id) as IAtom) : undefined),
       )
       repoInputs.set(inputs.row, inputs)
       target.write.repo.set(id, inputs.row)
