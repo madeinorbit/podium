@@ -2,7 +2,7 @@ import { color } from '../theme/theme'
 import { WORKING_MARK_DOTS, type WorkingMarkProps, workingMarkRadius } from './WorkingMark.shared'
 import './WorkingMark.web.css'
 
-/** Mobile-web status mark. CSS keeps the wave on the browser compositor. */
+/** The same fully lit, still status cell on mobile web. */
 export function WorkingMark({
   size = 12,
   tint = color.workingText,
@@ -27,5 +27,3 @@ export function WorkingMark({
     </svg>
   )
 }
-
-export { DELAYS_MS, wavePhase } from './WorkingMark.shared'

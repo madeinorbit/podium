@@ -12,7 +12,7 @@ const css = readFileSync(
 afterEach(cleanup)
 
 describe('WorkingMark on web', () => {
-  it('renders the same braille geometry for CSS to animate', () => {
+  it('renders the still braille geometry', () => {
     const { container } = render(<WorkingMark size={12} />)
     const mark = container.querySelector('[data-testid="working-mark"]')
     const dots = [...container.querySelectorAll('circle')]
@@ -40,21 +40,8 @@ describe('WorkingMark on web', () => {
     expect(container.querySelector('svg')?.hasAttribute('role')).toBe(false)
   })
 
-  it('holds delayed dots at the authored trough before their wave starts', () => {
-    expect(css).toContain('0%, 100% { opacity: 0.2; transform: scale(0.8); }')
-    expect(css).toContain('animation: podium-mobile-mark-wave 1.5s linear infinite backwards;')
-    for (const [child, delay] of [
-      [2, '0.12s'],
-      [3, '0.21s'],
-      [4, '0.33s'],
-      [5, '0.42s'],
-      [6, '0.54s'],
-      [7, '0.63s'],
-      [8, '0.75s'],
-    ] as const) {
-      expect(css).toContain(
-        `.podium-mobile-working-mark circle:nth-child(${child}) { animation-delay: ${delay}; }`,
-      )
-    }
+  it('schedules no CSS animation at any motion preference', () => {
+    expect(css).not.toContain('@keyframes')
+    expect(css).not.toMatch(/\b(?:animation|transition)(?:-[\w-]+)?\s*:/)
   })
 })
