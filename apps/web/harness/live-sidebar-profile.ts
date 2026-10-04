@@ -113,8 +113,12 @@ const logger = createLogger('silent')
 // Vite's proxy errors include RPC query parameters. Keep failures as counts,
 // never stream the operator's identifiers or content into command output.
 let proxyErrors = 0
-logger.error = () => {
+const proxyErrorKinds: Record<string, number> = {}
+logger.error = (message) => {
   proxyErrors++
+  const kind =
+    message.match(/\b(?:ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|ENOSPC)\b/)?.[0] ?? 'unclassified'
+  proxyErrorKinds[kind] = (proxyErrorKinds[kind] ?? 0) + 1
 }
 const server = await preview({
   root: resolve('apps/web'),
@@ -515,8 +519,16 @@ try {
               !nativePanel.querySelector('[data-testid="chat-surface"]')?.getClientRects().length
             state.nativeOnlyRecovery = Boolean(nativeOnly && trace.timedOut)
             state.confirmed = unchanged || !trace.timedOut || Boolean(nativeOnly)
+            // With the diagnostics panel closed, the product trace starts at
+            // beginSwitch rather than the click. Keep its clock origin so input
+            // delay and synchronous selection work cannot disappear from ready.
+            const traceInput =
+              matching &&
+              trace.marks.some((mark: { name: string }) => mark.name === 'sidebar:input-paint')
+                ? state.input
+                : trace?.startedAt - performance.timeOrigin
             state.readyAt = matching
-              ? state.input + (nativeOnly ? nativeMark.atMs : trace.totalMs)
+              ? traceInput + (nativeOnly ? nativeMark.atMs : trace.totalMs)
               : state.twoRafAt
             const mutations = state.mutations.filter((at: number) => at <= state.readyAt)
             performance.mark('speed:content-dom', {
@@ -544,6 +556,7 @@ try {
       cdp.off('Tracing.dataCollected', receive)
       const state = await page.evaluate(() => ({
         boundary: (window as any).__speedCapture,
+        timeOrigin: performance.timeOrigin,
         react: window.__speedReact,
         componentNames: window.__speedFunctionNames,
         traces: (window as any).__podiumSwitchTraces?.recent().slice(-1),
@@ -632,6 +645,7 @@ try {
         poolRows: state.sidebar?.pool?.rows ?? null,
         sidebarTargetType: trigger.startsWith('[data-speed-issue') ? 'folded' : 'open',
         proxyErrors: proxyErrors - errorsBefore,
+        proxyErrorKinds: { ...proxyErrorKinds },
         loadavg: loadavg(),
         instrumented: {
           launch: state.boundary.launchInitializedBefore,
