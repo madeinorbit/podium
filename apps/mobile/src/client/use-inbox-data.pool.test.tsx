@@ -303,6 +303,22 @@ it('compares every card, triage bucket, screening ancestor and addressed route a
     targets,
     screeningIds: ['synthetic-0', 'synthetic-1', 'synthetic-2', 'synthetic-3'],
   }
+  // The complete output also asks for archived and absent addresses. Settle
+  // those declared requests through the same batched loader as mounted chips.
+  for (let turn = 0; turn < 64; turn++) {
+    mobileInboxSnapshot(app.pool, input)
+    let loaded = 0
+    await act(async () => {
+      loaded = app.pool.hydrate()
+    })
+    if (loaded === 0) break
+    if (turn === 63) throw new Error('Complete inbox fixture did not settle')
+  }
+  const views = mobileInboxViews(app.pool)!
+  expect(tokens.map(({ token, kind, prefix }) => views.chip(token, kind, prefix).pending)).toEqual(
+    tokens.map(() => false),
+  )
+  expect(targets.map((target) => views.route(target))).not.toContain(LOADING)
   expect(mobileInboxSnapshot(app.pool, input)).toMatchSnapshot(
     'last green pilot-ON complete inbox output',
   )

@@ -12,7 +12,7 @@ import {
 } from '@podium/client-core/replica'
 import type { EntityRecord } from '@podium/sync/replica'
 
-export function createMobileTestReplica(): Replica {
+export function createMobileTestReplica(): Replica & { finishBootstrap(): void } {
   const records = new Map<string, EntityRecord>()
   let seq = 0
   const key = (entity: string, id: string) => `${entity}:${id}`
@@ -44,6 +44,15 @@ export function createMobileTestReplica(): Replica {
   }
   return Object.assign(replica, {
     applyChanges,
+    finishBootstrap() {
+      replica.onKernelEvent({
+        type: 'bootstrap-installed',
+        cause: 'cold-start',
+        snapshotSeq: seq,
+        entityCount: records.size,
+        bufferedFramesApplied: 0,
+      })
+    },
     applySnapshot<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]) {
       const entity = entityForKind(kind),
         keep = new Set(rows.map((row) => rowKey(kind, row)))

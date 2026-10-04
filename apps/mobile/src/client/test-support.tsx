@@ -160,8 +160,9 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   // The pool's addressed feed is the production kernel facade. Fixture-only
   // metadata changes enter through its cache/events; no compatibility replica
   // or second runtime is constructed.
-  const replica = fixture.replica ?? createMobileTestReplica()
-  if (!fixture.replica) {
+  const seededReplica = fixture.replica ? undefined : createMobileTestReplica()
+  const replica = fixture.replica ?? seededReplica!
+  if (seededReplica) {
     replica.applySnapshot('sessions', fixture.sessions ?? [])
     if (fixture.sessionUserStates)
       replica.applySnapshot('sessionUserStates', fixture.sessionUserStates)
@@ -174,6 +175,9 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     if (fixture.repoProjections) replica.applySnapshot('repos', fixture.repoProjections)
     if (fixture.issueDeps) replica.applySnapshot('issueDeps', fixture.issueDeps)
     replica.applySnapshot('messageRecords', fixture.messageRecords ?? [])
+    // This fixture supplies a complete offline bootstrap, including known
+    // absence of personal markers. Custom replicas control their own posture.
+    seededReplica.finishBootstrap()
   }
   const api = stubApi(fixture)
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null
