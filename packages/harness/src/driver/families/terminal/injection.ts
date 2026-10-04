@@ -399,6 +399,8 @@ export interface DeliverOptions {
   onLateProof?: (seen: AcceptSeen) => void
   /** The turn's id, when it has one: names its typing to `typingStarts`. */
   turnId?: string
+  /** The delivery journal's synchronous fence before the first byte. */
+  onTypingStarted?: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -668,6 +670,7 @@ export function createTerminalInjection(
         generation: ++pasteGeneration,
       }
       if (options.turnId !== undefined) ports.typingStarts?.(options.turnId)
+      options.onTypingStarted?.()
       ports.write(payload.bytes, 'message')
       // A PASTE IS ALWAYS SUBMITTED (POD-4776). Once its bytes are in the
       // composer, stopping short of the Enter would leave the text sitting in

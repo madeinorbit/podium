@@ -33,6 +33,19 @@ const EXACT_HISTORY_IDS: ReadonlySet<string> = new Set([
   'claude-uuid', 'codex-client-message', 'grok-prompt', 'opencode-message', 'opencode-part',
 ])
 
+export type DeliveryOutcome = Extract<RuntimeEventBody, { t: 'delivery' }>
+
+/** The daemon's existing runtime-event journal, scoped to this session. A
+ * missing record proves this owner has never started writing the row. Outcomes
+ * are recorded by the ordinary durable event sink and pruned on server ack. */
+export interface DeliveryJournal {
+  read(rowId: string): { typingStarted: true; outcome?: DeliveryOutcome } | undefined
+  /** Must be durable before returning, before the driver's first byte. */
+  start(rowId: string): void
+  /** A driver refusal proved that this attempt wrote nothing. */
+  clear(rowId: string): void
+}
+
 /** Disposable daemon delivery state. Admission belongs to the server; when to
  *  type, and in which order, belongs here [POD-4661].
  *
@@ -49,6 +62,7 @@ export function withDeliveryQueue(
   emit: (event: RuntimeEventBody) => void,
   ready: () => boolean = () => true,
   alive: () => boolean = () => true,
+  journal?: DeliveryJournal,
 ): AgentSessionHandle {
   type Row = {
     input: TurnInput
@@ -304,9 +318,9 @@ export function withDeliveryQueue(
           )
           continue
         }
-        // A durable reservation from a previous owner is evidence of a
-        // possible write, not permission to retry. Same-owner repeats never
-        // reach here: rows/finished replay custody or its proven outcome.
+        // Only a daemon typing record establishes a possible write. A server
+        // reservation alone also covers rows held, untyped, through a restart.
+        // Without a journal retain the conservative legacy recovery path.
         if (row.input.deliveryRecovery) {
           settle(
             id,
@@ -361,6 +375,7 @@ export function withDeliveryQueue(
               delivery: 'when-ready',
               deliveryAttempt: true,
               signal: row.abort.signal,
+              onTypingStarted: () => journal?.start(id),
               onTranscriptItem: (item, harnessRef) => name(id, item, harnessRef),
               onUnrecorded: (reason, proof) => unrecorded(id, reason, proof),
               onLateProof: ({ transcriptItem, harnessRef }) =>
@@ -377,6 +392,7 @@ export function withDeliveryQueue(
           }
         }
         if (row.abort.signal.aborted) continue
+        if (receipt.outcome === 'refused') journal?.clear(id)
         if (receipt.outcome !== 'refused' || receipt.refusal.reason !== 'not_running') {
           delete row.notRunningSince
         }
@@ -535,13 +551,21 @@ export function withDeliveryQueue(
     if (options.delivery === 'at-boundary') {
       return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
     }
-    const prior = finished.get(input.rowId)
+    const recovered = journal?.read(input.rowId)
+    const recorded = recovered?.outcome
+    const prior = finished.get(input.rowId) ?? (recorded?.outcome !== 'accepted' ? recorded : undefined)
+    if (prior) finished.set(input.rowId, prior)
     if (prior) emit(prior)
     if (!prior && !rows.has(input.rowId) && !held.has(input.rowId)) {
       // Answered `queued` AT ONCE: the reply must land inside the server's
       // RPC window, never after the turn the row waits on.
       admit(input.rowId, {
-        input,
+        input: journal
+          ? { ...input,
+              deliveryRecovery: recovered !== undefined || (input.deliveryRecovery && input.held === 'durable'),
+              ...(recorded?.outcome === 'accepted' && recorded.held === 'durable' ? { held: 'durable' } : {}),
+            }
+          : input,
         options,
         abort: new AbortController(),
         interrupt: options.delivery === 'interrupt',
@@ -576,7 +600,10 @@ export function withDeliveryQueue(
       settle(id, 'dropped')
       return { ok: true }
     }
-    const prior = finished.get(id)
+    const recovered = journal?.read(id)
+    const recorded = recovered?.outcome
+    const prior = finished.get(id) ?? (recorded?.outcome !== 'accepted' ? recorded : undefined)
+    if (!prior && recovered) return { reason: 'busy', detail: 'typing already started', tooLate: 'typing' }
     if (!prior) {
       settle(id, 'dropped')
       return { ok: true }

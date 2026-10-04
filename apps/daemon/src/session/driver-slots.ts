@@ -17,11 +17,15 @@
 import type { AgentSessionHandle, SessionDriverSlots } from '@podium/harness/driver/host'
 import type { SessionRegistry } from './registry.js'
 
-export function driverSlotsOver(registry: SessionRegistry): SessionDriverSlots {
+export function driverSlotsOver(
+  registry: SessionRegistry,
+  deliveryJournal?: SessionDriverSlots['deliveryJournal'],
+): SessionDriverSlots {
   const bound = new WeakSet<AgentSessionHandle>()
   const mine = (handle: AgentSessionHandle | undefined): AgentSessionHandle | undefined =>
     handle && bound.has(handle) ? handle : undefined
   return {
+    ...(deliveryJournal ? { deliveryJournal } : {}),
     get: (sessionId) => mine(registry.get(sessionId)?.driver),
     set(sessionId, handle) {
       bound.add(handle)

@@ -1532,6 +1532,7 @@ export function createOpencodeRuntime(
     input: TurnInput,
     ids: PromptIds,
     origin: SendOptions['origin'] = 'human',
+    onTypingStarted?: SendOptions['onTypingStarted'],
   ): Promise<OpencodePromptAdmission> {
     if (!session.client.pendingPrompts) {
       const pendingValidation = session.promptValidations.get(ids.messageID)
@@ -1580,6 +1581,7 @@ export function createOpencodeRuntime(
     const effort = effortFor(session.spec, input)
     session.observedConfiguration = undefined
     const epochBeforePrompt = session.turnEpoch
+    onTypingStarted?.()
     const admission = await session.client.prompt(session.opencodeSessionId, {
       messageID: ids.messageID,
       parts: [
@@ -1830,7 +1832,7 @@ export function createOpencodeRuntime(
       const ids = promptIdsFor(next.input, session)
       const record = armPromptRecord(session, ids, next.options)
       try {
-        const admission = await deliver(session, next.input, ids, next.options.origin)
+        const admission = await deliver(session, next.input, ids, next.options.origin, next.options.onTypingStarted)
         if (!session.client.pendingPrompts) {
           const item = await waitForPromptRecord(session, record, next.options.signal)
           if (item) {
@@ -2098,7 +2100,7 @@ export function createOpencodeRuntime(
         const record = armPromptRecord(session, ids, options)
         let admission: OpencodePromptAdmission
         try {
-          admission = await deliver(session, input, ids, options.origin)
+          admission = await deliver(session, input, ids, options.origin, options.onTypingStarted)
         } catch (err) {
           /**
            * A REFUSAL ONLY WHEN OPENCODE RECORDED NOTHING (POD-4839; POD-4819
@@ -2506,6 +2508,7 @@ export function createOpencodeRuntime(
       (event) => emit(session, event, iso()),
       undefined,
       () => !session.disposed,
+      slots.deliveryJournal?.(session.sessionId),
     )
   }
 

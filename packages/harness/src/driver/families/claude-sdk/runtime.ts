@@ -862,6 +862,7 @@ export function createClaudeSdkRuntime(
     // (none is expected — the CLI acks the line before it calls the model).
     let epoch = -1
     let child: ClaudeSdkTurnHandle
+    options.onTypingStarted?.()
     try {
       child = host.startTurn({
         sessionId: core.sessionId,
@@ -1394,6 +1395,7 @@ export function createClaudeSdkRuntime(
       (event) => push(core, event),
       undefined,
       () => core.alive,
+      slots.deliveryJournal?.(core.sessionId),
     )
     const send = queued.send.bind(queued)
     queued.send = (input, options) =>

@@ -9,6 +9,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  truncateSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
@@ -17,6 +18,8 @@ import {
   isDurableRuntimeEvent,
   type RuntimeEventMessage as RuntimeEventFrame,
 } from '@podium/protocol/daemon'
+import type { SessionId } from '@podium/model'
+import type { DeliveryJournal } from '@podium/harness/driver/host'
 
 const FILE_NAME = 'runtime-event-outbox.json'
 const JOURNAL_NAME = 'runtime-event-outbox.log'
@@ -35,6 +38,7 @@ const COMPACT_AFTER_RECORDS = 512
 export type DurableRuntimeEvent = RuntimeEventFrame & { deliveryId: string }
 
 export interface RuntimeEventOutbox {
+  deliveryJournal(sessionId: SessionId): DeliveryJournal
   enqueue(event: DurableRuntimeEvent): void
   acknowledge(deliveryId: string): boolean
   pending(): readonly DurableRuntimeEvent[]
@@ -67,16 +71,31 @@ function fsyncDirectory(dir: string): void {
   }
 }
 
-function parseEvents(raw: string, path: string): DurableRuntimeEvent[] {
-  const parsed = JSON.parse(raw) as { version?: unknown; events?: unknown }
+interface TypingRecord { sessionId: SessionId; rowId: string }
+const rowKey = (sessionId: SessionId, rowId: string): string => JSON.stringify([sessionId, rowId])
+
+function parseTyping(value: unknown): TypingRecord {
+  const entry = value as Partial<TypingRecord> | null
+  if (!entry || typeof entry.sessionId !== 'string' || typeof entry.rowId !== 'string') {
+    throw new Error('invalid runtime delivery typing record')
+  }
+  return { sessionId: entry.sessionId, rowId: entry.rowId }
+}
+
+function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent[]; typing: TypingRecord[] } {
+  const parsed = JSON.parse(raw) as { version?: unknown; events?: unknown; typing?: unknown }
   if (parsed.version !== FILE_VERSION || !Array.isArray(parsed.events)) {
     throw new Error(`invalid runtime event outbox: ${path}`)
   }
-  return parsed.events.map((value) => {
+  const events = parsed.events.map((value) => {
     const event = RuntimeEventMessage.parse(value)
     if (!event.deliveryId) throw new Error(`runtime event has no delivery id: ${path}`)
     return { ...event, deliveryId: event.deliveryId }
   })
+  if (parsed.typing !== undefined && !Array.isArray(parsed.typing)) {
+    throw new Error(`invalid runtime delivery journal: ${path}`)
+  }
+  return { events, typing: (parsed.typing as unknown[] | undefined ?? []).map(parseTyping) }
 }
 
 /**
@@ -132,27 +151,53 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   const temporary = `${path}.tmp`
   const journalPath = join(dir, JOURNAL_NAME)
   let events = new Map<string, DurableRuntimeEvent>()
+  const typing = new Map<string, TypingRecord>()
+  // Index the outcomes already persisted by this outbox, rather than copying
+  // them into a second store. Both accepted holds and final outcomes replay.
+  const byRow = new Map<string, Map<string, DurableRuntimeEvent>>()
+  const track = (event: DurableRuntimeEvent): void => {
+    if (event.event.t !== 'delivery') return
+    const key = rowKey(event.sessionId, event.event.rowId)
+    let pending = byRow.get(key)
+    if (!pending) byRow.set(key, pending = new Map())
+    pending.set(event.deliveryId, event)
+  }
+  const retire = (deliveryId: string): void => {
+    const event = events.get(deliveryId)
+    events.delete(deliveryId)
+    if (event?.event.t !== 'delivery') return
+    const key = rowKey(event.sessionId, event.event.rowId)
+    const pending = byRow.get(key)
+    pending?.delete(deliveryId)
+    if (pending?.size === 0) {
+      byRow.delete(key)
+      // An accepted hold is not settled. A final server ack retires its
+      // typing fence; the server no longer forwards that row after this ack.
+      if (event.event.outcome !== 'accepted') typing.delete(key)
+    }
+  }
+  const loadSnapshot = (snapshot: ReturnType<typeof parseSnapshot>): void => {
+    events = new Map(snapshot.events.map((event) => [event.deliveryId, event]))
+    for (const entry of snapshot.typing) typing.set(rowKey(entry.sessionId, entry.rowId), entry)
+    for (const event of snapshot.events) track(event)
+  }
 
   if (existsSync(temporary)) {
-    let recovered: DurableRuntimeEvent[] | undefined
+    let recovered: ReturnType<typeof parseSnapshot> | undefined
     try {
-      recovered = parseEvents(readFileSync(temporary, 'utf8'), temporary)
+      recovered = parseSnapshot(readFileSync(temporary, 'utf8'), temporary)
     } catch (error) {
       if (!existsSync(path)) throw error
     }
     if (recovered) {
-      events = new Map(recovered.map((event) => [event.deliveryId, event]))
+      loadSnapshot(recovered)
       renameSync(temporary, path)
       fsyncDirectory(dir)
     } else {
-      events = new Map(
-        parseEvents(readFileSync(path, 'utf8'), path).map((event) => [event.deliveryId, event]),
-      )
+      loadSnapshot(parseSnapshot(readFileSync(path, 'utf8'), path))
     }
   } else if (existsSync(path)) {
-    events = new Map(
-      parseEvents(readFileSync(path, 'utf8'), path).map((event) => [event.deliveryId, event]),
-    )
+    loadSnapshot(parseSnapshot(readFileSync(path, 'utf8'), path))
   }
 
   /**
@@ -161,35 +206,52 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
    * when both were whole-file writes.
    */
   let journalRecords = 0
+  let validBytes = 0
+  let tornTail = false
   if (existsSync(journalPath)) {
     for (const line of readFileSync(journalPath, 'utf8').split('\n')) {
       if (!line) continue
-      let record: { op?: unknown; deliveryId?: unknown; event?: unknown }
+      let record: { op?: unknown; deliveryId?: unknown; event?: unknown; sessionId?: unknown; rowId?: unknown }
       try {
         record = JSON.parse(line) as typeof record
       } catch {
         // A torn trailing record from a crash mid-append. Nothing after it can
         // be trusted either, so stop rather than skip.
+        tornTail = true
         break
       }
       journalRecords += 1
+      validBytes += Buffer.byteLength(line, 'utf8') + 1
       if (record.op === 'ack' && typeof record.deliveryId === 'string') {
-        events.delete(record.deliveryId)
+        retire(record.deliveryId)
+        continue
+      }
+      if (record.op === 'typing' || record.op === 'untyped') {
+        const entry = parseTyping(record)
+        const key = rowKey(entry.sessionId, entry.rowId)
+        if (record.op === 'typing') typing.set(key, entry)
+        else typing.delete(key)
         continue
       }
       if (record.op === 'add' && record.event) {
         const parsed = RuntimeEventMessage.parse(record.event)
         if (!parsed.deliveryId) continue
         events.set(parsed.deliveryId, { ...parsed, deliveryId: parsed.deliveryId })
+        track({ ...parsed, deliveryId: parsed.deliveryId })
       }
     }
   }
+  // Never append a new typing fence behind a torn record: a subsequent reopen
+  // would stop at that record and mistake the new attempt for never typed.
+  if (tornTail) truncateSync(journalPath, validBytes)
 
   /** The journal descriptor, held open so steady state never pays an open/close. */
   let journalFd: number | undefined = openSync(journalPath, 'a', 0o600)
+  fsyncSync(journalFd)
+  fsyncDirectory(dir)
 
   const writeSnapshot = (next: Map<string, DurableRuntimeEvent>): void => {
-    const body = `${JSON.stringify({ version: FILE_VERSION, events: [...next.values()] }, null, 2)}\n`
+    const body = `${JSON.stringify({ version: FILE_VERSION, events: [...next.values()], typing: [...typing.values()] }, null, 2)}\n`
     const fd = openSync(temporary, 'w', 0o600)
     try {
       writeFileSync(fd, body)
@@ -211,6 +273,8 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     rmSync(journalPath, { force: true })
     fsyncDirectory(dir)
     journalFd = openSync(journalPath, 'a', 0o600)
+    fsyncSync(journalFd)
+    fsyncDirectory(dir)
     journalRecords = 0
   }
 
@@ -228,12 +292,43 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
    * and a backlogged one is never asked to.
    */
   const maybeCompact = (): void => {
-    if (journalRecords >= COMPACT_AFTER_RECORDS || (events.size === 0 && journalRecords > 0)) {
+    if (journalRecords >= COMPACT_AFTER_RECORDS || (events.size === 0 && typing.size === 0 && journalRecords > 0)) {
       compact()
     }
   }
 
   return {
+    deliveryJournal(sessionId) {
+      return {
+        read(rowId) {
+          const key = rowKey(sessionId, rowId)
+          const event = [...(byRow.get(key)?.values() ?? [])].at(-1)?.event
+          if (event?.t === 'delivery') {
+            const { t, outcome, held, reason, cause, transcriptItem, harnessRef } = event
+            return { typingStarted: true, outcome: { t, rowId, outcome,
+              ...(held ? { held } : {}), ...(reason ? { reason } : {}), ...(cause ? { cause } : {}),
+              ...(transcriptItem ? { transcriptItem } : {}), ...(harnessRef ? { harnessRef } : {}),
+            } }
+          }
+          return typing.has(key) ? { typingStarted: true } : undefined
+        },
+        start(rowId) {
+          const key = rowKey(sessionId, rowId)
+          if (typing.has(key)) return
+          const entry = { sessionId, rowId }
+          append(`${JSON.stringify({ op: 'typing', ...entry })}\n`)
+          typing.set(key, entry)
+          maybeCompact()
+        },
+        clear(rowId) {
+          const key = rowKey(sessionId, rowId)
+          if (!typing.has(key)) return
+          append(`${JSON.stringify({ op: 'untyped', sessionId, rowId })}\n`)
+          typing.delete(key)
+          maybeCompact()
+        },
+      }
+    },
     enqueue(event) {
       const existing = events.get(event.deliveryId)
       if (existing) {
@@ -246,14 +341,13 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
       const next = new Map(events)
       next.set(event.deliveryId, event)
       events = next
+      track(event)
       maybeCompact()
     },
     acknowledge(deliveryId) {
       if (!events.has(deliveryId)) return false
       append(`${JSON.stringify({ op: 'ack', deliveryId })}\n`)
-      const next = new Map(events)
-      next.delete(deliveryId)
-      events = next
+      retire(deliveryId)
       maybeCompact()
       return true
     },

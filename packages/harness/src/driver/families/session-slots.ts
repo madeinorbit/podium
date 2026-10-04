@@ -16,8 +16,11 @@
 
 import type { SessionId } from '@podium/model'
 import type { AgentSessionHandle } from '../driver.js'
+import type { DeliveryJournal } from '../delivery-queue.js'
 
 export interface SessionDriverSlots {
+  /** The supervisor's durable delivery state for this session. */
+  deliveryJournal?(sessionId: SessionId): DeliveryJournal
   /** This writer's live handle for the session; undefined when the slot is
    *  empty or holds another driver's handle. */
   get(sessionId: SessionId): AgentSessionHandle | undefined
