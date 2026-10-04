@@ -186,6 +186,17 @@ one-minute load below8. The coordinator separately holds structural meters
 until approximately03:48Z while POD-5430 runs its final4x meter. No timing is
 started under another session's lease.
 
+The latest filtered mobile/e2e compiler is green after the mission dependency
+rebase at source `935646f2a6`, flatblock WIP
+`ff4703196399dc553d8a502c364c738fb8f506e6`, tree
+`cd608e7116c031f4878b081cd04e10b50249ef14`.
+UTC03:24:43.518–03:26:12.803Z, freshload7.80→14.02, Bun1.4.2, exit0:
+16/16 tasks, zero cache hits or bypasses, all216 e2e runtime imports resolve
+and303 procedure contracts are generated. The bench owner has its overlap
+bounds. No new run starts at the high end load. The generated API declaration
+has only property/union/procedure ordering changes; that diff is retained and
+the generator output is restored to the candidate's tracked bytes.
+
 The preceding filtered mobile/e2e compiler is green at source`52b7940f9f`,
 flatblock WIP`e2bd21033e20dc5d99e80cc6c2453f333d215f29`,
 UTC02:29:11.994–02:30:08.336Z, load5.64→7.01:16successful tasks,
@@ -200,9 +211,10 @@ exact timestamps were sent to POD-4286 and POD-5407 for capture-overlap exclusio
 A checkout-scoped process audit finds no surviving Node/Bun/timeout validation
 process. The clean rebase onto `d9870eabd9` inherits only its three outbox files;
 all phone and graph source bytes are unchanged from that checkpoint. The later
-mission rebase changes the empty-deck interface; its focused regressions above
-are green and its filtered compiler retry awaits fresh admission. A03:18Z
-attempt stopped before committing or starting the compiler when load was8.58.
+mission rebase changes the empty-deck interface; its focused regressions and
+filtered compiler above are green. Earlier admission attempts stopped before
+committing or starting the compiler at loads8.58 and8.00; they are not gate
+results.
 
 The first production Pixel7 proof attempt reaches the unchanged web bundle
 budget guard and exits1 before any browser case. At source`2ba88fc1f4`, flatblock
