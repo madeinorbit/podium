@@ -136,6 +136,9 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
       id,
       seq: id === ROOT ? 999999 : id === CHILD ? 999998 : 999997,
       title: id,
+      // Search-gram work belongs to the visible input, which must be identical
+      // at both scales rather than inherit a different corpus row's body.
+      description: { value: 'Guard body' },
       parentId,
       stage: 'planning',
       archived: false,

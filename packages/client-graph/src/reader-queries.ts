@@ -46,10 +46,11 @@ export class ReaderQueries {
   private readonly identities = new Map<string, IdentityResult>()
   private readonly results = new Map<string, ReturnType<typeof createQueryResult<unknown>>>()
   // Only residents unknown to the effective source contribute this correction.
+  // Existing question atoms publish changes; these sets add no tracking objects.
   // Hydration, eviction and optimistic table writes all pass these observers.
   private readonly extras = {
-    issue: observable.set<string>(undefined, { deep: false }),
-    session: observable.set<string>(undefined, { deep: false }),
+    issue: new Set<string>(),
+    session: new Set<string>(),
   }
   private readonly stopTables: (() => void)[] = []
   readonly counts = { questions: 0, returnedIds: 0 }
@@ -67,9 +68,11 @@ export class ReaderQueries {
       )
   }
   private correctCount(entity: 'issue' | 'session', id: string): void {
+    const before = this.extras[entity].has(id)
     const extra = this.pool.tables[entity].has(id) && !this.index().known(entity, id)
     if (extra) this.extras[entity].add(id)
     else this.extras[entity].delete(id)
+    if (before !== extra) this.observed.get(`count:${entity}`)?.atom.reportChanged()
   }
   private sourceOnly(question: ReaderQuestion): boolean {
     return (
@@ -155,7 +158,7 @@ export class ReaderQueries {
         this.identities.set(key, this.identityResult(result.question, index))
         state.version = version
         state.atom.reportChanged()
-      } else if (state.version !== version) {
+      } else if (state.version !== version || fresh) {
         state.version = version
         // Identity questions are notified only by a membership delta below.
         // Counts and ordered windows still follow their declared revisions.

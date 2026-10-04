@@ -334,7 +334,23 @@ describe('pool screens work ratios: declared query screen counters', () => {
             const row = pool!.row('issue', id, 'summary-fields')
             const repoId = pool!.graph.one('issue', id, 'repo')
             const repo = repoId ? pool!.row('repo', repoId) : undefined
-            return { id, row, repo }
+            if (!row || row === LOADING || repo === LOADING)
+              throw new Error('Visible index input is not loaded')
+            const value = row as Record<string, unknown>
+            return {
+              id,
+              title: value.title,
+              description: value.description,
+              seq: value.seq,
+              prefix: (repo as { prefix?: string } | undefined)?.prefix,
+              repoPath: value.repoPath,
+              parentId: value.parentId,
+              priority: value.priority,
+              audience: value.audience,
+              stage: value.stage,
+              blocked: value.blocked,
+              deferUntil: value.deferUntil,
+            }
           }),
         ),
       )
@@ -344,7 +360,9 @@ describe('pool screens work ratios: declared query screen counters', () => {
     const at4x = await poolScreenCellsAt(4, capture, only)
     const fourInputs = inputs.pop()
     spy.mockRestore()
-    console.info('[declared query inputs]', JSON.stringify({ oneInputs, fourInputs }))
+    // A fixed number of drawn rows alone is insufficient if their indexed
+    // text varies: that is input work, rather than growth with hidden history.
+    expect(oneInputs).toEqual(fourInputs)
     const verdicts = screenWorkVerdicts(at1x.cells, at4x.cells)
     const judged = verdicts.filter((value) =>
       /IssuePage@summaries|IssueBoard@sessions:|IssueBoard@index:|^consumer:session-pane(?:\/|$)/.test(
