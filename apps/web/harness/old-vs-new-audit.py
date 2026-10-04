@@ -70,6 +70,12 @@ for checkout_arm, checkout in checkouts.items():
             expected_actions = expected_actions - {'large-mission-switch'}
             require(any(gap['action'] == 'large-mission-switch' and '20000ms' in gap['reason']
                 for gap in run['unavailable']), 'documented collector failure missing')
+        known_4x_preparation = (name == 'timing-old-web-4x-r10'
+            and run['harnessSha256'] == 'e0d8a84eb2258bd15f31022a7a78b33e700e119aed4de6faa61a24ef25f9a0c3')
+        if known_4x_preparation:
+            expected_actions = expected_actions - {'sidebar-select','large-mission-switch'}
+            require(any(gap['action']=='sidebar-select' and 'performing click action' in gap['reason'] for gap in run['unavailable']), 'documented preparation timeout missing')
+            require(any(gap['action']=='large-mission-switch' and 'i4089' in gap['reason'] for gap in run['unavailable']), 'documented deferred-root attempt missing')
         if run.get('backgroundOnly'):
             expected_actions = set()
         actual_actions = {row['action'] for row in run['actions']}
@@ -113,6 +119,8 @@ for pair in ['new', 'new-deleted']:
                 for action in (web if surface == 'web' else phone) | {'app-cold-start', 'app-warm-start'}:
                     expected_n = 8 if action in ['app-cold-start', 'app-warm-start'] else 16
                     if pair == 'new' and surface == 'web' and scale == 1 and action == 'large-mission-switch':
+                        expected_n = 8
+                    if pair == 'new' and surface == 'web' and scale == 4 and arm == 'old' and action in ['sidebar-select','large-mission-switch']:
                         expected_n = 8
                     if counts[(*key, arm, action)] != expected_n:
                         errors.append(f'{key}/{arm}/{action}: sample count {counts[(*key, arm, action)]}, expected {expected_n}')
