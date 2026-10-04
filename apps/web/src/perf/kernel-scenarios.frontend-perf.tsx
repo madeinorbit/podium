@@ -109,7 +109,6 @@ function Worklist() {
   const slice = useSlice(worklistSlice)
   const select = useStoreSelector((s) => s.setSelectedIssueId)
   const selected = useStoreSelector((s) => s.selectedIssueId)
-  const sessions = useStoreSelector((s) => s.sessions)
   const rows = slice.work.filter((row) => row.kind === 'issue')
   // Constant visible neighbourhood. The real derivation still sees ALL rows.
   return (
@@ -120,11 +119,7 @@ function Worklist() {
           <UnifiedIssueRow
             key={row.issue.id}
             row={row}
-            sessions={sessions}
-            issues={rows.map((item) => item.issue)}
-            allWorktreePaths={slice.allWorktreePaths}
-            selectedIssueId={selected}
-            paneA={null}
+            active={row.issue.id === selected}
             now={slice.now}
             onSelectIssue={(issue) => select(issue.id)}
             onSelectPanelForIssue={(issue) => select(issue.id)}
