@@ -2,11 +2,13 @@
  * memo boundaries. Injected by header-session-speed.ts; never app-imported. */
 import type { SessionView } from '@podium/client-core/session-values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { coldSessionIds, knownSessionIds } from '@podium/client-graph/enumerate'
 import { EMPTY_HOST_AGGREGATE, headerHostSession, headerWorkingSession } from '@podium/client-graph/header-session'
 import type { MachineId } from '@podium/model/browser'
 
 type Memo = <T>(key: string, read: () => T) => T
+/** The control scans every known session, as the pre-delta header did. */
+const knownSessionIds = (pool: MobxPool) => pool.queries.ids({ kind: 'commandSessions' })
+const coldSessionIds = (pool: MobxPool) => knownSessionIds(pool).filter(id => !pool.tables.session.has(id))
 export function createScanningHeaderSessions(pool: MobxPool, memo: Memo) {
   const coldSummary = (id: string) => {
     if (pool.row('session', id, 'mark') !== LOADING) return undefined

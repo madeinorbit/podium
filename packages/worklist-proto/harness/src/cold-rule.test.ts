@@ -146,11 +146,20 @@ async function measure(scale: 1 | 4) {
           name === 'mobx'
             ? mobxDiffResidency(pools.mobx.pool, feeds.rows.source)
             : handDiffResidency(pools.hand.pool, feeds.rows.source)
+        // POD-5407: the MobX pool keeps no list of its cold rows: they are the
+        // feed's rows it does not hold. `ids()` is the cold rows it has seen,
+        // which must be cold by the rule too.
+        const coldOf = (entity: 'issue' | 'session') =>
+          name === 'mobx'
+            ? [...(entity === 'issue' ? issues : sessions).keys()].filter((id) => residency.isCold(entity, id))
+            : [...residency.ids(entity)]
         pooled[name] = {
-          coldIssues: residency.ids('issue').length,
-          coldSessions: residency.ids('session').length,
+          coldIssues: coldOf('issue').length,
+          coldSessions: coldOf('session').length,
           coldVisible: order.filter((id) => residency.isCold('issue', id)).length,
-          notColdByRule: residency.ids('issue').filter((id) => !declaredCold('issue', id)).length,
+          notColdByRule: coldOf('issue').filter((id) => !declaredCold('issue', id)).length,
+          seenNotColdByRule: [...residency.ids('issue')].filter((id) => !declaredCold('issue', id)).length +
+            [...residency.ids('session')].filter((id) => !declaredCold('session', id)).length,
           partition: diff,
         }
       }
@@ -174,6 +183,7 @@ async function measure(scale: 1 | 4) {
           coldSessions: number
           coldVisible: number
           notColdByRule: number
+          seenNotColdByRule: number
           partition: string[]
         }
       >,
@@ -205,6 +215,7 @@ describe('the cold rule against the drawn rows (POD-4665)', () => {
       expect(pool.coldSessions, name).toBe(cell.declared.coldSessions)
       expect(pool.coldVisible, name).toBe(0)
       expect(pool.notColdByRule, name).toBe(0)
+      expect(pool.seenNotColdByRule, name).toBe(0)
     }
   }, 900_000)
 })

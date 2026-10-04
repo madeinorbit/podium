@@ -6,14 +6,16 @@
  * One walk, membership-sized by nature:
  * - `reseed`: a `replace` publication (bootstrap, principal switch, rescope)
  *   installs the new slice and removes every row it does not name, in the
- *   caller's single action. In the live pool it re-partitions residency
- *   (POD-4567): a named row resident before stays; the rest follow the rule.
+ *   caller's single action. In the live pool the cold-capable entities are
+ *   placed by residency (POD-5407): the index's resident candidates; a named
+ *   row resident before stays.
  *
  * The from-scratch checks the gates hold the pool to are harness-owned
  * (`harness/src/adapters/mobx-rebuild.ts`, POD-4945), never product.
  */
 
 import type { RowRecord } from './shared/source'
+import type { EntityName } from './shared/schema'
 import type { MobxPool } from './pool'
 import type { HeaderEntity } from './header-schema'
 import {
@@ -26,6 +28,7 @@ import {
   ingestOut,
   ingestRecord,
   put,
+  type StoredRow,
 } from './tables'
 
 /** One startup seed for the reference reader. Only resident slots participate;
@@ -48,37 +51,58 @@ export function residentIds(pool: MobxPool, entity: 'issue' | 'session'): string
 }
 
 /**
- * Replace the pool's contents with `rows`, atomically (call inside one
- * action). Routed through the same ingest as an update, into plain tables
- * first, so a repo derived from a lane arrives exactly as it would
- * incrementally; then every table keeps the rows named (unchanged objects are
- * not rewritten) and drops the rest.
+ * Replace the pool's contents (call inside one action, after the cold index
+ * holds the new slice). The entities that are never cold (lanes, repos) are
+ * routed through the same ingest as an update, into plain tables first, so a
+ * repo derived from a lane arrives exactly as it would incrementally; then
+ * those tables keep the rows named (unchanged objects are not rewritten) and
+ * drop the rest. The cold-capable entities are placed by residency
+ * (POD-5407, `Residency.attach`): the index's resident candidates only, read
+ * from `rows` when they carry them, else once by id. A cold row is never
+ * visited.
  */
-export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: IngestOut): void {
+export function reseed(
+  target: IngestTarget,
+  rows: readonly RowRecord[],
+  out: IngestOut,
+  /** The index was built from other publications than `rows` (a source's own): rows it may not know. */
+  external = false,
+): void {
   const incoming = createPlainTables()
   const scratch = ingestOut()
   const staging: IngestTarget = { read: incoming, write: incoming }
-  for (const record of rows) ingestRecord(staging, record, scratch)
   const residency = target.residency
-  residency?.reindex((entity) => incoming[entity])
+  // Only a feed without its own index hands the cold-capable rows over here.
+  let carried: Map<string, StoredRow> | null = null
+  for (const record of rows) {
+    if (residency?.capable(record.kind) === true) {
+      if (record.value === undefined) continue
+      carried ??= new Map()
+      carried.set(`${record.kind}:${record.id}`, record.value as StoredRow)
+      continue
+    }
+    ingestRecord(staging, record, scratch)
+  }
   for (const entity of ENTITIES) {
+    if (residency?.capable(entity) === true) continue
     const table = target.write[entity]
     const next = incoming[entity]
     const gone: string[] = []
     for (const id of table.keys()) if (!next.has(id)) gone.push(id)
     for (const id of gone) drop(target, entity, id, out)
-    if (residency?.capable(entity)) {
-      // POD-4567: re-partition. Cold rows the slice no longer names leave;
-      // every named row is placed by the rule (a resident row stays).
-      for (const id of residency.ids(entity)) {
-        if (!next.has(id)) residency.forget(target, entity, id, out)
-      }
-      for (const [id, row] of next) residency.place(target, entity, id, row, out)
-      continue
-    }
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
-  residency?.replaced(target, out)
+  // Only rows the index does not know need visiting beyond the candidates: an
+  // index built from these very rows knows them all, and a feed with its own
+  // index hands none over.
+  const unknown = function* (): Generator<readonly [EntityName, string, StoredRow]> {
+    if (!external) return
+    for (const [key, row] of carried ?? []) {
+      const colon = key.indexOf(':')
+      yield [key.slice(0, colon) as EntityName, key.slice(colon + 1), row]
+    }
+  }
+  residency?.attach(target, carried === null ? null : (entity, id) => carried?.get(`${entity}:${id}`), out, unknown())
 }
 
 /** Header key census stays in the pool's one enumeration module. Values are
@@ -95,15 +119,15 @@ export function allResidentSessions(pool: MobxPool): [string, object][] {
     return typeof row === 'object' && row !== null ? [[id, row] as [string, object]] : []
   })
 }
-export function knownIssueIds(pool: MobxPool): string[] {
-  return [...new Set([...pool.tables.issue.keys(), ...(pool.residency?.ids('issue', true) ?? [])])]
+/**
+ * Every id of `entity` the feed carries, resident or cold, through the cold
+ * index's catalog question. For diagnostics and tests that compare a reader
+ * with a whole-catalog control; no product reader enumerates history.
+ */
+export function knownIds(pool: MobxPool, entity: 'issue' | 'session'): string[] {
+  const all = pool.coldIndex().readerIds({ kind: entity === 'issue' ? 'commandIssues' : 'commandSessions' })
+  return [...new Set([...pool.tables[entity].keys(), ...all])].sort()
 }
 export function residentWorktreeIds(pool: MobxPool): string[] {
   return [...pool.tables.worktree.keys()]
-}
-export function knownSessionIds(pool: MobxPool): string[] {
-  return [...new Set([...pool.tables.session.keys(), ...(pool.residency?.ids('session', true) ?? [])])].sort()
-}
-export function coldSessionIds(pool: MobxPool): readonly string[] {
-  return pool.residency?.ids('session', true) ?? []
 }

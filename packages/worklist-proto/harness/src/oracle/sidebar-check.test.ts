@@ -403,11 +403,13 @@ describe('sidebar readiness', () => {
         expect(hydrate).not.toHaveBeenCalled()
         expect(cold.pending).toBeGreaterThan(0)
         const snapshot = tracked(() => poolSidebarSnapshot(handle.pool, state))
+        // POD-5407: no lane waits on history sessions any more: a session the
+        // rule keeps cold can never be a retained seat, so none is fetched.
         expect(
           snapshot.sections
             .flatMap((section) => section.rows)
             .some((row) => row.pending && 'sessions' in row.fields),
-        ).toBe(true)
+        ).toBe(false)
         settle(handle.pool, state)
         expect(tracked(() => poolSidebarSnapshot(handle.pool, state)).pending).toBe(0)
       } finally {

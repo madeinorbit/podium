@@ -9,7 +9,7 @@ import {
 } from 'mobx'
 import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
-import { type ColdIndex, type ColdQueries, createColdIndex } from './shared/cold-index'
+import type { ColdQueries } from './shared/cold-index'
 import { questionEntity, type ReaderQuestion } from './shared/reader-questions'
 import type { ModelSchema } from './shared/schema'
 import type { SessionActivityQuestion } from './shared/session-activity'
@@ -17,11 +17,10 @@ import type { RowSourceEvent } from './shared/source'
 import { LOADING } from './worklist/rollup'
 
 /** Query bridge, not a history index in the pool. Production questions go to
- * the row source. Directly-fed pools (fixtures/standalone consumers) use the
- * same feed index as a substitute source, never the residency registry. */
+ * the row source's cold index; a directly-fed pool (fixtures, standalone
+ * consumers) answers from its own (`MobxPool.coldIndex`). */
 export class ReaderQueries {
   private readonly sessionsChanged = observable.box(0)
-  private readonly standalone: ColdIndex | undefined
   private sessionVersion = -1
   private readonly activityRows = new Map<
     string,
@@ -35,13 +34,11 @@ export class ReaderQueries {
   readonly counts = { questions: 0, returnedIds: 0 }
   constructor(
     private readonly pool: MobxPool,
-    schema: ModelSchema,
-    private readonly source?: () => ColdQueries,
-  ) {
-    if (!source) this.standalone = createColdIndex(schema)
-  }
+    _schema: ModelSchema,
+    private readonly source: () => ColdQueries,
+  ) {}
   private index(): ColdQueries {
-    return this.source?.() ?? this.standalone!
+    return this.source()
   }
   private watch(key: string, revision: (index: ColdQueries) => number): ColdQueries {
     const index = this.index()
@@ -58,7 +55,6 @@ export class ReaderQueries {
     return index
   }
   publish(event: RowSourceEvent): void {
-    this.standalone?.apply(event)
     if (event.type === 'replace') this.activityRows.clear()
     for (const row of event.rows) {
       if (row.kind === 'session' && !this.pool.tables.session.has(row.id))

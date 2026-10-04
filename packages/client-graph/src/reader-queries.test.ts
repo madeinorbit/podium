@@ -9,7 +9,7 @@ import { chatMentionIssues, chatReferenceSessions } from './chat-context'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { attachCommandLaunchSource } from './command-launch-source'
-import { knownIssueIds, knownSessionIds } from './enumerate'
+import { knownIds } from './enumerate'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { issuePages } from './issue-page'
@@ -269,14 +269,10 @@ describe('readers behind declared cold questions', () => {
         const original = pool.queries.ids.bind(pool.queries)
         const legacy = vi
           .spyOn(pool.queries, 'ids')
-          .mockImplementation((question) =>
-            questionEntity(question) === 'session' ? knownSessionIds(pool) : knownIssueIds(pool),
-          )
+          .mockImplementation((question) => knownIds(pool, questionEntity(question)))
         const legacyCount = vi
           .spyOn(pool.queries, 'count')
-          .mockImplementation(
-            (entity) => (entity === 'issue' ? knownIssueIds(pool) : knownSessionIds(pool)).length,
-          )
+          .mockImplementation((entity) => knownIds(pool, entity).length)
         const expected = snapshot(
           reader.name,
           runInAction(() => reader.read(pool)),

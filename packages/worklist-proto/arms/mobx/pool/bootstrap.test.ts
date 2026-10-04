@@ -107,10 +107,11 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
       worktree: pool.tables.worktree.size,
       repo: pool.tables.repo.size,
     })),
-    cold: {
-      issue: pool.residency?.ids('issue').length ?? 0,
-      session: pool.residency?.ids('session').length ?? 0,
-    },
+    // POD-5407: the pool lists no cold rows; the index knows every row.
+    cold: pool.residency === null ? { issue: 0, session: 0 } : tracked(() => ({
+      issue: pool.coldIndex().count('issue') - pool.tables.issue.size,
+      session: pool.coldIndex().count('session') - pool.tables.session.size,
+    })),
     models: (models['IssueModel'] ?? 0) + (models['SessionModel'] ?? 0),
     issueModels: models['IssueModel'] ?? 0,
     sessionModels: models['SessionModel'] ?? 0,

@@ -589,10 +589,8 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const rows = ids.map((id) => owner.row('issue', id) as SliceIssue)
     const coldRule = residency.coldRule.bind(residency)
     const hidden = residency.hidden.bind(residency)
-    residency.coldRule = (entity, record) =>
-      entity === 'issue' && ids.includes((record as { id: string }).id)
-        ? true
-        : coldRule(entity, record)
+    residency.coldRule = (entity, id) =>
+      entity === 'issue' && ids.includes(id) ? true : coldRule(entity, id)
     residency.hidden = (entity, id) =>
       entity === 'issue' && ids.includes(id) ? false : hidden(entity, id)
     try {
@@ -631,10 +629,8 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const ancestor = owner.row('issue', 'synthetic-3') as SliceIssue
     const coldRule = residency.coldRule.bind(residency)
     const hidden = residency.hidden.bind(residency)
-    residency.coldRule = (entity, record) =>
-      entity === 'issue' && (record as { id: string }).id === 'synthetic-3'
-        ? true
-        : coldRule(entity, record)
+    residency.coldRule = (entity, id) =>
+      entity === 'issue' && id === 'synthetic-3' ? true : coldRule(entity, id)
     residency.hidden = (entity, id) =>
       entity === 'issue' && id === 'synthetic-3' ? false : hidden(entity, id)
     try {

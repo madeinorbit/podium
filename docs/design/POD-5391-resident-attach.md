@@ -79,3 +79,72 @@ Phone fixture: the attach pool work falls from about 330–440 ms to the row-sou
 3. **Lazy residency and relations at attach, with the gate contract restated** (depends on 1 and 2). Includes the paired phone warm-start and web startup (`apps/web/harness/pool-memory.ts`) before/after.
 
 Each is several days of work in shared core and is not a one-issue patch. Step 3 alone, without 1 and 2, would break the gate and move the cost to the work screen's mount.
+
+## Step 3 as built (POD-5407)
+
+Step 3 goes one step further than item 3 above. Seeding a hot bucket with copies of its cold members would leave a second, pool-side copy of the relations, and finding 14 of the architecture review (POD-5417) asks for one owner of these facts. So:
+
+**One owner: the relation index.** The row source's cold index gains a plain relation index (`shared/relation-index.ts`). It runs the same declared maintenance the pool's engine ran (links, buckets, subsets, collapse, prefix roots with `alsoRoots`), over every row, once, outside the pool. The cold index's own lane seating and collapse groups are read from it, so it holds no second copy either. Each publication leaves a delta: the forward slots, buckets and subsets it moved, the collapse verdicts that flipped and the rows that appeared or left.
+
+**The pool's relations become a view of it.** `PoolRelations` keeps its reader (`one`, `many`, `size`, `subset`, `isCollapsed`, `orderKey`) but stores nothing per row. A read reports one atom for the slot it reads (created on that read, dropped when unobserved), and returns the index's answer. The pool's action reports the atoms the delta names. A bucket therefore holds its hot and cold members with no seeding step and no copy. A slot nobody observes costs nothing.
+
+**Residency keeps no registry.** A row is cold in the pool when the index knows it and the pool's tables do not hold it. `isCold`, `known` and `hidden` answer from that. `summary` answers the declared fields from the index when it already holds all of them (they are the rule's own inputs; the worklist's hidden-issue fields all are). Otherwise it reads the row once through the one reader (`RowSource.row`) and projects the declared fields. Either way the row is never installed. A reader that lists many cold rows with other fields (the issue page's menus, the board's text) now pays one row read per cold row when it is first shown, instead of the attach copying every summary up front. A row that the index says is no longer cold by rule is installed from the publication at hand or queued for the load window, as today. The rows checked per publication are the publication's own rows, the owners its members keep, the owners at the lanes its sessions moved in or out of, the descendants of an issue whose `canShow` fields moved, and the `via` dependents of anything warmed. `ids()` lists the cold rows the pool has asked about since the last attach.
+
+**Attach places candidates only.** `reseed` puts the index's `residentCandidates` plus every worktree row. It reads each candidate once by id. A counter (`rowsPlaced`) records how many rows the attach placed.
+
+**Roster and first task.** The sidebar roster files resident sessions only. The old roster kept a "may still show" summary for every history session and loaded the ones it could not rule out. On the 1x and 4x fixtures the pool sidebar equals the legacy one before any load and after settling (`sidebar-check.test.ts`), and no lane waits on history sessions any more. `hasFirstTask` reads a count the index keeps (issues not deleted), not a walk over every issue.
+
+**The gate, restated.** The partition check judges every feed row against the index: resident, or cold by rule and not resident. `ids()` is a subset of the cold-by-rule rows, and the census of cold-by-rule rows equals the rule over whole tables. `diffRelations` reads the pool's view after observation, against the from-scratch scan. The planted mistakes are:
+- an all-rows attach fails the `rowsPlaced` bound;
+- an index that drops one cold member from a bucket fails `diffRelations`;
+- a view that misses one delta fails the notification test.
+
+**Open question 1 of the review: does this take cold ids out of `issue.sessions` and the seat list?** No. A session is cold only through its issue (`via`), so every session of an issue on screen is resident, ended ones included. The seat list holds that issue's whole session history before and after this change. Findings 8 and 11 need a per-session retention rule, which is POD-5423's question, not an attach change.
+
+**Finding 16 (phone Work first paint waits on roll-up loads).** This is not part of the attach. The roll-ups wait for cold children, which stay cold before and after this change. It stays with its own issue.
+
+## Step 3 results (POD-5407, flatblock, 2026-10-04)
+
+Base `b4d0134f17`, change `605fdab49f`; the account-switch heap was re-measured with the dispose fix (below). Captures ran under the `bench:flatblock` lease in a quiet window, one arm after the other, starting only when load was below 6 and at least 8 GB of memory was free.
+
+**What the attach builds (census, `tracking-counts.baseline.json`, 1x / 4x).**
+
+| | before | after |
+|---|---:|---:|
+| attach row reads | 416,921 / 1,632,267 | 13,900 / 55,727 |
+| distinct rows read | 22,835 / 91,251 | 6,680 / 27,033 |
+| held map entries | 33,246 / 134,784 | 6,747 / 27,124 |
+| observable set members | 18,221 / 73,915 | 15 / 27 |
+| observable sets | 6,232 / 25,543 | 193 / 792 |
+| atoms | 9,924 / 39,855 | 6,086 / 22,269 |
+
+Computeds, reactions and first-paint reads are unchanged. The heap census (`cold-structures.test.ts`) finds no per-cold-row entries that follow the history. Ten times the history leaves the pool's cold-id entries within the base cell's bound.
+
+**Phone warm start** (`expo-mobile-pool-start-profile`, durable barrier, traced, 2 rounds × 3 timed samples per arm, all warm, no bootstraps).
+
+| | base | change |
+|---|---|---|
+| pool ON, ms | 1527, 1709, 1821, 1672, 1723, 1684 (median ≈1697) | 1603, 1453, 1410, 1583, 1236, 1388 (median ≈1432, −16 %) |
+| pool OFF, ms (no pool; noise control) | 781, 791, 734, 956, 919, 759 | 1411, 993, 901, 934, 871, 899 |
+| heap, pool ON | 73.5 MB | 65.6 MB |
+
+Overlaps: POD-5439's compiler ran during base round 1, and POD-5438's runs (01:48:50–01:49:56 UTC) during change round 2. The OFF arm spread is that noise.
+
+**Web pool startup and heap** (`pool-memory.ts --arms=pool`, 3 samples, median).
+
+| cell | startup base | startup change | heap base | heap change |
+|---|---:|---:|---:|---:|
+| 1x | 3,635 ms | 2,887 ms | 108.5 MiB | 103.1 MiB |
+| 4x | 12,293 ms | 10,865 ms | 385.8 MiB | 366.8 MiB |
+| h10a1 | 14,105 ms (load ≈11) | 11,276 ms | 305.9 MiB | 271.6 MiB |
+
+**Account switch** (`sidebar-acceptance.ts --phase=counts --scales=1x`, POD-5402's two cases, 3 samples per arm). The harness exits 1 in every arm when it reaches the removed legacy arm ("Mode guard RED"); the pool records are written before that.
+
+| case | ready base | ready change | used heap base | used heap change (before fix) | used heap change (fixed) |
+|---|---|---|---:|---:|---:|
+| no rebuild | 2165, 1782, 1805 (median 1805 ms) | 1986, 1986, 1803 (median 1986 ms) | 150.2 MB | 153.3 MB | 142.4 MB |
+| rebuild | 3366, 3005, 3000 (median 3005 ms) | 2876, 2879, 2873 (median 2876 ms) | 165.9 MB | 182.8 MB | 160.9 MB |
+
+The first change captures found +16.9 MB after a rebuild switch. The retired generation's pool survives the switch (POD-5402's survivors, the same 9 and 18 parts in both arms). The disposed pool still pointed at the retired feed's cold index (`indexSeen`), which holds every row's relations. The base's disposed pool had emptied its own relation maps, so it stayed light. The fix: a disposed pool drops its cold index references. `cold-structures.test.ts` checks that the index is unreachable from a disposed pool, and fails with the two lines removed. The fixed-heap column is from three samples at load 7.6–13.7 (heap does not depend on load; their ready times do, so the ready columns are the quiet-window samples). The no-rebuild ready medians differ by 181 ms, but the samples overlap (1782–2165 vs 1803–1986); three samples cannot separate them. The rebuild switch is 130 ms faster in every sample.
+
+**Structural meter (POD-5425 screen work, gating since POD-5466).** On this change rebased onto `db95c578dd`: 47 readers × 9 clicks/deltas × 2 scales, 1,603 counters, 365 expected failures, 0 unexpected (`bun run speed:structural`, 2026-10-04 04:28–04:34 UTC).

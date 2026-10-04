@@ -197,7 +197,6 @@ export interface ModelHost {
   resident(entity: EntityName, id: string): Residence
   /** Resident fallback seats; cold rows are requested from a declared lane summary. */
   rosterCandidates(path: string): Iterable<string>
-  rosterColdPending(path: string): boolean
 }
 
 export class EntityModel {

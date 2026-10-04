@@ -3,16 +3,15 @@
  * It is never read from worklistSlice, a selector, or browser storage here.
  */
 
-import { compareStructural, computed, type IComputedValue, untracked } from 'mobx'
+import { compareStructural, computed, type IComputedValue } from 'mobx'
 import { debugName } from '../debug-name'
 import type { ModelHost } from '../models'
 import type { MobxPool } from '../pool'
 import { overlayRow } from '../shared/overlay-row'
-import { issueExcluded } from '../shared/schema'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { attentionGroup, LOADING } from './rollup'
 import { type SidebarRowValues, sortedSidebarSessions } from './sidebar-row'
-import { type HiddenIssue, retains, retentionOf } from './visible'
+import { retains } from './visible'
 
 export interface SidebarState {
   readonly projectOrder?: readonly string[]
@@ -68,43 +67,12 @@ export interface SidebarRoster {
 export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
   const input = host.visibleInputs
   const ids: string[] = []
-  let pending = 0
-  const candidates = [...host.rosterCandidates(path)]
-  if (host.rosterColdPending(path)) {
-    // Only a positive cold-lane summary reaches the old relation. No cold
-    // id enters the resident roster index; pending seats queue one batch.
-    for (const id of host.relations.many('worktree', path, 'sessions')) {
-      if (untracked(() => host.row('session', id, 'mark')) === LOADING) candidates.push(id)
-    }
-  }
-  for (const id of candidates) {
+  const pending = 0
+  // POD-5407: the candidates are resident seats only (`SidebarRosterIndex`):
+  // a session the rule keeps cold can no longer be a retained seat.
+  for (const id of host.rosterCandidates(path)) {
     const session = host.model('session', id)
-    if (session === undefined) {
-      // Reason about a historical seat from declared summaries. Only a seat
-      // the summaries cannot rule out requests a batch; no cold id is indexed.
-      const summary = host.row('session', id, 'summary')
-      if (summary === LOADING) {
-        pending += 1
-        continue
-      }
-      const retention = retentionOf(summary as SliceSession | undefined)
-      if (retention === null || !retention.seat) continue
-      const ownerId = retention.issueId
-      const owner =
-        ownerId && untracked(() => host.row('issue', ownerId, 'mark')) === LOADING
-          ? (host.row('issue', ownerId, 'summary') as HiddenIssue | typeof LOADING | undefined)
-          : undefined
-      if (
-        owner &&
-        owner !== LOADING &&
-        (issueExcluded(owner) || (owner.flatUntil !== undefined && input.passed(owner.flatUntil)))
-      )
-        continue
-      if (owner === undefined && !retains(retention, undefined, undefined, input)) continue
-      if (host.resident('session', id) === 'loading') pending += 1
-      if (owner && retention.issueId) void host.resident('issue', retention.issueId)
-      continue
-    }
+    if (session === undefined) continue
     const retention = session.retention
     if (retention === null || !retention.seat || retention.shell) continue
     const owner = session.issueLink === null ? undefined : input.issue(session.issueLink)

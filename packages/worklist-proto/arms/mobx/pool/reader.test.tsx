@@ -130,8 +130,8 @@ function forceCold(pool: MobxPool, replay: ReplaySource, id: string): () => void
   if (value === undefined) throw new Error(`no feed row ${id}`)
   pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
   const coldRule = residency.coldRule.bind(residency)
-  residency.coldRule = (entity, row) =>
-    entity === 'issue' && (row as { id?: unknown }).id === id ? true : coldRule(entity, row)
+  residency.coldRule = (entity, rowId, row) =>
+    entity === 'issue' && rowId === id ? true : coldRule(entity, rowId, row)
   const row = pool.row.bind(pool)
   // Visibility uses the one reader's non-loading marker to distinguish cold
   // rows. This fixture bypasses the marker only while cold; drawing still

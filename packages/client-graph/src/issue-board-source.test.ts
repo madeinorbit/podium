@@ -89,7 +89,11 @@ it('uses declared cold summaries without promoting cards or hydrating the world'
     expect(pool.tables.issue.has('cold')).toBe(false)
     expect(source.stats().residentRows).toBe(1)
     expect(pool.hydrate()).toBe(0)
-    expect(load).not.toHaveBeenCalled()
+    // POD-5407: the board's declared fields are not all rule inputs the index
+    // holds, so the cold card's summary is read once through the one per-row
+    // reader; the row is never installed.
+    expect(load.mock.calls).toEqual([['issue', 'cold']])
+    expect(pool.tables.issue.has('cold')).toBe(false)
   } finally {
     stop()
   }
@@ -124,7 +128,9 @@ it('keeps rich card derivations inside the virtual window and addresses selectio
       issues: expect.arrayContaining([expect.objectContaining({ id: 'hot', childCount: 0 })]),
     })
     expect(pool.hydrate()).toBe(0)
-    expect(load).not.toHaveBeenCalled()
+    // POD-5407: one summary read of the cold card through the one reader; never installed.
+    expect(load.mock.calls).toEqual([['issue', 'cold']])
+    expect(pool.tables.issue.has('cold')).toBe(false)
   } finally {
     issueBoardStats.disable()
     stop()

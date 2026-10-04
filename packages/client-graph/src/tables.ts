@@ -44,10 +44,12 @@
  * (`schema[entity].cold`) is routed through `IngestTarget.residency`
  * (`residency.ts`): a cold row is registered by id and linked, never stored.
  *
- * RELATIONS (POD-4566). Every table write — `put` and `drop` — hands the
- * previous and the new row to `IngestTarget.relations` (`relations.ts`),
- * which maintains every declared relation the write touches. The rebuild and
- * the replace staging ingest with no relations: they resolve from scratch.
+ * RELATIONS (POD-4566, POD-5407). The relations are maintained by the
+ * relation index the cold index holds (`shared/relation-index.ts`), from the
+ * same publication, before the pool's tables see it; a table write tells
+ * nothing to the relations. Ingest only reads them (`repo.worktrees`, for a
+ * repo handed between lanes). The rebuild and the replace staging ingest
+ * with no relations: they resolve from scratch.
  */
 
 import { type ObservableMap, observable } from 'mobx'
@@ -104,7 +106,7 @@ export interface IngestOut {
 export interface IngestTarget {
   readonly read: { readonly [E in EntityName]: { get(id: string): unknown } }
   readonly write: TableSet
-  /** Told of every write, in order (the live pool's relations). */
+  /** The live pool's relations, read by the repo composition. */
   readonly relations?: RelationMaintenance
   /**
    * The live pool's volatile lane (POD-4686): an issue's read cursor, kept
@@ -117,10 +119,7 @@ export interface IngestTarget {
    * that can be cold is routed through it, and a cold row never reaches
    * `write`. The rebuild and the replace staging hold every row.
    */
-  readonly residency?: Pick<
-    Residency,
-    'capable' | 'ingest' | 'place' | 'forget' | 'ids' | 'reindex' | 'replaced'
-  >
+  readonly residency?: Pick<Residency, 'capable' | 'ingest' | 'attach'>
 }
 
 /**
@@ -169,16 +168,13 @@ export function put(
   }
   target.write[entity].set(id, row)
   if (entity === 'issue') target.volatile?.setIssueRead(id, row)
-  target.relations?.changed(entity, id, previous, row)
 }
 
 /** Delete `id`, reporting the removal so its model is dropped. */
 export function drop(target: IngestTarget, entity: EntityName, id: string, out: IngestOut): void {
-  const previous = target.relations === undefined ? undefined : target.read[entity].get(id)
   if (!target.write[entity].delete(id)) return
   out.removed.push([entity, id])
   if (entity === 'issue') target.volatile?.removeIssueRead(id)
-  target.relations?.changed(entity, id, previous as StoredRow | undefined, undefined)
 }
 
 /** Apply one feed record. */

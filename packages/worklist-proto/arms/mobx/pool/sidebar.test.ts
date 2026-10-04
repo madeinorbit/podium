@@ -192,7 +192,12 @@ describe('real sidebar oracle (POD-4953)', () => {
     })
     const { pool } = handle
     try {
-      const cold = pool.residency!.ids('issue').slice(0, 2)
+      // POD-5407: the pool lists no cold rows; take them from the feed.
+      const cold = replay.source
+        .snapshot('issue')
+        .map((record) => record.id)
+        .filter((id) => pool.residency!.isCold('issue', id))
+        .slice(0, 2)
       expect(cold).toHaveLength(2)
       const before = scheduled
       expect(tracked(() => cold.map((id) => pool.sidebar.row(id)))).toEqual([LOADING, LOADING])

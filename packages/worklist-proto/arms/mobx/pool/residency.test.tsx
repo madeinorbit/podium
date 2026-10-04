@@ -77,8 +77,17 @@ interface Rig {
   pool: MobxPool
   /** Timers the loader armed, in order. */
   timers: Timer[]
-  /** Per-row reads the pool made through the feed, `kind:id`. */
+  /**
+   * Per-row reads the pool made through the feed while a load window ran
+   * (`fire`): the rows it installed by id, `kind:id`.
+   */
   loads: string[]
+  /**
+   * POD-5407: per-row reads made outside a load window: a cold row's
+   * declared summary, read through the one per-row reader instead of a copy
+   * the pool used to keep. Never an install.
+   */
+  peeks: string[]
   /** Fire the open window (the one armed, not cancelled). */
   fire(): void
   push(event: RowSourceEvent): void
@@ -105,10 +114,12 @@ function rig(
   const replay = createReplaySource(options.rows ?? records())
   const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
   const loads: string[] = []
+  const peeks: string[] = []
+  let windowOpen = false
   const counted: RowSource = {
     snapshot: (kind) => replay.source.snapshot(kind),
     row: (kind, id) => {
-      loads.push(`${kind}:${id}`)
+      ;(windowOpen ? loads : peeks).push(`${kind}:${id}`)
       return replay.source.row?.(kind, id)
     },
     subscribe: (listener) => replay.source.subscribe(listener),
@@ -138,11 +149,26 @@ function rig(
     pool: handle.pool,
     timers,
     loads,
+    peeks,
     fire() {
       const armed = timers.filter((timer) => !timer.cancelled)
       expect(armed.length).toBe(1)
       armed[0]!.cancelled = true
-      armed[0]!.run()
+      windowOpen = true
+      const before = loads.length
+      try {
+        armed[0]!.run()
+      } finally {
+        windowOpen = false
+      }
+      // A read inside the window is a load when it installed the row; the
+      // reactions the install wakes run inside the same action and may read
+      // other cold rows' summaries (peeks).
+      const read = loads.splice(before)
+      for (const key of read) {
+        const [kind, id] = key.split(':') as ['issue' | 'session', string]
+        ;(tracked(() => r.pool.tables[kind].has(id)) ? loads : peeks).push(key)
+      }
     },
     push: (event) => replay.push(event),
     dispose() {
@@ -230,8 +256,10 @@ describe('bootstrap', () => {
     const { pool } = r
     expect(hotIds(pool, 'issue')).toBe(hotIssues.length)
     expect(hotIds(pool, 'session')).toBe(hotSessions.length)
-    expect(pool.residency?.ids('issue')).toHaveLength(corpus.sliceIssues.length - hotIssues.length)
-    expect(pool.residency?.ids('session')).toHaveLength(corpus.sliceSessions.length - hotSessions.length)
+    // POD-5407: the cold rows are the ones the index knows and the pool does
+    // not hold; the pool keeps no list of them.
+    expect(tracked(() => pool.coldIndex().count('issue') - pool.tables.issue.size)).toBe(corpus.sliceIssues.length - hotIssues.length)
+    expect(tracked(() => pool.coldIndex().count('session') - pool.tables.session.size)).toBe(corpus.sliceSessions.length - hotSessions.length)
     // What MobX itself reports building: one table slot per HOT row.
     expect(built['pool.issue']).toBe(hotIssues.length)
     expect(built['pool.session']).toBe(hotSessions.length)
@@ -243,16 +271,24 @@ describe('bootstrap', () => {
         issueById.get(id)?.archived !== true && issueById.get(id)?.deletedAt == null,
       )
     }
-    const coldIssueIds = new Set(pool.residency?.ids('issue') ?? [])
-    expect(coldIssueIds.size).toBe(corpus.sliceIssues.length - hotIssues.length)
+    const coldIssueIds = corpus.sliceIssues.filter((issue) => isCold(issue)).map((issue) => issue.id)
+    expect(coldIssueIds.length).toBe(corpus.sliceIssues.length - hotIssues.length)
     for (const id of coldIssueIds) {
       expect(pool.worklist.tracks(id), `cold ${id} is tracked`).toBe(false)
     }
-    // POD-4753: startup reads no row by id. A cold issue is hidden by the
+    // POD-4753: startup installs no row by id. A cold issue is hidden by the
     // rule, so the walks that reach one (a hot child's nesting walk, a
-    // rescue) read its declared summary, never its row or its sessions'.
+    // rescue) read its declared summary, never install it or its sessions.
     // (Before: 722 cold rows read by id at 1x, through the one reader's peek.)
+    // POD-5407: that summary is read through the one per-row reader, once per
+    // cold row a walk reaches (`peeks`), instead of a copy kept for every
+    // cold row at attach. Every one of them is a cold row.
     expect(r.loads).toEqual([])
+    for (const key of r.peeks) {
+      const [kind, id] = key.split(':') as ['issue' | 'session', string]
+      expect(pool.residency?.isCold(kind, id), `${key} peeked while cold`).toBe(true)
+    }
+    expect(new Set(r.peeks).size).toBe(r.peeks.length)
     expect(diffResidency(pool, r.replay.source)).toEqual([])
 
     // The same bootstrap with every row resident (the Ma2 pool), for the record.
@@ -962,9 +998,14 @@ describe('the lane source (R3, POD-4745)', () => {
     expect(r.pool.residency?.isCold('session', original.sessionId)).toBe(true)
     expect(r.pool.residency?.isCold('session', twin.sessionId)).toBe(true)
     expect(resident(r.pool)).toBe(true)
-    // Nothing read by id, nothing asked for.
+    // Nothing installed by id, nothing asked for. What was read by id outside
+    // a window is only cold rows' declared summaries (POD-5407).
     expect(r.loads).toEqual([])
     expect(poolPendingLoads(r.pool)).toBe(0)
+    for (const key of r.peeks) {
+      const [kind, id] = key.split(':') as ['issue' | 'session', string]
+      expect(r.pool.residency?.isCold(kind, id), `${key} peeked while cold`).toBe(true)
+    }
     // And the pool is right: the partition, and every relation (the twins' collapse among them).
     expect(diffResidency(r.pool, r.replay.source)).toEqual([])
     expect(

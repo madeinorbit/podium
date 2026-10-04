@@ -77,6 +77,18 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
     check: () => tracked(() => checkIssuePages(pool, world(), visible())) }
 }
 
+/**
+ * POD-5407: a cold row's declared summary fields that are not rule inputs
+ * the cold index holds are read through the one per-row reader (`load`),
+ * never kept by the pool. Every read since `from` was such a read: of cold
+ * rows only, none of them installed.
+ */
+function expectSummaryReadsOnly(ctx: { pool: MobxPool; load: { mock: { calls: unknown[][] } } }, from = 0): void {
+  for (const [kind, id] of ctx.load.mock.calls.slice(from) as ['issue' | 'session', string][]) {
+    expect(tracked(() => ctx.pool.tables[kind].has(id)), `${kind}:${id} read as a summary, not installed`).toBe(false)
+  }
+}
+
 describe('declared issue page', () => {
   it('reads cold menu fields without computing presence bounds', () => {
     const ctx = open(Array.from({ length: 1024 }, (_, index) => task(`cold-${index}`, {
@@ -106,7 +118,7 @@ describe('declared issue page', () => {
         value: { path: '/synthetic', repoId: 'R', repoName: 'Synthetic', repoPath: '/synthetic', prefix: 'NEW' } }] })
       expect(snapshots).toHaveLength(3)
       expect(snapshots[2]?.every(row => row.prefix === 'NEW')).toBe(true)
-      expect(ctx.load).not.toHaveBeenCalled()
+      expectSummaryReadsOnly(ctx)
       expect(tracked(() => ctx.pool.row('issue', 'cold-0', 'mark'))).toBe(LOADING)
     } finally { stop() }
   })
@@ -295,10 +307,10 @@ describe('declared issue page', () => {
     expect(tracked(() => ctx.pool.row('session', 'born-a', 'summary'))).toMatchObject({ refIssueId: 'arch' })
     expect(tracked(() => [...ctx.pool.graph.many('issue', 'arch', 'bornSessions')])).toEqual(['born-a', 'born-b'])
     expect(tracked(() => ctx.views.menuIssues())).not.toBe(LOADING)
-    expect(ctx.load.mock.calls.length).toBe(before)
+    expectSummaryReadsOnly(ctx, before)
     expect(tracked(() => ctx.views.data('arch'))).toBe(LOADING)
     expect(tracked(() => ctx.views.panel({ issueId: 'arch', cwd: '/synthetic' }))).toBe(LOADING)
-    expect(ctx.load.mock.calls.length).toBe(before)
+    expectSummaryReadsOnly(ctx, before)
     expect(ctx.pool.hydrate()).toBe(7)
     const page = tracked(() => ctx.views.data('arch'))
     expect(page && page !== LOADING ? page.issue.id : null).toBe('arch')
@@ -306,7 +318,11 @@ describe('declared issue page', () => {
     ctx.pool.hydrate()
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
     expect(read.mock.calls.some(call => String(call[2]) === 'peek')).toBe(false)
-    expect(new Set(ctx.load.mock.calls.slice(before).map(call => `${call[0]}:${call[1]}`)).size).toBe(ctx.load.mock.calls.length - before)
+    // POD-5407: a row is read at most twice: once for its declared summary
+    // (the one reader, never installed) and once when the window installs it.
+    const reads = new Map<string, number>()
+    for (const call of ctx.load.mock.calls.slice(before)) reads.set(`${call[0]}:${call[1]}`, (reads.get(`${call[0]}:${call[1]}`) ?? 0) + 1)
+    expect([...reads.values()].every(count => count <= 2), JSON.stringify([...reads])).toBe(true)
   })
 
   it('updates markers, fields, raw membership and relations without stale derived values', () => {

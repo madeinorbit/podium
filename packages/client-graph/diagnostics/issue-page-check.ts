@@ -7,7 +7,7 @@ import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/rep
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations } from '@podium/client-core/viewmodels'
 import { runInAction } from 'mobx'
-import { knownIssueIds } from '../src/enumerate'
+import { knownIds } from '../src/enumerate'
 import { issuePages } from '../src/issue-page'
 import type { MobxPool } from '../src/pool'
 import { LOADING } from '../src/worklist/rollup'
@@ -68,7 +68,7 @@ export function legacyIssuePageSnapshot(issues: readonly IssueViewModel[], sessi
 }
 export function poolIssuePageSnapshot(pool: MobxPool): IssuePageCheckRow[] {
   const views = issuePages(pool)
-  return knownIssueIds(pool).sort().map(id => {
+  return knownIds(pool, 'issue').map(id => {
     const issue = views.issue(id), roster = views.attachedSessions(id)
     if (!issue || issue === LOADING || !roster || roster === LOADING) return { id, value: LOADING }
     const children: IssueViewModel[] = []

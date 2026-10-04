@@ -41,22 +41,24 @@
  * state, and not at a reload because the checker has already replaced the
  * engine by the time it disposes the old arm (its feed is dead).
  *
+ * ATTACH (POD-5407). The pool attaches with the rows the rule keeps resident
+ * only: each created arm's attach is held to the rule computed from scratch
+ * over the feed (`attachProblems`): it placed no more rows than the feed has
+ * rows the rule does not call cold.
+ *
  * THE PLANTS, each of which must fail every seed:
  * - `planted`: deaf to removals (Ma1's; the rebuild catches it).
  * - `coldDeaf`: an update to a row the pool holds cold never reaches it.
- * - `coldRelinkSkipped`: a cold row's update skips relation maintenance only.
- *   Checked per step with the checkpoint OFF: the per-step relation check,
- *   which reads no residency from the pool, must catch a relation error
- *   confined to cold rows. (The checkpoint cannot: loading a row relinks it
- *   from its current value, so this error heals when everything loads.)
- * - `promoteSkipped`: a SESSION that becomes resident keeps its relation
- *   slots in the plain twins. Checked with the per-step checks OFF: the
- *   checkpoint alone must catch it. Sessions only since the POD-4568 rework
- *   (M3 F2): the row views now read the engine's `issue.repo` forward slot,
- *   so an issue's skipped promotion breaks `displayRef` and the per-step
- *   rebuild catches it first (all three seeds of the default run, e.g. seed 1
- *   `i168: displayRef "#169" (expected "POD-169")`). No view reads a
- *   session's forward slots, so the checkpoint stays the only catcher.
+ * - `coldMemberDropped` (POD-5407): the pool's relation view misses its cold
+ *   members (every bucket answers its resident members only). Checked per
+ *   step with the checkpoint OFF: the per-step relation check, which reads
+ *   no residency from the pool, must catch it. (It replaces POD-4568's
+ *   `coldRelinkSkipped`: the pool no longer relinks anything; the relation
+ *   index the cold index holds does, once, for every row.)
+ * - `allRowsAttach` (POD-5407): the attach places every row the feed
+ *   carries, as the pool did before. Results stay right, so only the attach
+ *   check can catch it, and it must be the one that does. (It replaces
+ *   POD-4568's `promoteSkipped`: there are no plain twins to promote from.)
  * The cells count cold-row work AFTER each bootstrap and before the
  * checkpoint: registry writes (a cold row's update, insert or removal), loads
  * on access, rows warmed by a reopen or removal.
@@ -119,7 +121,9 @@ import { ROW_VIEW_FIELDS, type RowView } from '@podium/client-graph/shared/row-v
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { type HarnessMobxPoolHandle, harnessMobxPoolArm, snapshotPool, tracked, visibleOrderOf } from '../../../harness/src/adapters/mobx-pool'
-import { diffRelations, diffResidency, knownTables } from '../../../harness/src/adapters/mobx-rebuild'
+import { attachProblems, coldIds, diffRelations, diffResidency, knownTables } from '../../../harness/src/adapters/mobx-rebuild'
+import type { RelationQueries } from '@podium/client-graph/shared/relation-index'
+import type { EntityName } from '@podium/client-graph/shared/schema'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { rebuildSnapshot, rebuildViews } from '../../../harness/src/adapters/mobx-rebuild'
 import { rowViewOf } from '@podium/client-graph/models'
@@ -190,33 +194,57 @@ const coldDeaf: CheckableArm = {
 }
 
 /**
- * The checkpoint's plant: once bootstrapped, a COLD row's update skips
- * relation maintenance (its registry entry still moves). Nothing else.
+ * The relation plant (POD-5407): the pool's relation view answers every
+ * bucket with its resident members only, as a lazy bucket that never took
+ * its cold members would.
  */
-const coldRelinkSkipped: CheckableArm = {
+const coldMemberDropped: CheckableArm = {
   create(source, locals, reads) {
     const handle = harnessMobxPoolArm.create(source, locals, reads)
-    const { graph, residency } = handle.pool
-    const changed = graph.changed.bind(graph)
-    graph.changed = (entity, id, prev, next) => {
-      if (residency?.isCold(entity, id) === true && next !== undefined) return
-      changed(entity, id, prev, next)
+    const { pool } = handle
+    const graph = pool.graph as unknown as { index: () => RelationQueries }
+    const index = graph.index
+    graph.index = () => {
+      const relations = index()
+      return {
+        ...relations,
+        forward: relations.forward.bind(relations),
+        targets: relations.targets.bind(relations),
+        subset: relations.subset.bind(relations),
+        collapsed: relations.collapsed.bind(relations),
+        orderKey: relations.orderKey.bind(relations),
+        extraRoot: relations.extraRoot.bind(relations),
+        members: (to, id, collection) => {
+          const members = relations.members(to, id, collection)
+          const target = pool.graph.schema[to].relations[collection]?.to
+          if (target === undefined || pool.residency?.capable(target) !== true) return members
+          return new Set([...members].filter((member) => pool.tables[target].has(member)))
+        },
+      }
     }
     return handle
   },
 }
 
-/** The checkpoint's plant: resident sessions keep their relation slots plain. */
-const promoteSkipped: CheckableArm = {
+/** The attach plant (POD-5407): the attach places every row the feed carries. */
+const allRowsAttach: CheckableArm = {
   create(source, locals, reads) {
-    const handle = harnessMobxPoolArm.create(source, locals, reads)
-    const graph = handle.pool.graph as unknown as {
-      promote: (entity: string, id: string) => void
+    const all: RowSource = {
+      ...source,
+      cold: undefined,
+      snapshot: (kind) => source.snapshot(kind),
     }
-    const promote = graph.promote.bind(graph)
-    graph.promote = (entity, id) => {
-      if (entity !== 'session') promote(entity, id)
-    }
+    const handle = harnessMobxPoolArm.create(all, locals, reads)
+    const residency = handle.pool.residency
+    if (residency === null) return handle
+    // Every row a candidate: the pool's own index answers with every row.
+    const ownIndex = (handle.pool as unknown as { ownIndex: { residentCandidates: (entity: EntityName, now: number) => string[] } }).ownIndex
+    const candidates = ownIndex.residentCandidates.bind(ownIndex)
+    ownIndex.residentCandidates = (entity, now) =>
+      residency.capable(entity) ? source.snapshot(entity as 'issue' | 'session').map((record) => record.id) : candidates(entity, now)
+    runInAction(() => handle.pool.apply({ type: 'replace', rows: [
+      ...source.snapshot('session'), ...source.snapshot('issue'), ...source.snapshot('worktree'),
+    ] }))
     return handle
   },
 }
@@ -346,12 +374,13 @@ function fullResidencyCheck(
   const { pool } = handle
   const residency = pool.residency
   if (residency === null) throw new Error(`${label}: the pool has no residency`)
+  // Every cold row, from the feed: the pool keeps no list of them (POD-5407).
   for (const entity of ['issue', 'session'] as const) {
-    for (const id of residency.ids(entity)) residency.request(entity, id)
+    for (const id of coldIds(pool, source, entity)) residency.request(entity, id)
   }
   pool.hydrate()
   const settled = snapshotPool(pool)
-  const left = [...residency.ids('issue'), ...residency.ids('session')]
+  const left = [...coldIds(pool, source, 'issue'), ...coldIds(pool, source, 'session')]
   if (left.length > 0) {
     throw new Error(
       `full residency (${label}): ${left.length} rows never loaded: ${left.slice(0, 6).join(', ')}`,
@@ -394,6 +423,9 @@ function checked(
       }
       const handle = arm.create(counted, locals, reads) as HarnessMobxPoolHandle
       const { pool } = handle
+      // POD-5407: the attach placed only rows the rule keeps resident.
+      const attach = attachProblems(pool, source)
+      if (attach.length > 0) throw new Error(`attach (snapshot ${wrapper.snapshots}): ${attach.join('; ')}`)
       // Kept alive as the mounted list keeps it (see OBSERVED).
       const stop = reaction(
         () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
@@ -459,6 +491,7 @@ function gapped(arm: CheckableArm, tally: { applied: number }): CheckedArm {
 /** Which check caught a plant, from the error it threw. */
 function caughtBy(message: string): string {
   if (message.startsWith('full residency')) return 'checkpoint'
+  if (message.startsWith('attach')) return 'attach'
   if (message.startsWith('residency')) return 'partition'
   if (message.startsWith('row views')) return 'views'
   return 'relations'
@@ -497,7 +530,7 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
       const cells = []
       let plantedFailures = 0
       let coldPlantFailures = 0
-      let checkpointPlantFailures = 0
+      let attachPlantFailures = 0
       let relinkPlantFailures = 0
       const viewPlantFailures = { activity: 0, presence: 0, chain: 0 }
       for (const seed of SEEDS) {
@@ -527,16 +560,12 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
         const coldPlant = await plantOutcome(checked(coldDeaf), sequence)
         if (!coldPlant.ok) coldPlantFailures += 1
         const relinkPlant = await plantOutcome(
-          checked(coldRelinkSkipped, { perStep: true, full: false }),
+          checked(coldMemberDropped, { perStep: true, full: false }),
           sequence,
         )
         if (!relinkPlant.ok && relinkPlant.against === 'relations') relinkPlantFailures += 1
-        const checkpointPlant = await plantOutcome(
-          checked(promoteSkipped, { perStep: false, full: true }),
-          sequence,
-        )
-        if (!checkpointPlant.ok && checkpointPlant.against === 'checkpoint')
-          checkpointPlantFailures += 1
+        const attachPlant = await plantOutcome(checked(allRowsAttach), sequence)
+        if (!attachPlant.ok && attachPlant.against === 'attach') attachPlantFailures += 1
         const activity = await plantOutcome(checked(activityCached), sequence)
         if (!activity.ok && activity.against === 'views') viewPlantFailures.activity += 1
         const presence = await plantOutcome(checked(presenceUntracked), sequence)
@@ -578,11 +607,11 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
           relinkPlantDiff: relinkPlant.ok
             ? null
             : relinkPlant.diff.split('\n').slice(0, 2).join(' | '),
-          checkpointPlantFailed: !checkpointPlant.ok,
-          checkpointPlantCaughtBy: checkpointPlant.ok ? null : checkpointPlant.against,
-          checkpointPlantDiff: checkpointPlant.ok
+          attachPlantFailed: !attachPlant.ok,
+          attachPlantCaughtBy: attachPlant.ok ? null : attachPlant.against,
+          attachPlantDiff: attachPlant.ok
             ? null
-            : checkpointPlant.diff.split('\n').slice(0, 2).join(' | '),
+            : attachPlant.diff.split('\n').slice(0, 2).join(' | '),
         })
       }
       const name =
@@ -597,7 +626,7 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
       expect(plantedFailures).toBe(SEEDS.length)
       expect(coldPlantFailures).toBe(SEEDS.length)
       expect(relinkPlantFailures).toBe(SEEDS.length)
-      expect(checkpointPlantFailures).toBe(SEEDS.length)
+      expect(attachPlantFailures).toBe(SEEDS.length)
       expect(viewPlantFailures).toEqual({
         activity: SEEDS.length,
         presence: SEEDS.length,

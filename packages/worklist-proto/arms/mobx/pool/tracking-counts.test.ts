@@ -31,7 +31,9 @@
  *   its stores, groups and selection; the feed subscriptions);
  * - `ingest`: `MobxPool.apply` up to the end of its action (tables,
  *   residency, the relation engine's per-row upkeep);
- * - `relationUpkeep`: `PoolRelations.flush`;
+ * - `relationUpkeep`: the relation view's notifications (`PoolRelations.publish`,
+ *   `reset`) and the reader questions' (`ReaderQueries.publish`). POD-5407:
+ *   the relations themselves are kept by the cold index, outside the pool;
  * - `nodeConstruction`: `VisibleCollection.track` (each issue's filing
  *   reaction, built as its row enters the table, not yet run: `apply` is
  *   one action);
@@ -198,10 +200,15 @@ function rowFacts(
 function wrapPhases(census: Census): () => void {
   const restores = [
     phaseMethod(census, MobxPool.prototype, 'apply', 'ingest'),
-    // `flush` is the last call inside `apply`'s action: when it returns the
-    // action's batch ends and its reactions run, so the tail is relabeled
-    // `firstReactiveRun` here (POD-4945: the old hook, `followHeldOut`, is gone).
-    phaseMethod(census, PoolRelations.prototype, 'flush', 'relationUpkeep', () => {
+    // The relation view's notification (`publish` on an update, `reset` on an
+    // attach) is where the engine's `flush` was: what follows it in `apply`
+    // (roster, reader questions) and the reactions its batch end runs are
+    // relabeled `firstReactiveRun`, as before (POD-4945; POD-5407 moved the
+    // relations themselves to the cold index, outside the pool).
+    phaseMethod(census, PoolRelations.prototype, 'publish', 'relationUpkeep', () => {
+      if (census.phase === 'ingest') census.relabel('firstReactiveRun')
+    }),
+    phaseMethod(census, PoolRelations.prototype, 'reset', 'relationUpkeep', () => {
       if (census.phase === 'ingest') census.relabel('firstReactiveRun')
     }),
     phaseMethod(census, VisibleCollection.prototype, 'track', 'nodeConstruction'),

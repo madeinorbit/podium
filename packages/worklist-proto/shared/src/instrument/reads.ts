@@ -563,6 +563,9 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
           return source.snapshot(kind).map(borrowRecord)
         },
         ...(source.issueIdByRef ? { issueIdByRef: source.issueIdByRef.bind(source) } : {}),
+        // POD-5407: the feed's cold index answers declared questions, never
+        // rows; the arm reads every row through `row` below.
+        ...(source.cold ? { cold: source.cold.bind(source) } : {}),
         // A per-row read (a cold row's hydration, POD-4567) is a keyed read of
         // that row, and its value arrives borrowed like any other.
         ...(row === undefined

@@ -23,6 +23,7 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
  * (#4's own corpus target has no spin-off since POD-4635's reshape).
  */
 
+import { knownIds } from '@podium/client-graph/enumerate'
 import { rowViewOf } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { observer } from 'mobx-react-lite'
@@ -431,7 +432,7 @@ const AllKnownSlot = observer(function AllKnownSlot({
 const AllKnownList = observer(function AllKnownList({ pool }: { pool: MobxPool }): ReactElement {
   return (
     <div>
-      {[...pool.tables.issue.keys(), ...(pool.residency?.ids('issue') ?? [])].map((id) => (
+      {knownIds(pool, 'issue').map((id) => (
         <AllKnownSlot key={id} pool={pool} id={id} />
       ))}
     </div>

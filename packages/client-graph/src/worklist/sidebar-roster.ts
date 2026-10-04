@@ -1,12 +1,18 @@
 /** Resident roster candidates, maintained by existing ingest and issue filings.
- * No per-session reaction or full session/issue record is retained here. */
+ * No per-session reaction or full session/issue record is retained here.
+ *
+ * POD-5407: only sessions in memory are filed. A session the rule keeps cold
+ * is cold through its issue (or its own decay, unbound), which the rule calls
+ * cold only once every keep that session could give has passed, so it can
+ * never be a retained seat; one only waiting for the load window is filed
+ * when it arrives. The former cold lane summaries (one per history session,
+ * built at every attach) are gone. */
 import { computed, compareStructural, observable, type IComputedValue, type ObservableSet } from 'mobx'
 import { debugName } from '../debug-name'
 import type { MobxPool } from '../pool'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
-import { issueExcluded } from '../shared/schema'
 import { LOADING } from './rollup'
-import { retains, retentionOf, type HiddenIssue } from './visible'
+import { retains, retentionOf } from './visible'
 import { SortedLanes } from './sorted-lanes'
 import { nextUp } from '../clock'
 
@@ -17,10 +23,6 @@ export interface SidebarOwner {
   readonly finishAt?: number
 }
 interface SeatLocation { readonly owner: string | null; readonly path: string }
-/** A cold row has no resident index entry. This declared two-field summary
- * tells a lane only whether a read needs to inspect the existing relation and
- * request a batch. It never supplies a roster id or payload. */
-interface ColdLaneSummary { readonly path: string; readonly possible: boolean }
 const EMPTY: readonly string[] = Object.freeze([])
 
 export class SidebarRosterIndex {
@@ -28,14 +30,10 @@ export class SidebarRosterIndex {
   private readonly owned = new Map<string, Set<string>>()
   private readonly owners = new Map<string, SidebarOwner>()
   private readonly representedUnowned = new Map<string, number>()
-  private readonly cold = new Map<string, ColdLaneSummary>()
   private readonly dirty = new Set<string>()
   private readonly dirtyOwners = new Set<string>()
   private readonly lanes = observable.map<string, ObservableSet<string>>(undefined, {
     deep: false, name: debugName(() => 'pool.sidebar.rosterCandidates'),
-  })
-  private readonly coldCounts = observable.map<string, number>(undefined, {
-    deep: false, name: debugName(() => 'pool.sidebar.coldRosterSummary'),
   })
   /** Project metadata and roster path lanes contain resident worktrees only. */
   readonly projects = observable.set<string>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.projects') })
@@ -51,20 +49,12 @@ export class SidebarRosterIndex {
   constructor(private readonly pool: MobxPool) { this.now = pool.clock.current }
 
   candidates(path: string): Iterable<string> { return this.lanes.get(path) ?? EMPTY }
-  coldPending(path: string): boolean { return (this.coldCounts.get(path) ?? 0) > 0 }
   keys(): Iterable<string> { return this.paths.keys() }
   band(key: string) {
     let band = this.bands.get(key)
     if (!band) {
       band = computed(() => {
-        const ids = this.paths.lane(key).filter(path => {
-          if (!this.coldPending(path)) return true
-          // A potential cold lane is only a loading summary. Ask the existing
-          // worktree reader to request its batch, then forget that dependency
-          // as soon as the summary resolves to resident candidates or emptiness.
-          const roster = this.pool.model('worktree', path)?.roster
-          return roster !== undefined && (roster.ids.length > 0 || roster.pending > 0)
-        })
+        const ids = [...this.paths.lane(key)]
         const head = ids[0] === undefined ? undefined : this.pool.row('worktree', ids[0])
         const lane = head === LOADING ? undefined : head as SliceWorktree | undefined
         return { ids, label: lane?.repoName ?? key, repoPath: lane?.repoPath ?? key }
@@ -108,7 +98,6 @@ export class SidebarRosterIndex {
       // A clock reset changes every retention window. Ordinary forward ticks
       // touch only due candidates, with no per-seat reactive registration.
       for (const id of this.seats.keys()) this.fileSeat(id)
-      for (const id of this.cold.keys()) this.sync(id)
       return
     }
     while (this.deadlines.length && this.deadlines[0]! <= now) {
@@ -118,7 +107,6 @@ export class SidebarRosterIndex {
       for (const id of ids ?? EMPTY) {
         this.expiries.delete(id)
         if (this.seats.has(id)) this.fileSeat(id)
-        else this.sync(id)
       }
     }
   }
@@ -174,25 +162,8 @@ export class SidebarRosterIndex {
 
   private sync(id: string): void {
     const row = this.pool.row('session', id, 'mark')
-    const path = this.pool.graph.forwardTarget('session', id, 'worktree')
-    if (row === LOADING) {
-      this.removeSeat(id)
-      const summary = this.pool.row('session', id, 'summary')
-      const retention = summary === LOADING ? null : retentionOf(summary as SliceSession | undefined)
-      const owner = retention?.issueId && this.pool.row('issue', retention.issueId, 'mark') === LOADING
-        ? this.pool.row('issue', retention.issueId, 'summary') as HiddenIssue | typeof LOADING | undefined : undefined
-      let deadline = Number.POSITIVE_INFINITY
-      const passed = (at: number) => { deadline = Math.min(deadline, nextUp(at)); return this.pool.clock.current > at }
-      const possible = path !== null && (summary === LOADING || (retention !== null && retention.seat && !retention.shell &&
-        !(retention.issueId && (this.owners.get(retention.issueId)?.represented || this.owners.get(retention.issueId)?.excluded)) &&
-        !(owner && owner !== LOADING && (issueExcluded(owner) || (owner.flatUntil !== undefined && passed(owner.flatUntil)))) &&
-        (owner !== undefined || retains(retention, undefined, undefined, { passed }))))
-      this.setCold(id, path === null ? undefined : { path, possible })
-      this.schedule(id, possible ? deadline : Number.POSITIVE_INFINITY)
-      return
-    }
-    this.setCold(id, undefined)
-    if (row === undefined || path === null) { this.removeSeat(id); return }
+    const path = row === LOADING || row === undefined ? null : this.pool.graph.forwardTarget('session', id, 'worktree')
+    if (row === LOADING || row === undefined || path === null) { this.removeSeat(id); return }
     const session = row as SliceSession
     const owner = session.issueId || null
     const previous = this.seats.get(id)
@@ -256,25 +227,9 @@ export class SidebarRosterIndex {
     this.filePath(previous.path)
   }
 
-  private setCold(id: string, next: ColdLaneSummary | undefined): void {
-    const previous = this.cold.get(id)
-    if (previous?.path === next?.path && previous?.possible === next?.possible) return
-    const add = (path: string, by: number) => {
-      const n = (this.coldCounts.get(path) ?? 0) + by
-      if (n > 0) this.coldCounts.set(path, n)
-      else this.coldCounts.delete(path)
-    }
-    if (previous?.possible) add(previous.path, -1)
-    if (next?.possible) add(next.path, 1)
-    if (next) this.cold.set(id, next)
-    else this.cold.delete(id)
-    if (previous) this.filePath(previous.path)
-    if (next && next.path !== previous?.path) this.filePath(next.path)
-  }
-
   private filePath(path: string): void {
     const group = this.worktrees.get(path)?.group
-    const present = (this.lanes.get(path)?.size ?? 0) > 0 || (this.coldCounts.get(path) ?? 0) > 0
+    const present = (this.lanes.get(path)?.size ?? 0) > 0
     this.paths.file(path, present ? group : undefined, path)
   }
 
@@ -304,8 +259,8 @@ export class SidebarRosterIndex {
 
   clear(): void {
     this.seats.clear(); this.owned.clear(); this.owners.clear()
-    this.representedUnowned.clear(); this.cold.clear()
-    this.dirty.clear(); this.dirtyOwners.clear(); this.lanes.clear(); this.coldCounts.clear()
+    this.representedUnowned.clear()
+    this.dirty.clear(); this.dirtyOwners.clear(); this.lanes.clear()
     this.projects.clear(); this.projectCounts.clear(); this.worktrees.clear(); this.paths.clear(); this.bands.clear()
     this.expiries.clear(); this.due.clear(); this.deadlines.length = 0
   }

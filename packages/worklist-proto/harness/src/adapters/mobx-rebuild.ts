@@ -38,6 +38,7 @@ import {
 import { isLinkSpec, relationRef } from '@podium/client-graph/relations'
 import { relationTargets } from '@podium/client-graph/shared/links'
 import type { Residency } from '@podium/client-graph/residency'
+import type { ColdQueries } from '@podium/client-graph/shared/cold-index'
 import {
   createPlainTables,
   ingestOut,
@@ -314,16 +315,19 @@ export function diffRelations(
 
 /**
  * The pool's residency against the feed's CURRENT rows, as problems (bounded
- * to 12 lines): every row of an entity that can be cold is resident or cold,
- * never both, never neither; a cold row is cold by the rule (over the feed's
- * rows); nothing resident or cold is gone from the feed. A resident row that
- * the rule calls cold is fine: it was looked at (`residency.ts`). The gate's
- * partition check. (POD-4945: the registry's `via` target is product-
- * internal, so the old registered-under check lives here no longer; the
- * dependents behavior it guarded is covered by the residency tests.)
+ * to 12 lines). POD-5407 restates it for a pool that holds no cold registry:
+ * - every feed row of an entity that can be cold is resident XOR cold (known
+ *   to the cold index and not in the tables), never both, never neither;
+ * - a cold row is cold by the rule computed from scratch over the feed;
+ * - the index's verdict equals that rule for EVERY feed row (the census of
+ *   cold-by-rule rows is equal, row for row);
+ * - `ids()` (the cold rows the pool has seen) are cold rows of the feed;
+ * - nothing resident is gone from the feed.
+ * A resident row that the rule calls cold is fine: it was looked at
+ * (`residency.ts`). The gate's partition check.
  */
 export function diffResidency(
-  pool: { readonly tables: PoolTables; readonly residency: Residency | null },
+  pool: { readonly tables: PoolTables; readonly residency: Residency | null; coldIndex(): ColdQueries },
   source: RowSource,
   schema: ModelSchema = SCHEMA,
 ): string[] {
@@ -331,8 +335,17 @@ export function diffResidency(
   return runInAction(() => residencyProblems(pool, source, schema))
 }
 
+function feedRows(source: RowSource, entity: 'issue' | 'session'): Map<string, object> {
+  return new Map(
+    source
+      .snapshot(entity)
+      .filter((record) => record.value !== undefined)
+      .map((record) => [record.id, record.value as object]),
+  )
+}
+
 function residencyProblems(
-  pool: { readonly tables: PoolTables; readonly residency: Residency | null },
+  pool: { readonly tables: PoolTables; readonly residency: Residency | null; coldIndex(): ColdQueries },
   source: RowSource,
   schema: ModelSchema,
 ): string[] {
@@ -342,36 +355,28 @@ function residencyProblems(
   const say = (line: string): void => {
     if (out.length < 12) out.push(line)
   }
-  const feed = new Map<EntityName, Map<string, object>>()
-  for (const entity of ['issue', 'session'] as const) {
-    feed.set(
-      entity,
-      new Map(
-        source
-          .snapshot(entity)
-          .filter((record) => record.value !== undefined)
-          .map((record) => [record.id, record.value as object]),
-      ),
-    )
-  }
   // The rule over the feed at the clock the pool reads it against: every
   // table, since the rule's lane source resolves lanes over the lanes too.
   const known = knownTables(pool, source)
-  const ctx = tableColdContext(schema, (entity) => known[entity], residency.now())
+  const now = residency.now()
+  const ctx = tableColdContext(schema, (entity) => known[entity], now)
+  const index = pool.coldIndex()
   for (const entity of Object.keys(schema) as EntityName[]) {
     if (!residency.capable(entity)) continue
-    const rows = feed.get(entity)
-    if (rows === undefined) {
+    if (entity !== 'issue' && entity !== 'session') {
       say(`${entity}: can be cold, but the feed has no per-row kind for it`)
       continue
     }
+    const rows = feedRows(source, entity)
     for (const [id, row] of rows) {
       const hot = pool.tables[entity].has(id)
       const cold = residency.isCold(entity, id)
+      const rule = coldByRule(schema, entity, row, ctx)
       if (hot && cold) say(`${entity}:${id} is both resident and cold`)
       else if (!hot && !cold) say(`${entity}:${id} is in the feed but neither resident nor cold`)
-      else if (cold && !coldByRule(schema, entity, row, ctx)) {
-        say(`${entity}:${id} is cold but the rule keeps it resident`)
+      else if (cold && !rule) say(`${entity}:${id} is cold but the rule keeps it resident`)
+      if (index.coldByRule(entity, id, now) !== rule) {
+        say(`${entity}:${id}: the index says ${rule ? 'not ' : ''}cold, the rule from scratch says ${rule ? '' : 'not '}cold`)
       }
     }
     for (const id of pool.tables[entity].keys()) {
@@ -379,9 +384,50 @@ function residencyProblems(
     }
     for (const id of residency.ids(entity)) {
       if (!rows.has(id)) say(`${entity}:${id} is cold but gone from the feed`)
+      else if (pool.tables[entity].has(id)) say(`${entity}:${id} is listed cold but resident`)
     }
   }
   return out
+}
+
+/** Every feed row of `entity` the pool does not hold (the cold rows), from the feed. */
+export function coldIds(
+  pool: { readonly tables: PoolTables },
+  source: RowSource,
+  entity: 'issue' | 'session',
+): string[] {
+  return [...feedRows(source, entity).keys()].filter((id) => !pool.tables[entity].has(id))
+}
+
+/**
+ * POD-5407 — the attach's bound, against the rule computed from scratch: a
+ * pool holds no more rows of a cold-capable entity than the feed has rows the
+ * rule does not call cold, plus the rows it was asked for since (none, right
+ * after an attach), and the attach placed no more than that. An attach that
+ * places every row fails it whenever any row is cold.
+ */
+export function attachProblems(
+  pool: { readonly tables: PoolTables; readonly residency: Residency | null },
+  source: RowSource,
+  schema: ModelSchema = SCHEMA,
+): string[] {
+  const residency = pool.residency
+  if (residency === null) return []
+  return runInAction(() => {
+    const known = knownTables(pool, source)
+    const ctx = tableColdContext(schema, (entity) => known[entity], residency.now())
+    const out: string[] = []
+    let allowed = 0
+    let held = 0
+    for (const entity of ['issue', 'session'] as const) {
+      for (const row of feedRows(source, entity).values()) if (!coldByRule(schema, entity, row, ctx)) allowed += 1
+      held += pool.tables[entity].size
+    }
+    if (held > allowed) out.push(`the pool holds ${held} rows, the rule keeps ${allowed} resident`)
+    const placed = residency.attachStats.rowsPlaced
+    if (placed > allowed) out.push(`the attach placed ${placed} rows, the rule keeps ${allowed} resident`)
+    return out
+  })
 }
 
 /**

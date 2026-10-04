@@ -21,7 +21,7 @@
  */
 
 import { dedupeSessions } from '@podium/client-core/engine'
-import { autorun, observable, observe, runInAction, type ObservableMap, type ObservableSet } from 'mobx'
+import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'
@@ -45,6 +45,7 @@ import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { MobxPool } from '@podium/client-graph/pool'
 import { rebuildSnapshot } from '../../../harness/src/adapters/mobx-rebuild'
 import { ancestorPaths } from '@podium/client-graph/relations'
+import type { RelationDelta, RelationQueries } from '@podium/client-graph/shared/relation-index'
 import { rowViewOf } from '@podium/client-graph/models'
 
 installMobxWarnTrap()
@@ -810,51 +811,31 @@ describe('docs/plans/pod-4545-round-three-schema.md §4.5, verbatim', () => {
 
 // ------------------------------------------------------------ the fence
 
-/** Observable storage identities only; never a product-maintained write counter. */
-type ObservedLink = {
-  collection: string
-  forward: ObservableMap<string, string>
-  forwardMany: ObservableMap<string, ReadonlySet<string>> | null
-  buckets: ObservableMap<string, ObservableSet<string>>
-  subsets: { name: string; sets: ObservableMap<string, ObservableSet<string>> }[]
-}
-
-function relationLinks(pool: MobxPool): Map<string, ObservedLink> {
-  return (pool.graph as unknown as { links: Map<string, ObservedLink> }).links
-}
-
-/** Observe actual map/set mutations, including a write followed by its undo.
- * New buckets are populated before their map insertion, so the insertion is
- * itself a write to that slot; subsequent element writes use its set observer. */
+/**
+ * The relation slots one change wrote (POD-5407): every forward slot, bucket
+ * and subset the relation index's delta names, as the pool's view receives
+ * it (`PoolRelations.publish`), which reports exactly those slots' atoms.
+ * Observed from outside the index: never a product write counter.
+ */
 function observedRelationWrites(pool: MobxPool, change: () => void): string[] {
   const writes = new Set<string>()
-  const stops: (() => void)[] = []
-  const buckets = (collection: string, map: ObservedLink['buckets']) => {
-    const watch = (id: string, set: ObservableSet<string>) => {
-      stops.push(observe(set, () => writes.add(`${collection}:${id}`)))
-    }
-    for (const [id, set] of map) watch(id, set)
-    stops.push(observe(map, event => {
-      writes.add(`${collection}:${event.name}`)
-      if (event.type !== 'delete') watch(event.name, event.newValue)
-    }))
+  const graph = pool.graph as unknown as { publish: (delta: RelationDelta) => void }
+  const publish = graph.publish.bind(graph)
+  graph.publish = (delta) => {
+    for (const [key, source] of delta.forwards) writes.add(`${key}→${source}`)
+    for (const [collection, target] of delta.buckets) writes.add(`${collection}:${target}`)
+    for (const [key, target] of delta.subsets) writes.add(`${key}:${target}`)
+    publish(delta)
   }
   try {
-    tracked(() => {
-      for (const [name, link] of relationLinks(pool)) {
-        stops.push(observe(link.forward, event => writes.add(`${name}→${event.name}`)))
-        if (link.forwardMany)
-          stops.push(observe(link.forwardMany, event => writes.add(`${name}→${event.name}`)))
-        buckets(link.collection, link.buckets)
-        for (const subset of link.subsets) buckets(`${link.collection}.${subset.name}`, subset.sets)
-      }
-    })
     change()
     return [...writes].sort()
   } finally {
-    for (const stop of stops) stop()
+    delete (graph as { publish?: unknown }).publish
   }
 }
+
+const NO_DELTA: RelationDelta = { forwards: [], buckets: [], subsets: [], flips: [], orders: [], roots: [] }
 
 function assertRelationWrites(actual: string[], expected: string[]): void {
   expect(actual, 'externally observed relation slots written').toEqual([...expected].sort())
@@ -994,13 +975,10 @@ describe('the reads fence and externally observed relation writes', () => {
     const r = rig(rows)
     try {
       const heartbeat = KINDS.find(kind => kind.name === 'heartbeat')!
-      const forward = relationLinks(r.pool).get('session.issue')!.forward
+      // A needless rewrite: the slot is reported moved though nothing moved.
       const writes = observedRelationWrites(r.pool, () => {
         r.push(...heartbeat.change)
-        runInAction(() => {
-          forward.delete('S2')
-          forward.set('S2', 'I1')
-        })
+        runInAction(() => r.pool.graph.publish({ ...NO_DELTA, forwards: [['session.issue', 'S2']] }))
       })
       r.check()
       expect(writes).toEqual(['session.issue→S2'])
@@ -1259,9 +1237,17 @@ it('keeps existing declarations within the bookkeeping bound and preserves colla
     const count = countedOutside(() => r.push(issue('I2')))
     // 35e707ac7e did 23 writes + 1 delete + 7 iterations (31 total), even
     // without mission declarations. Root caches, empty roster dispatch and
-    // the absent collapse-flip delete now save eight unnecessary operations.
-    expect(outsideTotal(count)).toBe(1)
-    expect(count.plain).toEqual({ written: 18, deleted: 0, iterated: 5, copied: 0 })
+    // the absent collapse-flip delete then saved eight unnecessary operations.
+    // POD-5407: the relation index keeps the buckets (plain), so the pool
+    // writes no observable bucket element. The plain work now includes the
+    // cold index's whole publication for the row (its rule row, its relation
+    // forwards, the netted move and its bucket, the reader questions' facets),
+    // which ran in the pool's standalone reader index or not at all before:
+    // measured 54 writes + 2 deletes + 14 iterations, whatever the corpus.
+    expect({ outside: outsideTotal(count), plain: count.plain }).toEqual({
+      outside: 0,
+      plain: { written: 54, deleted: 2, iterated: 14, copied: 0 },
+    })
     const ref = { kind: 'codex-thread', value: 'compatibility' }
     r.push(session('S1', { issueId: 'I1', status: 'exited', resume: ref }),
       session('S2', { issueId: 'I1', status: 'hibernated', resume: ref }))
@@ -1336,35 +1322,21 @@ it('a real collapse flip restores every filtered relation when a twin loses its 
   } finally { r.dispose() }
 })
 
-type MapLike = { forEach(fn: (value: unknown, key: unknown) => void): void }
-/** Every set the engine holds, by container and key: the object and its size. */
+/** Every bucket set named, by slot: the object the index answers with, and its size. */
 type Held = Map<string, { set: SetLike; size: number }>
 
 /**
- * The sets the relation engine holds (M3 §7 G4, from
- * `harness/review/m3-index-identity.test.ts`): each link's `under`, `buckets`
- * and `coldBuckets`, and each collapse's `groups`, keyed by container and key.
- * Read outside `countedOutside`, so taking it is never counted.
+ * The bucket sets the relation index answers with for the named slots (M3 §7
+ * G4, POD-5407: the index holds the buckets; it answers with the set itself,
+ * so a copy-on-write shows as a new object). Read outside `countedOutside`.
  */
-function held(pool: MobxPool): Held {
+function held(pool: MobxPool, slots: readonly (readonly [EntityName, string, string])[]): Held {
   const out: Held = new Map()
-  const engine = pool.graph as unknown as {
-    links: Map<string, Record<string, unknown>>
-    collapses: Map<string, { groups: MapLike }>
+  const relations = pool.coldIndex().relations
+  for (const [to, id, collection] of slots) {
+    const set = relations.members(to, id, collection)
+    out.set(`${to}.${collection}:${id}`, { set, size: set.size })
   }
-  const take = (label: string, container: unknown): void => {
-    if (container === null || container === undefined) return
-    ;(container as MapLike).forEach((value, key) => {
-      const set = value as SetLike
-      out.set(`${label}:${String(key)}`, { set, size: set.size })
-    })
-  }
-  tracked(() => {
-    for (const [name, link] of engine.links) {
-      for (const field of ['under', 'buckets', 'coldBuckets']) take(`${name}.${field}`, link[field])
-    }
-    for (const [entity, collapse] of engine.collapses) take(`${entity}.groups`, collapse.groups)
-  })
   return out
 }
 
@@ -1390,109 +1362,91 @@ function replaced(before: Held, after: Held): { keys: number; elements: number }
 describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)', () => {
   // The live export's largest buckets: repo.issues 4,574, worktree.sessions
   // 2,263 (docs/decisions/pod-4545-round-three-shape-review.md §2.3). One
-  // bucket per relation kind (belongsTo, prefix) at 4,000 members.
+  // bucket per relation kind (belongsTo, prefix) at 4,000 members, and the
+  // same corpus at a tenth of that.
   const B = 4000
-  /** The bound: one element per edge moved, whatever the bucket's size. */
-  const PER_EDGE = 1
   /**
-   * The plain bound (M3 G3), also whatever the bucket's size: the change's own
-   * bookkeeping, plus the prefix index. The bookkeeping, counted on clean code
-   * at 10-15 per edge: the netted move (`RelationEngine.move`: the pending
-   * map's three levels written, then read once by `flush`), the flipped-issue
-   * check, the dedupe key pair (`new Set([oldKey, newKey])`), the replay
-   * source's row entry and listener copy, the read fence's first sight of a
-   * new row, the model cache's delete of a removed one, the one object's
-   * memo entry when the worklist takes a new issue, and one memo entry per
-   * cached group its first reactive read builds (`cached.ts`: visible,
-   * standing, present, retained; 4, whatever the bucket's size — measured
-   * by POD-4758 on POD-4755's model, 15 written + 1 deleted + 5 iterated
-   * for a new issue at 4,000). With one filing reaction per issue in memory
-   * (POD-4757) a new issue writes its reaction's handle and one entry per
-   * sorted list it enters (`sorted-lanes.ts`): 17 written + 2 deleted + 4
-   * iterated, still whatever the bucket's size. The prefix index
-   * (`place`) adds or deletes one entry per ancestor path of the row's path,
-   * creates or drops at most one set per path, and records the placement once.
-   * The current root insert is 18 writes + 5 iterations = 23. Mission
-   * declarations add nothing without a starter or explicit session edge;
-   * no nesting memo/cycle set, empty roster queue or absent flip is written.
+   * POD-5407: the buckets are the relation index's plain sets (one copy,
+   * outside the pool), so an edge moved is plain work, and the pool writes no
+   * observable bucket element at all. The bound that matters is that the
+   * plain work of a change does not grow with the bucket: the same change at
+   * B and at B/10 costs the same, element for element. `PLAIN_CAP` is a
+   * coarse ceiling on top (a change's own bookkeeping across the index, the
+   * reader questions, the pool and the harness), measured at 2026-10-03.
    */
-  const PLAIN_BOOKKEEPING = 23
-  const plainBound = (path: string | null): number =>
-    PLAIN_BOOKKEEPING + (path === null ? 0 : 2 * [...ancestorPaths(path)].length + 1)
-  const big: RowRecord[] = [lane('/repo')]
-  for (let i = 0; i < B; i += 1) {
-    big.push(issue(`B${i}`), session(`BS${i}`, { cwd: `/repo/x${i}` }))
+  const PLAIN_CAP = 160
+  const corpus = (size: number): RowRecord[] => {
+    const rows: RowRecord[] = [lane('/repo')]
+    for (let i = 0; i < size; i += 1) rows.push(issue(`B${i}`), session(`BS${i}`, { cwd: `/repo/x${i}` }))
+    return rows
   }
+  const SLOTS = [['repo', 'R', 'issues'], ['worktree', '/repo', 'sessions']] as const
 
-  it(`one insert and one delete touch ${PER_EDGE} element each in a bucket of ${B}`, () => {
-    const r = rig(big)
+  /** Each change's counts on a corpus of `size`. */
+  function measure(size: number): Record<string, { outside: number; plain: PlainCount; swapped: { keys: number; elements: number } }> {
+    const r = rig(corpus(size))
+    const out: Record<string, { outside: number; plain: PlainCount; swapped: { keys: number; elements: number } }> = {}
     try {
-      expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(B)
-      expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(B)
-      /** `path`: the row's path in the prefix index, when it has one. */
-      const touched = (label: string, path: string | null, ...change: RowRecord[]): void => {
-        const sets = held(r.pool)
+      expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(size)
+      expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(size)
+      const touched = (label: string, ...change: RowRecord[]): void => {
+        const sets = held(r.pool, SLOTS)
         const outside = countedOutside(() => r.push(...change))
-        const swapped = replaced(sets, held(r.pool))
-        // The evidence: counted outside the pool (M3 re-review G1).
-        expect(outsideTotal(outside), `${label}: ${JSON.stringify(outside)}`).toBe(PER_EDGE)
-        // The published stat agrees with it.
-        // Plain sets and maps, the prefix index among them (M3 re-review G3).
-        expect(
-          plainTotal(outside.plain),
-          `${label}: plain ${JSON.stringify(outside.plain)}`,
-        ).toBeLessThanOrEqual(plainBound(path))
-        // No set the engine held is replaced by a copy, by any idiom (M3 §7 G4).
-        expect(swapped, `${label}: sets replaced by a copy`).toEqual({ keys: 0, elements: 0 })
+        out[label] = { outside: outsideTotal(outside), plain: outside.plain, swapped: replaced(sets, held(r.pool, SLOTS)) }
       }
       // belongsTo (issue.repo → repo.issues)
-      touched('new issue', null, issue('N1'))
-      touched('removed issue', null, gone('issue', 'B7'))
+      touched('new issue', issue('N1'))
+      touched('removed issue', gone('issue', 'B7'))
       // prefix (session.worktree → worktree.sessions)
-      touched('new session', '/repo/y', session('NS1', { cwd: '/repo/y' }))
-      touched('removed session', '/repo/x7', gone('session', 'BS7'))
-      expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(B)
-      expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(B)
+      touched('new session', session('NS1', { cwd: '/repo/y' }))
+      touched('removed session', gone('session', 'BS7'))
+      expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(size)
+      expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(size)
       r.check({ issue: ['B7'], session: ['BS7'] })
     } finally {
       r.dispose()
     }
+    return out
+  }
+
+  it(`one insert and one delete cost the same in a bucket of ${B} as in one of ${B / 10}`, () => {
+    const large = measure(B)
+    const small = measure(B / 10)
+    for (const [label, cell] of Object.entries(large)) {
+      // No observable bucket element is written: the pool holds no buckets.
+      expect(cell.outside, `${label}: observable work`).toBe(0)
+      // The same plain work whatever the bucket's size (M3 re-review G3).
+      expect(cell.plain, `${label}: plain work at ${B} vs ${B / 10}`).toEqual(small[label]!.plain)
+      expect(plainTotal(cell.plain), `${label}: plain ${JSON.stringify(cell.plain)}`).toBeLessThanOrEqual(PLAIN_CAP)
+      // No bucket the index held is replaced by a copy, by any idiom (M3 §7 G4).
+      expect(cell.swapped, `${label}: sets replaced by a copy`).toEqual({ keys: 0, elements: 0 })
+    }
   }, 120_000)
 
-  it('extra-root dispatch skipped on title-only writes; forced dispatch runs it (POD-4671 behavioral plant)', () => {
-    // POD-4671 behavioral plant: the extra-root dispatch must run only when a
-    // root-bearing field moves (relations.ts `extraMoved`). F1 cannot fail
-    // here — the ungated early-return path performs no plain-structure write
-    // (Map gets only), so a count-plant stays under 16 either way — and the
-    // direct call count on `extraChanged` for a title-only write (0 gated,
-    // >= 1 forced) is the right guard. Proven red by forcing the dispatch:
-    // under force the gated 0-calls expectation is violated (calls >= 1);
-    // restored with delete (the prototype method shows through again). Never
-    // weaken this: gate the dispatch instead. Bound stays 16 (F1 `it` above).
-    const r = rig(big)
-    try {
-      const graph = r.pool.graph as unknown as Record<string, (...args: never[]) => unknown>
-      const proto = Object.getPrototypeOf(graph) as Record<string, (...args: never[]) => unknown>
-      const origChangedExtra = proto['extraChanged'] as (...args: never[]) => unknown
-      let changedCalls = 0
-      graph['extraChanged'] = (...args: never[]) => {
-        changedCalls += 1
-        return (origChangedExtra as (...a: never[]) => unknown).apply(graph, args)
-      }
+  it('a title-only write moves no root and costs the same at any corpus size (POD-4671)', () => {
+    // POD-4671: the extra roots (issue worktreePaths) move only when a
+    // root-bearing field moves. The index re-reads the root of every issue
+    // write and returns at once when it did not move: nothing is dispatched.
+    const cost = (size: number): PlainCount => {
+      const r = rig(corpus(size))
       try {
-        r.push(issue('B0', { title: 'Renamed B0' }))
-        expect(changedCalls, 'gated: no extraChanged on a title-only write').toBe(0)
-        graph['extraMoved'] = () => true
-        r.push(issue('B1', { title: 'Renamed B1' }))
-        expect(changedCalls, 'forced: unconditional dispatch runs extraChanged').toBeGreaterThan(0)
+        let roots = -1
+        const graph = r.pool.graph as unknown as { publish: (delta: RelationDelta) => void }
+        const publish = graph.publish.bind(graph)
+        graph.publish = (delta) => {
+          roots = delta.roots.length
+          publish(delta)
+        }
+        const counted = countedOutside(() => r.push(issue('B0', { title: 'Renamed B0' })))
+        delete (graph as { publish?: unknown }).publish
+        expect(roots, 'no root moved').toBe(0)
+        r.check()
+        return counted.plain
       } finally {
-        delete graph['extraChanged']
-        delete graph['extraMoved']
+        r.dispose()
       }
-      r.check()
-    } finally {
-      r.dispose()
     }
+    expect(cost(B)).toEqual(cost(B / 10))
   }, 120_000)
 })
 
@@ -1512,22 +1466,23 @@ describe('an issue gaining or losing a worktreePath re-files only its path (POD-
     const r = bigRig()
     try {
       expect(r.one('session', 'S1', 'worktree')).toBeNull()
-      const gainSets = held(r.pool)
+      const slots = [['worktree', '/repo', 'sessions']] as const
+      const gainSets = held(r.pool, slots)
       const gainOutside = countedOutside(() => r.push(issue('I1', { worktreePath: '/w/unscanned' })))
       // The narrow root, spelled as the issue names it.
       expect(r.one('session', 'S1', 'worktree')).toBe('/w/unscanned')
       expect(r.many('worktree', '/w/unscanned', 'sessions')).toEqual(['S1'])
       expect(outsideTotal(gainOutside), `gain: ${JSON.stringify(gainOutside)}`).toBeLessThan(100)
       expect(plainTotal(gainOutside.plain), `gain plain ${JSON.stringify(gainOutside.plain)}`).toBeLessThan(100)
-      expect(replaced(gainSets, held(r.pool)), 'gain: no set replaced').toEqual({
+      expect(replaced(gainSets, held(r.pool, slots)), 'gain: no set replaced').toEqual({
         keys: 0,
         elements: 0,
       })
-      const loseSets = held(r.pool)
+      const loseSets = held(r.pool, slots)
       const loseOutside = countedOutside(() => r.push(issue('I1', { worktreePath: null })))
       expect(r.one('session', 'S1', 'worktree')).toBeNull()
       expect(outsideTotal(loseOutside), `lose: ${JSON.stringify(loseOutside)}`).toBeLessThan(100)
-      expect(replaced(loseSets, held(r.pool)), 'lose: no set replaced').toEqual({
+      expect(replaced(loseSets, held(r.pool, slots)), 'lose: no set replaced').toEqual({
         keys: 0,
         elements: 0,
       })
@@ -1571,16 +1526,25 @@ describe('the row views resolve relations through the engine (M3 F2)', () => {
     issue('I3', { deps: [{ id: 'I2', type: 'discovered-from' }] }),
   ]
 
-  /** Plant a wrong target into the engine's forward slot of `from.relation` for `id`. */
+  /**
+   * Plant a wrong target into the forward slot of `issue.relation` for `id`
+   * as the pool's view reads it (POD-5407: the view answers from the relation
+   * index), and report the slot moved.
+   */
   function plant(r: Rig, relation: string, id: string, target: string): void {
-    const links = (
-      r.pool.graph as unknown as {
-        links: Map<string, { forward: { set(id: string, target: string): void } }>
-      }
-    ).links
-    const link = links.get(`issue.${relation}`)
-    if (link === undefined) throw new Error(`no link issue.${relation}`)
-    runInAction(() => link.forward.set(id, target))
+    const graph = r.pool.graph as unknown as { index: () => RelationQueries }
+    const index = graph.index
+    graph.index = () => {
+      const relations = index()
+      return new Proxy(relations, {
+        get: (object, key) =>
+          key === 'forward'
+            ? (from: EntityName, source: string, name: string) =>
+                from === 'issue' && source === id && name === relation ? target : object.forward(from, source, name)
+            : Reflect.get(object, key),
+      })
+    }
+    runInAction(() => r.pool.graph.publish({ ...NO_DELTA, forwards: [[`issue.${relation}`, id]] }))
   }
 
   const view = (r: Rig, id: string) => tracked(() => rowViewOf(r.pool.issue(id)))

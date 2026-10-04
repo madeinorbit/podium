@@ -193,7 +193,9 @@ describe('ingest', () => {
       const sizes = tracked(() => ENTITIES.map((entity) => pool.tables[entity].size))
       const repos = new Set(corpus.sliceWorktrees.map((lane) => lane.repoId).filter(Boolean))
       // Hot plus cold is every row; the split itself is residency.test.ts's.
-      const cold = ENTITIES.map((entity) => pool.residency?.ids(entity).length ?? 0)
+      // POD-5407: the cold rows are the ones the index knows and the pool does not hold.
+      const cold = tracked(() => ENTITIES.map((entity) =>
+        pool.residency?.capable(entity) === true ? pool.coldIndex().count(entity) - pool.tables[entity].size : 0))
       expect(sizes.map((size, i) => size + cold[i]!)).toEqual([
         corpus.sliceIssues.length,
         corpus.sliceSessions.length,
@@ -209,7 +211,7 @@ describe('ingest', () => {
       for (const id of tracked(() => [...pool.tables.issue.keys()])) {
         expect(pool.worklist.tracks(id), `hot ${id} is tracked`).toBe(true)
       }
-      for (const id of (pool.residency?.ids('issue') ?? [])) {
+      for (const id of corpus.sliceIssues.map((issue) => issue.id).filter((id) => pool.residency?.isCold('issue', id))) {
         expect(pool.worklist.tracks(id), `cold ${id} is tracked`).toBe(false)
       }
     } finally {
