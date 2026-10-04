@@ -64,8 +64,12 @@ for checkout_arm, checkout in checkouts.items():
             heaps[(*key, run['arm'])] += 1
             continue
         arm_actions = web if run['surface'] == 'web' else phone
-        if run['arm'] == 'new-current' and run['surface'] == 'web':
-            arm_actions = arm_actions | {'session-composer-typing'}
+        if run['surface'] == 'web' and not run.get('backgroundOnly'):
+            if any(row['action']=='session-composer-typing' for row in run['actions']):
+                arm_actions = arm_actions | {'session-composer-typing'}
+            else:
+                require(any(gap['action']=='session-composer-typing' and 'mode-chat' in gap['reason']
+                    and '10000ms' in gap['reason'] for gap in run['unavailable']), 'session composer fixture gap not documented')
         expected_actions = arm_actions | {'app-cold-start', 'app-warm-start'}
         # This attempt used a collector witness that incorrectly expected the
         # mission root among child rows. Its other observations remain valid;
@@ -123,7 +127,7 @@ for pair in ['new', 'new-deleted', 'new-current']:
                         errors.append(f'{key}: OLD boot failure evidence incomplete')
                     continue
                 arm_actions = web if surface == 'web' else phone
-                if arm == 'new-current' and surface == 'web':
+                if surface == 'web' and counts[(*key, arm, 'session-composer-typing')]:
                     arm_actions = arm_actions | {'session-composer-typing'}
                 for action in arm_actions | {'app-cold-start', 'app-warm-start'}:
                     expected_n = 8 if action in ['app-cold-start', 'app-warm-start'] else 16
