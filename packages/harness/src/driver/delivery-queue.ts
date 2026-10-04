@@ -33,6 +33,23 @@ const EXACT_HISTORY_IDS: ReadonlySet<string> = new Set([
   'claude-uuid', 'codex-client-message', 'grok-prompt', 'opencode-message', 'opencode-part',
 ])
 
+export type DeliveryOutcome = Extract<RuntimeEventBody, { t: 'delivery' }>
+
+/** The daemon's existing runtime-event journal, scoped to this session. Only
+ * a retained stored record proves coverage of a row's first admission; a missing
+ * record may predate this journal or mean it was lost. Outcomes are recorded
+ * before the event sink and pruned by the ordinary server acknowledgement. */
+export interface DeliveryJournal {
+  read(rowId: string): { typingStarted: boolean; outcome?: DeliveryOutcome } | undefined
+  /** Record a fresh (never reserved before) row before admitting it to the queue. */
+  store(rowId: string): void
+  /** Must be durable before returning, before the driver's first byte. */
+  start(rowId: string): void
+  /** A driver refusal proved that this attempt wrote nothing. */
+  clear(rowId: string): void
+  record(outcome: DeliveryOutcome): void
+}
+
 /** Disposable daemon delivery state. Admission belongs to the server; when to
  *  type, and in which order, belongs here [POD-4661].
  *
@@ -49,6 +66,7 @@ export function withDeliveryQueue(
   emit: (event: RuntimeEventBody) => void,
   ready: () => boolean = () => true,
   alive: () => boolean = () => true,
+  journal?: DeliveryJournal,
 ): AgentSessionHandle {
   type Row = {
     input: TurnInput
@@ -120,13 +138,15 @@ export function withDeliveryQueue(
   function hold(id: string, kind: 'memory' | 'durable'): void {
     held.set(id, { kind })
     const ids = idsOf.get(id)
-    emit({
+    const event: Outcome = {
       t: 'delivery',
       rowId: id,
       outcome: 'accepted',
       held: kind,
       ...(ids ? { harnessRef: ids } : {}),
-    })
+    }
+    journal?.record(event)
+    emit(event)
   }
   /** Rows the driver said it will not record before their receipt came back,
    *  and the program's proof of it when it had one (POD-4887). */
@@ -162,6 +182,7 @@ export function withDeliveryQueue(
       ...(named ? { transcriptItem: named } : {}),
       ...(ids ? { harnessRef: ids } : {}),
     }
+    journal?.record(event)
     finished.set(id, event)
     rows.delete(id)
     emit(event)
@@ -190,6 +211,7 @@ export function withDeliveryQueue(
     if (prior.outcome !== 'delivered' || prior.transcriptItem) return
     const ids = mergeHarnessRefs(prior.harnessRef, harnessRef)
     const event: Outcome = { ...prior, transcriptItem, ...(ids ? { harnessRef: ids } : {}) }
+    journal?.record(event)
     finished.set(id, event)
     emit(event)
   }
@@ -218,6 +240,7 @@ export function withDeliveryQueue(
     if (prior) {
       if (proof && prior.outcome === 'failed' && prior.cause === 'unconfirmed') {
         const event: Outcome = { ...prior, reason, cause: proof }
+        journal?.record(event)
         finished.set(id, event)
         emit(event)
       }
@@ -251,6 +274,7 @@ export function withDeliveryQueue(
       ...(transcriptItem ? { transcriptItem } : {}),
       ...(ids ? { harnessRef: ids } : {}),
     }
+    journal?.record(event)
     finished.set(id, event)
     emit(event)
   }
@@ -304,9 +328,8 @@ export function withDeliveryQueue(
           )
           continue
         }
-        // A durable reservation from a previous owner is evidence of a
-        // possible write, not permission to retry. Same-owner repeats never
-        // reach here: rows/finished replay custody or its proven outcome.
+        // A stored, never-typed journal record proves a covered first admission.
+        // Missing evidence, including an old or reset journal, remains ambiguous.
         if (row.input.deliveryRecovery) {
           settle(
             id,
@@ -361,6 +384,7 @@ export function withDeliveryQueue(
               delivery: 'when-ready',
               deliveryAttempt: true,
               signal: row.abort.signal,
+              onTypingStarted: () => journal?.start(id),
               onTranscriptItem: (item, harnessRef) => name(id, item, harnessRef),
               onUnrecorded: (reason, proof) => unrecorded(id, reason, proof),
               onLateProof: ({ transcriptItem, harnessRef }) =>
@@ -376,7 +400,21 @@ export function withDeliveryQueue(
             at: new Date().toISOString(),
           }
         }
-        if (row.abort.signal.aborted) continue
+        if (receipt.outcome === 'refused') journal?.clear(id)
+        if (row.abort.signal.aborted) {
+          // Teardown can win the wait after the driver already learned an
+          // outcome. Keep that knowledge even when its live emitter is gone.
+          if (receipt.outcome === 'accepted') {
+            const transcriptItem = receipt.transcriptItem ?? namedEarly.get(id)
+            const harnessRef = mergeHarnessRefs(idsOf.get(id), receipt.harnessRef)
+            journal?.record({ t: 'delivery', rowId: id,
+              outcome: receipt.held && !transcriptItem ? 'accepted' : 'delivered',
+              ...(receipt.held && !transcriptItem ? { held: receipt.held } : {}),
+              ...(transcriptItem ? { transcriptItem } : {}), ...(harnessRef ? { harnessRef } : {}),
+            })
+          }
+          continue
+        }
         if (receipt.outcome !== 'refused' || receipt.refusal.reason !== 'not_running') {
           delete row.notRunningSince
         }
@@ -535,13 +573,24 @@ export function withDeliveryQueue(
     if (options.delivery === 'at-boundary') {
       return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
     }
-    const prior = finished.get(input.rowId)
+    if (input.deliveryRecovery === false && !finished.has(input.rowId) && !rows.has(input.rowId) && !held.has(input.rowId) &&
+        !journal?.read(input.rowId)) journal?.store(input.rowId)
+    const recovered = journal?.read(input.rowId)
+    const recorded = recovered?.outcome
+    const prior = finished.get(input.rowId) ?? (recorded?.outcome !== 'accepted' ? recorded : undefined)
+    if (prior) finished.set(input.rowId, prior)
     if (prior) emit(prior)
     if (!prior && !rows.has(input.rowId) && !held.has(input.rowId)) {
       // Answered `queued` AT ONCE: the reply must land inside the server's
       // RPC window, never after the turn the row waits on.
       admit(input.rowId, {
-        input,
+        input: journal
+          ? { ...input,
+              deliveryRecovery: recovered?.typingStarted === true || recorded?.outcome === 'accepted' ||
+                (input.deliveryRecovery !== false && (!recovered || input.held === 'durable')),
+              ...(recorded?.outcome === 'accepted' && recorded.held === 'durable' ? { held: 'durable' } : {}),
+            }
+          : input,
         options,
         abort: new AbortController(),
         interrupt: options.delivery === 'interrupt',
@@ -576,7 +625,10 @@ export function withDeliveryQueue(
       settle(id, 'dropped')
       return { ok: true }
     }
-    const prior = finished.get(id)
+    const recovered = journal?.read(id)
+    const recorded = recovered?.outcome
+    const prior = finished.get(id) ?? (recorded?.outcome !== 'accepted' ? recorded : undefined)
+    if (!prior && recovered && (recovered.typingStarted || recorded)) return { reason: 'busy', detail: 'typing already started', tooLate: 'typing' }
     if (!prior) {
       settle(id, 'dropped')
       return { ok: true }

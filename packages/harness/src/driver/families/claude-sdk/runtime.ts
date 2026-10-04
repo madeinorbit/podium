@@ -174,6 +174,7 @@ export interface ClaudeSdkRuntimeHost {
     /** The uuid the CLI records this user turn under, and so the id of its
      *  history entry (POD-4774): derived from the message id (POD-4836). */
     userMessageUuid: string
+    onTypingStarted?: SendOptions['onTypingStarted']
     onPartialText(text: string, itemHint?: string): void
     onPermission(request: ClaudeSdkPermissionRequest): void
     /** One tool call, as the provider issued it. Always delivered before the
@@ -870,6 +871,7 @@ export function createClaudeSdkRuntime(
         resumeValue: core.binding.resume?.value ?? host.mintResumeValue(),
         newConversation: !core.conversationStarted,
         userMessageUuid: userItemId,
+        onTypingStarted: options.onTypingStarted,
         onPartialText(text, itemHint) {
           if (!core.turnOpen || core.turnEpoch !== epoch) return
           const delta = text.startsWith(core.partialText)
@@ -1394,6 +1396,7 @@ export function createClaudeSdkRuntime(
       (event) => push(core, event),
       undefined,
       () => core.alive,
+      slots.deliveryJournal?.(core.sessionId),
     )
     const send = queued.send.bind(queued)
     queued.send = (input, options) =>

@@ -1049,6 +1049,35 @@ describe('send receipts', () => {
     world = makeWorld()
   })
 
+  it.each([true, false])('wires fresh input and writer ownership into retained-paste recovery (lease: %s)', async (writerLease) => {
+    const world = makeWorld({ macrotaskTimers: true, writerLease })
+    let draft = ''
+    world.host.readInput = async () => draft
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    world.ready(sessionId)
+    world.setPhase(sessionId, 'working')
+    const writes: string[] = []
+    world.setTerminal(sessionId, fakeTransport((data) => {
+      const bytes = Buffer.from(data, 'base64').toString('utf8')
+      writes.push(bytes)
+      const pasted = pastedText(bytes)
+      if (pasted !== undefined) draft = pasted
+      else if (writes.filter((write) => write === '\r').length === 1) {
+        draft += '\n'
+        if (!writerLease) world.host.setTimer(() => controller.abort(), 3_000)
+      }
+      else { draft = ''; world.echo(sessionId, 'retained while busy') }
+    }))
+    const controller = new AbortController()
+    const receipt = await handle.send({ text: 'retained while busy' },
+      { origin: 'human', delivery: 'when-ready', signal: controller.signal })
+    expect(writes.filter((write) => pastedText(write) !== undefined)).toHaveLength(1)
+    expect(writes.filter((write) => write === '\r')).toHaveLength(writerLease ? 2 : 1)
+    expect(receipt.outcome).toBe(writerLease ? 'accepted' : 'unverified')
+    world.runtime.dispose()
+  })
+
   it.each([
     'claude-code',
     'codex',

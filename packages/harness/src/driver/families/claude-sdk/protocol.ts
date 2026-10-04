@@ -372,7 +372,7 @@ export interface ClaudeStreamClient {
   turn(
     prompt: string,
     callbacks: ClaudeStreamTurnCallbacks,
-    options?: { userMessageUuid?: string },
+    options?: { userMessageUuid?: string; onTypingStarted?: () => void },
   ): ClaudeStreamTurn
   answerPermission(
     interactionId: string,
@@ -994,6 +994,7 @@ export function createClaudeStreamClient(
       void handshake
         .then(() => {
           if (turn.settled || closed) return
+          options?.onTypingStarted?.()
           turn.lineWritten = true
           writeLine(userMessageLine(prompt, turn.uuid))
         })

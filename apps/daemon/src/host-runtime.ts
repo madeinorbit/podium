@@ -21,6 +21,7 @@ import {
   createClaudeSdkSessionRuntime,
   claudeSdkHarnessKind,
   type ServerSessionFramePorts,
+  type SessionDriverSlots,
   type GrokAcpJournalEntry,
   grokEngineFacts,
   grokHarnessKind,
@@ -306,6 +307,7 @@ export async function createDaemonHostRuntime(args: {
   sendOutput: (batch: DaemonPtyOutputBatch) => void
   acknowledgeQueueDrainReport: (reportId: string) => void
   acknowledgeRuntimeEvent: (deliveryId: string) => void
+  deliveryJournal?: SessionDriverSlots['deliveryJournal']
   /** Test-only runtime seam for exercising the returned host close contract.
    *  The factory form is handed the daemon's session registry, so a test can
    *  keep its handles where production does: on the session entries. */
@@ -1162,7 +1164,7 @@ export async function createDaemonHostRuntime(args: {
     boundaryContext: mailContext.pendingContext,
     onInterruptRequested: (sessionId: SessionId) => observers.onInterruptRequested(sessionId),
   }
-  terminalRuntime = createTerminalRuntime(contractHost, primeSource, driverSlotsOver(ctx.sessions))
+  terminalRuntime = createTerminalRuntime(contractHost, primeSource, driverSlotsOver(ctx.sessions, args.deliveryJournal))
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
   // Engine-family facts (POD-4494, spec §4.1/§5): this composition root reads
   // the registry ONCE per harness and hands each family exactly the sections
@@ -1252,7 +1254,7 @@ export async function createDaemonHostRuntime(args: {
   })
   claudeRuntime = createClaudeSdkSessionRuntime({
     send,
-    driverSlots: driverSlotsOver(ctx.sessions),
+    driverSlots: driverSlotsOver(ctx.sessions, args.deliveryJournal),
     ...sessionFrames,
     facts: claudeFacts,
     engine: claudeEngine,
@@ -1305,7 +1307,7 @@ export async function createDaemonHostRuntime(args: {
   opencodeRuntime = createOpencodeSessionRuntime({
     flavor: ocFacts,
     engine: opencodeEngine,
-    driverSlots: driverSlotsOver(ctx.sessions),
+    driverSlots: driverSlotsOver(ctx.sessions, args.deliveryJournal),
     send,
     ...sessionFrames,
   })
@@ -1336,7 +1338,7 @@ export async function createDaemonHostRuntime(args: {
   opencode2Runtime = createOpencodeSessionRuntime({
     flavor: oc2Facts,
     engine: opencodeEngine2,
-    driverSlots: driverSlotsOver(ctx.sessions),
+    driverSlots: driverSlotsOver(ctx.sessions, args.deliveryJournal),
     send,
     ...sessionFrames,
   })
@@ -1391,7 +1393,7 @@ export async function createDaemonHostRuntime(args: {
   codexRuntime = createCodexSessionRuntime({
     facts: codexFacts,
     engine: codexEngine,
-    driverSlots: driverSlotsOver(ctx.sessions),
+    driverSlots: driverSlotsOver(ctx.sessions, args.deliveryJournal),
     send,
     ...sessionFrames,
   })
@@ -1435,7 +1437,7 @@ export async function createDaemonHostRuntime(args: {
   grokRuntime = createGrokSessionRuntime({
     facts: grokFacts,
     engine: grokEngine,
-    driverSlots: driverSlotsOver(ctx.sessions),
+    driverSlots: driverSlotsOver(ctx.sessions, args.deliveryJournal),
     send,
     ...sessionFrames,
   })
@@ -1525,7 +1527,7 @@ export async function createDaemonHostRuntime(args: {
       }),
     readFileBytes: async (path) => new Uint8Array(await readFile(path)),
     now: () => Date.now(),
-  }, driverSlotsOver(ctx.sessions))
+  }, driverSlotsOver(ctx.sessions, args.deliveryJournal))
   agentRuntime = createDaemonMachineRuntime({
     terminal: terminalRuntime,
     // One uniform shape per server family (1.5): the machine runtime never

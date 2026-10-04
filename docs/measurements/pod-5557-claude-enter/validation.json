@@ -1,0 +1,56 @@
+{
+  "host": "flatblock",
+  "checkout": "/home/mgw/podium-test-5557",
+  "bun": "1.4.2",
+  "sourceBase": "04b2ff3f629832320c55ae2b0c6483174990385d",
+  "testedProductionCommit": "963e0f2c0a",
+  "initialRed": {
+    "tests": 6,
+    "failed": 3,
+    "passed": 3,
+    "exitCode": 1,
+    "reportPathPrintedByRunner": "/tmp/podium-focused-tests-0UVJ6e/results.json"
+  },
+  "mutant": {
+    "change": "Force the retained-input guard to reject every candidate",
+    "tests": 14,
+    "failed": 5,
+    "passed": 9,
+    "testExitCode": 1,
+    "restoredWith": "cp /tmp/pod5557-injection-good.ts packages/harness/src/driver/families/terminal/injection.ts",
+    "backupSHA256": "21d6e9da70fff80d4cb13e2fcddc26b3736baff4bdf7be2baa6eb2bb36094992",
+    "restoredSHA256": "21d6e9da70fff80d4cb13e2fcddc26b3736baff4bdf7be2baa6eb2bb36094992",
+    "reportPathPrintedByRunner": "/tmp/podium-focused-tests-Dx9R2L/results.json"
+  },
+  "finalGreen": {
+    "tests": 322,
+    "failed": 0,
+    "files": {
+      "packages/harness/src/driver/families/terminal/runtime.test.ts": 253,
+      "packages/harness/src/driver/families/terminal/terminal.test.ts": 39,
+      "packages/harness/src/adapters/claude-code/state.test.ts": 14,
+      "packages/harness/src/driver/families/terminal/submit-recovery.test.ts": 15,
+      "apps/daemon/src/runtime/submit-input.test.ts": 1
+    },
+    "exitCode": 0,
+    "durationSeconds": 17.87,
+    "reportPathPrintedByRunner": "/tmp/podium-focused-tests-Zbb0Nq/results.json",
+    "footer": "test:file: 1 group, 0 failed \u2014 5 files named; this is not a suite result."
+  },
+  "note": "Transcribed from foreground runner output. The wrapper removed its temporary reports after each run; these paths are provenance, not retained artifacts.",
+  "previousGreen": {
+    "tests": 321,
+    "failed": 0,
+    "files": {
+      "packages/harness/src/driver/families/terminal/runtime.test.ts": 253,
+      "packages/harness/src/driver/families/terminal/terminal.test.ts": 39,
+      "packages/harness/src/adapters/claude-code/state.test.ts": 14,
+      "packages/harness/src/driver/families/terminal/submit-recovery.test.ts": 14,
+      "apps/daemon/src/runtime/submit-input.test.ts": 1
+    },
+    "exitCode": 0,
+    "durationSeconds": 19.57,
+    "reportPathPrintedByRunner": "/tmp/podium-focused-tests-MMsFaY/results.json",
+    "footer": "test:file: 1 group, 0 failed \u2014 5 files named; this is not a suite result."
+  }
+}

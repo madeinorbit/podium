@@ -34,7 +34,7 @@ export type InputOrigin = ObservationInputOrigin
 export interface TurnInput {
   /** Durable inbox row; asks the owning daemon to deliver asynchronously. */
   rowId?: string
-  /** An earlier owner may already have written this row; never write it again. */
+  /** An earlier owner reserved this row; consult the daemon typing journal. */
   deliveryRecovery?: boolean
   /**
    * THE PROGRAM HOLDS THIS ROW DURABLY (POD-4886; POD-4819 §9): the server's
@@ -211,6 +211,9 @@ export interface ActingPrincipal {
 }
 
 export interface SendOptions {
+  /** Daemon-local journal fence. Call synchronously immediately before the
+   * first message byte/request; a failure must prevent the write. */
+  onTypingStarted?: () => void
   /** Driver-local attempt: refuse busy/lease races instead of nesting queues. */
   deliveryAttempt?: boolean
   signal?: AbortSignal

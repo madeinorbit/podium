@@ -64,6 +64,7 @@ export function daemonRuntimeHost(
     send,
     stageAttachment,
     trackedState: (sessionId) => ctx.observers.trackedState(sessionId),
+    readInput: (sessionId) => ctx.observers.readInput(sessionId),
     foreignWrites: {
       count: (sessionId) => ctx.sessions.foreignWrites(sessionId),
       orderTrustworthy: (sessionId) => ctx.sessions.orderTrustworthy(sessionId),

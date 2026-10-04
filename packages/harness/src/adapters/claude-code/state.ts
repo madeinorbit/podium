@@ -175,7 +175,8 @@ function inputDraftVisible(visibleLines: readonly string[]): string | undefined 
   const [promptRow = '', ...wrapped] = visibleLines.slice(top + 1, bottom)
   if (!INPUT_PROMPT_ROW.test(promptRow)) return undefined
   const draft = [promptRow.replace(INPUT_PROMPT_ROW, ''), ...wrapped].join('\n').trim()
-  return INPUT_PLACEHOLDER_PREFIXES.some((prefix) => draft.startsWith(prefix)) ? '' : draft
+  return draft === 'Press up to edit queued messages' ||
+    INPUT_PLACEHOLDER_PREFIXES.some((prefix) => draft.startsWith(prefix)) ? '' : draft
 }
 
 /**

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   appendFileSync,
   closeSync,
@@ -9,14 +9,18 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  truncateSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
 import {
   RuntimeEventMessage,
+  RuntimeEventBody as RuntimeEventBodySchema,
   isDurableRuntimeEvent,
   type RuntimeEventMessage as RuntimeEventFrame,
 } from '@podium/protocol/daemon'
+import { mergeHarnessRefs, type SessionId } from '@podium/model'
+import type { DeliveryJournal, DeliveryOutcome } from '@podium/harness/driver/host'
 
 const FILE_NAME = 'runtime-event-outbox.json'
 const JOURNAL_NAME = 'runtime-event-outbox.log'
@@ -35,6 +39,7 @@ const COMPACT_AFTER_RECORDS = 512
 export type DurableRuntimeEvent = RuntimeEventFrame & { deliveryId: string }
 
 export interface RuntimeEventOutbox {
+  deliveryJournal(sessionId: SessionId): DeliveryJournal
   enqueue(event: DurableRuntimeEvent): void
   acknowledge(deliveryId: string): boolean
   pending(): readonly DurableRuntimeEvent[]
@@ -67,16 +72,49 @@ function fsyncDirectory(dir: string): void {
   }
 }
 
-function parseEvents(raw: string, path: string): DurableRuntimeEvent[] {
-  const parsed = JSON.parse(raw) as { version?: unknown; events?: unknown }
+interface TypingRecord { sessionId: SessionId; rowId: string; storedAt?: string; startedAt?: string; outcome?: DeliveryOutcome }
+const rowKey = (sessionId: SessionId, rowId: string): string => JSON.stringify([sessionId, rowId])
+const snapshotHash = (body: string): string => createHash('sha256').update(body).digest('hex')
+
+function deliveryBody(value: unknown): DeliveryOutcome {
+  const parsed = RuntimeEventBodySchema.parse(value)
+  if (parsed.t !== 'delivery') throw new Error('invalid runtime delivery outcome')
+  return parsed as DeliveryOutcome
+}
+
+function parseTyping(value: unknown): TypingRecord {
+  const entry = value as Partial<TypingRecord> | null
+  if (!entry || typeof entry.sessionId !== 'string' || typeof entry.rowId !== 'string' ||
+      (entry.storedAt !== undefined && (typeof entry.storedAt !== 'string' || !Number.isFinite(Date.parse(entry.storedAt)))) ||
+      (entry.startedAt !== undefined && (typeof entry.startedAt !== 'string' || !Number.isFinite(Date.parse(entry.startedAt)))) ||
+      (entry.storedAt === undefined && entry.startedAt === undefined && entry.outcome === undefined)) {
+    throw new Error('invalid runtime delivery typing record')
+  }
+  const outcome = entry.outcome === undefined ? undefined : deliveryBody(entry.outcome)
+  if (outcome && outcome.rowId !== entry.rowId) throw new Error('runtime delivery outcome row mismatch')
+  return { sessionId: entry.sessionId, rowId: entry.rowId,
+    ...(entry.storedAt ? { storedAt: entry.storedAt } : {}),
+    ...(entry.startedAt ? { startedAt: entry.startedAt } : {}), ...(outcome ? { outcome } : {}),
+  }
+}
+
+function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent[]; typing: TypingRecord[]; typingEpoch?: string } {
+  const parsed = JSON.parse(raw) as { version?: unknown; events?: unknown; typing?: unknown; typingEpoch?: unknown }
   if (parsed.version !== FILE_VERSION || !Array.isArray(parsed.events)) {
     throw new Error(`invalid runtime event outbox: ${path}`)
   }
-  return parsed.events.map((value) => {
+  const events = parsed.events.map((value) => {
     const event = RuntimeEventMessage.parse(value)
     if (!event.deliveryId) throw new Error(`runtime event has no delivery id: ${path}`)
     return { ...event, deliveryId: event.deliveryId }
   })
+  if (parsed.typing !== undefined && !Array.isArray(parsed.typing)) {
+    throw new Error(`invalid runtime delivery journal: ${path}`)
+  }
+  return { events, typing: ((parsed.typing as unknown[] | undefined) ?? []).map(parseTyping),
+    ...(Array.isArray(parsed.typing) && typeof parsed.typingEpoch === 'string' && parsed.typingEpoch.length > 0
+      ? { typingEpoch: parsed.typingEpoch } : {}),
+  }
 }
 
 /**
@@ -111,8 +149,8 @@ function parseEvents(raw: string, path: string): DurableRuntimeEvent[] {
  * Steady state is now an append of ONE record to a journal held open for the
  * process lifetime, plus one fsync on that descriptor: O(1) per event, no
  * reopen, no rename, no directory fsync. The snapshot is rewritten only once per
- * {@link COMPACT_AFTER_RECORDS} records, or opportunistically when the backlog
- * drains to empty, which is the cheapest moment to do it.
+ * {@link COMPACT_AFTER_RECORDS} records, opportunistically when the backlog
+ * drains to empty, or when boot must establish/repair typing coverage.
  *
  * DURABILITY IS DELIBERATELY UNCHANGED. Every mutation still fsyncs before the
  * call returns, so a reopen immediately after an enqueue still sees the event —
@@ -122,9 +160,10 @@ function parseEvents(raw: string, path: string): DurableRuntimeEvent[] {
  * that this contract exists to close.
  *
  * A TORN TRAILING RECORD IS EXPECTED, not corruption: a crash mid-append leaves
- * a partial final line. Recovery stops at the last parseable record, because the
+ * a partial final line. Recovery stops at the last complete record, because the
  * alternative — refusing to open — would strand every earlier event that IS
- * intact.
+ * intact. A torn tail invalidates stored-only no-write witnesses: a later
+ * typing fence might have been lost. Positive write/outcome evidence survives.
  */
 export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -132,27 +171,73 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   const temporary = `${path}.tmp`
   const journalPath = join(dir, JOURNAL_NAME)
   let events = new Map<string, DurableRuntimeEvent>()
+  const typing = new Map<string, TypingRecord>()
+  let typingEpoch: string | undefined
+  let snapshotBody: string | undefined
+  // Queue receipts and outbound events share this journal. Record the receipt
+  // synchronously even when a family's event stream is consumed asynchronously.
+  const retainOutcome = (sessionId: SessionId, outcome: DeliveryOutcome): boolean => {
+    const key = rowKey(sessionId, outcome.rowId)
+    const prior = typing.get(key)
+    const previous = prior?.outcome
+    // A contradiction is reported, not a new final status. Accepted reports
+    // may also arrive after a final outcome through an asynchronous consumer.
+    if (previous && (
+      (previous.outcome === 'dropped') ||
+      (previous.outcome === 'failed' && previous.cause !== 'unconfirmed') ||
+      (previous.outcome !== 'accepted' && outcome.outcome === 'accepted') ||
+      (previous.outcome === 'delivered' && outcome.outcome !== 'delivered')
+    )) return false
+    if (previous?.outcome === 'delivered' && outcome.outcome === 'delivered') {
+      const transcriptItem = outcome.transcriptItem ?? previous.transcriptItem
+      const harnessRef = mergeHarnessRefs(previous.harnessRef, outcome.harnessRef)
+      outcome = { ...outcome, ...(transcriptItem ? { transcriptItem } : {}), ...(harnessRef ? { harnessRef } : {}) }
+    }
+    if (JSON.stringify(previous) === JSON.stringify(outcome)) return false
+    typing.set(key, { ...prior, sessionId, rowId: outcome.rowId, outcome })
+    return true
+  }
+  const track = (event: DurableRuntimeEvent): void => {
+    if (event.event.t !== 'delivery') return
+    retainOutcome(event.sessionId, deliveryBody(event.event))
+  }
+  const retire = (deliveryId: string): void => {
+    const event = events.get(deliveryId)
+    events.delete(deliveryId)
+    if (event?.event.t !== 'delivery') return
+    const key = rowKey(event.sessionId, event.event.rowId)
+    // An accepted hold is not settled. A final server ack retires its fence
+    // even if an earlier accepted report is still awaiting acknowledgement.
+    const saved = typing.get(key)?.outcome
+    if (event.event.outcome !== 'accepted' &&
+        (!saved || JSON.stringify(saved) === JSON.stringify(deliveryBody(event.event)))) typing.delete(key)
+  }
+  const loadSnapshot = (snapshot: ReturnType<typeof parseSnapshot>): void => {
+    typingEpoch = snapshot.typingEpoch
+    events = new Map(snapshot.events.map((event) => [event.deliveryId, event]))
+    for (const entry of snapshot.typing) typing.set(rowKey(entry.sessionId, entry.rowId), entry)
+    for (const event of snapshot.events) track(event)
+  }
 
   if (existsSync(temporary)) {
-    let recovered: DurableRuntimeEvent[] | undefined
+    let recovered: ReturnType<typeof parseSnapshot> | undefined
     try {
-      recovered = parseEvents(readFileSync(temporary, 'utf8'), temporary)
+      snapshotBody = readFileSync(temporary, 'utf8')
+      recovered = parseSnapshot(snapshotBody, temporary)
     } catch (error) {
       if (!existsSync(path)) throw error
     }
     if (recovered) {
-      events = new Map(recovered.map((event) => [event.deliveryId, event]))
+      loadSnapshot(recovered)
       renameSync(temporary, path)
       fsyncDirectory(dir)
     } else {
-      events = new Map(
-        parseEvents(readFileSync(path, 'utf8'), path).map((event) => [event.deliveryId, event]),
-      )
+      snapshotBody = readFileSync(path, 'utf8')
+      loadSnapshot(parseSnapshot(snapshotBody, path))
     }
   } else if (existsSync(path)) {
-    events = new Map(
-      parseEvents(readFileSync(path, 'utf8'), path).map((event) => [event.deliveryId, event]),
-    )
+    snapshotBody = readFileSync(path, 'utf8')
+    loadSnapshot(parseSnapshot(snapshotBody, path))
   }
 
   /**
@@ -161,35 +246,105 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
    * when both were whole-file writes.
    */
   let journalRecords = 0
+  let validBytes = 0
+  let tornTail = false
+  let coverageTrusted = false
   if (existsSync(journalPath)) {
-    for (const line of readFileSync(journalPath, 'utf8').split('\n')) {
-      if (!line) continue
-      let record: { op?: unknown; deliveryId?: unknown; event?: unknown }
+    const lines = readFileSync(journalPath, 'utf8').split('\n')
+    try {
+      const header = JSON.parse(lines[0]!) as { op?: unknown; epoch?: unknown; snapshotHash?: unknown }
+      // The epoch catches a lost component/interrupted compaction; the hash
+      // also catches a reset snapshot that still carries its old epoch.
+      coverageTrusted = snapshotBody !== undefined && typingEpoch !== undefined &&
+        header.op === 'coverage' && header.epoch === typingEpoch && header.snapshotHash === snapshotHash(snapshotBody)
+    } catch { /* Legacy, empty or damaged journal: absence is not no-write proof. */ }
+    for (const [index, line] of lines.entries()) {
+      if (index === lines.length - 1) {
+        tornTail = line.length > 0
+        break
+      }
+      if (!line) { validBytes += 1; continue }
+      let record: { op?: unknown; deliveryId?: unknown; event?: unknown; sessionId?: unknown; rowId?: unknown }
       try {
         record = JSON.parse(line) as typeof record
       } catch {
         // A torn trailing record from a crash mid-append. Nothing after it can
         // be trusted either, so stop rather than skip.
+        tornTail = true
         break
       }
       journalRecords += 1
+      validBytes += Buffer.byteLength(line, 'utf8') + 1
+      if (record.op === 'coverage') {
+        if (index !== 0) coverageTrusted = false
+        journalRecords -= 1
+        continue
+      }
       if (record.op === 'ack' && typeof record.deliveryId === 'string') {
-        events.delete(record.deliveryId)
+        retire(record.deliveryId)
+        continue
+      }
+      if (record.op === 'typing') {
+        const entry = parseTyping(record)
+        const key = rowKey(entry.sessionId, entry.rowId)
+        typing.set(key, { ...typing.get(key), ...entry })
+        continue
+      }
+      if (record.op === 'stored') {
+        if (coverageTrusted) {
+          const entry = parseTyping(record)
+          const key = rowKey(entry.sessionId, entry.rowId)
+          typing.set(key, { ...typing.get(key), ...entry })
+        }
+        continue
+      }
+      if (record.op === 'outcome' && typeof record.sessionId === 'string') {
+        retainOutcome(record.sessionId as SessionId, deliveryBody(record.event))
+        continue
+      }
+      if (record.op === 'untyped' && typeof record.sessionId === 'string' && typeof record.rowId === 'string') {
+        if (!coverageTrusted) continue
+        const key = rowKey(record.sessionId as SessionId, record.rowId)
+        const saved = typing.get(key)
+        if (saved?.outcome || saved?.storedAt) {
+          const { startedAt: _started, ...untyped } = saved
+          typing.set(key, untyped)
+        }
+        else typing.delete(key)
         continue
       }
       if (record.op === 'add' && record.event) {
         const parsed = RuntimeEventMessage.parse(record.event)
         if (!parsed.deliveryId) continue
         events.set(parsed.deliveryId, { ...parsed, deliveryId: parsed.deliveryId })
+        track({ ...parsed, deliveryId: parsed.deliveryId })
+        continue
       }
+      coverageTrusted = false
+    }
+  }
+  // Never append a new typing fence behind a torn record: a subsequent reopen
+  // would stop at that record and mistake the new attempt for never typed.
+  if (tornTail) truncateSync(journalPath, validBytes)
+
+  // Both files must prove a continuous covered lifetime. Missing/reset files,
+  // interrupted compaction and torn records may have lost a later typing fence.
+  // Keep positive write/outcome evidence; discard every negative write witness.
+  if (!coverageTrusted || tornTail) {
+    for (const [key, saved] of typing) {
+      const { storedAt: _stored, ...uncertain } = saved
+      if (uncertain.startedAt || uncertain.outcome) typing.set(key, uncertain)
+      else typing.delete(key)
     }
   }
 
   /** The journal descriptor, held open so steady state never pays an open/close. */
   let journalFd: number | undefined = openSync(journalPath, 'a', 0o600)
+  fsyncSync(journalFd)
+  fsyncDirectory(dir)
 
-  const writeSnapshot = (next: Map<string, DurableRuntimeEvent>): void => {
-    const body = `${JSON.stringify({ version: FILE_VERSION, events: [...next.values()] }, null, 2)}\n`
+  const writeSnapshot = (next: Map<string, DurableRuntimeEvent>): string => {
+    const body = `${JSON.stringify({ version: FILE_VERSION, events: [...next.values()], typing: [...typing.values()], typingEpoch }, null, 2)}\n`
     const fd = openSync(temporary, 'w', 0o600)
     try {
       writeFileSync(fd, body)
@@ -199,11 +354,13 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     }
     renameSync(temporary, path)
     fsyncDirectory(dir)
+    return snapshotHash(body)
   }
 
   /** Fold the journal into the snapshot and start a fresh one. */
   const compact = (): void => {
-    writeSnapshot(events)
+    typingEpoch = randomUUID()
+    const hash = writeSnapshot(events)
     if (journalFd !== undefined) {
       closeSync(journalFd)
       journalFd = undefined
@@ -211,6 +368,9 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     rmSync(journalPath, { force: true })
     fsyncDirectory(dir)
     journalFd = openSync(journalPath, 'a', 0o600)
+    appendFileSync(journalFd, `${JSON.stringify({ op: 'coverage', epoch: typingEpoch, snapshotHash: hash })}\n`)
+    fsyncSync(journalFd)
+    fsyncDirectory(dir)
     journalRecords = 0
   }
 
@@ -228,12 +388,72 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
    * and a backlogged one is never asked to.
    */
   const maybeCompact = (): void => {
-    if (journalRecords >= COMPACT_AFTER_RECORDS || (events.size === 0 && journalRecords > 0)) {
+    if (journalRecords >= COMPACT_AFTER_RECORDS || (events.size === 0 && typing.size === 0 && journalRecords > 0)) {
       compact()
     }
   }
 
+  if (!coverageTrusted || tornTail) compact()
+
   return {
+    deliveryJournal(sessionId) {
+      return {
+        read(rowId) {
+          const key = rowKey(sessionId, rowId)
+          const saved = typing.get(key)
+          const event = saved?.outcome
+          if (event?.t === 'delivery') {
+            const { t, outcome, held, reason, cause, transcriptItem, harnessRef } = event
+            return { typingStarted: true, outcome: { t, rowId, outcome,
+              ...(held ? { held } : {}), ...(reason ? { reason } : {}), ...(cause ? { cause } : {}),
+              ...(transcriptItem ? { transcriptItem } : {}), ...(harnessRef ? { harnessRef } : {}),
+            } }
+          }
+          return saved ? { typingStarted: saved.startedAt !== undefined } : undefined
+        },
+        store(rowId) {
+          const key = rowKey(sessionId, rowId)
+          if (typing.has(key)) return
+          const entry = { sessionId, rowId, storedAt: new Date().toISOString() }
+          append(`${JSON.stringify({ op: 'stored', ...entry })}\n`)
+          typing.set(key, entry)
+          maybeCompact()
+        },
+        start(rowId) {
+          const key = rowKey(sessionId, rowId)
+          if (typing.get(key)?.startedAt) return
+          const entry = { sessionId, rowId, startedAt: new Date().toISOString() }
+          append(`${JSON.stringify({ op: 'typing', ...entry })}\n`)
+          typing.set(key, { ...typing.get(key), ...entry })
+          maybeCompact()
+        },
+        clear(rowId) {
+          const key = rowKey(sessionId, rowId)
+          if (!typing.get(key)?.startedAt) return
+          append(`${JSON.stringify({ op: 'untyped', sessionId, rowId })}\n`)
+          const saved = typing.get(key)!
+          if (saved.outcome || saved.storedAt) {
+            const { startedAt: _started, ...untyped } = saved
+            typing.set(key, untyped)
+          }
+          else typing.delete(key)
+          maybeCompact()
+        },
+        record(outcome) {
+          const key = rowKey(sessionId, outcome.rowId)
+          const previous = typing.get(key)
+          if (!retainOutcome(sessionId, outcome)) return
+          const next = typing.get(key)!
+          // Do not let a failed fsync publish an in-memory receipt that was
+          // never made durable. The queue must observe the persistence error.
+          if (previous) typing.set(key, previous)
+          else typing.delete(key)
+          append(`${JSON.stringify({ op: 'outcome', sessionId, event: outcome })}\n`)
+          typing.set(key, next)
+          maybeCompact()
+        },
+      }
+    },
     enqueue(event) {
       const existing = events.get(event.deliveryId)
       if (existing) {
@@ -246,14 +466,13 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
       const next = new Map(events)
       next.set(event.deliveryId, event)
       events = next
+      track(event)
       maybeCompact()
     },
     acknowledge(deliveryId) {
       if (!events.has(deliveryId)) return false
       append(`${JSON.stringify({ op: 'ack', deliveryId })}\n`)
-      const next = new Map(events)
-      next.delete(deliveryId)
-      events = next
+      retire(deliveryId)
       maybeCompact()
       return true
     },

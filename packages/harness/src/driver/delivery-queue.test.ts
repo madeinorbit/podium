@@ -1,9 +1,73 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { withDeliveryQueue } from './delivery-queue.js'
+import { withDeliveryQueue, type DeliveryJournal } from './delivery-queue.js'
 import type { AgentSessionHandle } from './driver.js'
 import type { SendOptions, TurnInput } from './turns.js'
+import type { RuntimeEventBody } from './events.js'
 
 afterEach(() => vi.useRealTimers())
+
+describe('daemon restart before typing (POD-5556)', () => {
+  const options = { origin: 'mail', delivery: 'when-ready' } as const
+  const input = { id: 'held-mail', rowId: 'held-mail', text: 'send after the turn', deliveryRecovery: false }
+
+  function owner(journal: DeliveryJournal) {
+    let phase = 'working'
+    const emit = vi.fn<(event: RuntimeEventBody) => void>()
+    const send = vi.fn(async (_input: TurnInput, options: SendOptions) => {
+      options.onTypingStarted?.()
+      return { outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack', at: new Date().toISOString() }
+    })
+    const handle = withDeliveryQueue({
+      send, state: async () => ({ phase }), stop: async () => {},
+    } as unknown as AgentSessionHandle, emit, undefined, undefined, journal)
+    return { handle, send, emit, idle: () => { phase = 'idle' } }
+  }
+
+  it('holds an untyped row again after a new owner receives deliveryRecovery, then types it exactly once', async () => {
+    vi.useFakeTimers()
+    const started = new Set<string>()
+    const stored = new Set<string>()
+    const journal = {
+      read: (id: string) => stored.has(id) ? { typingStarted: started.has(id) } : undefined,
+      store: (id: string) => { stored.add(id) },
+      start: (id: string) => { started.add(id) },
+      clear: (id: string) => { started.delete(id) },
+      record: vi.fn(),
+    }
+    const before = owner(journal)
+    await before.handle.send(input, options)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(before.send).not.toHaveBeenCalled()
+    expect(started.size).toBe(0)
+    await before.handle.stop()
+
+    const after = owner(journal)
+    await after.handle.send({ ...input, deliveryRecovery: true }, options)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(after.emit).not.toHaveBeenCalled()
+    expect(after.send).not.toHaveBeenCalled()
+    after.idle()
+    await vi.advanceTimersByTimeAsync(200)
+    await after.handle.send({ ...input, deliveryRecovery: true }, options)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(before.send).not.toHaveBeenCalled()
+    expect(after.send).toHaveBeenCalledTimes(1)
+    expect(after.emit.mock.calls.map(([event]) => event.t === 'delivery' && event.outcome)).toEqual(['delivered', 'delivered'])
+    await after.handle.stop()
+  })
+
+  it('keeps a started write on the confirm-or-unconfirmed path after restart', async () => {
+    vi.useFakeTimers()
+    const after = owner({ read: () => ({ typingStarted: true }), store: vi.fn(), start: vi.fn(), clear: vi.fn(), record: vi.fn() })
+    after.idle()
+    await after.handle.send({ ...input, deliveryRecovery: true }, options)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(after.send).not.toHaveBeenCalled()
+    expect(after.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: input.rowId, outcome: 'failed', cause: 'unconfirmed' }))
+    await after.handle.stop()
+  })
+})
 
 describe('exact history proof contradicting a final failure (POD-4894)', () => {
   it.each([

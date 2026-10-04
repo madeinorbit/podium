@@ -1438,7 +1438,7 @@ export function createCodexRuntime(
   async function deliver(
     session: DriverSession,
     input: TurnInput,
-    options: Pick<SendOptions, 'origin' | 'onTranscriptItem' | 'onUnrecorded'>,
+    options: Pick<SendOptions, 'origin' | 'onTranscriptItem' | 'onUnrecorded' | 'onTypingStarted'>,
   ): Promise<{
     turnId: CodexTurnId | undefined
     transcriptItem: TranscriptItemRef | undefined
@@ -1455,6 +1455,7 @@ export function createCodexRuntime(
     // resumes: our own turn's `turn/started` follows the answer and may be
     // dispatched in between.
     let openAtAnswer: CodexTurnId | undefined
+    options.onTypingStarted?.()
     const result = await session.client.call<{ turn?: { id?: string } }>(
       CODEX_METHODS.turnStart,
       {
@@ -2460,7 +2461,8 @@ export function createCodexRuntime(
       },
     }
 
-    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed)
+    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed,
+      slots.deliveryJournal?.(session.sessionId))
   }
 
   /** Ask Codex to stop the open turn. Idempotent-ish: a precondition failure

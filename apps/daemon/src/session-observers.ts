@@ -2072,6 +2072,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     return state
   }
 
+  /** Input ownership needs the current screen, including while a turn runs. */
+  const readInput = async (sessionId: SessionId): Promise<string | undefined> =>
+    (await screenObservers.get(sessionId)?.read())?.inputDraft
+
   /** Tear down every observer + tail + tracker one session holds (exit/kill path). */
   const clearSession = (sessionId: SessionId): void => {
     cancelPendingIdleEmit(sessionId)
@@ -2122,6 +2126,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     onFrame,
     onResize,
     trackedState,
+    readInput,
     onObservationAck,
     onProviderRebindAck,
     onInterruptRequested,

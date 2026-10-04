@@ -2089,6 +2089,9 @@ export function createTerminalRuntime(
         running: () => session.alive && terminalFor(session) !== undefined,
         live: () => session.live && session.alive && terminalFor(session) !== undefined,
         phase: () => host.trackedState(session.sessionId)?.phase,
+        ...(host.readInput ? { readInput: () => host.readInput!(session.sessionId) } : {}),
+        foreignWriteCount: () => host.foreignWrites?.orderTrustworthy(session.sessionId)
+          ? host.foreignWrites.count(session.sessionId) : undefined,
         lastOutputAtMs: () => session.lastOutputAtMs,
         now: host.now,
         setTimer: host.setTimer,
@@ -2288,6 +2291,7 @@ export function createTerminalRuntime(
     /** What a send hears after its receipt: a held send's record or its end
      *  (POD-4905, POD-4849), an `unverified` send's late proof (POD-4840). */
     const followUps = (options: SendOptions) => ({
+      ...(options.onTypingStarted ? { onTypingStarted: options.onTypingStarted } : {}),
       ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
       ...(options.onUnrecorded ? { onUnrecorded: options.onUnrecorded } : {}),
       ...(options.onLateProof ? { onLateProof: options.onLateProof } : {}),
@@ -2869,6 +2873,7 @@ export function createTerminalRuntime(
       (event) => emit(session, event, new Date(host.now()).toISOString(), 'live'),
       deliveryReady,
       () => !session.disposed,
+      slots.deliveryJournal?.(session.sessionId),
     )
   }
 

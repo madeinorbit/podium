@@ -1596,6 +1596,7 @@ export function createGrokAcpRuntime(
           return
         }
         // The ack can land inside this call, before it returns.
+        options.onTypingStarted?.()
         delivery.written = true
         void session.client
           .call<unknown>(GROK_ACP_METHODS.sessionPrompt, {
@@ -1625,7 +1626,7 @@ export function createGrokAcpRuntime(
               refuseDelivery(session, delivery, error)
             },
           )
-      })()
+      })().catch((error) => refuseDelivery(session, delivery, error))
     })
   }
 
@@ -2328,6 +2329,7 @@ export function createGrokAcpRuntime(
       (event) => emit(session, event, iso()),
       undefined,
       () => !session.disposed,
+      slots.deliveryJournal?.(session.sessionId),
     )
   }
 

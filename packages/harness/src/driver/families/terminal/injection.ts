@@ -66,10 +66,10 @@
  *
  * WHAT IS DELIBERATELY NOT PROOF: the phase leaving `idle`. That is the
  * ready-poll heuristic the whole epic exists to retire — it says the CLI is busy,
- * which a resize, a spinner or somebody else's turn also says. The retry loop
- * still STOPS on it (verbatim from `scheduleSubmitVerify`, because nudging a
- * busy CLI is how a stray CR lands in the composer) but it never upgrades an
- * outcome.
+ * which a resize, a spinner or somebody else's turn also says. Blind retries
+ * stop on it. A fresh screen may instead show this send still in the input:
+ * one CR can submit that retained paste even while busy (POD-5557), but only
+ * the native history can upgrade the outcome.
  */
 
 import type { HarnessRef, NotInConversationCause, TranscriptItemRef } from '@podium/model'
@@ -279,6 +279,10 @@ export interface TerminalInjectionPorts {
   live(): boolean
   /** The session's normalized phase, or undefined while unknown. */
   phase(): string | undefined
+  /** Fresh input-box evidence; undefined means no identifiable input box. */
+  readInput?(): Promise<string | undefined>
+  /** Foreign writes while the host owns the writer lease; undefined otherwise. */
+  foreignWriteCount?(): number | undefined
   /** When the PTY last produced output — the drain's quiet detector. */
   lastOutputAtMs(): number
   now(): number
@@ -395,6 +399,8 @@ export interface DeliverOptions {
   onLateProof?: (seen: AcceptSeen) => void
   /** The turn's id, when it has one: names its typing to `typingStarts`. */
   turnId?: string
+  /** The delivery journal's synchronous fence before the first byte. */
+  onTypingStarted?: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +443,7 @@ export function createTerminalInjection(
   let draining = false
   /** Driver-local turn counter. See `nextTurnEpoch`. */
   let localTurnEpoch = 0
+  let pasteGeneration = 0
   let disposed = false
   /** Held sends still waiting for their record: told when the session ends. */
   const heldWatches = new Set<() => void>()
@@ -472,6 +479,28 @@ export function createTerminalInjection(
     return localTurnEpoch
   }
 
+  type InputSubmission = {
+    body: string
+    inputWasKnown: boolean
+    startedEmpty: boolean
+    generation: number
+    foreignWrites: number | undefined
+  }
+  const readInput = async (): Promise<string | undefined> =>
+    ports.readInput?.().catch(() => undefined)
+  const ownsInput = (submission: InputSubmission): boolean =>
+    submission.startedEmpty && submission.generation === pasteGeneration &&
+    submission.foreignWrites !== undefined &&
+    submission.foreignWrites === ports.foreignWriteCount?.()
+  const retainedInput = (draft: string, body: string): boolean => {
+    // Claude 2.1.283/289 collapse a multiline paste into this single token.
+    // Claim it only with an initially empty box and unchanged writer ownership.
+    if (/^\[Pasted text #\d+(?: \+\d+ lines?)?\]$/.test(draft.trim())) return true
+    // Screen wrapping and the missed Enter can add whitespace to the draft.
+    const compact = (value: string): string => value.replace(/\s+/gu, '')
+    return compact(body).length > 0 && compact(draft) === compact(body)
+  }
+
   /**
    * The ported `scheduleSubmitVerify` ladder, plus the history watch that
    * turns it into evidence instead of a nudge.
@@ -491,6 +520,7 @@ export function createTerminalInjection(
     signal?: AbortSignal,
     initialPrompt = false,
     submitted?: () => void,
+    inputSubmission?: InputSubmission,
   ): Promise<Proven | null> {
     if (!echoWatch) return null
     let recorded: AcceptSeen | undefined
@@ -518,6 +548,7 @@ export function createTerminalInjection(
     }
     let retriesLeft = ports.needsSubmitVerification() ? SUBMIT_MAX_RETRIES : 0
     let nudging = true
+    let recoveredInput = false
     const windowMs = initialPrompt ? 30_000 : VERIFICATION_WINDOW_MS
     let deadline = ports.now() + windowMs
     const heldUntil = (echoWatch.typingStartedAtMs ?? ports.now()) + LATE_PROOF_WAIT_MS
@@ -536,12 +567,31 @@ export function createTerminalInjection(
       // `unverified`, which is the truth: the bytes went out, nothing confirmed.
       if (!ports.running()) return null
       const phase = ports.phase()
-      // VERBATIM from `scheduleSubmitVerify`: a CLI that has left idle is busy,
-      // and a stray CR into a busy composer is its own bug. Stop NUDGING — but
-      // keep watching, because the record may still be a moment away.
+      // Phase gates only the blind ladder. Busy Claude can still have this
+      // send sitting unsubmitted in its input box (POD-5557).
       if (phase !== undefined && phase !== 'idle') nudging = false
       if (phase === 'working' || phase === 'compacting') deadline = ports.now() + windowMs
-      if (nudging && retriesLeft > 0) {
+      if (retriesLeft === 0) continue
+      if (ports.readInput) {
+        const draft = await readInput()
+        // A proof, abort, detach or another writer can arrive during the flush.
+        if (recorded || held || disproved) return proven()
+        if (signal?.aborted || !ports.running()) return null
+        if (draft !== undefined) {
+          if (recoveredInput || !inputSubmission || !ownsInput(inputSubmission) ||
+            !retainedInput(draft, inputSubmission.body)) continue
+          recoveredInput = true
+          retriesLeft = 0
+          submitted?.()
+          ports.write('\r', 'message')
+          continue
+        }
+        // A box that vanished may be a native dialog. Missing evidence does
+        // not authorize a blind CR after we had an identifiable input box.
+        if (inputSubmission?.inputWasKnown) continue
+      }
+      // Hosts without input evidence retain their existing idle-only ladder.
+      if (nudging) {
         retriesLeft -= 1
         submitted?.()
         ports.write('\r', 'message')
@@ -606,7 +656,21 @@ export function createTerminalInjection(
     let kept: AcceptWatch | undefined
     try {
       if (echoWatch?.typingStarts) await echoWatch.typingStarts()
+      const generationBeforeRead = pasteGeneration
+      const foreignWrites = ports.foreignWriteCount?.()
+      const initialInput = ports.readInput ? await readInput() : undefined
+      if (options.signal?.aborted || !ports.running())
+        return { outcome: 'refused', refusal: { reason: 'not_running' } }
+      const inputSubmission: InputSubmission = {
+        body: payload.body,
+        inputWasKnown: initialInput !== undefined,
+        startedEmpty: initialInput === '' && generationBeforeRead === pasteGeneration &&
+          foreignWrites === ports.foreignWriteCount?.(),
+        foreignWrites,
+        generation: ++pasteGeneration,
+      }
       if (options.turnId !== undefined) ports.typingStarts?.(options.turnId)
+      options.onTypingStarted?.()
       ports.write(payload.bytes, 'message')
       // A PASTE IS ALWAYS SUBMITTED (POD-4776). Once its bytes are in the
       // composer, stopping short of the Enter would leave the text sitting in
@@ -621,7 +685,7 @@ export function createTerminalInjection(
       }, SUBMIT_CR_DELAY_MS)
 
       const verificationStartedAt = ports.now()
-      const proof = await awaitProof(echoWatch, options.signal, options.initialPrompt, submitted)
+      const proof = await awaitProof(echoWatch, options.signal, options.initialPrompt, submitted, inputSubmission)
       const unverified = (): TurnReceipt => ({
         outcome: 'unverified',
         deliveredAs: options.delivery,

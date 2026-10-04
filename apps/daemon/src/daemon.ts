@@ -132,6 +132,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     instance,
     build,
     installDir,
+    deliveryJournal: (sessionId) => runtimeEventOutbox.deliveryJournal(sessionId),
     send: (message) => {
       if (message.type === 'runtimeEvent') {
         const outgoing = prepareRuntimeEventDelivery(runtimeEventOutbox, message)

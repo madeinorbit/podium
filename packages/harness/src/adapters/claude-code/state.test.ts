@@ -248,6 +248,8 @@ describe('Claude turn-running screen rule [POD-4633]', () => {
     expect(classifyClaudeScreen(THINKING).inputDraft).toBe('')
     expect(classifyClaudeScreen(INTERRUPTED).inputDraft).toBe('')
     expect(classifyClaudeScreen(FINISHED).inputDraft).toBe('')
+    expect(classifyClaudeScreen([...HEADER, RULE, '❯ Press up to edit queued messages', RULE]).inputDraft).toBe('')
+    expect(classifyClaudeScreen([...HEADER, RULE, '❯ [Pasted text #1 +3 lines]', RULE]).inputDraft).toBe('[Pasted text #1 +3 lines]')
     // A prompt wrapped over two rows, the second indented under the first.
     const wrapped = [
       ...HEADER,
