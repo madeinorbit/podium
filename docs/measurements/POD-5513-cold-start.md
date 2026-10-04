@@ -1,10 +1,16 @@
 # POD-5513 cold startup
 
-Final corpus budget: pending. The production change bounds synchronous IndexedDB
+The narrow production fix improved live A1 cold startup from **6,120.3 to
+5,871.9 ms** (n=8 per arm), with main-thread CPU down **7.7%**. The original
+**≤2,500 ms and ≤matched OLD** corpus budget is **not certified**. POD-4286's
+coordinator requested landing the narrow fix without another corpus or live
+capture and assigned remaining whole-list startup work to POD-5530.
+
+The production change bounds synchronous IndexedDB
 write submission to 256 requests, continuing from the last request's success event
 inside the same transaction. It also stops building cold identity answers that a
-replacement publication immediately discards. The allocation prototype remains a
-separate comparison candidate; it is not in the narrow change.
+replacement publication immediately discards. Allocation prototypes were dropped
+from the production diff after their measured live regression.
 
 ## Evidence and method
 
@@ -14,8 +20,11 @@ provisional n=8, approximately 2.5 s versus 3.3 s. The first repeat here used pi
 eight fresh contexts each. These separate cohorts establish that deletion did not
 remove the regression; they do not certify a matched budget.
 
-Final production comparisons use pilot `44fe1e8acc`, narrow candidate
-`4e6b8b6a51`, and allocation candidate `369c7c52b6`. Every runtime was built on
+The accepted production A1 comparison uses pilot `44fe1e8acc` and narrow
+candidate `4e6b8b6a51`. The landing was rebased onto pilot `d13769664f`; candidate
+`d4993be9c6` passed focused checks and built as `bundle+BdGnn_hw`, web task
+`88e2b8fb0cf5bb88`. It preserves the incoming nonresident session-fact updates.
+That rebased runtime has not been timed. Every measured runtime was built on
 flatblock in an issue-owned `~/podium-test-5513-*` checkout, with a copied
 `.toolchain`, Bun 1.4.2 and `bun run setup:worktree` before building or checking.
 Builds and checks finish before requesting `bench:flatblock`. Captures run in the
@@ -50,7 +59,7 @@ pilot with the fix, while the unchanged corpus supplies the OLD comparison.
 | Cold indexes | Full replacement costs about 0.38–0.62 s in the live diagnostic; the issue-reader component costs about 0.09–0.14 s. Its off switch retains storage rows but intentionally loses history-query coverage. | Real work, but disabling required indexes is not a shippable fix. These inclusive timers overlap other work. |
 | Screen attach | Keeping only sidebar, pane and shell still reaches the row. Removing pane/shell attach prevents it. The smaller attach set gives small or inconsistent gains across cohorts. | Preserve required preparation and inactive command-palette observation. Async attach duration is not an additive startup cost. |
 | Bundle | Initial corpus repeat: OLD 101 startup JS files / 2,065,778 decoded bytes / 668,192 gzip bytes; NEW 148 / 2,930,160 / 922,789. Preloading the live control's 159 startup modules with empty IndexedDB removes background parse and about 3.2 MB of transfer. | Added bundle work is measurable; the preload counterfactual does not restore startup by itself. |
-| Allocation prototype | A production allocation-only A1 pair regressed from 7,442 to 8,390 ms (n=8 each). The final corpus includes the prototype plus batching as a separate production arm. | Keep only changes justified by the production comparison. |
+| Allocation prototype | A production allocation-only A1 pair regressed from 7,442 to 8,390 ms (n=8 each). Adding the prototype to batching also gave no live wall-time advantage in the smaller diagnostic cohort. | Drop the prototype from the production diff. |
 
 The native commit implementation was the same in OLD and the initial NEW;
 the new data layout and larger bootstrap increase its work. The fix changes how
@@ -82,9 +91,9 @@ switched work, not independent additive savings. Preloading created zero
 IndexedDB databases before navigation; these warmed-code samples cannot qualify
 as production cold-start evidence.
 
-## Final comparison and guard
+## Accepted production comparison and guard
 
-The final A1 production comparison is complete and error-free: eight unprofiled
+The accepted A1 production comparison is complete and error-free: eight unprofiled
 samples per arm, alternating order, backend `44fe1e8` unchanged before/after,
 6,294 issues and 5,244 sessions durably hydrated in every context.
 
@@ -96,7 +105,14 @@ samples per arm, alternating order, backend `44fe1e8` unchanged before/after,
 Wall median improves 4.1%; CPU median improves 7.7%. These are descriptive loaded
 live-host results. Pilot subsequently advanced to `d13769664f`, including reader
 and cold-index changes. These measurements remain evidence for the previous
-runtime; a fresh production comparison and matched corpus capture are pending.
+runtime. Per the coordinator's 2026-10-04 23:05 and 23:13 UTC issue mail, no new
+production comparison or matched corpus capture was run. An unstarted queued
+corpus capture was canceled, and its recorded processes were cleaned up.
+
+The original OLD comparison is therefore incomplete: the first separate cohorts
+were OLD 3,088 ms / NEW 3,836 ms. A later paired cohort overlapped an issue-owned
+build and is explicitly excluded. Live captures interrupted by the operator
+backend upgrade are also excluded. None certifies the original 2.5 s target.
 
 The budget guard requires at least eight unprofiled production cold samples per
 arm from the same leased alternating cohort, corpus, browser, cache policy and
@@ -107,7 +123,7 @@ and 2,500 ms.
 
 ```sh
 python3 apps/web/harness/cold-start-pair.py --candidate=candidate4 \
-  --baseline=current --alternative=candidate3 --samples=8 --round=4
+  --baseline=current --samples=8 --round=6
 python3 apps/web/harness/cold-start-guard.py \
   --old OLD/run.json --candidate CANDIDATE/run.json --out guard.json
 ```
@@ -118,10 +134,34 @@ The pair controller prepares isolated fixtures before queuing for the timing
 lease and records its own PIDs. It renews only during capture and cancels an
 unfinished queue request during cleanup.
 
-Focused validation on flatblock: 73 storage, reader and budget-guard tests green;
+This is the recipe for a future matched budget capture; it was not run for the
+landing. Guard behavior is tested, but there is no accepted production budget
+pass. [The numeric summary](POD-5513-cold-start-summary.json) includes the accepted
+samples and explicit evidence limits.
+
+Focused validation on flatblock before the rebase: 73 storage, reader and budget-guard tests green;
 three actual Chromium IndexedDB completion/reload/close checks green. Reload and
 close preserved the complete PRE state, while completion persisted all 4,096
 records, the POST cursor and the outbox deletion. The default browser lookup
 failed before execution; rerunning only the native file with the installed
-capture browser passed. Filtered graph/sync typecheck: nine tasks green. This is
-focused evidence, not a full-suite or lean-gate claim.
+capture browser passed. Filtered graph/sync typecheck: nine tasks green. After
+rebasing onto `d13769664f`, 46 tests in `reader-queries.test.ts`,
+`reader-question-bounds.test.ts` and `cold-start-guard.test.ts` passed; filtered
+graph typecheck passed nine tasks, and the canonical production web build passed.
+This is focused evidence, not a full-suite or lean-gate claim.
+
+## Remaining startup work
+
+POD-5530 owns remaining whole-list startup work. The observed paths include
+row-source session fact rebuilding and facade/index preparation, cold reader
+index construction, and React preparation for attached screens. The initial
+live profile attributed roughly 1.76 s to session-fact flushing, 0.70 s to cold
+index work, 0.88 s sampled self to native `put`, and 0.85 s to React stacks.
+Those profile values are approximate and overlapping; they describe where to
+look, not independent savings or timings of the rebased runtime. Pool constructor
+work itself was only 5–10 ms. Bundle growth remains another measured input.
+
+The narrow fix moves native submission off the first large blocking task while
+retaining the full durable transaction. It does not remove the data, shrink the
+bundle, or eliminate cold indexing and screen preparation. The remaining work
+still needs a clean matched OLD corpus capture to establish the original budget.

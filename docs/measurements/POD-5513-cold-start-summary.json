@@ -1,0 +1,228 @@
+{
+  "issue": "POD-5513",
+  "status": "narrow-fix-accepted; original corpus budget unproven",
+  "scopeDecision": {
+    "from": "POD-4286",
+    "at": [
+      "2026-10-04T23:05:04.025Z",
+      "2026-10-04T23:13:05.715Z"
+    ],
+    "instruction": "Land narrow batched-write fix, no further captures; remaining whole-list startup work to POD-5530"
+  },
+  "method": {
+    "host": "ludovico",
+    "boundary": "navigation to actual Chromium Paint after a visible unobscured sidebar issue row",
+    "viewport": [
+      1600,
+      1000
+    ],
+    "browser": "148.0.7778.96",
+    "freshContextPerSample": true,
+    "profilesExcluded": true,
+    "transport": "identity HTTP bootstrap, service workers blocked",
+    "collectorSha256": "83b1c78608b78fbae9d605ed91ea2b7a85b9aace28799837a97be61b4955e003"
+  },
+  "acceptedA1": {
+    "startedAt": "2026-10-04T22:48:12.409Z",
+    "baselineBuild": {
+      "wireSchemaDigest": "cb9f0786c0a97c2c",
+      "wireVersion": 4,
+      "appVersion": "dev+44fe1e8",
+      "sourceSha": "44fe1e8",
+      "bundleVersion": "bundle+B4krrcny"
+    },
+    "candidateBuild": {
+      "wireSchemaDigest": "cb9f0786c0a97c2c",
+      "wireVersion": 4,
+      "appVersion": "dev+4e6b8b6",
+      "sourceSha": "4e6b8b6",
+      "bundleVersion": "bundle+Bga9PVbU"
+    },
+    "backendEnd": {
+      "sourceDigest": "44fe1e8",
+      "appVersion": "0.1.1-dev.270+44fe1e8",
+      "wireSchemaDigest": "cb9f0786c0a97c2c"
+    },
+    "issues": 6294,
+    "sessions": 5244,
+    "errors": [],
+    "proxyErrors": [],
+    "arms": {
+      "baseline": {
+        "n": 8,
+        "medianMs": 6120.3005,
+        "cpuMedianMs": 4312.423500000001,
+        "values": [
+          5689.072,
+          6169.921,
+          6070.68,
+          5916.284,
+          6577.527,
+          5550.32,
+          6202.443,
+          6261.732
+        ],
+        "cpuValues": [
+          4070.992,
+          4272.127,
+          4138.721,
+          4352.72,
+          4631.996,
+          4227.266,
+          4469.623,
+          4397.231
+        ]
+      },
+      "production": {
+        "n": 8,
+        "medianMs": 5871.9465,
+        "cpuMedianMs": 3979.0280000000002,
+        "values": [
+          6575.75,
+          4870.696,
+          6346.532,
+          5825.03,
+          5669.103,
+          5918.863,
+          6700.931,
+          5435.27
+        ],
+        "cpuValues": [
+          3857.323,
+          3862.106,
+          4137.226,
+          3990.453,
+          3967.603,
+          4171.368,
+          4412.676,
+          3755.41
+        ]
+      }
+    }
+  },
+  "improvement": {
+    "wallPercent": 4.05787264857339,
+    "cpuPercent": 7.731047286983772
+  },
+  "causalA1N3": {
+    "control": {
+      "n": 3,
+      "medianMs": 6958.857,
+      "cpuMedianMs": 4629.491,
+      "values": [
+        7940.121,
+        6426.823,
+        6958.857
+      ]
+    },
+    "chunkWrites": {
+      "n": 3,
+      "medianMs": 5705.505,
+      "cpuMedianMs": 4094.572,
+      "values": [
+        5148.288,
+        8268.659,
+        5705.505
+      ]
+    },
+    "chunkQueries": {
+      "n": 3,
+      "medianMs": 6012.06,
+      "cpuMedianMs": 4620.999,
+      "values": [
+        6012.06,
+        5365.768,
+        8086.268
+      ]
+    },
+    "chunkBounded": {
+      "n": 3,
+      "medianMs": 6255.736,
+      "cpuMedianMs": 4023.993,
+      "values": [
+        7442.402,
+        6255.736,
+        5269.89
+      ]
+    }
+  },
+  "remainingSwitchesN2": {
+    "control": {
+      "n": 2,
+      "medianMs": 10373.3695,
+      "cpuMedianMs": 5040.047500000001
+    },
+    "bundleReady": {
+      "n": 2,
+      "medianMs": 9953.539,
+      "cpuMedianMs": 4906.541499999999
+    },
+    "reader": {
+      "n": 2,
+      "medianMs": 8866.0785,
+      "cpuMedianMs": 4941.8925
+    },
+    "minimalAttach": {
+      "n": 2,
+      "medianMs": 10439.048999999999,
+      "cpuMedianMs": 4900.568
+    },
+    "residentReplace": {
+      "n": 2,
+      "medianMs": 9152.874,
+      "cpuMedianMs": 4941.799999999999
+    }
+  },
+  "originalCorpus": {
+    "oldSha": "5e3ece5cd6",
+    "firstPilotSha": "c624fdca39",
+    "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+    "n": 8,
+    "paired": false,
+    "oldMedianMs": 3088.2475,
+    "pilotMedianMs": 3835.7065,
+    "oldEntityRecords": 17655,
+    "pilotEntityRecords": 21972
+  },
+  "guard": {
+    "absoluteBudgetMs": 2500,
+    "relativeBudget": "at most matched OLD median",
+    "productionPassed": null,
+    "reason": "No accepted matched final corpus; additional capture canceled on coordinator handoff"
+  },
+  "landingCandidate": {
+    "base": "d13769664f",
+    "source": "d4993be9c6",
+    "bundleVersion": "bundle+BdGnn_hw",
+    "webTaskHash": "88e2b8fb0cf5bb88",
+    "timed": false
+  },
+  "validation": {
+    "afterRebase": {
+      "focusedFiles": 3,
+      "focusedTestsPassed": 46,
+      "typecheckTasksPassed": 9,
+      "webBuild": "passed"
+    },
+    "beforeRebase": {
+      "focusedTestsPassed": 73,
+      "nativeIndexedDBCasesPassed": 3,
+      "cases": [
+        "complete",
+        "reload",
+        "close"
+      ]
+    }
+  },
+  "excluded": [
+    "Corpus paired round 2: overlapped issue-owned build",
+    "Live final-narrow round 9: operator backend upgrade and proxy failures",
+    "Live final-narrow round 10: bootstrap 503; zero usable samples"
+  ],
+  "limits": [
+    "Live loaded-host observations are descriptive, not isolated or statistical significance claims",
+    "Diagnostic switches deliberately omit work and cannot certify production budgets",
+    "Native full transaction continues after first paint",
+    "Rebased runtime was checked and built but not remeasured"
+  ]
+}
