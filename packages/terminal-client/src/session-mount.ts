@@ -603,11 +603,16 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   const toolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, { sendInput }) : null
 
-  // Route keyboard input through the toolbar so an armed modifier (e.g. Ctrl)
-  // transforms the next character the soft keyboard sends.
-  const offInput = view.onData((data, inputEventAt) =>
-    sendInput(toolbar ? toolbar.applyModifiers(data) : data, inputEventAt),
-  )
+  // Only user input may take control or consume an armed toolbar modifier.
+  // Xterm also emits automatic replies on onData: if each spectator's reply
+  // claims, one query swaps the PTY between every attached viewer's width.
+  const offInput = view.onData((data, inputEventAt, source = 'user') => {
+    if (source === 'terminal') {
+      if (connection.state().role === 'controller') connection.sendInput(data)
+      return
+    }
+    sendInput(toolbar ? toolbar.applyModifiers(data) : data, inputEventAt)
+  })
 
   // Container-size changes (ResizeObserver + visualViewport). This is the
   // backstop that catches EVERY layout path — pane drags, dock toggles, and the

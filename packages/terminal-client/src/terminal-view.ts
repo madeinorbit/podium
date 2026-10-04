@@ -136,7 +136,9 @@ export class TerminalView {
   private host: HTMLElement | null = null
   // The live onData sink, kept so synthetic input (e.g. the Shift+Enter newline
   // we substitute below) flows through the exact same path as real keystrokes.
-  private dataSink: ((data: string, inputEventAt?: number) => void) | undefined
+  private dataSink:
+    | ((data: string, inputEventAt?: number, source?: 'user' | 'terminal') => void)
+    | undefined
   private pendingKeyEventAt: number | undefined
   private fileLinkConfig: FileLinkConfig | null = null
   private refLinkConfig: RefLinkConfig | null = null
@@ -622,17 +624,34 @@ export class TerminalView {
     return (h >>> 0).toString(16)
   }
 
-  onData(cb: (data: string, inputEventAt?: number) => void): () => void {
+  onData(
+    cb: (data: string, inputEventAt?: number, source?: 'user' | 'terminal') => void,
+  ): () => void {
     this.dataSink = cb
+    // Xterm's public onData also emits parser replies (DSR, DA, OSC colours)
+    // and focus reports. Its pinned core signals real keyboard/paste/mouse
+    // input immediately before onData; carry that origin instead of guessing
+    // from bytes, which a paste can also contain. Synthetic user input above
+    // calls dataSink directly and keeps the default user origin.
+    const core = this.term as unknown as {
+      _core: { coreService: { onUserInput(cb: () => void): { dispose(): void } } }
+    }
+    let userInput = false
+    const userSub = core._core.coreService.onUserInput(() => {
+      userInput = true
+    })
     const keySub = this.term.onKey(({ domEvent }) => {
       this.pendingKeyEventAt = monotonicEventTime(domEvent)
     })
     const dataSub = this.term.onData((data) => {
-      const inputEventAt = this.pendingKeyEventAt
+      const source = userInput ? 'user' : 'terminal'
+      userInput = false
+      const inputEventAt = source === 'user' ? this.pendingKeyEventAt : undefined
       this.pendingKeyEventAt = undefined
-      this.dataSink?.(data, inputEventAt)
+      this.dataSink?.(data, inputEventAt, source)
     })
     return () => {
+      userSub.dispose()
       keySub.dispose()
       dataSub.dispose()
       this.dataSink = undefined
