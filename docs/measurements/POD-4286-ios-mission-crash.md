@@ -177,3 +177,14 @@ a Tailscale ping with no reply. This is an external retrieval blocker, not a
 reported product crash. Future captures bound process listing, openurl and
 screenshot commands with timeouts so a stalled simulator cannot hold the
 foreground evidence wrapper indefinitely.
+
+The trace later returned exit 0 and did reach Working preflight, but coverage
+was inadequate: five Working page samples span only document ages 49.8–60.7
+seconds, with 63 controller updates. The overall wrapper elapsed 941.8 seconds.
+The full 33,000-item history read is confirmed; held history stayed at 160
+with maximum 160, mounted rows ranged 52–81 and DOM nodes 678–1,104. There
+were no recorded JavaScript errors. Only three post-preflight native samples
+were available. WebContent 71732 measured 469.1–498.8 MiB across those samples;
+this does not establish a steady growth rate or a three-minute retention
+comparison. Runner load later reached 147/185/191. The retention-disabled
+comparison and desktop heap/native comparison remain outstanding.
