@@ -49,6 +49,8 @@ writeFileSync(resolve(out,'browser-paint-source.ts'),readFileSync(new URL('./bro
 const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
   harnessSha256:createHash('sha256').update(harnessBytes).digest('hex'),
   durationTimeDomain:'threadTicks',
+  httpCache:'disabled by bootstrap request routing',
+  warmStartup:'Reload with retained durable data and preferences; full augmented bootstrap replay',
   sameOriginTracePriming:true,
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
@@ -856,7 +858,8 @@ try {
   let f=fixture=await makePage()
   if(mode==='timing' && !backgroundOnly) {
     // Each cold sample owns a new browser context; the paired warm sample
-    // reloads it, retaining HTTP cache, durable rows and preferences.
+    // reloads it, retaining durable rows and preferences. Bootstrap request
+    // routing disables HTTP cache; this is a warm-data reload.
     for(let i=0;i<5;i++) {
       if(i!==0)f=fixture=await makePage()
       await startup(f,'app-cold-start',i===4);await startup(f,'app-warm-start',i===4)
