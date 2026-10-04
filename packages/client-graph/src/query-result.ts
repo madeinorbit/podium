@@ -310,6 +310,9 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
         // Slice replacement is the sole full reset, not a single-row update.
         clear(false)
         start()
+        // An empty replacement has no row refresh to invalidate witnesses.
+        // It can also resolve a formerly pending question to empty.
+        for (const match of matches) match.atom.reportChanged()
         changed()
       }
     })

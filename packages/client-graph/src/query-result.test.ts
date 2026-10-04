@@ -138,6 +138,43 @@ describe('maintained query answers', () => {
     }
   })
 
+  it('publishes witness removal and resolved LOADING when a replaced question becomes empty', () => {
+    let ids = ['a']
+    let reset: ((id: string | undefined) => void) | undefined
+    const flags = observable.box({ asking: true }, { deep: false })
+    const result = createQueryResult({
+      name: 'replaced witness question',
+      ids: () => ids,
+      has: (id) => ids.includes(id),
+      read: (id) => {
+        const value = flags.get()
+        return id === 'pending' ? LOADING : { id, ...value }
+      },
+      matches: [(value) => value.asking],
+      subscribe: (changed) => {
+        reset = changed
+        return () => { reset = undefined }
+      },
+    })
+    let current: unknown
+    const stop = autorun(() => { current = result.firstMatch(0) })
+    const replace = (next: string[]) => runInAction(() => {
+      ids = next
+      reset?.(undefined)
+    })
+    try {
+      expect(current).toEqual({ id: 'a', asking: true })
+      replace([])
+      expect(current).toBeUndefined()
+      replace(['pending'])
+      expect(current).toBe(LOADING)
+      replace([])
+      expect(current).toBeUndefined()
+    } finally {
+      stop()
+    }
+  })
+
   it('reports LOADING until every demanded answer resolves, including witnesses', () => {
     const rows = observable.map<string, number>([
       ['a', 1],
