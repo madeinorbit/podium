@@ -21,7 +21,7 @@ beforeAll(async () => {
         }),
   })
   browser = await chromium.launch({
-    headless: true, executablePath: chromium.executablePath(),
+    headless: true, executablePath: process.env.PODIUM_NATIVE_IDB_CHROMIUM ?? chromium.executablePath(),
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   })
 })
