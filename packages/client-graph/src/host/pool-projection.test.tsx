@@ -5,6 +5,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model/browser'
+import { getObserverTree } from 'mobx'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -19,12 +20,12 @@ afterEach(() => {
   for (const stop of cleanups.splice(0).reverse()) stop()
 })
 
-async function mount(inline: boolean, initiallyActive = true) {
+async function mount(inline: boolean, initiallyActive = true, retainWhileInactive = false) {
   const original = runtimePool.createPoolProjection
   const create = vi.spyOn(runtimePool, 'createPoolProjection')
   const subscriptions: (() => number)[] = []
-  create.mockImplementation(<T,>(pool: MobxPool, read: (pool: MobxPool) => T) => {
-    const view = original(pool, read)
+  create.mockImplementation(<T,>(pool: MobxPool, read: (pool: MobxPool) => T, options) => {
+    const view = original(pool, read, options)
     const subscribe = vi.spyOn(view, 'subscribe')
     subscriptions.push(() => subscribe.mock.calls.length)
     return view
@@ -65,7 +66,12 @@ async function mount(inline: boolean, initiallyActive = true) {
       renders++
       const captured = target
       pool = host.usePool()
-      snapshot = host.usePoolProjection(inline ? freshReader(captured) : reader, null, active)
+      snapshot = host.usePoolProjection(
+        inline ? freshReader(captured) : reader,
+        null,
+        active,
+        retainWhileInactive,
+      )
       return null
     },
     { displayName: 'PoolProjectionProbe' },
@@ -81,8 +87,14 @@ async function mount(inline: boolean, initiallyActive = true) {
   })
   const container = document.createElement('div')
   const root: Root = createRoot(container)
-  cleanups.push(() => {
+  let unmounted = false
+  const unmount = () => {
+    if (unmounted) return
+    unmounted = true
     act(() => root.unmount())
+  }
+  cleanups.push(() => {
+    unmount()
     container.remove()
   })
   const principal = asClientPrincipal(asUserId('projection-count'))
@@ -127,6 +139,8 @@ async function mount(inline: boolean, initiallyActive = true) {
     snapshot: () => snapshot!,
     projections: () => create.mock.calls.length,
     subscriptions: () => subscriptions.reduce((sum, count) => sum + count(), 0),
+    observers: () => getObserverTree(pool!.selection).observers?.length ?? 0,
+    unmount,
     render,
     focus: (value: boolean) => {
       active = value
@@ -158,6 +172,23 @@ async function mount(inline: boolean, initiallyActive = true) {
 }
 
 describe('real host projection read counts', () => {
+  it('keeps a visited fold lazy while hidden and releases its dependencies on unmount', async () => {
+    const fixture = await mount(false, true, true)
+    fixture.focus(false)
+    expect(fixture.observers()).toBe(1)
+    const reads = fixture.reads(), renders = fixture.renders()
+    await fixture.select('another-target')
+    await fixture.select('projection-target')
+    expect(fixture.reads()).toBe(reads)
+    expect(fixture.renders()).toBe(renders)
+    fixture.focus(true)
+    expect(fixture.snapshot()).toEqual({ selected: true })
+    expect(fixture.reads() - reads).toBe(1)
+    fixture.focus(false)
+    fixture.unmount()
+    expect(fixture.observers()).toBe(0)
+  })
+
   it('keeps a mounted hidden tab quiet and catches up once on focus', async () => {
     const fixture = await mount(false)
     const first = fixture.snapshot()
