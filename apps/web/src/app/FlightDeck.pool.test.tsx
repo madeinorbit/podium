@@ -408,7 +408,7 @@ describe('rendered mission pane parity', () => {
       await settled()
       fireEvent.contextMenu(current.container.querySelector(target)!, { clientX: 10, clientY: 20 })
       await settled()
-      expectPoolOutput(renderedOutput(screen.getByRole('menu')), 'menu output')
+      expectPoolOutput(renderedOutput(await screen.findByRole('menu')), 'menu output')
       expect(missionIndexStats()).toEqual(baseline)
       expect(sessionOwnershipStats()).toEqual(ownership)
       expect(missionLegacyCountsFor(owner)).toEqual({})
