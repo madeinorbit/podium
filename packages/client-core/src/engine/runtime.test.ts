@@ -314,7 +314,7 @@ function makeEngine(
     issues: () => engine.replica.rows('issueProjections'),
     sessions: () => engine.replica.rows('sessions') as unknown as SessionView[],
     markers: () => engine.replica.rows('issueUserStates'),
-    follow: changed => engine.replica.subscribeKind('sessions', changed),
+    follow: changed => engine.replica.subscribeRows('sessions', changed),
   }))
   return { engine, hub, rw, fatals, errors }
 }

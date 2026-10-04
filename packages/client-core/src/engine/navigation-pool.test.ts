@@ -98,7 +98,7 @@ describe('addressed workspace pruning', () => {
       ])
         ws = openTab(ws, id, { permanent: true })
       return {
-        ...state(navigation),
+        ...state(navigation ?? fixtureNavigation({ issues: () => [root, child], sessions: () => rows })),
         sessions: rows,
         pendingSpawnIds: new Set([asSessionId('pending')]),
         selectedIssueId: child.id,
@@ -214,7 +214,7 @@ describe('addressed worktree reactions', () => {
     { ...seat, sessionId: asSessionId('subdir'), name: 'Subdirectory' },
   ]
   const make = (sessions: SessionView[], navigation?: NavigationProvider) => ({
-    ...state(navigation),
+    ...state(navigation ?? fixtureNavigation({ issues: () => [root, child], sessions: () => sessions })),
     sessions,
     pendingSpawnIds: new Set<ReturnType<typeof asSessionId>>(),
     reposLoaded: true,

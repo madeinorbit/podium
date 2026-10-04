@@ -327,7 +327,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   }
   /**
    * Hold a first chat send until an optimistic spawn's create has reconciled
-   * (or rolled back). See OptimismLedger.waitForSpawnConfirmed (POD-546).
+   * (or rolled back) through the principal's pool transaction log.
    */
   waitForSpawnConfirmed(sessionId: SessionId): Promise<void>
   setSessionDraft(sessionId: SessionId, text: string): void

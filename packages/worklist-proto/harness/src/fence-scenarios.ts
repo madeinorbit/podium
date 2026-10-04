@@ -1,3 +1,5 @@
+import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
+import { loadingNavigationProvider } from '@podium/client-core/engine'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4563 (L6a) — the one scenario list every arm's fences run over.
@@ -244,6 +246,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     locals,
     ...(transactions === null ? {} : { transactions }),
     attachPool(pool: MobxPool): void {
+      ctx.engine.setNavigationProvider(createPoolNavigationProvider(pool))
       if (transactions !== null)
         pool.attachTransactions(transactions, POOL_OWNED_KINDS.includes('session'))
     },
@@ -258,6 +261,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
       return taken
     },
     dispose(): void {
+      ctx.engine.setNavigationProvider(loadingNavigationProvider)
       stopWriter()
       transactions?.dispose()
       rows.dispose()

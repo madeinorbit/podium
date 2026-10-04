@@ -54,9 +54,7 @@ export function createRowSource(runtime: RowSourceRuntime, replica: RowSourceRep
     return { ...rows, dispose() { stop(); rows.dispose() } }
   }
   // A truth reader never becomes the writer's paint destination.
-  const paint = options.mode === 'truth'
-    ? createSource(runtime, replica, { mode: 'pooled', pending: log.pending }) : rows
-  log.bind(paint)
+  log.bind(options.mode === 'truth' ? { truth: rows.truth, repaint: () => null } : rows)
   const stop = owner.attachPoolWriter(log)
-  return { ...rows, dispose() { stop(); log.dispose(); rows.dispose(); if (paint !== rows) paint.dispose() } }
+  return { ...rows, dispose() { stop(); log.dispose(); rows.dispose() } }
 }

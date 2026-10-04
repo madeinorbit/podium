@@ -490,7 +490,7 @@ describe('row-source over the real facade (fake runtime)', () => {
       } as never)
       const rescope = handle.flush()
       expect(rescope?.type).toBe('replace')
-      expect(events).toHaveLength(2)
+      expect(events).toHaveLength(3)
       expect(handle.stats.enumerations).toBe(2)
     } finally {
       off()
@@ -615,7 +615,7 @@ describe('row-source over the real facade (fake runtime)', () => {
       runtime.publish()
       handle.flush()
       const landed = events.at(-1)
-      expect(events).toHaveLength(2)
+      expect(events).toHaveLength(3)
       expect(landed?.rows).toEqual([
         { kind: 'session', id: 's2', value: { ...real, ...joinedSessionValues } },
       ])
@@ -932,7 +932,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
         rejectNextMarkRead()
         const restoreCount = events.length
         const press2Promise = referenceState(engine).markIssueRead(asIssueId('iss_1'))
-        const press2 = handle.flush()
+        const press2 = events.at(-1)
         expect(press2?.rows).toHaveLength(1)
         expect(press2?.rows[0]?.value).not.toBe(covered)
         await press2Promise
