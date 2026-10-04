@@ -40,18 +40,6 @@
         "actions": {
           "navigate-by-ref": ["elements"]
         }
-      },
-      {
-        "reader": "consumer:navigation.navigate-by-ref/IssueBoard@sessions:guard-root",
-        "actions": {
-          "navigate-by-ref": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:navigation.navigate-by-ref/Reaction@#",
-        "actions": {
-          "navigate-by-ref": ["elements"]
-        }
       }
     ]
   },
@@ -75,10 +63,8 @@
       {
         "reader": "consumer:shell.dock/ComputedValue@#",
         "actions": {
-          "select": ["elements"],
           "stage-change": ["rows", "elements"],
           "pane-switch": ["elements"],
-          "open-menu": ["elements"],
           "navigate-by-ref": ["elements"],
           "heartbeat": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
@@ -143,7 +129,6 @@
         "actions": {
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
-          "navigate-by-ref": ["elements"],
           "heartbeat": ["elements"],
           "machine-flip": ["elements"],
           "lane-change": ["elements"]
@@ -154,7 +139,6 @@
         "actions": {
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
           "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
@@ -352,16 +336,6 @@
         "reader": "consumer:workflows/settings.sessions",
         "actions": {
           "heartbeat": ["elements"]
-        }
-      },
-      {
-        "reader": "Reaction@#",
-        "actions": {
-          "stage-change": ["elements"],
-          "pane-switch": ["elements"],
-          "heartbeat": ["elements"],
-          "machine-flip": ["elements"],
-          "lane-change": ["elements"]
         }
       }
     ]
