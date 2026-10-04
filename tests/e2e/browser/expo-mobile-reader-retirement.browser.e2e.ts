@@ -62,6 +62,17 @@ test('the production phone preserves its pool screens with zero legacy derivatio
     description: 'Accepted phone task details.',
     startNow: false,
   })
+  await rpc(page, 'issues.update', { id: issue.id, patch: { stage: 'in_progress' } })
+  const proposal = await rpc<{ id: string }>(page, 'issues.create', {
+    repoPath,
+    title: 'Phone reader retirement proposal',
+    description: 'Accepted phone proposal summary.',
+    startNow: false,
+  })
+  await rpc(page, 'issues.update', {
+    id: proposal.id,
+    patch: { stage: 'proposed', priority: 0 },
+  })
   const session = await rpc<{ sessionId: string }>(page, 'sessions.create', {
     cwd: repoPath,
     issueId: issue.id,
@@ -124,6 +135,24 @@ test('the production phone preserves its pool screens with zero legacy derivatio
     { timeout: 60_000 },
   )
   await save('tasks')
+  const inProgress = page.getByRole('button', { name: /^In progress, \d+ tasks?$/ })
+  await expect(inProgress).toHaveAttribute('aria-expanded', 'true')
+  await inProgress.click()
+  await expect(inProgress).toHaveAttribute('aria-expanded', 'false')
+  await page.waitForTimeout(2_000)
+  await page.goto(`/mobile/issues?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await expect(inProgress).toHaveAttribute('aria-expanded', 'false', { timeout: 60_000 })
+  await inProgress.click()
+  await expect(inProgress).toHaveAttribute('aria-expanded', 'true')
+  await save('tasks-preferences')
+  await page.goto(`/mobile/screen-proposed?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Phone reader retirement proposal', { exact: true })).toBeVisible({
+    timeout: 60_000,
+  })
+  await expect(page.getByText('Accepted phone proposal summary.', { exact: true })).toBeVisible()
+  for (const name of ['Decline', 'Skip', 'Start'])
+    await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
+  await save('proposal-screening')
   await page.goto(`/mobile/mission/${issue.id}?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
   await expect(page.getByLabel('Mission actions', { exact: true })).toBeVisible({ timeout: 60_000 })
   await expect(
