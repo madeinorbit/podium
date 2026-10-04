@@ -172,4 +172,15 @@ describe('retained input submit recovery', () => {
       expect(await run.delivery).toMatchObject({ outcome: 'accepted', held: 'memory' })
     } finally { await run.close(); vi.useRealTimers() }
   })
+
+  it('does not blindly nudge when the previously visible input box disappears', async () => {
+    vi.useFakeTimers()
+    const run = retainedInput('idle')
+    try {
+      await vi.advanceTimersByTimeAsync(100)
+      run.ports.readInput = async () => undefined
+      await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS * 2)
+      expect(run.writes.filter((write) => write === '\r')).toHaveLength(1)
+    } finally { await run.close(); vi.useRealTimers() }
+  })
 })

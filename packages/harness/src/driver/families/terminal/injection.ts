@@ -479,6 +479,7 @@ export function createTerminalInjection(
 
   type InputSubmission = {
     body: string
+    inputWasKnown: boolean
     startedEmpty: boolean
     generation: number
     foreignWrites: number | undefined
@@ -583,6 +584,9 @@ export function createTerminalInjection(
           ports.write('\r', 'message')
           continue
         }
+        // A box that vanished may be a native dialog. Missing evidence does
+        // not authorize a blind CR after we had an identifiable input box.
+        if (inputSubmission?.inputWasKnown) continue
       }
       // Hosts without input evidence retain their existing idle-only ladder.
       if (nudging) {
@@ -657,6 +661,7 @@ export function createTerminalInjection(
         return { outcome: 'refused', refusal: { reason: 'not_running' } }
       const inputSubmission: InputSubmission = {
         body: payload.body,
+        inputWasKnown: initialInput !== undefined,
         startedEmpty: initialInput === '' && generationBeforeRead === pasteGeneration &&
           foreignWrites === ports.foreignWriteCount?.(),
         foreignWrites,
