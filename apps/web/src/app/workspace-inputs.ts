@@ -32,10 +32,14 @@ export function workspaceSessions(
 ): SessionView[] {
   return [...new Set([...fullIds, ...retainedIds])].flatMap((id) => {
     if (pool.queries.collapsed(id)) return []
-    const summary = pool.row('session', id, 'summary-fields')
-    if (!summary || typeof summary === 'symbol') return []
+    // Known cold tabs still demand their full row before summary fields arrive.
+    // Addressed presence excludes file ids without delaying the load request.
+    const present = fullIds.has(id) ? pool.row('session', id, 'mark') : undefined
+    if (fullIds.has(id) && !present) return []
     const detail = fullIds.has(id) ? pool.row('session', id) : undefined
-    return [(detail && typeof detail !== 'symbol' ? detail : summary) as SessionView]
+    const row =
+      detail && typeof detail !== 'symbol' ? detail : pool.row('session', id, 'summary-fields')
+    return row && typeof row !== 'symbol' ? [row as SessionView] : []
   })
 }
 
