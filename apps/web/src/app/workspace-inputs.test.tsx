@@ -42,7 +42,7 @@ function fixture(size = 128) {
   })
   const rows = Array.from({ length: size }, (_, at) =>
     session(`unvisited-${at}`, {
-      issueId: 'foreign',
+      issueId: 'history-owner',
       status: 'exited',
       archived: true,
       createdAt: '2020-01-01T00:00:00Z',
@@ -51,6 +51,24 @@ function fixture(size = 128) {
       readAt: '2020-01-02T00:00:00Z',
     }),
   )
+  // Expired history has a real expired owner; dangling sessions stay resident.
+  rows.push({
+    kind: 'issue',
+    id: 'history-owner',
+    value: {
+      id: 'history-owner',
+      title: 'Synthetic archived owner',
+      seq: 1,
+      stage: 'done',
+      archived: true,
+      deletedAt: null,
+      createdAt: '2020-01-01T00:00:00Z',
+      updatedAt: '2020-01-01T00:00:00Z',
+      closedAt: '2020-01-01T00:00:00Z',
+      repoPath: '/synthetic',
+      worktreePath: '/synthetic/worktree',
+    },
+  })
   rows.push(session('a'), session('b'), session('foreign-warm', { issueId: 'foreign' }))
   const source = createColdIndex(SCHEMA, SHELL_SUMMARIES)
   source.apply({ type: 'replace', rows })
