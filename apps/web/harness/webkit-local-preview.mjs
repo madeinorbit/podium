@@ -164,20 +164,20 @@ const server = Bun.serve({
           client.data.tick = 0
           client.data.timer = setInterval(() => {
             const tick = ++client.data.tick
-            const id = `synthetic-stream-${tick}`
-            const item = {
-              id,
-              cursor: id,
-              role: 'assistant',
-              text: `Generated tool batch ${tick}: inspecting the next synthetic change.`,
-              ts: new Date((manifest.fixedNow ?? 1789905600000) + tick * 1000).toISOString(),
+              // Update an existing tool result: keep the measured DOM window
+              // stable rather than growing a second, unbounded workload.
+              const existing = transcript.findLast(item => item.role === 'tool')
+              if (!existing) return
+              const item = {
+                ...existing,
+                toolResult: `${existing.toolResult}\nGenerated output tick ${tick}.`,
             }
             client.send(
               JSON.stringify({
                 type: 'transcriptDelta',
                 sessionId: manifest.control,
                 items: [item],
-                tail: id,
+                  tail: transcript.at(-1)?.cursor,
               }),
             )
           }, 1000)
