@@ -104,6 +104,7 @@ async function main() {
   const runtime = withKeyedInputs({
     replica,
     getSnapshot: () => store,
+    pendingOverlaysByRow: () => new Map(),
     subscribe: () => () => {},
   })
   let poolBatches = 0
