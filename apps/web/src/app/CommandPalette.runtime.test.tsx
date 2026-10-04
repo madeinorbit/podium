@@ -108,6 +108,9 @@ it('retains visited summaries, reads no closed changes and refreshes only the ch
 
   await act(async () => { referenceState(runtime).setPaletteOpen(true) })
   expect(await screen.findByRole('combobox')).toBeTruthy()
+  // The default groups cap their rows. A single letter searches local commands
+  // without starting the remote search, and exposes the updated task.
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'U' } })
   expect(screen.getAllByRole('option').some((option) =>
     option.textContent?.includes('Updated parked palette task'),
   )).toBe(true)
