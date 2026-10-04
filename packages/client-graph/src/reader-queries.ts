@@ -3,7 +3,7 @@ import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { createKeyedAnswer, createQueryResult } from './query-result'
 import type { ColdQueries } from './shared/cold-index'
-import { questionEntity, type ReaderQuestion } from './shared/reader-questions'
+import { createReaderIndex, questionEntity, type ReaderQuestion } from './shared/reader-questions'
 import type { ModelSchema } from './shared/schema'
 import { createSessionActivityIndex, type SessionActivityQuestion } from './shared/session-activity'
 import type { RowSourceEvent } from './shared/source'
@@ -34,6 +34,10 @@ export class ReaderQueries {
   private readonly memberListeners = new Map<string, Set<(id: string | undefined) => void>>()
   private sourceSeen: ColdQueries | undefined
   private readonly identities = new Map<string, IdentityResult>()
+  /** Resident edits shadow the source by address. Predicate membership is
+   * maintained at ingestion, never discovered by walking resident history. */
+  private readonly residents = createReaderIndex()
+  private readonly residentIssueIds = new Set<string>()
   private readonly results = new Map<string, ReturnType<typeof createQueryResult<unknown>>>()
   // Only residents unknown to the effective source contribute this correction.
   // Existing question atoms publish changes; these sets add no tracking objects.
@@ -52,11 +56,31 @@ export class ReaderQueries {
     for (const entity of ['issue', 'session'] as const)
       this.stopTables.push(
         observe(pool.tables[entity], (change) => {
+          this.updateResident(entity, change.name)
           this.correctCount(entity, change.name)
           this.updateIdentity(entity, change.name)
           if (entity === 'session') this.updateActivity(change.name)
         }),
       )
+  }
+  private updateResident(entity: 'issue' | 'session', id: string): void {
+    const present = this.pool.tables[entity].has(id)
+    if (entity === 'issue') {
+      if (present) this.residentIssueIds.add(id)
+      else this.residentIssueIds.delete(id)
+    }
+    const row = present ? untracked(() => this.pool.row(entity, id, 'summary-fields')) : undefined
+    this.residents.apply({ type: 'update', rows: [{ kind: entity, id,
+      value: row && row !== LOADING ? row : undefined } as RowSourceEvent['rows'][number]] })
+    // Ranked windows do not have an identity answer to publish a delta through.
+    for (const [key, state] of this.observed) {
+      if (this.identities.has(key) || key.startsWith('activity:') || key.startsWith('count:')) continue
+      const version = state.revision(this.index())
+      if (state.version !== version) {
+        state.version = version
+        state.atom.reportChanged()
+      }
+    }
   }
   /** Maintain numerical maxima as resident slots change. A repository query
    * must not walk every resident session or create dependencies on other roots. */
@@ -97,10 +121,10 @@ export class ReaderQueries {
     )
   }
   private includes(question: ReaderQuestion, id: string): boolean {
-    return (
-      (!this.sourceOnly(question) && this.pool.tables[questionEntity(question)].has(id)) ||
-      this.index().readerContains(question, id)
-    )
+    if (question.kind === 'residentIssues') return this.residentIssueIds.has(id)
+    if (!this.sourceOnly(question) && this.pool.tables[questionEntity(question)].has(id))
+      return this.residents.contains(question, id)
+    return this.index().readerContains(question, id)
   }
   private updateIdentity(entity: 'issue' | 'session', id: string): void {
     for (const [key, result] of this.identities) {
@@ -226,7 +250,8 @@ export class ReaderQueries {
   }
   ids(question: ReaderQuestion): string[] {
     const key = JSON.stringify(question)
-    const index = this.watch(key, (value) => value.readerRevision(question))
+    const index = this.watch(key, (value) => value.readerRevision(question) +
+      (this.sourceOnly(question) ? 0 : this.residents.revision(question)))
     // Ranked windows stay bounded in the source's existing index.
     if (question.kind === 'mobileIssueTargets' || question.kind === 'headerRecentSession') {
       const ids = this.initialIds(question, index)
@@ -252,19 +277,24 @@ export class ReaderQueries {
     // its pending overlays. Adding every resident identity would break the
     // target window or the requested issue/archive/shell roster.
     if (this.sourceOnly(question)) return index.readerIds(question)
-    // Resident identities remain the pool's authority, including pending
-    // edits that have not reached the feed. A query is a candidate set; the
-    // reader checks its current fields through pool.row.
-    const resident = residentIds(this.pool, entity)
-    const coldQuestion =
-      question.kind === 'headerRecentSession'
-        ? { ...question, excluded: [...resident, ...(question.excluded ?? [])] }
-        : question
-    let ids = [...new Set([...resident, ...index.readerIds(coldQuestion)])]
-    if (question.kind === 'headerRecentSession' && question.excluded?.length) {
-      const excluded = new Set(question.excluded)
-      ids = ids.filter((id) => !excluded.has(id))
+    if (question.kind === 'residentIssues') return [...this.residentIssueIds]
+    if (question.kind === 'headerRecentSession') {
+      // Keep both indexed winners: the caller compares current timestamps.
+      // A stale source copy must not hide its cold runner-up.
+      const explicitlyExcluded = question.excluded && 'has' in question.excluded
+        ? question.excluded : new Set(question.excluded)
+      return [...new Set([
+        ...index.readerIds({ ...question, excluded: {
+          has: id => this.residentActivityIds.has(id) || explicitlyExcluded.has(id),
+        } }),
+        ...this.residents.ids(question),
+      ])].sort()
     }
+    const ids = [...new Set([
+      ...index.readerIds(question).filter(id =>
+        !this.pool.tables[entity].has(id) || this.residents.contains(question, id)),
+      ...this.residents.ids(question),
+    ])]
     return entity === 'session' ? ids.sort() : ids
   }
   /** A declared question's demanded row answers, maintained by changed key.
@@ -371,5 +401,7 @@ export class ReaderQueries {
     this.observed.clear()
     this.residentActivity.clear()
     this.residentActivityIds.clear()
+    this.residentIssueIds.clear()
+    this.residents.apply({ type: 'replace', rows: [] })
   }
 }

@@ -28,7 +28,7 @@ export type ReaderQuestion =
         | 'headerSessions'
         | 'headerOccupancy'
     }
-  | { kind: 'headerRecentSession'; excluded?: readonly string[] }
+  | { kind: 'headerRecentSession'; excluded?: readonly string[] | Pick<ReadonlySet<string>, 'has'> }
   | { kind: 'sessionReference'; ref: string }
   | { kind: 'commandIssueSessions'; issueId: string; archived?: boolean; includeShells?: boolean }
   | { kind: 'containingIssues'; cwd: string }
@@ -484,7 +484,8 @@ export function createReaderIndex() {
         case 'headerOccupancy':
           return [...bucket('session:host')]
         case 'headerRecentSession': {
-          const excluded = new Set(question.excluded),
+          const excluded = question.excluded && 'has' in question.excluded
+            ? question.excluded : new Set(question.excluded),
             frontier = recent.length ? [0] : []
           while (frontier.length) {
             frontier.sort((a, b) => (better(recent[a]!, recent[b]!) ? -1 : 1))
