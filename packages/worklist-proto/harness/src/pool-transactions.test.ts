@@ -693,7 +693,7 @@ describe.each([
     })
     const id = ctx.targets.visibleRootId
     const before = tracked(() => planted.pool.issue(id)?.title)
-    await expect(engine.access.updateIssue(asIssueId(id), { title: 'Routed' } as never)).rejects.toThrow('pool')
+    await expect(engine.access.updateIssue(asIssueId(id), { title: 'Routed' } as never)).rejects.toThrow(/pool/i)
     expect(tracked(() => planted.pool.issue(id)?.title)).toBe(before)
     expect(engine.outbox.pending()).toEqual([])
   }, 120_000)

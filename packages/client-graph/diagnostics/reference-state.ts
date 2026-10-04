@@ -5,6 +5,7 @@ import type { PendingRows } from '../src/shared/row-source'
 import { foldRowOverlays } from '@podium/client-core/engine'
 import type { ReplicaRows } from '@podium/client-core/replica'
 import { sessionViews, type SessionView } from '@podium/client-core/session-values'
+import { runInAction } from 'mobx'
 
 export type ReferenceState<T extends import('@podium/client-core/api').PodiumClientApi = import('@podium/client-core/api').PodiumClientApi> = Store<T> & Omit<{ [K in keyof ReplicaRows]: ReplicaRows[K][] }, 'sessions' | 'repos' | 'machines'> & {
   sessions: SessionView[]
@@ -13,6 +14,7 @@ export type ReferenceState<T extends import('@podium/client-core/api').PodiumCli
 }
 /** Test oracle only. Production has no full record state or publication. */
 export function referenceState<T extends import('@podium/client-core/api').PodiumClientApi>(runtime: { readonly access: Store<T>; readonly replica?: ClientRuntime['replica']; readonly principal?: { userId: string } }): ReferenceState<T> {
+  return runInAction(() => {
   const access = runtime.access
   const replica = runtime.replica ?? access.replica
   // Plain component fixtures already supply their reference records.
@@ -43,6 +45,7 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
   const sessions = dedupeSessions(sessionViews(read('sessions'), { userId, userStates: read('sessionUserStates'), repos: replica.rows('repos'), machines: replica.rows('machines'), userStatesLoaded: replica.sessionUserStatesLoaded?.() }))
   const prompts = log?.spawnPrompts ?? new Map<string,string>()
   return { ...access, ...records, sessions, pendingSpawnIds: new Set(prompts.keys()), pendingSpawnPrompts: Object.fromEntries(prompts) } as unknown as ReferenceState<T>
+  })
 }
 
 export function dedupeSessions<T extends SessionMeta>(rows: T[]): T[] {

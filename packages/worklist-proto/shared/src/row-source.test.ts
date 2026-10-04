@@ -8,7 +8,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  * Part A drives a fake runtime against the REAL kernel facade (no engine), so
  * the addressed seam is exercised, not mocked. Part B runs the real
  * `ClientRuntime` for the optimistic markIssueRead → echo → rejection
- * identity chain, which only the true optimism ledger can produce.
+ * identity chain, through the actual pool transaction log and outbox.
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -244,7 +244,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     expect(() => createRowSource(runtime, bare, { mode: 'pooled' })).toThrow(/replica\.row\(\)/)
   })
 
-  it('refuses a mode that is not overlaid or truth', () => {
+  it('refuses a mode that is not pooled or truth', () => {
     const { replica } = fixture()
     expect(() =>
       createRowSource(fakeRuntime(), replica, { mode: undefined as unknown as RowSourceMode }),
@@ -268,7 +268,7 @@ describe('row-source over the real facade (fake runtime)', () => {
           patch('issueProjections', 'i1', { title: 'Local' }),
         ])
         runtime.publish()
-        const press = handle.flush()
+        const press = mode === 'pooled' ? events.at(-1) : handle.flush()
         if (mode === 'pooled') {
           expect(press?.rows).toHaveLength(1)
           expect((press?.rows[0]?.value as { title: string }).title).toBe('Local')
@@ -556,7 +556,7 @@ describe('row-source over the real facade (fake runtime)', () => {
         patch('issueUserStates', 'i1', { readAt: '2026-09-20T12:00:01Z' }),
       ])
       runtime.publish()
-      const press = handle.flush()
+      const press = events.at(-1)
       expect(press?.type).toBe('update')
       expect(press?.rows).toHaveLength(1)
       const pressed = press?.rows[0]?.value as { readAt: unknown }
@@ -571,7 +571,7 @@ describe('row-source over the real facade (fake runtime)', () => {
       // Rejection: the overlay is gone; the row is the replica's object again.
       runtime.setPending('issueUserStates', 'i1', null)
       runtime.publish()
-      const restored = handle.flush()
+      const restored = events.at(-1)
       expect(restored?.rows[0]?.value).toBe(before)
       expect(events).toHaveLength(2)
       // Visits: the pending row on each of three flushes, never the corpus.
@@ -590,6 +590,8 @@ describe('row-source over the real facade (fake runtime)', () => {
     cache.put('session', 's1', existing)
     const runtime = fakeRuntime()
     const handle = createRowSource(runtime, replica, { mode: 'pooled' })
+    const events: RowSourceEvent[] = []
+    const off = handle.source.subscribe(event => events.push(event))
     try {
       const before = handle.source.row?.('session', 's1')
       runtime.setPending('sessions', 's1', [patch('sessions', 's1', { title: 'same' })])
@@ -599,7 +601,7 @@ describe('row-source over the real facade (fake runtime)', () => {
 
       runtime.setPending('sessions', 's2', [insert('sessions', 's2', placeholder)])
       runtime.publish()
-      const inserted = handle.flush()
+      const inserted = events.at(-1)
       expect(inserted?.rows).toEqual([
         { kind: 'session', id: 's2', value: { ...placeholder, ...joinedSessionValues } },
       ])
@@ -611,7 +613,9 @@ describe('row-source over the real facade (fake runtime)', () => {
       runtime.setPending('sessions', 's2', null)
       replica.onKernelEvent(upserted('session', 's2'))
       runtime.publish()
-      const landed = handle.flush()
+      handle.flush()
+      const landed = events.at(-1)
+      expect(events).toHaveLength(2)
       expect(landed?.rows).toEqual([
         { kind: 'session', id: 's2', value: { ...real, ...joinedSessionValues } },
       ])
@@ -619,6 +623,7 @@ describe('row-source over the real facade (fake runtime)', () => {
       expect(handle.source.row?.('session', 's2')).toBe(landed?.rows[0]?.value)
       expect(handle.source.row?.('session', 's1')).toBe(before)
     } finally {
+      off()
       handle.dispose()
     }
   })
@@ -882,7 +887,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
 
         // Press: optimistic paint, no kernel address yet.
         const pressPromise = referenceState(engine).markIssueRead(asIssueId('iss_1'))
-        const press = handle.flush()
+        const press = events.at(-1)
         expect(press?.type).toBe('update')
         expect(press?.rows).toHaveLength(1)
         expect(press?.rows[0]).toMatchObject({ kind: 'issue', id: 'iss_1' })
@@ -1619,11 +1624,10 @@ describe('visited-per-publication fence at 1x and 4x (real runtime)', () => {
             expect(cost.rowsEmitted, `${where}: emitted == addressed rows`).toBe(expected)
           } else if (name === 'optimistic press') {
             if (mode === 'pooled') {
-              // One pending row, visited once per flush, painted once.
-              expect(cost.flushes, `${where}: flushed`).toBeGreaterThan(0)
-              expect(cost.visited, `${where}: visited == flushes x 1 pending row`).toBe(
-                cost.flushes,
-              )
+              // Press, durable adoption and applied hold each repaint the
+              // same row immediately. No lazy runtime fold is scheduled.
+              expect(cost.flushes, `${where}: no lazy flush`).toBe(0)
+              expect(cost.visited, `${where}: one row per log transition`).toBe(3)
               expect(cost.rowsEmitted, `${where}: one paint`).toBe(1)
             } else {
               // Truth never reads the ledger: a press names no row.

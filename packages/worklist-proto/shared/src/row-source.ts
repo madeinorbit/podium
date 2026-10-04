@@ -32,6 +32,8 @@ function followPending(rows: RowSourceRepaint, pending: PooledPending, follow: (
 export function createRowSource(runtime: RowSourceRuntime, replica: RowSourceReplica,
   options: { mode: RowSourceMode; pending?: PooledPending } = { mode: 'truth' },
 ): RowSourceHandle & RowSourceRepaint {
+  if (options.mode !== 'truth' && options.mode !== 'pooled')
+    return createSource(runtime, replica, options as Parameters<typeof createSource>[2])
   const fixture = runtime as FixtureInputs
   if (options.pending) return createSource(runtime, replica, options as Parameters<typeof createSource>[2])
   if (fixture.pending) {
@@ -51,7 +53,10 @@ export function createRowSource(runtime: RowSourceRuntime, replica: RowSourceRep
       ? followPending(rows, log.pending, changed => owner.outbox.subscribe(changed)) : () => {}
     return { ...rows, dispose() { stop(); rows.dispose() } }
   }
-  log.bind(rows)
+  // A truth reader never becomes the writer's paint destination.
+  const paint = options.mode === 'truth'
+    ? createSource(runtime, replica, { mode: 'pooled', pending: log.pending }) : rows
+  log.bind(paint)
   const stop = owner.attachPoolWriter(log)
-  return { ...rows, dispose() { stop(); log.dispose(); rows.dispose() } }
+  return { ...rows, dispose() { stop(); log.dispose(); rows.dispose(); if (paint !== rows) paint.dispose() } }
 }
