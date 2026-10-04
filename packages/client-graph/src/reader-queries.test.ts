@@ -49,7 +49,7 @@ it('keeps spawn placement in its declared source subset across reassignment, rea
   const source = createColdIndex(SCHEMA)
   source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    cold: () => source, schedule: () => () => {},
+    cold: () => source, load: () => undefined, schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows: [...rows, issue('resident-only')] })
   const query = { kind: 'spawnIssues', repoId: 'wanted', repoPath: '/wanted' } as const
