@@ -6,6 +6,7 @@ import { arch, cpus, hostname, loadavg, platform } from 'node:os'
 import { extname, resolve } from 'node:path'
 import { type Browser, chromium, type Page } from '@playwright/test'
 import { paintOf, traceStart } from './browser-paint'
+import { promoteSpeedBaseline } from './speed-baseline'
 import {
   assertSpeedSwitches,
   parseSpeedSwitches,
@@ -176,16 +177,7 @@ async function main() {
       throw new Error('Commit the product change before capturing the run to promote')
     await writeFile(
       baselinePath,
-      JSON.stringify(
-        {
-          ...baseline,
-          sourceSha: report.sourceSha,
-          actions: report.actions,
-          targets: report.targets,
-        },
-        null,
-        2,
-      ) + '\n',
+      JSON.stringify(promoteSpeedBaseline(baseline!, report), null, 2) + '\n',
     )
     console.log(
       `Landed numbers promoted from ${report.sourceSha}; commit ${baselinePath}. No browser rerun.`,
