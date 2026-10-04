@@ -1,4 +1,4 @@
-import { type SessionId } from '@podium/model/browser'
+import type { SessionId } from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { computeWarmSet, updateRecency } from './warm-set'
 
@@ -32,9 +32,10 @@ function useResidencyBudget(): number {
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
     const query = window.matchMedia(MOBILE_QUERY)
-    const onChange = (): void => setBudget(
-      query.matches ? HEAVY_PANEL_RESIDENCY_BUDGET.mobile : HEAVY_PANEL_RESIDENCY_BUDGET.desktop,
-    )
+    const onChange = (): void =>
+      setBudget(
+        query.matches ? HEAVY_PANEL_RESIDENCY_BUDGET.mobile : HEAVY_PANEL_RESIDENCY_BUDGET.desktop,
+      )
     onChange()
     if (typeof query.addEventListener === 'function') {
       query.addEventListener('change', onChange)
@@ -64,6 +65,7 @@ export function useWarmSet(
   const budget = useResidencyBudget()
   // Recompute whenever the active pane(s) or the open-session set changes.
   const key = `${activeIds.join(',')}|${allSessionIds.join(',')}`
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the key compares identity lists by value; their array instances change on every render.
   useEffect(() => {
     recency.current = updateRecency(recency.current, activeIds, allSessionIds)
     setWarm(computeWarmSet(recency.current, activeIds, budget))

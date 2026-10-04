@@ -48,7 +48,8 @@ export function readOrphanWorkspaceSession(
 ): SessionView | null {
   if (!selectedWorktree) return null
   const ids = pool.queries.ids({ kind: 'shellSessions' }).sort((a, b) => {
-    const left = pool.queries.orderKey(a), right = pool.queries.orderKey(b)
+    const left = pool.queries.orderKey(a),
+      right = pool.queries.orderKey(b)
     return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
   })
   return orphanSessionFor({
@@ -67,9 +68,12 @@ export function useOrphanWorkspaceSession(selectedWorktree: string | null, paneA
 }
 
 export function pendingWorkspaceIssueHasSession(pool: MobxPool, issueId: string): boolean {
-  return issueId !== '' && pool.queries
-    .ids({ kind: 'commandIssueSessions', issueId, includeShells: true })
-    .some((id) => !pool.queries.collapsed(id))
+  return (
+    issueId !== '' &&
+    pool.queries
+      .ids({ kind: 'commandIssueSessions', issueId, includeShells: true })
+      .some((id) => !pool.queries.collapsed(id))
+  )
 }
 
 export function useWorkspaceInputs(retainedIds: readonly string[] = [], pendingIssueId = '') {

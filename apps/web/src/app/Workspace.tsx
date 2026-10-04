@@ -1094,7 +1094,10 @@ export function Workspace({
   )
 }
 
-function OrphanWorkspace({ selectedWorktree, paneA }: {
+function OrphanWorkspace({
+  selectedWorktree,
+  paneA,
+}: {
   selectedWorktree: string | null
   paneA: string | null
 }): JSX.Element {
