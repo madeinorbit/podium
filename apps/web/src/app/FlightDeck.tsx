@@ -43,7 +43,7 @@ import {
   subtreeUnread,
   treeGuides,
   writeFlightDeckFolds,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type {
   MissionHandoffValues,
   MissionRowPresentation,
@@ -129,7 +129,7 @@ import {
   RIGHT_PANEL_KEY,
   readRightPanel,
 } from './shell-state'
-import { useStoreSelector } from './store'
+import { useRuntimeSelector } from './store'
 
 /**
  * TWO QUESTIONS, NOT ONE SLIDER (POD-1452). `Active` sat between `Full spine`
@@ -671,7 +671,7 @@ const CREW_SHOWN = 4
  * tooltip, which is also where an icon dropped by a narrow column survives.
  */
 function CrewCensus({ crew }: { crew: readonly SessionView[] }): JSX.Element {
-  const now = useStoreSelector((store) => store.coarseNow)
+  const now = useRuntimeSelector((store) => store.coarseNow)
   const shown = crew.slice(0, CREW_SHOWN)
   const extra = crew.length - shown.length
   return (
@@ -1058,7 +1058,7 @@ function SessionRow({
   // owning the session, so rename / snooze / hibernate / handoff / archive /
   // kill move to the row that IS the session. Imported, never forked: the
   // sidebar and this column must offer one menu, not two that drift.
-  const renameSession = useStoreSelector((store) => store.renameSession)
+  const renameSession = useRuntimeSelector((store) => store.renameSession)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   const intent = useClickIntent()
@@ -1068,7 +1068,7 @@ function SessionRow({
     !retired && (issue ? sessionAsksOnIssue(issue, session) : sessionNeedsHuman(session))
   const phase = motionPhase(session)
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
-  const now = useStoreSelector((store) => store.coarseNow)
+  const now = useRuntimeSelector((store) => store.coarseNow)
   const stamp = relativeTime(session.lastActiveAt, now)
   const total = session.agentState?.workingMsTotal
   const name = sessionDisplayName(session)
@@ -2994,7 +2994,7 @@ export function FlightDeckContent({
     closeIssue,
     updateIssue,
     trpc,
-  } = useStoreSelector(
+  } = useRuntimeSelector(
     (store) => ({
       selectedIssueId: store.selectedIssueId,
       paneA: store.paneA,

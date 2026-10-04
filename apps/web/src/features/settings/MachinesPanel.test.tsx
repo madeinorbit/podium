@@ -17,7 +17,7 @@ const storeState: { machines: MachineWire[]; trpc: Store['trpc']; setSettingsTab
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => [],
-  useStoreSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
+  useRuntimeSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
 }))
 
 // NetworkStep/RepoScanFlow drag in the whole setup flow; the card/row tests never render them.

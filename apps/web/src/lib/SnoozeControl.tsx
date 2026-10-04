@@ -5,7 +5,7 @@ import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/
 import { AlarmClock, AlarmClockOff } from 'lucide-react'
 import { type JSX, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { MENU_ITEM, MENU_PANEL, MENU_SECTION_LABEL } from './menu-surface'
 import { useNow } from './useNow'
@@ -61,7 +61,7 @@ export function SnoozeControl({
    *  passes false so it reads as a normal, full-strength control. */
   dimmed?: boolean
 }): JSX.Element {
-  const { setSnooze, clearSnooze } = useStoreSelector(
+  const { setSnooze, clearSnooze } = useRuntimeSelector(
     (s) => ({ setSnooze: s.setSnooze, clearSnooze: s.clearSnooze }),
     shallowEqual,
   )

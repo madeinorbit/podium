@@ -60,7 +60,7 @@ describe('hand pool on the native renderer', () => {
       )
       // Windowed: a strict prefix of the visible set, in oracle grouped
       // order (pinned, then each group's open lane and closed fold).
-      const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)).order
+      const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx)).order
       const oracleIds = [
         ...oracle.pinnedIds,
         ...oracle.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),

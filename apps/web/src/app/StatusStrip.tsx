@@ -1,4 +1,4 @@
-import { issueReferenceModel } from '@podium/client-core/viewmodels'
+import { issueReferenceModel } from '@podium/client-core/values'
 import type { IssueId, IssueStage } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'

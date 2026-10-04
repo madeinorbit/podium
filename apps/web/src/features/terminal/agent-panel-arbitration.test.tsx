@@ -135,7 +135,7 @@ vi.mock('@/app/store', () => {
     // before the hook existed. A concrete kind here would change what AgentPanel
     // renders; ChatView also requires this scoped subscription seam.
     useSessionExitKind: () => undefined,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

@@ -55,7 +55,7 @@ const fixture = vi.hoisted(() => {
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => normalizedFixtureIssues({ issues: fixture.issues }),
-  useStoreSelector: (selector: (store: unknown) => unknown) =>
+  useRuntimeSelector: (selector: (store: unknown) => unknown) =>
     selector(
       normalizedFixtureStore({
         uiState: fixture.uiState,

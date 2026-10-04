@@ -152,7 +152,7 @@ vi.mock('@/app/store', () => {
   return {
     useStore,
     useReplicaIssues: () => normalizedFixtureIssues(useStore()),
-    useStoreSelector: (selector: (state: unknown) => unknown) => selector(useStore() as never),
+    useRuntimeSelector: (selector: (state: unknown) => unknown) => selector(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
       def.derive(
         normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),

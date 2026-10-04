@@ -12,7 +12,7 @@ import {
   agentColorHex,
   isSessionWorking,
   sessionIssueLinkage,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 
 import { idleVerdictFinishedTurn, isSnoozed, returnedFromSnooze } from '@podium/model/browser'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
@@ -33,7 +33,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { NotSavedMark } from '@/components/NotSavedMark'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
@@ -169,7 +169,7 @@ export function ResizableColumn({
   className?: string
   children: ReactNode
 }): JSX.Element {
-  const ui = useStoreSelector((s) => s.uiState)
+  const ui = useRuntimeSelector((s) => s.uiState)
   const [width, setWidth] = useState<number>(() => {
     const v = Number(ui.get(storageKey))
     return Number.isFinite(v) && v >= min && v <= max ? v : defaultWidth
@@ -399,7 +399,7 @@ export function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, 
 export function useCollapsedKeys(
   keys: readonly string[],
 ): [ReadonlySet<string>, (key: string) => void] {
-  const ui = useStoreSelector((s) => s.uiState) as RoutedUiState | undefined
+  const ui = useRuntimeSelector((s) => s.uiState) as RoutedUiState | undefined
   const signature = keys.join('\u0000')
   // biome-ignore lint/correctness/useExhaustiveDependencies: the joined
   // signature IS the dependency — `keys` is a fresh array on every render.
@@ -669,8 +669,8 @@ function PanelRowInner({
   /** Pool clock verdicts change only when this session's snooze expires. */
   snoozeState?: { readonly snoozed: boolean; readonly returned: boolean }
 }): JSX.Element {
-  const continueSession = useStoreSelector((s) => s.continueSession)
-  const renameSession = useStoreSelector((s) => s.renameSession)
+  const continueSession = useRuntimeSelector((s) => s.continueSession)
+  const renameSession = useRuntimeSelector((s) => s.renameSession)
   const { guardedEnd } = useSessionGuard(session.sessionId, guardWorking, [session])
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
@@ -696,7 +696,7 @@ function PanelRowInner({
   // second-hand never re-renders the whole sidebar.
   // Pool rows observe their deadline, rather than every clock publication.
   // The legacy path keeps the same shared clock and snooze predicates.
-  const now = useStoreSelector((s) => (snoozeState === undefined ? s.coarseNow : 0))
+  const now = useRuntimeSelector((s) => (snoozeState === undefined ? s.coarseNow : 0))
   const snoozed = snoozeState?.snoozed ?? isSnoozed(session, now)
   // A timed snooze that has lapsed but isn't cleared yet → the session just came
   // back into the queue; mark it (compareRecency already lifts it by its deadline).

@@ -1,4 +1,4 @@
-import type { RenderableRow } from '@podium/client-core/viewmodels'
+import type { RenderableRow } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'

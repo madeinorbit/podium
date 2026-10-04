@@ -1,7 +1,7 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { allIssueViewModels, createReplica } from '@podium/client-core/replica'
-import { optimisticDraftIssue } from '@podium/client-core/viewmodels'
+import { optimisticDraftIssue } from '@podium/client-core/values'
 import {
   asIssueId,
   asSessionId,

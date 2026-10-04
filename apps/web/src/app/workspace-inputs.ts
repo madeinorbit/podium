@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { allTabIds } from '@podium/client-core/viewmodels'
+import { allTabIds } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { useCallback } from 'react'
 import { useRuntimeActions, useRuntimeList, useRuntimeLocal } from './keyed-runtime'

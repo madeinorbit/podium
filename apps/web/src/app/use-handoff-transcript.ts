@@ -5,7 +5,7 @@ import {
   parseEnvelopeBatch,
   selectLatestPromptSession,
   type HandoffTranscriptPair,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model/browser'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Trpc } from './trpc'
@@ -42,7 +42,7 @@ export function useHandoffTranscript(
   active: boolean,
   missionSessions: readonly SessionView[],
 ): HandoffTranscriptState & { retry: () => void } {
-  const { trpc, replica } = useStoreHandle<Trpc>().getSnapshot()
+  const { trpc, replica } = useStoreHandle<Trpc>().access
   const session = useMemo(
     () => (active ? selectLatestPromptSession(missionSessions) : null),
     [active, missionSessions],

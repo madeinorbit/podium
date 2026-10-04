@@ -64,7 +64,7 @@ function settle(pool: HandPool): number {
 /** The settled snapshot against the oracle and the rebuild (no exception). */
 function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: string): void {
   const snapshot = handle.snapshot()
-  const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+  const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
 }

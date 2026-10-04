@@ -393,7 +393,7 @@ describe('sidebar readiness', () => {
       const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
       const hydrate = vi.spyOn(handle.pool, 'hydrate')
       try {
-        const store = ctx.engine.getSnapshot()
+        const store = ctx.engine.access
         const state: SidebarState = {
           pinnedRepos: store.pins.repos,
           pinnedWorktrees: store.pins.worktrees,
@@ -442,7 +442,7 @@ describe('sidebar differential replay', () => {
         const check = (scenario: string): void => {
           feeds.flush()
           settle(handle.pool)
-          const store = ctx.engine.getSnapshot()
+          const store = ctx.engine.access
           const state: SidebarState = {
             pinnedRepos: store.pins.repos,
             pinnedWorktrees: store.pins.worktrees,
@@ -539,7 +539,7 @@ describe('sidebar differential replay', () => {
           }
           locals.flush()
           settle(handle.pool)
-          const store = run.ctx.engine.getSnapshot()
+          const store = run.ctx.engine.access
           const keys = tracked(() => handle.pool.groups.keys)
           const state: SidebarState = {
             pinnedRepos: store.pins.repos,

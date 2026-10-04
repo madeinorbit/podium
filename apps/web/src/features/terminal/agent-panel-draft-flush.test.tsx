@@ -126,7 +126,7 @@ vi.mock('@/app/store', () => {
     // `undefined` = no exit state. The draft flush is a property of a LIVE
     // session, and ChatView requires this scoped subscription seam.
     useSessionExitKind: () => undefined,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

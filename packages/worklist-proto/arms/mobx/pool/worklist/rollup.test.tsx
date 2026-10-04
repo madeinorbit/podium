@@ -139,7 +139,7 @@ function checkParity(
   at: string,
 ): string | null {
   const snapshot = handle.snapshot()
-  const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+  const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
   return null
@@ -345,7 +345,7 @@ async function familyRig(eagerRollups = false) {
   /** The formal children (inside a tracked read). */
   const children = (id: string): string[] => [...pool.relations.many('issue', id, 'children')]
   const oracle = (id: string): RowView =>
-    rowViewsFromStore(ctx.engine.getSnapshot(), { ...parityLocals(ctx), selectedIssueId: null })[
+    rowViewsFromStore(ctx.engine.access, { ...parityLocals(ctx), selectedIssueId: null })[
       id
     ] as RowView
   /** Draw a row: keep its view observed, as a mounted row does. */
@@ -807,7 +807,7 @@ describe('row roll-ups (Mb3)', () => {
         windows += 1
       }
       const landed = tracked(() => rowViewOf(pool.issue(id))!)
-      const oracle = rowViewsFromStore(ctx.engine.getSnapshot(), {
+      const oracle = rowViewsFromStore(ctx.engine.access, {
         ...parityLocals(ctx),
         selectedIssueId: null,
       })[id] as RowView

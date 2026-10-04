@@ -71,7 +71,7 @@ const store = {
   },
 }
 
-export function useStoreSelector<T>(selector: Selector<T>): T {
+export function useRuntimeSelector<T>(selector: Selector<T>): T {
   return selector(store)
 }
 

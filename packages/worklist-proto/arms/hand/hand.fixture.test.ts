@@ -24,12 +24,12 @@ it.fails('fixture corpus at 1x: parity with the legacy oracle, rebuild oracle gr
     const source = createRowSource(boot.engine, boot.replica, { mode: 'overlaid' })
     const locals = {
       selectedIssueId: null as string | null,
-      coarseNow: boot.engine.getSnapshot().coarseNow,
+      coarseNow: boot.engine.access.coarseNow,
     }
     const handle = handArm.create(source.source, fixedLocals(locals).source)
     const store = (handle as unknown as { store: HandStore }).store
     const mine = handle.snapshot()
-    const expected = snapshotFromStore(boot.engine.getSnapshot(), locals)
+    const expected = snapshotFromStore(boot.engine.access, locals)
     expect(Object.keys(mine.rowsById).length).toBeGreaterThan(0)
     expect(mine).toEqual(expected)
     const rebuilt = rebuildFromScratch({

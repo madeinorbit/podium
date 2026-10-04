@@ -9,7 +9,7 @@ import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
 /** The server the page talks to — same origin as the page unless a test says otherwise. */
 let httpOrigin = ''
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (sel: (s: unknown) => unknown) => sel({ httpOrigin }),
+  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel({ httpOrigin }),
 }))
 
 const toastInfo = vi.fn()

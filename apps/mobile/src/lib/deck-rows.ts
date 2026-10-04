@@ -2,7 +2,7 @@ import {
   type FlightDeckFoldMap,
   type FlightDeckRow,
   flightDeckRowIsFolded,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { BAND_H, PROPOSED_H, STRIP_H } from '../components/spine'
 import { space } from '../theme/theme'
 

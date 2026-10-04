@@ -3,7 +3,7 @@ import {
   type IssueNavigationModel,
   partitionStaleSessions,
   type UnifiedWorkRow,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, ReactNode } from 'react'

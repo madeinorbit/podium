@@ -62,8 +62,8 @@ root.render(
         issueEvents: { lastEventId: 9, seenAt: '2026-10-02T00:00:00Z' },
       })
       const stop = attachWorklistPool(owner, (error) => errors.push(error.message))
-      void owner.getSnapshot().refreshSuperThreads()
-      void owner.getSnapshot().refreshRepos()
+      void owner.access.refreshSuperThreads()
+      void owner.access.refreshRepos()
       return stop
     }}
   >
@@ -115,11 +115,11 @@ const driver = {
       commits,
       failures: errors.length,
       actions: data.actions,
-      focused: runtime.getSnapshot().paneA,
+      focused: runtime.access.paneA,
     }
   },
   check() {
-    const result = pool ? checkSuperagent(pool, runtime.getSnapshot()) : null
+    const result = pool ? checkSuperagent(pool, runtime.access) : null
     return result
   },
   close: () => root.unmount(),

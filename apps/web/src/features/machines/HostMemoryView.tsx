@@ -4,7 +4,7 @@ import {
   hostMemoryView,
   panelLabel,
   reclaimSpaceLabel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { asIssueId } from '@podium/model'
 import type {
@@ -20,7 +20,7 @@ import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { usePoolSessionLabels } from '@/app/header-data'
-import { useHostMetrics, useStoreSelector } from '@/app/store'
+import { useHostMetrics, useRuntimeSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -176,7 +176,7 @@ function MemoryPanel({
   machineId?: MachineId
 }): JSX.Element {
   const hostMetrics = useHostMetrics()
-  const { trpc, setView, setSettingsTab } = useStoreSelector(
+  const { trpc, setView, setSettingsTab } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       setView: s.setView,
@@ -478,7 +478,7 @@ function LegendSwatch({ className, label }: { className: string; label: string }
  * "held" with the server's reason.
  */
 function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
-  const { trpc } = useStoreSelector((s) => ({ trpc: s.trpc }), shallowEqual)
+  const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
   const lifecycle = useHostLifecycleSettings()
   const { inventory, error: inventoryError } = useReclaimInventory(trpc, machineId)
   const candidates = inventory?.candidates ?? []

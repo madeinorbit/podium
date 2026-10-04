@@ -149,7 +149,7 @@ vi.mock('@/app/store', () => {
   return {
     useStore,
     useReplicaIssues: () => normalizedFixtureIssues(useStore()),
-    useStoreSelector: (selector: (state: unknown) => unknown) => selector(useStore() as never),
+    useRuntimeSelector: (selector: (state: unknown) => unknown) => selector(useStore() as never),
     // POD-331: the worklist is a PUBLISHED slice now, so the component reads it
     // through `useSlice` instead of deriving it locally. These suites assert
     // BEHAVIOUR, not derivation counts, so this derives on every read rather

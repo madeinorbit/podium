@@ -1,4 +1,4 @@
-import { formatClock, resolveToolEdit, toolEditUnifiedDiff } from '@podium/client-core/viewmodels'
+import { formatClock, resolveToolEdit, toolEditUnifiedDiff } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'

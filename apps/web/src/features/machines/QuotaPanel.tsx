@@ -12,7 +12,7 @@ import {
   windowElapsedPercent,
   windowScopeModel,
   windowShortLabel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { QuotaWindowWire } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { JSX } from 'react'

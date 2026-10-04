@@ -8,7 +8,7 @@ import {
 } from '@podium/client-core/replica'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/viewmodels'
+import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/values'
 import { missionView } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -57,7 +57,7 @@ const state = vi.hoisted(() => ({
 }))
 const owner = withKeyedInputs({ getSnapshot: () => state, subscribe: () => () => {} })
 vi.mock('./store', () => ({
-  useStoreSelector: (read: (store: typeof state) => unknown) => read(state),
+  useRuntimeSelector: (read: (store: typeof state) => unknown) => read(state),
   useReplicaIssues: () => {
     throw new Error('Pool pane read legacy issue models')
   },

@@ -7,7 +7,7 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
+import { StoreProvider, useStoreHandle, useRuntimeSelector } from '@podium/client-core/react'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -127,7 +127,7 @@ const assembly = await assemble('acceptance-alice')
 function Fixture() {
   const runtime = useStoreHandle() as ClientRuntime
   const pool = useWorklistPool()
-  const selected = useStoreSelector((s) => s.selectedIssueId)
+  const selected = useRuntimeSelector((s) => s.selectedIssueId)
   owner = runtime
   graph = pool
   useEffect(() => {

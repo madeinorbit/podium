@@ -1,5 +1,5 @@
 import { observer } from '@podium/client-graph/react'
-import { allTabIds, emptyWorkspace, focusedPane } from '@podium/client-core/viewmodels'
+import { allTabIds, emptyWorkspace, focusedPane } from '@podium/client-core/values'
 import { useEffect } from 'react'
 import { installDesktopMenuHooks } from './desktop-menu'
 import { useShellActions, useShellClose } from './shell-data'

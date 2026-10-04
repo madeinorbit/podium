@@ -14,7 +14,7 @@
  * WHAT IS NOT LOST: the two-line preview is a preview — clicking an item opens
  * that frame's full markdown, refs and code live.
  */
-import { envelopePrincipal, type ParsedEnvelope } from '@podium/client-core/viewmodels'
+import { envelopePrincipal, type ParsedEnvelope } from '@podium/client-core/values'
 import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useMemo, useState } from 'react'

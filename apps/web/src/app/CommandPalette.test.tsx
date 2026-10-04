@@ -70,7 +70,7 @@ vi.mock('./store', async () => {
     ...actual,
     useReplicaIssues: () => fixture.issues,
     useSlice: () => ({ sections: { pinnedWorktrees: [], pinnedRepos: [], repos: [] } }),
-    useStoreSelector: (selector: (store: unknown) => unknown) =>
+    useRuntimeSelector: (selector: (store: unknown) => unknown) =>
       selector({ ...fixture.store, sessions: fixture.sessions, paneA: fixture.paneA }),
   }
 })

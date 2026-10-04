@@ -1,4 +1,4 @@
-import { blockMatches, searchBlocks, shouldPinOnReset } from '@podium/client-core/viewmodels'
+import { blockMatches, searchBlocks, shouldPinOnReset } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {

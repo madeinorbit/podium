@@ -6,7 +6,7 @@ import {
   motionPhase,
   type ProposalPlacement,
   sessionNeedsHuman,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   type IssueId,
   type IssueStage,
@@ -31,7 +31,7 @@ import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { usePoolMachines } from '@/app/header-data'
 import type { IssueViewModel } from '@/app/store'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -245,7 +245,7 @@ export function IssueSessionRow({
   session: SessionView
   onOpen: () => void
 }): JSX.Element {
-  const renameSession = useStoreSelector((s) => s.renameSession)
+  const renameSession = useRuntimeSelector((s) => s.renameSession)
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   const retired = session.archived || session.status === 'exited'
@@ -342,7 +342,7 @@ export function IssueSessionRow({
  * session that asked (see {@link IssueSessionRow}), inside the scroll.
  */
 export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Element | null {
-  const { trpc } = useStoreSelector((s) => ({ trpc: s.trpc }), shallowEqual)
+  const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
   const sessions = useIssuePageSessions()
   const active = issueSessions(issue, sessions).filter(isOpenSession)
   if (!issueNeedsHuman(issue, active)) return null
@@ -506,7 +506,7 @@ export function IssueCompactControls({
   // NAVIGATION, so it left the action row entirely: it is now a named link in
   // the panel's head (`InspectHead`), above the title, where the trail and the
   // other "where am I" chrome lives.
-  const { trpc, updateIssue, closeIssue } = useStoreSelector(
+  const { trpc, updateIssue, closeIssue } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       updateIssue: s.updateIssue,

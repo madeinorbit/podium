@@ -11,7 +11,7 @@
  * loaded-but-empty, one sparse pool, and several pools with real spread.
  */
 
-import { quotaLedger } from '@podium/client-core/viewmodels'
+import { quotaLedger } from '@podium/client-core/values'
 import type { QuotaWindowHistoryWire } from '@podium/model'
 import type { JSX } from 'react'
 import { createRoot } from 'react-dom/client'

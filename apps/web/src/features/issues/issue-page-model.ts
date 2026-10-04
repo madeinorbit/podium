@@ -12,13 +12,13 @@ import {
   type ActivityItem,
   buildActivityFeed,
   type IssueEvent,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Store } from '@/app/store'
-import { type IssueViewModel, useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import { issueNeighbors } from './issue-page'
@@ -92,7 +92,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     undeferIssue,
     setIssueLabels,
     restoreIssue,
-  } = useStoreSelector(
+  } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       sessions: pooled.sessions,

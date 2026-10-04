@@ -153,7 +153,7 @@ export interface NoopFrozen {
 
 /** POD-4747: the floor's rows, from the oracle over `boot`'s store (at page boot, untimed). */
 export function noopFrozenRows(boot: ScenarioEngine): NoopFrozen {
-  const store = boot.engine.getSnapshot()
+  const store = boot.engine.access
   const snapshot: SliceSnapshot = oracleSnapshot(store)
   const views = rowViewsFromStore(store, localsOfEngine(boot.engine))
   const ordered = [...snapshot.order.pinnedIds, ...snapshot.order.groups.flatMap((g) => g.rowIds)]

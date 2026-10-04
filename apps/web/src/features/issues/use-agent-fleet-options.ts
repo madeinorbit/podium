@@ -17,7 +17,7 @@
  * status per harness. Gating is UX only; the Authority re-authorizes at apply
  * (ADR 3 D8).
  */
-import { type RepoView, reposToViews } from '@podium/client-core/viewmodels'
+import { type RepoView, reposToViews } from '@podium/client-core/values'
 import { machinesForRepoOrClone } from '@podium/model/browser'
 import { useMemo } from 'react'
 import { useRuntimeList } from '@/app/keyed-runtime'

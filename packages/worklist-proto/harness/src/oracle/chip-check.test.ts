@@ -1,5 +1,5 @@
 import { allIssueViewModels } from '@podium/client-core/replica'
-import { canonicalIssueRef } from '@podium/client-core/viewmodels'
+import { canonicalIssueRef } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { describe, expect, it } from 'vitest'
@@ -17,7 +17,7 @@ describe('chip differential replay', () => {
       const ctx = await startScenarioEngine(scale)
       const feeds = openFenceFeeds(ctx, 'overlaid')
       const fixtureIssues = () => {
-        const state = ctx.engine.getSnapshot()
+        const state = ctx.engine.access
         return allIssueViewModels(ctx.replica, state.issueProjections, state.issueUserStates)
       }
       const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)

@@ -1,4 +1,4 @@
-import { taskCostRows } from '@podium/client-core/viewmodels'
+import { taskCostRows } from '@podium/client-core/values'
 import type { CostModelTotalWire, TaskCostRowWire } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'

@@ -10,7 +10,7 @@
 // The region has TWO shapes and only one of them at a time — quiet ticks while
 // the mission is still being worked, one promoted destination once the root
 // itself has been vacated — and it must never draw the same destination twice.
-import type { IssueContinuation, MissionDeparture } from '@podium/client-core/viewmodels'
+import type { IssueContinuation, MissionDeparture } from '@podium/client-core/values'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'

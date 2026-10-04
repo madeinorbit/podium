@@ -585,7 +585,7 @@ async function activityDiffs(arm: CheckableArm): Promise<{ rows: number; diffs: 
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessHandPoolHandle
   try {
-    const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+    const expected = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
     const ids = Object.keys(expected)
     for (const id of ids) handle.pool.resident('issue', id)
     snapshotPool(handle.pool)
@@ -650,7 +650,7 @@ describe('row fields against the oracle', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
-      const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      const expected = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
       const ids = Object.keys(expected)
       expect(ids.length).toBeGreaterThan(100)
       // Visible closed rows (the grace window, the fold) are cold: a reader
@@ -725,7 +725,7 @@ function orderChecked(): ((ctx: ScenarioEngine) => CheckableArm) & { compared: n
         snapshot() {
           const settled = handle.snapshot()
           const coarseNow = parityLocals(ctx).coarseNow
-          const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), coarseNow)
+          const derivation = legacyDerivationFromStore(ctx.engine.access, coarseNow)
           const expected: string[] = visibleIssueRows(derivation, parityLocals(ctx)).map(
             (row) => row.issue.id,
           )

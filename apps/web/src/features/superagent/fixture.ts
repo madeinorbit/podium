@@ -1,6 +1,6 @@
 /** Synthetic metadata for the real StoreProvider. No backend or operator rows. */
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { SuperThreadView } from '@podium/client-core/viewmodels'
+import type { SuperThreadView } from '@podium/client-core/values'
 import { asSessionId, issueEventRowId } from '@podium/model'
 import { createHeaderFixture } from '../../../test/header-fixture'
 
@@ -41,7 +41,7 @@ export function createSuperagentFixture(issues = 32, sessions = 32) {
   return { ...base, get replica() { return base.replica }, actions, get threads() { return threads },
     async updateThread(runtime: ClientRuntime, running: boolean) {
       threads = threads.map(row => row.id === 'global' ? { ...row, turnRunning: running } : row)
-      await runtime.getSnapshot().refreshSuperThreads()
+      await runtime.access.refreshSuperThreads()
     },
   }
 }

@@ -1,4 +1,4 @@
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowUpFromLine } from 'lucide-react'
 import type { JSX } from 'react'

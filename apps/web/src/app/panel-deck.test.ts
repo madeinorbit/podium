@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { SplitNode, WorkspaceLayout } from '@podium/client-core/viewmodels'
+import type { SplitNode, WorkspaceLayout } from '@podium/client-core/values'
 
 import { describe, expect, it } from 'vitest'
 import {

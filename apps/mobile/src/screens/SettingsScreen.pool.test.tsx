@@ -163,7 +163,7 @@ async function mount() {
     () => {
       expect(rowValue(view.container, 'Tasks')).toBe('8')
       expect(rowValue(view.container, 'Sessions')).toBe(
-        String(runtime.getSnapshot().sessions.length),
+        String(runtime.access.sessions.length),
       )
     },
     { timeout: 5000 },
@@ -200,7 +200,7 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
     enabled.data.activity(1)
     enabled.data.publishMachines()
     enabled.data.publishMetrics(2)
-    const machines = enabled.runtime.getSnapshot().machines
+    const machines = enabled.runtime.access.machines
     const hub = enabled.runtime.hub as unknown as { emit: (kind: string, rows: unknown) => void }
     hub.emit(
       'machines',

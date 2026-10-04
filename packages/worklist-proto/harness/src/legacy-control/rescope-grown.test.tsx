@@ -79,13 +79,13 @@ async function grownControlPage(heal: boolean): Promise<{
     // The page's untimed heal: a fresh store snapshot with no row changes,
     // then settled (the healing re-render lands here, untimed).
     await act(async () => {
-      await ctx.engine.getSnapshot().refreshRepos()
+      await ctx.engine.access.refreshRepos()
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()
     })
   }
   const snapshot = handle.snapshot()
-  const oracle = oracleSnapshot(ctx.engine.getSnapshot())
+  const oracle = oracleSnapshot(ctx.engine.access)
   const truth = expectedSnapshot(grown.corpus, {
     selectedIssueId: null,
     coarseNow: grown.corpus.fixedNow,
@@ -120,7 +120,7 @@ describe('control rescope grown state (POD-4715)', () => {
       stageRows(pristine, grown.rows)
       fireRescope(pristine, 2)
       await new Promise((resolve) => setTimeout(resolve, pristine.settleMs))
-      const pristineOracle = oracleSnapshot(pristine.engine.getSnapshot())
+      const pristineOracle = oracleSnapshot(pristine.engine.access)
 
       const armRows = Object.keys(page.snapshot.rowsById).length
       const oracleRows = Object.keys(page.oracle.rowsById).length

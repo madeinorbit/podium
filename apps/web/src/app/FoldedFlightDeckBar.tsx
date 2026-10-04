@@ -2,7 +2,7 @@ import {
   type MissionProgress,
   missionCrewLabel,
   type selectedMissionRoot,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { IssueColorSlot } from '@podium/model/browser'
 import { ChevronRight, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'

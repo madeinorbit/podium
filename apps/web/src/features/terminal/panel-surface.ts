@@ -38,7 +38,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import type { PanelMode } from '@podium/client-core/ui-state'
-import type { TerminalOutlook } from '@podium/client-core/viewmodels'
+import type { TerminalOutlook } from '@podium/client-core/values'
 import { isMachineOfflineForLiveTerminal } from '@podium/model'
 import type { MachineWire, SessionStatus } from '@podium/model/browser'
 

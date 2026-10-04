@@ -393,7 +393,7 @@ describe('inventory checks', () => {
         'export {',
         '  mergeOptimistic,',
         '  type OptimisticSpawnArgs,',
-        "} from '@podium/client-core/viewmodels'",
+        "} from '@podium/client-core/values'",
       ].join('\n'),
     })
     const sites = CHECKS.find((c) => c.id === 'reexport-shims')?.collect(ctx) ?? []
@@ -1334,7 +1334,7 @@ describe('reexport-shims: the anchor behind its ZERO_BY_DESIGN exemption', () =>
     const hybrid = check?.collect(
       ctxOf({
         'apps/web/src/lib/derive.ts':
-          "export * from '@podium/client-core/viewmodels'\nexport function f() { return 1 }",
+          "export * from '@podium/client-core/values'\nexport function f() { return 1 }",
       }),
     )
     expect(hybrid).toHaveLength(1)

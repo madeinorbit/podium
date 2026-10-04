@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { discoveredPlacement } from '@podium/client-core/viewmodels'
+import { discoveredPlacement } from '@podium/client-core/values'
 import { chatIssue } from '@podium/client-graph/chat-context'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { WorkIssueMenuTarget } from './work-menu'

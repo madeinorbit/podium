@@ -88,7 +88,7 @@ export function bootWritablePage(variant: WriteVariant, scriptAt: number): void 
       try {
         titles = pendingTitleEditsOn(
           probe.source.snapshot('issue'),
-          oracleSnapshot(over.engine.getSnapshot()).order,
+          oracleSnapshot(over.engine.access).order,
           (id) => rules.openRootWithChildren(id),
           firstWindowRows(),
           Date.now(),

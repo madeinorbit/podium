@@ -1,7 +1,7 @@
 import type {
   PendingInteractionAction,
   PendingInteractionCard,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { SessionId } from '@podium/model'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'

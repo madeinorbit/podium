@@ -4,7 +4,7 @@ import type { Store } from '@podium/client-core/engine'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import type { FlightDeckMode } from '@podium/client-core/viewmodels'
+import type { FlightDeckMode } from '@podium/client-core/values'
 import type { MissionViewValues } from '@podium/client-graph/mission-view'
 import {
   EMPTY_MOBILE_MISSION,
@@ -73,33 +73,33 @@ export type StoreActions = ReturnType<typeof pickActions>
 
 export function useStoreActions(): StoreActions {
   const owner = useStoreHandle<MobileTrpc>()
-  return useMemo(() => pickActions(owner.getSnapshot()), [owner])
+  return useMemo(() => pickActions(owner.access), [owner])
 }
 
 /** The existing replica handle, acquired without a snapshot subscription. */
 export function useReplica(): MobileStore['replica'] {
-  return useStoreHandle<MobileTrpc>().getSnapshot().replica
+  return useStoreHandle<MobileTrpc>().access.replica
 }
 
 /** The server this app is talking to, e.g. `http://ludovico:18787`. */
 export function useHttpOrigin(): string {
-  return useStoreHandle<MobileTrpc>().getSnapshot().httpOrigin
+  return useStoreHandle<MobileTrpc>().access.httpOrigin
 }
 
 export function useTrpc(): MobileTrpc {
-  return useStoreHandle<MobileTrpc>().getSnapshot().trpc
+  return useStoreHandle<MobileTrpc>().access.trpc
 }
 
 /** The app-wide transport hub; terminal views share it instead of opening a
  *  second socket. */
 export function useHub(): SocketHub {
-  return useStoreHandle<MobileTrpc>().getSnapshot().hub
+  return useStoreHandle<MobileTrpc>().access.hub
 }
 
 /** ONE UI persistence mechanism: the replica's per-principal ui-state
  *  collection. No screen writes raw AsyncStorage (doc §3.3 / POD-329). */
 export function useUiState(): RoutedUiState {
-  return useStoreHandle<MobileTrpc>().getSnapshot().uiState
+  return useStoreHandle<MobileTrpc>().access.uiState
 }
 
 function hubIsConnected(hub: SocketHub): boolean {

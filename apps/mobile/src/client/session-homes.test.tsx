@@ -1,5 +1,5 @@
 import { type SessionView, sessionValues, sessionViews } from '@podium/client-core/session-values'
-import { sessionCardModel } from '@podium/client-core/viewmodels'
+import { sessionCardModel } from '@podium/client-core/values'
 import { asMachineId, asRepoId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { act, cleanup, screen } from '@testing-library/react'

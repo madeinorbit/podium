@@ -3,7 +3,7 @@ import {
   flattenRowGroups as coreFlattenRowGroups,
   issueRowsByStage as coreIssueRowsByStage,
   partitionIssueTree as corePartitionIssueTree,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { ISSUE_STAGES, type IssueId, type IssueStage } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { IssuesOrdering } from './issues-display'
@@ -13,14 +13,14 @@ import type { IssuesOrdering } from './issues-display'
  *
  * THE DERIVATION ITSELF NOW LIVES IN CLIENT-CORE (POD-724). `partitionByParent`,
  * `partitionIssueTree`, `issueRowsByStage` and `flattenRowGroups` moved to
- * `@podium/client-core/viewmodels/issue-board-rows` unchanged, because the phone's
+ * `@podium/client-core/values/issue-board-rows` unchanged, because the phone's
  * Tasks tab has to show the same rows in the same order and could not while they
  * were typed over `IssueViewModel`. What stays here is the `IssueViewModel`-shaped
  * façade — same names, same signatures, so no call site or test in this app
  * changed — plus the two derivations that genuinely read desktop-only fields.
  */
 
-export { partitionByParent } from '@podium/client-core/viewmodels'
+export { partitionByParent } from '@podium/client-core/values'
 
 /** An issue reads as an epic when it's typed as one OR it actually has children. */
 export function isEpic(issue: IssueViewModel): boolean {

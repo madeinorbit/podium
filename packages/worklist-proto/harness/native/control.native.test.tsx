@@ -37,7 +37,7 @@ describe('legacy control on the native renderer', () => {
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.getSnapshot().coarseNow,
+      coarseNow: ctx.engine.access.coarseNow,
     }
     const handle = legacyControlArmFor(ctx.engine).create(source.source, fixedLocals(locals).source)
     const mounted = await mountNativeForCounts(handle)
@@ -54,7 +54,7 @@ describe('legacy control on the native renderer', () => {
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       expect(heartbeat.visibleRows).toBeGreaterThan(0)
       expect(heartbeat.parityDiff).toBeNull()
@@ -76,7 +76,7 @@ describe('legacy control on the native renderer', () => {
           await writePhaseChange(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       expect(phase.parity).toBe(true)
       console.info(
@@ -91,7 +91,7 @@ describe('legacy control on the native renderer', () => {
           await writeSelectionClick(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       expect(click.parity).toBe(true)
       console.info(

@@ -1,11 +1,11 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   discoveredPlacement,
   type ProposalPlacement,
   reposToViews,
   spawnIssueAgent,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   DEFER_NEXT_MESSAGE,
   ISSUE_COLOR_HEX,
@@ -145,7 +145,7 @@ export function IssueContextMenu({
     setIssueLabels,
     setIssuePlacement,
     restoreIssue,
-  } = useStoreHandle<Trpc>().getSnapshot()
+  } = useStoreHandle<Trpc>().access
   const { sessions, repos, machines } = poolInputs
   const handoffEnabled = useFeature('session-handoff')
   // The app-wide dialog, replacing two raw `window.confirm` calls (POD-1077).

@@ -1,6 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
-import { readSharedIssuesDisplay, writeSharedIssuesDisplay } from '@podium/client-core/viewmodels'
+import { readSharedIssuesDisplay, writeSharedIssuesDisplay } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
 import { makeIssue as issue } from '@/lib/test-issue'

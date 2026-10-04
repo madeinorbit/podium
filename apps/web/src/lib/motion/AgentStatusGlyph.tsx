@@ -13,7 +13,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * glyph must never pick up the issue colour. Corner badges on ID squares/rails
  * remain StatusBadge's job.
  */
-import { motionPhase } from '@podium/client-core/viewmodels'
+import { motionPhase } from '@podium/client-core/values'
 
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'

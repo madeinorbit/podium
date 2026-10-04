@@ -9,7 +9,7 @@ import {
   panelLabel,
   resumeCommand,
   sessionWaking,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { isSnoozed } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'

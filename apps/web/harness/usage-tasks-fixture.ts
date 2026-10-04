@@ -8,7 +8,7 @@
  * fine in a harness and arrives with three rows of identical length.
  */
 
-import { modelTotalCostUsd } from '@podium/client-core/viewmodels'
+import { modelTotalCostUsd } from '@podium/client-core/values'
 import type { CostModelTotalWire, TaskCostRowWire } from '@podium/model'
 
 /** A cache-heavy agent hour, in the proportions the sheet's own composition

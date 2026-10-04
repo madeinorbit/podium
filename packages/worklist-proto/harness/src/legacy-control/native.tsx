@@ -14,7 +14,7 @@ import {
   createSlicePublisher,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { SessionMeta } from '@podium/model'
 import { asIssueId } from '@podium/model'
 import type { ReactElement } from 'react'
@@ -60,16 +60,16 @@ export function LegacyControlNativeList({
   engine: LegacyControlEngine
   sliceDef: ControlSliceDef
 }): ReactElement {
-  const publisher = useMemo(() => createSlicePublisher(() => engine.getSnapshot()), [engine])
+  const publisher = useMemo(() => createSlicePublisher(() => engine.access), [engine])
   const slice = useSyncExternalStore(
     (listener) => engine.subscribe(listener),
     () => publisher.read(sliceDef),
   )
-  const store = engine.getSnapshot()
+  const store = engine.access
   const issues = store.issueProjections
   const sessions = store.sessions as readonly SessionMeta[]
   const select = (id: string): void => {
-    engine.getSnapshot().setSelectedIssueId(asIssueId(id))
+    engine.access.setSelectedIssueId(asIssueId(id))
   }
   const rows: UnifiedWorkRow[] = [
     ...slice.pinned,

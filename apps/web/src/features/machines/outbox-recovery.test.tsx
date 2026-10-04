@@ -49,7 +49,7 @@ const storeState = () => ({
 })
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (s: unknown) => unknown) => select(storeState()),
+  useRuntimeSelector: (select: (s: unknown) => unknown) => select(storeState()),
 }))
 // The card reads its recovery actions through the store handle; the indicator's
 // legacy reader records its work against the same owner.

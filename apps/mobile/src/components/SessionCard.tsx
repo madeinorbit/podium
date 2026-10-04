@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { agentColorHex, type DotTone, type SessionCardModel } from '@podium/client-core/viewmodels'
+import { agentColorHex, type DotTone, type SessionCardModel } from '@podium/client-core/values'
 import type { SessionMeta } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { flow, issueColorHex } from '../theme/issueColors'

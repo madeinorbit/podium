@@ -72,7 +72,7 @@ vi.mock('@/app/store', () => {
   }
   return {
     useStore: () => state,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(state as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state as never),
   }
 })
 

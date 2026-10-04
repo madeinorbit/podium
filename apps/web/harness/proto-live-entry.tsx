@@ -277,7 +277,7 @@ async function teardown(boot: LiveBoot): Promise<void> {
   }
   const store = (() => {
     try {
-      return boot.runtime.getSnapshot()
+      return boot.runtime.access
     } catch {
       return null
     }
@@ -319,7 +319,7 @@ async function checkParity(boot: LiveBoot, panel: LivePanel): Promise<void> {
     try {
       firstDifference = firstSnapshotDifference(
         panel.handle.snapshot(),
-        oracleSnapshot(boot.runtime.getSnapshot()),
+        oracleSnapshot(boot.runtime.access),
       )
     } catch (error) {
       firstDifference = `parity threw: ${error instanceof Error ? error.message : String(error)}`
@@ -347,7 +347,7 @@ function onRowClick(boot: LiveBoot, event: MouseEvent): void {
   // The engine's own selection write — the same one the legacy control's
   // pressable makes. Locals-only: arms hear it on the locals channel and the
   // runtime's own eager mark-read may follow, as in the app.
-  boot.runtime.getSnapshot().setSelectedIssueId(asIssueId(id))
+  boot.runtime.access.setSelectedIssueId(asIssueId(id))
 }
 
 declare global {
@@ -578,7 +578,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     )
   }
 
-  const store = boot.runtime.getSnapshot()
+  const store = boot.runtime.access
   const heap = heapMB()
   return (
     <main style={{ fontFamily: 'sans-serif', fontSize: 13 }}>

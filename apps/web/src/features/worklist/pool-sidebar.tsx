@@ -6,7 +6,7 @@ import {
   type IssueNavigationModel,
   issueClosedFoldAt,
   planReorderKeys,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { compareStructural, computed, observer } from '@podium/client-graph/react'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
@@ -31,7 +31,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
@@ -94,7 +94,7 @@ const selectLayout = (s: Store) => ({
 })
 
 export function usePoolLayoutState(): SidebarState {
-  const layout = useStoreSelector(selectLayout, shallowEqual)
+  const layout = useRuntimeSelector(selectLayout, shallowEqual)
   return useMemo(() => layout, [layout])
 }
 
@@ -137,7 +137,7 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
 }
 
 const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }) {
-  const clear = useStoreSelector((s) => s.setSelectedIssueId)
+  const clear = useRuntimeSelector((s) => s.setSelectedIssueId)
   const evicted = pool.sidebar.selectionEvicted()
   useEffect(() => {
     if (evicted) clear(null)
@@ -644,7 +644,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const previous = useRef<SidebarRowValues | undefined>(undefined)
   if (fresh !== undefined && fresh !== LOADING) previous.current = fresh
   const value = fresh === undefined && item.phase === 'exiting' ? previous.current : fresh
-  const draftPane = useStoreSelector(
+  const draftPane = useRuntimeSelector(
     (s) =>
       value !== undefined &&
       value !== LOADING &&
@@ -793,7 +793,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
   path: string
   actions: PoolWorkActions
 }) {
-  const state = useStoreSelector((s) => {
+  const state = useRuntimeSelector((s) => {
     const active = s.selectedIssueId === null && s.selectedWorktree === path
     return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null }
   }, shallowEqual)

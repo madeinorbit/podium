@@ -3,7 +3,7 @@ import {
   type ToolEditView,
   toolEditLines,
   toolEditMagnitude,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 

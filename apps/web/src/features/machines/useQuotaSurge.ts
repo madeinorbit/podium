@@ -1,4 +1,4 @@
-import { quotaSurge } from '@podium/client-core/viewmodels'
+import { quotaSurge } from '@podium/client-core/values'
 import { useEffect, useRef, useState } from 'react'
 
 const STORAGE_KEY = 'podium.quota.lastSeen.v1'

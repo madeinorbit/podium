@@ -5,7 +5,7 @@ import {
   missionIndexStats,
   missionRootFor,
   sessionOwnershipStats,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { poolMissionViewSnapshot } from '@podium/client-graph/diagnostics/mission-view-check'
@@ -135,13 +135,13 @@ describe('mission pane value differential', () => {
         })
         feeds.attachPool(handle.pool)
         try {
-          compare(handle.pool, ctx.engine.getSnapshot(), 'corpus', scale === 1, mode === 'owned')
+          compare(handle.pool, ctx.engine.access, 'corpus', scale === 1, mode === 'owned')
           for (const scenario of FENCE_SCENARIOS) {
             await scenario.write(ctx)
             feeds.flush()
             compare(
               handle.pool,
-              ctx.engine.getSnapshot(),
+              ctx.engine.access,
               scenario.scenario,
               false,
               mode === 'owned',
@@ -149,10 +149,10 @@ describe('mission pane value differential', () => {
           }
           await writeRescopeGrow(ctx)
           feeds.flush()
-          compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeGrowth', false, mode === 'owned')
+          compare(handle.pool, ctx.engine.access, 'rescopeGrowth', false, mode === 'owned')
           await writeRescopeBack(ctx)
           feeds.flush()
-          compare(handle.pool, ctx.engine.getSnapshot(), 'rescopeBack', false, mode === 'owned')
+          compare(handle.pool, ctx.engine.access, 'rescopeBack', false, mode === 'owned')
         } finally {
           handle.dispose()
           feeds.dispose()
@@ -185,7 +185,7 @@ describe('mission pane value differential', () => {
           locals.flush()
           compare(
             handle.pool,
-            run.ctx.engine.getSnapshot(),
+            run.ctx.engine.access,
             `seed ${seed} step ${index} ${change.kind}`,
             false,
           )
@@ -204,7 +204,7 @@ describe('mission pane value differential', () => {
       summaries: MISSION_VIEW_SUMMARIES,
     })
     const reader = missionView(handle.pool)
-    const ids = roots(ctx.engine.getSnapshot()),
+    const ids = roots(ctx.engine.access),
       selected = ids[0]!
     settle(handle.pool, [selected])
     const row = vi.spyOn(handle.pool, 'row')
@@ -228,7 +228,7 @@ describe('mission pane value differential', () => {
       )
       expect(reader.stats).toEqual(before)
       expect(paneReads.filter(([kind]) => kind === 'session').length).toBeLessThan(
-        ctx.engine.getSnapshot().sessions.length,
+        ctx.engine.access.sessions.length,
       )
       expect(paneReads.some(([, , absent]) => String(absent) === 'peek')).toBe(false)
       expect(missionIndexStats()).toEqual(legacyMission)

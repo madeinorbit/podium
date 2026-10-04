@@ -1,4 +1,4 @@
-import type { FileScope } from '@podium/client-core/viewmodels'
+import type { FileScope } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { resolveAgainstCwd } from './file-path'
 import { currentWorkspaceSlug } from './workspace-request'

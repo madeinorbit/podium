@@ -14,7 +14,7 @@
  * edge across every region is checked. This page is the section's own states.
  */
 
-import { taskCostRows } from '@podium/client-core/viewmodels'
+import { taskCostRows } from '@podium/client-core/values'
 import type { TaskCostRowWire } from '@podium/model'
 import type { JSX } from 'react'
 import { createRoot } from 'react-dom/client'

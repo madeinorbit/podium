@@ -368,7 +368,7 @@ function writableBuilder(entry: RosterArm, variant: WriteVariant): ArmBuilder {
     const excluded = targetIds(ctx.targets)
     const { queued, titles } = pendingTitleEditsOn(
       feeds.rows.source.snapshot('issue'),
-      snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)).order,
+      snapshotFromStore(ctx.engine.access, parityLocals(ctx)).order,
       (id) => excluded.has(id),
       PENDING_WINDOW_ROWS,
       parityLocals(ctx).coarseNow,
@@ -417,7 +417,7 @@ function ownedVariant(
           try {
             titles = pendingTitleEditsOn(
               probe.source.snapshot('issue'),
-              snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)).order,
+              snapshotFromStore(ctx.engine.access, parityLocals(ctx)).order,
               (id) => excluded.has(id),
               PENDING_WINDOW_ROWS,
               parityLocals(ctx).coarseNow,

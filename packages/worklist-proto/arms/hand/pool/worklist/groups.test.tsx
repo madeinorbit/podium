@@ -118,7 +118,7 @@ function orderDiff(actual: SliceOrder, expected: SliceOrder): string | null {
  * and since Hb3 wires the waiting conjunct, the set must be empty.
  */
 function waitingKept(ctx: ScenarioEngine, pool: HandPool, expected: SliceOrder): Set<string> {
-  const store = ctx.engine.getSnapshot()
+  const store = ctx.engine.access
   const views = rowViewsFromStore(store, { ...engineLocals(ctx), selectedIssueId: null })
   const open = new Set(expected.groups.flatMap((group) => group.rowIds))
   const kept = new Set<string>()
@@ -151,7 +151,7 @@ interface GroupParity {
 function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: string): GroupParity {
   const { pool } = handle
   const locals = parityLocals(ctx)
-  const store = ctx.engine.getSnapshot()
+  const store = ctx.engine.access
   const expected = snapshotFromStore(store, locals)
   const oracle = expected.order
   const kept = waitingKept(ctx, pool, oracle)
@@ -339,7 +339,7 @@ describe('groups and closed folds (Hb2)', () => {
       expect(dismissed, 'a dismissed row in the fixture').toBeDefined()
       const snapshotOrder = () => sliceOrderOf(pool.groups.snapshot())
       const baseline = snapshotOrder()
-      const coarseNow = ctx.engine.getSnapshot().coarseNow
+      const coarseNow = ctx.engine.access.coarseNow
       const select = (id: string, wasFolded?: boolean) =>
         pool.applyLocals(
           {

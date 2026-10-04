@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { discoveredPlacement } from '@podium/client-core/viewmodels'
+import { discoveredPlacement } from '@podium/client-core/values'
 import {
   type IssueCloseReason,
   issueStatusMenuEntries,

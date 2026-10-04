@@ -1,4 +1,4 @@
-import { missionRootFor } from '@podium/client-core/viewmodels'
+import { missionRootFor } from '@podium/client-core/values'
 import { asIssueId } from '@podium/model/browser'
 import { expect, it } from 'vitest'
 import { measurePoolMission, missionLegacyCountsFor, resetMissionLegacyCounts } from './mission-pane-perf'

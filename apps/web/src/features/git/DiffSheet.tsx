@@ -489,7 +489,7 @@ function useDiffs({
   sources?: Record<string, string> | undefined
   commit?: { sha: string } | undefined
 }): Record<string, DiffState> {
-  const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreHandle<Trpc>().getSnapshot()
+  const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreHandle<Trpc>().access
   // The sha, not the object: the caller builds its commit descriptor inline, so
   // depending on the object would rebuild `load` on every render for a value
   // that never changed.

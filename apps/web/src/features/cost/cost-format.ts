@@ -36,7 +36,7 @@ import {
   formatCostExact,
   formatCostRounded,
   formatCostWeightRatio,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { COST_FULL_ATTRIBUTION_HARNESS, type CostHarness } from '@podium/model/browser'
 
 /**

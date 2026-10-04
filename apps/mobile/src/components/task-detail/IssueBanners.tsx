@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { ISSUE_STAGE_LABELS } from '@podium/client-core/viewmodels'
+import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 
 import { StyleSheet, Text, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'

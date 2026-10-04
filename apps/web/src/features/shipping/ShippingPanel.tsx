@@ -4,7 +4,7 @@ import {
   shippingPanelModel,
   type ShippingPanelRow,
   type ShippingWaitingLane,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type {
   DeliveryReceipt,
   ShipHoldAction,

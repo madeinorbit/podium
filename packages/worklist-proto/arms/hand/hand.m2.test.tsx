@@ -79,7 +79,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     let locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.getSnapshot().coarseNow,
+      coarseNow: ctx.engine.access.coarseNow,
     }
     const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: HandStore }).store
@@ -110,7 +110,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
       apply: () => unknown,
       expectedLocals: SliceLocals = locals,
     ): Promise<CountResult> => {
-      const before = snapshotFromStore(ctx.engine.getSnapshot(), expectedLocalsFor(scenario))
+      const before = snapshotFromStore(ctx.engine.access, expectedLocalsFor(scenario))
       const result = await runCountScenario(mounted, {
         scenario,
         methodology,
@@ -118,10 +118,10 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
           await apply()
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), expectedLocals),
+        expected: () => snapshotFromStore(ctx.engine.access, expectedLocals),
       })
       const oracle = checkOracle()
-      const changed = changedRows(before, snapshotFromStore(ctx.engine.getSnapshot(), expectedLocals))
+      const changed = changedRows(before, snapshotFromStore(ctx.engine.access, expectedLocals))
       const committed = Object.keys(result.commitsByRow).sort()
       const over = committed.filter((id) => !changed.includes(id))
       const scans = store.scanCounts()
@@ -146,7 +146,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
     try {
       const atMount = mounted.handle.snapshot()
       expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
-      expect(atMount).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), locals))
+      expect(atMount).toEqual(snapshotFromStore(ctx.engine.access, locals))
       expect(checkOracle()).toBe(true)
 
       const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx))

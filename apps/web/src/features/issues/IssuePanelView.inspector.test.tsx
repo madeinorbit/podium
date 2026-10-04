@@ -3,7 +3,7 @@ import '@/test-support/mock-core-store-handle'
 import '@/test-support/model-catalog-mock'
 import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
-import type { IssueEvent } from '@podium/client-core/viewmodels'
+import type { IssueEvent } from '@podium/client-core/values'
 
 import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -148,7 +148,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore: () => state(),
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(state()),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state()),
     useReplicaIssues: () => (state() as unknown as { issues: never[] }).issues,
   }
 })

@@ -15,7 +15,7 @@
  * terminal pane — and so the mapping is one table rather than a chain of
  * ternaries that a later edit can quietly make inconsistent.
  */
-import { type ReferentState, resolveReferent } from '@podium/client-core/viewmodels'
+import { type ReferentState, resolveReferent } from '@podium/client-core/values'
 import type { SessionId, SessionMeta } from '@podium/model'
 import type { SessionIdentifierResolution } from '@podium/protocol'
 

@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { artifactKind } from '@podium/client-core/viewmodels'
+import { artifactKind } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'

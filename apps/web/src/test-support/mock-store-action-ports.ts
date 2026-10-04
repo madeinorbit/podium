@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import { useStoreSelector as selectMockSnapshot } from '@/app/store'
+import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
 import { fixtureStoreSnapshot } from './fixture-store'
 
 // Borrow the suite's existing action owner; leave its pool hooks to the suite.

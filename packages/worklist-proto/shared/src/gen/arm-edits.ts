@@ -117,7 +117,7 @@ export class ArmEditAdapter {
     const adapter = this
     return {
       send(_armTx, command) {
-        const actions = ctx.engine.getSnapshot()
+        const actions = ctx.engine.access
         if (command.kind === 'issueUpdate') {
           void actions.updateIssue(command.input.id, command.input.patch as never)
         } else {

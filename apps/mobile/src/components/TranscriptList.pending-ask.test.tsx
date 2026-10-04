@@ -83,7 +83,7 @@ vi.mock('react-native-svg', async () => {
 })
 
 const { TranscriptList } = await import('./TranscriptList')
-const { PENDING_ASK_ITEM_ID, pendingAskFromState } = await import('@podium/client-core/viewmodels')
+const { PENDING_ASK_ITEM_ID, pendingAskFromState } = await import('@podium/client-core/values')
 
 /** What the caller passes down: exactly what agent state produces, not a hand
  *  written item — a shape that drifted from `pendingAskFromState` would render

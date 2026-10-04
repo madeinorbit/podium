@@ -453,7 +453,7 @@ function MobileHubAttach({
   bearer: string | null
   onVersionNotice: (message: string) => void
 }): null {
-  const hub = useStoreHandle<MobileTrpc>().getSnapshot().hub
+  const hub = useStoreHandle<MobileTrpc>().access.hub
   useEffect(() => {
     const version = mobileVersionObservers({
       credentials: mobileAccountCredentials,

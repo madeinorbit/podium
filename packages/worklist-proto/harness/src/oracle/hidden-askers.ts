@@ -18,7 +18,7 @@
  */
 
 import { dedupeSessions } from '@podium/client-core/engine'
-import { motionPhase } from '@podium/client-core/viewmodels'
+import { motionPhase } from '@podium/client-core/values'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { FixtureCorpus } from '../fixture/index'
 

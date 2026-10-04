@@ -32,7 +32,7 @@ describe('legacy control at 1x', () => {
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.getSnapshot().coarseNow,
+      coarseNow: ctx.engine.access.coarseNow,
     }
     const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixedLocals(locals))
     try {
@@ -43,7 +43,7 @@ describe('legacy control at 1x', () => {
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       const elapsedMs = performance.now() - started
       // The COST TABLE line the coordinator mail carries.
@@ -73,7 +73,7 @@ describe('legacy control at 1x', () => {
       // THE 1x CONTROL JSON (attached to the issue, not committed): counts
       // carry the verdict under box load; walls land via the browser driver
       // when the box is quiet (see docs/plans/pod-4441-harness.md).
-      const repos = ctx.engine.getSnapshot().repos as { worktrees?: unknown[] }[]
+      const repos = ctx.engine.access.repos as { worktrees?: unknown[] }[]
       // Results dir, lane-independent: turbo runs the package lane with
       // cwd=packages/worklist-proto, test:file and the unit lane with the
       // repo root (`import.meta.url` is not a file URL under the transform).

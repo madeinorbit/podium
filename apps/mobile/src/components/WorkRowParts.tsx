@@ -3,7 +3,7 @@ import {
   FLEET_KIND_LIMIT,
   type GitStampModel,
   type MissionProgress,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import type { IssueGitState } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'

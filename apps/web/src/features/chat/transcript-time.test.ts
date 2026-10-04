@@ -1,4 +1,4 @@
-import type { ChatRow } from '@podium/client-core/viewmodels'
+import type { ChatRow } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { clockLabel, dayKey, dayLabel, parseTs, rowTimestamp } from './transcript-time'

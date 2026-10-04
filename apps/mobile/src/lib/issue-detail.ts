@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { ActivityComment, IssueEvent } from '@podium/client-core/viewmodels'
+import type { ActivityComment, IssueEvent } from '@podium/client-core/values'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
   type IssueCloseReason,

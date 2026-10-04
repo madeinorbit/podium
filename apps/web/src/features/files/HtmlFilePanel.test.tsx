@@ -1,7 +1,7 @@
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { HTML_MODE_MAP_KEY } from '@podium/client-core/ui-state'
-import { tabIdFor } from '@podium/client-core/viewmodels'
+import { tabIdFor } from '@podium/client-core/values'
 import { asArtifactId, asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -63,7 +63,7 @@ vi.mock('@/app/store', () => {
   return {
     useStore,
     useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

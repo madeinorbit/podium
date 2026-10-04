@@ -163,7 +163,7 @@ vi.mock('../features/chat/ChatView', async () => {
   }
 })
 
-const { StoreProvider, useStore, useStoreSelector } = await import('../app/store')
+const { StoreProvider, useStore, useRuntimeSelector } = await import('../app/store')
 const { FlightDeck } = await import('../app/FlightDeck')
 const { OperatorFocusProvider } = await import('../app/operator-focus')
 const { AgentPanel } = await import('../features/terminal/AgentPanel')
@@ -256,12 +256,12 @@ function StoreCapture(): null {
 /** Controls that reproduce the pre-change subscriptions over the same real
  * store. Their counts make the before/after fan-out explicit in one run. */
 function CoarseDraftProbe(): null {
-  useStoreSelector((store) => store.drafts)
+  useRuntimeSelector((store) => store.drafts)
   return null
 }
 
 function CoarseSessionProbe(): null {
-  useStoreSelector((store) => store.sessions)
+  useRuntimeSelector((store) => store.sessions)
   return null
 }
 

@@ -5,7 +5,7 @@ import {
   isPreviewLayout,
   optionPreview,
   parseAskQuestions,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { CircleHelp } from 'lucide-react'
 import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'

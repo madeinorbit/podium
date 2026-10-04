@@ -10,7 +10,7 @@ import {
   indexedRepoUsageAt,
   type RepoView,
   usableMachines,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
 import { agentLoginCondition, asMachineId, DEFAULT_HARNESS_AGENT, preferredMachineChoices } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'

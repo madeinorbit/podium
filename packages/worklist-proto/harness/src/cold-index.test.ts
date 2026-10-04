@@ -78,7 +78,7 @@ describe('cold index equals the rule over whole rows (POD-5405)', () => {
     try {
       const raw = feed.source
       const cold = raw.cold!()
-      const start = ctx.engine.getSnapshot().coarseNow
+      const start = ctx.engine.access.coarseNow
       const cells: Record<string, unknown>[] = []
       for (const [label, now] of [
         ['now', start],
@@ -110,7 +110,7 @@ describe('cold index equals the rule over whole rows (POD-5405)', () => {
     const run = await startGenRun({ corpus: genCorpus(1), feedMode: 'overlaid' })
     try {
       const sequence = gen(seed, STEPS)
-      const now = () => run.ctx.engine.getSnapshot().coarseNow
+      const now = () => run.ctx.engine.access.coarseNow
       expect(differences(run.feed().source, run.feed().source.cold!(), now(), `seed ${seed} bootstrap`)).toEqual([])
       let compared = 0
       for (const change of sequence) {

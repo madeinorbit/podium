@@ -1,5 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
+import { type FileScope, scopeKey } from '@podium/client-core/values'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Trpc } from '@/app/trpc'
@@ -26,7 +26,7 @@ export interface FileDocument {
  *  the original FileEditorPanel. All files open editable; the daemon rejects
  *  out-of-repo writes, surfaced via toast. */
 export function useFileDocument(scope: FileScope, path: string): FileDocument {
-  const { readFileScoped, writeFileScoped } = useStoreHandle<Trpc>().getSnapshot()
+  const { readFileScoped, writeFileScoped } = useStoreHandle<Trpc>().access
   const scopeRef = useRef(scope)
   scopeRef.current = scope
   const key = scopeKey(scope)

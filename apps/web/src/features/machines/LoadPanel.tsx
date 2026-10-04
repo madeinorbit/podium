@@ -6,7 +6,7 @@ import {
   hostMemoryView,
   panelLabel,
   reclaimSpaceLabel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import { RotateCw } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'

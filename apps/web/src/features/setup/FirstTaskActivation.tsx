@@ -5,7 +5,7 @@ import {
   activationAgentIsReady,
   activationAgentReadiness,
   activationReadinessCopy,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { HOST_REPOS, machinesFor } from '@podium/model'
 import { resolveRole } from '@podium/runtime'

@@ -25,7 +25,7 @@ vi.mock('../client/hooks', () => ({
   useTrpc: () => ({ interactions: { answer: { mutate: answer } } }),
 }))
 vi.mock('../client/use-pool-notices', async () => {
-  const { pendingInteractionCards } = await import('@podium/client-core/viewmodels')
+  const { pendingInteractionCards } = await import('@podium/client-core/values')
   return {
     usePoolInteractionCards: (id: string) =>
       pendingInteractionCards(rows as never, id).filter((card) => card.surface === 'aggregate'),

@@ -1,4 +1,4 @@
-import { costCohort, taskCostView } from '@podium/client-core/viewmodels'
+import { costCohort, taskCostView } from '@podium/client-core/values'
 import type { CostModelTotalWire, TaskCostRowWire, TaskCostWire } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
 import { rateLabel } from './cost-format'

@@ -28,7 +28,7 @@ import {
   type UnifiedWorkRow,
   unifiedRowBand,
   worklistSlice,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   type LegacyDerivation,
   legacyDerivationFromStore,

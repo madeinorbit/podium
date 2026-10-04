@@ -65,7 +65,7 @@ function publishUnchangedSelection(): void {
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => issues,
-  useStoreSelector: useTestStoreSelector,
+  useRuntimeSelector: useTestStoreSelector,
 }))
 
 const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanelArtifact => ({

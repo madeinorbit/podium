@@ -11,7 +11,7 @@
  * the frames. Nothing here animates on a timer, so the recording's pace is the
  * recorder's business and a still frame is always reproducible.
  */
-import { quotaLedger } from '@podium/client-core/viewmodels'
+import { quotaLedger } from '@podium/client-core/values'
 import type { QuotaWindowHistoryWire } from '@podium/model'
 import { type JSX, useEffect, useLayoutEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'

@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { filterIssueNav, issueNavList, subIssuesOf } from '@podium/client-core/viewmodels'
+import { filterIssueNav, issueNavList, subIssuesOf } from '@podium/client-core/values'
 import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 

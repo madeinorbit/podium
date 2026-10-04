@@ -16,7 +16,7 @@ const pending = (row: unknown): row is symbol => typeof row === 'symbol'
 const EMPTY_OPTIONS: AtOption[] = []
 const EMPTY_SESSIONS: SessionView[] = []
 const EMPTY_MACHINES: import('@podium/model/browser').MachineWire[] = []
-const EMPTY_THREADS: import('@podium/client-core/viewmodels').SuperThreadView[] = []
+const EMPTY_THREADS: import('@podium/client-core/values').SuperThreadView[] = []
 export function useChatSession(id: SessionId | undefined) {
   const read = useCallback((pool: MobxPool) => pool.sessionPanes.session(id), [id])
   return useWorklistPoolProjection(read, undefined)

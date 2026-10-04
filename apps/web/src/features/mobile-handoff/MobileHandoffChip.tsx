@@ -2,7 +2,7 @@ import { Popover } from '@base-ui/react/popover'
 import { Smartphone, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { DeferredMobileHandoffQr } from './DeferredMobileHandoffQr'
 import { useFocusedHandoffSessionId, useHasFirstTask, useMobileHandoffUrl } from './mobile-handoff'
 
@@ -21,8 +21,8 @@ import { useFocusedHandoffSessionId, useHasFirstTask, useMobileHandoffUrl } from
  * popover owns all three, so there is no dismissal logic here to get wrong.
  */
 export function MobileHandoffChip(): JSX.Element | null {
-  const trpc = useStoreSelector((s) => s.trpc)
-  const httpOrigin = useStoreSelector((s) => s.httpOrigin)
+  const trpc = useRuntimeSelector((s) => s.trpc)
+  const httpOrigin = useRuntimeSelector((s) => s.httpOrigin)
   const sessionId = useFocusedHandoffSessionId()
   const url = useMobileHandoffUrl(trpc, httpOrigin, sessionId)
   const hasFirstTask = useHasFirstTask()

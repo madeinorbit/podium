@@ -16,7 +16,7 @@ import {
   rowKey,
 } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { missionLegacyStats } from '@podium/client-core/viewmodels'
+import { missionLegacyStats } from '@podium/client-core/values'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId, asSessionId } from '@podium/model'

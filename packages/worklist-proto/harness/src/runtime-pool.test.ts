@@ -30,13 +30,13 @@ describe('the pool over the app-owned runtime', () => {
     try {
       const parity = () =>
         expect(snapshotPool(handle.pool)).toEqual(
-          snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)),
+          snapshotFromStore(ctx.engine.access, localsOfEngine(ctx.engine)),
         )
       parity()
       await writeTitleRename(ctx)
       parity()
       await writeClockTick(ctx)
-      expect(handle.pool.clock.current).toBe(ctx.engine.getSnapshot().coarseNow)
+      expect(handle.pool.clock.current).toBe(ctx.engine.access.coarseNow)
       parity()
       const selected = await writeSelectionClick(ctx)
       await Promise.resolve()
@@ -58,7 +58,7 @@ describe('the pool over the app-owned runtime', () => {
       await writeRescopeGrow(ctx)
       const grown = snapshotPool(handle.pool)
       expect(Object.keys(grown.rowsById)).toHaveLength(Object.keys(before.rowsById).length + 10)
-      expect(grown).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)))
+      expect(grown).toEqual(snapshotFromStore(ctx.engine.access, localsOfEngine(ctx.engine)))
       await writeRescopeBack(ctx)
       expect(snapshotPool(handle.pool)).toEqual(before)
     } finally {
@@ -85,7 +85,7 @@ describe('the pool over the app-owned runtime', () => {
       expect(tracked(() => pool.row('issue', id))).toBe(joined)
       expect(tracked(() => pool.row('issue', id))).toBe(joined)
       expect(snapshotPool(pool)).toEqual(
-        snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)),
+        snapshotFromStore(ctx.engine.access, localsOfEngine(ctx.engine)),
       )
       ctx.engine.start()
       ctx.replica.onKernelEvent({
@@ -98,7 +98,7 @@ describe('the pool over the app-owned runtime', () => {
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       expect(handle.pool).toBe(pool)
       expect(snapshotPool(pool)).toEqual(
-        snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)),
+        snapshotFromStore(ctx.engine.access, localsOfEngine(ctx.engine)),
       )
     } finally {
       handle.dispose()

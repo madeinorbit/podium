@@ -31,11 +31,11 @@ import {
   type TranscriptSearchState,
   transcriptAttributionTable,
   transcriptPhase,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId} from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem } from './chat'
@@ -58,7 +58,7 @@ import { useChatContextWindow, useChatInteractions, useChatIssueSeq, useChatThre
  *    superagent threads), read through keyed/scalar selectors;
  *  - the TRANSCRIPT WINDOW (`useTranscriptWindow`: the disk read, the live tail,
  *    back-paging and the bounded render window);
- *  - the CHAT SLICE (`@podium/client-core/viewmodels`), which answers every
+ *  - the CHAT SLICE (`@podium/client-core/values`), which answers every
  *    view-model question over those two as pure functions.
  *
  * Nothing here derives. Every `useMemo` below is a call INTO the slice, kept
@@ -235,7 +235,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     getUserFocus,
     clearAttachedSession,
     clearTranscriptReveal,
-  } = useStoreSelector(
+  } = useRuntimeSelector(
     (s) => ({
       hub: s.hub,
       trpc: s.trpc,

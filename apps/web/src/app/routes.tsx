@@ -3,7 +3,7 @@ import { lazy, Suspense } from 'react'
 import { WaitingForServer } from '@/components/WaitingForServer'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useFeature } from '@/lib/use-feature'
-import { type MainView, useStoreSelector } from './store'
+import { type MainView, useRuntimeSelector } from './store'
 
 const AutomationsView = lazy(() =>
   throughRestarts(() => import('@/features/automations/AutomationsView')).then((module) => ({
@@ -51,7 +51,7 @@ export function MainViewOutlet({
    *  (POD-365) instead of blinking out of existence. */
   view?: MainView
 }): JSX.Element {
-  const storeView = useStoreSelector((s) => s.view)
+  const storeView = useRuntimeSelector((s) => s.view)
   const view = viewOverride ?? storeView
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')

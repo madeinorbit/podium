@@ -1,6 +1,6 @@
 import { type EngineState, workspaceKeyForState } from '@podium/client-core/engine'
 import { routeDefaults } from '@podium/client-core/ui-state'
-import { emptyWorkspace, openTab } from '@podium/client-core/viewmodels'
+import { emptyWorkspace, openTab } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { computed } from '@podium/client-graph/react'
@@ -21,7 +21,7 @@ const binding = vi.hoisted(() => ({
   missionReady: false,
 }))
 vi.mock('./store', () => ({
-  useStoreSelector: (select: (state: EngineState) => unknown) => select(binding.state),
+  useRuntimeSelector: (select: (state: EngineState) => unknown) => select(binding.state),
   useReplicaIssues: () => {
     throw new Error('Workspace read legacy issue collection')
   },
@@ -89,7 +89,7 @@ it('renders identical workspace labels, tab order and layout after pool navigati
   binding.pool = handle.pool
   const provider = createPoolNavigationProvider(handle.pool)
   try {
-    const initial = runtime.getSnapshot()
+    const initial = runtime.access
     const target = asIssueId(ctx.targets.visibleRootId)
     const child = initial.issueProjections.find(
       (row) => row.parentId === target && !row.archived && !row.deletedAt,

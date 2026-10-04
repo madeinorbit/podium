@@ -1,7 +1,7 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
-import type { Pane, WorktreeView } from '@podium/client-core/viewmodels'
+import type { Pane, WorktreeView } from '@podium/client-core/values'
 import {
   allTabIds,
   emptyWorkspace,
@@ -10,7 +10,7 @@ import {
   reposToViews,
   resizeSplit,
   type SplitAxis,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { asSessionId, type IssueId, type SessionId } from '@podium/model/browser'
 import {
   Columns2,

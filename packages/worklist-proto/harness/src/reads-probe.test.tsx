@@ -100,7 +100,7 @@ function probeArm(mode: ProbeMode): Arm {
 async function heartbeat(mode: ProbeMode): Promise<{ run: () => Promise<CountResult>; sessions: number; done: () => void }> {
   const ctx = await startScenarioEngine(1)
   const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
-  const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
+  const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.access.coarseNow }
   const mounted = mountArmForCounts(probeArm(mode), source.source, fixedLocals(locals))
   return {
     // The session table the scan walks: the replica's rows, which keep every
@@ -114,7 +114,7 @@ async function heartbeat(mode: ProbeMode): Promise<{ run: () => Promise<CountRes
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       }),
     done: () => {
       mounted.unmount()

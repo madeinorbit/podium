@@ -1,7 +1,7 @@
 import { withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { resolveIssueEdge } from '@podium/client-core/viewmodels'
+import { resolveIssueEdge } from '@podium/client-core/values'
 import {
   type IssueCloseReason,
   type IssueId,

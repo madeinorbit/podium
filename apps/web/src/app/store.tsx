@@ -1,5 +1,3 @@
-import type { SessionView } from '@podium/client-core/session-values'
-import { sessionById } from '@podium/client-core/store'
 /**
  * Web binding for the shared client store (arch-v2 P3, issue #192): the
  * provider + optimistic actions moved to @podium/client-core/react, generic
@@ -14,12 +12,8 @@ import type { ClientPrincipal } from '@podium/client-core/principal'
 import {
   type Store as CoreStore,
   StoreProvider as CoreStoreProvider,
-  type IssueViewModel,
   type StoreNotices,
-  useAllIssueViewModels,
-  useSlice as useCoreSlice,
-  useStore as useCoreStore,
-  useStoreSelector as useCoreStoreSelector,
+  useRuntimeSelector as useCoreStoreSelector,
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
@@ -35,11 +29,11 @@ import { attachWorklistPool } from './store-worklist-pool'
 /** The web store: the shared store, with `trpc` carrying the full AppRouter type. */
 export type Store = CoreStore<Trpc>
 
-export type { IssueViewModel, UserFocus } from '@podium/client-core/react'
+export type { UserFocus } from '@podium/client-core/react'
+export type { IssueViewModel } from '@podium/client-core/replica'
 export type { MainView } from '@podium/client-core/router'
-export type { FileTab } from '@podium/client-core/viewmodels'
+export type { FileTab } from '@podium/client-core/values'
 
-import type { SliceDefinition } from '@podium/client-core/viewmodels'
 
 const NOTICES: StoreNotices = {
   error: (message) => toast.error(message),
@@ -125,69 +119,8 @@ export function StoreProvider({
   )
 }
 
-/** Compatibility hook: the WHOLE store snapshot. Re-renders whenever any store
- *  field changes — prefer `useStoreSelector` for hot components. */
-export function useStore(): Store {
-  return useCoreStore<Trpc>()
-}
-
-/** Slice subscription: re-renders only when `selector(store)` changes. */
-export function useStoreSelector<T>(
-  selector: (s: Store) => T,
-  isEqual?: (a: T, b: T) => boolean,
-): T {
+/** Runtime actions and keyed local controls; records are read through the pool. */
+export function useRuntimeSelector<T>(selector: (s: Store) => T, isEqual?: (a: T, b: T) => boolean): T {
   return useCoreStoreSelector<T, Trpc>(selector, isEqual)
 }
-
-/** One replica-backed session row. The replica preserves unchanged row
- * identities, so Object.is keeps this reader asleep when another session moves. */
-export function useSession(sessionId: SessionId | undefined): SessionView | undefined {
-  return useStoreSelector((s) =>
-    sessionId === undefined
-      ? undefined
-      : sessionById(s.sessions).get(sessionId),
-  )
-}
-
-/** One composer document value. Draft writes replace the containing record,
- * but an addressed string keeps unrelated composers asleep via Object.is. */
-export function useSessionDraft(sessionId: SessionId | undefined): string {
-  return useStoreSelector((s) => (sessionId === undefined ? '' : (s.drafts[sessionId] ?? '')))
-}
-
-/** Exit state paired with an addressed session read. A row can be absent
- * because it is pending, removed, or outside this principal's replica scope. */
-export function useSessionExitKind(
-  sessionId: SessionId | undefined,
-): 'removed' | 'evicted' | undefined {
-  return useStoreSelector((s) =>
-    sessionId === undefined ? undefined : s.replica.exitKind?.('session', sessionId),
-  )
-}
-
-/** Read a PUBLISHED slice (POD-330): derived once per store change and shared by
- *  every reader, unlike `useStoreSelector`, whose cache is per component. Use
- *  this for a named slice several surfaces read; use the selector for a one-off. */
-export function useSlice<T>(def: SliceDefinition<Store, T>): T {
-  return useCoreSlice<T, Trpc>(def)
-}
-
-function useReplicaIssueSources(): Pick<Store, 'replica' | 'issueProjections'> & {
-  issueUserStates: Store['issueUserStates']
-} {
-  return useStoreSelector(
-    (s) => ({ replica: s.replica, issueProjections: s.issueProjections, issueUserStates: s.issueUserStates }),
-    (a, b) =>
-      a.replica === b.replica &&
-      a.issueProjections === b.issueProjections &&
-      a.issueUserStates === b.issueUserStates,
-  )
-}
-
-/** Issues rendered from normalized replica projections plus local D7.3 views. */
-export function useReplicaIssues(): IssueViewModel[] {
-  const { replica, issueProjections, issueUserStates } = useReplicaIssueSources()
-  return useAllIssueViewModels(replica, issueProjections, issueUserStates)
-}
-
 export { useHostMetrics } from '@podium/client-core/react'

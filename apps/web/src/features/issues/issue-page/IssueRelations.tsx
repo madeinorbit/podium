@@ -25,7 +25,7 @@
  * holds.
  */
 
-import { groupRelations } from '@podium/client-core/viewmodels'
+import { groupRelations } from '@podium/client-core/values'
 import type { IssueId } from '@podium/model/browser'
 import { ISSUE_DEP_TYPES, issueStatusOf } from '@podium/model/browser'
 import { Plus, X } from 'lucide-react'

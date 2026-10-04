@@ -1,10 +1,10 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
-import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
+import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { useChatArtifactIssue } from './use-chat-context'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
@@ -33,7 +33,7 @@ export function OfferArtifactStrip({
    *  applied when the strip renders — an empty strip must not leave margins. */
   className?: string
 }): JSX.Element | null {
-  const { httpOrigin, openArtifact, openFileInWorktree } = useStoreSelector(
+  const { httpOrigin, openArtifact, openFileInWorktree } = useRuntimeSelector(
     (s) => ({
       httpOrigin: s.httpOrigin,
       openArtifact: s.openArtifact,

@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { segmentOfferText } from '@podium/client-core/viewmodels'
+import { segmentOfferText } from '@podium/client-core/values'
 import type { SessionOffer } from '@podium/model'
 import { useState } from 'react'
 import { AccessibilityInfo, StyleSheet, Text, TextInput, View } from 'react-native'

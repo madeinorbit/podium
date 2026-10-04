@@ -15,7 +15,7 @@ const TEST_PRINCIPAL = asClientPrincipal(asUserId('operator'))
 
 // ---------------------------------------------------------------------------
 // Selector-scoped store (Phase 4 client-core unification, #15): components
-// subscribing via useStoreSelector must NOT re-render when an unrelated slice
+// subscribing via useRuntimeSelector must NOT re-render when an unrelated slice
 // changes — the whole point of moving off the rebuilt-every-render context
 // value. The REAL StoreProvider runs; only tRPC and WebSocket are faked.
 // ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ const fakeTrpc = {
 }
 vi.mock('./trpc', () => ({ makeTrpc: () => fakeTrpc }))
 
-const { StoreProvider, useStore, useStoreSelector } = await import('./store')
+const { StoreProvider, useStore, useRuntimeSelector } = await import('./store')
 const { Workspace } = await import('./Workspace')
 const { CommandPalette } = await import('./CommandPalette')
 const { HostIndicators } = await import('@/features/machines/HostIndicators')
@@ -50,12 +50,12 @@ let latestStore: ReturnType<typeof useStore> | null = null
 
 function ViewProbe(): null {
   renders.view = (renders.view ?? 0) + 1
-  useStoreSelector((s) => s.view)
+  useRuntimeSelector((s) => s.view)
   return null
 }
 function DraftsProbe(): null {
   renders.drafts = (renders.drafts ?? 0) + 1
-  useStoreSelector((s) => s.drafts)
+  useRuntimeSelector((s) => s.drafts)
   return null
 }
 function CompatProbe(): null {
@@ -136,7 +136,7 @@ describe('selector-scoped store', () => {
   })
 
   it('converted hot components do not re-commit when an unrelated slice changes', async () => {
-    // The REAL components (now on useStoreSelector slices), instrumented via
+    // The REAL components (now on useRuntimeSelector slices), instrumented via
     // React Profiler: an unrelated store write (a session draft) must not
     // re-commit their subtrees. Before the conversion each useStore() consumer
     // re-rendered on every store publish.

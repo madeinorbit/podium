@@ -1,4 +1,4 @@
-import { reposToViews } from '@podium/client-core/viewmodels'
+import { reposToViews } from '@podium/client-core/values'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { lastUsedMachine, machinesForRepo, resolveTargetMachine } from '@podium/model'
 import { describe, expect, it } from 'vitest'

@@ -1,5 +1,5 @@
 import { sessionView } from '@podium/client-core/session-values'
-import type { TerminalOutlook } from '@podium/client-core/viewmodels'
+import type { TerminalOutlook } from '@podium/client-core/values'
 import { asMachineId, type SessionStatus } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { panelGates, panelOfflineMachine, panelSurface } from './panel-surface'

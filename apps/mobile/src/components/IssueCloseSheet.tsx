@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { IssueCloseConcern, IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueCloseConcern, IssueNavigationModel } from '@podium/client-core/values'
 import { ISSUE_STATUS_LABELS, type IssueCloseReason } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { issueCloseBlockers } from '../lib/issue-close'

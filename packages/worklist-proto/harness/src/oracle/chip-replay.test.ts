@@ -9,7 +9,7 @@ import {
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import { canonicalIssueRef, issueReferenceModel } from '@podium/client-core/viewmodels'
+import { canonicalIssueRef, issueReferenceModel } from '@podium/client-core/values'
 import { asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { chipReplayLegacy, chipReplayTokens } from '../../../../../diagnostics/issue-chips-replay'

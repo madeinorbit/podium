@@ -1,5 +1,5 @@
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
-import { discoveredPlacement, type ProposalShape } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
+import { discoveredPlacement, type ProposalShape } from '@podium/client-core/values'
 import {
   canonicalIssueCloseReason,
   ISSUE_COLOR_SLOTS,

@@ -2,7 +2,7 @@ import '@/test-support/mock-core-store-handle'
 
 // @vitest-environment happy-dom
 
-import { missionIssueIds, selectedMissionRoot } from '@podium/client-core/viewmodels'
+import { missionIssueIds, selectedMissionRoot } from '@podium/client-core/values'
 import { LOADING, MobxPool } from '@podium/client-graph'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
@@ -71,7 +71,7 @@ const state = {
 
 vi.mock('@/app/store', () => ({
   useStore: () => state as never,
-  useStoreSelector: (sel: (s: unknown) => unknown) => sel(state),
+  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state),
   useReplicaIssues: () => {
     legacyIssueRead()
     throw new Error('Explorer read legacy issue collection')

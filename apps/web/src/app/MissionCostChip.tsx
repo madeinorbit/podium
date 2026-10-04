@@ -9,7 +9,7 @@ import {
   formatCount,
   formatTokens,
   type TaskCostView,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useMissionCost } from '@/features/cost/useMissionCost'
@@ -99,7 +99,7 @@ export function MissionCostChip({
   /** The chip's last line — the door to the full page, never the chip's job. */
   onOpenInExplorer: () => void
 }): JSX.Element | null {
-  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const trpc = useStoreHandle<Trpc>().access.trpc
   // Once opened, the cohort stays wanted: the `2.3x median` line is the only
   // thing that needs the whole corpus, and re-fetching it on every close would
   // make closing the popover expensive.

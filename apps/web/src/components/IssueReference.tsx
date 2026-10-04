@@ -1,6 +1,6 @@
 import { recordChipWork } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
-import type { IssueReferenceModel as IssueReferenceView } from '@podium/client-core/viewmodels'
+import type { IssueReferenceModel as IssueReferenceView } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import type { JSX } from 'react'
 import { memo, useCallback, useLayoutEffect } from 'react'

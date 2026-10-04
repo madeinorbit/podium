@@ -140,7 +140,7 @@ export function currentScene(): Scene {
 
 export const useReplicaIssues = (): unknown[] => []
 
-export const useStoreSelector = <T>(selector: (store: unknown) => T): T => {
+export const useRuntimeSelector = <T>(selector: (store: unknown) => T): T => {
   const scene = currentScene()
   return selector({
     machines: scene.machines.map((machine) => ({

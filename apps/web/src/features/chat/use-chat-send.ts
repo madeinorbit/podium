@@ -11,8 +11,8 @@ import type {
   ChatSendRoute,
   ComposerState,
   SuperThreadRef,
-} from '@podium/client-core/viewmodels'
-import { chatSendRoute, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
+import { chatSendRoute, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import { asMutationId, type SessionOffer } from '@podium/model'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'

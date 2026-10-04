@@ -33,7 +33,7 @@ describe('client issue reference network fence', () => {
     const path = 'apps/web/src/app/pool-screens.ts'
     const source = readFileSync(join(root, path), 'utf8')
     for (const planted of [
-      'runtime.getSnapshot().trpc.issues.resolveRefs.query({ refs })',
+      'runtime.access.trpc.issues.resolveRefs.query({ refs })',
       'const lookup = api.issues.resolveRefs.query; lookup({ refs })',
       'api.issues.resolveRefs["query"]({ refs })',
     ]) expect(() => requireLocalReferences(`${source}\n${planted}`, path))

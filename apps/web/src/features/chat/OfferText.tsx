@@ -1,4 +1,4 @@
-import { segmentOfferText } from '@podium/client-core/viewmodels'
+import { segmentOfferText } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import {
   classifyPodiumLink,

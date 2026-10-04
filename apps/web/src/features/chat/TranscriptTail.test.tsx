@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { ChatActivity, ChatRow } from '@podium/client-core/viewmodels'
+import type { ChatActivity, ChatRow } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'

@@ -6,7 +6,7 @@
  * preview row looks like next to the finished rows it precedes.
  */
 
-import type { ChatBlock, RenderableRow } from '@podium/client-core/viewmodels'
+import type { ChatBlock, RenderableRow } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import type { TurnPreviewMessage } from '@podium/protocol'
 import { act } from 'react'

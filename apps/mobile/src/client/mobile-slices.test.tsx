@@ -4,7 +4,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * unchanged. The real provider owns the replica and all mutation handles. */
 
 import { useStoreHandle } from '@podium/client-core/react'
-import { machineViewsFromWire, resolveSpawnTargetMachine } from '@podium/client-core/viewmodels'
+import { machineViewsFromWire, resolveSpawnTargetMachine } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
@@ -75,7 +75,7 @@ function session(
 function WorklistProbe() {
   const rows = useMobilePoolProjection(readRows, '')
   const now = useMobilePoolProjection(readNow, 0)
-  const store = useStoreHandle().getSnapshot()
+  const store = useStoreHandle().access
   const { repos } = useLaunchInputs()
   const sessions = useSessions()
   const issues = useIssues()

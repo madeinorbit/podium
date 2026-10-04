@@ -22,7 +22,7 @@ import {
   type UnifiedWorkRow,
   unifiedWorkList,
   type WorktreeNavView,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   asIssueId,
   asMachineId,

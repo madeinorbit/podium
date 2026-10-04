@@ -19,7 +19,7 @@
  * are wrong. A fuzzy match keeps surprises in the list and makes an empty result
  * hard to trust.
  */
-import { rowStatusLine, type UnifiedWorkRow } from '@podium/client-core/viewmodels'
+import { rowStatusLine, type UnifiedWorkRow } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
 
 /** Everything about a row a query may match, lowercased into one string. */

@@ -10,7 +10,7 @@ const listeners = new Set<() => void>()
 
 export const useReplicaIssues = (): Array<{ deletedAt?: string }> => [{}]
 
-export const useStoreSelector = <T>(selector: (store: unknown) => T): T =>
+export const useRuntimeSelector = <T>(selector: (store: unknown) => T): T =>
   selector({
     trpc: {
       setup: { info: { query: async () => ({ publicUrl: 'https://podium.example.com' }) } },

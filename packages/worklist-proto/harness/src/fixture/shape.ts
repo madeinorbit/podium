@@ -16,7 +16,7 @@ import {
   issueFinishedAt,
   reposVisibleOnMachines,
   SIDEBAR_FINISHED_GRACE_MS,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { buildWorktreeRootIndex, worktreeForCwdIndexed } from '@podium/model'
 import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { projectSnapshot, runLegacyDerivation } from '../oracle/index'

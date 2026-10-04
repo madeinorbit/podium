@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { motionPhase, sessionNeedsHuman, sessionSettled } from '@podium/client-core/viewmodels'
+import { motionPhase, sessionNeedsHuman, sessionSettled } from '@podium/client-core/values'
 
 
 /**

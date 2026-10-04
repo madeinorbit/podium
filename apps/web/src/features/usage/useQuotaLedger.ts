@@ -1,4 +1,4 @@
-import { type QuotaLedgerView, quotaLedger } from '@podium/client-core/viewmodels'
+import { type QuotaLedgerView, quotaLedger } from '@podium/client-core/values'
 import type { QuotaWindowHistoryWire } from '@podium/model/browser'
 import { useMemo } from 'react'
 import type { Trpc } from '@/app/trpc'

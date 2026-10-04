@@ -159,7 +159,7 @@ for (const entry of ROUND_THREE_ARMS) {
       try {
         const steps: FenceStep[] = []
         for (const scenario of FENCE_SCENARIOS) {
-          const viewsBefore = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+          const viewsBefore = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
           const step = await runFenceStep(mounted, ctx, feeds.flush, scenario)
           const { result } = step
           const at = `${result.methodology} ${result.scenario}`
@@ -169,7 +169,7 @@ for (const entry of ROUND_THREE_ARMS) {
               expect(result.parity, `${at}: ${result.parityDiff ?? ''}`).toBe(true)
             }
             const actual = mounted.handle.snapshot()
-            const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+            const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
             const patched = allow.parity!.accept(ctx.corpus, mounted.handle, oracle, actual)
             expect(
               diffSnapshots(actual, patched.snapshot),
@@ -181,7 +181,7 @@ for (const entry of ROUND_THREE_ARMS) {
             assertCommits(result)
           } catch (error) {
             if (allow.undrawn === undefined) throw error
-            const viewsAfter = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+            const viewsAfter = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
             cell.undrawn = allow.undrawn.accept(result, viewsBefore, viewsAfter)
           }
           mounted.reads.assertNoCopies(mounted.handle)
@@ -243,12 +243,12 @@ describe('wall-clock independence of the #9 steps', () => {
           visible: result.visibleRows,
           parity: result.parity,
         })
-        views.push(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)))
+        views.push(rowViewsFromStore(ctx.engine.access, engineLocals(ctx)))
         readAts.push(
           allIssueViewModels(
             ctx.replica,
-            ctx.engine.getSnapshot().issueProjections,
-            ctx.engine.getSnapshot().issueUserStates,
+            ctx.engine.access.issueProjections,
+            ctx.engine.access.issueUserStates,
           ).find((issue) => issue.id === ctx.targets.markReadId)?.readAt,
         )
       }

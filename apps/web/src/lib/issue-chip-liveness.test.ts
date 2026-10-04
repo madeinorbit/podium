@@ -1,4 +1,4 @@
-import type { IssueReferenceSource } from '@podium/client-core/viewmodels'
+import type { IssueReferenceSource } from '@podium/client-core/values'
 import { describe, expect, it } from 'vitest'
 import {
   decorateIssueRefAnchors,

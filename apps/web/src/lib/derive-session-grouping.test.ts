@@ -9,7 +9,7 @@ import {
   nativeSubagentLabel,
   sessionIssueLinkage,
   sessionsNeedChildRows,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 
 import { describe, expect, it } from 'vitest'
 

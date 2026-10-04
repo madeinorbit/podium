@@ -55,7 +55,7 @@ describe('web shell structure', () => {
         'features/worklist/use-pool-unified-work.ts',
         'app/DesktopMenuHost.tsx',
       ].map(read),
-      readClientCore('viewmodels/slices/worklist/published.ts'),
+      readClientCore('values/slices/worklist/published.ts'),
     ].join('\n')
 
   it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
@@ -65,7 +65,7 @@ describe('web shell structure', () => {
     // Panel-pinning is retired (POD-169) — issue pinning renders its own section.
     expect(src).toContain('splitPinnedWork')
     // Check the call and its route to the rendered section, not an unused import.
-    expect(readClientCore('viewmodels/slices/worklist/published.ts')).toContain(
+    expect(readClientCore('values/slices/worklist/published.ts')).toContain(
       'const { pinned, rest } = splitPinnedWork(work)',
     )
     expect(read('features/worklist/pool-sidebar.tsx')).toContain('sections.pinnedIds')

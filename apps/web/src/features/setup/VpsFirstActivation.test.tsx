@@ -32,7 +32,7 @@ const uiState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (selector: (store: { uiState: typeof uiState }) => unknown) =>
+  useRuntimeSelector: (selector: (store: { uiState: typeof uiState }) => unknown) =>
     selector({ uiState }),
 }))
 

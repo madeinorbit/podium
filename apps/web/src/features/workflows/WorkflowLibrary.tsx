@@ -16,7 +16,7 @@ import type { WorkflowScope } from '@podium/protocol'
 import {
   workflowLibraryEntries,
   workflowRevisionDetail,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { Plus, ShieldCheck } from 'lucide-react'
 import type { FormEvent, JSX } from 'react'
 import { useEffect, useState } from 'react'

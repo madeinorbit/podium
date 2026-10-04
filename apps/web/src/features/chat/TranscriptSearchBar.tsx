@@ -1,4 +1,4 @@
-import type { TranscriptSearchState } from '@podium/client-core/viewmodels'
+import type { TranscriptSearchState } from '@podium/client-core/values'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'

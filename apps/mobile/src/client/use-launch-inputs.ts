@@ -1,4 +1,4 @@
-import { reposToViews } from '@podium/client-core/viewmodels'
+import { reposToViews } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { useMobilePoolProjection } from './mobile-pool'

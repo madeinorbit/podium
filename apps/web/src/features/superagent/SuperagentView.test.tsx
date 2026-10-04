@@ -159,7 +159,7 @@ vi.mock('@/app/store', () => {
     useReplicaIssues: () => normalizedIssues(),
     useSession: (id: string | undefined) =>
       [...storeSessions, ...embeddedSessions()].find((session) => session.sessionId === id),
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useSlice: (def: { derive: (s: unknown) => unknown }) => def.derive(useStore() as never),
   }
 })

@@ -107,7 +107,7 @@ export function MessageLedgerView({
   issueId?: IssueId
   sessionId?: SessionId
 }): JSX.Element {
-  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const trpc = useStoreHandle<Trpc>().access.trpc
   const [rows, setRows] = useState<LedgerMessage[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const refresh = useCallback(() => {

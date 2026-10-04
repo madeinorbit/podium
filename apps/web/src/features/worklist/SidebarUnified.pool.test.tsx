@@ -2,7 +2,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { worklistSlice } from '@podium/client-core/viewmodels'
+import { worklistSlice } from '@podium/client-core/values'
 import { sessionUserStateRowId } from '@podium/model'
 import {
   asIssueId,
@@ -131,7 +131,7 @@ async function mount(layer: 'pool', rail = false, count = 12) {
     </StoreProvider>,
   )
   await act(async () => {
-    await runtime.getSnapshot().refreshRepos()
+    await runtime.access.refreshRepos()
   })
   await waitFor(
     () => expect(screen.getByTestId(rail ? 'sidebar-rail' : 'work-scroll')).toBeTruthy(),
@@ -169,7 +169,7 @@ function rowPaint() {
 
 /** Drive the same runtime publication as the wall clock without faking DOM polling timers. */
 async function advanceClock(byMs: number) {
-  const now = runtime.getSnapshot().coarseNow + byMs
+  const now = runtime.access.coarseNow + byMs
   await act(async () => {
     vi.setSystemTime(now)
     const clockPublisher = runtime as unknown as { apply(patch: { coarseNow: number }): void }
@@ -196,7 +196,7 @@ describe('real sidebar pool cutover', () => {
     })
     mode.commits.clear()
     await advanceClock(60_000)
-    expect(runtime.getSnapshot().coarseNow).toBe(NOW + 60_000)
+    expect(runtime.access.coarseNow).toBe(NOW + 60_000)
     const guests = Object.fromEntries(
       [...mode.commits].filter(([id]) => id.startsWith('synthetic-guest-')),
     )
@@ -296,7 +296,7 @@ describe('real sidebar pool cutover', () => {
         archived: true,
         lastActiveAt: new Date(NOW).toISOString(),
       })
-      runtime.getSnapshot().setPane('A', null)
+      runtime.access.setPane('A', null)
     })
     await waitFor(() =>
       expect(document.querySelector('[data-session="synthetic-guest-0"]')).toBeNull(),
@@ -304,8 +304,8 @@ describe('real sidebar pool cutover', () => {
     expect(worktreeHandlers(path).onSelect).toBe(handlers.onSelect)
     expect(worktreeHandlers(path).onSelectPanel).toBe(handlers.onSelectPanel)
     fireEvent.click(screen.getByTitle(path))
-    expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
-    expect(runtime.getSnapshot().selectedWorktree).toBe(path)
+    expect(runtime.access.paneA).toBe('synthetic-guest-1')
+    expect(runtime.access.selectedWorktree).toBe(path)
   })
 
   it.each(LAYERS)('%s worktree header preserves the current pane session', async (layer) => {
@@ -318,29 +318,29 @@ describe('real sidebar pool cutover', () => {
       fixture.patch('session', 'synthetic-guest-0', {
         lastActiveAt: new Date(NOW).toISOString(),
       })
-      runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
+      runtime.access.setPane('A', asSessionId('synthetic-guest-1'))
     })
     expect(worktreeHandlers(path).onSelect).toBe(handlers.onSelect)
     expect(worktreeHandlers(path).onSelectPanel).toBe(handlers.onSelectPanel)
     fireEvent.click(screen.getByTitle(path))
-    expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+    expect(runtime.access.paneA).toBe('synthetic-guest-1')
   })
 
   it('pool worktree panel uses the current pane without restarting a switch', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     await mount('pool')
-    expect(runtime.getSnapshot().paneA).not.toBe('synthetic-guest-1')
+    expect(runtime.access.paneA).not.toBe('synthetic-guest-1')
     const path = '/synthetic/project/guests'
     const handlers = worktreeHandlers(path)
     await act(async () => {
-      runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
+      runtime.access.setPane('A', asSessionId('synthetic-guest-1'))
     })
     expect(worktreeHandlers(path).onSelectPanel).toBe(handlers.onSelectPanel)
     vi.mocked(beginSwitch).mockClear()
     fireEvent.click(screen.getByText('Synthetic guest 1'))
-    expect(runtime.getSnapshot().selectedWorktree).toBe(path)
-    expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+    expect(runtime.access.selectedWorktree).toBe(path)
+    expect(runtime.access.paneA).toBe('synthetic-guest-1')
     expect(beginSwitch).not.toHaveBeenCalled()
   })
 
@@ -377,7 +377,7 @@ describe('real sidebar pool cutover', () => {
     fireEvent.click(screen.getByTestId('manage-projects'))
     expect(screen.getByRole('dialog')).toBeTruthy()
     await act(async () => {
-      runtime.getSnapshot().setPaletteOpen(true)
+      runtime.access.setPaletteOpen(true)
     })
     expect(mode.reads).toBe(0)
   })
@@ -416,8 +416,8 @@ describe('real sidebar pool cutover', () => {
     vi.setSystemTime(NOW)
     await mount('pool')
     fireEvent.click(screen.getByText('Only responsive target'))
-    expect(runtime.getSnapshot().selectedIssueId).toBe('synthetic-11')
-    expect(runtime.getSnapshot().paneA).toBe('synthetic-session-11')
+    expect(runtime.access.selectedIssueId).toBe('synthetic-11')
+    expect(runtime.access.paneA).toBe('synthetic-session-11')
     fireEvent.change(screen.getByTestId('work-search-input'), {
       target: { value: 'only responsive target' },
     })
@@ -463,21 +463,21 @@ describe('real sidebar pool cutover', () => {
       const fixture = await mount(layer)
       await act(async () => {
         fixture.patch('session', 'synthetic-session-11', { status: 'exited' })
-        runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
+        runtime.access.setPane('A', asSessionId('synthetic-guest-1'))
       })
       fireEvent.click(screen.getByText('Only responsive target'))
-      expect(runtime.getSnapshot().paneA).toBe('synthetic-session-11')
+      expect(runtime.access.paneA).toBe('synthetic-session-11')
       await act(async () => {
         fixture.patch('session', 'synthetic-session-11', { status: 'live', headless: true })
-        runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
+        runtime.access.setPane('A', asSessionId('synthetic-guest-1'))
       })
       fireEvent.click(screen.getByText('Only responsive target'))
-      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+      expect(runtime.access.paneA).toBe('synthetic-guest-1')
       await act(async () => {
         fixture.patch('session', 'synthetic-session-11', { headless: false, archived: true })
       })
       fireEvent.click(screen.getByText('Only responsive target'))
-      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+      expect(runtime.access.paneA).toBe('synthetic-guest-1')
       cleanup()
     }
   })

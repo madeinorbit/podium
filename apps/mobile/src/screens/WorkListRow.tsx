@@ -1,5 +1,5 @@
 /** Native work-row paint from one addressed pool projection. */
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
 import type { SessionId } from '@podium/model'

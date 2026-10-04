@@ -53,7 +53,7 @@ const statics = (s: Store): CommandLaunchActions =>
   Object.fromEntries(ACTION_KEYS.map((key) => [key, s[key]])) as CommandLaunchActions
 export function useCommandLaunchActions(): CommandLaunchActions {
   const owner = useStoreHandle<Trpc>()
-  return useMemo(() => statics(owner.getSnapshot()), [owner])
+  return useMemo(() => statics(owner.access), [owner])
 }
 export function useCommandLaunchData(): Loaded<CommandLaunchData> {
   return useWorklistPoolProjection(readLaunch, LOADING)

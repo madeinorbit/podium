@@ -13,7 +13,7 @@
  *     the field is real.
  */
 
-import type { IssueEdge } from '@podium/client-core/viewmodels'
+import type { IssueEdge } from '@podium/client-core/values'
 import type { UserId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
@@ -28,7 +28,7 @@ import {
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => [],
-  useStoreSelector: (sel: (s: unknown) => unknown) => sel({} as never),
+  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel({} as never),
 }))
 
 afterEach(() => {

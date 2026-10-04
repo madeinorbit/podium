@@ -158,7 +158,7 @@ describe('POD-4942 post-rework probes', () => {
         )
         const sessionRows = sessions.map((r) => r.value as unknown as Record<string, unknown>)
         const oracleRows = visibleIssueRows(
-          legacyDerivationFromStore(ctx.engine.getSnapshot(), feeds.locals.source.get().coarseNow),
+          legacyDerivationFromStore(ctx.engine.access, feeds.locals.source.get().coarseNow),
           feeds.locals.source.get(),
         )
         const shownIssues = new Set<string>(oracleRows.map((row) => row.issue.id))

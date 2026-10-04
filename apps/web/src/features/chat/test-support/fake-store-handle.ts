@@ -1,4 +1,4 @@
-import { useStoreSelector as selectMockSnapshot } from '@/app/store'
+import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
 import type { MessageRecordWire } from '@podium/model'
 
 /**

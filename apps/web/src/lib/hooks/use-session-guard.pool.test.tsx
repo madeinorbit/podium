@@ -18,7 +18,7 @@ const f = vi.hoisted(() => ({
   confirm: vi.fn(async () => true),
 }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (state: unknown) => unknown) => {
+  useRuntimeSelector: (select: (state: unknown) => unknown) => {
     f.selectors++
     return select({ sessions: f.sessions, ...f.actions })
   },
@@ -28,8 +28,8 @@ vi.mock('@podium/client-core/react', () => {
   return { useStoreHandle: () => owner }
 })
 vi.mock('./use-confirm', () => ({ useConfirm: () => f.confirm }))
-vi.mock('@podium/client-core/viewmodels', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/client-core/viewmodels')>()
+vi.mock('@podium/client-core/values', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/client-core/values')>()
   return {
     ...actual,
     isSessionWorking: (session: SessionView) => {

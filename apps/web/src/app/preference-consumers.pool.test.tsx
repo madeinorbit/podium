@@ -22,7 +22,7 @@ const ports = vi.hoisted(() => ({
 
 vi.mock('@podium/client-core/react', () => ({
   useStoreHandle: () => ({ getSnapshot: () => ({ uiState: ports.ui }) }),
-  useStoreSelector: () => {
+  useRuntimeSelector: () => {
     throw new Error('Preference consumers must use the pool')
   },
 }))

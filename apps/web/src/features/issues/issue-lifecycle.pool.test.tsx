@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { SessionView } from '@podium/client-core/session-values'
 import { makeIssue } from '@/lib/test-issue'
 const f = vi.hoisted(() => ({ sessions: [] as SessionView[], selectors: 0 }))
-vi.mock('@/app/store', () => ({ useStoreSelector: (select: (state: unknown) => unknown) => { f.selectors++; return select(f) } }))
+vi.mock('@/app/store', () => ({ useRuntimeSelector: (select: (state: unknown) => unknown) => { f.selectors++; return select(f) } }))
 import { useIssueCloseGuard, IssueCloseDialog } from './issue-lifecycle'
 afterEach(() => { cleanup(); f.selectors = 0 })
 it('preserves issue close concerns without a legacy reader on supplied sessions', () => {

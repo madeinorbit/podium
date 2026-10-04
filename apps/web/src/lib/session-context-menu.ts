@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { panelLabel } from '@podium/client-core/viewmodels'
+import { panelLabel } from '@podium/client-core/values'
 import {
   agentProbeTimeoutDescription,
   type AgentKind,

@@ -7,7 +7,7 @@ import {
   groupActivityFeed,
   type IssueEventIcon,
   type IssueEventLine,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
@@ -41,7 +41,7 @@ import { MachineLabel, SectionHeading } from './chrome'
  * a reply box nobody reaches.
  *
  * The grouping, the rollups and the clock formatting are the SHARED derivation
- * (`@podium/client-core/viewmodels/issue-activity`), which is what keeps the
+ * (`@podium/client-core/values/issue-activity`), which is what keeps the
  * phone from repeating the defect that produced it: a flat list printing raw ISO
  * strings, thirty consecutive `read 2026-08-07T20:21:24.588Z` rows between two
  * real transitions. Days carry the date, rows carry a clock time, runs of minor

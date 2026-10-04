@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const trpc = { setup: { provenance: { query: vi.fn() } } }
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (selector: (store: unknown) => unknown) => selector({ trpc }),
+  useRuntimeSelector: (selector: (store: unknown) => unknown) => selector({ trpc }),
 }))
 
 import { forcedNotice, resetForcedSettingCache, useForcedSetting } from './use-forced-setting'

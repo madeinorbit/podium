@@ -520,7 +520,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           },
         })
       case 'issueFacts': {
-        const now = ctx.engine.getSnapshot().coarseNow
+        const now = ctx.engine.access.coarseNow
         const stamp = new Date(now).toISOString()
         const patches: Record<string, unknown>[] = [
           {
@@ -554,7 +554,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         return patchIssue(c.id, patches[c.variant % patches.length]!)
       }
       case 'sessionFacts': {
-        const now = ctx.engine.getSnapshot().coarseNow
+        const now = ctx.engine.access.coarseNow
         const stamp = new Date(now).toISOString()
         const patches: Record<string, unknown>[] = [
           {
@@ -662,13 +662,13 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
    * sides (zero-gap agreement on recency verdicts), and reruns are
    * byte-identical. Never compared directly (SliceSnapshot drops readAt).
    */
-  const markStamp = (): string => new Date(ctx.engine.getSnapshot().coarseNow).toISOString()
+  const markStamp = (): string => new Date(ctx.engine.access.coarseNow).toISOString()
 
   const applyWrite = async (c: Change, detail: Record<string, unknown>): Promise<string | null> => {
     switch (c.kind) {
       case 'edit': {
         if (!readRow('issueProjection', c.id)) return `issue ${c.id} not in scope`
-        const actions = ctx.engine.getSnapshot()
+        const actions = ctx.engine.access
         const field = 'title' in c.patch ? 'title' : 'stage' in c.patch ? 'stage' : 'readAt'
         if (opts.editViaArm) {
           // A mark-read press carries the run-clock stamp (markStamp): the
@@ -717,7 +717,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             } catch {
               continue
             }
-          } else void ctx.engine.getSnapshot().markIssueRead(c.id)
+          } else void ctx.engine.access.markIssueRead(c.id)
           await quiesce()
           const mutationId = claimNewMutation()
           if (!mutationId) continue

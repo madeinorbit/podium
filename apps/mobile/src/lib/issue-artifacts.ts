@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
+import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model'
 
 export type IssueArtifactPreview = 'image' | 'video' | 'html' | 'markdown' | 'text' | 'file'

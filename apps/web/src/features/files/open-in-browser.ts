@@ -1,4 +1,4 @@
-import type { FileScope } from '@podium/client-core/viewmodels'
+import type { FileScope } from '@podium/client-core/values'
 import { scopedAssetUrl } from '@/lib/asset-url'
 
 /**

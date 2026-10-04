@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  */
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (sel: (s: unknown) => unknown) =>
+  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
     sel({ resurrectSession: vi.fn(), killSession: vi.fn() } as never),
 }))
 

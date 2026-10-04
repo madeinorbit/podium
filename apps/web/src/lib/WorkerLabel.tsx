@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { isUnstartedSession, panelLabel } from '@podium/client-core/viewmodels'
+import { isUnstartedSession, panelLabel } from '@podium/client-core/values'
 import type { AgentKind} from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { SquareChevronRight } from 'lucide-react'

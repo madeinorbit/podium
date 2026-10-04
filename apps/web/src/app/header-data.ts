@@ -10,7 +10,7 @@ import { useWorklistPoolProjection } from './store-worklist-pool'
 export function useHeaderActions() {
   const owner = useStoreHandle<Store['trpc']>()
   return useMemo(() => {
-    const state = owner.getSnapshot()
+    const state = owner.access
     return { trpc: state.trpc, setView: state.setView, setSettingsTab: state.setSettingsTab }
   }, [owner])
 }

@@ -23,7 +23,7 @@ vi.mock('@/app/store', () => ({
     state.issueReads()
     return []
   },
-  useStoreSelector: (read: (store: object) => unknown) =>
+  useRuntimeSelector: (read: (store: object) => unknown) =>
     read({
       get sessions() {
         state.sessionReads()

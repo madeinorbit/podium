@@ -1,4 +1,4 @@
-import type { MessageNotice } from '@podium/client-core/viewmodels'
+import type { MessageNotice } from '@podium/client-core/values'
 import { useRouter } from 'expo-router'
 import { useContext, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'

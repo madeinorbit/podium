@@ -5,8 +5,8 @@ import type {
   SplitNode,
   TabId,
   WorkspaceLayout,
-} from '@podium/client-core/viewmodels'
-import { paneOfTab } from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
+import { paneOfTab } from '@podium/client-core/values'
 
 import type { CSSProperties } from 'react'
 import type { FileTab } from './store'

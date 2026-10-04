@@ -1,4 +1,4 @@
-import { type missionProgress, missionCrewLabel } from '@podium/client-core/viewmodels'
+import { type missionProgress, missionCrewLabel } from '@podium/client-core/values'
 import { Users } from 'lucide-react'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'

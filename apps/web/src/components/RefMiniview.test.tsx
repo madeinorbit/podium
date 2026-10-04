@@ -35,7 +35,7 @@ vi.mock('@podium/client-core/react', async (importOriginal) => ({
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => hostStore.replicaIssues,
-  useStoreSelector: (select: (state: unknown) => unknown) =>
+  useRuntimeSelector: (select: (state: unknown) => unknown) =>
     select({
       trpc: {
         issues: {

@@ -71,7 +71,7 @@ function store() {
 }
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
+  useRuntimeSelector: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
 }))
 
 vi.mock('@/app/SetupLoginTerminalDialog', () => ({

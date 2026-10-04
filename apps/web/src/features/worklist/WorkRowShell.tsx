@@ -1,4 +1,4 @@
-import type { MotionPhase } from '@podium/client-core/viewmodels'
+import type { MotionPhase } from '@podium/client-core/values'
 import { ArrowDownToLine } from 'lucide-react'
 import * as m from 'motion/react-m'
 import type {

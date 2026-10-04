@@ -8,7 +8,7 @@ import {
   taskProgressMap,
   type IssuesOrdering,
   writeSharedIssuesDisplay,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 
 import type { IssueViewModel } from '@/app/store'
 
@@ -75,7 +75,7 @@ export function writeIssuesDisplay(d: IssuesDisplay): string {
 
 // The board scope filter is platform-neutral and lives in client-core so the
 // phone board derives from the same predicate (POD-338).
-export { boardIssues, filterBoardScope } from '@podium/client-core/viewmodels'
+export { boardIssues, filterBoardScope } from '@podium/client-core/values'
 
 /** Progress rollup for a human-audience epic (#198): counts across its full
  *  descendant subtree so the human tracks "how far along" without seeing the

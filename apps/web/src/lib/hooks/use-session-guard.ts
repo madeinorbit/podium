@@ -1,6 +1,6 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { isSessionWorking } from '@podium/client-core/viewmodels'
+import { isSessionWorking } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { useCallback, useMemo } from 'react'
 import type { Trpc } from '@/app/trpc'
@@ -34,7 +34,7 @@ function useSessionGuardInputs(
 ) {
   const owner = useStoreHandle<Trpc>()
   const actions = useMemo(() => {
-    const { killSession, archiveSession, endSession } = owner.getSnapshot()
+    const { killSession, archiveSession, endSession } = owner.access
     return { killSession, archiveSession, endSession }
   }, [owner])
   const scoped = supplied.find((session) => session.sessionId === scopedSessionId)

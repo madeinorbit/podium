@@ -1,10 +1,10 @@
 import type { SpawnTarget } from '@podium/client-core'
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   issueReferenceModel,
   panelLabel,
   resolveDefaultAgent,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'

@@ -2,7 +2,7 @@ import {
   connectedDeviceViews,
   type MachineOperationsView,
   visibleFleetOperations,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'

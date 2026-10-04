@@ -8,7 +8,7 @@ import {
   toolBatchTitle,
   toolRunFailures,
   toolVerdict,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'

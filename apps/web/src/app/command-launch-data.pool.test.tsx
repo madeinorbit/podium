@@ -72,7 +72,7 @@ it('declares launch and palette demand after attachment, follows window updates 
   await act(async () => {
     attach()
     fixture.publishMachines()
-    await result.current.owner.getSnapshot().refreshRepos()
+    await result.current.owner.access.refreshRepos()
   })
   await waitFor(() => {
     expect(result.current.launch).not.toBe(LOADING)
@@ -93,8 +93,8 @@ it('declares launch and palette demand after attachment, follows window updates 
       'synthetic-guest-1',
     ].sort(),
   )
-  expect(actions.setPaletteOpen).toBe(owner.getSnapshot().setPaletteOpen)
-  expect(actions.updateIssue).toBe(owner.getSnapshot().updateIssue)
+  expect(actions.setPaletteOpen).toBe(owner.access.setPaletteOpen)
+  expect(actions.updateIssue).toBe(owner.access.updateIssue)
 
   storeStats.enable()
   storeStats.reset()

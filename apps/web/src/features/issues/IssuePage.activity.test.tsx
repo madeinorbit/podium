@@ -1,7 +1,7 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { IssueEvent } from '@podium/client-core/viewmodels'
+import type { IssueEvent } from '@podium/client-core/values'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -100,8 +100,8 @@ vi.mock('@/app/store', () => {
     }) as never
   return {
     useStore: () => state(),
-    // Selector hooks (useStoreSelector) reach the same mocked state.
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(state()),
+    // Selector hooks (useRuntimeSelector) reach the same mocked state.
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state()),
     useReplicaIssues: () => (state() as unknown as { issues: never[] }).issues,
   }
 })

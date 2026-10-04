@@ -15,7 +15,7 @@
  * chrome instead of behind a modal.
  */
 
-import type { UnifiedWorkRow } from '@podium/client-core/viewmodels'
+import type { UnifiedWorkRow } from '@podium/client-core/values'
 import { Search, X } from 'lucide-react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'

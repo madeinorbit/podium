@@ -330,7 +330,7 @@ function findWindowTarget(
 
 /** The run-clock mark-read stamp for probes and plants (never the wall clock). */
 function runStamp(run: { ctx: ScenarioEngine }): string {
-  return new Date(run.ctx.engine.getSnapshot().coarseNow).toISOString()
+  return new Date(run.ctx.engine.access.coarseNow).toISOString()
 }
 
 /** Plant (c): any remote drops the pending entry, so the object takes the server value. */
@@ -376,7 +376,7 @@ function gapped(
       // uses below, so the known one-row exception is neutralized identically
       // on both sides of the rebuild compare.
       const base = (): SliceSnapshot =>
-        oracle.expectedSnapshot(ctx.engine.getSnapshot(), source)
+        oracle.expectedSnapshot(ctx.engine.access, source)
       return {
         ...handle,
         snapshot: () => applyGap(handle, ctx, base(), handle.snapshot(), tally),
@@ -471,7 +471,7 @@ async function runGateSeed(
         expected: SliceSnapshot
         diff: string | null
       } => {
-        const store = run.ctx.engine.getSnapshot()
+        const store = run.ctx.engine.access
         const kernel = oracleSnapshot(store)
         const expected = oracle.expectedSnapshot(store, run.feed().source)
         const actual = applyGap(h, run.ctx, expected, h.snapshot(), gap)
@@ -623,7 +623,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             // (and the oracle) show the server value.
             expect(live.rowsById[id]?.title).not.toBe(rebuilt.rowsById[id]?.title)
             expect(rebuilt.rowsById[id]?.title).toBe('Theirs fixed title')
-            const oracle = oracleSnapshot(run.ctx.engine.getSnapshot())
+            const oracle = oracleSnapshot(run.ctx.engine.access)
             expect(live.rowsById[id]?.title).not.toBe(oracle.rowsById[id]?.title)
           }
         } finally {
@@ -661,7 +661,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           }
           locals.flush()
           const live = handle.snapshot()
-          const oracle = oracleSnapshot(run.ctx.engine.getSnapshot())
+          const oracle = oracleSnapshot(run.ctx.engine.access)
           if (!planted) {
             // Clean: local wins while pending, on both sides of the comparison.
             expect(live.rowsById[id]?.title).toBe('Mine fixed title')
@@ -854,7 +854,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           }
           const live = handle.snapshot()
           const rebuilt = handle.rebuildFromScratch()
-          const store = run.ctx.engine.getSnapshot()
+          const store = run.ctx.engine.access
           const kernel = oracleSnapshot(store)
           const expected = oracle.expectedSnapshot(store, feed.source)
           const gapTally = { applied: 0 }
@@ -939,7 +939,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             await settleStep(run, handle)
             locals.flush()
             const liveTitle = handle.snapshot().rowsById[id]?.title
-            const store = run.ctx.engine.getSnapshot()
+            const store = run.ctx.engine.access
             const expectedTitle = oracle.expectedSnapshot(store, feed.source).rowsById[id]?.title
             if (!planted) {
               // Clean: both sides saw the remote before the receipt and hold.

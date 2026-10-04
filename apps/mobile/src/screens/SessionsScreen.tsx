@@ -1,6 +1,6 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { sessionCardModel } from '@podium/client-core/viewmodels'
+import { sessionCardModel } from '@podium/client-core/values'
 import type { SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'

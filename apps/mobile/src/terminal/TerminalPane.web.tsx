@@ -1,4 +1,4 @@
-import { resolveIssueReference } from '@podium/client-core/viewmodels'
+import { resolveIssueReference } from '@podium/client-core/values'
 import type { IssueId, SessionId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
 import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-client-react'

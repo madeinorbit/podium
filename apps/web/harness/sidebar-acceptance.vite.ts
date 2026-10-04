@@ -7,9 +7,9 @@ import { defineConfig, type UserConfig } from 'vite'
 const repo = process.cwd()
 const functions: Record<string, string[]> = {
   '/engine/state.ts': ['workspaceKeyForState'],
-  '/viewmodels/mission.ts': ['missionRootFor', 'selectedMissionRoot', 'missionIssueIds', 'missionProgress', 'missionDepartures', 'buildFlightDeckRows'],
-  '/viewmodels/session-ownership.ts': ['archivedSessionsForIssue', 'sessionsForIssueNav'],
-  '/viewmodels/slices/machines/facts.ts': ['reposToViews'],
+  '/values/mission.ts': ['missionRootFor', 'selectedMissionRoot', 'missionIssueIds', 'missionProgress', 'missionDepartures', 'buildFlightDeckRows'],
+  '/values/session-ownership.ts': ['archivedSessionsForIssue', 'sessionsForIssueNav'],
+  '/values/compose/machines/facts.ts': ['reposToViews'],
   '/replica/issue-view-cache.ts': ['modelsFor'],
 }
 const config: UserConfig = defineConfig({

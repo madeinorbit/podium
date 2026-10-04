@@ -32,7 +32,7 @@
  *    data. {@link crossesOwnerBoundary} is the whole rule, and it is a pure
  *    function precisely so that claim is testable rather than asserted.
  */
-import type { IssueEdge } from '@podium/client-core/viewmodels'
+import type { IssueEdge } from '@podium/client-core/values'
 import type { IssueId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'

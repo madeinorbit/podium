@@ -4,7 +4,7 @@ import {
   type ChatRow,
   formatClock,
   toolCallPhrase,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { WorkingMark } from '@/lib/motion/WorkingMark'

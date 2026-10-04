@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { pendingAskFromState, sessionCardModel } from '@podium/client-core/viewmodels'
+import { pendingAskFromState, sessionCardModel } from '@podium/client-core/values'
 
 import { useRouter } from 'expo-router'
 import { useMemo } from 'react'

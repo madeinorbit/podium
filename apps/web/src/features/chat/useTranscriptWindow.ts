@@ -5,9 +5,9 @@ import {
   transcriptActivitySignal,
   type TranscriptFreshness,
 } from '@podium/client-core/transcript'
-import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/viewmodels'
+import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/values'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
-import type { TranscriptSearchState } from '@podium/client-core/viewmodels'
+import type { TranscriptSearchState } from '@podium/client-core/values'
 import type { Dispatch, SetStateAction } from 'react'
 import {
   useCallback,

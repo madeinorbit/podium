@@ -28,7 +28,7 @@
 import {
   placementOptions,
   profilePlacement,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { AgentKind, asAccountId, asMachineId } from '@podium/model/browser'
 import { EXECUTION_PROFILE_DEFAULT_HARNESS } from '@podium/runtime'
 import type { JSX } from 'react'

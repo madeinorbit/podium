@@ -14,7 +14,7 @@
  * line produced by de-prefixing the event KIND, so a live task rendered thirty
  * consecutive rows reading `read  2026-08-07T20:21:24.588Z`. The shared
  * formatter now hides read-state bookkeeping entirely, and the remaining
- * presentation rules live in `@podium/client-core/viewmodels`'s
+ * presentation rules live in `@podium/client-core/values`'s
  * issue-activity.ts so they stay pure:
  *   · days carry the date, rows carry a clock time (`eventClock`), and the ISO
  *     precision moves to `title`;
@@ -37,7 +37,7 @@ import {
   groupActivityFeed,
   type IssueEventIcon,
   type IssueEventLine,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   ArrowRight,
   CheckCircle2,

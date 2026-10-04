@@ -120,7 +120,7 @@ async function mount() {
       attachRuntime={(owner) => {
         data.bindHub(owner.hub)
         const stop = state.host!.host.attach(owner, (error) => errors.push(error.message))
-        void owner.getSnapshot().refreshSuperThreads()
+        void owner.access.refreshSuperThreads()
         return stop
       }}
     >

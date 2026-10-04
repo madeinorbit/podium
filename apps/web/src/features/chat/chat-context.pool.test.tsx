@@ -57,7 +57,7 @@ const snapshot = () => {
 }
 const handle = { getSnapshot: snapshot, subscribe: (_listener: () => void) => () => {} }
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (read: (state: Store) => unknown) => read(snapshot()),
+  useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot()),
   useReplicaIssues: () => {
     if (f.guard) throw new Error('Legacy chat issue views ran')
     return f.fixture!.issues.filter((row) => !row.deletedAt)

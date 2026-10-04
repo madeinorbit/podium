@@ -80,7 +80,7 @@ const fixture = vi.hoisted(() => {
 
 vi.mock('./store', () => ({
   useReplicaIssues: () => [...(fixture.issue ? [fixture.issue] : []), ...fixture.extraIssues],
-  useStoreSelector: (selector: (store: unknown) => unknown) =>
+  useRuntimeSelector: (selector: (store: unknown) => unknown) =>
     selector({
       ...fixture.store,
       sessions: fixture.sessions,

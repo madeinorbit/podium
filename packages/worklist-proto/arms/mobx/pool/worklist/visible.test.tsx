@@ -104,7 +104,7 @@ function settle(pool: MobxPool): number {
 /** The oracle's flat order: the rows the app would show, in R-ORDER. */
 function oracleOrder(ctx: ScenarioEngine): string[] {
   const locals = parityLocals(ctx)
-  const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
+  const derivation = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
   return visibleIssueRows(derivation, locals).map((row) => row.issue.id)
 }
 
@@ -127,7 +127,7 @@ function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: str
   expect(Object.keys(snapshot.rowsById), `${at}: snapshot rows`).toEqual(expected)
   const rebuildDiff = diffSnapshots(snapshot, handle.rebuildFromScratch())
   expect(rebuildDiff, `${at}: rebuild`).toBeNull()
-  const views = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+  const views = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
   const diffs: string[] = []
   tracked(() => {
     for (const id of order) {
@@ -387,7 +387,7 @@ async function runHiddenSpinOffRename(
   ctx: ScenarioEngine,
   flush: () => void,
 ) {
-  const store = ctx.engine.getSnapshot()
+  const store = ctx.engine.access
   const visible = rowViewsFromStore(store, engineLocals(ctx))
   let origin: string | undefined
   let spinOff: string | undefined

@@ -1,4 +1,4 @@
-import type { FileScope } from '@podium/client-core/viewmodels'
+import type { FileScope } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { AssetFilePanel } from './AssetFilePanel'
 import { fileKindForPath } from './file-kind'

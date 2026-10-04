@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { motionPhase, sessionTitle } from '@podium/client-core/viewmodels'
+import { motionPhase, sessionTitle } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../../theme/mix'

@@ -5,7 +5,7 @@ import {
   formatClock,
   rowStatusLine,
   type UnifiedWorkRow,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'

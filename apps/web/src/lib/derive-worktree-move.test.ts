@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { planWorktreeMoves } from '@podium/client-core/viewmodels'
+import { planWorktreeMoves } from '@podium/client-core/values'
 
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'

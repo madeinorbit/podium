@@ -23,7 +23,7 @@ import type { UseAttachmentsResult } from './use-attachments'
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => [],
-  useStoreSelector: () => undefined,
+  useRuntimeSelector: () => undefined,
 }))
 
 let container: HTMLDivElement

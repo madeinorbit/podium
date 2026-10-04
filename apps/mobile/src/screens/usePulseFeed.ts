@@ -1,4 +1,4 @@
-import { type MachineCapacityReadings, machineViewsFromWire } from '@podium/client-core/viewmodels'
+import { type MachineCapacityReadings, machineViewsFromWire } from '@podium/client-core/values'
 import type {
   HostMetricsWire,
   MachineId,

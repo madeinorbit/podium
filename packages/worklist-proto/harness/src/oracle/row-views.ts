@@ -26,7 +26,7 @@ import {
   issueAbandoned,
   issueClosedFoldAt,
   issueDisplayTitle,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 
 import { isRowSeat, type RowOriginTick, type RowView } from '@podium/client-graph/shared/row-view'
 import type { SliceLocals } from '@podium/client-graph/shared/slice-types'

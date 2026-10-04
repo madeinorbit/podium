@@ -7,7 +7,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import { relativeTime } from '@podium/client-core/focus'
-import { isSessionWorking } from '@podium/client-core/viewmodels'
+import { isSessionWorking } from '@podium/client-core/values'
 
 import type { JSX } from 'react'
 import { useNow } from '@/lib/useNow'

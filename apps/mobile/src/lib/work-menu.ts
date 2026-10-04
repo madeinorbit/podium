@@ -1,4 +1,4 @@
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 
 /** The part of Work the long-pressed row occupies. Folded rows deliberately
  * have a much smaller vocabulary than live rows. */

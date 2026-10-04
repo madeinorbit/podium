@@ -3,7 +3,7 @@ import type { IssueUpdatePatch } from '@podium/commands'
 import { asMachineId, HOST_REPOS, type MachineId } from '@podium/model/browser'
 import { Check, ChevronDown, LoaderCircle } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { machineOptionLabel, useMachineChoices } from '@/features/machines/machine-choices'
@@ -53,7 +53,7 @@ export function IssueAgentSettings({
   menuOwner?: string
   onSavingChange?: (saving: boolean) => void
 }): JSX.Element {
-  const updateIssue = useStoreSelector((s) => s.updateIssue)
+  const updateIssue = useRuntimeSelector((s) => s.updateIssue)
   const defaultAgent = issue.defaultAgent ?? issueDefaultAgentKind(undefined)
   const defaultModel = issue.defaultModel || 'auto'
   const defaultEffort = issue.defaultEffort || 'auto'

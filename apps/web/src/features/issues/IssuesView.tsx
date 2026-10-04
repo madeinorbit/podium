@@ -17,7 +17,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { type IssueViewModel, useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { ToolbarSlot } from '@/app/ToolbarSlot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -70,15 +70,15 @@ const ResponsiveIssuesKanban = memo(IssuesKanban)
 export function IssuesView(): JSX.Element {
   const base = useBoardBase()
   const { openIssueId } = base
-  const setOpenIssueId = useStoreSelector((store) => store.setOpenIssueId)
-  const trpc = useStoreSelector((store) => store.trpc)
+  const setOpenIssueId = useRuntimeSelector((store) => store.setOpenIssueId)
+  const trpc = useRuntimeSelector((store) => store.trpc)
   // The board's own writes ride the outbox-as-overlay too (POD-781) — the same
   // store actions the right-click menu uses, so a stage move made from a card
   // and one made from the menu paint identically.
-  const updateIssue = useStoreSelector((store) => store.updateIssue)
-  const setIssueLabels = useStoreSelector((store) => store.setIssueLabels)
-  const deleteIssue = useStoreSelector((store) => store.deleteIssue)
-  const closeIssue = useStoreSelector((store) => store.closeIssue)
+  const updateIssue = useRuntimeSelector((store) => store.updateIssue)
+  const setIssueLabels = useRuntimeSelector((store) => store.setIssueLabels)
+  const deleteIssue = useRuntimeSelector((store) => store.deleteIssue)
+  const closeIssue = useRuntimeSelector((store) => store.closeIssue)
   const isMobile = useIsMobile()
   const now = useNow(60_000)
   // Display options are per-user REPLICATED, so they are subscribed rather than

@@ -10,7 +10,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * palette) offering the same set. See that module's header for the rights
  * predicate and its ownership note.
  */
-import { motionPhase } from '@podium/client-core/viewmodels'
+import { motionPhase } from '@podium/client-core/values'
 import type { IssueId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'

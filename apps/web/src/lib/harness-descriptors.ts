@@ -23,7 +23,7 @@ import { useStoreHandle } from '@podium/client-core/react'
 export function useResolvedDescriptors(
   machineIds: readonly (MachineId | undefined)[],
 ): HarnessDescriptorWire[] {
-  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const trpc = useStoreHandle<Trpc>().access.trpc
   const [served, setServed] = useState<HarnessDescriptorWire[][]>([])
   const key = machineIds.join(',')
   // The transport is read through a ref: some test stores hand out a fresh

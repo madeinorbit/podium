@@ -26,7 +26,7 @@ const store = vi.hoisted(() => {
 })
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreSelector: (select: (s: unknown) => unknown) => {
+  useRuntimeSelector: (select: (s: unknown) => unknown) => {
     store.legacyReads()
     return select({ uiState: store.available.value ? store.uiState : undefined })
   },

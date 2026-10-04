@@ -1,11 +1,11 @@
 import type { ConversationBubble } from '@podium/client-core/conversation'
-import type { ChatRow } from '@podium/client-core/viewmodels'
+import type { ChatRow } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model/browser'
 
 /**
  * Pure helpers for the chat view: transcript search and the birds-eye minimap
  * geometry. Rendering stays in ChatView.tsx. The presentation-pure tool-call
- * helpers (pairing, batching, verdicts) moved to @podium/client-core/viewmodels
+ * helpers (pairing, batching, verdicts) moved to @podium/client-core/values
  * so the mobile TranscriptList shares them (POD-176); re-exported here so web
  * call sites keep their import path.
  */
@@ -29,7 +29,7 @@ export {
   toolRunFailures,
   toolSubject,
   toolVerdict,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 
 /**
  * Maximum number of transcript paths retained for terminal link matching.
@@ -86,7 +86,7 @@ export class FileLinkPathIndex {
 }
 
 // Transcript SEARCH moved to the chat slice (`blockMatches` / `searchBlocks` in
-// @podium/client-core/viewmodels): it is pure, it is the same question mobile
+// @podium/client-core/values): it is pure, it is the same question mobile
 // asks, and the row that renders a hit is derived beside it, so the counter, the
 // scroll jump and the dimming cannot disagree about what a match is.
 

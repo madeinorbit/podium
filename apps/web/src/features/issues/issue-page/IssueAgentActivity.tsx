@@ -40,19 +40,19 @@
 
 import { shallowEqual } from '@podium/client-core'
 import { relativeTime } from '@podium/client-core/focus'
-import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
+import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { type IssueViewModel, useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { SectionHeading } from './chrome'
 
 export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | null {
-  const { httpOrigin, openFileInWorktree, openArtifact } = useStoreSelector(
+  const { httpOrigin, openFileInWorktree, openArtifact } = useRuntimeSelector(
     (s) => ({
       httpOrigin: s.httpOrigin,
       openFileInWorktree: s.openFileInWorktree,

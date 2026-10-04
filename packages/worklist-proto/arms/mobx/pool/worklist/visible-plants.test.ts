@@ -96,7 +96,7 @@ function orderChecked(): ((ctx: ScenarioEngine) => CheckableArm) & { compared: n
         snapshot() {
           const settled = handle.snapshot()
           const coarseNow = parityLocals(ctx).coarseNow
-          const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), coarseNow)
+          const derivation = legacyDerivationFromStore(ctx.engine.access, coarseNow)
           const expected: string[] = visibleIssueRows(derivation, parityLocals(ctx)).map(
             (row) => row.issue.id,
           )
@@ -172,7 +172,7 @@ async function collectOracleLog(sequence: readonly Change[]): Promise<string[]> 
         rowsById: Record<string, unknown>
       }
       const coarseNow = parityLocals(run.ctx).coarseNow
-      const derivation = legacyDerivationFromStore(run.ctx.engine.getSnapshot(), coarseNow)
+      const derivation = legacyDerivationFromStore(run.ctx.engine.access, coarseNow)
       const expected: string[] = visibleIssueRows(derivation, parityLocals(run.ctx)).map(
         (row) => row.issue.id,
       )

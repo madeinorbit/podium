@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/viewmodels'
+import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'

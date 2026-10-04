@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { portfolioActionableCount } from '@podium/client-core/viewmodels'
+import { portfolioActionableCount } from '@podium/client-core/values'
 import type { IssueStage } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'

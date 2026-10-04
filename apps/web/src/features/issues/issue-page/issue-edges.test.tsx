@@ -52,7 +52,7 @@ let replicaAnswersExits = true
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => [VISIBLE, ARCHIVED],
-  useStoreSelector: (sel: (s: unknown) => unknown) =>
+  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
     sel({
       replica: replicaAnswersExits
         ? {

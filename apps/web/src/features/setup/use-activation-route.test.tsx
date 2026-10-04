@@ -26,7 +26,7 @@ const store = vi.hoisted(() => {
 })
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: <T,>(select: (state: { uiState: unknown }) => T): T =>
+  useRuntimeSelector: <T,>(select: (state: { uiState: unknown }) => T): T =>
     select({ uiState: store.uiState }),
 }))
 

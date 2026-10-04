@@ -3,7 +3,7 @@ import {
   type IssueReferenceSource,
   canonicalIssueRef,
   issueReferenceModel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { parseAnyRef } from '@podium/protocol'
 
 export type IssueReferenceLookup = ReadonlyMap<string, IssueReferenceModel>

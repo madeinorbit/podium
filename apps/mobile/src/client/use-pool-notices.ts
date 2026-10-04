@@ -1,5 +1,5 @@
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
-import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/viewmodels'
+import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import {
   noticeContinuity,
   noticeInteractions,

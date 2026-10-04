@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { filterBoardScope } from '@podium/client-core/viewmodels'
+import { filterBoardScope } from '@podium/client-core/values'
 import type { IssueId, IssueStage} from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import { type BoardFilter, filterBoardIssues, filterChips } from './issue-board-filter'

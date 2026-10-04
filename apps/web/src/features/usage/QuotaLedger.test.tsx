@@ -1,4 +1,4 @@
-import { quotaLedger } from '@podium/client-core/viewmodels'
+import { quotaLedger } from '@podium/client-core/values'
 import type { QuotaWindowHistoryWire } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'

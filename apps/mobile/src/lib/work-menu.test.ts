@@ -1,4 +1,4 @@
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { workMenuActionIds } from './work-menu'

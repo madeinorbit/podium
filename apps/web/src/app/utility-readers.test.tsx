@@ -4,7 +4,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createSubscriptionStore } from '@podium/client-core/store'
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import { asIssueId, asSessionId, asUserId, type TaskCostWire } from '@podium/model/browser'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -28,7 +28,7 @@ vi.mock('../../../../packages/client-core/src/engine/runtime', () => ({
 }))
 vi.mock('./store', async () => {
   const core = await import('@podium/client-core/react')
-  return { useStoreSelector: core.useStoreSelector }
+  return { useRuntimeSelector: core.useRuntimeSelector }
 })
 
 afterEach(() => {

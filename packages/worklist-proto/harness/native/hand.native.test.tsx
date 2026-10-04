@@ -29,7 +29,7 @@ describe('hand-rolled arm on the native renderer', () => {
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.getSnapshot().coarseNow,
+      coarseNow: ctx.engine.access.coarseNow,
     }
     const handle = handArm.create(source.source, fixedLocals(locals).source)
     const store = (handle as unknown as { store: HandStore }).store
@@ -61,7 +61,7 @@ describe('hand-rolled arm on the native renderer', () => {
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       expect(heartbeat.visibleRows).toBeGreaterThan(0)
       expect(heartbeat.parity).toBe(true)
@@ -79,7 +79,7 @@ describe('hand-rolled arm on the native renderer', () => {
           await writePhaseChange(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       expect(phase.parity).toBe(true)
       console.info(
@@ -95,7 +95,7 @@ describe('hand-rolled arm on the native renderer', () => {
           await writeSelectionClick(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       expect(click.parity).toBe(true)
       expect(click.rowsCommitted).toBe(0)

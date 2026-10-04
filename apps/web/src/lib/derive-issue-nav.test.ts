@@ -5,7 +5,7 @@ import {
   pickPaneSession,
   resolveDefaultAgent,
   sessionsForIssueNav,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { UnbrandIds } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'

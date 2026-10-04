@@ -36,7 +36,7 @@ import { fixtureGitStates, fixtureMarkers, fixtureProjection } from './normalize
  */
 
 import { deriveIssueRollups, indexSessionsByIssue } from '@podium/client-core/replica'
-import type { PinState } from '@podium/client-core/viewmodels'
+import type { PinState } from '@podium/client-core/values'
 import type {
   SliceIssue,
   SliceSession,

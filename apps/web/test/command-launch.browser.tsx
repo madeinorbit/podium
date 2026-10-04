@@ -111,7 +111,7 @@ function Surface() {
     <main style={{ margin: '80px auto', maxWidth: 720 }}>
       <h1>Command and launch choices</h1>
       <p>5,600 synthetic tasks · 5,014 sessions</p>
-      <button type="button" onClick={() => owner.getSnapshot().setPaletteOpen(true)}>
+      <button type="button" onClick={() => owner.access.setPaletteOpen(true)}>
         Open commands
       </button>
       <button type="button" onClick={() => setNewIssue(true)}>
@@ -187,7 +187,7 @@ const driver = {
     }
   },
   calls: () => calls,
-  selection: () => ({ issueId: owner.getSnapshot().openIssueId, view: owner.getSnapshot().view }),
+  selection: () => ({ issueId: owner.access.openIssueId, view: owner.access.view }),
   async check() {
     if (!pool) return null
     const { checkCommandLaunch, poolCommandLaunchSnapshot } = await import(
@@ -197,7 +197,7 @@ const driver = {
       poolCommandLaunchSnapshot(pool)
       if (!pool.hydrate()) break
     }
-    const result = checkCommandLaunch(pool, owner.getSnapshot())
+    const result = checkCommandLaunch(pool, owner.access)
     return {
       differences: result.differences,
       pending: result.pending,

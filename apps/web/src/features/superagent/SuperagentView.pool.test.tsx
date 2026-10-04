@@ -69,8 +69,8 @@ async function mount() {
           issueEvents: { lastEventId: 9, seenAt: '2026-10-02T00:00:00Z' },
         })
         const stop = attachWorklistPool(owner, (error) => errors.push(error.message))
-        void owner.getSnapshot().refreshSuperThreads()
-        void owner.getSnapshot().refreshRepos()
+        void owner.access.refreshSuperThreads()
+        void owner.access.refreshRepos()
         return stop
       }}
     >
@@ -114,7 +114,7 @@ it('preserves saved thread, return marker, concierge and dock controls', async (
   expect(enabled.before[0]).toBeNull()
   expect(enabled.pool).toBeTruthy()
   await waitFor(() =>
-    expect(checkSuperagent(enabled.pool!, enabled.runtime.getSnapshot())).toMatchObject({
+    expect(checkSuperagent(enabled.pool!, enabled.runtime.access)).toMatchObject({
       differences: 0,
       pending: 0,
     }),
@@ -130,7 +130,7 @@ it('executes zero legacy Superagent derivations through attach, feed, local and 
   expect(readRuntimeStoreStats(enabled.runtime)?.selectorRuns ?? 0).toBe(0)
   await act(async () => {
     enabled.data.activity(1)
-    enabled.runtime.getSnapshot().setSuperThreadId('btw-private' as never)
+    enabled.runtime.access.setSuperThreadId('btw-private' as never)
     await enabled.data.updateThread(enabled.runtime, true)
   })
   expect(
@@ -155,9 +155,9 @@ it('keeps the existing mutation and navigation owner for clear, terminal and con
   await act(async () =>
     fireEvent.click(enabled.header.querySelector('button[title^="Open this conversation"]')!),
   )
-  await waitFor(() => expect(enabled.runtime.getSnapshot().paneA).toBe('synthetic-session-3'))
+  await waitFor(() => expect(enabled.runtime.access.paneA).toBe('synthetic-session-3'))
   fireEvent.click(enabled.view.container.querySelector('button[aria-label="Concierge"]')!)
   expect(enabled.data.actions).toMatchObject({ cleared: 1, opened: 1 })
-  expect(enabled.runtime.getSnapshot().superThreadId).toMatch(/^concierge_/)
+  expect(enabled.runtime.access.superThreadId).toMatch(/^concierge_/)
   expect(enabled.errors).toEqual([])
 })

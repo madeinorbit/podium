@@ -26,7 +26,7 @@ describe('Hand merge verdict on an unrelated heartbeat', () => {
         row.value !== undefined && awaitingMergeOf(row.value as SliceIssue),
       )
       expect(merging.length, 'the fixture exercises the merge verdict').toBeGreaterThan(0)
-      const expected = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+      const expected = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
       let actual!: SliceSnapshot
       await act(async () => {
         actual = mounted.handle.snapshot()

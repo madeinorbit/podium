@@ -86,7 +86,7 @@ async function rescopeRun(scans: boolean): Promise<{ grown: ScopeCheck; back: Sc
       .map((issue) => issue.id)
       .sort()
     const actual = handle.snapshot()
-    const oracle = oracleSnapshot(ctx.engine.getSnapshot())
+    const oracle = oracleSnapshot(ctx.engine.access)
     // POD-4671 plant tables: the grown/installed rows as whole tables (repo
     // has no feed kind; an empty table keeps the scan honest for R3, which
     // never targets repo).

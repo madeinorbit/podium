@@ -169,9 +169,9 @@ function Surfaces() {
     pool = graph
     if (!started && graph) {
       started = true
-      owner.getSnapshot().setSelectedIssueId(asIssueId('synthetic-3'))
-      owner.getSnapshot().openFileInWorktree({ root: '/synthetic/project', path: 'readme.md' })
-      owner.getSnapshot().setSuperOpen(true)
+      owner.access.setSelectedIssueId(asIssueId('synthetic-3'))
+      owner.access.openFileInWorktree({ root: '/synthetic/project', path: 'readme.md' })
+      owner.access.setSuperOpen(true)
     }
     ready = started && Boolean(graph) && Boolean(graph?.row('shellWindow', 'window'))
   }, [owner, graph])
@@ -185,7 +185,7 @@ function Surfaces() {
         <button
           type="button"
           data-testid="ordinary-shell-click"
-          onClick={() => owner.getSnapshot().setPane('A', asSessionId('synthetic-session-3'))}
+          onClick={() => owner.access.setPane('A', asSessionId('synthetic-session-3'))}
         >
           Select existing session
         </button>
@@ -247,7 +247,7 @@ root.render(
           effects.callbacks++
         },
       })
-      void owner.getSnapshot().refreshRepos()
+      void owner.access.refreshRepos()
       return attachWorklistPool(owner, (error) => failures.push(error.message))
     }}
   >
@@ -318,7 +318,7 @@ const driver = {
         poolShellSnapshot(pool)
         if (!pool.hydrate()) break
       }
-      return checkShell(pool, runtime.getSnapshot())
+      return checkShell(pool, runtime.access)
     } finally {
       finish()
     }

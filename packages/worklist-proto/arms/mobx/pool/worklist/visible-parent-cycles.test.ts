@@ -1,6 +1,6 @@
 /** Parent cycles must rescue from actual work, as the legacy ancestor pass does. */
 import type { SessionView } from '@podium/client-core/session-values'
-import { type IssueNavigationModel, type UnifiedWorkRow, unifiedWorkList } from '@podium/client-core/viewmodels'
+import { type IssueNavigationModel, type UnifiedWorkRow, unifiedWorkList } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph/pool'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord } from '@podium/client-graph/shared/source'

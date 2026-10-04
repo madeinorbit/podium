@@ -1,4 +1,4 @@
-import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/viewmodels'
+import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/values'
 
 /** Counts belong to the existing store owner, never to a second runtime. */
 const counts = new WeakMap<object, Record<string, number>>()

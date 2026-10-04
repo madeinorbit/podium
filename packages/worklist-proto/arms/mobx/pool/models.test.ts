@@ -13,7 +13,7 @@
  * against the fed row by those rules.
  */
 
-import { issueDisplayTitle } from '@podium/client-core/viewmodels'
+import { issueDisplayTitle } from '@podium/client-core/values'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'

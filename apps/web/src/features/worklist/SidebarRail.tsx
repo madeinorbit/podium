@@ -72,7 +72,7 @@
  * control is its header band. This component fills everything under it.
  */
 
-import type { MotionPhase } from '@podium/client-core/viewmodels'
+import type { MotionPhase } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { createPortal } from 'react-dom'
 import type { IdSquareBadge } from '@/components/IdSquare'

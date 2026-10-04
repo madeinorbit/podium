@@ -32,7 +32,7 @@ describe('mission differential replay', () => {
     const checks: unknown[] = []
     const check = (scenario: string) => {
       feeds.flush(); settle(handle.pool)
-      const store = ctx.engine.getSnapshot()
+      const store = ctx.engine.access
       const result = tracked(() => checkMissions(handle.pool, allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions))
       expect(result, scenario).toMatchObject({ differences: 0, first: null, pending: 0 })
       checks.push({ scenario, ...result })
@@ -65,7 +65,7 @@ describe('mission differential replay', () => {
           handle = createWorklistPool(feed.source, locals.source, { summaries: MISSION_SUMMARIES }); stop = observe()
         }
         locals.flush(); settle(handle.pool)
-        const store = run.ctx.engine.getSnapshot()
+        const store = run.ctx.engine.access
         expect(tracked(() => checkMissions(handle.pool, allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions)),
           `seed ${seed} step ${index} ${change.kind}`).toMatchObject({ differences: 0, first: null, pending: 0 })
       }

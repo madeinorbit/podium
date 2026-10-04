@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { taskStateWord } from '@podium/client-core/viewmodels'
+import { taskStateWord } from '@podium/client-core/values'
 import type {
   MobileTaskSection,
   MobileTasksOptions,

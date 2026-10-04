@@ -1,4 +1,4 @@
-import type { ChatRow } from '@podium/client-core/viewmodels'
+import type { ChatRow } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import type { Dispatch, SetStateAction } from 'react'
 import { useEffect, useRef, useState } from 'react'

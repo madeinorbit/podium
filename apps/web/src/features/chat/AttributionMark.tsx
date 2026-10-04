@@ -1,4 +1,4 @@
-import type { TranscriptAttribution } from '@podium/client-core/viewmodels'
+import type { TranscriptAttribution } from '@podium/client-core/values'
 import type { JSX } from 'react'
 
 /**

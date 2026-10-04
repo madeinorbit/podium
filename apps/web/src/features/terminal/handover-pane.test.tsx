@@ -93,7 +93,7 @@ vi.mock('@/app/store', () => {
     // `undefined` = no exit state. These cases are about the takeover cover, and
     // ChatView's parked-transcript case requires this scoped subscription seam.
     useSessionExitKind: () => undefined,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

@@ -189,11 +189,11 @@ const driver = {
       failures: failures.length,
       actions,
       parked: owner.outbox.deadLetters().length,
-      opened: owner.getSnapshot().paneA,
+      opened: owner.access.paneA,
     }
   },
   check() {
-    return pool ? checkNotices(pool, owner.getSnapshot(), ['synthetic-session-0']) : null
+    return pool ? checkNotices(pool, owner.access, ['synthetic-session-0']) : null
   },
   close: () => root.unmount(),
 }

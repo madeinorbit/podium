@@ -514,7 +514,7 @@ export const REEXPORT_SHIM_CONTROLS: Readonly<Record<string, readonly string[]>>
   // THE FORMATTING BRANCH. biome (lineWidth 100) wraps a re-export as soon as
   // one name is added, and a line-based test drops the file entirely — the
   // count falls and the ratchet records a deletion that never happened.
-  wrapped: ["export {\n  a,\n  b,\n} from '@podium/client-core/viewmodels'"],
+  wrapped: ["export {\n  a,\n  b,\n} from '@podium/client-core/values'"],
 }
 
 /** Controls `patternSource` FAILS to match. Empty means the anchor is intact. */
@@ -1181,7 +1181,7 @@ export const CHECKS: AuditCheck[] = [
         // SECOND FORM — the blanket re-forward inside a real module (POD-333).
         //
         // `apps/web/src/lib/derive.ts` carried
-        // `export * from '@podium/client-core/viewmodels'` beside one genuinely
+        // `export * from '@podium/client-core/values'` beside one genuinely
         // web-side helper, with the comment "Existing `./derive` imports keep
         // working through this shim". It is a named compatibility shim by the
         // brief's own words, and the re-export-ONLY unit could not see it,

@@ -1,7 +1,7 @@
 import type {
   MachineCapacityReading,
   MachineCapacityReadings,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MachineId } from '@podium/model'
 import type { HostMemoryBreakdown } from '@podium/protocol'
 

@@ -9,7 +9,7 @@ import {
   type TaskProgress,
   taskStateWord,
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   type IssueBoardStage,
   type IssueCloseReason,

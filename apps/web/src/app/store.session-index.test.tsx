@@ -15,7 +15,7 @@ vi.mock('../../../../packages/client-core/src/engine/runtime', () => ({
   createClientRuntime: () => fixture.handle,
 }))
 vi.mock('./trpc', () => ({ makeTrpc: () => ({}) }))
-const { StoreProvider, useSession, useStoreSelector } = await import('./store')
+const { StoreProvider, useSession, useRuntimeSelector } = await import('./store')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -69,7 +69,7 @@ it('A/B: unrelated deltas remove lookup comparisons, not reader fan-out', () => 
     watch(sessions)
     const id = asSessionId('s255')
     function LegacyReader() {
-      const selected = useStoreSelector((s) => s.sessions.find((s) => s.sessionId === id))
+      const selected = useRuntimeSelector((s) => s.sessions.find((s) => s.sessionId === id))
       return <span>{selected?.name}</span>
     }
     function IndexedReader() {

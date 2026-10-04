@@ -1,3 +1,4 @@
+import { useWorklistPoolProjection } from './store-worklist-pool'
 import type {
   EngineState,
   KeyedInputs,
@@ -51,19 +52,13 @@ export function useRuntimeList<N extends KeyedListName>(name: N): KeyedListRow<N
 export function useRuntimeActions<K extends keyof Store>(keys: readonly K[]): Pick<Store, K> {
   const owner = useStoreHandle<Trpc>()
   return useMemo(() => {
-    const state = owner.getSnapshot()
+    const state = owner.access
     return Object.fromEntries(keys.map((key) => [key, state[key]])) as Pick<Store, K>
   }, [owner, keys])
 }
 
 export function usePendingSpawnPrompt(id: SessionId): string | undefined {
-  const inputs = useInputs()
-  const subscribe = useCallback(
-    (notify: () => void) => inputs.onLocals(['pendingSpawnPrompts'], notify),
-    [inputs],
-  )
-  const read = useCallback(() => inputs.readLocal('pendingSpawnPrompts').get(id), [inputs, id])
-  return useSyncExternalStore(subscribe, read)
+  return useWorklistPoolProjection(pool => pool.spawnPlaceholders()?.get(id) ?? undefined, undefined)
 }
 
 export function useRuntimeDraft(id: SessionId | undefined): string {

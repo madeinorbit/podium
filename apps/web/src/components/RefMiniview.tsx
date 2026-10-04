@@ -25,7 +25,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import {
@@ -169,7 +169,7 @@ function RefMiniviewContents({
 }): JSX.Element | null {
   const sessions = useChatReferenceSessions()
   const machines = useChatReferenceMachines()
-  const { trpc, setOpenIssueId, setView, navigateToSession } = useStoreSelector(
+  const { trpc, setOpenIssueId, setView, navigateToSession } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       setOpenIssueId: s.setOpenIssueId,
@@ -575,7 +575,7 @@ function PoolRefPrefixSync(): JSX.Element {
 }
 
 function RefPrefixSyncContents({ issuePrefixKey }: { issuePrefixKey: string }): null {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useRuntimeSelector((s) => s.trpc)
   const repoKey = useChatRepositoryKey()
   const [repoPrefixes, setRepoPrefixes] = useState<string[]>([])
 

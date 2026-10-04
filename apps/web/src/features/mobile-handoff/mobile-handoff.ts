@@ -20,7 +20,7 @@ import { workspaceFetch } from '@/lib/workspace-request'
  */
 
 import { MOBILE_PROMO_DISMISSED_KEY } from '@podium/client-core/ui-state'
-import { allTabIds, leafPaneIds } from '@podium/client-core/viewmodels'
+import { allTabIds, leafPaneIds } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import {
   canonicalPodiumOrigin,

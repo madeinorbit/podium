@@ -81,8 +81,8 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
     },
   }
 })
-vi.mock('@podium/client-core/viewmodels', async (importOriginal) => {
-  const real = await importOriginal<typeof import('@podium/client-core/viewmodels')>()
+vi.mock('@podium/client-core/values', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@podium/client-core/values')>()
   const guard = <T extends (...args: never[]) => unknown>(fn: T): T =>
     ((...args: never[]) => {
       state.rowDerivations++

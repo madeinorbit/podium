@@ -54,7 +54,7 @@ const STATE = {
   openFileInWorktree: () => {},
 }
 
-export function useStoreSelector<T>(selector: (s: typeof STATE) => T): T {
+export function useRuntimeSelector<T>(selector: (s: typeof STATE) => T): T {
   return selector(STATE)
 }
 

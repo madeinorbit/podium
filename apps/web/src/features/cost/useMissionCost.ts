@@ -1,4 +1,4 @@
-import { costCohort, type TaskCostView, taskCostView } from '@podium/client-core/viewmodels'
+import { costCohort, type TaskCostView, taskCostView } from '@podium/client-core/values'
 import type { TaskCostRowWire, TaskCostWire } from '@podium/model/browser'
 import { useMemo } from 'react'
 import type { Trpc } from '@/app/trpc'

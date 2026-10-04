@@ -12,7 +12,7 @@ import {
   parseAskQuestions,
   parseEnvelopeBatch,
   searchBlocks,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 
 export type MobileTurnPosition = 'open' | 'bind' | 'beat'

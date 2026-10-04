@@ -1,4 +1,4 @@
-import { panelLabel, sessionDotTone, sessionTitle } from '@podium/client-core/viewmodels'
+import { panelLabel, sessionDotTone, sessionTitle } from '@podium/client-core/values'
 import { asSessionId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'

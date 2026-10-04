@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (sel: (s: unknown) => unknown) =>
+  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
     sel({
       continueSession: vi.fn(),
       renameSession: vi.fn(),

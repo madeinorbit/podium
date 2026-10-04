@@ -3,7 +3,7 @@ import {
   optimisticDraftIssue,
   optimisticDraftSortKey,
   optimisticStartingSession,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { asIssueId, asRepoId, asSessionId, asUserId, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 

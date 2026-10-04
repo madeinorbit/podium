@@ -140,7 +140,7 @@ vi.mock('@/app/store', () => {
     useStore,
     useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
     useHostMetrics: () => useStore().hostMetrics,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

@@ -102,7 +102,7 @@ const driver = {
     await owner!.getSnapshot().refreshRepos()
     await frame()
   },
-  check: () => (pool && owner ? checkWorkflows(pool, owner.getSnapshot(), fixture) : null),
+  check: () => (pool && owner ? checkWorkflows(pool, owner.access, fixture) : null),
   stats() {
     // The global ring evicts old owners as legacy sessionById records each
     // immutable array. A capture window retains the actual publishing runtime.

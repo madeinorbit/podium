@@ -113,7 +113,7 @@ await build({
       const lifetimeBlurWrites: { principal: string; writingPrincipal: string; actualPrincipal: string; destroyed: boolean; value: string }[] = [];
       function AccountBlurWriter() {
         const principal = lifetimeCurrentPrincipal()!, handle = useStoreHandle();
-        const write = useStoreSelector(s => s.setSessionDraft);
+        const write = useRuntimeSelector(s => s.setSessionDraft);
         return <input data-account-blur-writer tabIndex={-1} aria-hidden="true"
           style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
           defaultValue={principal.userId + ' on-blur write attempt'} ref={input => {

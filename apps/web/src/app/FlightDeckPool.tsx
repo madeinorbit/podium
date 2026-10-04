@@ -1,7 +1,7 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
-import type { FlightDeckMode } from '@podium/client-core/viewmodels'
+import type { FlightDeckMode } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
@@ -25,7 +25,7 @@ import {
 } from './FlightDeck'
 import { measurePoolMission } from './mission-pane-perf'
 import { readMissionPane } from './mission-pane-reader'
-import { useStoreSelector } from './store'
+import { useRuntimeSelector } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 
 type PaneValues = Exclude<ReturnType<typeof readMissionPane>, typeof LOADING>
@@ -41,7 +41,7 @@ const IssueContextMenu = lazy(() =>
 export default observer(function PoolFlightDeck(
   props: FlightDeckProps & { preferences: FlightDeckPreferences },
 ): JSX.Element {
-  const { selectedIssueId, paneA, paneB, split } = useStoreSelector(
+  const { selectedIssueId, paneA, paneB, split } = useRuntimeSelector(
     (store) => ({
       selectedIssueId: store.selectedIssueId,
       paneA: store.paneA,

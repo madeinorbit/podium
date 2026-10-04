@@ -14,10 +14,10 @@ import {
   StoreStatsProfiler,
   useSlice,
   useStoreHandle,
-  useStoreSelector,
+  useRuntimeSelector,
 } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import { createSlicePublisher, worklistSlice } from '@podium/client-core/viewmodels'
+import { createSlicePublisher, worklistSlice } from '@podium/client-core/values'
 import {
   asIssueId,
   asSessionId,
@@ -107,8 +107,8 @@ function Draft() {
 }
 function Worklist() {
   const slice = useSlice(worklistSlice)
-  const select = useStoreSelector((s) => s.setSelectedIssueId)
-  const selected = useStoreSelector((s) => s.selectedIssueId)
+  const select = useRuntimeSelector((s) => s.setSelectedIssueId)
+  const selected = useRuntimeSelector((s) => s.selectedIssueId)
   const rows = slice.work.filter((row) => row.kind === 'issue')
   // Constant visible neighbourhood. The real derivation still sees ALL rows.
   return (
@@ -379,7 +379,7 @@ describe('kernel-backed interaction counts', () => {
             }
             upsert('session', 's2', changed)
             expect(
-              runtime.getSnapshot().sessions.find((row) => row.sessionId === 's2')?.lastActiveAt,
+              runtime.access.sessions.find((row) => row.sessionId === 's2')?.lastActiveAt,
             ).toBe(changed.lastActiveAt)
           },
           { publishes: 1, worklist: 1, rowBuilds: 1 },
@@ -387,8 +387,8 @@ describe('kernel-backed interaction counts', () => {
         await measure(
           'draft-A',
           (i) => {
-            runtime.getSnapshot().setSessionDraft(asSessionId('s0'), `Draft ${i}`)
-            expect(runtime.getSnapshot().drafts.s0).toBe(`Draft ${i}`)
+            runtime.access.setSessionDraft(asSessionId('s0'), `Draft ${i}`)
+            expect(runtime.access.drafts.s0).toBe(`Draft ${i}`)
           },
           { publishes: 1, worklist: 0, rowBuilds: 0 },
         )
@@ -405,7 +405,7 @@ describe('kernel-backed interaction counts', () => {
           'coarseNow',
           async () => {
             await vi.advanceTimersByTimeAsync(COARSE_CLOCK_MS)
-            expect(runtime.getSnapshot().coarseNow).toBe(Date.now())
+            expect(runtime.access.coarseNow).toBe(Date.now())
           },
           { publishes: 1, worklist: 1, rowBuilds: 0 },
         )
@@ -416,21 +416,21 @@ describe('kernel-backed interaction counts', () => {
             const row = document.querySelector(`[data-issue-row="${id}"]`)
             expect(row).not.toBeNull()
             fireEvent.click(row!.querySelector('button[data-pressable]')!)
-            expect(runtime.getSnapshot().selectedIssueId).toBe(id)
+            expect(runtime.access.selectedIssueId).toBe(id)
           },
           { publishes: 1, worklist: 1, rowBuilds: 0 },
         )
         await measure(
           'optimistic-echo',
           async (i) => {
-            const pending = runtime.getSnapshot().renameSession(asSessionId('s2'), `Echo ${i}`)
-            expect(runtime.getSnapshot().sessions.find((s) => s.sessionId === 's2')?.name).toBe(
+            const pending = runtime.access.renameSession(asSessionId('s2'), `Echo ${i}`)
+            expect(runtime.access.sessions.find((s) => s.sessionId === 's2')?.name).toBe(
               `Echo ${i}`,
             )
             await pending
             upsert('session', 's2', { ...session(2), name: `Echo ${i}` })
             await settle()
-            expect(runtime.getSnapshot().sessions.find((s) => s.sessionId === 's2')?.name).toBe(
+            expect(runtime.access.sessions.find((s) => s.sessionId === 's2')?.name).toBe(
               `Echo ${i}`,
             )
           },
@@ -440,13 +440,13 @@ describe('kernel-backed interaction counts', () => {
         await measure(
           'optimistic-rejection',
           async (i) => {
-            const pending = runtime.getSnapshot().renameSession(asSessionId('s2'), `Rejected ${i}`)
-            expect(runtime.getSnapshot().sessions.find((s) => s.sessionId === 's2')?.name).toBe(
+            const pending = runtime.access.renameSession(asSessionId('s2'), `Rejected ${i}`)
+            expect(runtime.access.sessions.find((s) => s.sessionId === 's2')?.name).toBe(
               `Rejected ${i}`,
             )
             await pending
             await settle()
-            expect(runtime.getSnapshot().sessions.find((s) => s.sessionId === 's2')?.name).toBe(
+            expect(runtime.access.sessions.find((s) => s.sessionId === 's2')?.name).toBe(
               'Echo 19',
             )
             expect(runtime.outbox.deadLetters()).toHaveLength(1)
@@ -464,7 +464,7 @@ describe('kernel-backed interaction counts', () => {
           (i) => {
             hub.emit('hostMetrics', hostFrame(i))
             upsert('session', 's2', { ...session(2), title: `Mixed ${i}` })
-            runtime.getSnapshot().setSessionDraft(asSessionId('s0'), `Mixed draft ${i}`)
+            runtime.access.setSessionDraft(asSessionId('s0'), `Mixed draft ${i}`)
           },
           { publishes: 2, worklist: 1, rowBuilds: 1 },
         )
@@ -472,12 +472,12 @@ describe('kernel-backed interaction counts', () => {
         // SAME runtime and SAME worklist definition. A real draft now derives the
         // slice, and the exact production budget assertion must reject the result.
         const { sourceEqual: _guard, ...unconditional } = worklistSlice
-        const control = createSlicePublisher(() => runtime.getSnapshot(), runtime)
+        const control = createSlicePublisher(() => runtime.access, runtime)
         control.read(unconditional)
         const off = runtime.subscribe(() => control.read(unconditional))
         storeStats.reset()
         await act(async () =>
-          runtime.getSnapshot().setSessionDraft(asSessionId('s0'), 'control draft'),
+          runtime.access.setSessionDraft(asSessionId('s0'), 'control draft'),
         )
         await settle()
         off()
@@ -488,7 +488,7 @@ describe('kernel-backed interaction counts', () => {
         ).toThrow('draft-A: worklist')
         storeStats.reset()
         await act(async () =>
-          runtime.getSnapshot().setSessionDraft(asSessionId('s0'), 'guarded draft'),
+          runtime.access.setSessionDraft(asSessionId('s0'), 'guarded draft'),
         )
         await settle()
         const after = readRuntimeStoreStats(runtime)!

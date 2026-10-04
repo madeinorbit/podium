@@ -62,7 +62,7 @@ describe('legacy control (armed)', () => {
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.getSnapshot().coarseNow,
+      coarseNow: ctx.engine.access.coarseNow,
     }
     const mounted = mountArmForCounts(
       legacyControlArmFor(ctx.engine),
@@ -72,7 +72,7 @@ describe('legacy control (armed)', () => {
     try {
       // Parity on mount, before any action: the control shows what the app shows.
       const atMount = mounted.handle.snapshot()
-      const expectedAtMount = snapshotFromStore(ctx.engine.getSnapshot(), locals)
+      const expectedAtMount = snapshotFromStore(ctx.engine.access, locals)
       expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
       expect(atMount).toEqual(expectedAtMount)
 
@@ -83,8 +83,8 @@ describe('legacy control (armed)', () => {
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
-        views: () => rowViewsFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        views: () => rowViewsFromStore(ctx.engine.access, locals),
       })
 
       // The can-say-YES guard: parity true on an empty list would be vacuous.
@@ -118,7 +118,7 @@ describe('legacy control (armed)', () => {
 
       // POD-4557 — reads = whole corpus. Every session row and every issue
       // row the replica holds, including resume twins collapsed in the rendered store.
-      const store = ctx.engine.getSnapshot()
+      const store = ctx.engine.access
       const issueIds = new Set([
         ...allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates).map(
           (issue) => issue.id,
@@ -155,7 +155,7 @@ describe('legacy control (armed)', () => {
       const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
       const locals: SliceLocals = {
         selectedIssueId: null,
-        coarseNow: ctx.engine.getSnapshot().coarseNow,
+        coarseNow: ctx.engine.access.coarseNow,
       }
       const mounted = mountArmForCounts(
         legacyControlArmFor(ctx.engine),
@@ -171,7 +171,7 @@ describe('legacy control (armed)', () => {
             await writeHeartbeat(ctx)
             source.flush()
           },
-          expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+          expected: () => snapshotFromStore(ctx.engine.access, locals),
         })
       } finally {
         mounted.unmount()
@@ -204,7 +204,7 @@ describe('legacy control (armed)', () => {
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.getSnapshot().coarseNow,
+      coarseNow: ctx.engine.access.coarseNow,
     }
     const mounted = mountArmForCounts(
       legacyControlArmFor(ctx.engine),
@@ -223,7 +223,7 @@ describe('legacy control (armed)', () => {
           await write(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
     try {
       const results = [
@@ -233,7 +233,7 @@ describe('legacy control (armed)', () => {
         await run('visibleTitleRename', '#4', writeTitleRename),
         await run('stageMoveAcrossGroups', '#5', writeStageMove),
       ]
-      const store = ctx.engine.getSnapshot()
+      const store = ctx.engine.access
       const corpus =
         new Set(store.issueProjections.map((issue) => issue.id)).size + store.sessions.length
       for (const result of results) {
@@ -269,7 +269,7 @@ describe('legacy control (armed)', () => {
       const steps = []
       for (const entry of FENCE_SCENARIOS)
         steps.push(await runFenceStep(mounted, ctx, feeds.flush, entry))
-      const store = ctx.engine.getSnapshot()
+      const store = ctx.engine.access
       const corpus =
         new Set(store.issueProjections.map((issue) => issue.id)).size + store.sessions.length
       const mine = steps.filter(({ result }) => /^#(6|7|8|9|10)/.test(result.methodology))

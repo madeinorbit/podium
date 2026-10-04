@@ -1,6 +1,6 @@
 import type { MachineId } from '@podium/model'
 import { useEffect, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import type { AtOption } from './at-mention'
 import { fileMentions } from './mention-sources'
 
@@ -36,7 +36,7 @@ export function useFileMentions({
   limit?: number
   debounceMs?: number
 }): AtOption[] {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useRuntimeSelector((s) => s.trpc)
   const [options, setOptions] = useState<AtOption[]>([])
   const seq = useRef(0)
 

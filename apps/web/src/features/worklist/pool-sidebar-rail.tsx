@@ -1,6 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
-import { agentBadge, type MotionPhase, mostUrgentSession } from '@podium/client-core/viewmodels'
+import { agentBadge, type MotionPhase, mostUrgentSession } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { compareStructural, computed, observer } from '@podium/client-graph/react'
 import { motionPhase } from '@podium/client-graph/worklist/rollup'
@@ -10,7 +10,7 @@ import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row
 import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
 import { Fragment, type JSX, useMemo, useState } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { IdSquare, idSquareLabel } from '@/components/IdSquare'
 import { useFeature } from '@/lib/use-feature'
@@ -33,7 +33,7 @@ const PoolRail = observer(function PoolRail({ pool }: { pool: MobxPool }): JSX.E
   const sections = pool.sidebar.sections(layout)
   const actions = usePoolUnifiedWork(pool)
   const { startNewTask } = useNewTask({ bindChord: true })
-  const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
+  const setPaletteOpen = useRuntimeSelector((s) => s.setPaletteOpen)
   const commandPaletteEnabled = useFeature('command-palette')
   const [hover, setHover] = useState<{ key: string; anchor: DOMRect } | null>(null)
   const bands = [
@@ -160,7 +160,7 @@ const PoolRailTile = observer(function PoolRailTile({
   hover: { key: string; anchor: DOMRect } | null
   setHover: (value: { key: string; anchor: DOMRect } | null) => void
 }): JSX.Element | null {
-  const local = useStoreSelector(
+  const local = useRuntimeSelector(
     (s) => ({
       selected: kind === 'worktree' && s.selectedIssueId === null && s.selectedWorktree === id,
     }),

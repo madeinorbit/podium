@@ -4,7 +4,7 @@ import {
   partitionWorkItems,
   sessionsForWorktree,
   sidebarSections,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   asSessionId,
   dedupeSessionsByResume,

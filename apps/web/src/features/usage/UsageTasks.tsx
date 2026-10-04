@@ -7,7 +7,7 @@ import {
   ISSUE_STAGE_LABELS,
   RATE_COHORT_MIN_REPLIES,
   type TaskCostRowView,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { COST_FULL_ATTRIBUTION_HARNESS, type CostHarness, type IssueStage } from '@podium/model/browser'
 import { type JSX, useMemo, useState } from 'react'

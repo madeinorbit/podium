@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 
 /**
@@ -22,7 +22,7 @@ export function useConversationSearch(opts: {
   enabled?: boolean
   debounceMs?: number
 }): { hits: ConversationHit[]; busy: boolean } {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useRuntimeSelector((s) => s.trpc)
   const { query, projectPath, limit, enabled = true, debounceMs = 160 } = opts
   const [hits, setHits] = useState<ConversationHit[]>([])
   const [busy, setBusy] = useState(false)

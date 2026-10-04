@@ -53,7 +53,7 @@ it.each([
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
         data.bindHub(owner.hub)
-        void owner.getSnapshot().refreshRepos()
+        void owner.access.refreshRepos()
         return attachMobilePool(owner, (error) => failures.push(error))
       }}
     >

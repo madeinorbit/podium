@@ -1,4 +1,4 @@
-import type { ChatRow } from '@podium/client-core/viewmodels'
+import type { ChatRow } from '@podium/client-core/values'
 
 /**
  * WHEN A ROW HAPPENED (POD-701).

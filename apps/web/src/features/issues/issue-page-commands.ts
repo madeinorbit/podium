@@ -12,7 +12,7 @@
  * `loadMergeStyle`) live here too so the model hook has no raw call sites.
  */
 
-import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/viewmodels'
+import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
 import type { IssueUpdatePatch } from '@podium/commands'
 import { type IssueId, parseIssueStatusValue } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'

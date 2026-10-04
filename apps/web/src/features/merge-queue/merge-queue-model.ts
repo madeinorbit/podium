@@ -1,5 +1,5 @@
 import { HEAVY_TEST_LOCK_NAME, MERGE_LOCK_NAME } from '@podium/client-core/react'
-import { issuePendingDecision } from '@podium/client-core/viewmodels'
+import { issuePendingDecision } from '@podium/client-core/values'
 import type { IssueId, RepoId } from '@podium/model'
 import { isMergeLockName, type LockSessionIdWire, MERGE_LOCK_PREFIX } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'

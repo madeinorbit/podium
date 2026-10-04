@@ -48,7 +48,7 @@ vi.mock('@/app/store', () => {
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useReplicaIssues: () => useStore().issues,
   }
 })

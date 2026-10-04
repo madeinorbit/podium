@@ -190,7 +190,7 @@ function rowFacts(
     coldIssues: cold('issue', issues),
     coldSessions: cold('session', sessions),
     visibleRows: visibleIssueRows(
-      legacyDerivationFromStore(ctx.engine.getSnapshot(), now),
+      legacyDerivationFromStore(ctx.engine.access, now),
       parityLocals(ctx),
     ).length,
   }
@@ -409,7 +409,7 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
     try {
       titles = pendingTitleEditsOn(
         probe.source.snapshot('issue'),
-        snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)).order,
+        snapshotFromStore(ctx.engine.access, parityLocals(ctx)).order,
         () => false,
         WINDOW_ROWS,
         parityLocals(ctx).coarseNow,

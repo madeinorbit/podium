@@ -44,7 +44,7 @@ vi.mock('@podium/client-core/react', () => ({
   }),
 }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: () => {
+  useRuntimeSelector: () => {
     throw new Error('Menu subscribed to the old store')
   },
   useReplicaIssues: () => {

@@ -886,7 +886,7 @@ export interface ScenarioSnapshot {
 }
 
 export function captureSnapshot(engine: ScenarioEngine['engine']): ScenarioSnapshot {
-  const snap = engine.getSnapshot()
+  const snap = engine.access
   return {
     issues: allIssueViewModels(engine.replica, snap.issueProjections, snap.issueUserStates).map(
       (i) => ({
@@ -1307,7 +1307,7 @@ export async function writeSelectionClick(
   ctx: ScenarioEngine,
   id = ctx.targets.visibleRootId,
 ): Promise<string> {
-  ctx.engine.getSnapshot().setSelectedIssueId(asIssueId(id))
+  ctx.engine.access.setSelectedIssueId(asIssueId(id))
   await settled(ctx)
   return id
 }
@@ -1417,7 +1417,7 @@ export async function writeParentReassignment(
 export async function writeClockTick(ctx: ScenarioEngine, ms = 60_000): Promise<number> {
   ctx.advanceClock(ms)
   await settled(ctx)
-  return ctx.engine.getSnapshot().coarseNow
+  return ctx.engine.access.coarseNow
 }
 
 /** #9 press — optimistic mark-read through the engine. Resolves after the
@@ -1426,7 +1426,7 @@ export async function writeOptimisticPress(
   ctx: ScenarioEngine,
   id = ctx.targets.markReadId,
 ): Promise<void> {
-  await ctx.engine.getSnapshot().markIssueRead(asIssueId(id))
+  await ctx.engine.access.markIssueRead(asIssueId(id))
   // Not `settled`: the press stays awaiting truth; #9b is its echo.
   await settle(ctx.settleMs)
   takeMarkReadReceipts(ctx)

@@ -41,7 +41,7 @@ function Surfaces() {
   useEffect(() => {
     runtime = owner
     pool = graph
-    owner.getSnapshot().setSelectedIssueId(asIssueId('synthetic-1'))
+    owner.access.setSelectedIssueId(asIssueId('synthetic-1'))
     ready = graph !== null
     return () => {
       ready = false
@@ -125,7 +125,7 @@ const driver = {
       poolHeaderSnapshot(pool, fixture.inputs() as never)
       if (pool.hydrate() === 0) break
     }
-    const result = checkHeader(pool, runtime.getSnapshot(), fixture.inputs() as never)
+    const result = checkHeader(pool, runtime.access, fixture.inputs() as never)
     return {
       differences: result.differences,
       pending: result.pending,

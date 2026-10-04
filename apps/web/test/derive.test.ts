@@ -15,7 +15,7 @@ import {
   sessionsForWorktree,
   sidebarSections,
   sortSessionsForSidebar,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   asSessionId,
   type GitRepositoryWire,

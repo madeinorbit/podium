@@ -54,7 +54,7 @@ vi.mock('@/app/store', () => {
   const useStore = () => ({ httpOrigin: 'http://podium.test', uiState: ui.uiState })
   return {
     useStore,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

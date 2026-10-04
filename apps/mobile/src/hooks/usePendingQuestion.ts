@@ -1,4 +1,4 @@
-import { latestPendingQuestion } from '@podium/client-core/viewmodels'
+import { latestPendingQuestion } from '@podium/client-core/values'
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { readTranscriptPage, useTrpc } from '../client/hooks'

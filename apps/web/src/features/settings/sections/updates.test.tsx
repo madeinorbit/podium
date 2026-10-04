@@ -36,7 +36,7 @@ const machines = [
 ]
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (selector: (store: unknown) => unknown) => selector({ trpc, machines }),
+  useRuntimeSelector: (selector: (store: unknown) => unknown) => selector({ trpc, machines }),
 }))
 
 /** Settings → Experimental "Podium development" (POD-1882). */

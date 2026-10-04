@@ -1,6 +1,6 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { reposToViews } from '@podium/client-core/viewmodels'
+import { reposToViews } from '@podium/client-core/values'
 import type { MissionActionInputs } from '@podium/client-graph/mission-view'
 import {
   handoffAvailability,
@@ -90,7 +90,7 @@ export function SessionContextMenu({
     markSessionRead,
     markSessionUnread,
     trpc,
-  } = owner.getSnapshot()
+  } = owner.access
   const { repos, machines, issue } = poolInputs
   const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined, [
     session,

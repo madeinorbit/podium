@@ -1,4 +1,4 @@
-import type { IssueReferenceSource } from '@podium/client-core/viewmodels'
+import type { IssueReferenceSource } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import { parseAnyRef } from '@podium/protocol'
 import { act } from 'react'

@@ -8,7 +8,7 @@ const storeState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (selector: (state: typeof storeState) => unknown) => selector(storeState),
+  useRuntimeSelector: (selector: (state: typeof storeState) => unknown) => selector(storeState),
 }))
 
 import { NetworkSection } from './network'

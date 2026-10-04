@@ -10,7 +10,7 @@ import {
   MD_MODE_MAP_KEY,
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
-import type { FileScope } from '@podium/client-core/viewmodels'
+import type { FileScope } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model'

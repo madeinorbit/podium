@@ -12,7 +12,7 @@ import {
   useState,
 } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { poolMissionContains, poolMissionRoot } from '@/features/worklist/use-pool-unified-work'
 import { EXPLORER_TABS, type ExplorerTab } from './explorer-list'
@@ -128,7 +128,7 @@ const EMPTY_POOL_TARGET: { target: string | null | typeof LOADING; grounded: boo
 }
 
 function PoolIssueExplorerProvider({ children }: { children: ReactNode }): ReactElement {
-  const selectedId = useStoreSelector((s) => s.selectedIssueId)
+  const selectedId = useRuntimeSelector((s) => s.selectedIssueId)
   const { focusedIssueId } = useOperatorFocus()
   const pool = useWorklistPool()
   const readTarget = useCallback(

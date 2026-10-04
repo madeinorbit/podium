@@ -26,7 +26,7 @@ export function MarkdownPreview({
   scrollRef?: React.MutableRefObject<HTMLDivElement | null>
   className?: string
 }): JSX.Element {
-  const { httpOrigin, openFile } = useStoreHandle().getSnapshot()
+  const { httpOrigin, openFile } = useStoreHandle().access
   const fileDir = path.replace(/\/[^/]*$/, '') || '/'
   const html = useMemo(
     () =>

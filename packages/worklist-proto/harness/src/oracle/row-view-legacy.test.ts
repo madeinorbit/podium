@@ -12,7 +12,7 @@
  * (manual key, latch) and asserts the result then DISAGREES with legacy on the
  * same corpus — a differential that cannot fail proves nothing.
  */
-import { rowInClosedFold, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/viewmodels'
+import { rowInClosedFold, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/values'
 import { describe, expect, it } from 'vitest'
 import {
   compareClosedFold,

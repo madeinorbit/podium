@@ -157,7 +157,7 @@ const store = (): Record<string, unknown> => ({
   trpc,
 })
 
-export function useStoreSelector<T>(select: (s: Record<string, unknown>) => T): T {
+export function useRuntimeSelector<T>(select: (s: Record<string, unknown>) => T): T {
   return select(store())
 }
 

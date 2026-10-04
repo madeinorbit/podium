@@ -885,7 +885,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
         expect(before?.readAt).toBeNull()
 
         // Press: optimistic paint, no kernel address yet.
-        const pressPromise = engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
+        const pressPromise = engine.access.markIssueRead(asIssueId('iss_1'))
         const press = handle.flush()
         expect(press?.type).toBe('update')
         expect(press?.rows).toHaveLength(1)
@@ -930,7 +930,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
         // case: the pending promise resolves, the paint rolls back after.)
         rejectNextMarkRead()
         const restoreCount = events.length
-        const press2Promise = engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
+        const press2Promise = engine.access.markIssueRead(asIssueId('iss_1'))
         const press2 = handle.flush()
         expect(press2?.rows).toHaveLength(1)
         expect(press2?.rows[0]?.value).not.toBe(covered)
@@ -1007,10 +1007,10 @@ describe('row-source truth mode over the real runtime', () => {
       const events: RowSourceEvent[] = []
       const off = handle.source.subscribe((e) => events.push(e))
       try {
-        const pressPromise = engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
+        const pressPromise = engine.access.markIssueRead(asIssueId('iss_1'))
         // The runtime painted the press; the truth feed did not.
         expect(
-          engine.getSnapshot().issueUserStates.find((i) => i.entityId === 'iss_1')?.readAt,
+          engine.access.issueUserStates.find((i) => i.entityId === 'iss_1')?.readAt,
         ).not.toBeNull()
         expect(handle.flush()).toBeNull()
         await pressPromise
@@ -1064,7 +1064,7 @@ describe('row-source truth mode over the real runtime', () => {
 type LaneFacts = { repoPath: string; repoId: string | null }
 
 function legacyLanes(engine: ReturnType<typeof createClientRuntime>): Record<string, LaneFacts> {
-  const { slice } = legacyDerivationFromStore(engine.getSnapshot() as never)
+  const { slice } = legacyDerivationFromStore(engine.access as never)
   const out: Record<string, LaneFacts> = {}
   for (const repo of [...slice.sections.pinnedRepos, ...slice.sections.repos])
     for (const wt of repo.worktrees)
@@ -1138,7 +1138,7 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
           handle.flush()
           // Discovery alone: not one kernel row moved.
           expect(cache.records).toBe(kernelRows)
-          expect(engine.getSnapshot().repos).toBe(repos)
+          expect(engine.access.repos).toBe(repos)
           return events.flatMap((e) => e.rows)
         }
         const heldLanes = () => Object.fromEntries([...held].sort(([a], [b]) => a.localeCompare(b)))
@@ -1465,7 +1465,7 @@ async function runFence(
   // The scale is real: the replica and the runtime hold the whole corpus.
   expect(replica.rows('issueProjections')).toHaveLength(spec.issues)
   expect(replica.rows('sessions')).toHaveLength(spec.sessions)
-  expect(engine.getSnapshot().issueProjections).toHaveLength(spec.issues)
+  expect(engine.access.issueProjections).toHaveLength(spec.issues)
   const wrapped = countingWrappers(engine, replica)
   const handle = createRowSource(wrapped.runtime, wrapped.replica, { mode })
   let rowsEmitted = 0
@@ -1531,7 +1531,7 @@ async function runFence(
       }),
     )
     await step('optimistic press', async () => {
-      await engine.getSnapshot().markIssueRead(asIssueId('i0'))
+      await engine.access.markIssueRead(asIssueId('i0'))
       await waitFor(
         () =>
           engine.outbox.pending().length === 0 &&
@@ -1560,7 +1560,7 @@ async function runFence(
     const discover = async (repos: unknown[]): Promise<void> => {
       discovery.repos = repos
       hub.emit('worktreesChanged')
-      await waitFor(() => engine.getSnapshot().repos === repos, 'discovery to publish')
+      await waitFor(() => engine.access.repos === repos, 'discovery to publish')
     }
     await step('discovery', () => discover(FENCE_DISCOVERY()))
     await step('discovery, nothing visible moved', () => discover(FENCE_DISCOVERY()))

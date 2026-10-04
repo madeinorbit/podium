@@ -33,7 +33,6 @@ export interface MobilePool {
 export function createMobilePool(dev: boolean): MobilePool {
   const host = createPoolHost({
     start(runtime) {
-      runtime.enablePoolRuntimeWork({ lazyLegacyLists: true })
     },
     screens: [
       navigationPoolScreen,

@@ -101,7 +101,7 @@ export function useTheme(): ThemeContextValue {
  */
 export function ThemeUiStateMirror(): null {
   const { mode } = useTheme()
-  const ui = useStoreHandle().getSnapshot().uiState
+  const ui = useStoreHandle().access.uiState
   useEffect(() => {
     ui.set(THEME_MODE_KEY, mode)
   }, [ui, mode])

@@ -99,7 +99,7 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
 })
 
 vi.mock('./store', () => ({
-  useStoreSelector: (selector: (store: typeof state) => unknown) => selector(state),
+  useRuntimeSelector: (selector: (store: typeof state) => unknown) => selector(state),
   useReplicaIssues: () => state.issues,
 }))
 

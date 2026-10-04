@@ -4,4 +4,4 @@ export {
   clearChip,
   filterBoardIssues,
   filterChips,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'

@@ -66,10 +66,10 @@ async function fixture(scale: 1 | 4 = 1) {
   }
   const parity = (label = 'corpus') => {
     settle()
-    const value = runInAction(() => checkHeader(handle.pool, ctx.engine.getSnapshot(), inputs()))
+    const value = runInAction(() => checkHeader(handle.pool, ctx.engine.access, inputs()))
     if (value.first) {
       const expected = legacyHeaderSnapshot(
-        ctx.engine.getSnapshot(),
+        ctx.engine.access,
         inputs(),
         handle.pool.clock.current,
       )
@@ -114,7 +114,7 @@ describe('header pool values', () => {
         isDraftVessel: true,
         worktreePath: undefined,
       })
-      f.ctx.engine.getSnapshot().setSelectedIssueId(id)
+      f.ctx.engine.access.setSelectedIssueId(id)
       await Promise.resolve()
       f.parity('normalized draft')
       expect(f.pool.headerViews.folded()).toMatchObject({
@@ -181,7 +181,7 @@ describe('header pool values', () => {
 
   it('sixty metric-only inputs wake only the changed metric row', async () => {
     const f = await fixture()
-    const first = f.ctx.engine.getSnapshot().machines[0]?.id ?? ('machine-one' as MachineId)
+    const first = f.ctx.engine.access.machines[0]?.id ?? ('machine-one' as MachineId)
     const second = 'machine-two' as MachineId
     const publish = (step: number) =>
       f.ctx.hub.emit('hostMetrics', [metric(first, String(step), step), metric(second, 'fixed')])
@@ -280,13 +280,13 @@ describe('header pool values', () => {
       const actual = f.pool.headerViews.row('connection', 'server')!
       f.pool.header.apply([{ kind: 'connection', id: 'server', value: { ...actual, rttMs: 999 } }])
       expect(
-        runInAction(() => checkHeader(f.pool, f.ctx.engine.getSnapshot(), f.inputs())).differences,
+        runInAction(() => checkHeader(f.pool, f.ctx.engine.access, f.inputs())).differences,
       ).toBeGreaterThan(0)
       f.pool.header.apply([{ kind: 'connection', id: 'server', value: f.inputs().connection }])
       const ids = f.inputs().metrics.map((row) => row.machineId ?? row.hostname)
       runInAction(() => f.pool.header.order('hostMetric', [...ids].reverse()))
       expect(
-        runInAction(() => checkHeader(f.pool, f.ctx.engine.getSnapshot(), f.inputs())).first
+        runInAction(() => checkHeader(f.pool, f.ctx.engine.access, f.inputs())).first
           ?.section,
       ).toBe('metrics')
       runInAction(() => f.pool.header.order('hostMetric', ids))
@@ -294,7 +294,7 @@ describe('header pool values', () => {
         { kind: 'hostMetric', id: 'extra', value: metric('extra' as MachineId, 'fixed') },
       ])
       expect(
-        runInAction(() => checkHeader(f.pool, f.ctx.engine.getSnapshot(), f.inputs())).first
+        runInAction(() => checkHeader(f.pool, f.ctx.engine.access, f.inputs())).first
           ?.section,
       ).toBe('metrics')
     } finally {

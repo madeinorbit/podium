@@ -8,7 +8,7 @@ import {
   sessionNeedsHuman,
   sessionTitle,
   subIssuesOf,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   type IssueCloseReason,
   type IssuePanelArtifact,

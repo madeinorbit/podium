@@ -20,12 +20,12 @@ async function legacyAcquisitions() {
       const original = await readFile(path, 'utf8')
       originals.set(path, original)
       const expression = path.endsWith('use-handoff-transcript.ts')
-        ? 'useStoreHandle<Trpc>().getSnapshot()' : 'useStoreHandle<Trpc>().getSnapshot().trpc'
+        ? 'useStoreHandle<Trpc>().access' : 'useStoreHandle<Trpc>().access.trpc'
       if (original.split(expression).length !== 2) throw new Error('Expected exactly one stable acquisition per source')
       const legacy = path.endsWith('use-handoff-transcript.ts')
         ? 'useLegacySelector((store) => ({ trpc: store.trpc, replica: store.replica }), (a, b) => a.trpc === b.trpc && a.replica === b.replica)'
         : 'useLegacySelector((store) => store.trpc)'
-      await writeFile(path, `import { useStoreSelector as useLegacySelector } from '@podium/client-core/react'\n${original.replace(expression, legacy)}`)
+      await writeFile(path, `import { useRuntimeSelector as useLegacySelector } from '@podium/client-core/react'\n${original.replace(expression, legacy)}`)
     }
   } catch (error) {
     for (const [path, original] of originals) await writeFile(path, original)

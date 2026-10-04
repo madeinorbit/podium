@@ -1,6 +1,6 @@
 import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
-import { reposToViews } from '@podium/client-core/viewmodels'
+import { reposToViews } from '@podium/client-core/values'
 import {
   agentCapabilityRejection,
   isMachineOfflineForLiveTerminal,

@@ -27,7 +27,7 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
 }
 
 function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
-  const { recoverOutbox } = useStoreHandle<MobileTrpc>().getSnapshot()
+  const { recoverOutbox } = useStoreHandle<MobileTrpc>().access
   const plan = recoveryPlanFor(parked.reason.code)
   const baseCopy = recoveryCopyFor(parked.reason.code)
   const rule = confirmationRuleFor(parked.entry.kind)

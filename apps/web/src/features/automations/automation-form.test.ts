@@ -1,4 +1,4 @@
-import { machineViewsFromWire } from '@podium/client-core/viewmodels'
+import { machineViewsFromWire } from '@podium/client-core/values'
 import { asMachineId, type GitRepositoryWire, type MachineWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {

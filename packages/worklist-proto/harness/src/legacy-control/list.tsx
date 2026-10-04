@@ -24,7 +24,7 @@ import {
   type UnifiedIssueRow,
   type UnifiedWorkRow,
   type WorklistSlice,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { SessionMeta } from '@podium/model'
 import { asIssueId } from '@podium/model'
 import { type ReactElement, useMemo, useState, useSyncExternalStore } from 'react'
@@ -117,17 +117,17 @@ function rowKey(row: UnifiedWorkRow): string {
  * difference made visible.
  */
 export function LegacyControlList({ engine, sliceDef }: LegacyControlListProps): ReactElement {
-  const publisher = useMemo(() => createSlicePublisher(() => engine.getSnapshot()), [engine])
+  const publisher = useMemo(() => createSlicePublisher(() => engine.access), [engine])
   const slice = useSyncExternalStore(
     (listener) => engine.subscribe(listener),
     () => publisher.read(sliceDef),
   )
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
-  const store = engine.getSnapshot()
+  const store = engine.access
   const issues = store.issueProjections
   const sessions = store.sessions as readonly SessionMeta[]
   const select = (id: string): void => {
-    engine.getSnapshot().setSelectedIssueId(asIssueId(id))
+    engine.access.setSelectedIssueId(asIssueId(id))
   }
   const renderRow = (row: UnifiedWorkRow): ReactElement | null => {
     if (row.kind !== 'issue') {

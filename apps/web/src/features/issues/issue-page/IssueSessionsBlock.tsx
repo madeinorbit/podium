@@ -28,7 +28,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  *     other one, instead of the `byId.get()` that rendered invisible and deleted
  *     alike as "another issue".
  */
-import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
+import { motionPhase, motionTiming } from '@podium/client-core/values'
 import type { SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'

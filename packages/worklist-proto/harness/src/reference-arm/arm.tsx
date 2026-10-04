@@ -82,7 +82,7 @@ function stateOf(
   previous: ReferenceState | null,
   plant: ReferencePlant | null,
 ): ReferenceState {
-  const store = engine.getSnapshot()
+  const store = engine.access
   const fresh = rowViewsFromStore(store, locals)
   const views: RowViews = {}
   for (const [id, drawn] of Object.entries(fresh)) {
@@ -206,7 +206,7 @@ export function referenceArmFor(
       let webRoot: { unmount(): void } | null = null
       return {
         snapshot(): SliceSnapshot {
-          const snapshot = snapshotFromStore(engine.getSnapshot(), {
+          const snapshot = snapshotFromStore(engine.access, {
             ...localsNow(),
             selectedIssueId: null,
           })

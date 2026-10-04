@@ -81,7 +81,7 @@ describe('real sidebar oracle (POD-4953)', () => {
       try {
         settleSidebar(handle.pool)
         const locals = engineLocals(ctx)
-        const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
+        const derivation = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
         const rows = visibleIssueRows(derivation, locals)
         const rowErrors = tracked(() =>
           sidebarDiff(handle.pool, derivation, rows, locals.coarseNow),
@@ -93,7 +93,7 @@ describe('real sidebar oracle (POD-4953)', () => {
         for (const variant of [0, 1]) {
           const state = stateFor(
             derivation.slice.groups.map((g) => g.key),
-            ctx.engine.getSnapshot().pins,
+            ctx.engine.access.pins,
             variant,
           )
           const gotSections = tracked(() => handle.pool.sidebar.sections(state))
@@ -343,7 +343,7 @@ describe('real sidebar oracle (POD-4953)', () => {
       })
       feeds.flush()
       snapshotPool(handle.pool)
-      const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), now)
+      const derivation = legacyDerivationFromStore(ctx.engine.access, now)
       const value = tracked(() => handle.pool.sidebar.worktree(lane.path))
       expect(value?.sessions.filter((s) => s.sessionId.startsWith('roster-guest-'))).toHaveLength(8)
       expect(value?.issues.map((issue) => issue.id)).toContain('roster-owner')
@@ -496,7 +496,7 @@ describe('real sidebar random-change gate (POD-4953)', () => {
           if (!step.skipped && step.change.kind === 'sessionFacts')
             appliedSession.add(step.change.variant)
           const local = engineLocals(run.ctx)
-          const store = run.ctx.engine.getSnapshot()
+          const store = run.ctx.engine.access
           const derivation = legacyDerivationFromStore(store, local.coarseNow)
           const rows = visibleIssueRows(derivation, local)
           state = stateFor(

@@ -129,7 +129,7 @@ function Surface() {
   const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never }),
     ports = useChatConversationPorts(id, runtime)
   // Keep the controller implementation and all mutations on the real owner.
-  const actions = runtime.getSnapshot()
+  const actions = runtime.access
   const send = useChatSend({
     sessionId: id,
     store: runtime,
@@ -292,7 +292,7 @@ const driver = {
   },
   check() {
     if (!owner || !graph) return null
-    return checkChatContext(graph, owner.getSnapshot(), allIssueViewModels(owner.replica), [
+    return checkChatContext(graph, owner.access, allIssueViewModels(owner.replica), [
       id,
       asSessionId('synthetic-session-1'),
     ])

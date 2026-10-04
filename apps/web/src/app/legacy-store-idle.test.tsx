@@ -85,8 +85,8 @@ it.each([
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
         data.bindHub(owner.hub)
-        owner.getSnapshot().setPanelMode(sid, 'chat')
-        void owner.getSnapshot().refreshRepos()
+        owner.access.setPanelMode(sid, 'chat')
+        void owner.access.refreshRepos()
         return attachWorklistPool(owner, (error) => failures.push(error))
       }}
     >

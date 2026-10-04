@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { ReferentExit } from '@podium/client-core/viewmodels'
+import type { ReferentExit } from '@podium/client-core/values'
 import { issuePages } from '@podium/client-graph/issue-page'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'

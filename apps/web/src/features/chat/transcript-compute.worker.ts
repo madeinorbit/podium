@@ -4,7 +4,7 @@ import {
   transcriptSearchState,
   type TranscriptComputeInput,
   type TranscriptComputeResult,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { createMarkdownRenderer } from '@/lib/markdown-renderer'
 import { highlightCode } from '@podium/client-core/code-highlight'
 

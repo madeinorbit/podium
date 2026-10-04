@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { ChatRow } from '@podium/client-core/viewmodels'
+import type { ChatRow } from '@podium/client-core/values'
 import type { AgentError, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { processClass, turnClass } from './ChatBlockView'

@@ -52,7 +52,7 @@ it('settles palette renders and preserves hover until the commands change', asyn
     </StoreProvider>,
   )
   await act(async () => {
-    runtime.getSnapshot().setPaletteOpen(true)
+    runtime.access.setPaletteOpen(true)
   })
   expect(await screen.findByRole('combobox')).toBeTruthy()
   const rows = screen.getAllByRole('option')

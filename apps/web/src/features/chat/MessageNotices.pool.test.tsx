@@ -21,7 +21,7 @@ const mock = vi.hoisted(() => ({
 }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => mock.owner }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: () => {
+  useRuntimeSelector: () => {
     mock.selectors()
     throw new Error('Legacy notice selector executed')
   },

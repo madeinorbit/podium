@@ -8,7 +8,7 @@
  * the composer. Appears only when there is something to say.
  */
 import { useStoreHandle } from '@podium/client-core/react'
-import type { MessageNotice } from '@podium/client-core/viewmodels'
+import type { MessageNotice } from '@podium/client-core/values'
 import { MessageSquareWarning } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils'
 import { usePoolMessageNotices } from './use-pool-notices'
 
 function NoticeRow({ notice, onOpen }: { notice: MessageNotice; onOpen: () => void }): JSX.Element {
-  const { trpc, openSessionTab } = useStoreHandle<Trpc>().getSnapshot()
+  const { trpc, openSessionTab } = useStoreHandle<Trpc>().access
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   return (

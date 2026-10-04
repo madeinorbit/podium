@@ -29,7 +29,7 @@ import {
   currentStepOf,
   runAdvances,
   runAttribution,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { WorkflowRunWire } from '@podium/protocol'
 import { Check } from 'lucide-react'

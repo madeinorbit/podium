@@ -13,7 +13,7 @@ interface SettingsClient extends Pick<Store,
  * snapshots. Entity and preference reads belong to the declared pool hooks. */
 export function useSettingsClient(): SettingsClient {
   const owner = useStoreHandle<Trpc>()
-  const state = owner.getSnapshot()
+  const state = owner.access
   return {
     owner,
     trpc: state.trpc,

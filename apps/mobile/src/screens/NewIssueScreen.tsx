@@ -1,4 +1,4 @@
-import { codingRoleHarness, ISSUE_STAGE_LABELS } from '@podium/client-core/viewmodels'
+import { codingRoleHarness, ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'

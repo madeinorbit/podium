@@ -34,7 +34,7 @@ describe('issue page differential replay', () => {
     it(`corpus and every methodology change at ${scale}x`, async () => {
       const clock = vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
       const ctx = await startScenarioEngine(scale)
-      clock.mockImplementation(() => ctx.engine.getSnapshot().coarseNow)
+      clock.mockImplementation(() => ctx.engine.access.coarseNow)
       const feeds = openFenceFeeds(ctx, 'overlaid')
       const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
         summaries: ISSUE_PAGE_SUMMARIES,
@@ -82,7 +82,7 @@ describe('issue page differential replay', () => {
       const corpus = genCorpus(),
         changes = gen(seed, steps, {}, { corpus, forceSidebarValues: true })
       const run = await startGenRun({ corpus, feedMode: 'overlaid' })
-      clock.mockImplementation(() => run.ctx.engine.getSnapshot().coarseNow)
+      clock.mockImplementation(() => run.ctx.engine.access.coarseNow)
       let feed = run.feed(),
         locals = createEngineLocals(run.ctx.engine)
       let handle = createWorklistPool(feed.source, locals.source, {

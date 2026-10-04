@@ -20,7 +20,7 @@ const fixture = vi.hoisted(() => ({
 }))
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (state: unknown) => unknown) =>
+  useRuntimeSelector: (select: (state: unknown) => unknown) =>
     select({ issues: fixture.issues, sessions: [], repos: [], machines: [] }),
   useReplicaIssues: () => {
     throw new Error('Legacy chip read')

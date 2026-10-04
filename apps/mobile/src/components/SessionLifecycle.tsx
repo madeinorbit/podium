@@ -1,5 +1,5 @@
 import type { SessionResurrectionResult } from '@podium/client-core/engine'
-import { type ExitedAction, exitedRecovery } from '@podium/client-core/viewmodels'
+import { type ExitedAction, exitedRecovery } from '@podium/client-core/values'
 import type { SessionMeta } from '@podium/model'
 import { Moon, RotateCcw } from './icons'
 import { type JSX, useState } from 'react'

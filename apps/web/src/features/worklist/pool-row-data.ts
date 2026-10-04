@@ -4,7 +4,7 @@ import {
   type IssueNavigationModel,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues, SidebarTiming } from '@podium/client-graph/worklist/sidebar-row'
 import { issueStatusLabel} from '@podium/model/browser'

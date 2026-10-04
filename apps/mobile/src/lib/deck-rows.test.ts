@@ -1,4 +1,4 @@
-import type { FlightDeckRow } from '@podium/client-core/viewmodels'
+import type { FlightDeckRow } from '@podium/client-core/values'
 import { describe, expect, it } from 'vitest'
 import { BAND_H, STRIP_H } from '../components/spine'
 import { applyFolds, type DeckTally, deckContentHeight, deckPanelHeight } from './deck-rows'

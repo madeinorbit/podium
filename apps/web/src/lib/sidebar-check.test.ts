@@ -166,10 +166,10 @@ describe('on-demand sidebar diagnostic', () => {
     let stop = () => {}, close = () => {}
     try {
       for (let round = 0; round < 64; round += 1) {
-        tracked(() => actual.checkSidebar(handle.pool, ctx.engine.getSnapshot(), state(ctx.engine.getSnapshot())))
+        tracked(() => actual.checkSidebar(handle.pool, ctx.engine.access, state(ctx.engine.access)))
         if (handle.pool.hydrate() === 0) break
       }
-      expect(tracked(() => actual.checkSidebar(handle.pool, ctx.engine.getSnapshot(), state(ctx.engine.getSnapshot())))).toMatchObject({ differences: 0, pending: 0 })
+      expect(tracked(() => actual.checkSidebar(handle.pool, ctx.engine.access, state(ctx.engine.access)))).toMatchObject({ differences: 0, pending: 0 })
       const sections = handle.pool.sidebar.sections.bind(handle.pool.sidebar)
       vi.spyOn(handle.pool.sidebar, 'sections').mockImplementation(layout => ({ ...sections(layout), pinnedCollapsed: !sections(layout).pinnedCollapsed }))
       const perf = createSidebarPerf()

@@ -1,4 +1,4 @@
-import type { ChatRow, RenderableRow } from '@podium/client-core/viewmodels'
+import type { ChatRow, RenderableRow } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { dayMarksByPosition } from './TranscriptFeed'

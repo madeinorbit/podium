@@ -69,7 +69,7 @@ describe('hand-rolled write-path spike: optimistic title rename', () => {
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.getSnapshot().coarseNow,
+      coarseNow: ctx.engine.access.coarseNow,
     }
     const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: HandStore }).store
@@ -123,7 +123,7 @@ describe('hand-rolled write-path spike: optimistic title rename', () => {
           source.flush()
           pending.noteEcho(id)
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       expect(echo.parity).toBe(true)
       expect(pending.has(id)).toBe(false)
@@ -151,7 +151,7 @@ describe('hand-rolled write-path spike: optimistic title rename', () => {
         apply: async () => {
           pending.reject(id)
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       expect(store.rows.rows.get(id)?.title).toBe(echoTitle)
       expect(pending.has(id)).toBe(false)

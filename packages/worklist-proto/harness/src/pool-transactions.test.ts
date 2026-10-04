@@ -135,7 +135,7 @@ function differences(
   focus: readonly string[] = [],
 ): string[] {
   const out: string[] = []
-  const store = ctx.engine.getSnapshot()
+  const store = ctx.engine.access
   const issueIds = new Set<string>([
     ...ctx.replica.rows('issueProjections').map((row) => String(row.id)),
     ...store.issueProjections.map((row) => row.id),
@@ -176,8 +176,7 @@ function differences(
 }
 
 function sessionsOf(ctx: ScenarioEngine): string[] {
-  return ctx.engine
-    .getSnapshot()
+  return ctx.engine.access
     .sessions.filter((s) => s.issueId && !s.archived)
     .map((s) => s.sessionId)
 }
@@ -449,13 +448,13 @@ describe.each([
     const { ctx } = await boot(1, { online: true, server })
     const { ledger, pooled } = pair(ctx, owns)
     const repo = ctx.targets.newIssueRepo
-    const spawned = ctx.engine.getSnapshot().spawnDraftAgent({
+    const spawned = ctx.engine.access.spawnDraftAgent({
       target: { path: repo.repoPath, repoPath: repo.repoPath, repoId: repo.repoId as never },
       agentKind: 'claude-code',
       firstPrompt: 'Start here',
     })
     await settle(ctx)
-    expect(ctx.engine.getSnapshot().pendingSpawnIds.has(spawned.sessionId)).toBe(true)
+    expect(ctx.engine.access.pendingSpawnIds.has(spawned.sessionId)).toBe(true)
     expect(differences(ctx, ledger.pool, pooled.pool, [spawned.issueId])).toEqual([])
     expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeDefined()
     // POD-5432 step 6: owning sessions, pool screens read the placeholders
@@ -467,11 +466,11 @@ describe.each([
     if (ownsSessions) {
       expect(tracked(() => placeholders()!.has(spawned.sessionId))).toBe(true)
       expect(tracked(() => placeholders()!.get(spawned.sessionId))).toBe('Start here')
-      expect(ctx.engine.getSnapshot().pendingSpawnPrompts.get(spawned.sessionId)).toBe('Start here')
+      expect(ctx.engine.access.pendingSpawnPrompts.get(spawned.sessionId)).toBe('Start here')
     }
     expect(await spawned.settled).toBe(false)
     await settle(ctx)
-    expect(ctx.engine.getSnapshot().pendingSpawnIds.has(spawned.sessionId)).toBe(false)
+    expect(ctx.engine.access.pendingSpawnIds.has(spawned.sessionId)).toBe(false)
     if (ownsSessions) expect(tracked(() => placeholders()!.has(spawned.sessionId))).toBe(false)
     expect(differences(ctx, ledger.pool, pooled.pool)).toEqual([])
     expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeUndefined()
@@ -491,7 +490,7 @@ describe.each([
     expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId])).toEqual([])
     expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Other tab')
     // A legacy screen: the runtime's own actions.
-    await ctx.engine.getSnapshot().markIssueRead(asIssueId(t.markReadId))
+    await ctx.engine.access.markIssueRead(asIssueId(t.markReadId))
     await ctx.engine.enqueueOverlayed('issueUpdate', {
       id: t.visibleRootId,
       patch: { title: 'Legacy screen' },
@@ -598,7 +597,7 @@ describe.each([
       await settle(ctx)
       const id = ctx.targets.visibleRootId
       const state = (): NeighbourhoodState => {
-        const store = ctx.engine.getSnapshot()
+        const store = ctx.engine.access
         return {
           issues: store.issueProjections,
           sessions: store.sessions,
@@ -652,7 +651,7 @@ describe.each([
     const { ledger, pooled } = pair(ctx, owns)
     const t = ctx.targets
     const [s1] = sessionsOf(ctx)
-    const store = ctx.engine.getSnapshot()
+    const store = ctx.engine.access
     void store.updateIssue(asIssueId(t.visibleRootId), { title: 'Routed' } as never)
     void store.renameSession(asSessionId(s1!), 'Routed session')
     // The same tick: nothing is durable yet, the log already painted.
@@ -661,7 +660,7 @@ describe.each([
     await settle(ctx)
     // One record per press: the log enqueued through the ledger, never twice.
     expect(ctx.engine.outbox.pending().map((e) => e.kind)).toEqual(['issueUpdate', 'rename'])
-    const legacy = ctx.engine.getSnapshot()
+    const legacy = ctx.engine.access
     expect(legacy.issueProjections.find((row) => row.id === t.visibleRootId)?.title).toBe('Routed')
     expect(legacy.sessions.find((row) => row.sessionId === s1)?.name).toBe('Routed session')
     expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId])).toEqual([])
@@ -696,7 +695,7 @@ describe.each([
     })
     const id = ctx.targets.visibleRootId
     const before = tracked(() => planted.pool.issue(id)?.title)
-    void engine.getSnapshot().updateIssue(asIssueId(id), { title: 'Routed' } as never)
+    void engine.access.updateIssue(asIssueId(id), { title: 'Routed' } as never)
     expect(tracked(() => planted.pool.issue(id)?.title)).toBe(before)
     await settle(ctx)
     // Adopted from the durable record, one commit late.
@@ -720,7 +719,7 @@ describe.each([
     const drive = async (pool: MobxPool) => {
       const t = ctx.targets
       const [s1] = sessionsOf(ctx)
-      const store = ctx.engine.getSnapshot()
+      const store = ctx.engine.access
       void store.updateIssue(asIssueId(t.visibleRootId), { title: 'One painter' } as never)
       void store.setIssueTucked(asIssueId(t.stageMoveId), true)
       void store.renameSession(asSessionId(s1!), 'One painter')
@@ -757,7 +756,7 @@ describe.each([
       seen.push(pooled.pool.row('issue', id))
     })
     cleanups.push(stop)
-    void ctx.engine.getSnapshot().updateIssue(asIssueId(id), { title: 'Refused' } as never)
+    void ctx.engine.access.updateIssue(asIssueId(id), { title: 'Refused' } as never)
     const painted = tracked(() => pooled.pool.row('issue', id))
     // One plain object, the table's own, on every read: no read-time overlay.
     expect(tracked(() => pooled.pool.row('issue', id))).toBe(painted)
@@ -803,7 +802,7 @@ describe.each([
       await settle(ctx)
       const id = ctx.targets.visibleRootId
       const state = (): NeighbourhoodState => {
-        const store = ctx.engine.getSnapshot()
+        const store = ctx.engine.access
         return {
           issues: store.issueProjections,
           sessions: store.sessions,

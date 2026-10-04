@@ -3,7 +3,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { bindSidebarPerf, createSidebarPerf, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
+import { StoreProvider, useStoreHandle, useRuntimeSelector } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   createKernelReplica,
@@ -18,7 +18,7 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { allIssueViewModels } from '../../../packages/client-core/src/replica/issue-view-cache'
-import { buildFlightDeckRows } from '../../../packages/client-core/src/viewmodels/mission'
+import { buildFlightDeckRows } from '../../../packages/client-core/src/values/mission'
 import {
   buildCorpus,
   buildCorpusCell,
@@ -214,7 +214,7 @@ function MeasurementBinding() {
 function Fixture() {
   const runtime = useStoreHandle() as ClientRuntime
   const pool = useWorklistPool()
-  const selected = useStoreSelector((s) => s.selectedIssueId)
+  const selected = useRuntimeSelector((s) => s.selectedIssueId)
   const [pageTargets, setPageTargets] = useState<string[]>([])
   configurePageTargets = setPageTargets
   owner = runtime
@@ -273,7 +273,7 @@ function Fixture() {
 /** Measurement-only trusted opening controls; both arms render the shipped
  * page and write through the existing synthetic runtime/outbox. */
 function IssuePageProbe({ ids }: { ids: string[] }) {
-  const { openIssueId, setOpenIssueId, markIssueRead } = useStoreSelector((s) => ({
+  const { openIssueId, setOpenIssueId, markIssueRead } = useRuntimeSelector((s) => ({
     openIssueId: s.openIssueId,
     setOpenIssueId: s.setOpenIssueId,
     markIssueRead: s.markIssueRead,

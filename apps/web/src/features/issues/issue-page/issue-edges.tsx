@@ -53,8 +53,8 @@
  * muted, non-interactive text: exactly what this page rendered before the port,
  * which is also the single-user parity guard.
  */
-import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/viewmodels'
-import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/viewmodels'
+import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/values'
+import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/values'
 import type { IssueId } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
 import type { IssueViewModel } from '@/app/store'

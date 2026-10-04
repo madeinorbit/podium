@@ -29,7 +29,7 @@ export function FileBrowserModal({
   title: string
   onClose: () => void
 }): JSX.Element {
-  const { listDir, openFileInWorktree } = useStoreHandle<Trpc>().getSnapshot()
+  const { listDir, openFileInWorktree } = useStoreHandle<Trpc>().access
   const isMobile = useIsMobile()
   const [path, setPath] = useState(root)
   const [entries, setEntries] = useState<Entry[]>([])

@@ -9,7 +9,7 @@ import {
   readFilePanelMode,
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
-import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
+import { type FileScope, scopeKey } from '@podium/client-core/values'
 import {
   Braces,
   ChevronsDownUp,
@@ -76,7 +76,7 @@ export function JsonFilePanel({
   onClose: () => void
 }): JSX.Element {
   const doc = useFileDocument(scope, path)
-  const { uiState } = useStoreHandle().getSnapshot()
+  const { uiState } = useStoreHandle().access
   const saveFeedbackId = useId()
   const tabId = `file:${scopeKey(scope)}:${path}`
   // Per-tab mode is per-user REPLICATED: SUBSCRIBE, never seed (POD-540). A file

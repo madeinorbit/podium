@@ -13,7 +13,7 @@ import {
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
   FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
-import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/viewmodels'
+import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/values'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -40,7 +40,7 @@ import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeck
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
-import { useStoreSelector as selectFixtureSnapshot } from './store'
+import { useRuntimeSelector as selectFixtureSnapshot } from './store'
 
 /**
  * The deck's own click grammar and fold defaults (POD-710 §4.1–4.4).
@@ -144,7 +144,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
 }))
 
 vi.mock('./store', () => ({
-  useStoreSelector: (select: (store: Record<string, unknown>) => unknown) =>
+  useRuntimeSelector: (select: (store: Record<string, unknown>) => unknown) =>
     select({
       issues: harness.issues,
       sessions: harness.sessions,

@@ -30,7 +30,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * Per-kind tint (POD-293) comes from `@/lib/agent-tone`, which also owns the
  * mark — icon, tint and tone are one question about one key.
  */
-import { deriveFleetPresence, FLEET_KIND_LIMIT } from '@podium/client-core/viewmodels'
+import { deriveFleetPresence, FLEET_KIND_LIMIT } from '@podium/client-core/values'
 import type { AgentKind} from '@podium/model/browser'
 import type { JSX } from 'react'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'

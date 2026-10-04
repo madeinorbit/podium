@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { operationalState } from '@podium/client-core/viewmodels'
+import { operationalState } from '@podium/client-core/values'
 
 import { issueDisplayRef } from '@podium/protocol'
 import { Search, X } from 'lucide-react'

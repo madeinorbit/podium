@@ -25,7 +25,7 @@ import {
   sessionTitle,
   treeGuides,
   writeFlightDeckFolds,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MissionRowPresentation } from '@podium/client-graph/mission-view'
 import type { IssueId, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -61,7 +61,7 @@ const toRailStyle = (rail: Rail) => ({ width: rail.width, backgroundColor: rail.
  * THE FLIGHT DECK, as the mission screen's pull-down panel [POD-592, POD-724].
  *
  * Every row, state word, count and tree guide comes from the mission module in
- * `@podium/client-core/viewmodels` — the same lines the desktop's second column
+ * `@podium/client-core/values` — the same lines the desktop's second column
  * reads. The phone derives nothing of its own, for the reason the worklist
  * stopped being re-derived per platform in POD-331: two derivations disagree
  * eventually, and the one place an operator decides what to run is the worst

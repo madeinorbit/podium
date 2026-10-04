@@ -1,4 +1,4 @@
-import type { FileScope } from '@podium/client-core/viewmodels'
+import type { FileScope } from '@podium/client-core/values'
 import { asArtifactId, asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { downloadFileUrl, rawFileUrl } from './open-in-browser'

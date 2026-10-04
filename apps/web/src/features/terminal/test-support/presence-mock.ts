@@ -14,7 +14,7 @@
  */
 
 import { withKeyedInputs } from '@podium/client-core/engine'
-import { useStoreSelector as readFixture } from '@/app/store'
+import { useRuntimeSelector as readFixture } from '@/app/store'
 import { fakeStoreHandle } from '../../chat/test-support/fake-store-handle'
 
 // The action owner and keyed locals are the same fixture the suite paints.

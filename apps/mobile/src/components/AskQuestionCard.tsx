@@ -3,7 +3,7 @@ import {
   isChosenOption,
   isPreviewLayout,
   parseAskQuestions,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { Pencil } from './icons'
 import { useEffect, useState } from 'react'

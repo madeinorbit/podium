@@ -1,5 +1,5 @@
 import type { EditorView } from '@codemirror/view'
-import type { FileScope } from '@podium/client-core/viewmodels'
+import type { FileScope } from '@podium/client-core/values'
 import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Pencil, Save, Search, X } from 'lucide-react'
 import { type JSX, useDeferredValue, useId, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'

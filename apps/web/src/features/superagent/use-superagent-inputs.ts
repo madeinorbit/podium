@@ -35,7 +35,7 @@ function access(s: Store): SuperagentAccess {
   }
 }
 export function useSuperagentAccess() {
-  return access(useStoreHandle().getSnapshot() as Store)
+  return access(useStoreHandle().access as Store)
 }
 export function useSuperagentThread(id: string) {
   const read = useCallback((pool: MobxPool) => superagentThread(pool, id), [id])

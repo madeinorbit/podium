@@ -34,11 +34,11 @@ import {
   defaultChatCapable,
   sessionTerminalOutlook,
   type TerminalOutlook,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { createLogger } from '@podium/logger'
 import type { SessionId} from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { usePaneMachines, usePanePanelModes } from './use-session-pane-inputs'
 import {
   type PanelGates,
@@ -114,7 +114,7 @@ export function usePanelSurface(input: {
   /** Fired on a chat → native transition, never on mount-in-native. */
   onEnterNative?: () => void
 }): PanelArbitration {
-  const { setPanelMode, uiState, trpc } = useStoreSelector(
+  const { setPanelMode, uiState, trpc } = useRuntimeSelector(
     (s) => ({
       setPanelMode: s.setPanelMode,
       uiState: s.uiState,

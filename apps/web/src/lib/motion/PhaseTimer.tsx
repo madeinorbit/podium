@@ -19,7 +19,7 @@
  */
 
 import { relativeTime } from '@podium/client-core/focus'
-import { formatClock, type MotionPhase } from '@podium/client-core/viewmodels'
+import { formatClock, type MotionPhase } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'

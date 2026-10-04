@@ -1,4 +1,4 @@
-import type { ChatRow } from '@podium/client-core/viewmodels'
+import type { ChatRow } from '@podium/client-core/values'
 import { ScrollText, Search } from 'lucide-react'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'

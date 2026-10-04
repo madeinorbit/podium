@@ -492,11 +492,11 @@ it('shows the original outbox pending count and optimistically renamed card', as
       }),
   )
   await act(async () => {
-    void app.runtime.getSnapshot().updateIssue('synthetic-2', { title: 'Pending inbox rename' })
+    void app.runtime.access.updateIssue('synthetic-2', { title: 'Pending inbox rename' })
   })
   await waitFor(() => expect(app.view.container.textContent).toContain('1 queued'))
   expect(app.view.getByTestId('screening-card').textContent).toContain('Pending inbox rename')
-  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(app.runtime.getSnapshot().outboxSize)
+  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(app.runtime.access.outboxSize)
   await act(async () => {
     finish()
   })

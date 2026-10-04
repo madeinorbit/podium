@@ -27,7 +27,7 @@ import {
   useGrantedQuotaHistory,
   visibleFleetOperations,
   windowElapsedPercent,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { AgentKind, QuotaWindowWire } from '@podium/model'
 import { agentDescriptors } from '../lib/agent-models'

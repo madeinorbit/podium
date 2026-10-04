@@ -1,4 +1,4 @@
-import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
+import type { IssueReferenceModel } from '@podium/client-core/values'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import type { MobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import type { HostMetricsWire, IssueId, MachineWire } from '@podium/model'

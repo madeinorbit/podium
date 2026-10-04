@@ -70,7 +70,7 @@ import { Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { usePoolMachines } from '@/app/header-data'
-import { type IssueViewModel, useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
@@ -105,7 +105,7 @@ export function IssueProperties({
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
   const pooled = useIssuePageData()!.data
-  const { trpc, navigateToSession } = useStoreSelector(
+  const { trpc, navigateToSession } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       navigateToSession: s.navigateToSession,

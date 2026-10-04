@@ -5,8 +5,8 @@ import {
   prependTranscriptItems,
   reconcileTranscriptSnapshot,
 } from '@podium/client-core/transcript'
-import type { SuperagentSliceValue } from '@podium/client-core/viewmodels'
-import { buildImagePrompt, matchesQuestionInteraction } from '@podium/client-core/viewmodels'
+import type { SuperagentSliceValue } from '@podium/client-core/values'
+import { buildImagePrompt, matchesQuestionInteraction } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { superagentQuestion, superagentState } from '@podium/client-graph/superagent'
 import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'

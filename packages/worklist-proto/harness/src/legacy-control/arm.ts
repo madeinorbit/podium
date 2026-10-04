@@ -33,7 +33,7 @@
 
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
-import { defineSlice, type WorklistSlice, worklistSlice } from '@podium/client-core/viewmodels'
+import { defineSlice, type WorklistSlice, worklistSlice } from '@podium/client-core/values'
 import { createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { CheckableArm, CheckableArmHandle, LocalsSource } from '../../../shared/src/arm'
@@ -134,7 +134,7 @@ export function legacyControlArmFor(engine: LegacyControlEngine): CheckableArm {
           // shows for the engine's present state. Unselected baseline, as the
           // fixture oracle (spec §7): selection placement is the separate
           // post-pass and never re-derives rows.
-          const store = engine.getSnapshot()
+          const store = engine.access
           return snapshotFromStore(store, {
             selectedIssueId: null,
             coarseNow: locals.get().coarseNow,
@@ -144,7 +144,7 @@ export function legacyControlArmFor(engine: LegacyControlEngine): CheckableArm {
         // bypassed (the per-replica view-model cache starts empty). What it
         // checks is the legacy cache plumbing, not the rules.
         rebuildFromScratch(): SliceSnapshot {
-          return rebuiltSnapshotFromStore(engine.getSnapshot(), {
+          return rebuiltSnapshotFromStore(engine.access, {
             selectedIssueId: null,
             coarseNow: locals.get().coarseNow,
           })

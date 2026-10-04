@@ -7,12 +7,12 @@ import type {
   TranscriptAttributionTable,
   TranscriptPhase,
   TranscriptSearchState,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   attributionForRole,
   isInteractiveTool,
   sessionWaking,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { agentErrorRecoveryInstruction, formatAgentError } from '@podium/model/browser'
 import type { SessionId} from '@podium/model/browser'
 import { MESSAGE_ACCEPTED_LINE } from '@podium/model'

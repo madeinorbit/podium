@@ -29,7 +29,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 
-import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
+import type { IssueReferenceModel } from '@podium/client-core/values'
 import type { ComponentType } from 'react'
 
 export type PaletteGroupId =

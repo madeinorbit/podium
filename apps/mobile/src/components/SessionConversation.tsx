@@ -20,7 +20,7 @@ import {
   matchesQuestionInteraction,
   OPTIMISTIC_SEND_CEILING_MS,
   pendingAskFromState,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import {
   asMutationId,
   isAgentComputing,
@@ -158,7 +158,7 @@ export function SessionConversation({
 }) {
   const storeHandle = useStoreHandle<MobileTrpc>()
   const store = useMemo(() => {
-    const s = storeHandle.getSnapshot()
+    const s = storeHandle.access
     return {
       trpc: s.trpc,
       replica: s.replica,

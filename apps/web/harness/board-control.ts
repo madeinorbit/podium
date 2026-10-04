@@ -22,7 +22,7 @@ import { deriveIssuesViewModel } from '../src/features/issues/issues-view-model'
 
 export function checkBoard(runtime: ClientRuntime, pool: MobxPool, options: BoardOptions) {
   const issues = allIssueViewModels(runtime.replica),
-    sessions = runtime.getSnapshot().sessions
+    sessions = runtime.access.sessions
   const expected = deriveIssuesViewModel({
     ...options,
     issues,
@@ -48,7 +48,7 @@ export function checkExplorer(
   query: string,
 ) {
   const issues = allIssueViewModels(runtime.replica),
-    sessions = runtime.getSnapshot().sessions
+    sessions = runtime.access.sessions
   const counts = explorerCounts(issues, sessions),
     tab = pickedTab ?? defaultTab(counts),
     rows = explorerRows(issues, sessions, { tab, query })

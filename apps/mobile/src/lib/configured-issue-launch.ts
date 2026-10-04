@@ -1,4 +1,4 @@
-import { spawnIssueAgent } from '@podium/client-core/viewmodels'
+import { spawnIssueAgent } from '@podium/client-core/values'
 import {
   type LaunchPlan,
   launchConfigurationPatch,

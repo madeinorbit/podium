@@ -133,7 +133,7 @@ root.render(
 )
 
 const proof = {
-  ready: () => !!runtime && runtime.getSnapshot().repos.length > 0 && pool !== null,
+  ready: () => !!runtime && runtime.access.repos.length > 0 && pool !== null,
   status: () => ({
     runtime: !!runtime,
     pool: !!pool,
@@ -170,7 +170,7 @@ const proof = {
   async check() {
     if (!runtime || !pool) throw new Error('Pool absent')
     const { checkIssueChips } = await import('@podium/client-graph/diagnostics/chip-check')
-    const state = runtime.getSnapshot()
+    const state = runtime.access
     const legacy = allIssueViewModels(
       runtime.replica,
       state.issueProjections,

@@ -37,7 +37,7 @@ import { SidebarUnified } from '../features/worklist/SidebarUnified'
  * barrel exports.
  *
  * WHAT THIS COUNTER CAN AND CANNOT SEE, and why there are now two of them.
- * Wrapping `@podium/client-core/viewmodels` catches a COMPONENT that calls
+ * Wrapping `@podium/client-core/values` catches a COMPONENT that calls
  * `sidebarSections` for itself, because components import it through the
  * barrel. It does NOT catch the published slice, which calls the same function
  * through a package-internal relative import — so once a surface is ported,
@@ -60,10 +60,10 @@ const sliceCounts = vi.hoisted(() => ({
 /** How many times the published `worklist` slice actually derived. */
 const worklistDerivations = (): number => sliceCounts.read().worklist ?? 0
 
-vi.mock('@podium/client-core/viewmodels', async () => {
+vi.mock('@podium/client-core/values', async () => {
   const real =
-    await vi.importActual<typeof import('@podium/client-core/viewmodels')>(
-      '@podium/client-core/viewmodels',
+    await vi.importActual<typeof import('@podium/client-core/values')>(
+      '@podium/client-core/values',
     )
   return {
     ...real,
@@ -236,8 +236,8 @@ vi.mock('@/app/store', async () => {
   // forever would report a flattering zero. Using the shipped mechanism over
   // the mocked snapshot is what makes the number evidence about the mechanism.
   const { createSlicePublisher } =
-    await vi.importActual<typeof import('@podium/client-core/viewmodels')>(
-      '@podium/client-core/viewmodels',
+    await vi.importActual<typeof import('@podium/client-core/values')>(
+      '@podium/client-core/values',
     )
   const publisher = createSlicePublisher(() => storeSnapshot())
   sliceCounts.read = () => publisher.derivations() as Record<string, number>
@@ -245,7 +245,7 @@ vi.mock('@/app/store', async () => {
   return {
     useStore,
     useReplicaIssues: () => normalizedFixtureIssues({ issues: storeSnapshot().issueProjections, sessions: storeSnapshot().sessions }),
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     useSlice: (def: Parameters<typeof publisher.read>[0]) => publisher.read(def),
   }
 })

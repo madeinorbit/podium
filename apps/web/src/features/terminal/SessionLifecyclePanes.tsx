@@ -15,11 +15,11 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import { shallowEqual } from '@podium/client-core/store'
-import { exitedRecovery } from '@podium/client-core/viewmodels'
+import { exitedRecovery } from '@podium/client-core/values'
 import type { SessionId} from '@podium/model/browser'
 import { Moon, RotateCcw, WifiOff } from 'lucide-react'
 import { type JSX, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { type LifecycleAction, recoveryAction } from './lifecycle-actions'
 
@@ -72,7 +72,7 @@ function LifecycleButton({
    *  than a 28px button filling the bar edge to edge. */
   size?: 'sm' | 'xs'
 }): JSX.Element {
-  const { resurrectSession, killSession } = useStoreSelector(
+  const { resurrectSession, killSession } = useRuntimeSelector(
     (s) => ({ resurrectSession: s.resurrectSession, killSession: s.killSession }),
     shallowEqual,
   )

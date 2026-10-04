@@ -61,7 +61,7 @@ function useIsDark(): boolean {
 }
 
 export function SpecsView(): JSX.Element {
-  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const trpc = useStoreHandle<Trpc>().access.trpc
   const { repos, pending: repositoryPending } = useSpecsRepositories()
   const confirm = useConfirm()
   const isDark = useIsDark()

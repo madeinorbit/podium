@@ -44,8 +44,8 @@ import {
   issueViewModelsFromReplica,
 } from '../../../../packages/client-core/src/replica/issue-view-models'
 import { createReplica, memoryStorage } from '../../../../packages/client-core/src/replica/replica'
-import { createSlicePublisher } from '../../../../packages/client-core/src/viewmodels/slices/publish'
-import { worklistSlice } from '../../../../packages/client-core/src/viewmodels/slices/worklist/published'
+import { createSlicePublisher } from '../../../../packages/client-core/src/values/compose/publish'
+import { worklistSlice } from '../../../../packages/client-core/src/values/compose/worklist/published'
 
 /** Live Ludovico cardinalities as of 2026-08-14 (`podium issue list --json`). */
 const SCALE = {

@@ -272,12 +272,12 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
 
 /** The parity snapshot's locals: the engine clock, no selection (spec §7). */
 export function parityLocals(ctx: ScenarioEngine): SliceLocals {
-  return { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
+  return { selectedIssueId: null, coarseNow: ctx.engine.access.coarseNow }
 }
 
 function parentOf(ctx: ScenarioEngine): (id: string) => string | null | undefined {
   return (id) =>
-    ctx.engine.getSnapshot().issueProjections.find((issue) => issue.id === id)?.parentId
+    ctx.engine.access.issueProjections.find((issue) => issue.id === id)?.parentId
 }
 
 /** #8: one coarse period (`writeClockTick`'s default). */
@@ -289,7 +289,7 @@ export const CLOCK_TICK_MS = 60_000
  * store. Crossed = view changed, entered or left. Sorted ids.
  */
 export function tickCrossings(ctx: ScenarioEngine, ms: number): string[] {
-  const store = ctx.engine.getSnapshot()
+  const store = ctx.engine.access
   const now = engineLocals(ctx)
   const before = rowViewsFromStore(store, now)
   const after = rowViewsFromStore(store, { ...now, coarseNow: now.coarseNow + ms })
@@ -425,7 +425,7 @@ export interface FenceStep {
 
 /** One side of a step for the neighbourhood: the store and the oracle's order. */
 function neighbourhoodState(ctx: ScenarioEngine): NeighbourhoodState {
-  const store = ctx.engine.getSnapshot()
+  const store = ctx.engine.access
   return {
     issues: store.issueProjections,
     sessions: store.sessions,
@@ -544,7 +544,7 @@ export async function runFenceStep(
       ? undefined
       : () => {
           const locals = engineLocals(ctx)
-          const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
+          const derivation = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
           return Object.fromEntries(
             visibleIssueRows(derivation, locals).map((row) => [
               row.issue.id,
@@ -577,10 +577,10 @@ export async function runFenceStep(
       }
     },
     expected: () => {
-      const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+      const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
       return options.expected === undefined ? oracle : options.expected(oracle)
     },
-    views: () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
+    views: () => rowViewsFromStore(ctx.engine.access, engineLocals(ctx)),
     content,
     contentDuring: () => publications,
   })

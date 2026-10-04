@@ -72,7 +72,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
 }))
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: useTestStoreSelector,
+  useRuntimeSelector: useTestStoreSelector,
 }))
 
 const machine = {

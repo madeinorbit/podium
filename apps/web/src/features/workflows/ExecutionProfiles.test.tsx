@@ -10,7 +10,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
 }))
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (sel: (s: unknown) => unknown) =>
+  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
     sel({ machines: [], issues: [], sessions: [], trpc: {} } as never),
 }))
 

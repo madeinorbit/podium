@@ -6,7 +6,7 @@ import {
   type IssueNavigationModel,
   reviewReturnCount,
   summarizeHandoffSessions,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MissionHandoffValues } from '@podium/client-graph/mission-view'
 import type { IssueId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -114,7 +114,7 @@ function useReviewReturns(
   entries: readonly HandoffNowEntry[],
   issues: readonly IssueNavigationModel[],
 ): ReadonlyMap<string, number> {
-  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const trpc = useStoreHandle<Trpc>().access.trpc
   const ids = useMemo(() => entries.map((entry) => entry.issueId), [entries])
   const [counts, setCounts] = useState<ReadonlyMap<string, number>>(() => new Map())
 

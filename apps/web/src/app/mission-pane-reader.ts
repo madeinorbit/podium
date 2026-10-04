@@ -2,7 +2,7 @@ import {
   type FlightDeckMode,
   machineViewsFromWire,
   reposToViews,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { cachedKey } from '@podium/client-graph/cached'
 import { missionView, readMissionHandoff, readMissionView } from '@podium/client-graph/mission-view'
 import type { MobxPool } from '@podium/client-graph/pool'

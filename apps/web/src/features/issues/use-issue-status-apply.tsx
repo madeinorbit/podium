@@ -1,11 +1,11 @@
 import { parseIssueStatusValue } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
-import { blockingCloseConcerns } from '@podium/client-core/viewmodels'
+import { blockingCloseConcerns } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard, issueCloseConcerns, issueMemberSessions } from './issue-lifecycle'
 
 /**
@@ -38,8 +38,8 @@ export interface IssueStatusApply {
 }
 
 export function useIssueStatusApply(suppliedSessions?: readonly SessionView[], sessionsForIssue?: (issue: IssueViewModel) => readonly SessionView[] | symbol | undefined): IssueStatusApply {
-  const updateIssue = useStoreSelector((store) => store.updateIssue)
-  const closeIssue = useStoreSelector((store) => store.closeIssue)
+  const updateIssue = useRuntimeSelector((store) => store.updateIssue)
+  const closeIssue = useRuntimeSelector((store) => store.closeIssue)
   const needsCloseGuard = useIssueCloseGuard(suppliedSessions)
   // The ISSUE is held with the reason, not just its id: these lists repaint
   // under the open dialog, and the guard reads the row it was opened for.

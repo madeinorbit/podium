@@ -12,7 +12,7 @@ vi.mock('@/app/store', () => ({
       { key: 'repo-b', name: 'Beta', aliases: ['repo-b', '/b'] },
     ],
   }),
-  useStoreSelector: (select: (store: unknown) => unknown) =>
+  useRuntimeSelector: (select: (store: unknown) => unknown) =>
     select({
       setSidebarSettings: saveOrder,
       sidebarSettings: { repoOrder: ['repo-a', 'repo-b'] },

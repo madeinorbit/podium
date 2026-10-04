@@ -150,7 +150,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (storeDrafts[id] ?? '')),
     useSessionExitKind: () => storeExitKind,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

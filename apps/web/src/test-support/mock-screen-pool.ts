@@ -50,7 +50,7 @@ export function borrowPoolFixtureInputs(
 }
 
 function useFixturePool(): MobxPool {
-  const state = storeInputs.useStoreSelector(selectInputs, isDeepStrictEqual)
+  const state = storeInputs.useRuntimeSelector(selectInputs, isDeepStrictEqual)
   const issues = useFixtureIssues()
   const live = useRef({ state, issues })
   live.current = { state: { ...state, ...borrowed.read() }, issues }

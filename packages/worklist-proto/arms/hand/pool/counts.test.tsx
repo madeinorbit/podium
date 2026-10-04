@@ -93,7 +93,7 @@ describe('fence steps #1-#4, #8, #8b', () => {
         if (step.commits) assertCommits(result)
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
-        const visible = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+        const visible = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
         if (!step.commits) {
           const changed = new Set(result.oracleChangedRows ?? [])
           const shownExtra = (result.drawnRows ?? []).filter(

@@ -1,4 +1,4 @@
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   ISSUE_COLOR_HEX,
   ISSUE_COLOR_SLOTS,

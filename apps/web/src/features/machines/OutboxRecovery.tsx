@@ -69,7 +69,7 @@ function DeadLetterRow({
   parked: OutboxDeadLetterEntry
   lone: boolean
 }): JSX.Element {
-  const recover = useStoreHandle<Trpc>().getSnapshot().recoverOutbox
+  const recover = useStoreHandle<Trpc>().access.recoverOutbox
   const plan = recoveryPlanFor(parked.reason.code)
   const baseCopy = recoveryCopyFor(parked.reason.code)
   // THE CONSUMER for `CommandPolicy.confirmation` (POD-1224). A

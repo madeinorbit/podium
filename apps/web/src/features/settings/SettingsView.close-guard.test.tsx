@@ -23,7 +23,7 @@ const storeState = {
 
 vi.mock('@/app/store', () => ({
   useHostMetrics: () => [],
-  useStoreSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
+  useRuntimeSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
   useReplicaIssues: () => [],
 }))
 vi.mock('@/lib/use-feature', () => ({

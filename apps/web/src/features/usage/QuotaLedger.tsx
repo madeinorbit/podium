@@ -3,7 +3,7 @@ import {
   type QuotaLedgerColumn,
   type QuotaLedgerStrip,
   type QuotaLedgerView,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { JSX, ReactNode } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Unfilled } from './Unfilled'

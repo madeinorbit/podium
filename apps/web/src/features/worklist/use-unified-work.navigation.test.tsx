@@ -1,6 +1,6 @@
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/mock-pool-fixture'
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 // @vitest-environment happy-dom
 import { act, cleanup, renderHook } from '@testing-library/react'
@@ -15,7 +15,7 @@ const fixture = vi.hoisted(() => ({
   issues: [] as unknown[],
 }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (s: Record<string, unknown>) => unknown) => select(fixture.store),
+  useRuntimeSelector: (select: (s: Record<string, unknown>) => unknown) => select(fixture.store),
   useReplicaIssues: () => fixture.issues,
   useSlice: () => ({
     now: Date.now(),

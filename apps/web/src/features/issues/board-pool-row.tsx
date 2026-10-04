@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { blockingCloseConcerns, issueCloseConcerns } from '@podium/client-core/viewmodels'
+import { blockingCloseConcerns, issueCloseConcerns } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import type { JSX } from 'react'
 import { useCallback } from 'react'

@@ -1,4 +1,4 @@
-import { rowWaitingCount } from '@podium/client-core/viewmodels'
+import { rowWaitingCount } from '@podium/client-core/values'
 import { describe, expect, it } from 'vitest'
 import { harnessMobxPoolArm, snapshotPool, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { engineLocals, openFenceFeeds } from '../../../harness/src/fence-scenarios'
@@ -17,7 +17,7 @@ describe('composed sidebar rail counts', () => {
           if (handle.pool.hydrate() === 0) break
         }
         const locals = engineLocals(ctx)
-        const legacy = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
+        const legacy = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
         for (const row of visibleIssueRows(legacy, locals)) {
           const count = tracked(() => {
             const model = handle.pool.issue(row.issue.id)!

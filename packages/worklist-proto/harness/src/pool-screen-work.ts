@@ -123,8 +123,7 @@ export interface ScreenWorkRun {
 /** The drawn neighbourhood is fixed; unrelated rows and closed mission history grow ×4.
  * Use real normalized kernel rows and the real row-source pipeline, never a second pool index. */
 function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
-  const row = ctx.engine
-    .getSnapshot()
+  const row = ctx.engine.access
     .issueProjections.find((issue) => !issue.archived && !issue.deletedAt)!
   for (const [id, parentId] of [
     [ROOT, null],
@@ -194,7 +193,7 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
       refLetter: 'Z',
     })
   }
-  ctx.engine.getSnapshot().setSelectedIssueId(asIssueId(ROOT))
+  ctx.engine.access.setSelectedIssueId(asIssueId(ROOT))
   const repo = ctx.cache.read('repo', row.repoId!)!.value as { prefix: string }
   return `${repo.prefix}-999999-Z`
 }
@@ -334,7 +333,7 @@ async function measureScreenCells(
     const navigation = createPoolNavigationProvider(pool)
     ctx.engine.setNavigationProvider(navigation)
     const locals = () => {
-      const state = ctx.engine.getSnapshot()
+      const state = ctx.engine.access
       return {
         selectedIssueId: state.selectedIssueId,
         paneA: state.paneA,
@@ -627,12 +626,12 @@ async function measureScreenCells(
       )
     let pressed: ReturnType<typeof readPoolWorkMenu>
     const actions: Record<ScreenAction, () => void | Promise<unknown>> = {
-      select: () => ctx.engine.getSnapshot().setSelectedIssueId(asIssueId(CHILD)),
+      select: () => ctx.engine.access.setSelectedIssueId(asIssueId(CHILD)),
       'stage-change': () =>
-        ctx.engine.getSnapshot().updateIssue(asIssueId(ROOT), { stage: 'in_progress' }),
-      'pane-switch': () => ctx.engine.getSnapshot().setPane('A', asSessionId(SESSION)),
+        ctx.engine.access.updateIssue(asIssueId(ROOT), { stage: 'in_progress' }),
+      'pane-switch': () => ctx.engine.access.setPane('A', asSessionId(SESSION)),
       'open-menu': () => {
-        ctx.engine.getSnapshot().setPaletteOpen(true)
+        ctx.engine.access.setPaletteOpen(true)
         insideReader('launcher.open-menu', () => readPalette(pool))
       },
       'long-press': () => {
@@ -640,7 +639,7 @@ async function measureScreenCells(
       },
       'navigate-by-ref': () => {
         insideReader('navigation.navigate-by-ref', () =>
-          ctx.engine.getSnapshot().navigateToSession(asSessionId(ref)),
+          ctx.engine.access.navigateToSession(asSessionId(ref)),
         )
       },
       heartbeat: () => seatPatch({ lastActiveAt: ctx.stamp() }),
@@ -656,7 +655,7 @@ async function measureScreenCells(
     }
     const cells: ScreenWorkCell[] = []
     const proveAction = (action: ScreenAction) => {
-      const state = ctx.engine.getSnapshot()
+      const state = ctx.engine.access
       const issue = pool.row('issue', ROOT)
       const session = pool.row('session', SESSION)
       if (action === 'select' && state.selectedIssueId !== CHILD)
@@ -756,8 +755,8 @@ async function measureScreenCells(
     return {
       scale,
       corpus: {
-        issues: ctx.engine.getSnapshot().issueProjections.length,
-        sessions: ctx.engine.getSnapshot().sessions.length,
+        issues: ctx.engine.access.issueProjections.length,
+        sessions: ctx.engine.access.sessions.length,
       },
       readers: readers.map(({ name, consumers }) => ({ name, consumers })),
       cells,

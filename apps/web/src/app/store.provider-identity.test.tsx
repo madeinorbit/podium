@@ -5,7 +5,7 @@ import { asUserId } from '@podium/model'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStore, useStoreSelector } from '@podium/client-core/react'
+import { StoreProvider, useStore, useRuntimeSelector } from '@podium/client-core/react'
 import { createReplica, memoryStorage } from '@podium/client-core/replica'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -162,7 +162,7 @@ describe('provider runtime identity (#262 review)', () => {
 //   a QUEUED WRITE   principal A's layoutSet, persisted in A's namespace
 //   a LIVE CURSOR    A's feed cursor, advanced past zero
 //   a LIVE SOCKET    A's WebSocket, open
-//   a WARM CACHE     a mounted useStoreSelector holding A's selected value
+//   a WARM CACHE     a mounted useRuntimeSelector holding A's selected value
 //
 // — and each is asserted separately afterwards. The counterfactuals are
 // recorded in `docs/architecture/pod-404-provider-principal-binding.md`: which
@@ -178,7 +178,7 @@ const BOB = asClientPrincipal(asUserId('bob'))
 interface Seen {
   hub: unknown
   replica: { getFeedCursor(): unknown } | null
-  /** Read through useStoreSelector — this is the CACHE under test. */
+  /** Read through useRuntimeSelector — this is the CACHE under test. */
   dockTab: string
   outboxSize: number
   setDockTab: (tab: string) => void
@@ -191,7 +191,7 @@ function PrincipalProbe(): null {
   // A SELECTOR with a stable identity across renders, so its per-component
   // cache genuinely survives the switch instead of being reset by a new
   // closure. That is the only version of this assertion that can fail.
-  const dockTab = useStoreSelector(selectDockTab)
+  const dockTab = useRuntimeSelector(selectDockTab)
   seen = {
     hub: store.hub,
     replica: store.replica as unknown as { getFeedCursor(): unknown },

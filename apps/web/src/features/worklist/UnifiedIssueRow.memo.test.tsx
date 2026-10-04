@@ -3,7 +3,7 @@
  * A and C retain their objects, scalars and callbacks. The last green legacy
  * control's identical text is frozen below; only B may render. */
 
-import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/viewmodels'
+import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/values'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { issueDisplayRef } from '@podium/protocol'
 import { cleanup, render } from '@testing-library/react'

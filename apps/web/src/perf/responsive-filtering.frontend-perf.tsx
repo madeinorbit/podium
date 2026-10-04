@@ -81,7 +81,7 @@ vi.mock('@/app/store', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/app/store')>()
   const useStore = () => largeState.store
   const useLegacyIssues = () => normalizedFixtureIssues(largeState.store)
-  const useLegacySelector: typeof original.useStoreSelector = (selector) =>
+  const useLegacySelector: typeof original.useRuntimeSelector = (selector) =>
     selector(largeState.store as unknown as Parameters<typeof selector>[0])
   return {
     useStore: () => {
@@ -92,12 +92,12 @@ vi.mock('@/app/store', async (importOriginal) => {
       const useRead = largeState.pool ? original.useReplicaIssues : useLegacyIssues
       return useRead()
     },
-    useStoreSelector: (
+    useRuntimeSelector: (
       selector: (store: Record<string, unknown>) => unknown,
       equal?: (a: unknown, b: unknown) => boolean,
     ) => {
-      const useRead = largeState.pool ? original.useStoreSelector : useLegacySelector
-      return useRead(selector as unknown as Parameters<typeof original.useStoreSelector>[0], equal)
+      const useRead = largeState.pool ? original.useRuntimeSelector : useLegacySelector
+      return useRead(selector as unknown as Parameters<typeof original.useRuntimeSelector>[0], equal)
     },
     useSlice: (definition: { derive: (store: Record<string, unknown>) => unknown }) => {
       if (largeState.pool) throw new Error('Responsive pool sidebar read a legacy slice')

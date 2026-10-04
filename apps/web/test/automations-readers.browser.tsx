@@ -1,7 +1,7 @@
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { machineViewsFromWire } from '@podium/client-core/viewmodels'
+import { machineViewsFromWire } from '@podium/client-core/values'
 import { checkAutomations } from '@podium/client-graph/diagnostics/automation-check'
 import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { asUserId } from '@podium/model/browser'
@@ -118,7 +118,7 @@ const driver = {
   },
   check() {
     if (!pool || !owner) return null
-    const state = owner.getSnapshot() as unknown as Store
+    const state = owner.access as unknown as Store
     return checkAutomations(
       pool,
       state,

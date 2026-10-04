@@ -29,7 +29,7 @@ import {
   SUPERAGENT_MODE_KEY,
 } from '@podium/client-core/ui-state'
 import { useEffect, useRef } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import {
   EMPTY_FIRST_TASK_DRAFT,
   persistFirstTaskDraft,
@@ -52,7 +52,7 @@ export function useNewTask(
    */
   { bindChord = false }: { bindChord?: boolean } = {},
 ): NewTask {
-  const { uiState, setSelectedIssueId, setSelectedWorktree, setView } = useStoreSelector(
+  const { uiState, setSelectedIssueId, setSelectedWorktree, setView } = useRuntimeSelector(
     (store) => ({
       uiState: store.uiState,
       setSelectedIssueId: store.setSelectedIssueId,

@@ -9,7 +9,7 @@ import {
 } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { planReorderKeys } from '@podium/client-core/viewmodels'
+import { planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import {
@@ -66,8 +66,8 @@ vi.mock('@podium/client-core/react', async (original) => {
     useSessionViews: forbidden,
   }
 })
-vi.mock('@podium/client-core/viewmodels', async (original) => {
-  const real = await original<typeof import('@podium/client-core/viewmodels')>()
+vi.mock('@podium/client-core/values', async (original) => {
+  const real = await original<typeof import('@podium/client-core/values')>()
   const guard = <T extends (...args: never[]) => unknown>(fn: T): T =>
     ((...args: never[]) => {
       throw new Error('mobile pool action called a legacy row derivation')
@@ -323,7 +323,7 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
     </StoreProvider>,
   )
   await act(async () => {
-    await runtime.getSnapshot().refreshRepos()
+    await runtime.access.refreshRepos()
   })
   await waitFor(
     () => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull(),
@@ -766,7 +766,7 @@ describe('mobile pool work-list actions', () => {
         expect(patches.length).toBeGreaterThan(0)
         await act(async () => {
           await Promise.all(
-            patches.map(({ id, ...fields }) => runtime.getSnapshot().updateIssue(id, fields)),
+            patches.map(({ id, ...fields }) => runtime.access.updateIssue(id, fields)),
           )
         })
         expect(

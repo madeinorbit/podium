@@ -15,7 +15,7 @@ import {
   windowElapsedPercent,
   windowPace,
   windowScopeModel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { AgentQuotaWire } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { Gauge } from 'lucide-react'

@@ -1,7 +1,7 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { pickPaneSession } from '@podium/client-core/viewmodels'
+import { pickPaneSession } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
@@ -130,11 +130,11 @@ export function createPoolWorkActions(
 ) {
   let lastIssueNavigation: string | null = null
   const batch = (fn: () => void) =>
-    (runtime.getSnapshot() as unknown as { batchGesture: (fn: () => void) => void }).batchGesture(
+    (runtime.access as unknown as { batchGesture: (fn: () => void) => void }).batchGesture(
       fn,
     )
   const trace = (target: SessionId | null, issueId: IssueId | null) => {
-    if (target && target !== runtime.getSnapshot().paneA && !target.startsWith('file:'))
+    if (target && target !== runtime.access.paneA && !target.startsWith('file:'))
       beginSwitch({ sessionId: asSessionId(target), issueId })
   }
   const selectIssue = (id: string, paneSession?: SessionId): void => {
@@ -145,7 +145,7 @@ export function createPoolWorkActions(
     if (rootId === undefined || rootId === LOADING) return
     const issueIds = mission.members(rootId)
     if (issueIds === LOADING) return
-    const store = runtime.getSnapshot()
+    const store = runtime.access
     const members = new Map<string, SessionView>()
     // R2 already applies resume collapse. Headless provenance remains raw;
     // it never participates in collapse or supplies a workspace pane.
@@ -184,7 +184,7 @@ export function createPoolWorkActions(
     focus(id)
   }
   const selectWorktree = (path: string): void => {
-    const store = runtime.getSnapshot()
+    const store = runtime.access
     batch(() => {
       store.setSelectedIssueId(null)
       store.setSelectedWorktree(path)
@@ -210,7 +210,7 @@ export function createPoolWorkActions(
     selectPanelForIssue: (id: string, sessionId: SessionId) => selectIssue(id, sessionId),
     selectWorktree,
     selectPanel: (path: string, sessionId: SessionId) => {
-      const store = runtime.getSnapshot()
+      const store = runtime.access
       batch(() => {
         trace(sessionId, null)
         store.setSelectedIssueId(null)
@@ -221,21 +221,21 @@ export function createPoolWorkActions(
       })
     },
     openIssuePage: (id: IssueId) => {
-      const store = runtime.getSnapshot()
+      const store = runtime.access
       store.setOpenIssueId(id)
       store.setView('issues')
     },
     renameIssue: (id: string, title: string) => {
-      void runtime.getSnapshot().updateIssue(id, { title })
+      void runtime.access.updateIssue(id, { title })
     },
     setIssueColor: (id: string, color: IssueColorSlot | null) =>
-      runtime.getSnapshot().updateIssue(id, { color }),
-    archiveIssue: (id: string) => runtime.getSnapshot().archiveIssue(id),
-    deleteIssue: (id: string) => runtime.getSnapshot().deleteIssue(id),
+      runtime.access.updateIssue(id, { color }),
+    archiveIssue: (id: string) => runtime.access.archiveIssue(id),
+    deleteIssue: (id: string) => runtime.access.deleteIssue(id),
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
-      Promise.all(patches.map(({ id, ...patch }) => runtime.getSnapshot().updateIssue(id, patch))),
+      Promise.all(patches.map(({ id, ...patch }) => runtime.access.updateIssue(id, patch))),
     setIssueTucked: (id: string, tucked: boolean) =>
-      runtime.getSnapshot().setIssueTucked(id, tucked),
+      runtime.access.setIssueTucked(id, tucked),
     resolveMenuData: (id: string): UnifiedIssueRowMenuData => {
       // Only on menu open: enumerate resident issues, through the one reader.
       const sessions = sessionMembership(pool)

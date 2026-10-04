@@ -1,6 +1,6 @@
 import { compareRecency, groupSessions } from '@podium/client-core/focus'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { partitionWorkItems, sortSessionsForSidebar } from '@podium/client-core/viewmodels'
+import { partitionWorkItems, sortSessionsForSidebar } from '@podium/client-core/values'
 import { type AgentRuntimeState, asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 

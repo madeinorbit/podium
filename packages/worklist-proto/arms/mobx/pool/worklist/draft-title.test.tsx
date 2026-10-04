@@ -26,7 +26,7 @@ describe('a draft wears its first non-shell member (4x)', () => {
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
       const got = handle.snapshot()
-      const want = oracleSnapshot(ctx.engine.getSnapshot())
+      const want = oracleSnapshot(ctx.engine.access)
       const { pool } = handle
       const drafts = tracked(() =>
         Object.keys(want.rowsById).filter((id) => pool.visibleInputs.issueRow(id)?.isDraftVessel === true),

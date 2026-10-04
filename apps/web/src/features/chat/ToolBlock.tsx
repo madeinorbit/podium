@@ -1,5 +1,5 @@
 import { highlightCode } from '@podium/client-core/code-highlight'
-import { resolveToolEdit } from '@podium/client-core/viewmodels'
+import { resolveToolEdit } from '@podium/client-core/values'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'

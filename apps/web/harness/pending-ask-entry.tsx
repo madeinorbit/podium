@@ -15,7 +15,7 @@
  * `window.probe.mode('before'|'after')` switches; the card needs no store, so
  * this harness stubs nothing.
  */
-import { pendingAskFromState } from '@podium/client-core/viewmodels'
+import { pendingAskFromState } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'

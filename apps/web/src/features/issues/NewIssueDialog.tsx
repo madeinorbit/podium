@@ -1,4 +1,4 @@
-import type { RepoView } from '@podium/client-core/viewmodels'
+import type { RepoView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import {
   agentCapabilityRejection,

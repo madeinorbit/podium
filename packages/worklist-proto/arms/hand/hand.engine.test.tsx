@@ -27,7 +27,7 @@ async function bootArm() {
   const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
   const locals: SliceLocals = {
     selectedIssueId: null,
-    coarseNow: ctx.engine.getSnapshot().coarseNow,
+    coarseNow: ctx.engine.access.coarseNow,
   }
   const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
   return { ctx, source, locals, mounted }
@@ -56,7 +56,7 @@ describe('hand-rolled arm on the engine (fixture 1x)', () => {
     try {
       // Parity on mount: the arm shows what the app shows.
       const atMount = mounted.handle.snapshot()
-      const expectedAtMount = snapshotFromStore(ctx.engine.getSnapshot(), locals)
+      const expectedAtMount = snapshotFromStore(ctx.engine.access, locals)
       expect(Object.keys((atMount as { rowsById: object }).rowsById).length).toBeGreaterThan(0)
       expect(atMount).toEqual(expectedAtMount)
 
@@ -67,7 +67,7 @@ describe('hand-rolled arm on the engine (fixture 1x)', () => {
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       console.info(
         `[hand] heartbeat committed=${heartbeat.rowsCommitted}/${heartbeat.visibleRows} ` +
@@ -92,7 +92,7 @@ describe('hand-rolled arm on the engine (fixture 1x)', () => {
           await writePhaseChange(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       console.info(
         `[hand] phase committed=${phase.rowsCommitted}/${phase.visibleRows} ` +
@@ -109,7 +109,7 @@ describe('hand-rolled arm on the engine (fixture 1x)', () => {
           await writeSelectionClick(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       console.info(
         `[hand] click committed=${click.rowsCommitted}/${click.visibleRows} ` +

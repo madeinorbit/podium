@@ -49,7 +49,7 @@ import { cn } from '@/lib/utils'
 import { IssueAgentSettings } from './IssueAgentSettings'
 
 /** Stages whose own name says somebody has picked the work up. Mirrors the
- *  flight deck's `UNDERWAY` bucket (client-core/viewmodels/mission.ts) with
+ *  flight deck's `UNDERWAY` bucket (client-core/values/mission.ts) with
  *  `review` added: work under review has been done too, and neither reads as
  *  something to "start". */
 const BEGUN_STAGES: ReadonlySet<IssueStage> = new Set<IssueStage>([

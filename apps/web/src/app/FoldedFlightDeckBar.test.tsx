@@ -9,7 +9,7 @@ const state = {
 }
 
 vi.mock('./store', () => ({
-  useStoreSelector: (select: (store: Record<string, unknown>) => unknown) =>
+  useRuntimeSelector: (select: (store: Record<string, unknown>) => unknown) =>
     select({ sessions: [], selectedIssueId: 'root' }),
   useReplicaIssues: () => [],
 }))
@@ -17,7 +17,7 @@ vi.mock('./store', () => ({
 // `selectedMissionRoot` is what the bar reads (the mission it is folded over);
 // `missionRootFor` stays because the module is replaced wholesale and other
 // call sites in the render path still reach for it.
-vi.mock('@podium/client-core/viewmodels', () => ({
+vi.mock('@podium/client-core/values', () => ({
   selectedMissionRoot: () => ({
     id: 'root',
     seq: 710,

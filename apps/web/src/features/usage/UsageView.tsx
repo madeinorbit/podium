@@ -12,7 +12,7 @@ import {
   type UsageProvider,
   type UsageSummaryView,
   usageSummary,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { useStoreHandle } from '@podium/client-core/react'
 import { type CSSProperties, type JSX, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
@@ -55,7 +55,7 @@ import { formatClock, type UsageFeed, useArrived, useUsageFeed } from './useUsag
  * Reopening the sheet skips even that — see useUsageFeed.
  */
 export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
-  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const trpc = useStoreHandle<Trpc>().access.trpc
   const feed = useUsageFeed(trpc)
   const ledger = useQuotaLedger(trpc)
   const tasks = useTaskCosts(trpc)

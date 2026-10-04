@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const store = vi.hoisted(() => ({ value: {} as Record<string, unknown>, reads: [] as string[] }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: () => {
+  useRuntimeSelector: () => {
     throw new Error('Dock lifecycle read the old store')
   },
 }))

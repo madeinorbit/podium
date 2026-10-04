@@ -6,7 +6,7 @@
  * WHY THIS IS A HOOK AND NOT A `SliceDefinition`
  * ---------------------------------------------------------------------------
  *
- * Every published slice in `@podium/client-core/viewmodels` derives from the
+ * Every published slice in `@podium/client-core/values` derives from the
  * replica snapshot. Workflows are not replicated — they arrive over RPC — and
  * whether they SHOULD be replicated is POD-1127's open decision, which this
  * issue must not settle. So the derivations live in the platform-neutral
@@ -83,7 +83,7 @@ type WorkflowProcs = Record<string, { mutate(input: unknown): Promise<unknown> }
 export function useWorkflows(): WorkflowsSource {
   // A service handle, not replicated data. This hook remains the one RPC
   // source in both startup arms and does not subscribe to store publications.
-  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const trpc = useStoreHandle<Trpc>().access.trpc
   const [workflows, setWorkflows] = useState<WorkflowWire[]>([])
   const [bindings, setBindings] = useState<WorkflowBindingWire[]>([])
   const [profiles, setProfiles] = useState<ExecutionProfileWire[]>([])

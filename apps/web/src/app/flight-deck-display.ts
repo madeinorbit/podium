@@ -1,4 +1,4 @@
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 
 export type FlightDeckDisplay = 'compact' | 'expanded'
 

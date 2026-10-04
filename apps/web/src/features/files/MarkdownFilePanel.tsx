@@ -8,7 +8,7 @@ import {
   readFilePanelMode,
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
-import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
+import { type FileScope, scopeKey } from '@podium/client-core/values'
 import { asSessionId, type SessionId } from '@podium/model/browser'
 import { Columns2, Eye, Flower2, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -41,7 +41,7 @@ export function MarkdownFilePanel({
 }): JSX.Element {
   const doc = useFileDocument(scope, path)
   const saveFeedbackId = useId()
-  const { uiState } = useStoreHandle().getSnapshot()
+  const { uiState } = useStoreHandle().access
   const md = isMarkdownPath(path)
   const mobile = useIsMobile()
   const [calmReading, setCalmReading] = useState(false)

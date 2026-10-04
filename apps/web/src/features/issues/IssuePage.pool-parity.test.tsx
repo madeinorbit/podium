@@ -137,7 +137,7 @@ const state = {
 }
 vi.mock('@/app/store', () => ({
   useStore: () => state,
-  useStoreSelector: (select: (owner: unknown) => unknown) => select(state),
+  useRuntimeSelector: (select: (owner: unknown) => unknown) => select(state),
   useReplicaIssues: () => {
     recordSliceDerivation(replica, 'replica.issueViews')
     return state.issues

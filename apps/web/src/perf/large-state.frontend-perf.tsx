@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { indexSessionOwnership, sidebarSections } from '@podium/client-core/viewmodels'
+import { indexSessionOwnership, sidebarSections } from '@podium/client-core/values'
 import { type GitRepositoryWire, ISSUE_STAGES } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { flushSync } from 'react-dom'
@@ -37,7 +37,7 @@ const bench = vi.hoisted(() => ({ store: {} as Record<string, unknown> }))
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => bench.store.issues ?? [],
-  useStoreSelector: (selector: (store: Record<string, unknown>) => unknown) =>
+  useRuntimeSelector: (selector: (store: Record<string, unknown>) => unknown) =>
     selector(bench.store),
 }))
 

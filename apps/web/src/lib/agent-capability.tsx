@@ -54,7 +54,7 @@ import {
   agentCapabilityReason as capabilityReason,
   agentLoginWarning as loginWarning,
   SIGNED_OUT_HINT,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { Check } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import {

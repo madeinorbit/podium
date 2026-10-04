@@ -1,6 +1,6 @@
 import { withKeyedInputs, workspaceKeyForState } from '@podium/client-core/engine'
 import { vi } from 'vitest'
-import { useStoreSelector as selectMockSnapshot } from '@/app/store'
+import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
 

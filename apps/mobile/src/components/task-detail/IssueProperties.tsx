@@ -5,7 +5,7 @@ import {
   ISSUE_STAGE_LABELS,
   type IssueEdge,
   sessionTitle,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { type ReactNode, useState } from 'react'

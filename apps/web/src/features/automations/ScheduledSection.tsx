@@ -306,7 +306,7 @@ function AutomationCard({
 
 /** One run: what happened, when, and — for a spawn — the session it produced. */
 function RunRow({ run }: { run: AutomationRun }): JSX.Element {
-  const navigateToSession = useStoreHandle<Trpc>().getSnapshot().navigateToSession
+  const navigateToSession = useStoreHandle<Trpc>().access.navigateToSession
   // Only a session that still exists can be opened — a deleted one leaves the run
   // row intact (the history is the truth about what happened, not about what lives).
   const session = useAutomationRunSession(run.sessionId ?? undefined)

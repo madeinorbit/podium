@@ -1,4 +1,4 @@
-import { isImagePath } from '@podium/client-core/viewmodels'
+import { isImagePath } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { FileText, X } from './icons'
 import { useEffect, useState } from 'react'

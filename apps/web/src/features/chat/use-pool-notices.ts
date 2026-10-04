@@ -1,4 +1,4 @@
-import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/viewmodels'
+import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import { noticeInteractions, noticeMessages, noticeRecovery } from '@podium/client-graph/notice-views'
 import { useCallback } from 'react'

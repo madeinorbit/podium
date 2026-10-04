@@ -1,7 +1,7 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import { sessionValues } from '@podium/client-core/session-values'
-import { isDraftAgentVessel, sessionTitle } from '@podium/client-core/viewmodels'
+import { isDraftAgentVessel, sessionTitle } from '@podium/client-core/values'
 import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'

@@ -4,7 +4,7 @@ import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import { messageNotices, pendingInteractionCards } from '@podium/client-core/viewmodels'
+import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import { asMutationId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
@@ -25,8 +25,8 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
     ) => state.host!.host.usePoolProjection(read, empty) as T,
   }
 })
-vi.mock('@podium/client-core/viewmodels', async (importOriginal) => {
-  const real = await importOriginal<typeof import('@podium/client-core/viewmodels')>()
+vi.mock('@podium/client-core/values', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@podium/client-core/values')>()
   return {
     ...real,
     messageNotices: vi.fn(real.messageNotices),
@@ -307,7 +307,7 @@ it('keeps chat, settings, dismiss and typed-answer actions on the existing owner
 
 it('updates recovery and continuity through the original outbox retry, edit and discard actions', async () => {
   const enabled = await mount(),
-    recovery = enabled.runtime.getSnapshot().recoverOutbox
+    recovery = enabled.runtime.access.recoverOutbox
   const retry = vi.spyOn(recovery, 'retry'),
     edit = vi.spyOn(recovery, 'edit'),
     discard = vi.spyOn(recovery, 'discard')
@@ -352,7 +352,7 @@ it('removes empty notices and retains the live offline status without snapshot s
     for (const row of enabled.data.messages) enabled.evict('message', row.id)
     for (const row of enabled.data.interactions) enabled.evict('pendingInteraction', row.id)
     for (const row of enabled.data.deadLetters)
-      enabled.runtime.getSnapshot().recoverOutbox.discard(row.entry.mutationId)
+      enabled.runtime.access.recoverOutbox.discard(row.entry.mutationId)
     enabled.connect(true)
   })
   expect(enabled.view.container.textContent).toBe('')

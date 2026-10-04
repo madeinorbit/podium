@@ -5,7 +5,7 @@ import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
@@ -45,7 +45,7 @@ export function DockShellPanel({
   cwd: string
   machineId?: MachineId
 }): JSX.Element {
-  const { hub, trpc, setDockShell, setDockVisibleSession } = useStoreSelector(
+  const { hub, trpc, setDockShell, setDockVisibleSession } = useRuntimeSelector(
     (s) => ({
       hub: s.hub,
       trpc: s.trpc,

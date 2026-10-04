@@ -3,7 +3,7 @@ import {
   rankedTaskStateSlots,
   taskAheadCount,
   taskStateWord,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { IssueStage } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'

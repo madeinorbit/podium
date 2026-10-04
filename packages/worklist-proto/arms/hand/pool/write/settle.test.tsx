@@ -114,7 +114,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
 
       let tx: TxId = '' as TxId
       const edited = await runCountScenario(mounted, {
@@ -183,7 +183,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const id = ctx.targets.visibleRootId
       const serverStage = stageOf(handle, id) as string
       const pendingStage = (serverStage === 'review' ? 'in_progress' : 'review') as EditableStage
-      const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
 
       let tx: TxId = '' as TxId
       await runCountScenario(mounted, {
@@ -260,7 +260,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
 
       let tx: TxId = '' as TxId
       await runCountScenario(mounted, {
@@ -345,9 +345,9 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
 
-      const first = new Date(ctx.engine.getSnapshot().coarseNow).toISOString()
+      const first = new Date(ctx.engine.access.coarseNow).toISOString()
       let t1: TxId = '' as TxId
       await runCountScenario(mounted, {
         scenario: 'handOptimisticSupersedeFirst',
@@ -357,7 +357,7 @@ describe('Hc2 hand receipts and remote updates', () => {
         },
         expected: baseline,
       })
-      const second = new Date(ctx.engine.getSnapshot().coarseNow + 1).toISOString()
+      const second = new Date(ctx.engine.access.coarseNow + 1).toISOString()
       let t2: TxId = '' as TxId
       await runCountScenario(mounted, {
         scenario: 'handOptimisticSupersedeSecond',
@@ -413,7 +413,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
 
       let tx: TxId = '' as TxId
       await runCountScenario(mounted, {
@@ -464,7 +464,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
 
       await runCountScenario(mounted, {
         scenario: 'handOptimisticRebuildPendingEdit',

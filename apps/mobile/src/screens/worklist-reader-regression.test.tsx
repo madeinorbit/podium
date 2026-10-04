@@ -13,7 +13,7 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
-import { reposToViews, reposVisibleOnMachines } from '@podium/client-core/viewmodels'
+import { reposToViews, reposVisibleOnMachines } from '@podium/client-core/values'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'

@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/viewmodels'
+import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/values'
 
 import { issueDisplayRef } from '@podium/protocol'
 import { useMemo, useState } from 'react'

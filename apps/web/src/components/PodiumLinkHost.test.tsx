@@ -23,7 +23,7 @@ const hostStore = vi.hoisted(() => {
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => hostStore.issues,
-  useStoreSelector: (select: (state: unknown) => unknown) =>
+  useRuntimeSelector: (select: (state: unknown) => unknown) =>
     select({
       httpOrigin: 'http://127.0.0.1:18787',
       sessions: [],

@@ -93,7 +93,7 @@ async function measure(scale: 1 | 4) {
     const locals = parityLocals(ctx)
     const now = locals.coarseNow
     const order = visibleIssueRows(
-      legacyDerivationFromStore(ctx.engine.getSnapshot(), now),
+      legacyDerivationFromStore(ctx.engine.access, now),
       locals,
     ).map((row) => row.issue.id)
     const table = (kind: 'issue' | 'session' | 'worktree') =>

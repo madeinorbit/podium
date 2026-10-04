@@ -1,5 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import type { FileScope } from '@podium/client-core/viewmodels'
+import type { FileScope } from '@podium/client-core/values'
 import { Download } from 'lucide-react'
 import type { JSX } from 'react'
 import { toast } from 'sonner'
@@ -26,7 +26,7 @@ export function DownloadFileButton({
   /** Warn when the saved bytes are the on-disk ones, not what's in the editor. */
   dirty: boolean
 }): JSX.Element | null {
-  const { httpOrigin } = useStoreHandle().getSnapshot()
+  const { httpOrigin } = useStoreHandle().access
   const origin = httpOrigin || (typeof window === 'undefined' ? '' : window.location.origin)
   const target = downloadFileUrl({ httpOrigin: origin, scope, path })
   if (!target) return null

@@ -74,8 +74,8 @@ vi.mock('@/app/store', () => {
     }) as never
   return {
     useStore: () => state(),
-    // Selector hooks (useStoreSelector) reach the same mocked state.
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(state()),
+    // Selector hooks (useRuntimeSelector) reach the same mocked state.
+    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state()),
     useReplicaIssues: () => (state() as unknown as { issues: never[] }).issues,
   }
 })

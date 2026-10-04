@@ -5,7 +5,7 @@ import {
   readFilePanelMode,
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
-import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
+import { type FileScope, scopeKey } from '@podium/client-core/values'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
@@ -41,7 +41,7 @@ export function HtmlFilePanel({
   path: string
   onClose: () => void
 }): JSX.Element {
-  const { httpOrigin, readFileScoped, uiState } = useStoreHandle<Trpc>().getSnapshot()
+  const { httpOrigin, readFileScoped, uiState } = useStoreHandle<Trpc>().access
   const doc = useFileDocument(scope, path)
   const saveFeedbackId = useId()
   const mobile = useIsMobile()

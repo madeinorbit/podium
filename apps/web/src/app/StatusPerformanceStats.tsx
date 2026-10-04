@@ -1,4 +1,4 @@
-import { bucketCostUsd } from '@podium/client-core/viewmodels'
+import { bucketCostUsd } from '@podium/client-core/values'
 import type { UsageBucketWire } from '@podium/model/browser'
 import { type JSX, useMemo } from 'react'
 import { type UsageScan, useUsageFeed } from '@/features/usage/useUsageFeed'

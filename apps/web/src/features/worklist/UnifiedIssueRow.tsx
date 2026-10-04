@@ -11,7 +11,7 @@ import {
   rowStatusLine,
   rowUnreadEmphasized,
   type UnifiedIssueRow as UnifiedIssueRowView,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
 import {

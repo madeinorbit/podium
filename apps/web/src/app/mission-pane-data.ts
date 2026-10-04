@@ -2,7 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { readWorkspaceMission } from '@podium/client-graph/mission-view'
 import { useCallback, useEffect, useState } from 'react'
-import { useStoreSelector } from './store'
+import { useRuntimeSelector } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
 type Readers = typeof import('@podium/client-graph/mission-view') & {
@@ -61,7 +61,7 @@ const EMPTY_FOLDED = {
   needs: 0,
 }
 export function usePoolMissionFolded() {
-  const selectedId = useStoreSelector((store) => store.selectedIssueId)
+  const selectedId = useRuntimeSelector((store) => store.selectedIssueId)
   const readers = useMissionReaders()
   const read = useCallback(
     (pool: MobxPool) => {

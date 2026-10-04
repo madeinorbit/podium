@@ -62,7 +62,7 @@ export function usePersistedUiState<T>(
   parse: (raw: string | null) => T,
   serialize: (value: T) => string | null,
 ): [T, (next: T) => void] {
-  const ui = useStoreHandle().getSnapshot().uiState as RoutedUiState | undefined
+  const ui = useStoreHandle().access.uiState as RoutedUiState | undefined
   const value = usePersistedUiValue(key, parse)
   const set = useCallback(
     (next: T) => {

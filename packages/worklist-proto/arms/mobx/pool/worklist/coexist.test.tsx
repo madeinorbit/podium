@@ -114,7 +114,7 @@ async function soloControl(
         else await writeSelectionClick(ctx)
         feeds.flush()
       },
-      expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
+      expected: () => snapshotFromStore(ctx.engine.access, parityLocals(ctx)),
     })
     expect(result.parity, `solo control ${scenario}: parity`).toBe(true)
     expect(result.readsPerChange).not.toBeNull()
@@ -158,7 +158,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           })
           feeds.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
+        expected: () => snapshotFromStore(ctx.engine.access, parityLocals(ctx)),
       })
       expect(moved.parity).toBe(true)
       assertReads(moved, { readsPerChange: 3 })
@@ -245,7 +245,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         console.info(
           `[control-counts] ${scenario} ${scale}x co-mounted: ${JSON.stringify({ rows: controlRows, stats: controlMounted.handle.stats, reads: controlReads.rows, locals: feeds.locals.stats })}`,
         )
-        const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+        const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
         expect(
           diffSnapshots(armMounted.handle.snapshot(), oracle),
           `${scenario}: arm parity beside the control`,

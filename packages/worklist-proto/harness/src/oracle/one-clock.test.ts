@@ -60,11 +60,11 @@ describe('store helpers run on the caller clock alone', () => {
 
   beforeAll(async () => {
     ctx = await startScenarioEngine(1)
-    early = ctx.engine.getSnapshot()
+    early = ctx.engine.access
     for (const ahead of AHEAD_MS) {
       const coarseNow = early.coarseNow + ahead
-      ctx.advanceClock(coarseNow - ctx.engine.getSnapshot().coarseNow)
-      const advanced = ctx.engine.getSnapshot()
+      ctx.advanceClock(coarseNow - ctx.engine.access.coarseNow)
+      const advanced = ctx.engine.access
       expect(advanced.coarseNow).toBe(coarseNow)
       const locals = { selectedIssueId: null, coarseNow }
       truths.push({
@@ -124,8 +124,8 @@ describe('snapshot helpers on a row whose visibility the derivation clock decide
 
   beforeAll(async () => {
     ctx = await startScenarioEngine(1)
-    const now = ctx.engine.getSnapshot().coarseNow
-    const visible = oracleIds(ctx.engine.getSnapshot())
+    const now = ctx.engine.access.coarseNow
+    const visible = oracleIds(ctx.engine.access)
     // By rule: the first visible human child, made finished and unread one
     // hour inside the window, its sessions archived (so none keeps it listed).
     const candidate = ctx.corpus.issues.find(
@@ -155,10 +155,10 @@ describe('snapshot helpers on a row whose visibility the derivation clock decide
       }
     })
     await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
-    early = ctx.engine.getSnapshot()
+    early = ctx.engine.access
     later = { selectedIssueId: null, coarseNow: early.coarseNow + 2 * HOUR }
     ctx.advanceClock(2 * HOUR)
-    truth = snapshotFromStore(ctx.engine.getSnapshot(), later)
+    truth = snapshotFromStore(ctx.engine.access, later)
   }, 60_000)
 
   afterAll(() => ctx.engine.destroy())

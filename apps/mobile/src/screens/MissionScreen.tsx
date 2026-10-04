@@ -6,7 +6,7 @@ import {
   type MissionProgress,
   missionCrewLabel,
   sessionNeedsHuman,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { asIssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'

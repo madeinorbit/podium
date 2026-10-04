@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import type { MissionActionInputs } from '@podium/client-graph/mission-view'
 import { type ComponentProps, lazy, Suspense, useCallback } from 'react'

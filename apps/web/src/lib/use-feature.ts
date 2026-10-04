@@ -71,7 +71,7 @@ export function invalidateFeatures(trpc: Trpc): void {
 
 /** Subscribe to the shared features.state snapshot (for the Experimental page). */
 export function useFeaturesState(): FeaturesStateSnapshot | null {
-  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
+  const trpc = useStoreHandle<Trpc>().access.trpc
   const [, force] = useState(0)
   useEffect(() => {
     const sub = () => force((n) => n + 1)

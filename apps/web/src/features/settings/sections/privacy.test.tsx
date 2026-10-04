@@ -31,7 +31,7 @@ vi.mock('@/app/store', () => {
   }
   return {
     useReplicaIssues: () => [],
-    useStoreSelector: (fn: (s: unknown) => unknown) => fn({ trpc }),
+    useRuntimeSelector: (fn: (s: unknown) => unknown) => fn({ trpc }),
   }
 })
 

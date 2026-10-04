@@ -683,7 +683,7 @@ describe('row fields against the oracle', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
-      const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      const expected = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
       const ids = Object.keys(expected)
       expect(ids.length).toBeGreaterThan(100)
       // Visible closed rows (the grace window, the fold) are cold: a reader

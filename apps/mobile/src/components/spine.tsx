@@ -6,7 +6,7 @@ import {
   type PresenceNote,
   type SessionRole,
   sessionSettled,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { AgentKind, IssueStage, SessionId } from '@podium/model'
 import { Animated, StyleSheet, Text, View } from 'react-native'
 import Svg, { Line } from 'react-native-svg'

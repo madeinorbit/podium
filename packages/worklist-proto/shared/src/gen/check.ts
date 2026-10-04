@@ -239,7 +239,7 @@ async function runCheck(
     }
     if (withOracle) {
       t = performance.now()
-      const expected = oracleSnapshot(run.ctx.engine.getSnapshot())
+      const expected = oracleSnapshot(run.ctx.engine.access)
       timing.oracleMs += performance.now() - t
       counts.oracleChecks += 1
       const diff = diffSnapshots(actual, expected)

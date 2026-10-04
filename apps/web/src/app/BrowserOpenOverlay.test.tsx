@@ -27,7 +27,7 @@ const h = vi.hoisted(() => {
 })
 
 vi.mock('./store', () => ({
-  useStoreSelector: (selector: (store: unknown) => unknown) =>
+  useRuntimeSelector: (selector: (store: unknown) => unknown) =>
     selector({
       hub: h.hub,
       sessions: [

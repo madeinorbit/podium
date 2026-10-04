@@ -235,7 +235,7 @@ function nextState(
   plant: ProbePlant | null,
   guard: Set<string>,
 ): ProbeState {
-  const derivation = legacyDerivationFromStore(engine.getSnapshot())
+  const derivation = legacyDerivationFromStore(engine.access)
   const fresh = projectRowViews(derivation, locals)
   // PLANTED (P4): a locals notification is where the author thought a pass starts.
   if (plant === 'guardSet' && trigger === 'locals') guard.clear()
@@ -403,7 +403,7 @@ export function probeReferenceArmFor(
           return { order: state.parity.order, rowsById }
         },
         rebuildFromScratch(): SliceSnapshot {
-          return snapshotFromStore(engine.getSnapshot(), {
+          return snapshotFromStore(engine.access, {
             selectedIssueId: null,
             coarseNow: channel.get().coarseNow,
           })

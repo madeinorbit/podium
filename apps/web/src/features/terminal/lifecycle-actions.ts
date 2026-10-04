@@ -24,7 +24,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * Hibernate on a `starting` or `reconnecting` session, where the shared rule (and
  * the server) says no.
  */
-import type { ExitedAction } from '@podium/client-core/viewmodels'
+import type { ExitedAction } from '@podium/client-core/values'
 
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 

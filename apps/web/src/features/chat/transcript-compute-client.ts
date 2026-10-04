@@ -3,7 +3,7 @@ import {
   transcriptSearchState,
   type TranscriptComputeInput,
   type TranscriptComputeResult,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type {
   TranscriptComputeWorkerError,
   TranscriptComputeWorkerRequest,

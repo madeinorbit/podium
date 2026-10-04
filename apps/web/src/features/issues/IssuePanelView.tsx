@@ -10,7 +10,7 @@ import {
   type PresenceKind,
   type PresenceNote,
   sessionNeedsHuman,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { IssueComment, IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -31,7 +31,7 @@ import {
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
-import { type IssueViewModel, useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -346,7 +346,7 @@ function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null 
  *  via the issues.comments proc, re-fetched whenever the issue's updatedAt
  *  moves. */
 function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useRuntimeSelector((s) => s.trpc)
   const [comments, setComments] = useState<IssueComment[]>([])
   const [events, setEvents] = useState<IssueEvent[]>([])
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on issue switch / count change only; trpc is a stable store singleton
@@ -550,7 +550,7 @@ function InspectHead({
  * one-line well with no edge of its own; the enclosure arrives on focus.
  */
 function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useRuntimeSelector((s) => s.trpc)
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -626,7 +626,7 @@ function ProducedAndDeferred({
   issue: IssueViewModel
   machineId?: MachineId
 }): JSX.Element | null {
-  const { httpOrigin, openFileInWorktree, openArtifact } = useStoreSelector(
+  const { httpOrigin, openFileInWorktree, openArtifact } = useRuntimeSelector(
     (s) => ({
       httpOrigin: s.httpOrigin,
       openFileInWorktree: s.openFileInWorktree,
@@ -855,7 +855,7 @@ export function IssuePanelBody({
     setSelectedIssueId,
     markIssueRead,
     markSessionRead,
-  } = useStoreSelector(
+  } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       updateIssue: s.updateIssue,

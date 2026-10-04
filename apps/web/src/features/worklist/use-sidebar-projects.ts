@@ -1,13 +1,13 @@
 import type { Store } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
-import type { SidebarProject, SidebarSections } from '@podium/client-core/viewmodels'
+import type { SidebarProject, SidebarSections } from '@podium/client-core/values'
 import type { LOADING, MobxPool } from '@podium/client-graph'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 
 import { useCallback } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
 const EMPTY_PROJECTS: SidebarProject[] = []
@@ -19,7 +19,7 @@ const selectLayout = (s: Store) => ({
 })
 
 function useLayout(): SidebarState {
-  return useStoreSelector(selectLayout, shallowEqual)
+  return useRuntimeSelector(selectLayout, shallowEqual)
 }
 
 export function useSidebarProjects(): SidebarProject[] {

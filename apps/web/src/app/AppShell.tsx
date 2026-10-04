@@ -98,7 +98,7 @@ import {
   SUPERAGENT_MODE_KEY,
 } from './shell-state'
 import { describeWireSkew, reportSkew } from './skew-notice'
-import { type MainView, StoreProvider, useStoreSelector } from './store'
+import { type MainView, StoreProvider, useRuntimeSelector } from './store'
 import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
@@ -203,7 +203,7 @@ function SheetFallback({
 
 /** Observe socket build skew; HTTP bootstrap has no hub attachment cycle. */
 function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
-  const hub = useStoreSelector((s) => s.hub)
+  const hub = useRuntimeSelector((s) => s.hub)
   useEffect(
     () =>
       observeLiveConnection(hub, {

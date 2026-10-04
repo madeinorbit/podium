@@ -17,7 +17,7 @@ const answer = vi.fn(async () => ({ ok: true }))
 const rows: PendingInteractionWire[] = []
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (state: unknown) => unknown) =>
+  useRuntimeSelector: (select: (state: unknown) => unknown) =>
     select({ trpc: { interactions: { answer: { mutate: answer } } }, pendingInteractions: rows }),
 }))
 

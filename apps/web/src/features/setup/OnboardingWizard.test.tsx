@@ -12,7 +12,7 @@ const desktop = vi.hoisted(() => ({ launchMode: undefined as string | undefined 
 
 const fleet = vi.hoisted(() => ({ ready: true }))
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (state: unknown) => unknown) => select({
+  useRuntimeSelector: (select: (state: unknown) => unknown) => select({
     repos: [], machines: fleet.ready ? [{ id: 'setup-host', online: true, serviceAssignment: { agentExecution: true }, availability: { daemon: true, server: false } }] : [],
   }),
 }))

@@ -5,7 +5,7 @@ import {
   hostLoadView,
   hostMemoryView,
   RECLAIMABLE_WORKTREE_THRESHOLD,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { HeaderAggregate } from '@podium/client-graph/header-views'
 import type { HostMetricsWire, MachineId, MachineWire } from '@podium/model/browser'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'

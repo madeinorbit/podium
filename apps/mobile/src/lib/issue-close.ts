@@ -4,7 +4,7 @@ import {
   type IssueCloseConcern,
   type IssueNavigationModel,
   issueCloseConcerns,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 
 /**
  * THE PHONE'S HALF OF THE CLOSE GUARD [POD-1129] — membership, and nothing else.

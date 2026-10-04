@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { type RepoView, reposToViews } from '@podium/client-core/viewmodels'
+import { type RepoView, reposToViews } from '@podium/client-core/values'
 import type { MachineWire, IssueId } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import { handoffRejectionText } from '@/lib/session-context-menu'

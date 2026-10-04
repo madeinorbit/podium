@@ -119,7 +119,7 @@ import { upsertIssue } from '../../shared/src/scenarios'
  */
 
 import { issueActivityAt, MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
-import { activityAfterRead } from '@podium/client-core/viewmodels'
+import { activityAfterRead } from '@podium/client-core/values'
 import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
 import {
   createRowSource,
@@ -709,7 +709,7 @@ export function mountPage(options: MountPageOptions): void {
    *  the control nests formal children inside their parent's row (no row of
    *  their own to draw), so a child is never a target. */
   function firstWindow(): string[] {
-    const { order } = oracleSnapshot(engine.getSnapshot())
+    const { order } = oracleSnapshot(engine.access)
     return [...order.pinnedIds, ...order.groups.flatMap((group) => group.rowIds)]
       .slice(0, windowRows)
       .filter(rules.root)
@@ -792,7 +792,7 @@ export function mountPage(options: MountPageOptions): void {
    *  workload (the control commits nothing for it); every sample clicks an
    *  unread one. */
   function unread(id: string): boolean {
-    const store = engine.getSnapshot()
+    const store = engine.access
     const issue = store.issueProjections.find((candidate) => candidate.id === id)
     if (issue === undefined) return false
     return activityAfterRead(
@@ -934,7 +934,7 @@ export function mountPage(options: MountPageOptions): void {
           row: true,
           dispatch: () => {
             clicked.add(id)
-            engine.getSnapshot().setSelectedIssueId(asIssueId(id))
+            engine.access.setSelectedIssueId(asIssueId(id))
           },
         }
       }
@@ -964,7 +964,7 @@ export function mountPage(options: MountPageOptions): void {
       name,
       before: checkMode
         ? {
-            views: rowViewsFromStore(engine.getSnapshot(), localsOfEngine(engine)),
+            views: rowViewsFromStore(engine.access, localsOfEngine(engine)),
             mounted: mountedIds(),
           }
         : null,
@@ -1091,7 +1091,7 @@ export function mountPage(options: MountPageOptions): void {
   /** The arm's output against the oracle's over the live engine, untimed. */
   function parityNow(): ProtoParity {
     const armSnapshot = live().handle.snapshot()
-    const oracleNow = oracleSnapshot(live().boot.engine.getSnapshot())
+    const oracleNow = oracleSnapshot(live().boot.engine.access)
     const raw = expected === undefined ? oracleNow : expected(oracleNow)
     const patched = parityAllowance?.accept(
       installedCorpus ?? live().boot.corpus,
@@ -1210,7 +1210,7 @@ export function mountPage(options: MountPageOptions): void {
       // Watched, never held: after the driver's forced GC none may be alive.
       oldRefs = {
         runtime: new WeakRef(old.boot.engine),
-        store: new WeakRef(old.boot.engine.getSnapshot()),
+        store: new WeakRef(old.boot.engine.access),
         replica: new WeakRef(old.boot.replica),
         cache: new WeakRef(old.boot.cache),
         armHandle: new WeakRef(old.handle),
@@ -1284,7 +1284,7 @@ export function mountPage(options: MountPageOptions): void {
    * control never makes.
    */
   async function healGrownDerivation(): Promise<void> {
-    await live().boot.engine.getSnapshot().refreshRepos()
+    await live().boot.engine.access.refreshRepos()
     await settleQuiet()
   }
 
@@ -1370,7 +1370,7 @@ export function mountPage(options: MountPageOptions): void {
     const run = lastRun
     if (!checkMode || run === null || run.before === null) return null
     lastRun = null
-    const after = rowViewsFromStore(engine.getSnapshot(), localsOfEngine(engine))
+    const after = rowViewsFromStore(engine.access, localsOfEngine(engine))
     const mountedAfter = mountedIds()
     const both = (id: string): boolean =>
       run.before !== null &&
@@ -1408,7 +1408,7 @@ export function mountPage(options: MountPageOptions): void {
     verify,
     firstWindow,
     describeTop: (n: number) => {
-      const { order } = oracleSnapshot(engine.getSnapshot())
+      const { order } = oracleSnapshot(engine.access)
       const pinned = new Set(order.pinnedIds)
       return [...order.pinnedIds, ...order.groups.flatMap((group) => group.rowIds)]
         .slice(0, n)

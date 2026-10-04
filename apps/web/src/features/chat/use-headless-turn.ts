@@ -1,6 +1,6 @@
 import type { SuperagentTurnFailure } from '@podium/client-core/api'
-import type { ChatSendRoute, SuperThreadRef } from '@podium/client-core/viewmodels'
-import { UNKNOWN_THREAD_REFUSAL } from '@podium/client-core/viewmodels'
+import type { ChatSendRoute, SuperThreadRef } from '@podium/client-core/values'
+import { UNKNOWN_THREAD_REFUSAL } from '@podium/client-core/values'
 import { HarnessAgent, type SessionId, type TranscriptItem } from '@podium/model/browser'
 import type { HeadlessActivityEvent } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'

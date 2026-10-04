@@ -113,7 +113,7 @@ const issues = [
   { id: 'iss_b', seq: 1039, displayRef: 'POD-1039', title: 'Shelf line align', labels: [] },
 ]
 
-export function useStoreSelector<T>(selector: Selector<T>): T {
+export function useRuntimeSelector<T>(selector: Selector<T>): T {
   return selector(store)
 }
 

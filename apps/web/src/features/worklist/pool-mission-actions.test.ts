@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { missionIndexStats } from '@podium/client-core/viewmodels'
+import { missionIndexStats } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph/pool'
 import { missions } from '@podium/client-graph/mission'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'

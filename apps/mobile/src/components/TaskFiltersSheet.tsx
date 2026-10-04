@@ -1,4 +1,4 @@
-import type { BoardFilter, IssuesOrdering } from '@podium/client-core/viewmodels'
+import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
 import { ALL_ISSUE_STATUSES, ISSUE_STATUS_LABELS, type IssueStatus } from '@podium/model'
 import { ChevronLeft, ChevronRight } from './icons'
 import { useState } from 'react'

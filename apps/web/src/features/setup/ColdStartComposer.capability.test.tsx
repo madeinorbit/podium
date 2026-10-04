@@ -94,7 +94,7 @@ const store = {
 }
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (selector: (value: typeof store) => unknown) => selector(store),
+  useRuntimeSelector: (selector: (value: typeof store) => unknown) => selector(store),
 }))
 
 vi.mock('@/lib/ModelEffortPicker', () => ({

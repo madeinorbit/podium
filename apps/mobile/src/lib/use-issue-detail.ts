@@ -4,7 +4,7 @@ import {
   type ActivityItem,
   buildActivityFeed,
   type IssueEvent,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 
 import { useEffect, useRef, useState } from 'react'
 import { useTrpc } from '../client/hooks'

@@ -100,7 +100,7 @@ function orderDiff(actual: SliceOrder, expected: SliceOrder): string | null {
  * waiting ignored, open in the oracle's order, and asking in its views.
  */
 function waitingKept(ctx: ScenarioEngine, expected: SliceOrder): Set<string> {
-  const store = ctx.engine.getSnapshot()
+  const store = ctx.engine.access
   const coarseNow = parityLocals(ctx).coarseNow
   const views = rowViewsFromStore(store, { ...engineLocals(ctx), selectedIssueId: null })
   const open = new Set(expected.groups.flatMap((group) => group.rowIds))
@@ -133,7 +133,7 @@ interface GroupParity {
 function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: string): GroupParity {
   const { pool } = handle
   const locals = parityLocals(ctx)
-  const store = ctx.engine.getSnapshot()
+  const store = ctx.engine.access
   const expected = snapshotFromStore(store, locals)
   const oracle = expected.order
   const kept = waitingKept(ctx, oracle)
@@ -321,7 +321,7 @@ describe('groups and closed folds (Mb2)', () => {
       expect(dismissed, 'a dismissed row in the fixture').toBeDefined()
       const snapshotOrder = () => tracked(() => sliceOrderOf(pool.groups.layout))
       const baseline = snapshotOrder()
-      const coarseNow = ctx.engine.getSnapshot().coarseNow
+      const coarseNow = ctx.engine.access.coarseNow
       const select = (id: string, wasFolded?: boolean) =>
         pool.applyLocals(
           {

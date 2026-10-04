@@ -103,7 +103,7 @@ export function GitPanelView({
   machineId?: MachineId
   issue?: IssueViewModel
 }): JSX.Element {
-  const { gitStatus, gitLog, gitCommitFiles } = useStoreHandle().getSnapshot()
+  const { gitStatus, gitLog, gitCommitFiles } = useStoreHandle().access
   const [status, setStatus] = useState<ReturnType<typeof parseStatus> | null>(null)
   const [log, setLog] = useState<LogEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)

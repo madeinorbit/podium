@@ -1,4 +1,4 @@
-import type { MotionPhase } from '@podium/client-core/viewmodels'
+import type { MotionPhase } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'

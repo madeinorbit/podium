@@ -18,7 +18,7 @@ import {
   type SidebarSections,
   spawnTargetForRepo,
   usableMachines,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import { lastUsedMachine } from '@podium/model'

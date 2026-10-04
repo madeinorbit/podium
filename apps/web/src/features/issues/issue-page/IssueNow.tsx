@@ -27,7 +27,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * where an agent is genuinely computing (`PhaseTimer` gates that itself). A row
  * that is waiting on the human is still and amber — stillness is the signal.
  */
-import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
+import { motionPhase, motionTiming } from '@podium/client-core/values'
 
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'

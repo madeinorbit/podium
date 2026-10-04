@@ -18,7 +18,7 @@
  * and inventing a sixth would be a bigger claim than this residual makes. What
  * DOES come from the slices comes from the slices: machine authority
  * (`machineViewsFromWire` / `MachineAvailability`) and `repoUsageAt` are imported from
- * `@podium/client-core/viewmodels` rather than re-derived here. What is left is
+ * `@podium/client-core/values` rather than re-derived here. What is left is
  * automations-specific and lives beside the only feature that renders it.
  *
  * ## Rights (`docs/multi-user-readiness.md` §3.1.6 S5/S6, §3.1.4 M1/M5)
@@ -33,7 +33,7 @@ import {
   type MachineAvailability,
   type MachineView,
   repoUsageAt,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { AutomationSessionMode, GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import type { Frequency } from './cron-format'

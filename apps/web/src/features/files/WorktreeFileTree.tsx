@@ -1,5 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import { basename } from '@podium/client-core/viewmodels'
+import { basename } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw, Search, X } from 'lucide-react'
 import type { JSX } from 'react'
@@ -179,7 +179,7 @@ export function WorktreeFileTree({
   root: string
   machineId?: MachineId
 }): JSX.Element {
-  const { listDir, openFileInWorktree, trpc } = useStoreHandle<Trpc>().getSnapshot()
+  const { listDir, openFileInWorktree, trpc } = useStoreHandle<Trpc>().access
   // dir path → its listed entries (presence = loaded); separate expanded set.
   const [children, setChildren] = useState<Record<string, Entry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())

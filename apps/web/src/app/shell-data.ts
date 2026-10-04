@@ -30,7 +30,7 @@ const ACTIONS = [
 export function useShellActions(): Pick<Store, (typeof ACTIONS)[number]> {
   const owner = useStoreHandle<Trpc>()
   return useMemo(() => {
-    const state = owner.getSnapshot()
+    const state = owner.access
     return Object.fromEntries(ACTIONS.map((key) => [key, state[key]])) as Pick<
       Store,
       (typeof ACTIONS)[number]

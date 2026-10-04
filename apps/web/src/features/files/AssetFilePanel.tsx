@@ -1,5 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
-import type { FileScope } from '@podium/client-core/viewmodels'
+import type { FileScope } from '@podium/client-core/values'
 import { Maximize2, Minus, Plus, X } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -32,7 +32,7 @@ export function AssetFilePanel({
   kind: AssetKind
   onClose: () => void
 }): JSX.Element {
-  const { httpOrigin } = useStoreHandle().getSnapshot()
+  const { httpOrigin } = useStoreHandle().access
   const origin = httpOrigin || (typeof window === 'undefined' ? '' : window.location.origin)
   const url = rawFileUrl({ httpOrigin: origin, scope, path })
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)

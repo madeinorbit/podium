@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { DeferredMobileHandoffQr } from './DeferredMobileHandoffQr'
 import {
   useFocusedHandoffSessionId,
@@ -26,8 +26,8 @@ import {
  * Settings → Connected devices, which is where a paired phone is managed anyway.
  */
 export function MobilePromoCard(): JSX.Element | null {
-  const trpc = useStoreSelector((s) => s.trpc)
-  const httpOrigin = useStoreSelector((s) => s.httpOrigin)
+  const trpc = useRuntimeSelector((s) => s.trpc)
+  const httpOrigin = useRuntimeSelector((s) => s.httpOrigin)
   const sessionId = useFocusedHandoffSessionId()
   const url = useMobileHandoffUrl(trpc, httpOrigin, sessionId)
   const hasFirstTask = useHasFirstTask()

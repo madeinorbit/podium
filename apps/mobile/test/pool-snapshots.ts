@@ -4,7 +4,7 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { groupRelations, sessionCardModel } from '@podium/client-core/viewmodels'
+import { groupRelations, sessionCardModel } from '@podium/client-core/values'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import { createMobileSessionReader } from '@podium/client-graph/mobile-session-context'
 import { MOBILE_SESSION_SCHEMA } from '@podium/client-graph/mobile-session-schema'

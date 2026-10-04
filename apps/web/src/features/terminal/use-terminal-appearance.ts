@@ -21,7 +21,7 @@ export interface UseTerminalAppearanceResult {
  *  appearance.ts). All native panels and the settings section share this, so a
  *  change applies everywhere, live — including across tabs. */
 export function useTerminalAppearance(): UseTerminalAppearanceResult {
-  const ui = useStoreHandle().getSnapshot().uiState
+  const ui = useStoreHandle().access.uiState
   const settings = usePersistedUiValue(TERMINAL_APPEARANCE_KEY, parseTerminalAppearance)
   const appearance = useMemo(() => toTerminalAppearance(settings), [settings])
   return {

@@ -55,7 +55,7 @@ function Surface() {
   const currentPool = useWorklistPool()
   owner = runtime
   pool = currentPool
-  const ui = runtime.getSnapshot().uiState
+  const ui = runtime.access.uiState
   useEffect(() => {
     ready = currentPool !== null
     return () => {

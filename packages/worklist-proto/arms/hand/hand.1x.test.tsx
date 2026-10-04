@@ -39,7 +39,7 @@ describe('hand-rolled arm at 1x', () => {
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.getSnapshot().coarseNow,
+      coarseNow: ctx.engine.access.coarseNow,
     }
     const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: HandStore }).store
@@ -59,7 +59,7 @@ describe('hand-rolled arm at 1x', () => {
     try {
       const atMount = mounted.handle.snapshot()
       expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
-      expect(atMount).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), locals))
+      expect(atMount).toEqual(snapshotFromStore(ctx.engine.access, locals))
       checkOracle()
 
       const heartbeat = await runCountScenario(mounted, {
@@ -69,7 +69,7 @@ describe('hand-rolled arm at 1x', () => {
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       console.info(
         `[hand-1x] heartbeat visible=${heartbeat.visibleRows} committed=${heartbeat.rowsCommitted} ` +
@@ -95,7 +95,7 @@ describe('hand-rolled arm at 1x', () => {
           await writePhaseChange(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       console.info(
         `[hand-1x] phase visible=${phase.visibleRows} committed=${phase.rowsCommitted} ` +
@@ -113,7 +113,7 @@ describe('hand-rolled arm at 1x', () => {
           await writeSelectionClick(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        expected: () => snapshotFromStore(ctx.engine.access, locals),
       })
       console.info(
         `[hand-1x] click visible=${click.visibleRows} committed=${click.rowsCommitted} ` +

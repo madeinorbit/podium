@@ -12,7 +12,7 @@ import {
   readOpen,
   readPalette,
 } from '@/app/command-launch-readers'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useRuntimeSelector } from '@/app/store'
 
 const EMPTY_SESSIONS: Store['sessions'] = []
 const EMPTY_REPOS: Store['repos'] = []
@@ -25,7 +25,7 @@ const EMPTY_SETTINGS = { repoOrder: [] }
  * Runtime attachment, LOADING and publication coverage uses the separate
  * command-launch-data.pool suite with a real StoreProvider. */
 function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
-  const state = useStoreSelector((value) => value)
+  const state = useRuntimeSelector((value) => value)
   const issues = useReplicaIssues()
   const fixture = useMemo(() => {
     let current: Store

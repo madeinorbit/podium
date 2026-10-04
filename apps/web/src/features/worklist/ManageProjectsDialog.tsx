@@ -1,9 +1,9 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { mergeVisibleProjectOrder } from '@podium/client-core/viewmodels'
+import { mergeVisibleProjectOrder } from '@podium/client-core/values'
 import { ArrowDown, ArrowUp, SlidersHorizontal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarProjects } from './use-sidebar-projects'
@@ -11,7 +11,7 @@ import { useSidebarProjects } from './use-sidebar-projects'
 /** A deliberate edit mode for project order; the busy worklist stays untouched. */
 export function ManageProjectsButton(): JSX.Element {
   const projects = useSidebarProjects()
-  const { setSidebarSettings, savedOrder } = useStoreSelector(
+  const { setSidebarSettings, savedOrder } = useRuntimeSelector(
     (state) => ({
       setSidebarSettings: state.setSidebarSettings,
       savedOrder: state.sidebarSettings.repoOrder,

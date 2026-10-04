@@ -4,7 +4,7 @@ import {
   issueClosedFoldAt,
   type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Archive, ChevronRight, Pin } from 'lucide-react'

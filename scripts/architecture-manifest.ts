@@ -589,7 +589,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   },
 
   // L3 — features / adapters / engine.
-  'packages/client-core': { layer: 3, platform: 'browser-safe', features: ['viewmodels'] },
+  'packages/client-core': { layer: 3, platform: 'browser-safe', features: ['values'] },
   'packages/client-graph': {
     layer: 3,
     platform: 'browser-safe',
@@ -1065,7 +1065,7 @@ export const RETIRED_MODULES: readonly RetiredModule[] = [
   // so the phone and the desktop share one implementation (arch-v2 P3, POD-338).
   {
     path: 'apps/web/src/app/optimistic-spawn',
-    home: '@podium/client-core/viewmodels',
+    home: '@podium/client-core/values',
     retiredBy: 'POD-333',
   },
   {
@@ -1077,7 +1077,7 @@ export const RETIRED_MODULES: readonly RetiredModule[] = [
   { path: 'apps/web/src/app/spawn-agent', home: '@podium/client-core', retiredBy: 'POD-333' },
   {
     path: 'apps/web/src/app/types',
-    home: '@podium/client-core/viewmodels (and @podium/model for the wire types)',
+    home: '@podium/client-core/values (and @podium/model for the wire types)',
     retiredBy: 'POD-333',
   },
   {
@@ -1087,7 +1087,7 @@ export const RETIRED_MODULES: readonly RetiredModule[] = [
   },
   {
     path: 'apps/web/src/features/superagent/derive-tray',
-    home: '@podium/client-core/viewmodels',
+    home: '@podium/client-core/values',
     retiredBy: 'POD-333',
   },
   {
@@ -1097,12 +1097,12 @@ export const RETIRED_MODULES: readonly RetiredModule[] = [
   },
   {
     path: 'apps/web/src/lib/dock-panel',
-    home: '@podium/client-core/viewmodels',
+    home: '@podium/client-core/values',
     retiredBy: 'POD-333',
   },
   {
     path: 'apps/web/src/lib/file-scope',
-    home: '@podium/client-core/viewmodels',
+    home: '@podium/client-core/values',
     retiredBy: 'POD-333',
   },
   { path: 'apps/web/src/lib/home', home: '@podium/client-core/focus', retiredBy: 'POD-333' },

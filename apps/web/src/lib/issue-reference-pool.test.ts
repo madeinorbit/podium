@@ -2,7 +2,7 @@ import {
   canonicalIssueRef,
   type IssueReferenceSource,
   issueReferenceModel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { LOADING, MobxPool } from '@podium/client-graph'
 import { checkIssueChips } from '@podium/client-graph/diagnostics/chip-check'
 import { IssueReferences } from '@podium/client-graph/issue-reference'

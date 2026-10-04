@@ -10,7 +10,7 @@ const controls = [
     'complete Inbox legacy hook',
     'apps/mobile/src/client/use-inbox-data.ts',
     'export function useInboxData(): InboxData {',
-    "import { useStoreSelector } from '@podium/client-core/react'; export function useInboxData(): InboxData { useStoreSelector(s => s.sessions)",
+    "import { useRuntimeSelector } from '@podium/client-core/react'; export function useInboxData(): InboxData { useRuntimeSelector(s => s.sessions)",
     'Legacy work at enabled mount',
   ],
   [

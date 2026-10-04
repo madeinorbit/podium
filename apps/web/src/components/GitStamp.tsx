@@ -1,4 +1,4 @@
-import { deriveGitStamp } from '@podium/client-core/viewmodels'
+import { deriveGitStamp } from '@podium/client-core/values'
 import type { IssueGitState } from '@podium/model/browser'
 import { GitBranch } from 'lucide-react'
 import type { JSX } from 'react'
@@ -8,7 +8,7 @@ import type { JSX } from 'react'
  * One grammar in four densities — `chip` (pane header), `stamp` (sidebar
  * line-2), `footer` (tray card), `panel` (Git dock header [POD-114]: larger
  * type, full branch name — never truncated). Pure state logic lives in
- * @podium/client-core/viewmodels' git-stamp (shared with the phone).
+ * @podium/client-core/values' git-stamp (shared with the phone).
  */
 export function GitStamp({
   issueBranch,

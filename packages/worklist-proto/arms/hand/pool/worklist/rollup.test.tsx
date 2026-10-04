@@ -143,7 +143,7 @@ function checkParity(
   at: string,
 ): string | null {
   const snapshot = handle.snapshot()
-  const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+  const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
   return null
@@ -392,7 +392,7 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
     const unsub = pool.subscribe(parent, () => {})
     try {
       const oracleOf = () =>
-        rowViewsFromStore(ctx.engine.getSnapshot(), {
+        rowViewsFromStore(ctx.engine.access, {
           ...parityLocals(ctx),
           selectedIssueId: null,
         })[parent] as RowView
@@ -452,7 +452,7 @@ describe('row roll-ups (Hb3)', () => {
       expect(
         diffViews(
           (id) => handle.pool.view(id),
-          new Map(Object.entries(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)))),
+          new Map(Object.entries(rowViewsFromStore(ctx.engine.access, engineLocals(ctx)))),
         ),
         'bootstrap: whole views vs oracle',
       ).toEqual([])
@@ -476,7 +476,7 @@ describe('row roll-ups (Hb3)', () => {
         // Per-step oracle check on whole views: `activityAt` lives outside
         // the slice, so only a view-to-view comparison holds it to the
         // oracle after every change.
-        const views = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+        const views = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
         const want = new Map(Object.entries(views))
         expect(
           diffViews((id) => handle.pool.view(id), want),
@@ -511,7 +511,7 @@ describe('row roll-ups (Hb3)', () => {
       const askers = ctx.corpus.edgedAskers
       expect(askers.length, 'hidden askers in the 1x fixture').toBeGreaterThan(0)
       const snapshot = handle.snapshot()
-      const oracle = rowViewsFromStore(ctx.engine.getSnapshot(), {
+      const oracle = rowViewsFromStore(ctx.engine.access, {
         ...parityLocals(ctx),
         selectedIssueId: null,
       })
@@ -740,7 +740,7 @@ describe('row roll-ups (Hb3)', () => {
         windows += 1
       }
       const landed = pool.view(id)!
-      const oracle = rowViewsFromStore(ctx.engine.getSnapshot(), {
+      const oracle = rowViewsFromStore(ctx.engine.access, {
         ...parityLocals(ctx),
         selectedIssueId: null,
       })[id] as RowView

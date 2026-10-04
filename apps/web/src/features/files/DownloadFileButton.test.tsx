@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let httpOrigin = ''
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (sel: (s: unknown) => unknown) => sel({ httpOrigin }),
+  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel({ httpOrigin }),
 }))
 
 const toastInfo = vi.fn()

@@ -58,7 +58,7 @@ const mockState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (sel: (s: unknown) => unknown) => sel(mockState),
+  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(mockState),
   useReplicaIssues: () => [],
 }))
 

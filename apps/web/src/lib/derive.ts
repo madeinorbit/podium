@@ -2,7 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The web-side status-dot classname helper.
  *
- * This module used to also carry `export * from '@podium/client-core/viewmodels'`
+ * This module used to also carry `export * from '@podium/client-core/values'`
  * — a compatibility forward, so that `./derive` imports kept working after the
  * pure derivations moved to the platform-neutral package. POD-333 deleted the
  * forward and moved the call sites; what is left is the one thing that could
@@ -15,7 +15,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * to write one is that it makes this module's export surface unbounded.
  */
 
-import { type DotTone, sessionDotTone } from '@podium/client-core/viewmodels'
+import { type DotTone, sessionDotTone } from '@podium/client-core/values'
 
 import { cn } from './utils'
 

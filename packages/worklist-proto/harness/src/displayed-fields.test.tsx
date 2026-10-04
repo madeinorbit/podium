@@ -101,7 +101,7 @@ describe('the rows an arm must redraw are the rows whose DRAWN fields changed (P
       }
       try {
         const id = ctx.targets.visibleRootId
-        const views = () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+        const views = () => rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
         const before = views()[id]
         const placed = await runFenceStep(
           mounted,

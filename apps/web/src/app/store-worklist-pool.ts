@@ -7,7 +7,6 @@ const host = createPoolHost({
   screens: poolBackedScreens,
   dev: import.meta.env.DEV,
   start(runtime) {
-    runtime.enablePoolRuntimeWork?.()
     if (runtime.ui) initializePoolTransactions(runtime.ui)
   },
   // The host's default owns optimism; the revert override hands it back.

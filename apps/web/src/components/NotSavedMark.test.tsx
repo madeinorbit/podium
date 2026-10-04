@@ -13,7 +13,7 @@ import { UnifiedIssueRow } from '../features/worklist/UnifiedIssueRow'
 const state = vi.hoisted(() => ({ current: null as Awaited<ReturnType<typeof refusalFixture>> | null }))
 const copied = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/clipboard', () => ({ copyToClipboard: copied }))
-vi.mock('@/app/store', () => ({ useStoreSelector: (read: (state: object) => unknown) => read({ paneA: null }) }))
+vi.mock('@/app/store', () => ({ useRuntimeSelector: (read: (state: object) => unknown) => read({ paneA: null }) }))
 vi.mock('@podium/client-core/react', () => ({
   useStoreHandle: () => ({ getSnapshot: () => ({ recoverOutbox: {
     retry: state.current!.outbox.retry.bind(state.current!.outbox),

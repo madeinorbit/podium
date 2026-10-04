@@ -14,7 +14,7 @@ import {
   sessionAsksOnIssue,
   sessionSettled,
   sessionUnreadEmphasized,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { IssueId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -70,7 +70,7 @@ import {
   zoomWaterfallViewport,
 } from './flight-deck-waterfall'
 import { clearHoveredSession, setHoveredSession, useSessionHovered } from './session-hover'
-import { useStoreSelector } from './store'
+import { useRuntimeSelector } from './store'
 import type { Trpc } from './trpc'
 
 const WATERFALL_ROW_ZOOM_MIN = 0.72
@@ -250,7 +250,7 @@ function sessionReason(row: FlightDeckRow, session: SessionView): string | null 
 export function useWaterfallActivity(
   sessions: readonly SessionView[],
 ): ReadonlyMap<string, WaterfallActivitySample[]> {
-  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc as {
+  const trpc = useStoreHandle<Trpc>().access.trpc as {
     sessions?: {
       activityHistory?: {
         query: (input: {
@@ -607,7 +607,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
   onLocalPick: () => void
 }): JSX.Element {
   const intent = useClickIntent()
-  const renameSession = useStoreSelector((store) => store.renameSession)
+  const renameSession = useRuntimeSelector((store) => store.renameSession)
   const startMs = waterfallSessionStart(session, frame.now)
   const endMs = Math.max(startMs, waterfallSessionEnd(session, frame.now))
   const state = (() => {
@@ -1154,7 +1154,7 @@ export function FlightDeckWaterfall({
   onRenameIssue,
   onRenameDone,
 }: FlightDeckWaterfallProps): JSX.Element {
-  const now = useStoreSelector((store) => store.coarseNow)
+  const now = useRuntimeSelector((store) => store.coarseNow)
   const projected = useMemo<WaterfallIssueRow[]>(
     () => [
       {

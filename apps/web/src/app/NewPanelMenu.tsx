@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
+import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import {
   type AgentKind,

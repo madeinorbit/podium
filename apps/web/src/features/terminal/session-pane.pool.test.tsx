@@ -7,7 +7,7 @@ import {
   storeStats,
 } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { IssueReferenceSource } from '@podium/client-core/viewmodels'
+import type { IssueReferenceSource } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import {
   SESSION_PANE_NOW,
@@ -49,7 +49,7 @@ const paneStoreHandle = withKeyedInputs({
   subscribe: (_listener: () => void) => () => {},
 })
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (s: Store) => unknown) => {
+  useRuntimeSelector: (select: (s: Store) => unknown) => {
     recordStoreSelector(f.owner)
     return select(
       new Proxy(f.state, {

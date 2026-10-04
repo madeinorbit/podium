@@ -40,7 +40,7 @@ import {
   type CostAmount,
   type SessionCostView,
   type TaskCostView,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { CostHarness } from '@podium/model/browser'
 import type { JSX } from 'react'
