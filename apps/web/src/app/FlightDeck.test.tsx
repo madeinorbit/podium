@@ -1690,18 +1690,20 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(details).toEqual(['issue', 'issue'])
   })
 
-  it('never closes the dock on a promotion, which is an unambiguous open', async () => {
+  it('toggles a settled single closed, then the promotion reopens it (POD-5444)', async () => {
     harness.ui.set(RIGHT_PANEL_KEY, 'issue')
     const details = panelRequests()
     await deck()
 
     fireEvent.click(taskRow('t2'))
     await settle()
+    // The dock is settled on t2 now, so this single is the POD-1639 toggle.
     fireEvent.click(taskRow('t2'))
+    // The double promotes, which is an unambiguous open — it never closes.
     fireEvent.click(taskRow('t2'))
     await settle()
 
-    expect(details).toEqual(['issue', 'issue'])
+    expect(details).toEqual(['issue', 'close', 'issue'])
   })
 
   it('opens the dock when it is closed, whatever the row it lands on', async () => {
