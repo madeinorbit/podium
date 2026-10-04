@@ -302,7 +302,10 @@ describe('rendered mission pane parity', () => {
         issue.parentId &&
         issues.some(
           (parent) =>
-            parent.id === issue.parentId && !parent.archived && !parent.deletedAt && !parent.parentId,
+            parent.id === issue.parentId &&
+            !parent.archived &&
+            !parent.deletedAt &&
+            !parent.parentId,
         ),
     )
     if (!child?.parentId) throw new Error('Missing mission child fixture')

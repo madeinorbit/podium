@@ -23,7 +23,9 @@ const READERS = new Set([
  * the runtime's navigation watch. The scripted actions also run other
  * screens' derivations and the engine's own gesture work (the legacy
  * optimism repaint, tab pruning); the full guard judges those. */
-const JUDGED = new RegExp(`^consumer:(${[...READERS].map((name) => name.replace('.', '\\.')).join('|')})(\\.compare)?(/|$)|^pool projection$`)
+const JUDGED = new RegExp(
+  `^consumer:(${[...READERS].map((name) => name.replace('.', '\\.')).join('|')})(\\.compare)?(/|$)|^pool projection$`,
+)
 
 /** Work inside the sidebar row models, which the folded header reads for its
  * declared progress summary. Their own history walks are the sidebar model's
@@ -68,7 +70,8 @@ describe('mission and navigation per-click work', () => {
     expect(
       verdicts
         .filter(
-          (verdict) => !verdict.passed && WATCH.test(verdict.reader) && !FOREIGN.has(verdict.action),
+          (verdict) =>
+            !verdict.passed && WATCH.test(verdict.reader) && !FOREIGN.has(verdict.action),
         )
         .map((v) => `${v.action} ${v.kind} ${v.reader}: ${v.at1x} → ${v.at4x}`),
     ).toEqual([])

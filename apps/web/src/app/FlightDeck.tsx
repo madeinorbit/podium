@@ -4262,34 +4262,32 @@ export function FlightDeckContent({
                     <span className="truncate">
                       {archivedOpen
                         ? 'Hide archived'
-                        : `${archivedCount} archived session${
-                            archivedCount === 1 ? '' : 's'
-                          }`}
+                        : `${archivedCount} archived session${archivedCount === 1 ? '' : 's'}`}
                     </span>
                   </button>
                   {archivedOpen && (
                     <ArchivedSessions rootId={root.id} mode={mode}>
                       {(archivedSessions) => (
-                    <div className="mt-1 flex flex-col gap-0.5">
-                      {archivedSessions.map((session) => (
-                        <SessionRow
-                          key={session.sessionId}
-                          session={session}
-                          active={activeSessionId === session.sessionId}
-                          last
-                          flat
-                          onOpen={(permanent) =>
-                            selectSession(session.issueId ?? null, session, { permanent })
-                          }
-                          onOpenNative={() =>
-                            selectSession(session.issueId ?? null, session, {
-                              permanent: false,
-                              native: true,
-                            })
-                          }
-                        />
-                      ))}
-                    </div>
+                        <div className="mt-1 flex flex-col gap-0.5">
+                          {archivedSessions.map((session) => (
+                            <SessionRow
+                              key={session.sessionId}
+                              session={session}
+                              active={activeSessionId === session.sessionId}
+                              last
+                              flat
+                              onOpen={(permanent) =>
+                                selectSession(session.issueId ?? null, session, { permanent })
+                              }
+                              onOpenNative={() =>
+                                selectSession(session.issueId ?? null, session, {
+                                  permanent: false,
+                                  native: true,
+                                })
+                              }
+                            />
+                          ))}
+                        </div>
                       )}
                     </ArchivedSessions>
                   )}
