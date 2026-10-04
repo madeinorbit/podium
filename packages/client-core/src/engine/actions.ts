@@ -737,7 +737,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           const arm = () => {
             stopRows?.()
             const navigation = rt.state().navigation
-            stopRows = navigation.watch?.(() => [navigation.issueSessions?.(issueId)], listener)
+            stopRows = navigation.watch?.(() => [navigation.issue(issueId), navigation.issueSessions?.(issueId)], listener)
           }
           arm()
           const stopLocal = rt.onLocals(['selectedIssueId', 'navigation'], () => { arm(); listener() })
@@ -745,6 +745,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         },
         () => {
           const st = rt.state()
+          const issue = st.navigation.issue(issueId)
+          if (!issue || issue === NAVIGATION_LOADING) return undefined
           const rows = st.navigation.issueSessions?.(issueId)
           if (!rows || rows === NAVIGATION_LOADING || st.selectedIssueId !== issueId) return undefined
           return rows.find(

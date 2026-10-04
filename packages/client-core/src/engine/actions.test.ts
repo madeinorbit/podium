@@ -16,6 +16,8 @@ import { type NavigationIntent, planNavigation } from './navigation'
 import type { EngineState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
+import { fixtureNavigation } from '../../test-support/navigation'
+import type { SessionView } from '../session-values'
 
 const sessionId = asSessionId('session-1')
 
@@ -143,7 +145,7 @@ function harness(
       state = { ...state, ...patch }
       publish()
     },
-    subscribe: (listener: () => void) => {
+    onLocals: (_keys: readonly string[], listener: () => void) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
@@ -155,6 +157,12 @@ function harness(
     setSessionDraft: vi.fn(),
     refreshSuperThreads,
   } as unknown as EngineActionRuntime<PodiumClientApi>
+  const navigation = fixtureNavigation({
+    issues: () => state.issueProjections as IssueProjection[],
+    sessions: () => state.sessions as SessionView[],
+    follow: listener => { listeners.add(listener); return () => { listeners.delete(listener) } },
+  })
+  Object.assign(state, { navigation })
   return {
     actions: createEngineActions(runtime),
     refreshSuperThreads,

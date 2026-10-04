@@ -1,6 +1,7 @@
 
 import type { IssueViewModel } from '../values/issue-type'
 import type { SessionView, SessionViewInput } from '../session-values'
+import { fixtureNavigation } from '../../test-support/navigation'
 // @vitest-environment happy-dom
 // (terminal-client's index pulls xterm addons that need a browser-ish global
 // at import time; the engine itself is DOM-optional.)
@@ -309,6 +310,12 @@ function makeEngine(
       : {}),
     ...(opts.coarseClock !== undefined ? { coarseClock: opts.coarseClock } : {}),
   })
+  engine.setNavigationProvider(fixtureNavigation({
+    issues: () => engine.replica.rows('issueProjections'),
+    sessions: () => engine.replica.rows('sessions') as unknown as SessionView[],
+    markers: () => engine.replica.rows('issueUserStates'),
+    follow: changed => engine.replica.subscribeKind('sessions', changed),
+  }))
   return { engine, hub, rw, fatals, errors }
 }
 
@@ -1219,4 +1226,3 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
     expect(hub.connectNowCount).toBe(1)
   })
 })
-

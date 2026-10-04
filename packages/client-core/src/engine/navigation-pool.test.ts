@@ -1,3 +1,4 @@
+import { fixtureNavigation } from '../../test-support/navigation'
 import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionView } from '../session-values'
@@ -34,8 +35,8 @@ const provider: NavigationProvider = {
   activityAt: () => stamp,
   issueReadAt: () => null,
 }
-const state = (navigation?: NavigationProvider) =>
-  ({
+const state = (navigation?: NavigationProvider) => {
+  const st = {
     navigation: navigation ?? provider,
     issueProjections: [root, child],
     issueUserStates: [],
@@ -55,7 +56,10 @@ const state = (navigation?: NavigationProvider) =>
     settingsTab: null,
     openIssueId: null,
     issueVisitBaseline: null,
-  }) as unknown as EngineState & { issueProjections: IssueProjection[]; sessions: SessionView[]; issueUserStates: object[] }
+  } as unknown as EngineState & { issueProjections: IssueProjection[]; sessions: SessionView[]; issueUserStates: object[] }
+  st.navigation = navigation ?? fixtureNavigation({ issues: () => st.issueProjections, sessions: () => st.sessions })
+  return st
+}
 
 describe('addressed workspace pruning', () => {
   const file = (id: string, sessionId: string) => ({

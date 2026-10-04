@@ -4,11 +4,13 @@ import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
 import { planNavigation } from './navigation'
 import { type EngineState, workspaceMirrorPatch } from './state'
+import { fixtureNavigation } from '../../test-support/navigation'
 
 const context = { visible: true, now: '2026-09-18T00:00:00.000Z' }
 const issue = { id: asIssueId('issue'), archived: false } as IssueProjection
 function state(): EngineState {
   return {
+    navigation: fixtureNavigation({ issues: () => [issue], sessions: () => [] }),
     issueProjections: [issue],
     issueUserStates: [],
     issueDeps: [],
@@ -32,7 +34,8 @@ function state(): EngineState {
 describe('pure navigation plan', () => {
   it('computes selection, layout, canonical URL and pre-read baseline without mutating the input', () => {
     const before = state()
-    const copy = structuredClone(before)
+    const { navigation, ...data } = before
+    const copy = { ...structuredClone(data), navigation }
     const plan = planNavigation(
       before,
       routeDefaults('issues'),
