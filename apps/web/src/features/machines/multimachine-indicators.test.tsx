@@ -19,6 +19,12 @@ import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { HeaderHostIndicators, HostIndicators } from './HostIndicators'
 import { QuotaIndicator } from './QuotaIndicator'
 
+// This suite needs the real header source in its pool fixture. The stable
+// owner support also serves suites that use the lightweight screen fixture.
+vi.mock('@/app/store-worklist-pool', async () => ({
+  ...(await import('@/test-support/pool-fixture')).fixturePoolHooks,
+}))
+
 const memoryBreakdown = vi.fn()
 const reclaimInventory = vi.fn(async () => ({
   candidates: [],

@@ -7,8 +7,8 @@ export const NAVIGATION_LOADING = Symbol('navigation loading')
 export type NavigationRead<T> = T | undefined | typeof NAVIGATION_LOADING
 export type NavigationIssue = Pick<IssueProjection, 'id' | 'updatedAt' | 'archived' | 'deletedAt' | 'worktreePath'>
 
-/** Supplied by the web composition root. The engine knows no graph, replica,
- * index, or second mutation owner. Mobile leaves this port absent. */
+/** Supplied by each client's pool composition root. The engine knows no graph,
+ * replica, index, or second mutation owner. */
 export interface NavigationProvider {
   issue(id: string): NavigationRead<NavigationIssue>
   missionRoot(id: string): NavigationRead<IssueId>
@@ -20,7 +20,7 @@ export interface NavigationProvider {
   watch?(read: () => readonly unknown[], changed: () => void): () => void
 }
 
-/** Installed synchronously while the web pool's lazy import is in flight. */
+/** Installed synchronously while a client's pool import is in flight. */
 export const loadingNavigationProvider: NavigationProvider = {
   issue: () => NAVIGATION_LOADING,
   missionRoot: () => NAVIGATION_LOADING,

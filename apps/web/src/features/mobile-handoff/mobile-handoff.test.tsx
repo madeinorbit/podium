@@ -30,6 +30,7 @@ const fixture = vi.hoisted(() => {
     trpc: { setup: { info: { query: infoQuery } } },
     versionFetch: vi.fn(),
     paneA: null as string | null,
+    workspaces: {},
     rows,
     uiState: {
       get: (key: string) => rows.get(key) ?? null,
@@ -61,12 +62,16 @@ vi.mock('@/app/store', () => ({
       issues: fixture.issues,
       selectedIssueId: null,
       selectedWorktree: null,
-      workspaces: {},
+      workspaces: fixture.workspaces,
       paneA: fixture.paneA,
       paneB: null,
       split: false,
       focusedPane: 'A',
     })),
+}))
+
+vi.mock('@/app/store-worklist-pool', async () => ({
+  ...(await import('@/test-support/pool-fixture')).fixturePoolHooks,
 }))
 
 import { MobileHandoffChip } from './MobileHandoffChip'

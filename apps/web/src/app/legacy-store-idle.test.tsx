@@ -5,7 +5,7 @@ import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../test/header-fixture'
 import { AgentPanel } from '../features/terminal/AgentPanel'
 import { DockShellLifecycle } from '../features/terminal/dock-shell-lifecycle'
@@ -51,6 +51,7 @@ vi.mock('@/features/terminal/use-terminal-appearance', () => ({
   useTerminalAppearance: () => ({ settings: {}, appearance: { theme: { background: '#000' } } }),
 }))
 
+beforeEach(() => localStorage.clear())
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()

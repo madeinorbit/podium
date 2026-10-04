@@ -106,6 +106,7 @@ it('preserves discovery list order and responds to changed, added and removed id
   const a = { id: 'a', name: 'A' },
     b = { id: 'b', name: 'B' }
   state.machines = [a, b] as EngineState['machines']
+  inputs.emit(new Set(['machines']), new Set())
   let renders = 0
   function Machines() {
     renders++
@@ -157,6 +158,7 @@ it('preserves harness availability and discovery changes without legacy list rea
     },
   }
   state.machines = [machine]
+  inputs.emit(new Set(['repos', 'machines']), new Set())
   function Fleet() {
     const status = useAgentFleetOptions({ repoPath: '/repo' }).find(
       (option) => option.value === 'cursor',
@@ -218,6 +220,7 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
   state.paneB = other
   state.split = true
   state.focusedPane = 'A'
+  inputs.emit(new Set(['workspaces', 'paneA', 'paneB', 'split', 'focusedPane']), new Set())
   f.owner = {
     ...inputs,
     getSnapshot: () =>

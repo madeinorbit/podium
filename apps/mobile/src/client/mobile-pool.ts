@@ -14,6 +14,7 @@ import {
 } from '@podium/client-graph/mobile-inbox-schema'
 import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
+import { navigationPoolScreen } from '@podium/client-graph/navigation-screen'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
@@ -34,6 +35,7 @@ export function createMobilePool(dev: boolean): MobilePool {
       runtime.enablePoolRuntimeWork({ lazyLegacyLists: true })
     },
     screens: [
+      navigationPoolScreen,
       {
         id: 'mobile-screens',
         options: () => ({ summaries: MOBILE_SCREEN_SUMMARIES }),

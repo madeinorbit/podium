@@ -5,7 +5,7 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { MobxPool } from '@podium/client-graph'
 import { asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import { attachMobilePool, useMobilePool } from './mobile-pool'
 import {
@@ -14,6 +14,7 @@ import {
   useSessionContextSessions,
 } from './use-session-context'
 
+beforeEach(() => localStorage.clear())
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()

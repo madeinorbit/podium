@@ -1330,8 +1330,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     })
   }
 
-  /** The web startup attachment supplies this read port. No fallback is
-   * installed during loading or teardown; mobile never calls this method. */
+  /** Each client's startup attachment supplies this read port. No fallback is
+   * installed during loading or teardown. */
   setNavigationProvider(provider: NavigationProvider): void {
     if (this.destroyed) return
     this.apply({ navigation: provider })
