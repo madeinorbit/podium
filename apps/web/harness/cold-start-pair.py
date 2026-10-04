@@ -2,6 +2,7 @@
 import argparse
 import datetime
 import json
+import os
 import pathlib
 import queue
 import shlex
@@ -32,6 +33,10 @@ renewed = 0
 finished = set()
 root = pathlib.Path('.artifacts/cold-start-remote')
 root.mkdir(parents=True, exist_ok=True)
+(root / f'paired-controller-r{args.round}-pid.json').write_text(json.dumps({
+    'pid': os.getpid(), 'role': 'paired-controller', 'cwd': str(pathlib.Path.cwd()),
+    'argv': pathlib.Path('/proc/self/cmdline').read_bytes().replace(b'\0', b' ').decode(),
+}) + '\n')
 
 def ssh(command, **kwargs):
     return subprocess.run(['ssh', '-o', 'BatchMode=yes', 'flatblock', command], check=True, **kwargs)
@@ -138,7 +143,9 @@ try:
     print(json.dumps({'status': 'complete', 'cohort': cohort, 'outputs': outputs}), flush=True)
 finally:
     if waiting:
-        subprocess.run(['podium', 'lock', 'cancel', 'bench:flatblock'], check=True)
+        # The terminated waiter may already have removed its queue entry.
+        # A failed cancellation must not prevent recorded-process cleanup.
+        subprocess.run(['podium', 'lock', 'cancel', 'bench:flatblock'], check=False)
     if held:
         subprocess.run(['podium', 'lock', 'release', 'bench:flatblock'], check=True)
     # Remote cleanup addresses only this run's recorded PIDs, after verifying cwd.
