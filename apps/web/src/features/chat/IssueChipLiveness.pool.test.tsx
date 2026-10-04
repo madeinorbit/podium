@@ -15,6 +15,72 @@ vi.mock('@/app/store', () => ({
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => fixture.pool }))
 
 describe('pool chip DOM boundary', () => {
+  for (const scale of [1, 4] as const)
+    it(`bounds a single chip render at ${scale}x`, async () => {
+      const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
+      const count = 4887 * scale
+      pool.apply({
+        type: 'replace',
+        rows: Array.from({ length: count }, (_, index) => ({
+          kind: 'issue' as const,
+          id: `iss_${index}`,
+          value: {
+            id: `iss_${index}`,
+            seq: index + 1,
+            prefix: 'POD',
+            title: `Task ${index + 1}`,
+            stage: 'review',
+            deps: [],
+          } as never,
+        })),
+      })
+      fixture.pool = pool
+      chipPerf.enable()
+      chipPerf.reset()
+      const row = vi.spyOn(pool, 'row')
+      const scans = [
+        vi.spyOn(pool.tables.issue, 'keys'),
+        vi.spyOn(pool.tables.issue, 'values'),
+        vi.spyOn(pool.tables.issue, 'entries'),
+      ]
+      const host = document.createElement('div')
+      host.innerHTML = '<a class="ref-link--issue" data-ref="POD-1">POD-1</a>'
+      document.body.append(host)
+      const react = createRoot(host.appendChild(document.createElement('div')))
+      try {
+        await act(async () => react.render(<IssueChipLiveness root={host} />))
+        const counts = chipPerf.read(fixture.owner)
+        const measurement = {
+          scale,
+          issues: count,
+          chips: 1,
+          reads: counts.reads,
+          rowCalls: row.mock.calls.length,
+          enumerations: scans.reduce((total, scan) => total + scan.mock.calls.length, 0),
+          redraws: counts.redraws,
+        }
+        expect(measurement).toEqual({
+          scale,
+          issues: count,
+          chips: 1,
+          reads: 1,
+          rowCalls: 1,
+          enumerations: 0,
+          redraws: 1,
+        })
+        expect(host.querySelector('a')?.getAttribute('aria-label')).toBe('Review task POD-1: Task 1')
+        console.log(`CHIP_RENDER_COUNTS ${JSON.stringify(measurement)}`)
+      } finally {
+        act(() => react.unmount())
+        host.remove()
+        row.mockRestore()
+        for (const scan of scans) scan.mockRestore()
+        pool.dispose()
+        fixture.pool = null
+        chipPerf.enable(false)
+      }
+    })
+
   it('keeps unrelated anchors asleep, retargets in place, and releases removed anchors', async () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
     const row = (id: number, title = `Task ${id}`) => ({
