@@ -6,13 +6,14 @@ import { issuePages } from '@podium/client-graph/issue-page'
 import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { MobxPool } from '@podium/client-graph/pool'
 import { residentIds } from '@podium/client-graph/enumerate'
+import * as runtimePool from '@podium/client-graph/runtime-pool'
 import { mergePoolSummaries } from '@podium/client-graph/source-registry'
 import type { ReaderQuestion } from '@podium/client-graph/shared/reader-questions'
 import type { RowRecord } from '@podium/client-graph/shared/source'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
 import type { SessionView } from '@podium/client-core/session-values'
 import { issueIsActionable } from '@podium/client-core/viewmodels'
-import { autorun, compareStructural } from 'mobx'
+import { autorun, compareStructural, untracked } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { poolScreenCellsAt } from './pool-screen-work'
 import {
@@ -317,8 +318,33 @@ describe('pool screens work ratios: declared query incrementality', () => {
 describe('pool screens work ratios: declared query screen counters', () => {
   it('keeps the original summary, roster and count mechanisms green under the scripted clicks', async () => {
     const only = new Set(['issue-page.detail', 'issue-page.catalog', 'session-pane', 'board.card'])
-    const at1x = await poolScreenCellsAt(1, undefined, only)
-    const at4x = await poolScreenCellsAt(4, undefined, only)
+    let pool: MobxPool | undefined
+    const original = runtimePool.createRuntimeWorklistPool
+    const spy = vi.spyOn(runtimePool, 'createRuntimeWorklistPool').mockImplementation((...args) => {
+      const handle = original(...args)
+      pool = handle.pool
+      return handle
+    })
+    const inputs: unknown[] = []
+    const capture = () => {
+      if (inputs.length) return
+      inputs.push(
+        untracked(() =>
+          ['guard-root', 'guard-child'].map((id) => {
+            const row = pool!.row('issue', id, 'summary-fields')
+            const repoId = pool!.graph.one('issue', id, 'repo')
+            const repo = repoId ? pool!.row('repo', repoId) : undefined
+            return { id, row, repo }
+          }),
+        ),
+      )
+    }
+    const at1x = await poolScreenCellsAt(1, capture, only)
+    const oneInputs = inputs.pop()
+    const at4x = await poolScreenCellsAt(4, capture, only)
+    const fourInputs = inputs.pop()
+    spy.mockRestore()
+    console.info('[declared query inputs]', JSON.stringify({ oneInputs, fourInputs }))
     const verdicts = screenWorkVerdicts(at1x.cells, at4x.cells)
     const judged = verdicts.filter((value) =>
       /IssuePage@summaries|IssueBoard@sessions:|IssueBoard@index:|^consumer:session-pane(?:\/|$)/.test(
@@ -336,7 +362,7 @@ describe('pool screens work ratios: declared query screen counters', () => {
     mkdirSync(dir, { recursive: true })
     writeFileSync(
       join(dir, 'work-declared-queries.json'),
-      JSON.stringify({ at1x, at4x, judged }, null, 2),
+      JSON.stringify({ at1x, at4x, judged, oneInputs, fourInputs }, null, 2),
     )
     assertScreenWork(judged)
   }, 1_800_000)
