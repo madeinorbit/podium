@@ -35,7 +35,7 @@ Bun.serve({
     // Claude also calls the model for its session title. That background request
     // must never consume the next main-turn scenario or release its stream.
     const main = !!body.tools?.length || (next === 'compacting' && !textOf(last?.content).includes('Write the title'))
-    const mode = toolResult || !main ? 'quick' : next
+    const mode = !main || (toolResult && next !== 'compacting') ? 'quick' : next
     if (main) next = 'quick'
     if (mode === 'streaming' || mode === 'compacting') held = true
     write({ at: Date.now(), id, mode, stream: body.stream, hasTools: !!body.tools?.length,

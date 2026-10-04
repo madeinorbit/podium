@@ -18,8 +18,10 @@ const states = option('--states', 'idle,streaming,tool,compacting').split(',')
 const bodies = option('--bodies', 'short,multiline,long').split(',')
 const load = args.includes('--load')
 const retries = args.includes('--retries')
+const bg = args.includes('--bg')
 const stall = Number(option('--stall-ms', '0'))
 const repeat = Number(option('--repeat', '1'))
+const fault = option('--fault-first-cr', 'none')
 const port = Number(option('--port', '45557'))
 const here = import.meta.dir
 const label = option('--label', `${version}-${load ? 'load' : 'normal'}${retries ? '-retries' : ''}${stall ? `-stall${stall}` : ''}`)
@@ -41,6 +43,7 @@ const env = { PATH: process.env.PATH!, HOME: home, SHELL: '/bin/bash', TERM: 'xt
   CLAUDE_CONFIG_DIR: config, ANTHROPIC_API_KEY: fakeKey, ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_MAX_RETRIES: '0', DISABLE_AUTOUPDATER: '1',
   CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF: '1' }
+if (bg) Object.assign(env, { CLAUDE_CODE_SESSION_KIND: 'bg' })
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 const fakeLog = join(scratch, 'requests.jsonl')
 const control = (body: unknown) => fetch(`http://127.0.0.1:${port}/control`, { method: 'POST', body: JSON.stringify(body) })
@@ -75,6 +78,7 @@ let running = true
 let lastOutput = Date.now()
 let phase = 'idle'
 let writes: any[] = []
+let faultArmed = false
 const burners: ReturnType<typeof Bun.spawn>[] = []
 const flush = () => new Promise<void>(resolve => terminal.write('', resolve))
 function screen() {
@@ -93,11 +97,17 @@ function inject(text: string, delay: number, withRetries = false) {
   const cancel = setTimeout(() => abort.abort(), withRetries ? 5500 : 1350 + delay)
   const ports: TerminalInjectionPorts = {
     now: Date.now, running: () => running, live: () => true, phase: () => phase, lastOutputAtMs: () => lastOutput,
-    write(bytes, origin) { writes.push({ at: Date.now(), mono: performance.now(), bytes, origin }); pty!.write(bytes) },
+    write(bytes, origin) {
+      const actual = faultArmed && bytes === '\r' && fault === 'lf' ? '\n' : bytes
+      if (bytes === '\r') faultArmed = false
+      writes.push({ at: Date.now(), mono: performance.now(), bytes: actual, intended: bytes, origin })
+      pty!.write(actual)
+    },
     setTimer(callback, ms) { return setTimeout(callback, ms === SUBMIT_CR_DELAY_MS ? delay : ms) },
     clearTimer(handle) { clearTimeout(handle as ReturnType<typeof setTimeout>) },
     rawFirstTurn: () => false, needsSubmitVerification: () => withRetries, observedTurnEpoch: () => 0,
     echoAccept: { watch(body) {
+      const baseline = records().length
       let done = false
       let accept!: (seen: {}) => void
       let hold!: () => void
@@ -107,7 +117,7 @@ function inject(text: string, delay: number, withRetries = false) {
       const started = Date.now()
       const poll = setInterval(() => {
         if (done) return
-        const found = accepted(key)
+        const found = accepted(key, records().slice(baseline))
         if (found.some(row => row.type === 'user' || row.type === 'attachment')) accept({})
         if (found.some(row => row.type === 'queue-operation' && row.operation === 'enqueue')) hold()
       }, 25)
@@ -162,8 +172,9 @@ try {
       const setupId = `SETUP-${number}-${state}`
       if (state === 'compacting') {
         // Slash commands intentionally have no prompt record. Same paste and CR path.
+        const setupAt = Date.now()
         const setup = inject('/compact', 500)
-        await until(() => jsonLines(fakeLog).some(row => row.mode === 'compacting' && !row.finished) && /compact/i.test(screen().lines.join('\n')))
+        await until(() => jsonLines(fakeLog).some(row => row.at >= setupAt && row.mode === 'compacting') && screen().lines.some(line => /Compacting conversation…/.test(line)))
         await setup
       } else {
         await inject(setupId, 500)
@@ -177,6 +188,7 @@ try {
     const before = screen()
     writes = []
     const started = Date.now()
+    faultArmed = fault !== 'none'
     if (stall) { process.kill(pty.pid, 'SIGSTOP'); setTimeout(() => process.kill(pty!.pid, 'SIGCONT'), stall) }
     const delivery = inject(text, delay, retries)
     await sleep(delay + (retries ? 5000 : 1200))
@@ -186,24 +198,30 @@ try {
     const receipt = await delivery
     const didSubmit = afterRecords.length > 0
     const beforeRecovery = { at: Date.now(), screen: afterCR, composer: composer(), records: afterRecords, receipt, writes: [...writes] }
-    if (!didSubmit) {
+    if (!didSubmit && afterCR.inputDraft) {
       await sleep(300)
       writes.push({ at: Date.now(), mono: performance.now(), bytes: '\r', origin: 'recovery' })
       pty.write('\r')
       await sleep(800)
     }
     if (state !== 'idle') { writeFileSync(releaseFile, 'released'); await control({ release: true }) }
-    await until(() => accepted(id).length > 0, 10_000)
+    let recordedEventually = true
+    try { await until(() => accepted(id).length > 0, 5000) } catch { recordedEventually = false }
     await idle(); await flush()
     const finalRecords = accepted(id)
-    const firstCR = beforeRecovery.writes.find(row => row.bytes === '\r')
+    const firstCR = beforeRecovery.writes.find(row => row.intended === '\r')
     const firstPaste = beforeRecovery.writes.find(row => row.bytes !== '\r')
-    const row = { case: id, version, state, body: kind, delay, load, stall, retries, iteration, started, text,
+    const row = { case: id, version, state, body: kind, delay, load, stall, retries, bg, fault, iteration, started, text, recordedEventually,
       observedDelay: firstCR && firstPaste ? firstCR.mono - firstPaste.mono : null,
       firstCRSubmitted: didSubmit, before, beforeRecovery, final: { at: Date.now(), screen: screen(), records: finalRecords, writes }, setupRecords }
     appendFileSync(output, `${JSON.stringify(row)}\n`)
     console.log(JSON.stringify({ case: id, delay, observedDelay: row.observedDelay, submitted: didSubmit,
       recordTypes: afterRecords.map(record => `${record.type}:${record.operation ?? ''}`), cursor: afterCR.cursor }))
+    if (!recordedEventually && screen().inputDraft) {
+      pty.write('\x15'.repeat(screen().inputDraft!.split('\n').length + 1))
+      await sleep(300)
+      if (screen().inputDraft) throw new Error('Unable to reset scratch input after a lost case')
+    }
   }
 } finally {
   // Stop only the PIDs recorded for this run. Fake cleanup is explicitly by PORT.
