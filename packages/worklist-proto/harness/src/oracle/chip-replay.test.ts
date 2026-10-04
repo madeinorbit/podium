@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -64,7 +65,7 @@ describe('chip replay coverage', () => {
       createHub: () => ({ dispose() {} }) as unknown as SocketHub,
     })
     try {
-      const store = app.getSnapshot()
+      const store = referenceState(app)
       const actual = allIssueViewModels(replica, store.issueProjections, store.issueUserStates)
       const replay = chipReplayLegacy(replica)
       expect(actual.map((row) => row.id)).toEqual(['iss_a', 'iss_z'])

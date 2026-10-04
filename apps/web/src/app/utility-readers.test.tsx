@@ -1,4 +1,5 @@
-import { withKeyedInputs } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -17,7 +18,8 @@ import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { useWaterfallActivity } from './FlightDeckWaterfall'
 import { MissionCostChip } from './MissionCostChip'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState<import('@/app/trpc').Trpc>
 import type { Trpc } from './trpc'
 import { useHandoffTranscript } from './use-handoff-transcript'
 

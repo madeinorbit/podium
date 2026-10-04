@@ -1,3 +1,4 @@
+import type { IssueProjection } from '@podium/model'
 import type { ClientRuntime, Store, OverlayTarget } from '@podium/client-core/engine'
 import { dedupeSessionsByResume, type SessionMeta } from '@podium/model'
 import type { PendingRows } from '../src/shared/row-source'
@@ -17,10 +18,11 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
   const read = <K extends keyof ReplicaRows>(kind: K): ReplicaRows[K][] => {
     const rows = replica.rows(kind)
     const pending = (['sessions', 'issueProjections', 'sessionUserStates', 'issueUserStates'].includes(kind) ? log?.pending.byRow(kind as OverlayTarget) : undefined)
-    if (!pending?.size) return rows
+    if (!pending) return rows
     const key = (row: ReplicaRows[K]) => kind === 'sessions' ? (row as ReplicaRows['sessions']).sessionId : (row as {id: string}).id
     const out = new Map(rows.map(row => [key(row), row]))
-    for (const [id, overlays] of pending) {
+    for (const id of pending.keys()) {
+      const overlays = pending.get(id)!
       const value = foldRowOverlays(out.get(id), overlays)
       if (value) out.set(id, value as ReplicaRows[K])
       else out.delete(id)
@@ -31,7 +33,7 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
   const records = Object.fromEntries(kinds.map(kind => [kind, read(kind)]))
   const sessions = dedupeSessions(sessionViews(read('sessions'), { userId: runtime.principal?.userId ?? 'operator', userStates: read('sessionUserStates'), repos: replica.rows('repos'), machines: replica.rows('machines'), userStatesLoaded: replica.sessionUserStatesLoaded?.() }))
   const prompts = log?.spawnPrompts ?? new Map<string,string>()
-  return { ...runtime.access, ...records, sessions, pendingSpawnIds: new Set(prompts.keys()), pendingSpawnPrompts: Object.fromEntries(prompts) } as ReferenceState<T>
+  return { ...runtime.access, ...records, sessions, pendingSpawnIds: new Set(prompts.keys()), pendingSpawnPrompts: Object.fromEntries(prompts) } as unknown as ReferenceState<T>
 }
 
 export function dedupeSessions<T extends SessionMeta>(rows: T[]): T[] {
@@ -41,4 +43,32 @@ export function dedupeSessions<T extends SessionMeta>(rows: T[]): T[] {
 export function watchReference(owner: ClientRuntime, changed: () => void): () => void {
   const stops = [owner.onLocals(Object.keys(owner.access).filter(key => !Object.hasOwn(owner.services, key)) as import('@podium/client-core/engine').LocalKey[], changed), owner.replica.subscribeRowBatch!(changed)]
   return () => stops.forEach(stop => stop())
+}
+
+export function issueActivityAt(
+  issue: Pick<IssueProjection, 'id' | 'updatedAt'>,
+  sessions: SessionView[],
+  issues: readonly Pick<IssueProjection, 'id' | 'parentId' | 'updatedAt'>[] = [],
+): string {
+  const subtree = new Set<string>([issue.id])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const other of issues) {
+      if (other.parentId && subtree.has(other.parentId) && !subtree.has(other.id)) {
+        subtree.add(other.id)
+        grew = true
+      }
+    }
+  }
+  let latest = issue.updatedAt
+  for (const other of issues) {
+    if (subtree.has(other.id) && other.updatedAt > latest) latest = other.updatedAt
+  }
+  for (const session of sessions) {
+    if (session.issueId && subtree.has(session.issueId) && session.lastActiveAt > latest) {
+      latest = session.lastActiveAt
+    }
+  }
+  return latest
 }

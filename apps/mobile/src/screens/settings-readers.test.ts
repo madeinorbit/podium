@@ -39,9 +39,9 @@ async function fixture() {
     }
   }
   const source = await createMobileSettingsSource({
-    readLocal: read as unknown as ClientRuntime['readLocal'],
-    onLocals: (_keys, wake) => listen(runtimeListeners)(wake as () => void),
     replica: {
+      rowCount: (kind: 'issueProjections' | 'conversations') => read(kind).length,
+      subscribeRows: (_kind: string, wake: () => void) => listen(runtimeListeners)(wake),
       getCursor: () => cursor,
       subscribeCursor: listen(cursorListeners),
     } as unknown as ClientRuntime['replica'],

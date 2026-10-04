@@ -35,7 +35,7 @@ import { asUserId } from '@podium/model'
  * the pane an already-confirmed session cannot reproduce a race and would pass
  * against the defect.
  */
-import { useStore } from '@podium/client-core/react'
+import { useRuntimeSelector } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId, asSessionId, type SessionId, type SessionMeta } from '@podium/model'
 import type { MountSessionOptions } from '@podium/terminal-client/session-mount'
@@ -142,7 +142,7 @@ let control: {
 } | null = null
 
 function CreateThenAttach() {
-  const store = useStore<MobileTrpc>()
+  const store = useRuntimeSelector(s => s)
   const [sessionId, setSessionId] = useState<SessionId | null>(null)
   control = {
     spawn: () => store.spawnDraftAgent({ target: TARGET, agentKind: 'claude-code' }).sessionId,

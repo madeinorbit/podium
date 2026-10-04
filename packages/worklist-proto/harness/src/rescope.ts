@@ -68,7 +68,7 @@ export async function stageScans(
   boot.discovery.repos = answer
   boot.hub.emit('worktreesChanged')
   const began = Date.now()
-  while (boot.referenceState(engine).repos !== answer) {
+  while (referenceState(boot.engine).repos !== answer) {
     if (Date.now() - began > timeoutMs) {
       throw new Error(`[rescope] discovery did not publish the staged scans in ${timeoutMs} ms`)
     }

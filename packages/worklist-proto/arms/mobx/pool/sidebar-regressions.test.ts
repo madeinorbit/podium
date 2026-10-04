@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Small synthetic sidebar parity reductions. No operator records. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createClientRuntime } from '@podium/client-core/engine'
@@ -44,7 +45,7 @@ import { stripSessionLegacy } from '../../../harness/src/fixture/session-homes'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { sidebarReplayStore } from '../../../harness/src/oracle/sidebar-replay'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 const mobxTrap = installMobxWarnTrap({ errors: true })
 const NOW = Date.parse('2026-09-30T12:00:00.000Z')

@@ -160,7 +160,6 @@ export interface AwaitingTruth {
 export const AWAITING_TRUTH_TTL_MS = 60_000
 
 /** Stable empty set so snapshot slices keep identity when nothing is pending. */
-export const EMPTY_ID_SET: ReadonlySet<string> = new Set()
 
 /**
  * Stable row fingerprint for baselines: DATA fields only, keys sorted. Replica
@@ -844,110 +843,8 @@ function movedAnyCell(row: object, merged: object, patches: readonly OverlayPatc
   return false
 }
 
-export interface FoldResult<T> {
-  rows: T[]
-  /** Ids of insert overlays NOT yet confirmed by a base row — pendingSpawnIds. */
-  pendingInsertIds: ReadonlySet<string>
-}
-
-/**
- * Fold pending overlays over server truth: base rows win by id against
- * inserts (so the real row replaces its placeholder with no duplicate), then
- * patches apply IN QUEUE ORDER — two pending mutations on the same entity
- * compose oldest-first, later fields winning. Returns the SAME `base`
- * reference when nothing applies, so an empty/covered overlay set doesn't
- * churn snapshot identity (the useSyncExternalStore contract).
- *
- * "NOTHING APPLIES" IS ABOUT VALUES, NOT ABOUT IDS (POD-1053). A patch whose
- * cells already read back equal on the row is observationally a no-op, and a
- * fresh row object for it is not free: `store.issueProjections` is the cache key for the
- * shared view-model cache and for the published worklist slice, so a gratuitous
- * row identity costs a model rebuild and, absent the value comparison further
- * down, a whole worklist derivation. The commonest shape is composition —
- * queued patches on one row that end up restoring the value the row already
- * holds. Equality is `sameCell`'s, for the reason stated there: the wire spells
- * "unset" as both `null` and absent, and the UI reading these rows cannot tell
- * the two apart.
- *
- * This does NOT make an ordinary pending overlay identity-stable across
- * recomputes: the base it folds over is the replica's UNPAINTED row, so a patch
- * that genuinely paints something mints a new object every time it runs. What
- * absorbs that is `replica/issue-view-cache.ts`, which compares the rebuilt
- * model against the previous one and hands back the previous object when
- * nothing visible moved.
- */
-export function foldOverlays<T extends object>(
-  base: T[],
-  overlays: readonly PendingOverlay[],
-  keyOf: (row: T) => string,
-): FoldResult<T> {
-  if (overlays.length === 0) return { rows: base, pendingInsertIds: EMPTY_ID_SET }
-  const known = new Set(base.map(keyOf))
-  const inserts = overlays.filter((o) => o.op === 'insert' && !known.has(o.id))
-  const patchesById = new Map<string, OverlayPatch[]>()
-  // Patches whose target row is absent but which say what absence means (the
-  // per-user "nothing set" row): folded over that row and added, in first-seen
-  // order, unless they paint nothing it does not already say.
-  const absentById = new Map<string, object>()
-  for (const o of overlays) {
-    if (o.op !== 'patch') continue
-    const list = patchesById.get(o.id)
-    if (list) list.push(o.patch)
-    else patchesById.set(o.id, [o.patch])
-    if (o.absent !== undefined && !known.has(o.id) && !absentById.has(o.id)) {
-      absentById.set(o.id, o.absent)
-    }
-  }
-  let rows: T[] = base
-  if (inserts.length > 0) {
-    rows = [
-      ...base,
-      ...inserts.map((o) => (o as Extract<PendingOverlay, { op: 'insert' }>).insert as T),
-    ]
-  }
-  for (const id of absentById.keys()) {
-    // An insert placeholder for the same id is a row: patches fold over it below.
-    if (inserts.some((o) => o.id === id)) absentById.delete(id)
-  }
-  if (patchesById.size > 0) {
-    let touched = false
-    const next = rows.map((row) => {
-      const patches = patchesById.get(keyOf(row))
-      if (!patches) return row
-      const merged = inheritSessionHomes(row, Object.assign({}, row, ...patches)) as T
-      // Judge the COMPOSED result, not each patch: two queued writes to the same
-      // cell can land on the value the row already holds, and only the merge
-      // knows that.
-      if (!movedAnyCell(row, merged, patches)) return row
-      touched = true
-      return merged
-    })
-    for (const [id, absent] of absentById) {
-      const patches = patchesById.get(id) ?? []
-      const merged = Object.assign({}, absent, ...patches) as T
-      if (!movedAnyCell(absent, merged, patches)) continue
-      touched = true
-      next.push(merged)
-    }
-    // A patch that matched no row, or that painted the values already there, is
-    // a no-op — keep the previous array identity in that case.
-    if (touched) rows = next
-  }
-  return {
-    rows,
-    pendingInsertIds: inserts.length === 0 ? EMPTY_ID_SET : new Set(inserts.map((o) => o.id)),
-  }
-}
-
-/**
- * {@link foldOverlays} for ONE row (POD-4553): `base` is that row's server
- * truth (undefined when absent) and `overlays` are that row's own pending
- * overlays in fold order. Same rules — a base row wins against an insert,
- * patches compose oldest-first, an absent row folds over the patch's `absent`
- * row when it has one, and a composition that moves no patched cell returns
- * `base` itself — so a per-row reader agrees with the whole-entity fold
- * without folding the entity.
- */
+/** Rebase one pool row in queue order. Missing personal rows use their declared
+ * empty marker value; a covering base row wins over a spawn placeholder. */
 export function foldRowOverlays<T extends object>(
   base: T | undefined,
   overlays: readonly PendingOverlay[],

@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Ludovico-only read-side operator replay. All payloads and credentials stay
  * in process memory; only aggregate counts and numeric positions are printed. */
 import { readFileSync } from 'node:fs'
@@ -21,7 +22,7 @@ import { ShellSource } from '../src/shell-source'
 import { SHELL_ENTITIES, SHELL_SOURCE_KEY, SHELL_SUMMARIES } from '../src/shell-schema'
 import { MISSION_VIEW_SUMMARIES } from '../src/mission-view-schema'
 import { checkShell, poolShellSnapshot } from './shell-check'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 let phase = 0
 async function main() {

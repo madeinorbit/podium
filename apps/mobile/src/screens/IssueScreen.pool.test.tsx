@@ -46,22 +46,6 @@ vi.mock('../client/mobile-pool', async (original) => ({
   useMobilePoolProjection: (read: never, empty: never) =>
     state.host!.host.usePoolProjection(read, empty),
 }))
-vi.mock('@podium/client-core/react', async (original) => {
-  const real = await original<typeof import('@podium/client-core/react')>()
-  return {
-    ...real,
-    useAllIssueViewModels: (...args: Parameters<typeof real.useAllIssueViewModels>) =>
-      real.useAllIssueViewModels(...args).map(
-        (row) =>
-          new Proxy(row, {
-            get(target, key, receiver) {
-              if (state.measuring) state.reads++
-              return Reflect.get(target, key, receiver)
-            },
-          }),
-      ),
-  }
-})
 // Preserve the relative-time output captured by the accepted control.
 beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-03T19:30:00Z')))
 afterEach(() => {

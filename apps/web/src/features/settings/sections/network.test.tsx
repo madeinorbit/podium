@@ -1,7 +1,8 @@
 import '@/test-support/mock-core-store-handle'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 const storeState = {
   trpc: {} as Store['trpc'],

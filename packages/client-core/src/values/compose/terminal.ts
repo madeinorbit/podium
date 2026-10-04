@@ -26,7 +26,7 @@
  * Platform-neutral: no DOM, no storage.
  */
 import { type SessionId, worktreeForCwd } from '@podium/model'
-import type { IssueViewModel } from '../../replica/issue-view-models'
+import type { IssueViewModel } from '../issue-type'
 import type { SessionView } from '../../session-values'
 import { sessionsForWorktree } from '../session-ownership'
 // POD-1503: coordinator elevation is an ORDERING question, so it lives in F3

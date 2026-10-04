@@ -37,7 +37,7 @@ export async function runCiShard(shard: number): Promise<void> {
   const perSeed: Array<{ seed: number; ms: number; result: CheckResult }> = []
   for (let seed = shard; seed <= CI_SEEDS; seed += CI_SHARDS) {
     const t = performance.now()
-    const result = await checkArm((ctx) => ROUND_THREE_ARMS[0]!.armFor(ctx), gen(seed, CI_STEPS), {
+    const result = await checkArm(referenceArmFor, gen(seed, CI_STEPS), {
       rebuildEvery: 10,
       oracleEvery: 10,
     })

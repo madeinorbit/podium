@@ -233,7 +233,7 @@ describe('write transport on the kernel queue', () => {
     const id = ctx.targets.markReadId
     const readsFor = async (txId: MutationId): Promise<number> => {
       const spy = vi.spyOn(KernelOutbox.prototype, 'pending')
-      await ctx.engine.enqueueOverlayed('issueMarkRead', { id }, { mutationId: txId })
+      await ctx.engine.outbox.enqueue('issueMarkRead', { id }, { mutationId: txId })
       await tick()
       const n = spy.mock.calls.length
       spy.mockRestore()

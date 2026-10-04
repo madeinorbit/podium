@@ -30,9 +30,8 @@
  * OWNERSHIP. Additive, round three (POD-4545).
  */
 
-import type { EngineOutbox, OutboxKinds, OutboxOutcome } from '@podium/client-core/engine'
+import type { EngineOutbox, OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
-import type { MutationId } from '@podium/model'
 import type {
   FieldValues,
   KernelCommand,
@@ -43,15 +42,10 @@ import type {
 } from './write-contract'
 
 /** What the stream needs from a `ClientRuntime`: its outcome seam, its
- *  enqueue seam, and the queue's own pending entries. */
+ *  queue and its own pending entries. */
 export interface ReceiptsRuntime {
   subscribeOutboxOutcomes(listener: (outcome: OutboxOutcome) => void): () => void
-  enqueueOverlayed<K extends keyof OutboxKinds & string>(
-    kind: K,
-    input: OutboxKinds[K],
-    opts?: { mutationId?: MutationId },
-  ): Promise<void>
-  readonly outbox: Pick<EngineOutbox, 'pending' | 'awaiting'>
+  readonly outbox: Pick<EngineOutbox, 'enqueue' | 'pending' | 'awaiting'>
 }
 
 /**
@@ -202,7 +196,7 @@ export interface ReceiptTransport extends Omit<WriteTransport, 'subscribe'> {
 
 /**
  * The {@link WriteTransport} a phase-c arm sends through (W2): `send` enqueues
- * under the arm's txId through the runtime's optimistic enqueue; `subscribe`
+ * under the arm's txId into the outbox; `subscribe`
  * is {@link subscribeReceipts} plus a `rejected` for an enqueue that failed;
  * `pending` lists queued then awaiting-truth entries in queue order (W11).
  */
@@ -221,8 +215,8 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
       const opts = { mutationId: txId }
       const enqueued =
         command.kind === 'issueUpdate'
-          ? runtime.enqueueOverlayed('issueUpdate', command.input, opts)
-          : runtime.enqueueOverlayed('issueMarkRead', command.input, opts)
+          ? runtime.outbox.enqueue('issueUpdate', command.input, opts)
+          : runtime.outbox.enqueue('issueMarkRead', command.input, opts)
       enqueued.catch((error: unknown) => {
         // The throw came after the entry reached the queue: the kernel still
         // owes it an outcome, and will report it.

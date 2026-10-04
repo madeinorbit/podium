@@ -849,8 +849,7 @@ describe('mobile WorkScreen pool consumer', () => {
         expect(section).toBe(before.find((old) => old.key === section.key))
     fireEvent.click(screen.getByLabelText('Search work'))
     const ref = before[0]!.data[0]!
-    const issue = state
-      .referenceState(runtime!)
+    const issue = referenceState(state.runtime!)
       .replica.rows('issueProjections')
       .find((row) => row.id === ref.id)!
     fireEvent.change(screen.getByLabelText('Search work', { selector: 'input' }), {

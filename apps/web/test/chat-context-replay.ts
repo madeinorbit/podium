@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Private bootstrap stays on ludovico. Export counts/positions only. Device
  * drafts, held sends and scoped threads are covered by the synthetic proofs. */
 import { readFileSync } from 'node:fs'
@@ -20,7 +21,7 @@ import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from '@podium/client
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { ScenarioCache } from '../../../packages/worklist-proto/shared/src/scenarios'
 import { checkChatContext } from '../src/features/chat/chat-context-check'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 let phase = 0, httpStatus: number | undefined
 async function main() {

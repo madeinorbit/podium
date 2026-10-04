@@ -1,6 +1,7 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 import type { MobxPool } from '@podium/client-graph'
 import { asSessionId, type SessionMeta } from '@podium/model'
 import { cleanup, render, waitFor } from '@testing-library/react'

@@ -1,6 +1,7 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { compareSidebarSnapshots, type SidebarSnapshot } from '../diagnostics/sidebar-check'

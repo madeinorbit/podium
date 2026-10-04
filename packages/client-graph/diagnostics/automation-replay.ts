@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Read-only persisted operator corpus. Run ONLY on ludovico. No credentials,
  * authenticated RPC, files containing payloads, or running service changes.
  * Dynamic discovery/reachability is not reconstructed from persisted rows. */
@@ -13,7 +14,7 @@ import { createRowSource } from '../src/shared/row-source'
 import { AutomationSource } from '../src/automation-source'
 import { AUTOMATION_ENTITIES } from '../src/automation-schema'
 import { checkAutomations, type LegacyTargets } from './automation-check'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 interface ReadonlyDatabase {
   exec(sql: string): void

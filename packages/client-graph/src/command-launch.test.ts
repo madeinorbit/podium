@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 
 import { storeStats } from '@podium/client-core/perf'
@@ -57,9 +58,9 @@ async function fixture() {
   }
   function parity(label = 'initial') {
     settle()
-    const result = runInAction(() => checkCommandLaunch(handle.pool, ctx.engine.access))
+    const result = runInAction(() => checkCommandLaunch(handle.pool, referenceState(ctx.engine)))
     if (result.first) {
-      const expected = legacyCommandLaunchSnapshot(ctx.engine.access),
+      const expected = legacyCommandLaunchSnapshot(referenceState(ctx.engine)),
         actual = runInAction(() => poolCommandLaunchSnapshot(handle.pool))
       expect(actual.sections[result.first.sectionIndex], label).toEqual(
         expected.sections[result.first.sectionIndex],
@@ -86,7 +87,7 @@ describe('declared command and launch targets', () => {
       stop = autorun(() => poolCommandLaunchSnapshot(f.pool))
     try {
       f.parity()
-      const actions = f.ctx.engine.access
+      const actions = referenceState(f.ctx.engine)
       actions.setPaletteOpen(true)
       actions.openFileInWorktree({ root: f.ctx.corpus.repos[0]!.path, path: 'README.md' })
       await Promise.resolve()
@@ -153,7 +154,7 @@ describe('declared command and launch targets', () => {
       expect(f.pool.hydrate()).toBe(0)
       expect(f.pool.tables.issue.size).toBe(resident)
       expect(f.pool.sources.related('commandIssue', cold[0]!, 'sessions')).toEqual([])
-      f.ctx.engine.access.setSelectedIssueId(asIssueId(cold[0]!))
+      referenceState(f.ctx.engine).setSelectedIssueId(asIssueId(cold[0]!))
       await Promise.resolve()
       const selected = runInAction(() => commandLaunchViews(f.pool).palette())
       expect(selected && selected !== LOADING ? selected.pending : 0).toBeGreaterThan(0)
@@ -236,7 +237,7 @@ describe('declared command and launch targets', () => {
     const f = await fixture()
     try {
       f.parity()
-      const expected = legacyCommandLaunchSnapshot(f.ctx.engine.access),
+      const expected = legacyCommandLaunchSnapshot(referenceState(f.ctx.engine)),
         actual = runInAction(() => poolCommandLaunchSnapshot(f.pool))
       for (const fault of ['value', 'order', 'membership'] as const) {
         const damaged = { ...structuredClone(actual), pending: 1 }
@@ -292,7 +293,7 @@ describe('declared command and launch targets', () => {
         expect(globals()).toEqual(before)
         expect(fieldRuns).toEqual(beforeFields)
       }
-      f.ctx.engine.access.setPane('A', asSessionId(f.ctx.targets.phaseSessionId))
+      referenceState(f.ctx.engine).setPane('A', asSessionId(f.ctx.targets.phaseSessionId))
       await Promise.resolve()
       f.parity('session click')
       expect(globals()).toEqual(before)
@@ -303,13 +304,12 @@ describe('declared command and launch targets', () => {
       // value, without repeating catalog or repository-usage work.
       const id = asSessionId(f.ctx.targets.phaseSessionId)
       const addressed = views.counts.addressedSessionReads
-      await f.ctx.engine.access.markSessionRead(id)
+      await referenceState(f.ctx.engine).markSessionRead(id)
       await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
       f.parity('session mark-read')
       expect(globals()).toEqual(before)
       expect(views.counts.addressedSessionReads).toBeGreaterThan(addressed)
-      const marked = f.ctx.engine
-        .getSnapshot()
+      const marked = referenceState(f.ctx.engine)
         .sessions.find((session) => session.sessionId === id)!
       expect(typeof marked.readAt).toBe('string')
       const homeId = sessionUserStateRowId(asUserId('u-bench'), id)
@@ -348,7 +348,7 @@ describe('declared command and launch targets', () => {
     const f = await fixture()
     try {
       f.parity()
-      const state = f.ctx.engine.access,
+      const state = referenceState(f.ctx.engine),
         views = createCommandLaunchViews(f.pool),
         data = views.launch()
       expect(data && data !== LOADING).toBeTruthy()

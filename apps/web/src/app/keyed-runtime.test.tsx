@@ -1,3 +1,7 @@
+import { observable, runInAction } from 'mobx'
+import { useSyncExternalStore } from 'react'
+import type { MobxPool } from '@podium/client-graph'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 // @vitest-environment happy-dom
 import {
   createKeyedInputs,
@@ -11,24 +15,29 @@ import { useAgentFleetOptions } from '@/features/issues/use-agent-fleet-options'
 import { useFocusedHandoffSessionId } from '@/features/mobile-handoff/mobile-handoff'
 import { usePendingSpawnPrompt, useRuntimeDraft, useRuntimeList } from './keyed-runtime'
 
-const f = vi.hoisted(() => ({ owner: undefined as unknown }))
+const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => f.owner }))
 vi.mock('./store-worklist-pool', () => ({
-  useWorklistPoolProjection: (read: () => unknown) => read(),
+  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown) => {
+    const view = createPoolProjection(f.pool as MobxPool, read)
+    return useSyncExternalStore(view.subscribe, view.getSnapshot)
+  },
 }))
 let state: EngineState
 let inputs: KeyedInputsChannel
+let prompts: ReturnType<typeof observable.map<string, string | null>>
 const sid = asSessionId('first'),
   other = asSessionId('other')
 
 beforeEach(() => {
   state = {
-    pendingSpawnPrompts: new Map([[sid, 'First prompt']]),
     drafts: { [sid]: 'Saved draft' },
     fileTabs: [],
     repos: [],
     machines: [],
   } as unknown as EngineState
+  prompts = observable.map([[sid, 'First prompt']], { deep: false })
+  f.pool = { spawnPlaceholders: () => prompts, isDisposed: () => false }
   inputs = createKeyedInputs(() => state)
   f.owner = {
     ...inputs,
@@ -55,21 +64,15 @@ it('keeps spawn prompts identical through updates, confirmation and an addressed
   expect(screen.getByTestId('prompt').textContent).toBe('First prompt')
   const before = renders
   act(() => {
-    state.pendingSpawnPrompts = new Map([...state.pendingSpawnPrompts, [other, 'Other prompt']])
-    inputs.emit(new Set(['pendingSpawnPrompts']), new Set())
+    runInAction(() => prompts.set(other, 'Other prompt'))
   })
   expect(renders).toBe(before)
   act(() => {
-    state.pendingSpawnPrompts = new Map([
-      [sid, 'Revised prompt'],
-      [other, 'Other prompt'],
-    ])
-    inputs.emit(new Set(['pendingSpawnPrompts']), new Set())
+    runInAction(() => prompts.set(sid, 'Revised prompt'))
   })
   expect(screen.getByTestId('prompt').textContent).toBe('Revised prompt')
   act(() => {
-    state.pendingSpawnPrompts = new Map([[other, 'Other prompt']])
-    inputs.emit(new Set(['pendingSpawnPrompts']), new Set())
+    runInAction(() => prompts.delete(sid))
   })
   expect(screen.getByTestId('prompt').textContent).toBe('absent')
   view.rerender(<Prompt id={other} />)
@@ -223,7 +226,7 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
   inputs.emit(new Set(['workspaces', 'paneA', 'paneB', 'split', 'focusedPane']), new Set())
   f.owner = {
     ...inputs,
-    getSnapshot: () =>
+    access:
       new Proxy(
         { workspaceKey: () => 'none' },
         {

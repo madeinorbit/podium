@@ -1,5 +1,6 @@
+import { keyedInputsOverStore } from '../../test-support/keyed-inputs'
 import { describe, expect, it, vi } from 'vitest'
-import { createKeyedInputs, discoveryRepoId, keyedInputsOverStore } from './keyed-inputs'
+import { createKeyedInputs, discoveryRepoId } from './keyed-inputs'
 import type { EngineState } from './state'
 
 function channel(initial: Partial<EngineState>) {

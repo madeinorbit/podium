@@ -189,6 +189,11 @@
       "@podium/source": "./test-support/local-store.ts",
       "types": "./test-support/local-store.ts",
       "import": "./test-support/local-store.ts"
+    },
+    "./test-support/keyed-inputs": {
+      "@podium/source": "./test-support/keyed-inputs.ts",
+      "types": "./test-support/keyed-inputs.ts",
+      "import": "./test-support/keyed-inputs.ts"
     }
   },
   "scripts": {

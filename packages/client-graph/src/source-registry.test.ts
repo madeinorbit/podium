@@ -1,9 +1,10 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { expect, it, vi } from 'vitest'
 import { autorun, configure, observable, runInAction } from 'mobx'
 import { PoolSources, type PoolSource, type PoolSourceRows } from './source-registry'
 import { SettingsSource } from './settings-source'
 import { LOADING, type Loaded } from './worklist/rollup'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 interface NumericSourceRows { sourceTypeProbe: { count: number } }
 interface TextSourceRows { sourceTextProbe: { label: string } }

@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Read-only operator replay, ludovico only. No input is saved or exported;
  * only counts, positions and opaque issue ids are printed. */
 import { homedir, hostname } from 'node:os'
@@ -20,7 +21,7 @@ import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
 import { readLive } from '../fixture/export-snapshot'
 import { corpusFromLive } from '../fixture/live-snapshot'
 import { sidebarReplayStore } from './sidebar-replay'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 /** Persisted topology is a separate replay mode for a running server on an
  * older transport version. Read only canonical topology columns; no old wire

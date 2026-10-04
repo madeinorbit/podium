@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /**
  * The presence seam, stubbed for suites that render `AgentPanel` for reasons
  * other than presence (POD-1535).
@@ -13,7 +14,7 @@
  *     (await import('./test-support/presence-mock')).presenceSeamStub())
  */
 
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 import { useRuntimeSelector as readFixture } from '@/app/store'
 import { fakeStoreHandle } from '../../chat/test-support/fake-store-handle'
 

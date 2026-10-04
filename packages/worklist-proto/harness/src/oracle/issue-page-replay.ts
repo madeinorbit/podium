@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Ludovico-only, read-only replay. Authored values stay in this process;
  * output contains counts, field positions and opaque issue IDs only. */
 import { hostname } from 'node:os'
@@ -17,7 +18,7 @@ import { fixtureSessionHomes, stripSessionLegacy } from '../fixture/session-home
 import { readLive } from '../fixture/export-snapshot'
 import { corpusFromLive } from '../fixture/live-snapshot'
 import { sidebarReplayStore } from './sidebar-replay'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 let step = 0
 function phase(next: number) {

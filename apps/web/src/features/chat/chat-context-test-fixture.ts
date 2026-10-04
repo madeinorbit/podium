@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { outboxChatSends } from '@podium/client-core/engine'
@@ -14,7 +15,7 @@ import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from '@podium/client
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import { checkChatContext } from './chat-context-check'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 /** Synthetic corpus shared by the focused reader/UI checks. No external app,
  * database, socket or additional mutation owner is constructed. */

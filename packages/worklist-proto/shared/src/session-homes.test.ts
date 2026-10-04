@@ -1,6 +1,7 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { type OverlayTarget, type PendingOverlay, withKeyedInputs } from '@podium/client-core/engine'
+import { type OverlayTarget, type PendingOverlay } from '@podium/client-core/engine'
 import { type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
 import { createRowSource } from './row-source'
 import { asUserId, asSessionId, sessionUserStateRowId } from '@podium/model'

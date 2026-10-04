@@ -2,7 +2,8 @@ import '@/test-support/mock-core-store-handle'
 import { normalizeSettings } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 /**
  * CLOSING SETTINGS WITH UNSAVED EDITS (POD-365).

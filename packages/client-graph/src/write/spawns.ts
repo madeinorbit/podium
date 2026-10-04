@@ -37,10 +37,11 @@ export interface PoolSpawnPorts {
 export class PoolSpawns {
   private disposed = false
   private readonly timers = new Set<ReturnType<typeof setTimeout>>()
+  private readonly inflight = new Set<(outcome: TaskSpawnOutcome) => void>()
   private readonly waiters = new Map<string, Set<() => void>>()
   constructor(private readonly ports: PoolSpawnPorts) {}
   waitForSpawnConfirmed(sessionId: SessionId): Promise<void> {
-    if (!this.ports.pending(sessionId)) return Promise.resolve()
+    if (this.disposed || !this.ports.pending(sessionId)) return Promise.resolve()
     return new Promise(resolve => {
       let waiters = this.waiters.get(sessionId)
       if (!waiters) this.waiters.set(sessionId, waiters = new Set())
@@ -58,6 +59,8 @@ export class PoolSpawns {
     this.disposed = true
     for (const timer of this.timers) clearTimeout(timer)
     this.timers.clear()
+    for (const settle of this.inflight) settle('failed')
+    this.inflight.clear()
     for (const waiters of this.waiters.values()) for (const resolve of waiters) resolve()
     this.waiters.clear()
   }
@@ -108,11 +111,12 @@ export class PoolSpawns {
     })
     let settle: (outcome: TaskSpawnOutcome) => void = () => {}
     const outcome = new Promise<TaskSpawnOutcome>((resolve) => {
-      settle = resolve
+      settle = value => { this.inflight.delete(settle); resolve(value) }
+      this.inflight.add(settle)
     })
     const settled = outcome.then((value) => value === 'started')
     void args.create().then(
-      () => settle('started'),
+      () => settle(this.disposed ? 'failed' : 'started'),
       (error) => {
         if (this.disposed) { settle('failed'); return }
         const arrived = (): boolean =>
@@ -126,7 +130,7 @@ export class PoolSpawns {
           }
           if (args.recognizePartialIssue === true && issueArrived()) {
             this.ports.paint({ type: 'removed', ids: [sessionId, issueId] })
-          this.confirmed()
+            this.confirmed()
             this.ports.notices.error(
               `The task was saved, but its agent couldn't start — ${error instanceof Error ? error.message : 'unknown error'}`,
             )

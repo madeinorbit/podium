@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Local-only, read-only replay. Payloads and principal identities never leave
  * ludovico; output contains numeric counts, positions and field paths only. */
 import { createRequire } from 'node:module'
@@ -14,7 +15,7 @@ import { createSuperagentSource, SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUP
 import { NoticeSource, NOTICE_SOURCE_KEY } from '@podium/client-graph/notice-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { checkSuperagent } from '@podium/client-graph/diagnostics/superagent-check'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 interface ReplayDatabase {
   exec(sql: string): void

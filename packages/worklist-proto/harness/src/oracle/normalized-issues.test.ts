@@ -1,4 +1,5 @@
-import { withKeyedInputs } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { createWorklistPool } from '@podium/client-graph/create'

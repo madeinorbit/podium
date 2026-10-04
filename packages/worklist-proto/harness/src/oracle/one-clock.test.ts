@@ -46,7 +46,7 @@ import {
 const HOUR = 60 * 60 * 1000
 const AHEAD_MS = [1, 6, 24, 72, 7 * 24, 30 * 24, 90 * 24, 365 * 24].map((h) => h * HOUR)
 
-type Store = ReturnType<ScenarioEngine['engine']['getSnapshot']>
+type Store = import('@podium/client-graph/diagnostics/reference-state').ReferenceState
 
 interface Truth {
   locals: SliceLocals

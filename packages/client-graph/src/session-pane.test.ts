@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -11,7 +12,7 @@ import { paneSession, paneWindow, paneSpawnConfirmed, paneStampIssue, paneIssueC
 import { SessionPaneSource } from './session-pane-source'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from './session-pane-schema'
 import { LOADING } from './worklist/rollup'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 function fixture() {
   const sessions = sessionPaneFixture()

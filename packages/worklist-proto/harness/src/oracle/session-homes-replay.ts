@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** S2 operator evidence. Read-only, ludovico only, input stays in memory.
  * Run with a timeout and emit counts/opaque ids only; never print errors/rows. */
 import { readFileSync } from 'node:fs'
@@ -18,7 +19,7 @@ import { corpusFromLive, type LiveCollections } from '../fixture/live-snapshot'
 import { fixtureSessionHomes, stripSessionLegacy } from '../fixture/session-homes'
 import { sidebarReplayStore } from './sidebar-replay'
 import { snapshotFromStore } from './oracle'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 async function main() {
   if (hostname() !== 'ludovico') throw new Error('Restricted host')

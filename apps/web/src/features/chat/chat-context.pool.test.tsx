@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState<import('@/app/trpc').Trpc>
 import { bindStoreStatsOwner, readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import type { MobxPool } from '@podium/client-graph'
 import {

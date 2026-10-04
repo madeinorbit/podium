@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real components and their sole offline runtime, with the fixed 4x corpus. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
@@ -95,8 +96,7 @@ function Fixture() {
   pool = currentPool
   const [surface, setSurface] = useState<'closed' | 'board' | 'explorer'>('closed')
   useEffect(() => {
-    void runtime
-      .getSnapshot()
+    void referenceState(runtime)
       .refreshRepos()
       .then(() => {
         ready = currentPool !== null

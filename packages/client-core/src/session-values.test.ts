@@ -1,7 +1,7 @@
 import { asSessionId, isSnoozed, returnedFromSnooze } from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { foldOverlays, foldRowOverlays } from './engine/overlay'
+import {  foldRowOverlays } from './engine/overlay'
 import { type SessionHomes, inheritSessionHomes, sessionValues, sessionView, sessionViews } from './session-values'
 
 const active = '2026-10-01T12:00:00.000Z'
@@ -217,9 +217,8 @@ describe('session values from their new homes', () => {
     const patch = {
       key: 'rename', entity: 'sessions', id: legacy.sessionId, op: 'patch', patch: { name: 'Pending' }, coveredBy: () => false,
     } as const
-    const listPaint = foldOverlays([loaded], [patch], row => row.sessionId).rows[0]!
     const rowPaint = foldRowOverlays(loaded, [patch])!
-    for (const painted of [listPaint, rowPaint]) {
+    for (const painted of [rowPaint]) {
       expect(painted).toHaveProperty('name', 'Pending')
       expect(sessionValues(painted)).toEqual(sessionValues(loaded))
       expect(sessionView(painted, { userState: { readAt: null } })).toMatchObject({
@@ -230,7 +229,6 @@ describe('session values from their new homes', () => {
         unread: true, displayRef: undefined, machineName: '', handoffTarget: undefined,
       })
     }
-    expect(foldOverlays([loaded], [], row => row.sessionId).rows[0]).toBe(loaded)
   })
   it('preserves prototype membership, own keys and copies with authoritative undefined cells', () => {
     const symbol = Symbol('session annotation')

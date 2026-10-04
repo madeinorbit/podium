@@ -73,7 +73,7 @@ it('declares launch and palette demand after attachment, follows window updates 
   await act(async () => {
     attach()
     fixture.publishMachines()
-    await result.current.referenceState(owner).refreshRepos()
+    await referenceState(result.current.owner).refreshRepos()
   })
   await waitFor(() => {
     expect(result.current.launch).not.toBe(LOADING)

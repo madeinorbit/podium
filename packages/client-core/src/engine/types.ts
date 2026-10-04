@@ -132,6 +132,7 @@ export interface UserFocus {
  * stable until the underlying slice actually changes.
  */
 export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
+  navigation: import('./state').NavigationProvider
   hub: SocketHub
   trpc: TApi
   /** A coarse (minute-granularity) clock, republished as part of the snapshot

@@ -1088,7 +1088,7 @@ export function mountPage(options: MountPageOptions): void {
   /** The arm's output against the oracle's over the live engine, untimed. */
   function parityNow(): ProtoParity {
     const armSnapshot = live().handle.snapshot()
-    const oracleNow = oracleSnapshot(live().boot.referenceState(engine))
+    const oracleNow = oracleSnapshot(live().referenceState(boot.engine))
     const raw = expected === undefined ? oracleNow : expected(oracleNow)
     const patched = parityAllowance?.accept(
       installedCorpus ?? live().boot.corpus,
@@ -1207,7 +1207,7 @@ export function mountPage(options: MountPageOptions): void {
       // Watched, never held: after the driver's forced GC none may be alive.
       oldRefs = {
         runtime: new WeakRef(old.boot.engine),
-        store: new WeakRef(old.boot.referenceState(engine)),
+        store: new WeakRef(referenceState(old.boot.engine)),
         replica: new WeakRef(old.boot.replica),
         cache: new WeakRef(old.boot.cache),
         armHandle: new WeakRef(old.handle),
@@ -1281,7 +1281,7 @@ export function mountPage(options: MountPageOptions): void {
    * control never makes.
    */
   async function healGrownDerivation(): Promise<void> {
-    await live().boot.referenceState(engine).refreshRepos()
+    await live().referenceState(boot.engine).refreshRepos()
     await settleQuiet()
   }
 

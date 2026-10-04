@@ -72,14 +72,14 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     const coldSource = createRowSource(cold.engine, cold.replica, { mode: 'pooled' })
     const coldLocals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: cold.referenceState(engine).coarseNow,
+      coarseNow: referenceState(cold.engine).coarseNow,
     }
     const coldMounted = mountArmForCounts(handArm, coldSource.source, fixedLocals(coldLocals))
     try {
       const atMount = coldMounted.handle.snapshot()
       // The fixture's 1x visible set (POD-4550; the retired corpus showed 3,000+).
       expect(Object.keys(atMount.rowsById).length).toBe(211)
-      expect(atMount).toEqual(snapshotFromStore(cold.referenceState(engine), coldLocals))
+      expect(atMount).toEqual(snapshotFromStore(referenceState(cold.engine), coldLocals))
       checkOracle(coldMounted)
       console.info(
         `[hand-m3] coldBootstrap 1x: visible=${Object.keys(atMount.rowsById).length} ` +

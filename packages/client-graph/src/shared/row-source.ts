@@ -325,26 +325,19 @@ export interface PendingRows {
  *   read and the log names its rows through `repaint`. With every kind owned
  *   a runtime publication alone is a signal only for discovery, as in `truth`.
  */
-export type RowSourceMode = 'truth'
+export type RowSourceMode = 'truth' | 'pooled'
 
 /** The row kinds the pool's transaction log can own (POD-5432). */
 export type PoolOwnedKind = 'issue' | 'session'
 
 export type RowSourceOptions =
-  | { readonly mode: RowSourceMode }
+  | { readonly mode: 'truth' }
   | {
       readonly mode: 'pooled'
       readonly pending: PooledPending
       /** The kinds the log paints; the ledger paints the others. Default: both. */
       readonly owned?: ReadonlySet<PoolOwnedKind>
     }
-
-const KIND_OF_TARGET: Record<OverlayTarget, PoolOwnedKind> = {
-  sessions: 'session',
-  sessionUserStates: 'session',
-  issueProjections: 'issue',
-  issueUserStates: 'issue',
-}
 
 export function createRowSource(
   runtime: RowSourceRuntime,

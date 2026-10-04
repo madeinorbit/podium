@@ -533,7 +533,7 @@ it('has zero legacy selectors and conversation-port reads on relevant updates', 
   expect(Object.keys(stats().slices).filter((key) => key.startsWith('mobileSession.'))).toEqual([])
   await act(async () => {
     enabled.data.activity(1)
-    enabled.referenceState(runtime).setSessionDraft(SID, 'Changed draft')
+    referenceState(enabled.runtime).setSessionDraft(SID, 'Changed draft')
   })
   await waitFor(() =>
     expect((enabled.view.getByLabelText('Draft') as HTMLInputElement).value).toBe('Changed draft'),
@@ -547,7 +547,7 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
   expect(enabled.pool().row('session', 'synthetic-session-11', 'summary')).not.toHaveProperty(
     'privateBody',
   )
-  const state = enabled.referenceState(runtime)
+  const state = referenceState(enabled.runtime)
   const ids = [SID, 'synthetic-session-11', 'missing-session']
   // The mounted probe asks only for SID. The complete frozen output also asks
   // for the archived and absent addresses, so settle their batched loads first.
@@ -577,7 +577,7 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
   })
   expect(enabled.latest().question).toMatchObject({ id: 'notice-ask-2', kind: 'question' })
   expect(enabled.pool().row('mobileSessionReader', 'reader')).toBeDefined()
-  expect(enabled.referenceState(runtime).machines).toHaveLength(3)
+  expect(referenceState(enabled.runtime).machines).toHaveLength(3)
   await act(async () =>
     enabled.data.patch('sessionUserState', sessionUserStateRowId(asUserId('operator'), SID), {
       readAt: null,
@@ -624,7 +624,7 @@ it('borrows each shared source once and keeps the conversation bridge across dra
     enabled.data.patch('message', 'notice-message-0', { body: 'Updated replicated message' })
     enabled.data.patch('pendingInteraction', 'notice-ask-2', { status: 'answered' })
     await enabled.runtime.outbox.enqueue('sendText', { sessionId: SID, text: 'Held owner send' })
-    enabled.referenceState(runtime).setSessionDraft(SID, 'Later draft')
+    referenceState(enabled.runtime).setSessionDraft(SID, 'Later draft')
   })
   await waitFor(() => expect(outbox.held()).toMatchObject([{ text: 'Held owner send' }]))
   expect(outboxWake).toHaveBeenCalled()
@@ -642,7 +642,7 @@ it('borrows each shared source once and keeps the conversation bridge across dra
 it('keeps the original mutation owner when the pool conversation edits its draft and sends', async () => {
   const enabled = await mount()
   fireEvent.change(enabled.view.getByLabelText('Draft'), { target: { value: 'Draft by operator' } })
-  await waitFor(() => expect(enabled.referenceState(runtime).drafts[SID]).toBe('Draft by operator'))
+  await waitFor(() => expect(referenceState(enabled.runtime).drafts[SID]).toBe('Draft by operator'))
   fireEvent.click(enabled.view.getByText('Send'))
   await waitFor(() =>
     expect(enabled.runtime.outbox.pending()).toContainEqual(

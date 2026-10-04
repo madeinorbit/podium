@@ -26,7 +26,6 @@ import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
   EMPTY_ID_SET,
-  foldOverlays,
   foldRowOverlays,
   insertOverlay,
   issueUpdateRoute,
@@ -465,171 +464,6 @@ describe('overlayForOutboxEntry projection', () => {
   })
 })
 
-describe('foldOverlays', () => {
-  const keyOf = (s: SessionMeta): string => s.sessionId
-
-  it('returns the SAME base reference (and stable empty id set) when nothing applies', () => {
-    const base = [sess()]
-    const empty = foldOverlays(base, [], keyOf)
-    expect(empty.rows).toBe(base)
-    expect(empty.pendingInsertIds).toBe(EMPTY_ID_SET)
-    // A patch whose target row isn't visible is a no-op, identity preserved.
-    const miss = overlayForOutboxEntry(entry('rename', { sessionId: 'ghost', name: 'x' }))
-    const folded = foldOverlays(base, [miss as PendingOverlay], keyOf)
-    expect(folded.rows).toBe(base)
-  })
-
-  it('composes multiple patches on one row in queue order (later fields win)', () => {
-    const base = [sess()]
-    const first = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'first' }))
-    const archived = overlayForOutboxEntry(
-      entry('setArchived', { sessionId: 's1', archived: true }),
-    )
-    const second = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'second' }))
-    const { rows } = foldOverlays(base, [first, archived, second] as PendingOverlay[], keyOf)
-    expect(rows[0]?.name).toBe('second')
-    expect(rows[0]?.archived).toBe(true)
-    expect(base[0]?.name).toBeUndefined() // base rows are never mutated
-  })
-
-  it('inserts placeholder rows only while the id is absent from base, and reports them as pending', () => {
-    const placeholder = sess({
-      sessionId: 'new-1',
-      status: 'starting',
-    } as Partial<SessionMetaInput>)
-    const overlay = insertOverlay('sessions', 'new-1', placeholder)
-    const empty = foldOverlays<SessionMeta>([], [overlay], keyOf)
-    expect(empty.rows.map(keyOf)).toEqual(['new-1'])
-    expect([...empty.pendingInsertIds]).toEqual(['new-1'])
-    // Server truth (same id) landed: base wins, no duplicate, nothing pending.
-    const confirmed = foldOverlays([sess({ sessionId: 'new-1' })], [overlay], keyOf)
-    expect(confirmed.rows.map(keyOf)).toEqual(['new-1'])
-    expect(confirmed.pendingInsertIds).toBe(EMPTY_ID_SET)
-  })
-
-  it('keeps ROW and ARRAY identity when a patch paints values already on the row', () => {
-    // POD-1053. An overlay repaints on every recompute until covering truth is
-    // judged to have landed, and `enqueueOverlayed` folds the same patch twice
-    // by design. `store.issues` is the cache key for the shared view-model cache
-    // and the published worklist, so a gratuitously fresh row re-derives the
-    // whole worklist for a change nobody can see.
-    const base = [
-      sess({ name: 'already named' } as Partial<SessionMetaInput>),
-      sess({ sessionId: 's2' }),
-    ]
-    const rename = overlayForOutboxEntry(
-      entry('rename', { sessionId: 's1', name: 'already named' }),
-    )
-    const folded = foldOverlays(base, [rename as PendingOverlay], keyOf)
-    expect(folded.rows).toBe(base)
-    expect(folded.rows[0]).toBe(base[0])
-  })
-
-  it('clearing an absent snooze preserves identity, but a null snooze is a value', () => {
-    const base = [sessionUserState()]
-    expect(base[0] && 'snoozedUntil' in base[0]).toBe(false)
-    const cleared = overlayForOutboxEntry(entry('snoozeClear', { sessionId: 's1' }))
-    const key = (s: SessionUserStateWire): string => s.sessionId
-    expect(foldOverlays(base, [cleared as PendingOverlay], key).rows).toBe(base)
-    const untilMessage = [sessionUserState({ snoozedUntil: null })]
-    const folded = foldOverlays(untilMessage, [cleared as PendingOverlay], key).rows
-    expect(folded).not.toBe(untilMessage)
-    expect(folded[0]?.snoozedUntil).toBeUndefined()
-  })
-
-  it('still mints a fresh row when the COMPOSED patches move a cell', () => {
-    const base = [sess({ name: 'settled' } as Partial<SessionMetaInput>)]
-    // The first patch alone would move the cell; the second puts it back. Only
-    // the merged result knows the fold is a no-op.
-    const away = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'away' }))
-    const back = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'settled' }))
-    expect(foldOverlays(base, [away, back] as PendingOverlay[], keyOf).rows).toBe(base)
-    const moved = foldOverlays(base, [back, away] as PendingOverlay[], keyOf)
-    expect(moved.rows).not.toBe(base)
-    expect(moved.rows[0]?.name).toBe('away')
-  })
-
-  it('patches apply on top of inserted placeholder rows too', () => {
-    const placeholder = sess({ sessionId: 'new-1' })
-    const rename = overlayForOutboxEntry(entry('rename', { sessionId: 'new-1', name: 'named' }))
-    const { rows } = foldOverlays<SessionMeta>(
-      [],
-      [insertOverlay('sessions', 'new-1', placeholder), rename as PendingOverlay],
-      keyOf,
-    )
-    expect(rows[0]?.name).toBe('named')
-  })
-})
-
-describe('foldRowOverlays (POD-4553: the per-row fold agrees with foldOverlays)', () => {
-  const keyOf = (s: SessionMeta): string => s.sessionId
-  const rename = (id: string, name: string) =>
-    overlayForOutboxEntry(entry('rename', { sessionId: id, name })) as PendingOverlay
-  const archived = (id: string) =>
-    overlayForOutboxEntry(entry('setArchived', { sessionId: id, archived: true })) as PendingOverlay
-  const cases: { name: string; base: SessionMeta[]; overlays: PendingOverlay[] }[] = [
-    { name: 'no overlays', base: [sess()], overlays: [] },
-    { name: 'patch on a missing row', base: [sess()], overlays: [rename('ghost', 'x')] },
-    {
-      name: 'composed patches',
-      base: [sess()],
-      overlays: [rename('s1', 'a'), archived('s1'), rename('s1', 'b')],
-    },
-    {
-      name: 'no-op paint',
-      base: [sess({ name: 'n' } as Partial<SessionMetaInput>), sess({ sessionId: 's2' })],
-      overlays: [rename('s1', 'n')],
-    },
-    {
-      name: 'composition back to base',
-      base: [sess({ name: 'settled' } as Partial<SessionMetaInput>)],
-      overlays: [rename('s1', 'away'), rename('s1', 'settled')],
-    },
-    {
-      name: 'insert absent',
-      base: [],
-      overlays: [insertOverlay('sessions', 'new-1', sess({ sessionId: 'new-1' }))],
-    },
-    {
-      name: 'insert covered by base',
-      base: [sess({ sessionId: 'new-1' })],
-      overlays: [
-        insertOverlay('sessions', 'new-1', sess({ sessionId: 'new-1', title: 'placeholder' })),
-      ],
-    },
-    {
-      name: 'patch over an insert',
-      base: [],
-      overlays: [
-        insertOverlay('sessions', 'new-1', sess({ sessionId: 'new-1' })),
-        rename('new-1', 'named'),
-      ],
-    },
-  ]
-  for (const { name, base, overlays } of cases) {
-    it(`agrees row by row: ${name}`, () => {
-      const whole = foldOverlays(base, overlays, keyOf).rows
-      const ids = new Set([...base.map(keyOf), ...overlays.map((o) => o.id)])
-      for (const id of ids) {
-        const expected = whole.find((row) => keyOf(row) === id)
-        const baseRow = base.find((row) => keyOf(row) === id)
-        const actual = foldRowOverlays(
-          baseRow,
-          overlays.filter((o) => o.id === id),
-        )
-        expect(actual).toEqual(expected)
-        // Identity: an unmoved row is the base object in both folds.
-        if (expected === baseRow) expect(actual).toBe(baseRow)
-        else expect(actual).not.toBe(baseRow)
-      }
-    })
-  }
-})
-
-// POD-4969: the per-user row is DELETED when its markers all clear, so the
-// ledger hands a per-user patch the row its absence stands for. Both folds must
-// paint over it, and both must leave a patch that paints only "nothing set" off
-// the list.
 describe('folding over an absent per-user row', () => {
   const key = (row: IssueUserStateWire): string => row.entityId
   const onAbsent = (kind: string, input: unknown): PendingOverlay => {
@@ -640,24 +474,19 @@ describe('folding over an absent per-user row', () => {
 
   it('paints a mark-read onto the "nothing set" row, in both folds', () => {
     const read = onAbsent('issueMarkRead', { id: 'i1' })
-    const whole = foldOverlays<IssueUserStateWire>([], [read], key).rows
-    expect(whole).toEqual([userState({ readAt: new Date(1751500800000).toISOString() })])
-    expect(foldRowOverlays<IssueUserStateWire>(undefined, [read])).toEqual(whole[0])
+    expect(foldRowOverlays<IssueUserStateWire>(undefined, [read])).toEqual(userState({ readAt: new Date(1751500800000).toISOString() }))
   })
 
   it('adds nothing for a patch that leaves the row saying "nothing set"', () => {
     const base: IssueUserStateWire[] = []
     const unread = onAbsent('issueMarkUnread', { id: 'i1' })
-    expect(foldOverlays(base, [unread], key).rows).toBe(base)
     expect(foldRowOverlays<IssueUserStateWire>(undefined, [unread])).toBeUndefined()
   })
 
   it('a present row wins over the absent one, and a patch without one paints nothing', () => {
     const present = userState({ tuckedAt: 'T' })
     const read = onAbsent('issueMarkRead', { id: 'i1' })
-    expect(foldOverlays([present], [read], key).rows[0]).toMatchObject({ tuckedAt: 'T' })
     const bare = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' })) as PendingOverlay
-    expect(foldOverlays<IssueUserStateWire>([], [bare], key).rows).toEqual([])
     expect(foldRowOverlays<IssueUserStateWire>(undefined, [bare])).toBeUndefined()
   })
 })

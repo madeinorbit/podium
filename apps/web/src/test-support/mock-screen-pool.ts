@@ -1,3 +1,5 @@
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { normalizedFixtureIssues } from './normalized-issues'
 import { isDeepStrictEqual } from 'node:util'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { MobxPool } from '@podium/client-graph'
@@ -17,7 +19,10 @@ let borrowed: { read(): Inputs; subscribe(wake: () => void): () => void } = {
   read: () => ({}),
   subscribe: none,
 }
-const useFixtureIssues = 'useReplicaIssues' in storeInputs ? storeInputs.useReplicaIssues : () => []
+const selectFixture = storeInputs.useRuntimeSelector as unknown as <T>(select: (state: Store) => T, equals?: (a: T, b: T) => boolean) => T
+const useFixtureIssues = () => selectFixture(state => state.replica && state.issueProjections
+  ? allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates ?? [])
+  : normalizedFixtureIssues(state), isDeepStrictEqual)
 const selectInputs = (state: Store): Inputs => ({
   sessions: state.sessions,
   machines: state.machines,
@@ -50,7 +55,7 @@ export function borrowPoolFixtureInputs(
 }
 
 function useFixturePool(): MobxPool {
-  const state = storeInputs.useRuntimeSelector(selectInputs, isDeepStrictEqual)
+  const state = selectFixture(selectInputs, isDeepStrictEqual)
   const issues = useFixtureIssues()
   const live = useRef({ state, issues })
   live.current = { state: { ...state, ...borrowed.read() }, issues }

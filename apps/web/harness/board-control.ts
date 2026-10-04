@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
@@ -23,7 +24,7 @@ import { deriveIssuesViewModel } from '../src/features/issues/issues-view-model'
 
 export function checkBoard(runtime: ClientRuntime, pool: MobxPool, options: BoardOptions) {
   const issues = allIssueViewModels(runtime.replica),
-    sessions = runtime.access.sessions
+    sessions = referenceState(runtime).sessions
   const expected = deriveIssuesViewModel({
     ...options,
     issues,
@@ -49,7 +50,7 @@ export function checkExplorer(
   query: string,
 ) {
   const issues = allIssueViewModels(runtime.replica),
-    sessions = runtime.access.sessions
+    sessions = referenceState(runtime).sessions
   const counts = explorerCounts(issues, sessions),
     tab = pickedTab ?? defaultTab(counts),
     rows = explorerRows(issues, sessions, { tab, query })

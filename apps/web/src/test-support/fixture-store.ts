@@ -3,7 +3,7 @@ import { asSessionId } from '@podium/model/browser'
 
 /** Supply the runtime plumbing old component fixtures omitted. */
 export function fixtureStoreSnapshot(
-  input: Store,
+  input: import("@/app/store").Store,
   onMutation?: () => void,
 ): Store & { batchGesture: (fn: () => void) => void } {
   const state = input as Store & { batchGesture?: (fn: () => void) => void }

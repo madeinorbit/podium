@@ -1,7 +1,8 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
@@ -63,7 +64,7 @@ export function publishPoolFixture() {
 }
 
 /** Fake actions publish through the same boundary as a render's snapshot. */
-export function syncPoolFixture(input: Store, sidebarGesture = false) {
+export function syncPoolFixture(input: import("@/app/store").Store, sidebarGesture = false) {
   const state = input as Store & {
     issues?: readonly unknown[]
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]

@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Read-only live bootstrap on ludovico. Auth, rows, paths and texts stay in
  * this process. Only counts, positions and opaque IDs may leave it. */
 import { readFileSync } from 'node:fs'
@@ -15,7 +16,7 @@ import { SessionPaneSource } from '../src/session-pane-source'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from '../src/session-pane-schema'
 import { checkSessionPanes } from './session-pane-check'
 import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 let phase = 0
 let httpStatus: number | undefined

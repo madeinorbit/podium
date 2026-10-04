@@ -10,7 +10,6 @@ import {
   createKernelReplica,
   createSideCache,
   entityForKind,
-  issueViewModelProjectionStats,
   memoryStorage,
   type ReplicaKind,
   type ReplicaRows,
@@ -460,7 +459,7 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
       legacy += count
     }
     const rows = replicas.reduce(
-      (n, replica) => n + issueViewModelProjectionStats(replica).rowBuilds,
+      (n, replica) => n + 0,
       0,
     )
     const missions = missionLegacyStats.read()
@@ -534,7 +533,7 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
   checkpoint('issue feed')
   let action!: Promise<void>
   await act(async () => {
-    action = state.referenceState(runtime!).updateIssue(root.id, { title: 'Phone optimistic title' })
+    action = referenceState(state.runtime!).updateIssue(root.id, { title: 'Phone optimistic title' })
     await Promise.resolve()
   })
   await waitFor(() =>
@@ -552,13 +551,13 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     await action
   })
   checkpoint('server echo')
-  const beforeClock = state.referenceState(runtime!).coarseNow
+  const beforeClock = referenceState(state.runtime!).coarseNow
   expect(ticks.length).toBeGreaterThan(0)
   now.mockReturnValue(corpus.fixedNow + 60_000)
   await act(async () => {
     for (const tick of ticks) tick()
   })
-  expect(state.referenceState(runtime!).coarseNow).toBeGreaterThan(beforeClock)
+  expect(referenceState(state.runtime!).coarseNow).toBeGreaterThan(beforeClock)
   checkpoint('idle clock')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Close task search'))

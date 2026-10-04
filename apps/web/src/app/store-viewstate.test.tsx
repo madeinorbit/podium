@@ -104,7 +104,7 @@ vi.mock('./trpc', () => ({
 }))
 vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m }))
 
-const { StoreProvider, useStore } = await import('./store')
+const { StoreProvider, useRuntimeSelector } = await import('./store')
 
 // A tiny consumer that publishes the store handlers onto a module-level ref so a
 // test can imperatively drive pane/focus state.

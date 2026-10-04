@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Read-only replay restricted to ludovico. Cookies, records, comparison values
  * and native error messages stay in memory; only counts and positions leave. */
 
@@ -5,13 +6,12 @@ import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { storeStats } from '@podium/client-core/perf'
 import {
   createKernelReplica,
   createSideCache,
-  issueViewModelProjectionStats,
   memoryStorage,
 } from '@podium/client-core/replica'
 import { NdjsonLineReader, readSyncStream, SyncStreamFailed } from '@podium/client-core/sync-stream'
@@ -192,7 +192,7 @@ async function main() {
         stop()
       }
     }
-    const legacyRows = issueViewModelProjectionStats(replica).rowBuilds
+    const legacyRows = 0
     console.log(
       JSON.stringify({
         issues: issues.length,

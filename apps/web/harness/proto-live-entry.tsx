@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4537 — the live sidebar demo (round three).
  *
@@ -277,7 +278,7 @@ async function teardown(boot: LiveBoot): Promise<void> {
   }
   const store = (() => {
     try {
-      return boot.runtime.access
+      return referenceState(boot.runtime)
     } catch {
       return null
     }
@@ -319,7 +320,7 @@ async function checkParity(boot: LiveBoot, panel: LivePanel): Promise<void> {
     try {
       firstDifference = firstSnapshotDifference(
         panel.handle.snapshot(),
-        oracleSnapshot(boot.runtime.access),
+        oracleSnapshot(referenceState(boot.runtime)),
       )
     } catch (error) {
       firstDifference = `parity threw: ${error instanceof Error ? error.message : String(error)}`
@@ -347,7 +348,7 @@ function onRowClick(boot: LiveBoot, event: MouseEvent): void {
   // The engine's own selection write — the same one the legacy control's
   // pressable makes. Locals-only: arms hear it on the locals channel and the
   // runtime's own eager mark-read may follow, as in the app.
-  boot.runtime.access.setSelectedIssueId(asIssueId(id))
+  referenceState(boot.runtime).setSelectedIssueId(asIssueId(id))
 }
 
 declare global {
@@ -578,7 +579,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     )
   }
 
-  const store = boot.runtime.access
+  const store = referenceState(boot.runtime)
   const heap = heapMB()
   return (
     <main style={{ fontFamily: 'sans-serif', fontSize: 13 }}>

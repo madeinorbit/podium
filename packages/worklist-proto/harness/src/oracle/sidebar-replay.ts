@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Offline export replay. Run on ludovico, never send the input elsewhere.
  * Only counts, opaque IDs and field locations are emitted. No raw snapshot,
  * diff values, error messages or worktree paths leave this process.
@@ -7,7 +8,7 @@
 
 import { hostname } from 'node:os'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage, type Replica } from '@podium/client-core/replica'

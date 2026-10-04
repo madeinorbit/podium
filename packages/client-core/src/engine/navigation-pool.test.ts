@@ -37,7 +37,7 @@ const provider: NavigationProvider = {
 }
 const state = (navigation?: NavigationProvider) =>
   ({
-    navigation,
+    navigation: navigation ?? provider,
     issueProjections: [root, child],
     issueUserStates: [],
     issueDeps: [],
@@ -56,7 +56,7 @@ const state = (navigation?: NavigationProvider) =>
     settingsTab: null,
     openIssueId: null,
     issueVisitBaseline: null,
-  }) as unknown as EngineState
+  }) as unknown as EngineState & { issueProjections: IssueProjection[]; sessions: SessionView[]; issueUserStates: object[] }
 afterEach(() => {
   navigationStats.disable()
   navigationStats.reset()

@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { dedupeSessionsByResume } from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
@@ -7,7 +8,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 const disposals: (() => void)[] = []
 afterEach(() => { for (const dispose of disposals.splice(0)) dispose() })

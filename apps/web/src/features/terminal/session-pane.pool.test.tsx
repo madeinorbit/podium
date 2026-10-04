@@ -1,5 +1,7 @@
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
-import { withKeyedInputs } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState<import('@/app/trpc').Trpc>
+
 import {
   bindStoreStatsOwner,
   readRuntimeStoreStats,

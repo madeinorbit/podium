@@ -1,4 +1,5 @@
-import { withKeyedInputs } from '@podium/client-core/engine'
+import { withKeyedInputs } from '../../test-support/keyed-inputs'
+
 // @vitest-environment happy-dom
 import { asUserId } from '@podium/model'
 import { act, cleanup, render } from '@testing-library/react'

@@ -5,7 +5,7 @@ import { asUserId } from '@podium/model'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStore, useRuntimeSelector } from '@podium/client-core/react'
+import { StoreProvider, useRuntimeSelector } from '@podium/client-core/react'
 import { createReplica, memoryStorage } from '@podium/client-core/replica'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -57,7 +57,7 @@ class FakeWS {
 
 let lastHub: unknown = null
 function Probe(): null {
-  lastHub = useStore().hub
+  lastHub = useRuntimeSelector(s => s).hub
   return null
 }
 
@@ -187,7 +187,7 @@ interface Seen {
 let seen: Seen
 
 function PrincipalProbe(): null {
-  const store = useStore()
+  const store = useRuntimeSelector(s => s)
   // A SELECTOR with a stable identity across renders, so its per-component
   // cache genuinely survives the switch instead of being reset by a new
   // closure. That is the only version of this assertion that can fail.
@@ -376,11 +376,11 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     const { torn } = await switchAliceToBob()
     const stale = torn[0]
     expect(stale, 'the switch must have torn down alice’s runtime').toBeDefined()
-    const staleSnapshot = stale?.getSnapshot()
+    const staleSnapshot = stale?.access
     act(() => {
       ;(staleSnapshot as unknown as { setPaletteOpen(v: boolean): void }).setPaletteOpen(true)
     })
-    expect(stale?.getSnapshot(), 'a previous principal’s late callback must publish nothing').toBe(
+    expect(stale?.access, 'a previous principal’s late callback must publish nothing').toBe(
       staleSnapshot,
     )
   })

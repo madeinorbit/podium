@@ -287,7 +287,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    * promise that means something. Voiding it here made every issue action resolve
    * a couple of frames before the row moved.
    */
-  enqueueOverlayed<K extends keyof OutboxKinds & string>(
+  write<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
   ): Promise<void>
@@ -458,7 +458,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     const key = `${kind}:${id}`
     const pending = pendingReads.get(key)
     if (pending) return pending
-    const write = Promise.resolve(rt.enqueueOverlayed(kind, input)).finally(() => pendingReads.delete(key))
+    const write = Promise.resolve(rt.write(kind, input)).finally(() => pendingReads.delete(key))
     pendingReads.set(key, write)
     return write
   }
@@ -733,9 +733,14 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       rt.apply({ selectedIssueId: issueId })
       const session = await waitForState(
         listener => {
-          const navigation = rt.state().navigation
-          const stopRows = navigation.watch?.(() => [navigation.issueSessions?.(issueId)], listener)
-          const stopLocal = rt.onLocals(['selectedIssueId', 'navigation'], listener)
+          let stopRows: (() => void) | undefined
+          const arm = () => {
+            stopRows?.()
+            const navigation = rt.state().navigation
+            stopRows = navigation.watch?.(() => [navigation.issueSessions?.(issueId)], listener)
+          }
+          arm()
+          const stopLocal = rt.onLocals(['selectedIssueId', 'navigation'], () => { arm(); listener() })
           return () => { stopRows?.(); stopLocal() }
         },
         () => {
@@ -1000,17 +1005,17 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     },
     chatSendsFor: (sessionId) => outboxChatSends(rt.outbox, sessionId),
     discardChat: (mutationId) => discardChatThroughOutbox(rt.outbox, mutationId),
-    renameSession: async (sessionId, name) => rt.enqueueOverlayed('rename', { sessionId, name }),
+    renameSession: async (sessionId, name) => rt.write('rename', { sessionId, name }),
     archiveSession: async (sessionId, archived) => {
-      rt.enqueueOverlayed('setArchived', { sessionId, archived })
-      if (archived) rt.enqueueOverlayed('setWorkState', { sessionId, workState: 'done' })
+      rt.write('setArchived', { sessionId, archived })
+      if (archived) rt.write('setWorkState', { sessionId, workState: 'done' })
       if (archived) {
         const pins = rt.state().pins
         rt.apply({ pins: { ...pins, panels: pins.panels.filter((id) => id !== sessionId) } })
         await rt.outbox.enqueue('pinSet', { kind: 'panel', id: sessionId, pinned: false })
       }
     },
-    // `enqueueOverlayed`, like its neighbours, since POD-1110. It used to be a
+    // `write`, like its neighbours, since POD-1110. It used to be a
     // bare mutate under `offline: 'direct-only'`, which made "none of these" the
     // one row edit in the app that failed outright on a dropped connection —
     // the offer popped back wearing an error. The queued entry IS the optimistic
@@ -1019,30 +1024,30 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // `offerCreatedAt` guard, which refuses a dismissal aimed at an offer that
     // has since been replaced.
     dismissOffer: async (sessionId: SessionId, offerCreatedAt: string) =>
-      rt.enqueueOverlayed('dismissOffer', { sessionId, offerCreatedAt }),
+      rt.write('dismissOffer', { sessionId, offerCreatedAt }),
     setWorkState: async (sessionId: SessionId, workState: WorkState | null) =>
-      rt.enqueueOverlayed('setWorkState', { sessionId, workState }),
-    setSnooze: async (sessionId, until) => rt.enqueueOverlayed('snoozeSet', { sessionId, until }),
-    clearSnooze: async (sessionId) => rt.enqueueOverlayed('snoozeClear', { sessionId }),
+      rt.write('setWorkState', { sessionId, workState }),
+    setSnooze: async (sessionId, until) => rt.write('snoozeSet', { sessionId, until }),
+    clearSnooze: async (sessionId) => rt.write('snoozeClear', { sessionId }),
     markSessionRead: (sessionId) => markRead('sessionMarkRead', sessionId, { sessionId }),
-    markSessionUnread: async (sessionId) => rt.enqueueOverlayed('sessionMarkUnread', { sessionId }),
+    markSessionUnread: async (sessionId) => rt.write('sessionMarkUnread', { sessionId }),
     markIssueRead: (id) => markRead('issueMarkRead', id, { id }),
-    markIssueUnread: async (id) => rt.enqueueOverlayed('issueMarkUnread', { id }),
-    setIssueTucked: async (id, tucked) => rt.enqueueOverlayed('issueSetTucked', { id, tucked }),
+    markIssueUnread: async (id) => rt.write('issueMarkUnread', { id }),
+    setIssueTucked: async (id, tucked) => rt.write('issueSetTucked', { id, tucked }),
     // The curation writes (POD-781). Nothing here but the enqueue: the queued
     // entry IS the optimistic apply (#263), so there is no local mirror to keep
     // and no rollback to write — the overlay retires itself on covering truth or
     // drops on a definitive refusal, and the poison toast is the failure surface.
-    updateIssue: async (id, patch) => rt.enqueueOverlayed('issueUpdate', { id, patch }),
-    archiveIssue: async (id) => rt.enqueueOverlayed('issueArchive', { id }),
-    deleteIssue: async (id) => rt.enqueueOverlayed('issueDelete', { id }),
-    closeIssue: async (id, reason) => rt.enqueueOverlayed('issueClose', { id, reason }),
-    deferIssue: async (id, until) => rt.enqueueOverlayed('issueDefer', { id, until }),
-    undeferIssue: async (id) => rt.enqueueOverlayed('issueUndefer', { id }),
-    setIssueLabels: async (id, labels) => rt.enqueueOverlayed('issueSetLabels', { id, labels }),
+    updateIssue: async (id, patch) => rt.write('issueUpdate', { id, patch }),
+    archiveIssue: async (id) => rt.write('issueArchive', { id }),
+    deleteIssue: async (id) => rt.write('issueDelete', { id }),
+    closeIssue: async (id, reason) => rt.write('issueClose', { id, reason }),
+    deferIssue: async (id, until) => rt.write('issueDefer', { id, until }),
+    undeferIssue: async (id) => rt.write('issueUndefer', { id }),
+    setIssueLabels: async (id, labels) => rt.write('issueSetLabels', { id, labels }),
     setIssuePlacement: async (id, placement, originId) =>
-      rt.enqueueOverlayed('issueSetPlacement', { id, placement, originId }),
-    restoreIssue: async (id) => rt.enqueueOverlayed('issueRestore', { id }),
+      rt.write('issueSetPlacement', { id, placement, originId }),
+    restoreIssue: async (id) => rt.write('issueRestore', { id }),
     setSessionDraft: (sessionId, text) => rt.setSessionDraft(sessionId, text),
     setSidebarSettings: async (next) => {
       const previous = rt.state().sidebarSettings

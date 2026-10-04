@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Read-only operator replay. Inputs live only in this ludovico process;
  * evidence contains counts and mismatch positions, never paths or row values. */
 import { readFileSync } from 'node:fs'
@@ -10,7 +11,7 @@ import { createRoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
 import { checkSettings } from '@podium/client-graph/diagnostics/settings-check'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 if (hostname() !== 'ludovico') throw new Error('Settings operator replay is ludovico-only')
 const { token, expiresAt } = JSON.parse(readFileSync(join(homedir(), '.podium', 'cli-session.json'), 'utf8')) as { token: string; expiresAt?: string }

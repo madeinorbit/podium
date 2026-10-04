@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Ludovico-only persisted operator replay. Query-only database access, no
  * credentials or authored text; output contains counts and positions only. */
 import { homedir, hostname } from 'node:os'
@@ -12,7 +13,7 @@ import { createRowSource } from '../src/shared/row-source'
 import { WORKFLOW_SUMMARIES } from '../src/workflow-schema'
 import type { SliceIssue } from '../src/shared/slice-types'
 import { checkWorkflows } from './workflow-check'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 interface ReadonlyDatabase {
   exec(sql: string): void

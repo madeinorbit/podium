@@ -201,7 +201,7 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
     enabled.data.activity(1)
     enabled.data.publishMachines()
     enabled.data.publishMetrics(2)
-    const machines = enabled.referenceState(runtime).machines
+    const machines = referenceState(enabled.runtime).machines
     const hub = enabled.runtime.hub as unknown as { emit: (kind: string, rows: unknown) => void }
     hub.emit(
       'machines',

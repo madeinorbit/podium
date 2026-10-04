@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 import { sessionValues, sessionViews } from '@podium/client-core/session-values'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
@@ -13,7 +14,7 @@ import { buildCorpus } from '../fixture'
 import { fixtureSessionHomes, stripSessionLegacy } from '../fixture/session-homes'
 import { sidebarReplayStore } from './sidebar-replay'
 import { snapshotFromStore } from './oracle'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 function replay(stripped: boolean) {
   const corpus = buildCorpus(1)

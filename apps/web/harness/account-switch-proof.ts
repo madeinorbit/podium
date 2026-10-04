@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Focused Chromium proof over the ordinary synthetic full-screen fixture.
  * Run on flatblock: bun apps/web/harness/account-switch-proof.ts
  * --plant-stale-handler retains the first real close-tab closure and must fail. */
@@ -138,13 +139,13 @@ await build({
         input.focus(); return document.activeElement === input;
       }, __accountEdit: () => {
         flushSync(() => {
-          owner!.getSnapshot().setSelectedIssueId(asIssueId(targets.visibleRootId));
+          referenceState(owner!).setSelectedIssueId(asIssueId(targets.visibleRootId));
           // Arm the workspace shown by this session, rather than an unrelated
           // issue's worktree that the next session-route hydration can replace.
-          const worktree = owner!.getSnapshot().sessions.find(row => row.sessionId === targets.phaseSessionId)?.cwd;
+          const worktree = referenceState(owner!).sessions.find(row => row.sessionId === targets.phaseSessionId)?.cwd;
           if (!worktree) throw new Error('No focused session worktree in synthetic kernel');
-          owner!.getSnapshot().openSessionTab(lifetimeSessionId(targets.phaseSessionId));
-          const s = owner!.getSnapshot(), ws = s.workspaces[s.workspaceKey()];
+          referenceState(owner!).openSessionTab(lifetimeSessionId(targets.phaseSessionId));
+          const s = referenceState(owner!), ws = s.workspaces[s.workspaceKey()];
           s.splitWorkspacePane(ws.focusedPaneId, 'row', { tabId: targets.heartbeatSessionId });
           s.setSessionDraft(lifetimeSessionId(targets.phaseSessionId), 'Alice unsent chat draft');
           s.uiState.set('podium.firstTaskActivation.draft', JSON.stringify({ title: 'Alice first task', description: 'Unsent first task draft' }));
@@ -153,7 +154,7 @@ await build({
           s.setSelectedWorktree(worktree);
         });
       }, __accountUiState: () => {
-        const s = owner!.getSnapshot();
+        const s = referenceState(owner!);
         return { selectedIssueId: s.selectedIssueId, selectedWorktree: s.selectedWorktree,
           workspaceKey: s.workspaceKey(), layout: JSON.stringify(s.workspaces[s.workspaceKey()]),
           paneA: s.paneA, paneB: s.paneB, draft: s.drafts[targets.phaseSessionId] ?? '',

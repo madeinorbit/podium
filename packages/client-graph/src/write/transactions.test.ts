@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { overlaysForOutboxEntry } from '@podium/client-core/command-reducers'
+import { overlaysForOutboxEntry, rowFingerprint } from '@podium/client-core/command-reducers'
 import type { OutboxOutcome } from '@podium/client-core/engine'
 import { OUTBOX_COMMANDS } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
@@ -68,6 +68,27 @@ describe('PoolTransactions coverage (POD-5431)', () => {
 })
 
 describe('PoolTransactions refusal (POD-5431)', () => {
+  it('persists the enqueue baseline and chaining needed to recover same-row edits after reload', async () => {
+    const entries: OutboxEntry[] = []
+    let publish: (size: number) => void = () => {}
+    let serial = 0
+    const base = { id: 'i-1', title: 'Accepted' }
+    const tx = createPoolTransactions({
+      userId: 'u-1',
+      outbox: { pending: () => entries, awaiting: () => [], deadLetters: () => [], subscribe: listener => { publish = listener; return () => {} } },
+      outcomes: () => () => {},
+      addressed: () => () => {},
+      mintId: () => asMutationId(`m-${++serial}`),
+      enqueue: async (kind, input, opts) => { entries.push({ kind, input, ...opts }); publish(entries.length) },
+    })
+    tx.bind({ truth: () => base, repaint: () => null })
+    await tx.write('issueUpdate', { id: 'i-1', patch: { title: 'First' } })
+    await tx.write('issueUpdate', { id: 'i-1', patch: { title: 'Second' } })
+    expect(entries[0]).toMatchObject({ baseline: rowFingerprint(base) })
+    expect(entries[0]?.chained).toBeUndefined()
+    expect(entries[1]).toMatchObject({ baseline: rowFingerprint(base), chained: true })
+    tx.dispose()
+  })
   it('rebases the refused change in the action that records the refusal, then announces it', async () => {
     let queue: OutboxEntry[] = []
     let outcome: (o: OutboxOutcome) => void = () => {}

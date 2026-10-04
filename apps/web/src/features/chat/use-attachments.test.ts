@@ -9,7 +9,8 @@
 import { asMachineId, asSessionId, type MachineId } from '@podium/model'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState<import('@/app/trpc').Trpc>
 import { useAttachments } from './use-attachments'
 
 const mutate = vi.fn()

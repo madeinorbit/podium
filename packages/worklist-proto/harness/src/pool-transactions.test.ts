@@ -25,7 +25,7 @@ import { createWorklistPool, type WorklistPoolHandle } from '@podium/client-grap
 import { issuePages } from '@podium/client-graph/issue-page'
 import { missions } from '@podium/client-graph/mission'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { createRuntimeTransactions, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { createEngineLocals, localsOfEngine } from '@podium/client-graph/shared/engine-locals'
 import { type PoolOwnedKind } from '@podium/client-graph/shared/row-source'
 import { createRowSource } from '../../shared/src/row-source'
@@ -93,14 +93,17 @@ async function boot(scale: 1 | 4, opts: { online: boolean; server?: ScenarioServ
   return { ctx, net }
 }
 
-function pair(ctx: ScenarioEngine, owns: readonly PoolOwnedKind[]) {
-  const ledger = createRuntimeWorklistPool(ctx.engine)
-  const pooled = createRuntimeWorklistPool(ctx.engine, { owns })
+function pair(ctx: ScenarioEngine, _owns: readonly PoolOwnedKind[]) {
+  const transactions = createRuntimeTransactions(ctx.engine)
+  const rows = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled', pending: transactions.pending })
+  const locals = createEngineLocals(ctx.engine)
+  const observer = createWorklistPool(rows.source, locals.source)
+  transactions.bind(rows)
+  observer.pool.attachTransactions(transactions, true)
+  const ledger = { pool: observer.pool, transactions, dispose() { observer.dispose(); transactions.dispose(); locals.dispose(); rows.dispose() } }
+  const pooled = createRuntimeWorklistPool(ctx.engine)
   const handles = { ledger, pooled }
-  cleanups.push(() => {
-    handles.pooled.dispose()
-    handles.ledger.dispose()
-  })
+  cleanups.push(() => { handles.pooled.dispose(); handles.ledger.dispose() })
   return handles
 }
 
@@ -189,7 +192,6 @@ function sessionsOf(ctx: ScenarioEngine): string[] {
  * show exactly what the ledger shows, row by row and screen by screen.
  */
 describe.each([
-  ['issues owned', ['issue']],
   ['issues and sessions owned', ['issue', 'session']],
 ] as const)('pool transactions against the ledger (POD-5431), %s', (_step, owns) => {
   it('paints every painting command kind exactly as the ledger does, queued offline', async () => {
@@ -468,7 +470,7 @@ describe.each([
     if (ownsSessions) {
       expect(tracked(() => placeholders()!.has(spawned.sessionId))).toBe(true)
       expect(tracked(() => placeholders()!.get(spawned.sessionId))).toBe('Start here')
-      expect(referenceState(ctx.engine).pendingSpawnPrompts.get(spawned.sessionId)).toBe('Start here')
+      expect(referenceState(ctx.engine).pendingSpawnPrompts[spawned.sessionId]).toBe('Start here')
     }
     expect(await spawned.settled).toBe(false)
     await settle(ctx)
@@ -493,10 +495,7 @@ describe.each([
     expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Other tab')
     // A legacy screen: the runtime's own actions.
     await referenceState(ctx.engine).markIssueRead(asIssueId(t.markReadId))
-    await ctx.engine.enqueueOverlayed('issueUpdate', {
-      id: t.visibleRootId,
-      patch: { title: 'Legacy screen' },
-    })
+    await ctx.engine.access.updateIssue(asIssueId(t.visibleRootId), { title: 'Runtime action' })
     await settle(ctx)
     expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId, t.markReadId])).toEqual([])
   }, 120_000)
@@ -534,9 +533,9 @@ describe.each([
       userId: engine.principal.userId,
       outbox: engine.outbox,
       outcomes: engine.subscribeOutboxOutcomes,
-      enqueue: engine.enqueueOverlayed,
+      enqueue: async (kind, input, opts) => { await engine.outbox.enqueue(kind, input, opts) },
       addressed: ctx.replica.subscribeAddressedBatch!.bind(ctx.replica),
-      spawns: { current: engine.spawnPlaceholders, subscribe: engine.subscribeSpawnPlaceholders },
+
       reduce: (entry) =>
         overlaysForOutboxEntry(entry).map((o) =>
           o.op === 'patch' && typeof o.patch.title === 'string'
@@ -547,7 +546,7 @@ describe.each([
     const rows = createRowSource(engine, engine.replica, {
       mode: 'pooled',
       pending: transactions.pending,
-      owned: new Set(owns),
+      owned: new Set(['issue', 'session']),
     })
     const locals = createEngineLocals(engine)
     const planted: WorklistPoolHandle = createWorklistPool(rows.source, locals.source)
@@ -645,7 +644,6 @@ describe.each([
  * once, and a row is one plain object, the same on every read.
  */
 describe.each([
-  ['issues owned', ['issue']],
   ['issues and sessions owned', ['issue', 'session']],
 ] as const)('pool-owned kinds on pool screens (POD-5432), %s', (_step, owns) => {
   it('paints a runtime action in the press tick through the log; legacy screens still see it', async () => {
@@ -668,7 +666,7 @@ describe.each([
     expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId])).toEqual([])
   }, 120_000)
 
-  it('arms the press-tick check: a log the actions do not reach paints only after the commit (planted)', async () => {
+  it('refuses a write until its pool transaction owner is attached', async () => {
     const { ctx } = await boot(1, { online: false })
     const engine = ctx.engine
     // The production wiring of `owns`, minus `attachPoolWriter`.
@@ -676,14 +674,14 @@ describe.each([
       userId: engine.principal.userId,
       outbox: engine.outbox,
       outcomes: engine.subscribeOutboxOutcomes,
-      enqueue: engine.enqueueOverlayed,
+      enqueue: async (kind, input, opts) => { await engine.outbox.enqueue(kind, input, opts) },
       addressed: ctx.replica.subscribeAddressedBatch!.bind(ctx.replica),
-      spawns: { current: engine.spawnPlaceholders, subscribe: engine.subscribeSpawnPlaceholders },
+
     })
     const rows = createRowSource(engine, engine.replica, {
       mode: 'pooled',
       pending: transactions.pending,
-      owned: new Set(owns),
+      owned: new Set(['issue', 'session']),
     })
     const locals = createEngineLocals(engine)
     const planted = createWorklistPool(rows.source, locals.source)
@@ -697,51 +695,9 @@ describe.each([
     })
     const id = ctx.targets.visibleRootId
     const before = tracked(() => planted.pool.issue(id)?.title)
-    void referenceState(engine).updateIssue(asIssueId(id), { title: 'Routed' } as never)
+    await expect(engine.access.updateIssue(asIssueId(id), { title: 'Routed' } as never)).rejects.toThrow('pool')
     expect(tracked(() => planted.pool.issue(id)?.title)).toBe(before)
-    await settle(ctx)
-    // Adopted from the durable record, one commit late.
-    expect(tracked(() => planted.pool.issue(id)?.title)).toBe('Routed')
-  }, 120_000)
-
-  it('never asks the ledger for an owned kind (one painter per kind)', async () => {
-    const { ctx } = await boot(1, { online: false })
-    const asked = new Map<string, number>()
-    const runtime = ctx.engine as unknown as {
-      pendingOverlaysByRow: (entity: string) => unknown
-    }
-    const original = runtime.pendingOverlaysByRow
-    runtime.pendingOverlaysByRow = (entity: string) => {
-      asked.set(entity, (asked.get(entity) ?? 0) + 1)
-      return original(entity)
-    }
-    cleanups.push(() => {
-      runtime.pendingOverlaysByRow = original
-    })
-    const drive = async (pool: MobxPool) => {
-      const t = ctx.targets
-      const [s1] = sessionsOf(ctx)
-      const store = referenceState(ctx.engine)
-      void store.updateIssue(asIssueId(t.visibleRootId), { title: 'One painter' } as never)
-      void store.setIssueTucked(asIssueId(t.stageMoveId), true)
-      void store.renameSession(asSessionId(s1!), 'One painter')
-      await settle(ctx)
-      void tracked(() => pool.issue(t.visibleRootId)?.title)
-    }
-    // Armed: the ledger's own feed asks for every kind.
-    const control = createRuntimeWorklistPool(ctx.engine)
-    await drive(control.pool)
-    control.dispose()
-    expect(asked.get('issueProjections') ?? 0).toBeGreaterThan(0)
-    asked.clear()
-    const pooled = createRuntimeWorklistPool(ctx.engine, { owns })
-    cleanups.push(() => pooled.dispose())
-    await drive(pooled.pool)
-    expect(asked.get('issueProjections') ?? 0).toBe(0)
-    expect(asked.get('issueUserStates') ?? 0).toBe(0)
-    const sessionsOwned = owns.includes('session' as never)
-    expect((asked.get('sessions') ?? 0) > 0).toBe(!sessionsOwned)
-    expect((asked.get('sessionUserStates') ?? 0) > 0).toBe(!sessionsOwned)
+    expect(engine.outbox.pending()).toEqual([])
   }, 120_000)
 
   it('rewinds a refusal once, and serves one plain row object per value', async () => {

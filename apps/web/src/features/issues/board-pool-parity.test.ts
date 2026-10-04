@@ -1,6 +1,8 @@
-import { withKeyedInputs } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+
 import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState<import('@/app/trpc').Trpc>
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { sessionViews } from '@podium/client-core/session-values'
 import { LOADING } from '@podium/client-graph'

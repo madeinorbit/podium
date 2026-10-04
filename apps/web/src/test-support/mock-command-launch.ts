@@ -1,3 +1,6 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { normalizedFixtureIssues } from './normalized-issues'
 import { isDeepStrictEqual } from 'node:util'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
@@ -13,7 +16,7 @@ import {
   readOpen,
   readPalette,
 } from '@/app/command-launch-readers'
-import { useReplicaIssues, useRuntimeSelector } from '@/app/store'
+import { useRuntimeSelector } from '@/app/store'
 
 const EMPTY_SESSIONS: Store['sessions'] = []
 const EMPTY_REPOS: Store['repos'] = []
@@ -26,8 +29,10 @@ const EMPTY_SETTINGS = { repoOrder: [] }
  * Runtime attachment, LOADING and publication coverage uses the separate
  * command-launch-data.pool suite with a real StoreProvider. */
 function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
-  const state = useRuntimeSelector((value) => value)
-  const issues = useReplicaIssues()
+  const state = useRuntimeSelector((value) => value) as Store
+  const issues = state.replica && state.issueProjections
+    ? allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates ?? [])
+    : normalizedFixtureIssues(state)
   const fixture = useMemo(() => {
     let current: Store
     let previousRows: unknown
@@ -64,7 +69,7 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
           previousRows = rows
         }
         if (!source) {
-          const owner = {
+          const owner = withKeyedInputs({
             getSnapshot: () => current,
             subscribe(wake: () => void) {
               listeners.add(wake)
@@ -72,7 +77,7 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
                 listeners.delete(wake)
               }
             },
-          } as unknown as ClientRuntime
+          }) as unknown as ClientRuntime
           source = new CommandLaunchSource(pool, owner)
           pool.sources.register(COMMAND_ENTITIES, source)
         } else for (const wake of listeners) wake()

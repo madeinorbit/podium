@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
@@ -11,11 +12,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import {
-  createClientRuntime,
-  type OverlayTarget,
-  type PendingOverlay,withKeyedInputs 
-} from '@podium/client-core/engine'
+import { createClientRuntime, type OverlayTarget, type PendingOverlay } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   createKernelReplica,

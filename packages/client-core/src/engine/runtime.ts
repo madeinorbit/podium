@@ -627,9 +627,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /**
    * Route every queued action through the pool's transaction log (POD-5432,
    * plan step 5): the log paints the pool's rows in the press's action, then
-   * enqueues through {@link enqueueOverlayed}, so the ledger still paints the
+   * enqueues through {@link write}, so the ledger still paints the
    * legacy screens from the same record. One writer per runtime; the returned
-   * stop detaches it. Direct callers of `enqueueOverlayed` (the log itself, a
+   * stop detaches it. Direct callers of `write` (the log itself, a
    * harness) are not routed.
    */
   readonly attachPoolWriter = (writer: PoolWriter): (() => void) => {
@@ -1669,7 +1669,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // separate by construction (they fire after the batch closed).
       batch: (fn) => this.batch(fn),
       onLocals: (keys, listener) => this.onLocals(keys, listener),
-      enqueueOverlayed: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
+      write: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
         this.poolWriter !== null
           ? this.poolWriter.write(kind, input)
           : Promise.reject(new Error('Pool transactions are not attached')),

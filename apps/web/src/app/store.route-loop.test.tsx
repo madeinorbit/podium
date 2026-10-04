@@ -82,7 +82,7 @@ vi.mock('./trpc', () => ({
 }))
 vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m }))
 
-const { StoreProvider, useStore } = await import('./store')
+const { StoreProvider, useRuntimeSelector } = await import('./store')
 
 let renderCount = 0
 let snapshot: {

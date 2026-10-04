@@ -1,7 +1,7 @@
+import { issueActivityAt } from '@podium/client-graph/diagnostics/reference-state'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import {
   type EngineState,
-  issueActivityAt,
   knownTabIdsForWorkspace,
   loadingNavigationProvider,
   NAVIGATION_LOADING,
@@ -117,7 +117,7 @@ describe('web pool navigation', () => {
       sessions,
       pendingSpawnIds: new Set(['spawn']),
       fileTabs,
-    } as unknown as EngineState
+    } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
     const keys: WorkspaceKey[] = ['mission:root', 'mission:other', 'mission:absent']
     const expected = keys.map((key) => [...knownTabIdsForWorkspace(legacy, key)].sort())
     const load = vi.fn((_kind: string, id: string) => rows.find((row) => row.id === id))
@@ -221,7 +221,7 @@ describe('web pool navigation', () => {
       sessions,
       pendingSpawnIds: new Set(),
       fileTabs: [],
-    } as unknown as EngineState
+    } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
     missionLegacyStats.enable()
     missionLegacyStats.reset()
     expect([...knownTabIdsForWorkspace(state, 'mission:root')]).toEqual([
@@ -328,7 +328,7 @@ describe('web pool navigation', () => {
           issueProjections: rows,
           selectedIssueId: id,
           selectedWorktree: '/repo',
-        } as unknown as EngineState
+        } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
         expect(
           tracked(() => workspaceKeyForState({ ...st, navigation: provider })),
           String(id),
@@ -339,7 +339,7 @@ describe('web pool navigation', () => {
         selectedIssueId: 'child',
         selectedWorktree: '/repo',
         navigation: provider,
-      } as unknown as EngineState
+      } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
       expect(tracked(() => workspaceKeyForState(selected))).toBe('mission:root')
       pool.apply({
         type: 'update',

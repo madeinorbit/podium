@@ -19,7 +19,8 @@ import { renderHook } from '@testing-library/react'
 import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState<import('@/app/trpc').Trpc>
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
 import { type UseChatSendOptions, type UseChatSendResult, useChatSend } from './use-chat-send'
 
@@ -34,18 +35,19 @@ const chatSend = outboxChatSendActions(() => ({
 /** The synced message records the hook reads (POD-4764) — set per test. */
 let messageRecords: MessageRecordWire[] = []
 const storeListeners = new Set<() => void>()
-const store: UseChatSendOptions['store'] = {
-  getSnapshot: () =>
-    ({
-      messageRecords,
-      outboxDeadLetters: [],
-      chatSendsFor: chatSend.chatSendsFor,
-    }) as unknown as ReturnType<UseChatSendOptions['store']['getSnapshot']>,
-  subscribe: (listener) => {
-    storeListeners.add(listener)
-    return () => storeListeners.delete(listener)
-  },
+const subscribeRecords = (listener: () => void) => {
+  storeListeners.add(listener)
+  return () => { storeListeners.delete(listener) }
 }
+vi.mock('./use-chat-context', () => ({
+  useChatConversationPorts: () => ({
+    records: { getSnapshot: () => messageRecords, subscribe: subscribeRecords },
+    outbox: { held: chatSend.chatSendsFor, subscribe: subscribeRecords },
+    held: chatSend.chatSendsFor,
+    ready: true,
+    draft: '',
+  }),
+}))
 const queuedRecord = (id: string, body: string): MessageRecordWire => ({
   id,
   sessionId: asSessionId('s-1'),
@@ -70,7 +72,6 @@ function opts(
 ): UseChatSendOptions {
   return {
     sessionId: asSessionId('s-1'),
-    store,
     trpc: {
       sessions: { sendText: { mutate: sendText } },
       messages: { cancel: { mutate: vi.fn() }, dismissNotice: { mutate: vi.fn() } },

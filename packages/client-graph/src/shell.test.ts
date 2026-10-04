@@ -1,4 +1,5 @@
-import { withKeyedInputs } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+
 import { asSessionId } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'

@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Synthetic rows only. Used by the focused tests and browser fixture. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
@@ -9,7 +10,7 @@ import { shipLaneId, type ShipOrderProjection, type ShipLaneProjection } from '@
 import { MobxPool } from '../src/pool'
 import { SHELL_ENTITIES, SHELL_SUMMARIES } from '../src/shell-schema'
 import { ShellSource } from '../src/shell-source'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 export const SHELL_NOW = Date.parse('2026-10-01T14:00:00Z')
 export function shellFixture(count = 40) {

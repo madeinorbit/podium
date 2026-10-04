@@ -342,8 +342,7 @@ describe('mobile pool-only worklist regressions', () => {
 
     let action!: Promise<void>
     await act(async () => {
-      action = state
-        .referenceState(runtime!)
+      action = referenceState(state.runtime!)
         .updateIssue(root.id, { title: 'Mobile optimistic title' })
       await Promise.resolve()
     })
@@ -361,13 +360,13 @@ describe('mobile pool-only worklist regressions', () => {
     })
     checkpoint('server echo')
 
-    const clockBefore = state.referenceState(runtime!).coarseNow
+    const clockBefore = referenceState(state.runtime!).coarseNow
     expect(ticks.length).toBeGreaterThan(0)
     now.mockReturnValue(corpus.fixedNow + 60_000)
     await act(async () => {
       for (const tick of ticks) tick()
     })
-    expect(state.referenceState(runtime!).coarseNow).toBeGreaterThan(clockBefore)
+    expect(referenceState(state.runtime!).coarseNow).toBeGreaterThan(clockBefore)
     checkpoint('real idle clock callback')
 
     const before = state.runtime

@@ -1,4 +1,5 @@
-import { withKeyedInputs } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 // @vitest-environment happy-dom

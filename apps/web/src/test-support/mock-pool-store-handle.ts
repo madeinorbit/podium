@@ -1,6 +1,8 @@
-import { withKeyedInputs, workspaceKeyForState } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { workspaceKeyForState } from '@podium/client-core/engine'
 import { vi } from 'vitest'
-import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
+import { useRuntimeSelector as selectLocals } from '@/app/store'
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
 

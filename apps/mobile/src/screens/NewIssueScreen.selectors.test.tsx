@@ -1,10 +1,11 @@
-import { withKeyedInputs } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { readStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, StoreStatsProfiler } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { createSubscriptionStore } from '@podium/client-core/store'
+import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asUserId, type GitRepositoryWire } from '@podium/model'

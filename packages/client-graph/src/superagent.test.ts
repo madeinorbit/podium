@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { IssueEventWire } from '@podium/model'
@@ -10,7 +11,7 @@ import { NOTICE_ENTITIES } from './notice-schema'
 import { NoticeSource, NOTICE_SOURCE_KEY } from './notice-source'
 import { LOADING } from './worklist/rollup'
 import { checkSuperagent } from '../diagnostics/superagent-check'
-import { withKeyedInputs } from '@podium/client-core/engine'
+
 
 const dispose: (() => void)[] = []
 afterEach(() => { for (const stop of dispose.splice(0)) stop() })

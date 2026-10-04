@@ -1,3 +1,4 @@
+import { watchReference } from '@podium/client-graph/diagnostics/reference-state'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../scenarios'
 /**
@@ -211,14 +212,14 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
     opts.feed ?? ((c: ScenarioEngine) => createRowSource(c.engine, c.replica, { mode }))
 
   let publications = 0
-  let offEngine = ctx.engine.subscribe(() => {
+  let offEngine = watchReference(ctx.engine, () => {
     publications += 1
   })
   let feed = makeFeed(ctx)
   let buffer: RowSourceEvent[] = []
   let offFeed = feed.source.subscribe((e) => buffer.push(e))
   const bind = (): void => {
-    offEngine = ctx.engine.subscribe(() => {
+    offEngine = watchReference(ctx.engine, () => {
       publications += 1
     })
     feed = makeFeed(ctx)

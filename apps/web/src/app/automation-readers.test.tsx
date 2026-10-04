@@ -138,10 +138,10 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
     { wrapper: Wrapper },
   )
   await act(async () => {
-    await result.current.referenceState(owner).refreshRepos()
+    await referenceState(result.current.owner).refreshRepos()
   })
   await waitFor(() => expect(result.current.targets.pending).toBe(0))
-  const state = result.current.referenceState(owner)
+  const state = referenceState(result.current.owner)
   expect(result.current.targets.choices).toEqual(
     automationTargetChoices(
       state.repos,
@@ -221,7 +221,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   ).result
   await act(async () => {
     fixture.publishMachines()
-    await result.current.referenceState(owner).refreshRepos()
+    await referenceState(result.current.owner).refreshRepos()
   })
   await waitFor(() =>
     expect(

@@ -195,7 +195,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     // Reaching the hub through the store snapshot, not through a module import:
     // the hub under test must be the one the provider built.
     const store = useStoreHandle<MobileTrpc>()
-    hub = store.getSnapshot().hub as unknown as { emit(event: string, ...payload: unknown[]): void }
+    hub = store.access.hub as unknown as { emit(event: string, ...payload: unknown[]): void }
     return (
       <>
         {!fixture.attachRuntime && <PoolReady />}

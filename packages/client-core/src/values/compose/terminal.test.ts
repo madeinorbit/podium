@@ -1,6 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../../replica/issue-view-models'
+import type { IssueViewModel } from '../issue-type'
 import type { SessionView } from '../../session-values'
 // POD-1503: elevateCoordinatorSession moved to F3 (session-urgency) — it is an
 // ordering question, not a terminal one. Its tab-strip behaviour is still this

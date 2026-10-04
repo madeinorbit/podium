@@ -147,7 +147,7 @@ function harness(
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    enqueueOverlayed: (kind: keyof OutboxKinds, input: unknown) => queued.push({ kind, input }),
+    write: (kind: keyof OutboxKinds, input: unknown) => queued.push({ kind, input }),
     revealFileTab: vi.fn(),
     recordRecentFile: vi.fn(),
     spawnDraftAgent: vi.fn(() => ({ sessionId, issueId: asIssueId('issue-1') })),

@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 
 import type { GitRepositoryWire } from '@podium/model'
@@ -54,8 +55,6 @@ function metered(rt: Runtime): { view: Runtime; meter: Meter } {
   }
   const view = Object.create(rt) as Runtime
   Object.assign(view, {
-    getSnapshot: read(rt.getSnapshot),
-    subscribe: (listener: () => void) => rt.subscribe(woken(listener)),
     readLocal: read(rt.readLocal),
     listIds: read(rt.listIds),
     listRow: read(rt.listRow),
@@ -173,8 +172,8 @@ describe('keyed adapter inputs (POD-5433)', () => {
       try {
         // Focus is local-only (a dock tab replicates through the outbox, which
         // moves the header's outbox count).
-        const next = f.rt.access.focusedPane === 'A' ? 'B' : 'A'
-        const cost = await costOf(f, () => runInAction(() => f.rt.access.setFocusedPane(next)))
+        const next = referenceState(f.rt).focusedPane === 'A' ? 'B' : 'A'
+        const cost = await costOf(f, () => runInAction(() => referenceState(f.rt).setFocusedPane(next)))
         expect(cost).toEqual(zero(cost))
       } finally {
         f.dispose()
@@ -185,7 +184,7 @@ describe('keyed adapter inputs (POD-5433)', () => {
       const f = await fixture(scale)
       try {
         const cost = await costOf(f, () =>
-          f.rt.access.setSessionDraft(asSessionId(f.session), "hello"),
+          referenceState(f.rt).setSessionDraft(asSessionId(f.session), "hello"),
         )
         expect(cost).toEqual({ ...zero(cost), chatContext: cost.chatContext })
         expect(cost.chatContext).toBeGreaterThan(0)
