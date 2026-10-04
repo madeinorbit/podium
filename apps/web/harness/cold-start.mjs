@@ -407,7 +407,12 @@ try {
         activeVariant=variant
         activeQuery=variant==='production'?query:['coldStartTrace=1',variantQueries[variant],query].filter(Boolean).join('&')
         if(i!==0 || variant!==order[0])f=fixture=await makePage()
-        await startup(f,'app-cold-start',i===samples);await startup(f,'app-warm-start',i===samples)
+        await startup(f,'app-cold-start',i===samples)
+        // First paint may precede eager cache durability. Verify every cold
+        // snapshot before navigation can interrupt its native transaction.
+        await population(f.page)
+        result.actions.at(-1).population={...result.population};save()
+        await startup(f,'app-warm-start',i===samples)
         await population(f.page)
         if(i!==samples || variant!==order.at(-1))await f.context.close()
       }

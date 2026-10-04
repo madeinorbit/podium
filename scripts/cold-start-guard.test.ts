@@ -21,6 +21,7 @@ function run(ms: number, patch: Record<string, unknown> = {}) {
     actions: Array.from({ length: 8 }, (_, index) => ({
       action: 'app-cold-start', startedAt: `2026-10-04T12:${String(index).padStart(2, '0')}:00.000Z`,
       profiled: false, inputToPaintMs: ms,
+      population: { issueProjection: 4_867, session: 4_304 },
     })),
     ...patch,
   }
@@ -64,6 +65,7 @@ describe('cold startup admission', () => {
       { lease: { name: 'meter:flatblock' } }, { actions: run(2_400).actions.slice(0, 7) },
       { paired: false }, { lease: { name: 'bench:flatblock', cohort: 'other-run' } },
       { harnessSha256: 'different-collector' }, { build: { sourceSha: '7654321', bundleVersion: 'stale' } },
+      { actions: run(2_400).actions.map(row => ({ ...row, population: {} })) },
     ]) expect(compare(run(2_500), run(2_400, patch)).status).not.toBe(0)
   })
 

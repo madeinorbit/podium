@@ -79,6 +79,9 @@ def cold_samples(paths):
         for row in run['actions']:
             if row['action'] != 'app-cold-start' or row.get('profiled'):
                 continue
+            count = row.get('population', {})
+            if max(count.get('issue', 0), count.get('issueProjection', 0)) < expected['syntheticIssues'] or count.get('session', 0) < expected['syntheticSessions']:
+                raise ValueError(f'{path}: every cold context must commit the complete corpus before reload')
             value = row.get('inputToPaintMs')
             if not isinstance(value, (int, float)) or not 0 < value < float('inf'):
                 raise ValueError(f'{path}: invalid Paint sample')
