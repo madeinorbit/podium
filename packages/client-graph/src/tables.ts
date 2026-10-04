@@ -53,7 +53,7 @@
  * with no relations: they resolve from scratch.
  */
 
-import { getAtom, isObservableMap, type ObservableMap, observable } from 'mobx'
+import { getAtom, type IAtom, isObservableMap, type ObservableMap, observable } from 'mobx'
 import { debugName } from './debug-name'
 import type { RelationMaintenance } from './relations'
 import type { Residency } from './residency'
@@ -187,7 +187,7 @@ export function put(
         ['id', 'prefix', 'repoPath'], read, `repo:${id}`,
         // row(repo) tracks presence separately. Its existing value atom can
         // serve the most common field without adding a tracking object.
-        (key) => key === 'prefix' && table.has(id) ? getAtom(table, id) : undefined,
+        (key) => key === 'prefix' && table.has(id) ? getAtom(table, id) as IAtom : undefined,
       )
       repoInputs.set(inputs.row, inputs)
       target.write.repo.set(id, inputs.row)
