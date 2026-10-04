@@ -46,8 +46,9 @@ Production joins and expected outputs are unchanged. The seven-file focused retr
 limit: UTC01:58:33.888–02:18:39.429Z, exit124, endload17.60, with shared
 load31–34 during the run. Inbox completes14 green assertions, including its
 complete frozen bank; the complete seven-file result is uncollected. WorkScreen
-also logs green menu/click budgets and1xpaint0/1 before timeout. No complete
-green is claimed. A later SSH banner exchange times out before the next
+also logs green menu/click budgets and1xpaint0/1 before timeout. Both repaired files finish green: session-homes4assertions, including4,304
+corpus routes, andinbox14assertions. No complete seven-file green is claimed.
+A later SSH banner exchange times out before the next
 remote patch can run; further checks wait for host recovery and admission.
 
 The two converted snapshot test keys were mechanically renamed to match their
@@ -155,13 +156,27 @@ All validation runs are foreground, focused and on flatblock in its issue test
 checkout with Bun1.4.2 and the checkout's `.toolchain`. Every run has a WIP
 commit, PID and UTC bounds. No full suite, stash, global cache deletion or
 unrecorded process termination is used. While POD-5407 holds the bench lease,
-new runs require fresh one-minute load below8.
+new runs initially required fresh one-minute load below8. At02:26:35Z the
+coordinator imposed a stricter quiet window after the shared host reached
+22of23GB and a capture was aborted: no new validation of any kind until
+POD-5407 explicitly releases the bench, regardless of load.
 
-The last filtered mobile/e2e compiler is green:16 successful tasks,14 cached,
-and216 e2e imports resolve; UTC00:57:08.588–00:57:22.790Z. Explicit92-file phone
-and7-file graph lint passed. The fixture/source follow-up compiler and lint are
-pending. Production Pixel7 screenshots and a startup reader-counter fault are
-also pending; this report makes no physical-device claim.
+The latest filtered mobile/e2e compiler is green at source`52b7940f9f`,
+flatblock WIP`e2bd21033e20dc5d99e80cc6c2453f333d215f29`,
+UTC02:29:11.994–02:30:08.336Z, load5.64→7.01:16successful tasks,
+no cache hits or bypasses, and216 e2e runtime imports resolve. Focused follow-up
+lint is green for8 explicit phone files and2 graph files,
+UTC02:27:43.829–02:27:45.669Z atload6.35. Biome's two formatting-only changes
+were mirrored back to the issue branch. Earlier92-file phone/7-file graph lint
+and compiler evidence remains recorded on the issue.
+
+The stricter quiet-window mail was read here after those runs had finished;
+exact timestamps were sent to POD-4286 and POD-5407 for capture-overlap exclusion.
+A checkout-scoped process audit finds no surviving Node/Bun/timeout validation
+process. No new run starts until explicit bench release. Production Pixel7
+screenshots/counters, its actual startup-selector negative control, the remaining
+fixture collection and strict structural rerun are prepared and held. This
+report makes no physical-device claim.
 
 The old670-fingerprint work bank's optimisticPress and seed3 pending mark-read
 hashes vary with wall-clock queuedAt. The original independent controls fail
