@@ -338,11 +338,18 @@ try {
   for(let i=0;i<180;i++) { if(server.exitCode!==null) throw Error(`Harness exited ${server.exitCode}: ${serverLog.toString().slice(-2000)}`);try{if((await fetch(`${base}/health`)).ok)break}catch{};await pause(500) }
   const auth=await (await fetch(`${base}/auth/status`)).json();memberId=auth.memberId
   prepareExtras()
-  const repos=await rpc('repos.list'),repoPath=repos.find(x=>x.includes('zz-podium-e2e-repo-'))??repos[0]
+  let repoPath
   for(let attempt=0;attempt<120;attempt++) {
     const machines=await rpc('machines.list')
     if(machines.some(machine=>machine.inventory?.agents?.some(agent=>agent.kind==='claude-code' && agent.installed===true)))break
     if(attempt===119)throw Error('Harness agent inventory did not become ready')
+    await pause(250)
+  }
+  for(let attempt=0;attempt<120;attempt++) {
+    const repos=await rpc('repos.list')
+    repoPath=repos.find(x=>x.includes('zz-podium-e2e-repo-'))??repos[0]
+    if(repoPath)break
+    if(attempt===119)throw Error('Harness repository did not become ready')
     await pause(250)
   }
   controls=[]
