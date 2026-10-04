@@ -1,0 +1,218 @@
+{
+  "issue": "POD-5121",
+  "date": "2026-10-05",
+  "host": "flatblock",
+  "bun": "1.4.2",
+  "baselineBundle": {
+    "source": "cb8cf8eaac18659b98a25b8bb5841d187e3a1cae",
+    "clients": {
+      "web": {
+        "jsFiles": 234,
+        "rawBytes": 6454443,
+        "brotliBytes": 1680386,
+        "gzipBytes": 1963912,
+        "stamp": {
+          "wireSchemaDigest": "cb9f0786c0a97c2c",
+          "wireVersion": 4,
+          "appVersion": "dev+cb8cf8e",
+          "sourceSha": "cb8cf8e",
+          "bundleVersion": "bundle+B4krrcny"
+        }
+      },
+      "mobile": {
+        "jsFiles": 14,
+        "rawBytes": 5763834,
+        "brotliBytes": 1120974,
+        "gzipBytes": 1462765,
+        "stamp": {
+          "wireSchemaDigest": "cb9f0786c0a97c2c",
+          "wireVersion": 4,
+          "appVersion": "dev+cb8cf8e",
+          "sourceSha": "cb8cf8e",
+          "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+        }
+      }
+    }
+  },
+  "candidateBundle": {
+    "source": "4544ac84c5e9f1a5952f4e25ba20b0e90134066b",
+    "clients": {
+      "web": {
+        "jsFiles": 234,
+        "rawBytes": 6454361,
+        "brotliBytes": 1680488,
+        "gzipBytes": 1963971,
+        "stamp": {
+          "wireSchemaDigest": "cb9f0786c0a97c2c",
+          "wireVersion": 4,
+          "appVersion": "dev+4544ac8",
+          "sourceSha": "4544ac8",
+          "bundleVersion": "bundle+DC02WMoF"
+        }
+      },
+      "mobile": {
+        "jsFiles": 14,
+        "rawBytes": 5765020,
+        "brotliBytes": 1120860,
+        "gzipBytes": 1462824,
+        "stamp": {
+          "wireSchemaDigest": "cb9f0786c0a97c2c",
+          "wireVersion": 4,
+          "appVersion": "dev+4544ac8",
+          "sourceSha": "4544ac8",
+          "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+        }
+      }
+    }
+  },
+  "bundleDelta": {
+    "web": {
+      "jsFiles": 0,
+      "rawBytes": -82,
+      "brotliBytes": 102,
+      "gzipBytes": 59
+    },
+    "mobile": {
+      "jsFiles": 0,
+      "rawBytes": 1186,
+      "brotliBytes": -114,
+      "gzipBytes": 59
+    }
+  },
+  "bundleMethod": "Sum every production *.js and its emitted .br/.gz siblings. Exclude source maps, HTML, CSS and other static assets. Both builds use bun run build:clients. No build times are reported.",
+  "renderCounts": {
+    "before": [
+      {
+        "scale": 1,
+        "issues": 4887,
+        "chips": 1,
+        "reads": 1,
+        "rowCalls": 1,
+        "enumerations": 0,
+        "redraws": 1
+      },
+      {
+        "scale": 4,
+        "issues": 19548,
+        "chips": 1,
+        "reads": 1,
+        "rowCalls": 1,
+        "enumerations": 0,
+        "redraws": 1
+      }
+    ],
+    "after": [
+      {
+        "scale": 1,
+        "issues": 4887,
+        "chips": 1,
+        "reads": 1,
+        "rowCalls": 1,
+        "enumerations": 0,
+        "redraws": 1
+      },
+      {
+        "scale": 4,
+        "issues": 19548,
+        "chips": 1,
+        "reads": 1,
+        "rowCalls": 1,
+        "enumerations": 0,
+        "redraws": 1
+      }
+    ],
+    "same": true
+  },
+  "renderMethod": "One actual IssueChipLiveness anchor render in happy-dom per scale, 4,887 and 19,548 resident synthetic issues. The allowed one-time resident reference-index attachment precedes the census. These are counts, not browser timings.",
+  "focusedTests": {
+    "source": "001c10d1ee",
+    "files": [
+      {
+        "path": "apps/web/src/components/RefMiniview.test.tsx",
+        "tests": 44
+      },
+      {
+        "path": "apps/web/src/lib/issue-reference-pool.test.ts",
+        "tests": 6
+      },
+      {
+        "path": "apps/web/src/features/chat/IssueChipLiveness.pool.test.tsx",
+        "tests": 3
+      },
+      {
+        "path": "apps/web/src/lib/issue-chip-liveness.test.ts",
+        "tests": 4
+      },
+      {
+        "path": "apps/web/src/features/chat/IssueChipLiveness.fallback.test.tsx",
+        "tests": 1
+      },
+      {
+        "path": "apps/web/src/components/IssueReference.test.tsx",
+        "tests": 2
+      },
+      {
+        "path": "apps/mobile/src/components/RefChip.test.tsx",
+        "tests": 4
+      },
+      {
+        "path": "packages/worklist-proto/harness/src/oracle/chip-check.test.ts",
+        "tests": 2
+      }
+    ],
+    "passed": 66,
+    "command": "bun run test:file -- <the eight files listed>",
+    "suiteRun": false
+  },
+  "typecheck": {
+    "source": "5cf27d0735",
+    "filters": [
+      "@podium/web",
+      "@podium/mobile",
+      "@podium/client-core",
+      "@podium/client-graph",
+      "@podium/worklist-proto"
+    ],
+    "successfulTasks": 17,
+    "status": "passed",
+    "command": "bun run typecheck -- --filter=@podium/web --filter=@podium/mobile --filter=@podium/client-core --filter=@podium/client-graph --filter=@podium/worklist-proto"
+  },
+  "lint": {
+    "source": "6126d505a8",
+    "files": 10,
+    "status": "passed",
+    "warnings": 21,
+    "note": "Existing noNonNullAssertion style warnings; no errors."
+  },
+  "negativeControls": {
+    "scans": "Extra reference read, row read and table walk failed the 1x render count assertion.",
+    "label": "Incorrect accessible label failed the 1x rendered-label assertion.",
+    "binding": "Selecting session references failed the issue-only subscription assertion.",
+    "restored": true
+  },
+  "poolSnapshots": {
+    "baseline": "d55790cc22",
+    "fingerprintsChanged": false,
+    "note": "Existing frozen fingerprints retained; only the describe-name prefix changes. All phases pass at 1x and 4x."
+  },
+  "rolloutGate": "Operator waived the soak gate in the coordinator notes of 2026-10-05.",
+  "previousRetirement": {
+    "switchAndLegacyHook": "4bbd2ac0bd",
+    "settingsKey": "32b0fdc032",
+    "mobile": "RefChip already delegates directly to usePoolRefChip; no mobile source change needed."
+  },
+  "removed": [
+    "Whole-list issueReferenceSignature, issueReferenceLookup and decorateIssueRefAnchors",
+    "Legacy chip comparator and live replay with their dedicated tests",
+    "Legacy scan metrics and chip comparison reports",
+    "Legacy arms in chip browser fixtures",
+    "Stale Turbo replay input, explicitly cleared by the coordinator"
+  ],
+  "retained": [
+    "Per-reference pool projections and DOM subscriptions",
+    "LOADING and batched cold-reference loading",
+    "DOM node/selection preservation tests",
+    "Resident-only bounded-work coverage and unchanged frozen pool fingerprints"
+  ],
+  "validationScope": "Code gates and bundle comparison precede rebasing onto the current integration tip. The later one-line Turbo deletion removes an already-absent file and does not change the TypeScript program or runtime source. No operator server or daemon was changed."
+}

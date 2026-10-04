@@ -164,7 +164,6 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/diagnostics/issue-chips-replay.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/work-sections.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/podium-route.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/screening.ts",
