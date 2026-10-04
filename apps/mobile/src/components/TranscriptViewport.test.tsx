@@ -5,6 +5,7 @@ import { TranscriptViewport } from './TranscriptViewport'
 
 let viewportHeight = 400
 let heights = new Map<string, number>()
+let observers: Array<{ notify: () => void; targets: Set<Element> }> = []
 const keys = Array.from({ length: 12 }, (_, index) => `row-${index}`)
 const rect = (top: number, height: number) =>
   ({
@@ -22,6 +23,18 @@ const rect = (top: number, height: number) =>
 beforeEach(() => {
   viewportHeight = 400
   heights = new Map()
+  observers = []
+  vi.stubGlobal('ResizeObserver', class {
+    targets = new Set<Element>()
+    constructor(callback: ResizeObserverCallback) {
+      observers.push({
+        targets: this.targets,
+        notify: () => callback([], this as unknown as ResizeObserver),
+      })
+    }
+    observe(element: Element) { this.targets.add(element) }
+    disconnect() { this.targets.clear() }
+  })
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (
     this: HTMLElement,
   ) {
@@ -60,6 +73,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 function content(
@@ -85,17 +99,26 @@ function read(scroller: HTMLElement, top: number): void {
   fireEvent.scroll(scroller)
 }
 
+function resized(): void {
+  act(() => {
+    for (const observer of observers) if (observer.targets.size) observer.notify()
+  })
+}
+
 describe('phone web viewport', () => {
   it('retains the latest reader position through loading and actual prepend commits', () => {
     const mode = vi.fn()
     const { getByTestId, container, rerender } = render(content(keys, { onFollowChange: mode }))
+    resized()
     const scroller = getByTestId('transcript-scroller')
     expect(scroller.scrollTop).toBe(840)
     act(() => read(scroller, 80))
     rerender(content(keys, { loadingOlder: true, onFollowChange: mode }))
+    resized()
     act(() => read(scroller, 320))
     const row = container.querySelector('[data-row-key="row-3"]')!
     rerender(content(['older-one', 'older-two', ...keys], { onFollowChange: mode }))
+    resized()
     expect(scroller.scrollTop).toBe(520)
     expect(row.getBoundingClientRect().top).toBe(-20)
     expect(container.querySelector('[data-row-key="row-3"]')).toBe(row)
@@ -103,10 +126,12 @@ describe('phone web viewport', () => {
   })
   it('does not trim or replace a loaded message when live rows arrive', () => {
     const { container, getByTestId, rerender } = render(content())
+    resized()
     const scroller = getByTestId('transcript-scroller')
     act(() => read(scroller, 320))
     const row = container.querySelector('[data-row-key="row-3"]')!
     rerender(content([...keys, ...Array.from({ length: 400 }, (_, index) => `new-${index}`)]))
+    resized()
     expect(scroller.scrollTop).toBe(320)
     expect(container.querySelector('[data-row-key="row-3"]')).toBe(row)
     expect(container.querySelectorAll('[data-block]')).toHaveLength(413)

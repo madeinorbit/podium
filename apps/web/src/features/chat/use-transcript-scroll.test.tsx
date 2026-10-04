@@ -1,5 +1,5 @@
 import { asSessionId } from '@podium/model'
-import { act, useRef } from 'react'
+import { act, type ReactNode, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
@@ -96,6 +96,12 @@ function scrollTo(offset: number): void {
   })
 }
 
+function renderHarness(node: ReactNode): void {
+  act(() => root.render(node))
+  // The browser delivers the initial/change observation after layout.
+  resize()
+}
+
 function resize(): void {
   act(() => {
     for (const observer of observers) if (observer.targets.size > 0) observer.notify()
@@ -170,8 +176,29 @@ afterEach(() => {
 })
 
 describe('transcript scrolling', () => {
+  it('opens and reconciles new row identities without reading geometry during a commit', () => {
+    const height = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+    const viewportReads = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    act(() => root.render(<Harness />))
+    expect(height).not.toHaveBeenCalled()
+    expect(viewportReads).not.toHaveBeenCalled()
+    expect(bounds).not.toHaveBeenCalled()
+    resize()
+    expect(scroller().scrollTop).toBe(840)
+    height.mockClear()
+    viewportReads.mockClear()
+    bounds.mockClear()
+    act(() => root.render(<Harness keys={[...held]} />))
+    expect(height).not.toHaveBeenCalled()
+    expect(viewportReads).not.toHaveBeenCalled()
+    expect(bounds).not.toHaveBeenCalled()
+    resize()
+    expect(scroller().scrollTop).toBe(840)
+  })
+
   it('does not request history from a browser clamp after a page becomes short', () => {
-    act(() => root.render(<Harness moreAbove />))
+    renderHarness(<Harness moreAbove />)
     scrollTo(320)
     expect(loadOlder).not.toHaveBeenCalled()
     act(() => {
@@ -203,20 +230,20 @@ describe('transcript scrolling', () => {
           )
         }
       }
-      act(() => root.render(<Harness keys={keys} moreAbove />))
+      renderHarness(<Harness keys={keys} moreAbove />)
       expect(scroller().scrollHeight).toBeLessThan(viewport)
       expect(loadOlder).not.toHaveBeenCalled()
       act(moveUp)
       expect(loadOlder).toHaveBeenCalledTimes(1)
       expect(api.atBottom).toBe(false)
       // No scroll event is dispatched: a browser cannot move this short page.
-      act(() => root.render(<Harness keys={keys} moreAbove loadingOlder />))
+      renderHarness(<Harness keys={keys} moreAbove loadingOlder />)
       act(moveUp)
       expect(loadOlder).toHaveBeenCalledTimes(1)
     },
   )
   it('does not accumulate small fractional reflows into a visible drift', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     scrollTo(320)
     for (let index = 1; index <= 30; index++) {
       heights.set('row-0', 100 + index * 0.4)
@@ -225,15 +252,13 @@ describe('transcript scrolling', () => {
     expect(top('row-3')).toBeCloseTo(-20)
   })
   it('finds the retained item when prepending merges it into a differently keyed tool row', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     scrollTo(80)
-    act(() =>
-      root.render(
-        <Harness
-          keys={['older-a', 'older-b', 'regrouped', ...held.slice(1)]}
-          aliases={{ regrouped: ['older-tool', 'row-0'] }}
-        />,
-      ),
+    renderHarness(
+      <Harness
+        keys={['older-a', 'older-b', 'regrouped', ...held.slice(1)]}
+        aliases={{ regrouped: ['older-tool', 'row-0'] }}
+      />,
     )
     expect(scroller().scrollTop).toBe(280)
     expect(top('regrouped')).toBe(-80)
@@ -243,9 +268,9 @@ describe('transcript scrolling', () => {
   it('keeps reading intent when a host replaces its follow callback', () => {
     const first = vi.fn()
     const latest = vi.fn()
-    act(() => root.render(<Harness onFollowChange={first} />))
+    renderHarness(<Harness onFollowChange={first} />)
     scrollTo(320)
-    act(() => root.render(<Harness onFollowChange={latest} />))
+    renderHarness(<Harness onFollowChange={latest} />)
     tail += 200
     resize()
     expect(api.atBottom).toBe(false)
@@ -255,7 +280,7 @@ describe('transcript scrolling', () => {
   })
 
   it('opens at the tail and follows content and viewport resizing', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     expect(scroller().scrollTop).toBe(840)
     tail += 100
     resize()
@@ -268,7 +293,7 @@ describe('transcript scrolling', () => {
   })
 
   it('releases on the first wheel input, even before its scroll event or a live resize', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     act(() => scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true })))
     expect(api.atBottom).toBe(false)
     tail += 200
@@ -277,7 +302,7 @@ describe('transcript scrolling', () => {
   })
 
   it('releases on an upward touch drag before streaming can steal it', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     act(() => {
       scroller().dispatchEvent(
         Object.assign(new Event('touchstart', { bubbles: true }), { touches: [{ clientY: 100 }] }),
@@ -293,15 +318,15 @@ describe('transcript scrolling', () => {
   })
 
   it('keeps its anchor through loading-only commits until the actual older rows mount', () => {
-    act(() => root.render(<Harness moreAbove />))
+    renderHarness(<Harness moreAbove />)
     scrollTo(80)
     const retained = row('row-0')
     expect(loadOlder).toHaveBeenCalledTimes(1)
     expect(top('row-0')).toBe(-80)
-    act(() => root.render(<Harness moreAbove loadingOlder />))
-    act(() => root.render(<Harness moreAbove keys={[...held]} />))
+    renderHarness(<Harness moreAbove loadingOlder />)
+    renderHarness(<Harness moreAbove keys={[...held]} />)
     tail += 250
-    act(() => root.render(<Harness keys={['older-a', 'older-b', ...held]} />))
+    renderHarness(<Harness keys={['older-a', 'older-b', ...held]} />)
     expect(row('row-0')).toBe(retained)
     expect(top('row-0')).toBe(-80)
     expect(scroller().scrollTop).toBe(280)
@@ -311,27 +336,27 @@ describe('transcript scrolling', () => {
   })
 
   it('preserves the newer reading position when the reader moves during a page request', () => {
-    act(() => root.render(<Harness moreAbove />))
+    renderHarness(<Harness moreAbove />)
     scrollTo(80)
-    act(() => root.render(<Harness moreAbove loadingOlder />))
+    renderHarness(<Harness moreAbove loadingOlder />)
     scrollTo(320)
-    act(() => root.render(<Harness keys={['older-a', 'older-b', ...held]} />))
+    renderHarness(<Harness keys={['older-a', 'older-b', ...held]} />)
     expect(scroller().scrollTop).toBe(520)
     expect(top('row-3')).toBe(-20)
     expect(loadOlder).toHaveBeenCalledTimes(1)
   })
 
   it('also preserves movement whose compositor scroll event has not arrived yet', () => {
-    act(() => root.render(<Harness moreAbove />))
+    renderHarness(<Harness moreAbove />)
     scrollTo(80)
     scroller().scrollTop = 320
-    act(() => root.render(<Harness keys={['older-a', 'older-b', ...held]} />))
+    renderHarness(<Harness keys={['older-a', 'older-b', ...held]} />)
     expect(scroller().scrollTop).toBe(520)
     expect(top('row-3')).toBe(-20)
   })
 
   it('compensates only reflow above the reader, independently of tail growth', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     scrollTo(320)
     heights.set('row-0', 175)
     tail += 900
@@ -342,7 +367,7 @@ describe('transcript scrolling', () => {
   })
 
   it('does not resume follow merely because shrinking content comes near the reader', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     scrollTo(820)
     tail = 20
     resize()
@@ -353,7 +378,7 @@ describe('transcript scrolling', () => {
   })
 
   it('resumes only when the reader scrolls to the actual tail, not a 70px band', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     scrollTo(400)
     scrollTo(810)
     expect(api.atBottom).toBe(false)
@@ -365,7 +390,7 @@ describe('transcript scrolling', () => {
   })
 
   it('does not consume reader movement when a resize callback precedes its scroll event', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     scrollTo(320)
     act(() => scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: 520, bubbles: true })))
     scroller().scrollTop = 840
@@ -378,7 +403,7 @@ describe('transcript scrolling', () => {
   })
 
   it('jump and send follow later growth but allow an immediate escape', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     scrollTo(200)
     act(() => api.jumpToBottom())
     expect(scroller().scrollTop).toBe(840)
@@ -393,20 +418,20 @@ describe('transcript scrolling', () => {
   })
 
   it('keeps a hidden reader in place on activation and resets on conversation switch', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     scrollTo(320)
-    act(() => root.render(<Harness active={false} />))
+    renderHarness(<Harness active={false} />)
     tail += 200
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     expect(scroller().scrollTop).toBe(320)
     expect(api.atBottom).toBe(false)
-    act(() => root.render(<Harness sessionId="session-2" />))
+    renderHarness(<Harness sessionId="session-2" />)
     expect(scroller().scrollTop).toBe(1040)
     expect(api.atBottom).toBe(true)
   })
 
   it('routes minimap and shelf navigation through the same reading state', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     act(() => api.scrollToOffset(320))
     tail += 100
     resize()
@@ -417,7 +442,7 @@ describe('transcript scrolling', () => {
   })
 
   it('pauses following for a transcript selection without replacing its text', () => {
-    act(() => root.render(<Harness />))
+    renderHarness(<Harness />)
     const text = row('row-8').firstChild!
     const range = document.createRange()
     range.selectNodeContents(text)

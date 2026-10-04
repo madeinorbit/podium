@@ -56,8 +56,6 @@ export function useDomTranscriptScroll(
     sessionId,
     scrollerRef,
     active,
-    blockCount,
-    renderStart,
     moreAbove,
     loadingOlder,
     loadOlder,
@@ -200,11 +198,11 @@ export function useDomTranscriptScroll(
   }, [sessionId, setFollowing])
 
   useLayoutEffect(() => {
-    reconcileLayout()
-  }, [sessionId, blockCount, renderStart, rowsToRender, scroller, content, reconcileLayout])
-
-  useLayoutEffect(() => {
     if (!active || !scroller || !content) return
+    // ResizeObserver's initial delivery also opens a conversation at its tail.
+    // Read geometry after the browser's natural layout, before paint, rather
+    // than forcing the whole page to lay out during React's commit. Reobserve
+    // on row changes to reconcile replacement/prepend and net-zero reflows.
     const observer = new ResizeObserver(reconcileLayout)
     observer.observe(content)
     observer.observe(scroller)
@@ -212,7 +210,7 @@ export function useDomTranscriptScroll(
     // box. Observe row sizes too, so that net-zero reflow still conserves place.
     for (const row of content.querySelectorAll<HTMLElement>('[data-block]')) observer.observe(row)
     return () => observer.disconnect()
-  }, [active, scroller, content, rowsToRender, reconcileLayout])
+  }, [sessionId, active, scroller, content, rowsToRender, reconcileLayout])
 
   const onScroll = useCallback(() => {
     const element = scrollerRef.current
