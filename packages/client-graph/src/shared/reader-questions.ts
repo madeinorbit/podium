@@ -32,6 +32,7 @@ export type ReaderQuestion =
   | { kind: 'sessionReference'; ref: string }
   | { kind: 'commandIssueSessions'; issueId: string; archived?: boolean; includeShells?: boolean }
   | { kind: 'containingIssues'; cwd: string }
+  | { kind: 'spawnIssues'; repoPath: string; repoId?: string }
   | {
       kind: 'mobileIssueTargets'
       repoPath: string
@@ -353,6 +354,9 @@ export function createReaderIndex() {
         case 'boardCounts':
           keys.push('issue:live')
           break
+        case 'spawnIssues':
+          keys.push(`issue:repo:${question.repoId ?? ''}`, `issue:path:${question.repoPath}`, 'issue:undeleted')
+          break
         case 'boardIssues':
           if (question.priority != null) keys.push(`issue:priority:${question.priority}`)
           if (question.stage) keys.push(`issue:status:${question.stage}`)
@@ -510,6 +514,13 @@ export function createReaderIndex() {
         }
         case 'boardCounts':
           return [...bucket('issue:live')]
+        case 'spawnIssues': {
+          const ids = new Set(question.repoId ? bucket(`issue:repo:${question.repoId}`) : [])
+          const unassigned = bucket('issue:repo:')
+          for (const id of bucket(`issue:path:${question.repoPath}`))
+            if (unassigned.has(id)) ids.add(id)
+          return intersection([ids, bucket('issue:undeleted')])
+        }
         case 'boardIssues': {
           const sets: ReadonlySet<string>[] = [bucket('issue:all')]
           if (question.priority != null) sets.push(bucket(`issue:priority:${question.priority}`))

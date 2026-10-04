@@ -327,6 +327,8 @@ export const DRAFT_KEEP_LIMIT = 50
 export const DRAFTS_UI_KEY = 'podium.drafts.v1'
 
 export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
+  /** The runtime's clock source, shared by optimistic press and outbox tests. */
+  readonly transactionNow = (): number => this.coarseClock.now()
   /** The one principal this runtime serves. Read-only for its whole lifetime. */
   readonly principal: ClientPrincipal
   readonly replica: Replica

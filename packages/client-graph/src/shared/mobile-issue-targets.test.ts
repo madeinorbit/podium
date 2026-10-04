@@ -60,6 +60,7 @@ describe('mobile target identity question', () => {
       sessionReference: { kind: 'sessionReference', ref: 'POD-17-A' },
       commandIssueSessions: { kind: 'commandIssueSessions', issueId: 'a' },
       containingIssues: { kind: 'containingIssues', cwd: '/phone/worktree' },
+      spawnIssues: { kind: 'spawnIssues', repoPath: '/phone', repoId: 'phone' },
       mobileIssueTargets: question('candidate 17'),
       boardIssues: { kind: 'boardIssues', projectPaths: ['/phone'], priority: 2, stage: 'done' },
     }

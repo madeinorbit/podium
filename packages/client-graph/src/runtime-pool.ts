@@ -2,7 +2,7 @@ import { optimisticDraftSortKey } from '@podium/client-core/values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { Reaction } from 'mobx'
+import { Reaction, runInAction } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import { attachHeaderSource } from './header-source'
@@ -186,6 +186,7 @@ const spawnPools = new WeakMap<object, MobxPool>()
 /** What the transaction log needs from the runtime beyond the row feed. */
 type TransactionsRuntime = WorklistRuntime & {
   readonly principal: { userId: string }
+  readonly transactionNow?: () => number
   readonly subscribeOutboxOutcomes: PoolTransactionsPorts['outcomes']
   readonly outbox: PoolTransactionsPorts['outbox'] & { enqueue: import('@podium/client-core/engine').EngineOutbox['enqueue']; retireAwaiting(id: import('@podium/model').MutationId): void }
   /** Routes the runtime's queued actions through the log (POD-5432). */
@@ -203,6 +204,7 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
   }
   return createPoolTransactions({
     userId: rt.principal.userId,
+    ...(rt.transactionNow ? { now: rt.transactionNow } : {}),
     outbox: rt.outbox,
     outcomes: rt.subscribeOutboxOutcomes,
     enqueue: async (kind, input, opts) => { await rt.outbox!.enqueue(kind, input, opts) },
@@ -213,13 +215,13 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
       userId: asUserId(rt.principal.userId),
       notices: (runtime as unknown as { spawnNotices: import('@podium/client-core/engine').StoreNotices }).spawnNotices,
       graceMs: (runtime as unknown as { spawnGraceMs?: number }).spawnGraceMs,
-      sortKey: target => {
+      sortKey: target => runInAction(() => {
         const pool = spawnPools.get(runtime)
         if (!pool) throw new Error('Pool spawn placement is not attached')
-        const issues = pool.queries.ids({ kind: 'boardIssues', projectPaths: [target.repoPath] })
+        const issues = pool.queries.indexed({ kind: 'spawnIssues', repoPath: target.repoPath, ...(target.repoId ? { repoId: target.repoId } : {}) })
           .map(id => pool.row('issue', id, 'peek')).filter(row => row && typeof row !== 'symbol')
         return optimisticDraftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
-      },
+      }),
     },
   })
 }

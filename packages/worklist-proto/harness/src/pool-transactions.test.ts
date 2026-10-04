@@ -459,7 +459,11 @@ describe.each([
     })
     await settle(ctx)
     expect(referenceState(ctx.engine).pendingSpawnIds.has(spawned.sessionId)).toBe(true)
-    expect(differences(ctx, ledger.pool, pooled.pool, [spawned.issueId])).toEqual([])
+    // Direct creation has one pool owner; the independent outbox observer
+    // receives the server rows later. Assert the first paint at its owner.
+    expect(tracked(() => pooled.pool.issue(spawned.issueId))).toMatchObject({
+      id: spawned.issueId, stage: 'backlog', seq: 0,
+    })
     expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeDefined()
     // POD-5432 step 6: owning sessions, pool screens read the placeholders
     // (adapters 4 and 12) from the log; the ledger's copy answers otherwise.
