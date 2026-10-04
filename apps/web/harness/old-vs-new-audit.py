@@ -18,6 +18,7 @@ errors = []
 counts = collections.Counter()
 failures = collections.Counter()
 heaps = collections.Counter()
+backgrounds = collections.Counter()
 captures = []
 evidence_count = 0
 for checkout_arm, checkout in checkouts.items():
@@ -90,6 +91,7 @@ for checkout_arm, checkout in checkouts.items():
             continue
         require(run.get('issueUpdateEntities') == (['issue','issueProjection'] if run['arm']=='old' else ['issueProjection']), 'logical issue publication incomplete')
         require(run.get('backgroundContext','').startswith('Fresh browser profile'), 'resident pane state not matched')
+        backgrounds[(*key,run['arm'])] += 1
         require(len(run['background']) == 38, 'quiet/update window count mismatch')
         require(run.get('outputDeliveryWitness') is True, 'visible terminal delivery not verified')
         require(run['idle']['seconds'] >= 60, 'connected-idle window too short')
@@ -116,6 +118,8 @@ for pair in ['new', 'new-deleted']:
                         errors.append(f'{key}/{arm}/{action}: sample count {counts[(*key, arm, action)]}, expected {expected_n}')
                 if heaps[(*key, arm)] != 1:
                     errors.append(f'{key}/{arm}: missing five-minute heap pair')
+                if backgrounds[(*key, arm)] != 2:
+                    errors.append(f'{key}/{arm}: corrected background capture count {backgrounds[(*key,arm)]}, expected 2')
 # Alternation is checked within each surface/scale/comparison/mode. Host gaps
 # for the deletion priority slot do not become concurrent implementations.
 orders = collections.defaultdict(list)
