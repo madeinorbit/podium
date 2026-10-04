@@ -65,7 +65,9 @@ Inclusive function weights overlap and must not be summed. Identified-script att
 
 ## Product change and regression
 
-`WorkingMark` keeps the eight-dot SVG geometry, size-dependent radii, colour token, decorative accessibility role and phase gating. Its dots are fully lit and still at every motion preference. The additional frame span, mask CSS, transform animation, `will-change` allocation, generator and unused strip assets are removed. The shell's braille status indicator also uses one still cell. Labels and the existing once-per-second timer continue to communicate the working state.
+`WorkingMark` keeps the eight-dot SVG geometry, size-dependent radii, colour token, decorative accessibility role and phase gating. Its dots are fully lit and still at every motion preference. The additional frame span, mask CSS, transform animation, `will-change` allocation, generator and unused strip assets are removed. The shell's braille status indicator also uses one still cell. Labels and the existing once-per-second timer continue to communicate the working state. Responsive desktop layouts use this same mark.
+
+The mobile web client had a separate eight-circle CSS wave, while native mobile used a repeating Reanimated clock and eight animated opacity props. Both are removed under the operator's direction that marks be static everywhere. Native and mobile web retain the same geometry, tint, density ladder and accessible working label. The native mark schedules no clock or animation on mount/unmount; mobile web defines no keyframe or animation at either motion preference. This is an explicit product policy change, not a claim that desktop mask removal alone fixes the separate iPhone memory-growth issue (POD-5517).
 
 The motion regression checks that the mark has eight circles and no animated mask, SVG animation or image layer; its existing cases retain decorative/accessibility, density and phase guarantees. Native acceptance additionally records the page's animation count. No frame timer, component render loop, new dependency or raster asset is introduced by the final change.
 
@@ -73,7 +75,11 @@ The fixed-size **66 × 100 APNG** prototype retained the 45-frame, 1.5-second tr
 
 ## Acceptance and runner exclusions
 
-Final 1× repeats, 4× measurements, matched Chrome comparison, focused flatblock check results and cleanup are pending.
+Final 1× repeats, 4× measurements, matched Chrome comparison and native caret checks are pending.
+
+The focused gate ran foreground on flatblock in the owned checkout with Bun 1.4.2 from its copied `.toolchain`: scoped web/mobile typecheck **16/16 tasks**; exact-file tests **32 cases across three files** (web motion 15, native mobile mark 14, mobile web mark 3). `biome check --write` on the changed mark sources and profiling scripts exited zero; it reported existing stylesheet specificity warnings and two non-blocking template-style suggestions in the harness. No full test suite or browser test lane ran. Both production clients built successfully.
+
+The tested static marks were fast-forwarded onto `integrate/4286-pilot` at **`e7ba535149`**, under its canonical merge mutex, including the landed composer caret defense `d59d5e169c`. The pilot is not checked out in another worktree: landing used an ancestry-checked, expected-old-ref atomic update. Issue-tip ancestry was verified and the mutex released. Neither `main` nor `dev/mw` moved. The issue remains open for native acceptance and the final report update.
 
 At 16:43 UTC the shared runner reported load averages 294.77 / 228.72 / 123.55 during a concurrent simulator first-boot migration. The fixed-size APNG exploratory arm recorded 35 / 108 / 162 ms in that period, with foreground/focus verified; it is **excluded** from target acceptance. A newer composer capture made after Chrome gained focus is also excluded from drift attribution because its timer samples show background throttling. The urgent iPhone investigation received the runner lease; both this issue's browsers were parked at `about:blank` and its trace recorder was stopped.
 
