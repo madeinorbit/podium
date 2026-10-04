@@ -13,12 +13,14 @@ import { readSyncStream } from '@podium/client-core/sync-stream'
 const arg = (key, fallback) => process.argv.find(x => x.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback
 const mode = arg('mode', 'probe'), scale = Number(arg('scale', '1')), surface = arg('surface', 'web')
 const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(arg('samples', '8'))
+const controlOnly=process.argv.includes('--control-only')
 if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
 if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || !arm) throw Error('Invalid capture arguments')
 const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${scale}x-r${round}`))
 mkdirSync(out, { recursive: true })
 const corpusBytes = readFileSync(`.artifacts/old-vs-new/corpus-${scale}x.json`)
-const corpus = JSON.parse(corpusBytes), synthetic = JSON.parse(readFileSync(`.artifacts/old-vs-new/rows-${scale}x.json`, 'utf8'))
+const corpus = JSON.parse(corpusBytes), synthetic = controlOnly?[]:JSON.parse(readFileSync(`.artifacts/old-vs-new/rows-${scale}x.json`, 'utf8'))
+if(controlOnly && mode!=='probe')throw Error('Control-only is diagnostic, never performance evidence')
 const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 const dirtyProduct = execFileSync('git', ['status', '--porcelain', '--', 'apps/web/src', 'apps/mobile/src', 'apps/mobile/app', 'packages'], { encoding:'utf8' }).trim()
 if (dirtyProduct === 'M packages/api-types/src/index.d.ts') execFileSync('git',['restore','--source=HEAD','--','packages/api-types/src/index.d.ts'])
@@ -26,8 +28,9 @@ else if (dirtyProduct) throw Error(`Product checkout is dirty: ${dirtyProduct}`)
 const declarationTracked=execFileSync('git',['ls-files','packages/api-types/src/index.d.ts'],{encoding:'utf8'}).trim().length>0
 const productDirectories = ['apps/web/src', 'apps/mobile/src', 'apps/mobile/app', 'packages']
 const productTreeSha256 = createHash('sha256').update(execFileSync('git', ['ls-tree', '-r', 'HEAD', '--', ...productDirectories])).digest('hex')
-const result = { version:1, mode, arm, round, surface, scale, sha, productTreeSha256,
-  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),
+const result = { version:1, mode, arm, round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
+  harnessSha256:createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'),
+  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
   loadStart:loadavg(), actions:[], unavailable:[], background:[], errors:[], pids:[], bootstraps:[], status:'running' }
@@ -72,35 +75,46 @@ const outputEpochs = new Map()
 let outputSeq = 0
 const traffic = {feedDeltas:0,outputFrames:0,syntheticHeartbeat:0,syntheticIssue:0,syntheticOutput:0}
 let meta, seq=0, memberId, controls, seeded=false
-async function bindContext(context) {
-  await context.route('**/sync/bootstrap*',async route=>{
-    const response=await route.fetch(), records=(await response.text()).trim().split('\n').map(x=>JSON.parse(x))
+let extraChanges
+function prepareExtras() {
+  const rows=synthetic.map(row=>{
+    const value={...row.value}
+    if(['issueUserState','sessionUserState'].includes(row.entity))value.userId=memberId
+    return {...row,value,entityId:row.entity==='issueUserState'?model.issueUserStateRowId(memberId,value.entityId):row.entity==='sessionUserState'?model.sessionUserStateRowId(memberId,value.sessionId):row.entityId}
+  })
+  extraChanges=[]
+  for(let offset=0;offset<rows.length;offset+=64)extraChanges.push(JSON.stringify(rows.slice(offset,offset+64).map((row,index)=>({...row,seq:index+1,op:'upsert'}))))
+}
+function bootstrapBody(records) {
     const first=records[0], complete=records.at(-1)
-    if(first.type!=='syncMeta' || first.mode!=='snapshot') { await route.fulfill({response}); return }
+    if(first.type!=='syncMeta' || first.mode!=='snapshot')return null
     const chunks=records.filter(x=>x.type==='feedBootstrap')
     // The isolated keyecho agent has no transcript provider. Advertise an empty
     // transcript on the comparison sessions so both production chat composers
     // can be exercised; this is identical fixture data, not product code.
     const changes=chunks.flatMap(x=>x.changes)
-    for(const change of changes) if(change.entity==='session' && change.value?.title?.startsWith('Comparison session')) change.value.transcriptAvailable=true
-    const rows=synthetic.map(row=>{
-      const value={...row.value}
-      if(['issueUserState','sessionUserState'].includes(row.entity)) value.userId=memberId
-      return {...row,value,entityId:['issueUserState','sessionUserState'].includes(row.entity)? (row.entity==='issueUserState'?model.issueUserStateRowId(memberId,value.entityId):model.sessionUserStateRowId(memberId,value.sessionId)):row.entityId}
+    const comparisonSession=id=>controls?.some(control=>control.session.sessionId===id || control.secondSession?.sessionId===id)
+    for(const change of changes) if(change.entity==='session' && comparisonSession(change.entityId)) change.value.transcriptAvailable=true
+    if(first.seq<64 || !chunks.length)throw Error('Canonical bootstrap cannot admit prevalidated fixture chunks')
+    const count=changes.length+synthetic.length
+    const original=chunks.map(x=>{const chunk={...x,last:false,totalRows:count};delete chunk.countsByEntity;return JSON.stringify(chunk)})
+    const extra=extraChanges.map((rows,index)=>{
+      const template={...chunks[0],last:index===extraChanges.length-1,totalRows:count,changes:null};delete template.countsByEntity
+      return JSON.stringify(template).replace('"changes":null','"changes":'+rows)
     })
-    const width=Math.min(256,first.seq)
-    if(!width || !chunks.length) throw Error('Canonical bootstrap has no cursor/chunk')
-    const extra=[]
-    for(let offset=0;offset<rows.length;offset+=width) extra.push({...chunks[0],last:false,changes:rows.slice(offset,offset+width).map((row,index)=>({...row,seq:index+1,op:'upsert'}))})
-    const all=[...chunks.map(x=>({...x,last:false})),...extra]
-    all.at(-1).last=true
-    const count=changes.length+rows.length
-    for(const chunk of all) { chunk.totalRows=count; delete chunk.countsByEntity }
-    const body=[{...first,totalRows:count},...all,{...complete,rows:count,records:all.length}].map(x=>JSON.stringify(x)).join('\n')+'\n'
-    async function* lines(){yield* body.trim().split('\n')}
-    for await(const record of readSyncStream(lines())) { /* same production decoder, full validation */ }
+    if(!extra.length)original[original.length-1]=JSON.stringify({...chunks.at(-1),last:true,totalRows:count})
+    const all=[...original,...extra]
+    const body=[JSON.stringify({...first,totalRows:count}),...all,JSON.stringify({...complete,rows:count,records:all.length})].join('\n')+'\n'
+    return {body,first,chunks,count,changes}
+}
+async function bindContext(context) {
+  await context.route('**/sync/bootstrap*',async route=>{
+    const response=await route.fetch(), records=(await response.text()).trim().split('\n').map(x=>JSON.parse(x))
+    const prepared=bootstrapBody(records)
+    if(!prepared){await route.fulfill({response});return}
+    const {body,first,chunks,count,changes}=prepared
     meta={...chunks[0]}; seq=meta.seq
-    result.bootstraps.push({totalRows:count,rows:rows.length,originalRows:changes.length,fromSeq:first.seq,at:new Date().toISOString()}); save()
+    result.bootstraps.push({totalRows:count,rows:synthetic.length,originalRows:changes.length,fromSeq:first.seq,at:new Date().toISOString()}); save()
     seeded=true
     const headers={...response.headers(),'content-type':'application/x-ndjson'}
     for(const key of ['content-length','content-encoding','transfer-encoding']) delete headers[key]
@@ -111,19 +125,24 @@ async function bindContext(context) {
     if(json.result?.data?.repositories) { json.result.data.repositories=[...corpus.repos,...json.result.data.repositories]; json.result.data.machines=[...corpus.machines,...(json.result.data.machines??[])] }
     await route.fulfill({response,json})
   })
-  await context.routeWebSocket('**/client',client=>{
+  await context.routeWebSocket('**',client=>{
+    result.socketUrls??=[];result.socketUrls.push(client.url())
     const upstream=client.connectToServer()
     const socket={client,upstream}; live.push(socket)
     client.onClose(()=>{const index=live.indexOf(socket);if(index>=0)live.splice(index,1);upstream.close()})
     upstream.onMessage(message=>{
       if(typeof message!=='string') return client.send(message)
       let frame; try{frame=JSON.parse(message)}catch{return client.send(message)}
+      result.frameKinds??={};result.frameKinds[frame.type]=(result.frameKinds[frame.type]??0)+1
+      const comparisonSession=id=>controls?.some(control=>control.session.sessionId===id || control.secondSession?.sessionId===id)
+      for(const change of frame.changes??[])if(change.entity==='session' && comparisonSession(change.entityId))change.value.transcriptAvailable=true
+      for(const session of frame.sessions??[])if(comparisonSession(session.sessionId))session.transcriptAvailable=true
       if(frame.type==='attached') outputEpochs.set(frame.sessionId,frame.epoch)
       if(frame.type==='outputFrame')traffic.outputFrames++
       if(frame.type==='machinesChanged') frame.machines=[...corpus.machines,...frame.machines]
       if(frame.type==='feedDelta' && seeded) {
         traffic.feedDeltas++
-        for(const change of frame.changes)if(change.entity==='session' && change.value?.title?.startsWith('Comparison session'))change.value.transcriptAvailable=true
+        for(const change of frame.changes)if(change.entity==='session' && controls?.some(control=>control.session.sessionId===change.entityId || control.secondSession?.sessionId===change.entityId))change.value.transcriptAvailable=true
         const size=Math.max(1,frame.seq-frame.fromSeq), start=seq
         seq+=size; frame={...frame,fromSeq:start,seq,changes:frame.changes.map((row,index)=>({...row,seq:start+index+1}))}
       }
@@ -165,12 +184,20 @@ async function makePage() {
     for(const type of ['pointerdown','keydown','beforeinput']) document.addEventListener(type,input,true)
     performance.mark('comparison:navigation-start',{startTime:0})
     window.__comparisonStartup=false
-    const startupObserver=new MutationObserver(()=>{
+    const observeStartup=()=>{
       if(window.__comparisonStartup)return
-      const target=[...document.querySelectorAll('button,[role="button"],[data-issue-row]')].find(x=>x.getClientRects().length && x.textContent?.includes('Comparison target A'))
+      if(document.querySelector('[data-testid="boot-splash"]'))return
+      const candidates=[...document.querySelectorAll('aside [data-issue-row],[role="button"][aria-label]')]
+      const target=candidates.find(x=>{
+        const label=x.getAttribute('aria-label')??'', rect=x.getBoundingClientRect()
+        return (x.hasAttribute('data-issue-row') || /^(?:[A-Z]+-\d+|#\d+) /.test(label)) && rect.width>0 && rect.height>0 && rect.y>=0 && rect.bottom<=innerHeight
+      })
       if(!target)return
+      const rect=target.getBoundingClientRect(), x=Math.max(0,Math.min(innerWidth-1,rect.x+rect.width/2)), y=Math.max(0,Math.min(innerHeight-1,rect.y+rect.height/2))
+      if(!target.contains(document.elementFromPoint(x,y)))return
       window.__comparisonStartup=true;performance.mark('comparison:startup-dom');startupObserver.disconnect()
-    })
+    }
+    const startupObserver=new MutationObserver(observeStartup)
     startupObserver.observe(document,{subtree:true,childList:true,attributes:true,characterData:true})
   },{now:corpus.fixedNow})
   const cdp=await context.newCDPSession(page); await cdp.send('Performance.enable')
@@ -178,7 +205,11 @@ async function makePage() {
 }
 const url=()=>surface==='phone'?`${base}/mobile/work?server=${encodeURIComponent(relay)}&e2e=1`:`${base}/?server=${encodeURIComponent(relay)}&e2e=1`
 async function ready(page) {
-  if(surface==='phone') await page.getByRole('button',{name:'Search work',exact:true}).waitFor({timeout:120000})
+  if(surface==='phone') {
+    await page.waitForFunction(()=>!!document.querySelector('[aria-label="Search work"]') || document.body.innerText.includes('CANNOT START'),undefined,{timeout:120000})
+    const failure=await page.evaluate(()=>document.body.innerText.includes('CANNOT START')?document.body.innerText.slice(0,700):null)
+    if(failure)throw Error('Phone startup refused: '+failure)
+  }
   else await page.locator('aside').first().waitFor({timeout:120000})
   await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
   await page.evaluate(()=>document.fonts.ready); await frames(page); await pause(1200)
@@ -201,10 +232,10 @@ async function population(page) {
     return counts
   })
   result.population=counts;save()
-  if((counts.issue??0)<corpus.issues.length || (counts.session??0)<corpus.sessions.length)throw Error('Full shared corpus did not reach durable client storage: '+JSON.stringify(counts))
+  if(!controlOnly && (Math.max(counts.issue??0,counts.issueProjection??0)<corpus.issues.length || (counts.session??0)<corpus.sessions.length))throw Error('Full shared corpus did not reach durable client storage: '+JSON.stringify(counts))
 }
 async function attempt(name,fn) {
-  try {await fn()} catch(error) {result.unavailable.push({action:name,reason:String(error),load:loadavg()}); console.log(`UNAVAILABLE ${name}: ${String(error).slice(0,240)}`); save()}
+  try {await fn()} catch(error) {result.unavailable.push({action:name,reason:String(error),load:loadavg()}); console.log(`UNAVAILABLE ${name}: ${String(error).slice(0,240)}`); save();if(round>=100 && fixture)await inspect(fixture.page,`${name}-unavailable`).catch(()=>{});await fixture?.page.keyboard.press('Escape').catch(()=>{})}
 }
 let recordIndex=0
 const actionSamples = new Map()
@@ -248,16 +279,23 @@ async function capture(fixture,name,perform,expected,{manual=false,profile=false
   result.actions.push(row); save(); console.log(`${name}: ${measured.inputToPaintMs.toFixed(1)} ms`)
   return row
 }
-async function startup(fixture,name) {
+async function startup(fixture,name,profile=false) {
   const stop=await trace(fixture.cdp), before=await metrics(fixture.cdp), load=loadavg(), began=new Date().toISOString()
+  if(profile){await fixture.cdp.send('Profiler.enable');await fixture.cdp.send('Profiler.setSamplingInterval',{interval:100});await fixture.cdp.send('Profiler.start')}
   await fixture.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});await ready(fixture.page)
+  const cpu=profile?(await fixture.cdp.send('Profiler.stop')).profile:null
   const events=await stop(), after=await metrics(fixture.cdp)
+  const stem=`${name}-${recordIndex++}`
+  writeFileSync(resolve(out,`${stem}.trace.json.gz`),gzipSync(JSON.stringify(events)))
+  if(cpu)writeFileSync(resolve(out,`${stem}.cpuprofile`),JSON.stringify(cpu))
+  result.startupMarks??=[]
+  result.startupMarks.push({name,marks:events.filter(e=>e.name.startsWith('comparison:')).map(e=>({name:e.name,ph:e.ph,ts:e.ts,pid:e.pid}))});save()
   const measured=paintOf(events,'comparison:navigation-start','comparison:startup-dom')
   const input=events.find(x=>x.name==='comparison:navigation-start'), dom=events.find(x=>x.name==='comparison:startup-dom')
   const paint=events.filter(e=>e.name==='Paint' && e.ph==='X' && e.pid===input.pid && e.ts>=dom.ts).sort((a,b)=>a.ts-b.ts)[0]
   const end=paint.ts+(paint.dur??0)
-  result.actions.push({action:name,startedAt:began,load,...measured,profiled:false,mainThreadBusyMs:intervalMs(events,['RunTask','ThreadControllerImpl::RunTask','ThreadControllerImpl::DoWork'],input.pid,paint.tid,input.ts,end),layoutMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.ts,end),taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000})
-  writeFileSync(resolve(out,`${name}-${recordIndex++}.trace.json.gz`),gzipSync(JSON.stringify(events)));save()
+  result.actions.push({action:name,startedAt:began,load,...measured,profiled:profile,mainThreadBusyMs:intervalMs(events,['RunTask','ThreadControllerImpl::RunTask','ThreadControllerImpl::DoWork'],input.pid,paint.tid,input.ts,end),layoutMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.ts,end),taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000,trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null})
+  save()
 }
 async function runActions(f) {
   const {page,cdp}=f
@@ -281,10 +319,11 @@ async function runActions(f) {
       }
     })
     await attempt('sidebar-group-fold',async()=>{
-      const button=page.getByTestId('project-group-label').filter({hasText:'zz-podium-e2e-repo-'}).first()
+      const button=page.locator('aside button[data-testid="project-group-label"][title^="Collapse "]').first()
+      const label=await button.getAttribute('title'), folded=label.replace('Collapse ','Expand ')
       for(let i=0;i<samples+2;i++) {
-        await capture(f,'sidebar-group-collapse',()=>button.click(),`()=>document.querySelector('aside [data-issue-row="${other.id}"]')===null`)
-        await capture(f,'sidebar-group-expand',()=>button.click(),`aside [data-issue-row="${other.id}"]`)
+        await capture(f,'sidebar-group-collapse',()=>page.locator(`aside button[data-testid="project-group-label"][title=${JSON.stringify(label)}]`).first().click(),`aside button[data-testid="project-group-label"][title=${JSON.stringify(folded)}]`)
+        await capture(f,'sidebar-group-expand',()=>page.locator(`aside button[data-testid="project-group-label"][title=${JSON.stringify(folded)}]`).first().click(),`aside button[data-testid="project-group-label"][title=${JSON.stringify(label)}]`)
       }
     })
     await attempt('session-switch',async()=>{
@@ -300,16 +339,32 @@ async function runActions(f) {
       }
       await inspect(page,'session')
     })
-    await attempt('composer-typing',async()=>{
+    await attempt('session-composer-typing',async()=>{
       const chat=page.locator('[data-panel-resident][data-pane] [data-testid="mode-chat"]').last()
       await chat.click()
       const input=page.locator('[data-panel-resident][data-pane] textarea.prompt-input').last()
       await input.focus();await input.fill('')
       for(let i=0;i<samples+2;i++) {
         const wanted='x'.repeat(i+1)
-        await capture(f,'composer-typing',()=>page.keyboard.insertText('x'),`() => [...document.querySelectorAll('[data-panel-resident][data-pane] textarea.prompt-input')].some(x=>x.value===${JSON.stringify(wanted)})`)
+        await capture(f,'session-composer-typing',()=>page.keyboard.insertText('x'),`() => [...document.querySelectorAll('[data-panel-resident][data-pane] textarea.prompt-input')].some(x=>x.value===${JSON.stringify(wanted)})`)
       }
       await input.fill('')
+    })
+    await attempt('superagent-composer-typing',async()=>{
+      const trigger=page.getByTestId('right-rail').getByRole('button',{name:'Superagent',exact:true})
+      if(await trigger.getAttribute('aria-pressed')!=='true')await trigger.click()
+      const input=page.getByPlaceholder('Ask across all tasks…')
+      await input.focus();await input.fill('')
+      for(let i=0;i<samples+2;i++)await capture(f,'superagent-composer-typing',()=>page.keyboard.insertText('x'),`()=>[...document.querySelectorAll('textarea')].some(x=>x.placeholder==='Ask across all tasks…' && x.value===${JSON.stringify('x'.repeat(i+1))})`)
+      await input.fill('');await trigger.click()
+    })
+    await attempt('flight-deck-fold',async()=>{
+      const collapse=page.getByRole('button',{name:'Collapse Flight Deck',exact:true}), expand=page.getByRole('button',{name:'Expand Flight Deck',exact:true})
+      if(await expand.isVisible().catch(()=>false))await expand.click()
+      for(let i=0;i<samples+2;i++){
+        await capture(f,'flight-deck-collapse',()=>collapse.click(),'button[aria-label="Expand Flight Deck"]')
+        await capture(f,'flight-deck-expand',()=>expand.click(),'button[aria-label="Collapse Flight Deck"]')
+      }
     })
     await attempt('drag',async()=>{
       const grip=row(other.id).getByTestId('row-grip')
@@ -358,14 +413,16 @@ async function runActions(f) {
         const wanted=i%2?otherTitle:title, unwanted=i%2?title:otherTitle
         await capture(f,'issue-picker-search',()=>input.fill(wanted),`()=>document.querySelector('[role="combobox"]')?.value===${JSON.stringify(wanted)} && document.querySelector('[role="listbox"]')?.textContent?.includes(${JSON.stringify(wanted)}) && !document.querySelector('[role="listbox"]')?.textContent?.includes(${JSON.stringify(unwanted)})`)
       }
-      await page.keyboard.press('Escape')
+      await page.keyboard.press('Escape');await page.keyboard.press('Escape');await page.getByRole('dialog',{name:'Command palette'}).waitFor({state:'hidden'})
     })
     await attempt('issue-board',async()=>{
       for(let i=0;i<samples+2;i++) {
+        const back=page.locator('[data-testid="issue-page"] button[title="Back"]')
+        if(await back.isVisible().catch(()=>false))await back.click()
         const home=page.getByTestId('topbar-nav-workspace')
         if(await home.count())await home.click()
         else await page.goto(url())
-        await capture(f,'board-open',()=>page.getByTestId('topbar-nav-issues').click(),'[role="region"][aria-label="Tasks"]')
+        await capture(f,'board-open',()=>page.getByTestId('topbar-nav-issues').click(),()=>location.pathname==='/issues' && !!document.querySelector('[aria-label="Search tasks"]'))
       }
     })
     await attempt('dock-open',async()=>{
@@ -373,7 +430,7 @@ async function runActions(f) {
       const close=page.locator('button[title^="Close "][title$=" panel"]')
       if(await close.count())await close.last().click()
       for(let i=0;i<samples+2;i++) {
-        await capture(f,'dock-open',()=>page.getByRole('button',{name:'Tasks',exact:true}).click(),'[data-right-dock-panel="issue"]')
+        await capture(f,'dock-open',()=>page.getByTestId('right-rail').getByRole('button',{name:'Tasks',exact:true}).click(),'[data-right-dock-panel="issue"]')
         await capture(f,'dock-close',()=>page.locator('button[title="Close tasks panel"]').click(),()=>!document.querySelector('[data-right-dock-panel="issue"]'))
       }
     })
@@ -392,7 +449,7 @@ async function runActions(f) {
       for(let i=0;i<samples+2;i++) {
         const trigger=page.locator('[data-panel-resident][data-pane] [data-testid="header-menu"]').last()
         await capture(f,'header-menu',()=>trigger.click(),'[role="menu"]')
-        await page.keyboard.press('Escape')
+        await trigger.click();await page.getByRole('menu').waitFor({state:'hidden'})
       }
     })
     await attempt('issue-page-open',async()=>{
@@ -485,6 +542,15 @@ async function runActions(f) {
       }
       await page.getByRole('button',{name:'Cancel',exact:true}).click()
     })
+    await attempt('phone-issue-rename',async()=>{
+      for(let i=0;i<samples+2;i++){
+        const renamed=`Comparison target A revision ${i}`
+        await page.getByRole('button',{name:'Task title — edit',exact:true}).click()
+        await page.getByRole('textbox',{name:'Task title',exact:true}).fill(renamed)
+        await capture(f,'phone-issue-rename',()=>page.getByRole('button',{name:'Save',exact:true}).click(),`()=>[...document.querySelectorAll('[role="button"]')].some(x=>x.getAttribute('aria-label')==='Task title — edit' && x.textContent===${JSON.stringify(renamed)})`)
+      }
+      await rpc('issues.update',{id:issue.id,patch:{title}})
+    })
     await attempt('phone-search',async()=>{
       await work().click();await page.getByRole('button',{name:'Search work',exact:true}).click()
       const input=page.getByRole('textbox',{name:'Search work',exact:true})
@@ -512,8 +578,8 @@ async function background(f) {
       if(await native.count())await native.click()
       await f.page.locator('[data-panel-resident][data-pane] .xterm').waitFor()
     } else {
-      await f.page.goto(`${base}/mobile/session/${targetSession}/terminal?server=${encodeURIComponent(relay)}`,{waitUntil:'domcontentloaded'})
-      await f.page.locator('iframe').waitFor({timeout:30000})
+      await f.page.goto(`${base}/mobile/session/${targetSession}/terminal?server=${encodeURIComponent(relay)}&e2e=1`,{waitUntil:'domcontentloaded'})
+      await f.page.locator('.xterm').waitFor({timeout:30000})
     }
     for(let i=0;i<100 && !outputEpochs.has(targetSession);i++)await pause(100)
     if(!outputEpochs.has(targetSession))throw Error('No output subscription on visible comparison terminal')
@@ -526,7 +592,7 @@ async function background(f) {
     const after=await metrics(f.cdp), events=await stop()
     const index=result.background.length, name=`background-${index}-${kind}.trace.json.gz`
     writeFileSync(resolve(out,name),gzipSync(JSON.stringify(events)))
-    const row={kind,load,taskMs:(after.TaskDuration-before.TaskDuration)*1000,scriptMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutMs:(after.LayoutDuration-before.LayoutDuration)*1000,count:kind==='quiet'?0:1,windowMs:200,trace:name}
+    const row={kind,load,taskMs:(after.TaskDuration-before.TaskDuration)*1000,scriptMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutMs:(after.LayoutDuration-before.LayoutDuration)*1000,count:kind==='quiet'?0:1,nominalWindowMs:200,actualWindowMs:(after.Timestamp-before.Timestamp)*1000,trace:name}
     result.background.push(row);save()
     return row
   }
@@ -555,6 +621,7 @@ async function background(f) {
 try {
   for(let i=0;i<180;i++) { if(server.exitCode!==null) throw Error(`Harness exited ${server.exitCode}: ${Buffer.concat(serverLog).toString().slice(-2000)}`);try{if((await fetch(`${base}/health`)).ok)break}catch{};await pause(500) }
   const auth=await (await fetch(`${base}/auth/status`)).json();memberId=auth.memberId
+  prepareExtras()
   const repos=await rpc('repos.list'),repoPath=repos.find(x=>x.includes('zz-podium-e2e-repo-'))??repos[0]
   for(let attempt=0;attempt<120;attempt++) {
     const machines=await rpc('machines.list')
@@ -565,13 +632,22 @@ try {
   controls=[]
   for(const letter of ['A','B']) {
     const issue=await rpc('issues.create',{repoPath,title:`Comparison target ${letter}`,description:'Synthetic benchmark mission body',parentBranch:'main',startNow:true})
-    await rpc('issues.update',{id:issue.id,patch:{stage:'in_progress'}})
+    await rpc('issues.update',{id:issue.id,patch:{stage:'in_progress',...(surface==='phone'?{pinned:true}:{})}})
     const session=await rpc('sessions.create',{cwd:repoPath,issueId:issue.id,agentKind:'claude-code',title:`Comparison session ${letter}`})
     controls.push({issue,session})
   }
   controls[0].secondSession=await rpc('sessions.create',{cwd:repoPath,issueId:controls[0].issue.id,agentKind:'claude-code',title:'Comparison session A2'})
   result.corpus.extraLiveSessions=(await rpc('sessions.list')).length
   result.controls=controls;save()
+  // Validate the complete augmented wire stream before taking a capture lease.
+  // Captured bootstrap delivery reuses serialized rows and changes only cursor
+  // metadata, avoiding fixture schema-validation CPU in navigation timings.
+  const preflight=bootstrapBody((await (await fetch(`${base}/sync/bootstrap`)).text()).trim().split('\n').map(line=>JSON.parse(line)))
+  if(!preflight)throw Error('No canonical preflight snapshot')
+  result.preflightSessions=preflight.changes.filter(row=>row.entity==='session').map(row=>({entityId:row.entityId,sessionId:row.value.sessionId,title:row.value.title,name:row.value.name,transcriptAvailable:row.value.transcriptAvailable,driverFamily:row.value.driverFamily,status:row.value.status}))
+  async function* preflightLines(){yield* preflight.body.trim().split('\n')}
+  for await(const record of readSyncStream(preflightLines())){/* complete production decoder */}
+  result.preflightRows=preflight.count;save()
   browser=await chromium.launch({headless:true,executablePath:`${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,env:{...process.env,LD_LIBRARY_PATH:resolve('.toolchain/lib')},args:['--no-sandbox','--disable-dev-shm-usage']})
   result.browser=browser.version()
   if(process.argv.includes('--external-lease')) {
@@ -583,14 +659,14 @@ try {
     if(result.lease.name!==expected || result.lease.host!=='ludovico')throw Error('Wrong capture lease')
   }
   result.captureStartedAt=new Date().toISOString();result.captureLoadStart=loadavg();result.hostCpuStart=cpuTicks()
-  const f=fixture=await makePage()
+  let f=fixture=await makePage()
   if(mode==='timing') {
     // Each cold sample owns a new browser context; the paired warm sample
     // reloads it, retaining HTTP cache, durable rows and preferences.
-    for(let i=0;i<4;i++) {
-      const sample=i===0?f:await makePage()
-      await startup(sample,'app-cold-start');await startup(sample,'app-warm-start')
-      if(i!==0)await sample.context.close()
+    for(let i=0;i<5;i++) {
+      if(i!==0)f=fixture=await makePage()
+      await startup(f,'app-cold-start',i===4);await startup(f,'app-warm-start',i===4)
+      if(i!==4)await f.context.close()
     }
   }
   else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page)}

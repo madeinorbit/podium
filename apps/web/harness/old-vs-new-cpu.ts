@@ -1,6 +1,6 @@
-/** OLD/NEW offline sampled CPU attribution; shared mapping logic from the full-screen profile. Never runs or modifies the product.
- * bun apps/web/harness/full-screen-profile-analyze.ts --profile=all
- * All durations are clipped to speed:input → qualifying Paint end. */
+/** OLD/NEW offline sampled CPU attribution; maps from the full-screen profiler.
+ * bun apps/web/harness/old-vs-new-cpu.ts --run=.../run.json --build-dir=apps/web/dist
+ * All durations are clipped to input → qualifying Paint end. */
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { gunzipSync } from 'node:zlib'
@@ -213,8 +213,8 @@ for (const action of run.actions) {
   for (const node of profile.nodes) for (const child of node.children ?? []) parents.set(child, node.id)
   const buckets: Record<string, number> = {}
   const events: Event[] = JSON.parse(gunzipSync(await readFile(resolve(runFile, '..', action.trace))).toString())
-  const input = events.find(e => e.name === 'comparison:input')!
-  const dom = events.find(e => e.name === 'comparison:dom')!
+  const input = events.find(e => e.name === (action.action.startsWith('app-')?'comparison:navigation-start':'comparison:input'))!
+  const dom = events.find(e => e.name === (action.action.startsWith('app-')?'comparison:startup-dom':'comparison:dom'))!
   const paint = events.filter(e => e.name === 'Paint' && e.ph === 'X' && e.pid === input.pid && e.ts >= dom.ts).sort((a,b) => a.ts-b.ts)[0]!
   const end = paint.ts + (paint.dur ?? 0)
   let cursor = profile.startTime
@@ -233,7 +233,7 @@ for (const action of run.actions) {
     }
     const kind = bucket(chain)
     add(buckets, kind, ms); sampledMs += ms
-    if (chain.some(({source}) => source && /packages\/client-core\/(engine|viewmodels|replica)|packages\/client-graph\//.test(source.file))) storeDeriveInclusiveMs += ms
+    if (chain.some(({source}) => source && /packages\/client-core\/(?:src\/)?(engine|viewmodels|replica)|packages\/client-graph\/|apps\/(?:web|mobile)\/src\/.*store/.test(source.file))) storeDeriveInclusiveMs += ms
     if (chain.some(({frame, source}) => frame.url.endsWith('.js') && !source)) unmappedMs += ms
   }
   summaries.push({action:action.action,cpu:action.cpu,sampledMs,buckets,storeDeriveInclusiveMs,unmappedMs})
