@@ -3,59 +3,216 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { hostname, loadavg } from 'node:os'
 import { resolve } from 'node:path'
-import { chromium } from '@playwright/test'
-import { preview } from 'vite'
-import { installCommitObserver, saveComponentLocations, startCpu } from './full-screen-profile'
+import { type CDPSession, chromium, type Page } from '@playwright/test'
+import { createLogger, preview } from 'vite'
+import { installCommitObserver, startCpu } from './full-screen-profile'
+
+/** Capture only function coordinates. A module closure can contain hundreds
+ * of imports; walking every imported function stalls after the timed clicks. */
+async function saveComponents(page: Page, cdp: CDPSession, path: string) {
+  const names = await page.evaluate(() => window.__speedFunctionNames)
+  const scripts = new Map<string, string>()
+  const parsed = (script: any) => scripts.set(script.scriptId, script.url)
+  cdp.on('Debugger.scriptParsed', parsed)
+  await cdp.send('Debugger.enable')
+  try {
+    const { result } = await cdp.send('Runtime.evaluate', {
+      expression: 'window.__speedFunctions',
+      objectGroup: 'live-components',
+    })
+    const array = await cdp.send('Runtime.getProperties', {
+      objectId: result.objectId,
+      ownProperties: true,
+    })
+    const functions = array.result.filter((entry: any) => /^\d+$/.test(entry.name))
+    const components = []
+    for (let at = 0; at < functions.length; at += 16) {
+      components.push(
+        ...(await Promise.all(
+          functions.slice(at, at + 16).map(async (entry: any) => {
+            const props = await cdp.send('Runtime.getProperties', {
+              objectId: entry.value.objectId,
+            })
+            const location = props.internalProperties?.find(
+              (p: any) => p.name === '[[FunctionLocation]]',
+            )?.value?.value
+            const wrappedFunctions = []
+            if (!names[Number(entry.name)]) {
+              const scopesId = props.internalProperties?.find((p: any) => p.name === '[[Scopes]]')
+                ?.value?.objectId
+              if (scopesId) {
+                const scopes = await cdp.send('Runtime.getProperties', { objectId: scopesId })
+                const closure = scopes.result.find((p: any) =>
+                  p.value?.description?.startsWith('Closure'),
+                )
+                if (closure?.value?.objectId) {
+                  const variables = await cdp.send('Runtime.getProperties', {
+                    objectId: closure.value.objectId,
+                  })
+                  const candidates = variables.result.filter(
+                    (p: any) => p.value?.type === 'function',
+                  )
+                  // A render wrapper owns a small closure; a whole module does not.
+                  if (candidates.length <= 8)
+                    for (const candidate of candidates) {
+                      const fields = await cdp.send('Runtime.getProperties', {
+                        objectId: candidate.value.objectId,
+                      })
+                      const original = fields.internalProperties?.find(
+                        (p: any) => p.name === '[[FunctionLocation]]',
+                      )?.value?.value
+                      if (original)
+                        wrappedFunctions.push({
+                          ...original,
+                          url: scripts.get(original.scriptId) ?? '',
+                        })
+                    }
+                }
+              }
+            }
+            return {
+              id: Number(entry.name),
+              name: names[Number(entry.name)],
+              ...location,
+              url: scripts.get(location?.scriptId) ?? '',
+              wrappedFunctions,
+            }
+          }),
+        )),
+      )
+    }
+    await writeFile(path, JSON.stringify(components))
+  } finally {
+    await cdp.send('Runtime.releaseObjectGroup', { objectGroup: 'live-components' })
+    await cdp.send('Debugger.disable')
+    cdp.off('Debugger.scriptParsed', parsed)
+  }
+}
 
 if (hostname() !== 'ludovico') throw new Error('Live evidence must stay on ludovico')
-const label = process.argv.find(a => a.startsWith('--label='))?.slice(8) ?? 'baseline'
+const label = process.argv.find((a) => a.startsWith('--label='))?.slice(8) ?? 'baseline'
 const inspect = process.argv.includes('--inspect')
-const buildDir = resolve(process.argv.find(a => a.startsWith('--build-dir='))?.slice(12) ?? 'apps/web/dist')
-const limit = Number(process.argv.find(a => a.startsWith('--limit='))?.slice(8) ?? 20)
+const buildDir = resolve(
+  process.argv.find((a) => a.startsWith('--build-dir='))?.slice(12) ?? 'apps/web/dist',
+)
+const limit = Number(process.argv.find((a) => a.startsWith('--limit='))?.slice(8) ?? 20)
 const closeMeter = process.argv.includes('--close-meter')
-const targetsPath = process.argv.find(a => a.startsWith('--targets='))?.slice(10)
+const timingOnly = process.argv.includes('--timing-only')
+const verifyMenu = process.argv.includes('--verify-menu')
+const sourceSha =
+  process.argv.find((a) => a.startsWith('--source-sha='))?.slice(13) ??
+  execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+const targetsPath = process.argv.find((a) => a.startsWith('--targets='))?.slice(10)
 console.log(JSON.stringify({ pid: process.pid, label }))
 const root = resolve('.artifacts/live-sidebar', label)
 await mkdir(root, { recursive: true })
 process.env.PODIUM_WEB_PORT = '55619'
-const server = await preview({ root: resolve('apps/web'), configFile: resolve('apps/web/vite.config.ts'),
+const logger = createLogger('silent')
+// Vite's proxy errors include RPC query parameters. Keep failures as counts,
+// never stream the operator's identifiers or content into command output.
+let proxyErrors = 0
+logger.error = () => {
+  proxyErrors++
+}
+const server = await preview({
+  root: resolve('apps/web'),
+  configFile: resolve('apps/web/vite.config.ts'),
+  customLogger: logger,
   build: { outDir: buildDir },
-  preview: { host: '127.0.0.1', port: 55619, strictPort: true } })
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
-const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, serviceWorkers: 'block' })
+  preview: { host: '127.0.0.1', port: 55619, strictPort: true },
+})
+const browser = await chromium.launch({
+  headless: true,
+  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+})
+const context = await browser.newContext({
+  viewport: { width: 1600, height: 1000 },
+  serviceWorkers: 'block',
+})
+let capturePage: Awaited<ReturnType<typeof context.newPage>> | undefined
+let captureCdp: Awaited<ReturnType<typeof context.newCDPSession>> | undefined
 try {
-  const token = execFileSync('podium', ['auth', 'mint-session', '--ttl', '2h', '--print-only'],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-  await context.addCookies([{ name: 'podium_session', value: token, domain: '127.0.0.1', path: '/', httpOnly: true, sameSite: 'Lax' }])
+  const token = execFileSync('podium', ['auth', 'mint-session', '--ttl', '2h', '--print-only'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim()
+  await context.addCookies([
+    {
+      name: 'podium_session',
+      value: token,
+      domain: '127.0.0.1',
+      path: '/',
+      httpOnly: true,
+      sameSite: 'Lax',
+    },
+  ])
   const page = await context.newPage()
-  await installCommitObserver(page)
+  capturePage = page
+  if (timingOnly) {
+    await page.addInitScript(() => {
+      window.__speedReact = { renderer: null, commits: [] }
+      window.__speedFunctionNames = []
+      window.__speedFunctions = []
+    })
+  } else await installCommitObserver(page)
   await page.addInitScript(() => {
     localStorage.setItem('podium.panelMode', 'chat')
-    const state = { input: null as number | null, dom: null as number | null, twoRaf: false,
-      target: '', processingStart: 0, events: [] as unknown[], mutations: [] as unknown[], lastContentDom: 0 }
+    const state = {
+      input: null as number | null,
+      dom: null as number | null,
+      twoRaf: false,
+      twoRafAt: 0,
+      target: '',
+      processingStart: 0,
+      events: [] as unknown[],
+      mutations: [] as number[],
+      lastContentDom: 0,
+    }
     Object.assign(window, { __speedCapture: state })
-    new PerformanceObserver(list => state.events.push(...list.getEntries().map(e => e.toJSON())))
-      .observe({ type: 'event', durationThreshold: 16, buffered: true })
-    document.addEventListener('click', e => {
-      if (!state.target || !(e.target instanceof Element) || !e.target.closest(`[data-issue-row="${state.target}"]`)) return
-      state.input = e.timeStamp
-      state.processingStart = performance.now()
-      performance.mark('speed:input', { startTime: e.timeStamp })
-      performance.mark('speed:handler')
-    }, true)
+    new PerformanceObserver((list) =>
+      state.events.push(...list.getEntries().map((e) => e.toJSON())),
+    ).observe({ type: 'event', durationThreshold: 16, buffered: true })
+    document.addEventListener(
+      'click',
+      (e) => {
+        if (
+          !state.target ||
+          !(e.target instanceof Element) ||
+          !e.target.closest(`[data-issue-row="${state.target}"]`)
+        )
+          return
+        state.input = e.timeStamp
+        state.processingStart = performance.now()
+        performance.mark('speed:input', { startTime: e.timeStamp })
+        performance.mark('speed:handler')
+      },
+      true,
+    )
     new MutationObserver(() => {
       if (state.input === null || state.dom !== null) return
       const row = document.querySelector(`[data-issue-row="${state.target}"]`)
       if (!row || row.getAttribute('data-selected') !== 'true') return
       state.dom = performance.now()
       performance.mark('speed:dom')
-      requestAnimationFrame(() => requestAnimationFrame(() => { state.twoRaf = true }))
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          state.twoRaf = true
+          state.twoRafAt = performance.now()
+        }),
+      )
     }).observe(document, { subtree: true, attributes: true, childList: true, characterData: true })
-    new MutationObserver(records => {
+    new MutationObserver((records) => {
       if (state.input === null) return
-      if (records.some(r => r.target instanceof Element && r.target.closest(
-        '[data-panel-resident][data-pane], [data-testid="flight-deck-scroller"], [data-testid="right-rail"]')))
+      if (
+        records.some((r) =>
+          (r.target instanceof Element ? r.target : r.target.parentElement)?.closest(
+            '[data-panel-resident][data-pane], [data-testid="flight-deck-scroller"], [data-testid="right-rail"]',
+          ),
+        )
+      ) {
         state.lastContentDom = performance.now()
+        state.mutations.push(state.lastContentDom)
+      }
     }).observe(document, { subtree: true, attributes: true, childList: true, characterData: true })
   })
   await page.goto('http://127.0.0.1:55619/?e2e=1&switchTrace=1', { waitUntil: 'domcontentloaded' })
@@ -64,107 +221,291 @@ try {
   await page.waitForTimeout(10_000)
   if (closeMeter) await page.getByRole('button', { name: 'Close performance panel' }).click()
   const cdp = await context.newCDPSession(page)
-  const rows = await page.locator('[data-issue-row]').evaluateAll(nodes => nodes.map(n => ({
-    id: n.getAttribute('data-issue-row')!, className: n.className,
-    attributes: [...n.attributes].map(a => a.name),
-  })))
-  console.log(JSON.stringify({ label, rows: rows.length, renderer: await page.evaluate(() => window.__speedReact.renderer),
-    loadavg: loadavg(), classes: [...new Set(rows.map(r => r.className))],
-    attributes: [...new Set(rows.flatMap(r => r.attributes))] }))
+  captureCdp = cdp
+  const rows = await page.locator('[data-issue-row]').evaluateAll((nodes) =>
+    nodes.map((n) => ({
+      id: n.getAttribute('data-issue-row')!,
+      className: n.className,
+      numbered: /^\d+$/.test(
+        n
+          .querySelector('[data-testid="row-id-number"] [aria-hidden="true"]')
+          ?.textContent?.trim() ?? '',
+      ),
+      attributes: [...n.attributes].map((a) => a.name),
+    })),
+  )
+  console.log(
+    JSON.stringify({
+      label,
+      rows: rows.length,
+      renderer: await page.evaluate(() => window.__speedReact.renderer),
+      loadavg: loadavg(),
+      classes: [...new Set(rows.map((r) => r.className))],
+      attributes: [...new Set(rows.flatMap((r) => r.attributes))],
+    }),
+  )
   if (inspect) {
     await page.locator('[data-issue-row] button').first().click()
     await page.waitForTimeout(3000)
-    console.log(JSON.stringify(await page.evaluate(() => ({ globals: Object.keys(window).filter(k => /podium|pool|kernel/i.test(k)),
-      main: [...document.querySelectorAll('main, [data-pane], [data-panel-resident], .issue-panel, .mission-pane')]
-        .map(n => ({ tag: n.tagName, className: n.className, attributes: [...n.attributes].map(a => a.name) })),
-      testids: [...new Set([...document.querySelectorAll('[data-testid]')].map(n => n.getAttribute('data-testid')))],
-      selected: document.querySelectorAll('[data-issue-row][data-selected="true"]').length,
-      elements: document.querySelectorAll('*').length }))))
+    console.log(
+      JSON.stringify(
+        await page.evaluate(() => ({
+          globals: Object.keys(window).filter((k) => /podium|pool|kernel/i.test(k)),
+          main: [
+            ...document.querySelectorAll(
+              'main, [data-pane], [data-panel-resident], .issue-panel, .mission-pane',
+            ),
+          ].map((n) => ({
+            tag: n.tagName,
+            className: n.className,
+            attributes: [...n.attributes].map((a) => a.name),
+          })),
+          testids: [
+            ...new Set(
+              [...document.querySelectorAll('[data-testid]')].map((n) =>
+                n.getAttribute('data-testid'),
+              ),
+            ),
+          ],
+          selected: document.querySelectorAll('[data-issue-row][data-selected="true"]').length,
+          elements: document.querySelectorAll('*').length,
+        })),
+      ),
+    )
   } else {
     const saved = targetsPath ? JSON.parse(await readFile(targetsPath, 'utf8')) : null
-    const targets: string[] = saved?.targets ?? rows.slice(1, limit + 1).map(r => r.id)
+    const unique = [...new Set(rows.filter((r) => r.numbered).map((r) => r.id))]
+    const targets: string[] = saved?.targets ?? unique.slice(1, limit + 1)
     if (targets.length !== limit) throw new Error('Need distinct sidebar targets')
     const anchor: string = saved?.anchor ?? rows[0]!.id
     await writeFile(resolve(root, 'targets.json'), JSON.stringify({ anchor, targets }))
     // The client has a bounded pane cache: revisits and resident warm visits are separate labels.
-    const order = targets.flatMap((id, index) => [{ id, index, visit: 'first' },
-      { id: anchor, index: -1, visit: 'anchor' }, { id, index, visit: 'revisit' }])
+    const order = targets.flatMap((id, index) => [
+      { id, index, visit: 'first' },
+      { id: anchor, index: -1, visit: 'anchor' },
+      { id, index, visit: 'revisit' },
+    ])
     const summaries = []
     for (const [iteration, item] of order.entries()) {
       const row = page.locator(`[data-issue-row="${item.id}"]`).first()
       await row.scrollIntoViewIfNeeded()
-      const box = await row.boundingBox()
+      let box = await row.boundingBox()
       if (!box) throw new Error('Sidebar target has no bounds')
       await page.mouse.move(box.x + Math.min(120, box.width / 2), box.y + box.height / 2)
       await page.waitForTimeout(1000)
-      await page.evaluate(id => {
+      box = await row.boundingBox()
+      if (!box) throw new Error('Sidebar target moved out of view')
+      await page.evaluate((id) => {
         const state = (window as any).__speedCapture
-        Object.assign(state, { target: id, input: null, dom: null, twoRaf: false, events: [], mutations: [] })
+        Object.assign(state, {
+          target: id,
+          input: null,
+          dom: null,
+          twoRaf: false,
+          twoRafAt: 0,
+          events: [],
+          mutations: [],
+        })
         state.lastContentDom = 0
         state.previousTrace = (window as any).__podiumSwitchTraces?.recent().at(-1)?.switchId
-        state.previousSessions = [...document.querySelectorAll('[data-panel-resident][data-pane]')].map(n => n.getAttribute('data-session')).join(',')
+        state.previousSessions = [...document.querySelectorAll('[data-panel-resident][data-pane]')]
+          .map((n) => n.getAttribute('data-session'))
+          .join(',')
+        state.expectSession =
+          Number(
+            document
+              .querySelector(`[data-issue-row="${id}"]`)
+              ?.querySelector('[data-testid="issue-fleet-total"]')?.textContent ?? 0,
+          ) > 0
+        state.launchBefore = (window as any).__liveLaunchCensus?.() ?? {}
+        state.launchInitializedBefore = !!(window as any).__liveLaunchCensus
         window.__speedReact.commits = []
         performance.clearMarks()
       }, item.id)
+      const errorsBefore = proxyErrors
       const events: any[] = []
       const receive = ({ value }: { value: any[] }) => events.push(...value)
       cdp.on('Tracing.dataCollected', receive)
-      await cdp.send('Tracing.start', { categories: 'toplevel,devtools.timeline,blink.user_timing,latencyInfo,benchmark', transferMode: 'ReportEvents' })
-      const stopCpu = await startCpu(cdp)
-      await page.mouse.click(box.x + Math.min(120, box.width / 2), box.y + box.height / 2)
-      await page.waitForFunction(() => (window as any).__speedCapture.twoRaf, { timeout: 60_000 })
-      await page.waitForFunction(() => {
-        const state = (window as any).__speedCapture
-        const trace = (window as any).__podiumSwitchTraces?.recent().at(-1)
-        const sessions = [...document.querySelectorAll('[data-panel-resident][data-pane]')].map(n => n.getAttribute('data-session')).join(',')
-        if (sessions === state.previousSessions || (trace?.issueId === state.target && trace.switchId !== state.previousTrace)) {
-          state.confirmed = sessions === state.previousSessions || !trace.timedOut
-          performance.mark('speed:content-dom', { startTime: Math.max(state.dom, state.lastContentDom) })
-          return true
-        }
-        return false
-      }, { timeout: 15_000 })
-      await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
+      await cdp.send('Tracing.start', {
+        categories: 'toplevel,devtools.timeline,blink.user_timing,latencyInfo,benchmark',
+        transferMode: 'ReportEvents',
+      })
+      const stopCpu = timingOnly ? async () => null : await startCpu(cdp)
+      await row.locator('button[data-pressable]').first().click({ timeout: 60_000 })
+      await page.waitForFunction(() => (window as any).__speedCapture.twoRaf, null, {
+        timeout: 60_000,
+      })
+      await page.waitForFunction(
+        () => {
+          const state = (window as any).__speedCapture
+          const trace = (window as any).__podiumSwitchTraces?.recent().at(-1)
+          const sessions = [...document.querySelectorAll('[data-panel-resident][data-pane]')]
+            .map((n) => n.getAttribute('data-session'))
+            .join(',')
+          const unchanged =
+            sessions === state.previousSessions && (sessions !== '' || !state.expectSession)
+          const matching = trace?.issueId === state.target && trace.switchId !== state.previousTrace
+          if (unchanged || matching) {
+            state.confirmed = unchanged || !trace.timedOut
+            state.readyAt = matching ? state.input + trace.totalMs : state.twoRafAt
+            const mutations = state.mutations.filter((at: number) => at <= state.readyAt)
+            performance.mark('speed:content-dom', {
+              startTime: Math.max(state.dom, mutations.at(-1) ?? 0),
+            })
+            performance.mark('speed:ready', { startTime: state.readyAt })
+            return true
+          }
+          return false
+        },
+        null,
+        { timeout: 15_000 },
+      )
+      await page.evaluate(
+        () =>
+          new Promise<void>((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => done())),
+          ),
+      )
       await page.waitForTimeout(150)
       const profile = await stopCpu()
-      const complete = new Promise<void>(done => cdp.once('Tracing.tracingComplete', done))
+      const complete = new Promise<void>((done) => cdp.once('Tracing.tracingComplete', done))
       await cdp.send('Tracing.end')
       await complete
       cdp.off('Tracing.dataCollected', receive)
-      const state = await page.evaluate(() => ({ boundary: (window as any).__speedCapture, react: window.__speedReact,
-        traces: (window as any).__podiumSwitchTraces?.recent().slice(-1), elements: document.querySelectorAll('*').length,
-        sidebar: (window as any).__podiumSidebarPerf?.read() }))
-      const input = events.find(e => e.name === 'speed:input')
-      const dom = events.find(e => e.name === 'speed:dom')
-      const paint = events.filter(e => e.name === 'Paint' && e.ph === 'X' && e.pid === input?.pid && e.ts >= dom?.ts)
+      const state = await page.evaluate(() => ({
+        boundary: (window as any).__speedCapture,
+        react: window.__speedReact,
+        componentNames: window.__speedFunctionNames,
+        traces: (window as any).__podiumSwitchTraces?.recent().slice(-1),
+        elements: document.querySelectorAll('*').length,
+        sidebar: (window as any).__podiumSidebarPerf?.read(),
+      }))
+      const launchAfter = await page.evaluate(() => (window as any).__liveLaunchCensus?.() ?? {})
+      const input = events.find((e) => e.name === 'speed:input')
+      const dom = events.find((e) => e.name === 'speed:dom')
+      const paint = events
+        .filter(
+          (e) => e.name === 'Paint' && e.ph === 'X' && e.pid === input?.pid && e.ts >= dom?.ts,
+        )
         .sort((a, b) => a.ts - b.ts)[0]
-      const content = events.find(e => e.name === 'speed:content-dom')
-      const contentPaints = events.filter(e => e.name === 'Paint' && e.ph === 'X' && e.pid === input?.pid && e.ts >= content?.ts)
+      const content = events.find((e) => e.name === 'speed:content-dom')
+      const contentPaints = events
+        .filter(
+          (e) =>
+            e.name === 'Paint' &&
+            e.ph === 'X' &&
+            e.pid === input?.pid &&
+            e.tid === input?.tid &&
+            e.ts >= content?.ts,
+        )
         .sort((a, b) => a.ts - b.ts)
-      const layer = events.find(e => e.name === 'Layerize' && e.ph === 'X' && e.pid === input?.pid && e.ts >= contentPaints[0]?.ts)
-      const finishedPaint = layer ? contentPaints.filter(e => e.ts <= layer.ts).at(-1) : contentPaints[0]
+      const layer = events.find(
+        (e) =>
+          e.name === 'Layerize' &&
+          e.ph === 'X' &&
+          e.pid === input?.pid &&
+          e.ts >= contentPaints[0]?.ts,
+      )
+      const finishedPaint = layer
+        ? contentPaints.filter((e) => e.ts <= layer.ts).at(-1)
+        : contentPaints[0]
       if (!input || !dom || !paint) throw new Error('Missing input, selected DOM or actual Paint')
-      const click = state.boundary.events.filter((e: any) => e.name === 'click').at(-1)
-      const numbers = { iteration, target: item.index, visit: item.visit,
-        inputDelayMs: click ? click.processingStart - click.startTime : state.boundary.processingStart - state.boundary.input,
+      const click = state.boundary.events
+        .filter((e: any) => e.name === 'click' && Math.abs(e.startTime - state.boundary.input) < 1)
+        .at(-1)
+      const numbers = {
+        iteration,
+        target: item.index,
+        visit: item.visit,
+        inputDelayMs: click
+          ? click.processingStart - click.startTime
+          : state.boundary.processingStart - state.boundary.input,
         presentationMs: click?.duration ?? null,
-        finishedPaintMs: finishedPaint ? (finishedPaint.ts + finishedPaint.dur - input.ts) / 1000 : null,
+        finishedPaintMs: finishedPaint
+          ? (finishedPaint.ts + finishedPaint.dur - input.ts) / 1000
+          : null,
         confirmed: state.boundary.confirmed,
         clickToPaintMs: (paint.ts + paint.dur - input.ts) / 1000,
-        selectedDomMs: (dom.ts - input.ts) / 1000, elements: state.elements, commits: state.react.commits.length,
+        selectedDomMs: (dom.ts - input.ts) / 1000,
+        elements: state.elements,
+        commits: state.react.commits.length,
         traceMs: state.traces?.[0]?.issueId === item.id ? state.traces[0].totalMs : null,
         cold: state.traces?.[0]?.issueId === item.id ? state.traces[0].cold : null,
-        poolRows: state.sidebar?.pool?.rows ?? null, loadavg: loadavg() }
+        poolRows: state.sidebar?.pool?.rows ?? null,
+        proxyErrors: proxyErrors - errorsBefore,
+        loadavg: loadavg(),
+      }
+      Object.assign(numbers, {
+        launchWork: Object.fromEntries(
+          [
+            'catalogBuilds',
+            'launchReads',
+            'issueBuilds',
+            'coldSessionVisits',
+            'usageQueries',
+            'addressedSessionReads',
+          ].map((key) => [
+            key,
+            Number(launchAfter[key] ?? 0) - Number(state.boundary.launchBefore[key] ?? 0),
+          ]),
+        ),
+      })
       const file = `click-${iteration.toString().padStart(2, '0')}`
       await writeFile(resolve(root, file + '.trace.json'), JSON.stringify({ traceEvents: events }))
-      await writeFile(resolve(root, file + '.cpuprofile'), JSON.stringify(profile))
+      if (profile) await writeFile(resolve(root, file + '.cpuprofile'), JSON.stringify(profile))
       await writeFile(resolve(root, file + '.json'), JSON.stringify({ ...numbers, ...state }))
       summaries.push(numbers)
       console.log(JSON.stringify(numbers))
     }
-    await saveComponentLocations(page, cdp, resolve(root, 'components.json'))
-    await writeFile(resolve(root, 'summary.json'), JSON.stringify({ label, sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), samples: summaries }, null, 2))
+    if (!timingOnly) await saveComponents(page, cdp, resolve(root, 'components.json'))
+    if (verifyMenu) {
+      await page.getByRole('button', { name: 'New panel', exact: true }).first().click()
+      await page.getByRole('menuitem').first().waitFor({ timeout: 15_000 })
+      const choices = await page.getByRole('menuitem').count()
+      await page.keyboard.press('Escape')
+      await page.getByRole('menu').waitFor({ state: 'hidden' })
+      console.log(
+        JSON.stringify({
+          menuOpened: true,
+          choices,
+          menuClosed: true,
+          launchInstrumented: await page.evaluate(() => !!(window as any).__liveLaunchCensus),
+        }),
+      )
+    }
+    await writeFile(
+      resolve(root, 'summary.json'),
+      JSON.stringify({ label, sourceSha, timingOnly, samples: summaries }, null, 2),
+    )
   }
+} catch (error) {
+  await writeFile(resolve(root, 'failure.txt'), String((error as Error).stack))
+  if (capturePage && captureCdp) {
+    await saveComponents(capturePage, captureCdp, resolve(root, 'components.json')).catch(() => {})
+    console.log(
+      JSON.stringify(
+        await capturePage
+          .evaluate(() => {
+            const s = (window as any).__speedCapture
+            const row = document.querySelector(`[data-issue-row="${s.target}"]`)
+            return {
+              inputCaptured: s.input !== null,
+              selectedDom: s.dom !== null,
+              targetPresent: !!row,
+              targetSelected: row?.getAttribute('data-selected') === 'true',
+              numbered: /^\d+$/.test(
+                row
+                  ?.querySelector('[data-testid="row-id-number"] [aria-hidden="true"]')
+                  ?.textContent?.trim() ?? '',
+              ),
+            }
+          })
+          .catch(() => ({ diagnosticUnavailable: true })),
+      ),
+    )
+  }
+  console.error(JSON.stringify({ status: 'capture failed', error: (error as Error).name, label }))
+  process.exitCode = 1
 } finally {
   await context.close()
   await browser.close()
