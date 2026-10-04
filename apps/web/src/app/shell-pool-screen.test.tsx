@@ -13,26 +13,23 @@ afterEach(() => {
 })
 it('registers shell inputs without a startup switch', async () => {
   const { shellPoolScreen } = await import('./shell-pool-screen')
-  expect(shellPoolScreen.initialize).toBeUndefined()
-  expect(shellPoolScreen.enabled).toBeUndefined()
+  expect(shellPoolScreen).not.toHaveProperty('initialize')
+  expect(shellPoolScreen).not.toHaveProperty('enabled')
 })
 
 it('attaches the existing pool after mounting every reader without a legacy fallback or React hook error', async () => {
   history.replaceState(null, '', '/')
   const [
-    { initializePoolScreens },
     { attachWorklistPool, useWorklistPool },
     reads,
     { StoreProvider, useStoreHandle },
     { storeStats },
   ] = await Promise.all([
-    import('./pool-screens'),
     import('./store-worklist-pool'),
     import('./shell-data'),
     import('@podium/client-core/react'),
     import('@podium/client-core/perf'),
   ])
-  initializePoolScreens({ get: () => null } as never)
   const fixture = createHeaderFixture(40, 40),
     failures: string[] = [],
     states: boolean[] = []

@@ -8,7 +8,6 @@ import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { NewPanelMenu } from '../src/app/NewPanelMenu'
-import { initializePoolScreens } from '../src/app/pool-screens'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { NewIssueDialog } from '../src/features/issues/NewIssueDialog'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
@@ -92,7 +91,6 @@ document.documentElement.dataset.theme = 'podium'
 function Surface() {
   const runtime = useStoreHandle() as ClientRuntime
   owner = runtime
-  initializePoolScreens(runtime.getSnapshot().uiState)
   pool = useWorklistPool()
   const [newIssue, setNewIssue] = useState(false),
     [opened, setOpened] = useState('')

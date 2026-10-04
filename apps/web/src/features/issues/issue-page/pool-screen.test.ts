@@ -5,8 +5,8 @@ const mocks = vi.hoisted(() => ({ source: vi.fn(), stop: vi.fn() }))
 vi.mock('@podium/client-graph/issue-page-source', () => ({ attachIssuePageSource: mocks.source }))
 
 it('always attaches the addressed page source and releases its owner', async () => {
-  expect(screen.initialize).toBeUndefined()
-  expect(screen.enabled).toBeUndefined()
+  expect(screen).not.toHaveProperty('initialize')
+  expect(screen).not.toHaveProperty('enabled')
   const runtime = {} as never,
     pool = {} as never
   mocks.source.mockReturnValue(mocks.stop)

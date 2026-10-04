@@ -1,12 +1,8 @@
 /**
  * Settings → Experimental [spec:SP-f4b9]: listed feature flags with user
- * toggles. Most enablement edits patch the settings blob and ride Save.
- * The MobX pilot writes a principal-local debug preference for the next load;
- * its catalog entry controls only whether this page lists it.
+ * toggles. Enablement edits patch the settings blob and ride Save.
  */
 
-import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
-import { FEATURES } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -14,11 +10,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { type FeaturesStateSnapshot, useFeaturesState } from '@/lib/use-feature'
-import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { Section, Subsection } from './shared'
 
 type FeatureFlagWire = FeaturesStateSnapshot['flags'][number]
-const mobxPilotFeature = FEATURES.find((flag) => flag.id === 'mobx-sidebar')!
 
 /** Listed only because of dev mode (invisible on this channel in release builds). */
 function isDevOnlyListed(flag: FeatureFlagWire, channel: 'stable' | 'edge'): boolean {
@@ -58,7 +52,6 @@ export function ExperimentalSection({
       {/* A flag row is a Row: same two columns, same seam, same measure — it just
           carries a badge. It had its own flex layout and its own sizes. */}
       {listed.map((flag) => {
-        if (flag.id === 'mobx-sidebar') return <MobxPilotSetting key={flag.id} />
         const checked = flag.locked ? flag.enabled : (settings.experimental?.[flag.id] ?? false)
         const showDevBadge = Boolean(state?.devMode && isDevOnlyListed(flag, channel))
         return (
@@ -128,40 +121,5 @@ export function ExperimentalSection({
         )}
       </Subsection>
     </Section>
-  )
-}
-
-const readPilotPreference = (raw: string | null): boolean => raw === '1'
-const writePilotPreference = (enabled: boolean): string => (enabled ? '1' : '0')
-
-/** This flag uses the local principal's debug key, not the shared settings blob.
- * Only the preference subscribes; the mounted app keeps its startup choice. */
-function MobxPilotSetting(): JSX.Element {
-  const [enabled, setEnabled] = usePersistedUiState(
-    MOBX_SIDEBAR_KEY,
-    readPilotPreference,
-    writePilotPreference,
-  )
-  return (
-    <div className="settings-row">
-      <div className="min-w-0">
-        <span className="settings-label inline-flex flex-wrap items-center gap-1.5">
-          {mobxPilotFeature.name}
-          <Badge variant="outline" className="h-4 px-1.5 text-[11px]">
-            Dev
-          </Badge>
-        </span>
-        <p className="settings-prose mt-1">{mobxPilotFeature.description}</p>
-        <p className="settings-micro mt-1">Saved immediately for your next app load.</p>
-      </div>
-      <div className="settings-control">
-        <Switch
-          className="flex-none"
-          aria-label={mobxPilotFeature.name}
-          checked={enabled}
-          onCheckedChange={setEnabled}
-        />
-      </div>
-    </div>
   )
 }

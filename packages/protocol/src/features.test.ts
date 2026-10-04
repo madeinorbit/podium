@@ -119,12 +119,6 @@ describe('FEATURES registry', () => {
           visibility: 'edge',
         },
         {
-          id: 'mobx-sidebar',
-          name: 'Sidebar MobX pilot',
-          description: 'Request the sidebar data-layer pilot on this device. Reload to apply.',
-          visibility: 'development',
-        },
-        {
           id: 'command-palette',
           name: 'Cmd+K search',
           description:
@@ -189,6 +183,7 @@ describe('FEATURES registry', () => {
         },
       ]),
     )
+    expect(FEATURES.map((flag) => flag.id)).not.toContain('mobx-sidebar')
   })
 })
 
@@ -219,10 +214,15 @@ describe('resolveFeatureState matrix', () => {
   })
 })
 
-describe('sidebar pilot development visibility', () => {
-  const def = FEATURES.find((flag) => flag.id === 'mobx-sidebar')!
+describe('development visibility', () => {
+  const def: FeatureDefinition = {
+    id: 'f-development',
+    name: 'Development',
+    description: 'development',
+    visibility: 'development',
+  }
 
-  it('lists the development audience with the pilot off by default', () => {
+  it('lists the development audience with the feature off by default', () => {
     expect(
       resolveFeatureState(def, {
         channel: 'edge',
@@ -232,7 +232,7 @@ describe('sidebar pilot development visibility', () => {
     ).toEqual({ listed: true, enabled: false, source: 'default', locked: false })
   })
 
-  it('does not list the pilot for the edge audience alone', () => {
+  it('does not list the feature for the edge audience alone', () => {
     expect(resolveFeatureState(def, { channel: 'edge', devMode: false, userValue: true })).toEqual({
       listed: false,
       enabled: false,

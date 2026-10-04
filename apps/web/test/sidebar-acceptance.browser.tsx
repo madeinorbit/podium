@@ -29,7 +29,6 @@ import { speedSwitchState } from '../harness/speed-switches'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { FlightDeck } from '../src/app/FlightDeck'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
-import { initializePoolScreens } from '../src/app/pool-screens'
 import { RightDock } from '../src/app/RightDock'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { Workspace } from '../src/app/Workspace'
@@ -214,8 +213,6 @@ function MeasurementBinding() {
 
 function Fixture() {
   const runtime = useStoreHandle() as ClientRuntime
-  // Match AppShell: freeze screen choices before descendants choose their hooks.
-  initializePoolScreens(runtime.ui)
   const pool = useWorklistPool()
   const selected = useStoreSelector((s) => s.selectedIssueId)
   const [pageTargets, setPageTargets] = useState<string[]>([])
@@ -347,7 +344,6 @@ async function show(name = 'acceptance-alice', rebuild = false) {
         onFatalError={(message) => errors.push(message)}
         attachRuntime={(runtime) => {
           instrumentRuntime(runtime)
-          initializePoolScreens(runtime.ui)
           return attachWorklistPool(runtime, (error) => errors.push(error.message))
         }}
       >

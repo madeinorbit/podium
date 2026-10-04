@@ -6,9 +6,3 @@ export {
   preparePoolScreens,
   screenOptions,
 } from './screens'
-export {
-  type PoolDataLayer,
-  type PoolSwitch,
-  type PoolSwitchStorage,
-  poolSwitches,
-} from './switches'

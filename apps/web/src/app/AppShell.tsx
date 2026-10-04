@@ -4,7 +4,6 @@ import {
   createSocketLogin,
   observeLiveConnection,
 } from '@podium/client-core/live-connection'
-import { useStoreHandle } from '@podium/client-core/react'
 import {
   FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
@@ -77,7 +76,6 @@ import {
 } from './flight-deck-display'
 import { LoadingScreen } from './LoadingScreen'
 import { OperatorFocusProvider } from './operator-focus'
-import { initializePoolScreens } from './pool-screens'
 import { ReplicaFailureScreen } from './ReplicaFailureScreen'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
@@ -340,28 +338,26 @@ export function AppShell({
                 makeSocket={makeSocket}
                 onServerRelocation={browserServerRelocation(window.location)}
               >
-                <PoolScreenLatch>
-                  <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
-                  <ReplicaReadyPodiumLinkHost
-                    syncProgress={kernel.assembly.progress}
-                    initialHref={pendingInitialPodiumHref.current}
-                    onInitialHrefConsumed={() => {
-                      pendingInitialPodiumHref.current = null
-                      onInitialPodiumHrefConsumed()
-                    }}
-                  />
-                  <RoutedDensityProvider>
-                    <ThemeUiStateMirror />
-                    <BrowserOpenOverlay />
-                    <ConfirmProvider>
-                      {/* Above both TopBar and the view outlet: the command bar's centre
-                    is a portal target the active mode fills (POD-365). */}
-                      <ToolbarSlotProvider>
-                        <AppBody syncProgress={kernel.assembly.progress} />
-                      </ToolbarSlotProvider>
-                    </ConfirmProvider>
-                  </RoutedDensityProvider>
-                </PoolScreenLatch>
+                <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
+                <ReplicaReadyPodiumLinkHost
+                  syncProgress={kernel.assembly.progress}
+                  initialHref={pendingInitialPodiumHref.current}
+                  onInitialHrefConsumed={() => {
+                    pendingInitialPodiumHref.current = null
+                    onInitialPodiumHrefConsumed()
+                  }}
+                />
+                <RoutedDensityProvider>
+                  <ThemeUiStateMirror />
+                  <BrowserOpenOverlay />
+                  <ConfirmProvider>
+                    {/* Above both TopBar and the view outlet: the command bar's centre
+                  is a portal target the active mode fills (POD-365). */}
+                    <ToolbarSlotProvider>
+                      <AppBody syncProgress={kernel.assembly.progress} />
+                    </ToolbarSlotProvider>
+                  </ConfirmProvider>
+                </RoutedDensityProvider>
               </StoreProvider>
             </ErrorBoundary>
           )}
@@ -385,16 +381,6 @@ export function AppShell({
   // itself behind the setup decision. An unreachable auth bootstrap is also
   // recovered inside the replica effect, so that check stays parallel too.
   return <SetupGate>{shell}</SetupGate>
-}
-
-/** Hydrated principal-local state is available inside StoreProvider. Freeze
- * every screen's data-layer choice here, ABOVE every reader, so no mounted
- * reader changes hook order. It once ran inside RoutedDensityProvider, after
- * PodiumLinkHost had already rendered with the default: with the MobX pilot on,
- * that host's next render switched hooks and crashed the app on start. */
-function PoolScreenLatch({ children }: { children: ReactNode }): ReactNode {
-  initializePoolScreens(useStoreHandle().getSnapshot().uiState)
-  return children
 }
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {

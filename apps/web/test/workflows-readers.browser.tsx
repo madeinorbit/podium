@@ -5,7 +5,6 @@ import { checkWorkflows } from '@podium/client-graph/diagnostics/workflow-check'
 import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { asUserId } from '@podium/model/browser'
 import { createRoot } from 'react-dom/client'
-import { initializePoolScreens } from '../src/app/pool-screens'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import type { Trpc } from '../src/app/trpc'
 import { MergeQueuePanel } from '../src/features/merge-queue/MergeQueuePanel'
@@ -24,7 +23,6 @@ const runtimeOwners = new Set<object>()
 let capture: ReturnType<typeof storeStats.begin>
 // Latch before any child renders; attaching the pool happens later, exactly as
 // in the app. Choosing by pool availability would change hook order here.
-initializePoolScreens({ get: () => null } as never)
 storeStats.enable()
 function Surface() {
   owner = useStoreHandle<Trpc>(); pool = useWorklistPool()

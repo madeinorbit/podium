@@ -4,35 +4,25 @@ import type { createRuntimeWorklistPool } from '../runtime-pool'
 
 export type PoolScreenOptions = NonNullable<Parameters<typeof createRuntimeWorklistPool>[1]>
 /** One screen's declaration in an app's screen list: what it needs from the
- * shared pool and how it plugs in. Permanent, except the two switch members. */
+ * shared pool and how it plugs in. */
 export interface PoolScreen {
   readonly id?: string
-  /** TEMPORARY with the per-screen switches (./switches): latch this screen's
-   * switch from the app's storage; delete with the switch when default-on. */
-  initialize?(ui: ClientRuntime['ui']): void
-  /** TEMPORARY: the latched switch; default-on screens are always enabled. */
-  enabled?(): boolean
   /** Synchronous startup guard, before any lazy graph import. */
   prepare?(runtime: ClientRuntime): void | (() => void)
   options?(runtime: ClientRuntime): PoolScreenOptions
-  /** Register read-side sources and optional diagnostics on the existing pool.
+  /** Register read-side sources on the existing pool.
    * A late attachment must return its disposer; it is immediately released. */
   attach?(runtime: ClientRuntime, pool: MobxPool): Promise<(() => void) | void>
-  /** Optional diagnostics (the TEMPORARY side-by-side checks) preserve their
-   * existing failure isolation: a failed check never fails the pool. */
-  optional?: boolean
 }
 
 export function preparePoolScreens(
   screens: readonly PoolScreen[],
   runtime: ClientRuntime,
 ): () => void {
-  const stops = screens
-    .filter((screen) => screen.enabled?.() !== false)
-    .flatMap((screen) => {
-      const stop = screen.prepare?.(runtime)
-      return stop ? [stop] : []
-    })
+  const stops = screens.flatMap((screen) => {
+    const stop = screen.prepare?.(runtime)
+    return stop ? [stop] : []
+  })
   return () => {
     for (const stop of stops.splice(0).reverse()) stop()
   }
@@ -42,9 +32,7 @@ export function screenOptions(
   screens: readonly PoolScreen[],
   runtime: ClientRuntime,
 ): PoolScreenOptions {
-  const options = screens
-    .filter((screen) => screen.enabled?.() !== false)
-    .map((screen) => screen.options?.(runtime) ?? {})
+  const options = screens.map((screen) => screen.options?.(runtime) ?? {})
   const summaries: NonNullable<PoolScreenOptions['summaries']> = {}
   for (const option of options)
     for (const entity of Object.keys(option.summaries ?? {}) as (keyof typeof summaries)[]) {
@@ -69,7 +57,7 @@ export function attachPoolScreens(
   let disposed = false
   const stops: (() => void)[] = []
   for (const screen of screens) {
-    if (screen.enabled?.() === false || !screen.attach) continue
+    if (!screen.attach) continue
     void screen
       .attach(runtime, pool)
       .then((stop) => {
@@ -78,8 +66,7 @@ export function attachPoolScreens(
         else stops.push(stop)
       })
       .catch((error) => {
-        if (!disposed && !screen.optional)
-          onError(error instanceof Error ? error : new Error(String(error)))
+        if (!disposed) onError(error instanceof Error ? error : new Error(String(error)))
       })
   }
   return () => {

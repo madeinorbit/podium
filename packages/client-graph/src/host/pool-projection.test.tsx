@@ -11,7 +11,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MobxPool } from '../pool'
 import * as runtimePool from '../runtime-pool'
 import { createPoolHost } from './pool-host'
-import { poolSwitches } from './switches'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -31,10 +30,9 @@ async function mount(inline: boolean) {
     return view
   })
   cleanups.push(() => vi.restoreAllMocks())
-  const pilot = poolSwitches(() => ({ get: () => null, device: () => true }))('mobxProjection')
   const host = createPoolHost({
     dev: false,
-    screens: [{ initialize: (ui) => { pilot.initialize(ui) }, enabled: () => pilot.layer() === 'pool' }],
+    screens: [{ id: 'projection' }],
   })
   let runtime: ClientRuntime
   let pool: MobxPool | null = null
@@ -92,7 +90,6 @@ async function mount(inline: boolean) {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
     expect(pool).not.toBeNull()
   })
-  expect(pilot.layer()).toBe('pool')
   expect(pool).not.toBeNull()
   expect(snapshot).not.toBeNull()
   return {
@@ -115,7 +112,7 @@ async function mount(inline: boolean) {
   }
 }
 
-describe('real host projection read counts with the pilot on', () => {
+describe('real host projection read counts', () => {
   it.each([false, true])('measures first mount and a real selection update (inline=%s)', async (inline) => {
     const fixture = await mount(inline)
     const firstMount = fixture.reads()

@@ -16,12 +16,12 @@ import {
 } from './screens'
 
 export interface PoolHostOptions {
-  /** The app's screen list. Each entry latches its own switch at attachment. */
+  /** The app's permanent pool screen list. */
   readonly screens: readonly PoolScreen[]
   /** Development builds keep weak references to retired pools for leak checks. */
   readonly dev: boolean
-  /** App startup work after the switches latch, with or without an enabled
-   * screen. Its stop runs first at teardown. */
+  /** App startup work before pool options are read.
+   * Its stop runs first at teardown. */
   start?(runtime: ClientRuntime): (() => void) | void
   /** Pool-wide options that belong to no screen (POD-5431: the transaction
    * log). Read when a pool is built; never builds one by itself. They win
@@ -59,8 +59,7 @@ interface PoolSlot {
   project: typeof createPoolProjection | null
 }
 
-/** One pool per signed-in runtime for an app. No graph code, row feed, locals
- * subscription or pool is built while every screen is switched off. */
+/** One pool per signed-in runtime for an app, loaded at runtime attachment. */
 export function createPoolHost({
   screens,
   dev,
@@ -113,11 +112,7 @@ export function createPoolHost({
     runtime: ClientRuntime<TApi>,
     onError: (error: Error) => void,
   ): () => void {
-    // Structural legacy/test runtimes without UI state request no pool screen.
-    if (!runtime.ui) return () => {}
-    for (const screen of screens) screen.initialize?.(runtime.ui)
     const stopStart = start?.(runtime) ?? (() => {})
-    if (!screens.some((screen) => screen.enabled?.() !== false)) return stopStart
     const stopPrepared = preparePoolScreens(screens, runtime)
     reportSidebarPool(runtime, null, false)
     const slot = slotFor(runtime)

@@ -14,7 +14,6 @@ import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
 import { createWorkflowsFixture } from '../../../test/workflows-fixture'
-import { initializePoolScreens } from '@/app/pool-screens'
 import { ExecutionProfiles } from './ExecutionProfiles'
 import { RunProgress } from './RunProgress'
 import { useWorkflowMachines, useWorkflowSubject } from './readers'
@@ -23,7 +22,6 @@ import { OPERATOR_WORKFLOW_RIGHTS } from './workflow-commands'
 
 beforeAll(() => {
   history.replaceState(null, '', '/?mobxWorkflows=1')
-  initializePoolScreens({ get: () => null } as never)
 })
 afterEach(() => { cleanup(); storeStats.enable(false); storeStats.reset() })
 

@@ -128,16 +128,6 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
-    // Listing only: the app reads its principal-scoped device-local debug key
-    // once at startup, never the live features.state enablement.
-    // Packaged development builds list this with Podium development enabled;
-    // source dev builds retain their usual access to every experimental flag.
-    id: 'mobx-sidebar',
-    name: 'MobX pilot',
-    description: 'Use the new data layer for every converted screen. Reload to apply.',
-    visibility: 'development',
-  },
-  {
     // The shipwright repair engine (`apps/server/src/modules/shipping/shipwright.ts`)
     // is COMPLETE AND DORMANT: `ShipwrightService` is constructed nowhere outside its
     // own test, and the shipping service never names it. So the account this control

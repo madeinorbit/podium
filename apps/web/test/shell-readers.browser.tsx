@@ -3,7 +3,6 @@ import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { beginSidebarCheck, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
 import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { observer } from '@podium/client-graph/react'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
@@ -16,7 +15,6 @@ import { BrowserOpenOverlay } from '../src/app/BrowserOpenOverlay'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { isComplexFlightDeckMission } from '../src/app/flight-deck-display'
 import { MachinesPanel } from '../src/app/MachinesPanel'
-import { initializePoolScreens } from '../src/app/pool-screens'
 import { RightDock } from '../src/app/RightDock'
 import { RightRail } from '../src/app/RightRail'
 import { useShellChrome, useShellClose, useShellDock } from '../src/app/shell-data'
@@ -29,7 +27,6 @@ import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 import '../src/styles.css'
 
-initializePoolScreens({ get: (key: string) => (key === MOBX_SIDEBAR_KEY ? '1' : null) } as never)
 const sessionIndex = { calls: 0, first: undefined as string | undefined }
 Object.assign(globalThis, { __shellSessionIndex: sessionIndex })
 const count = Number(new URLSearchParams(location.search).get('rows') ?? 5600)

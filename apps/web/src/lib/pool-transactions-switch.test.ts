@@ -1,4 +1,4 @@
-import { MOBX_SIDEBAR_KEY, type UiState } from '@podium/client-core/ui-state'
+import type { UiState } from '@podium/client-core/ui-state'
 import { afterEach, expect, it, vi } from 'vitest'
 
 afterEach(() => {
@@ -14,12 +14,15 @@ const ui = (values: Record<string, string>): UiState => ({
   subscribe: vi.fn(() => () => {}),
 })
 
+// A preference left on an older install must not control transaction ownership.
+const retiredReaderKey = 'podium.mobxSidebar'
+
 it('is on by default once latched, whatever the shared pool setting says', async () => {
   const { initializePoolTransactions, poolTransactionsEnabled } = await import(
     './pool-transactions-switch'
   )
   expect(poolTransactionsEnabled()).toBe(false)
-  const owner = ui({ [MOBX_SIDEBAR_KEY]: '0' })
+  const owner = ui({ [retiredReaderKey]: '0' })
   initializePoolTransactions(owner)
   expect(poolTransactionsEnabled()).toBe(true)
   expect(owner.get).not.toHaveBeenCalled()
@@ -53,7 +56,7 @@ it.each([
   const { initializePoolTransactions, poolTransactionsEnabled } = await import(
     './pool-transactions-switch'
   )
-  initializePoolTransactions(ui({ [MOBX_SIDEBAR_KEY]: '1' }))
+  initializePoolTransactions(ui({ [retiredReaderKey]: '1' }))
   expect(poolTransactionsEnabled()).toBe(enabled)
 })
 
@@ -72,13 +75,13 @@ it('reads the current URL once at initialization and never reads either principa
   expect(readSearch).not.toHaveBeenCalled()
 
   search = '?poolTransactions=false'
-  const firstOwner = ui({ [MOBX_SIDEBAR_KEY]: '1' })
+  const firstOwner = ui({ [retiredReaderKey]: '1' })
   initializePoolTransactions(firstOwner)
   expect(poolTransactionsEnabled()).toBe(false)
   expect(readSearch).toHaveBeenCalledTimes(1)
 
   search = '?poolTransactions=1'
-  const nextOwner = ui({ [MOBX_SIDEBAR_KEY]: '0' })
+  const nextOwner = ui({ [retiredReaderKey]: '0' })
   initializePoolTransactions(nextOwner)
   initializePoolTransactions(firstOwner)
   expect(poolTransactionsEnabled()).toBe(false)

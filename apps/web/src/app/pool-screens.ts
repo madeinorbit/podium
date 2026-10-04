@@ -1,4 +1,3 @@
-import type { UiState } from '@podium/client-core/ui-state'
 import type { PoolScreen } from '@podium/client-graph/host'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { chatContextPoolScreen } from '@/features/chat/chat-context-pool-screen'
@@ -12,12 +11,6 @@ import { commandLaunchScreen } from './command-launch-pool-screen'
 import { missionPanePoolScreen } from './mission-pane-pool-screen'
 import { panePoolScreen } from './pane-pool-screen'
 import { shellPoolScreen } from './shell-pool-screen'
-
-/** Latch with hydrated UI state before rendering any screen, including settings.
- * Provider attachments and principal rebuilds reuse the same app-load choices. */
-export function initializePoolScreens(ui: UiState): void {
-  for (const screen of poolBackedScreens) screen.initialize?.(ui)
-}
 
 /** Screen declarations register sources on the existing runtime and pool. */
 export const poolBackedScreens: readonly PoolScreen[] = [

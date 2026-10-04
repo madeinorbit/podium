@@ -7,14 +7,12 @@ import { asUserId } from '@podium/model/browser'
 import { Profiler, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
-import { initializePoolScreens } from '@/app/pool-screens'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ConciergeButton } from './ConciergeButton'
 import { createSuperagentFixture } from './fixture'
 import { SuperagentView } from './SuperagentView'
 import '@/index.css'
 
-initializePoolScreens({ get: () => null } as never)
 const data = createSuperagentFixture(5600, 5014),
   errors: string[] = []
 let runtime: ClientRuntime,

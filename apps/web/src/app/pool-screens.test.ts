@@ -1,4 +1,3 @@
-import type { UiState } from '@podium/client-core/ui-state'
 import { afterEach, expect, it, vi } from 'vitest'
 
 afterEach(() => {
@@ -23,17 +22,11 @@ it.each([
   history.replaceState(null, '', '/' + query)
   const { poolBackedScreens } = await import('./pool-screens')
   const screens = poolBackedScreens.filter((screen) => convertedIds.includes(screen.id ?? ''))
-  const get = vi.fn(() => null)
-  const ui: UiState = { get, set: vi.fn(), subscribe: vi.fn(() => () => {}) }
   expect(screens).toHaveLength(convertedIds.length)
-  expect(
-    screens.every((screen) => screen.initialize === undefined && screen.enabled === undefined),
-  ).toBe(true)
   for (const screen of screens) {
-    screen.initialize?.(ui)
-    expect(screen.enabled?.()).not.toBe(false)
+    expect(screen).not.toHaveProperty('initialize')
+    expect(screen).not.toHaveProperty('enabled')
   }
-  expect(get).not.toHaveBeenCalled()
 })
 
 const permanentIds = [
@@ -54,7 +47,8 @@ it.each([
   const { poolBackedScreens } = await import('./pool-screens')
   const screens = poolBackedScreens.filter((screen) => permanentIds.includes(screen.id ?? ''))
   expect(screens).toHaveLength(permanentIds.length)
-  expect(
-    screens.every((screen) => screen.initialize === undefined && screen.enabled === undefined),
-  ).toBe(true)
+  for (const screen of screens) {
+    expect(screen).not.toHaveProperty('initialize')
+    expect(screen).not.toHaveProperty('enabled')
+  }
 })

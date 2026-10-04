@@ -15,7 +15,6 @@ import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { buildCorpus, FIXED_NOW } from '../../../packages/worklist-proto/harness/src/fixture'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
-import { initializePoolScreens } from '../src/app/pool-screens'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { ToolbarSlotProvider, ToolbarSlotTarget } from '../src/app/ToolbarSlot'
 import { TooltipProvider } from '../src/components/ui/tooltip'
@@ -91,7 +90,6 @@ document.documentElement.dataset.theme = 'podium'
 
 function Fixture() {
   const runtime = useStoreHandle() as ClientRuntime
-  initializePoolScreens(runtime.ui)
   owner = runtime
   const currentPool = useWorklistPool()
   pool = currentPool
