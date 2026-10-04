@@ -69,7 +69,7 @@ const legacyActivity = (rows: SliceIssue[], sessions: SessionView[]) =>
 describe('web pool navigation', () => {
   it('wakes topology for unscanned rehomes and hidden sessions without loading row facets', () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
-    const session = { sessionId: 'seat', cwd: '/unscanned/old', headless: true, status: 'live' }
+    const session = { sessionId: 'seat', cwd: '/unscanned/old', headless: true, status: 'live', lastActiveAt: stamp }
     pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'seat', value: session }] })
     const row = vi.spyOn(pool, 'row'), changed = vi.fn()
     const stop = createPoolNavigationProvider(pool).onTopology!(changed)

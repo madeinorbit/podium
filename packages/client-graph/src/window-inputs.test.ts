@@ -152,11 +152,7 @@ describe('declared window input readers', () => {
         mobile.reset()
         fixture.cursor(1)
         await flush()
-        expect(mobile.runs).toEqual({ cursor: 1, pendingSpawnPrompts: 0 })
-        mobile.reset()
-        fixture.change({ pendingSpawnPrompts: new Map([[asSessionId('pending'), 'prompt']]) })
-        await flush()
-        expect(mobile.runs).toEqual({ cursor: 0, pendingSpawnPrompts: 1 })
+        expect(mobile.runs).toEqual({ cursor: 1 })
       } finally {
         mobile.dispose()
       }

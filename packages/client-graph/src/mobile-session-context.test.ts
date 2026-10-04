@@ -7,24 +7,13 @@ import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 it('demands only the declared borrowed window, coalesces loading, and tears down the existing owner subscriptions', async () => {
-  const listeners = new Set<() => void>(),
-    addressed = new Set<() => void>()
-  let prompts = new Map([[asSessionId('pending'), 'First prompt']]),
-    cursor: number | null = null
-  const readLocal = vi.fn((key: string) => {
-    if (key !== 'pendingSpawnPrompts') throw new Error(`Legacy field ${key}`)
-    return prompts
-  })
+  const addressed = new Set<() => void>()
+  let cursor: number | null = null
+  const readLocal = vi.fn(() => { throw new Error('The cursor source must not read runtime locals') })
   const getCursor = vi.fn(() => cursor)
   const owner = {
     readLocal,
-    onLocals: (keys: readonly string[], fn: () => void) => {
-      expect(keys).toEqual(['pendingSpawnPrompts'])
-      listeners.add(fn)
-      return () => {
-        listeners.delete(fn)
-      }
-    },
+    onLocals: () => { throw new Error('Spawn prompts belong to the pool log') },
     replica: {
       getCursor,
       subscribeCursor: (fn: () => void) => {
@@ -42,9 +31,9 @@ it('demands only the declared borrowed window, coalesces loading, and tears down
   expect(source.read('mobileSessionWindow')).toBe(LOADING)
   expect(source.read('mobileSessionWindow')).toBe(LOADING)
   await Promise.resolve()
-  expect(readLocal).toHaveBeenCalledTimes(1)
+  expect(readLocal).not.toHaveBeenCalled()
   expect(getCursor).toHaveBeenCalledTimes(1)
-  expect(source.read('mobileSessionWindow')).toEqual({ cursor: null, pendingSpawnPrompts: prompts })
+  expect(source.read('mobileSessionWindow')).toEqual({ cursor: null })
   // The cursor alone moves on its own signal (POD-5433). Watched, not read:
   // a read schedules its own refresh.
   let seen: unknown
@@ -55,15 +44,10 @@ it('demands only the declared borrowed window, coalesces loading, and tears down
   cursor = 27
   for (const fn of addressed) fn()
   await Promise.resolve()
-  expect(seen).toEqual({ cursor: 27, pendingSpawnPrompts: prompts })
-  prompts = new Map()
-  for (const fn of listeners) fn()
-  await Promise.resolve()
-  expect(seen).toEqual({ cursor: 27, pendingSpawnPrompts: prompts })
+  expect(seen).toEqual({ cursor: 27 })
   stopWatch()
   source.dispose()
   source.dispose()
-  expect(listeners.size).toBe(0)
   expect(addressed.size).toBe(0)
   expect(source.read('mobileSessionWindow')).toBe(LOADING)
   pool.dispose()
@@ -91,7 +75,7 @@ it('keeps spawn confirmation loading until the shared pane source is attached an
   expect(reader.spawnPending('provisional')).toBe(true)
   expect(reader.spawnPending('confirmed')).toBe(false)
   pool.sources.register(['mobileSessionWindow'], {
-    read: () => ({ cursor: null, pendingSpawnPrompts: new Map() }),
+    read: () => ({ cursor: null }),
     dispose() {},
   })
   pool.sources.register(['chatSessionOrder', 'chatIssueOrder'], {
@@ -131,15 +115,12 @@ it('answers spawn prompts from the pool log while it owns sessions (POD-5432)', 
     ])
     pool.attachTransactions({ mutate: vi.fn(), spawnPrompts } as never, ownsSessions)
     pool.sources.register(['mobileSessionWindow'], {
-      read: () => ({
-        cursor: null,
-        pendingSpawnPrompts: new Map([[asSessionId('from-ledger'), 'Ledger prompt']]),
-      }),
+      read: () => ({ cursor: null }),
       dispose: () => {},
     } as never)
     expect(reader.spawnPrompt('from-log')).toBe(ownsSessions ? 'Log prompt' : undefined)
     expect(reader.spawnPrompt('no-prompt')).toBeUndefined()
-    expect(reader.spawnPrompt('from-ledger')).toBe(ownsSessions ? undefined : 'Ledger prompt')
+    expect(reader.spawnPrompt('absent')).toBeUndefined()
     pool.dispose()
   }
 })

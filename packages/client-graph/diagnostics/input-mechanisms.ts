@@ -1,5 +1,7 @@
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
-import { type ClientRuntime, type Store, withKeyedInputs } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import type { ReferenceState as Store } from './reference-state'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { autorun } from 'mobx'
 import { COMMAND_ENTITIES } from '../src/command-launch-schema'
@@ -25,7 +27,6 @@ export function inputFixture(scale: 1 | 4) {
     openIssueId: null,
     recentFiles: [],
     sidebarSettings: {},
-    pendingSpawnPrompts: new Map(),
     outboxSize: 0,
     trpc: {
       quota: { summary: { query: async () => [] } },
@@ -143,10 +144,6 @@ export async function inputMechanisms(scale: 1 | 4) {
   watch('command.pins', () => {
     const row = f.pool.row('commandWindow', 'window')
     return row && row !== LOADING ? row.pins : row
-  })
-  watch('mobile.prompt', () => {
-    const row = f.pool.row('mobileSessionWindow', 'window')
-    return row && row !== LOADING && 'pendingSpawnPrompts' in row ? row.pendingSpawnPrompts : row
   })
   watch('mobile.cursor', () => {
     const row = f.pool.row('mobileSessionWindow', 'window')

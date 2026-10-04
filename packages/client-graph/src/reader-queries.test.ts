@@ -160,7 +160,7 @@ function fixture(scale = 1, bootOnly = false) {
   } as never)
   if (bootOnly)
     pool.sources.register(['mobileSessionWindow'], {
-      read: () => ({ cursor: null, pendingSpawnPrompts: new Map() }),
+      read: () => ({ cursor: null }),
       dispose() {},
     })
   attachCommandLaunchSource(
