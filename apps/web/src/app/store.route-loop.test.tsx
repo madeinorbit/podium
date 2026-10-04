@@ -84,6 +84,8 @@ vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m
 
 const { StoreProvider, useRuntimeSelector } = await import('./store')
 const { useWorklistPool } = await import('./store-worklist-pool')
+const { useRuntimeLocal } = await import('./keyed-runtime')
+const { loadingNavigationProvider } = await import('@podium/client-core/engine')
 
 let renderCount = 0
 let poolReady = false
@@ -94,7 +96,8 @@ let snapshot: {
 } | null = null
 
 function Consumer(): null {
-  poolReady = useWorklistPool() !== null
+  const pool = useWorklistPool(), navigation = useRuntimeLocal('navigation')
+  poolReady = pool !== null && navigation !== loadingNavigationProvider
   const s = useRuntimeSelector(s => ({ selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }))
   renderCount++
   snapshot = { selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }
