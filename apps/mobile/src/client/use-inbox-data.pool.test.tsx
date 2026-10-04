@@ -326,7 +326,6 @@ it('keeps decided deck order and retry lookup when proposals are promoted or arr
 
 it('reads cold refs through one batched reader and shares prefix work across retained chips', async () => {
   const app = await mount(
-    true,
     <>
       <RefChip token="SYN-1018" refKind="issue" prefix="SYN" />
       <RefChip token="UTF-8" refKind="issue" prefix="UTF" />

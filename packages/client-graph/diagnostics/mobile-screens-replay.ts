@@ -26,7 +26,6 @@ import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
 import { attachMobileScreens } from '../src/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '../src/mobile-screens-schema'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
-import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobileScreenInput } from './mobile-screens-snapshot'
 
 const MAX_CHECKS_PER_POOL = 100
@@ -129,7 +128,7 @@ async function main() {
   let handle = await openPool()
   try {
     phase = 3
-    const issues = store.issueProjections as IssueViewModel[]
+    const issues = store.issueProjections
     const roots = [
       ...new Set(
         issues.flatMap((issue) => {

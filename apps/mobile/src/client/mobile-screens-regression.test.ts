@@ -3,7 +3,6 @@
 
 import { createHash } from 'node:crypto'
 import type { Store } from '@podium/client-core/engine'
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { missionRootFor } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
@@ -63,7 +62,7 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
   throw new Error('Phone batched loads did not settle')
 }
 function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
-  const issues = store.issueProjections as IssueViewModel[]
+  const issues = store.issueProjections
   const roots = [
     ...new Set(
       issues.flatMap((issue) => {
