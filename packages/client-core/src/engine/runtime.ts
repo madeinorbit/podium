@@ -243,6 +243,10 @@ export interface LegacyFoldStats {
 }
 
 export interface PoolWriter {
+  spawnDraftAgent?: Store['spawnDraftAgent']
+  spawnIssueAgent?: Store['spawnIssueAgent']
+  waitForSpawnConfirmed?: (id: SessionId) => Promise<void>
+  holds?: (id: MutationId) => boolean
   write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
 }
 
@@ -410,6 +414,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly boot: BootFetches<TApi>
 
   private readonly api: TApi
+  get spawnNotices(): StoreNotices { return this.notices }
+  get spawnGraceMs(): number | undefined { return this.spawnConfirmGraceMs }
+  private readonly spawnConfirmGraceMs: number | undefined
   private readonly notices: StoreNotices
   private readonly onFatalError: (message: string) => void
   private readonly formatError: (error: unknown, fallback: string) => string
@@ -511,6 +518,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private booted = false
 
   constructor(init: ClientRuntimeInit<TApi>) {
+    this.spawnConfirmGraceMs = init.spawnConfirmGraceMs
     this.principal = init.principal
     this.api = init.api
     this.notices = init.notices ?? NOOP_NOTICES
@@ -2273,10 +2281,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           : this.optimism.enqueueOverlayed(kind, input),
       revealFileTab: (args) => this.revealFileTab(args),
       spawnDraftAgent: (args: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]) =>
-        this.optimism.spawnDraftAgent(args),
+        (this.poolWriter?.spawnDraftAgent ?? this.optimism.spawnDraftAgent.bind(this.optimism))(args),
       spawnIssueAgent: (args: Parameters<OptimismLedger<TApi>['spawnIssueAgent']>[0]) =>
-        this.optimism.spawnIssueAgent(args),
-      waitForSpawnConfirmed: (sessionId) => this.optimism.waitForSpawnConfirmed(sessionId),
+        (this.poolWriter?.spawnIssueAgent ?? this.optimism.spawnIssueAgent.bind(this.optimism))(args),
+      waitForSpawnConfirmed: (sessionId) => this.poolWriter?.waitForSpawnConfirmed?.(sessionId) ?? this.optimism.waitForSpawnConfirmed(sessionId),
       // ONE KEYSTROKE. The store write is synchronous and unconditional — it is
       // what the caret is attached to. Everything else about this edit (when it
       // goes out, whether it went out, when it is written to disk) is a

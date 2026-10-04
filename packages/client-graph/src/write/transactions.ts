@@ -1,3 +1,4 @@
+import { PoolSpawns, type PoolSpawnPorts } from './spawns'
 /**
  * POD-5431 — `PoolTransactions`: the pool owns optimism, Linear's shape
  * (`docs/plans/pod-4286-optimism-and-refusals.md` §4, migration step 4).
@@ -118,6 +119,7 @@ export interface PoolRejection {
 }
 
 export interface PoolTransactionsPorts {
+  readonly spawn?: Omit<PoolSpawnPorts, 'truth' | 'pending' | 'paint'>
   /** The principal whose per-user rows the log paints. */
   readonly userId: string
   readonly outbox: Pick<EngineOutbox, 'pending' | 'awaiting' | 'subscribe' | 'deadLetters'>
@@ -127,7 +129,7 @@ export interface PoolTransactionsPorts {
   readonly enqueue: <K extends AnyKind>(
     kind: K,
     input: OutboxKinds[K],
-    opts: { mutationId: MutationId; queuedAt: number },
+    opts: { mutationId: MutationId; queuedAt: number; baseline?: string; chained?: boolean },
   ) => Promise<void>
   /** Kernel batches by row: when truth lands, settlement runs. */
   readonly addressed: (listener: (batch: ReplicaAddressedBatch) => void) => () => void
@@ -150,6 +152,10 @@ export interface PoolTransactionsPorts {
 }
 
 export interface PoolTransactions {
+  spawnDraftAgent: PoolSpawns['spawnDraftAgent']
+  spawnIssueAgent: PoolSpawns['spawnIssueAgent']
+  waitForSpawnConfirmed: PoolSpawns['waitForSpawnConfirmed']
+  holds(mutationId: MutationId): boolean
   /** What the row source reads in `pooled` mode. */
   readonly pending: PooledPending
   /** Attach the row source the log repaints through; settles the boot state. */
@@ -499,6 +505,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
         }
       }
     }
+    spawnOwner?.confirmed()
     armSweep()
     return touched
   }
@@ -657,6 +664,13 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     commit(rowsOf(gone))
   }
 
+  const spawnOwner = ports.spawn ? new PoolSpawns({
+    ...ports.spawn,
+    truth,
+    pending: id => spawnPrompts.has(id),
+    paint: event => runInAction(() => { onSpawn(event); spawnOwner?.confirmed() }),
+  }) : null
+
   // ---------------------------------------------------------------- boot
 
   // Awaiting truth first, as the ledger restores it; then the queue.
@@ -734,6 +748,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     const mutationId = mintId()
     const queuedAt = now()
     let t!: Transaction
+    let enqueueOpts: { mutationId: MutationId; queuedAt: number; baseline?: string; chained?: boolean } = { mutationId, queuedAt }
     runInAction(() => {
       // The ledger's enqueue, step for step: probe the patches, fingerprint
       // their truth rows as the baseline, mark a change chained behind a
@@ -758,6 +773,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
               (other.position !== undefined || other.unqueued) && other.overlays.some(sameRow),
           )
       }
+      enqueueOpts = { mutationId, queuedAt, ...(baseline !== undefined ? { baseline } : {}), ...(chained ? { chained } : {}) }
       const overlays =
         probe.length === 0
           ? []
@@ -773,7 +789,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       add(t)
       commit(rowsOf(overlays))
     })
-    const committed = ports.enqueue(kind, input, { mutationId, queuedAt })
+    const committed = ports.enqueue(kind, input, enqueueOpts)
     committed.then(
       () => {
         if (disposed || txns.get(mutationId) !== t) return
@@ -815,6 +831,16 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
 
   return {
     pending,
+    spawnDraftAgent: args => {
+      if (!spawnOwner) throw new Error('Pool spawn transport is not attached')
+      return spawnOwner.spawnDraftAgent(args)
+    },
+    spawnIssueAgent: args => {
+      if (!spawnOwner) throw new Error('Pool spawn transport is not attached')
+      return spawnOwner.spawnIssueAgent(args)
+    },
+    waitForSpawnConfirmed: id => spawnOwner?.waitForSpawnConfirmed(id) ?? Promise.resolve(),
+    holds: id => awaiting.some(a => a.overlay.key === id),
     spawnPrompts,
     notSaved: (kind, id) => notSavedRows.has(`${kind}:${id}`),
 
@@ -843,6 +869,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     dispose() {
       if (disposed) return
       disposed = true
+      spawnOwner?.dispose()
       for (const off of offs.splice(0)) off()
       cancelSweep?.()
       cancelSweep = null

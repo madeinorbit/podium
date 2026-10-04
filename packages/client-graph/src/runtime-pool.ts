@@ -1,3 +1,6 @@
+import { optimisticDraftSortKey } from '@podium/client-core/viewmodels'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asUserId } from '@podium/model'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { Reaction } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
@@ -178,6 +181,8 @@ function releaseProjection<T>(state: ProjectionState<T>): void {
 export type WorklistRuntime = RowSourceRuntime &
   LocalsEngine & { readonly replica: RowSourceReplica; readonly ui?: RoutedUiState }
 
+const spawnPools = new WeakMap<object, MobxPool>()
+
 /** What the transaction log needs from the runtime beyond the row feed. */
 type TransactionsRuntime = WorklistRuntime & {
   readonly principal: { userId: string }
@@ -187,7 +192,7 @@ type TransactionsRuntime = WorklistRuntime & {
   readonly spawnPlaceholders: NonNullable<PoolTransactionsPorts['spawns']>['current']
   readonly subscribeSpawnPlaceholders: NonNullable<PoolTransactionsPorts['spawns']>['subscribe']
   /** Routes the runtime's queued actions through the log (POD-5432). */
-  readonly attachPoolWriter: (writer: Pick<PoolTransactions, 'write'>) => () => void
+  readonly attachPoolWriter: (writer: PoolTransactions) => () => void
 }
 
 /** The transaction log over the app's runtime, as `owns` builds it (harnesses
@@ -215,7 +220,19 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
     outcomes: rt.subscribeOutboxOutcomes,
     enqueue: rt.enqueueOverlayed,
     addressed: subscribeAddressed,
-    spawns: { current: rt.spawnPlaceholders, subscribe: rt.subscribeSpawnPlaceholders },
+    spawn: {
+      api: (runtime as unknown as { getSnapshot(): { trpc: import('@podium/client-core').PodiumClientApi } }).getSnapshot().trpc,
+      userId: asUserId(rt.principal.userId),
+      notices: (runtime as unknown as { spawnNotices: import('@podium/client-core/engine').StoreNotices }).spawnNotices,
+      graceMs: (runtime as unknown as { spawnGraceMs?: number }).spawnGraceMs,
+      sortKey: target => {
+        const pool = spawnPools.get(runtime)
+        if (!pool) throw new Error('Pool spawn placement is not attached')
+        const issues = pool.queries.ids({ kind: 'boardIssues', projectPaths: [target.repoPath] })
+          .map(id => pool.row('issue', id, 'peek')).filter(row => row && typeof row !== 'symbol')
+        return optimisticDraftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
+      },
+    },
   })
 }
 
@@ -316,6 +333,7 @@ export function createRuntimeWorklistPool(
       )
     stopPerf = observeWorklistPoolPerf(runtime, handle.pool)
     if (transactions !== null) {
+      spawnPools.set(runtime, handle.pool)
       transactions.bind(rows)
       handle.pool.attachTransactions(transactions, owned.has('session'))
       stopWriter = attachRuntimeWriter(runtime, transactions)
@@ -339,6 +357,7 @@ export function createRuntimeWorklistPool(
       disposed = true
       // First: no action may reach a log that is going away.
       stopWriter?.()
+      spawnPools.delete(runtime)
       stopHeader?.()
       stopPerf?.()
       try {
