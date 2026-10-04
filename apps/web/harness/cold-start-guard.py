@@ -47,6 +47,8 @@ def cold_samples(paths):
             raise ValueError(f'{path}: incomplete or diagnostic capture')
         if run.get('host') != 'flatblock' or run.get('surface') != 'web' or run.get('scale') != 1:
             raise ValueError(f'{path}: expected matched flatblock web 1x')
+        if run.get('startupBoundary') != 'sidebar-issue-row':
+            raise ValueError(f'{path}: startup must paint a visible sidebar issue row')
         cold_windows = [(row['startedAt'], row['inputToPaintMs']) for row in run['actions']
                         if row['action'] == 'app-cold-start' and not row.get('profiled')]
         unexpected = []

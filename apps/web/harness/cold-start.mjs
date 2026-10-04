@@ -73,6 +73,7 @@ writeFileSync(resolve(out,'browser-paint-source.ts'),readFileSync(new URL('./bro
 const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
   harnessSha256:createHash('sha256').update(harnessBytes).digest('hex'),
   durationTimeDomain:'threadTicks',
+  startupBoundary:surface==='web'?'sidebar-issue-row':'phone-issue-row',
   httpCache:'disabled by bootstrap request routing',
   warmStartup:'Reload with retained durable data and preferences; full augmented bootstrap replay',
   sameOriginTracePriming:true,
@@ -244,7 +245,7 @@ async function makePage() {
   await context.unroute(blank)
   page.on('pageerror',error=>result.errors.push(error.message))
   page.on('console',message=>{if(['error','warning'].includes(message.type()))result.errors.push(`${message.type()}: ${message.text().slice(0,1000)}`)})
-  await page.addInitScript(({now})=>{
+  await page.addInitScript(({now,surface})=>{
     const start=performance.now(); Date.now=()=>now+Math.floor(performance.now()-start)
     localStorage.setItem('podium.panelModeDefault','chat')
     localStorage.setItem('podium.panelMode','chat')
@@ -261,7 +262,7 @@ async function makePage() {
     const observeStartup=()=>{
       if(window.__comparisonStartup)return
       if(document.querySelector('[data-testid="boot-splash"]'))return
-      const candidates=[...document.querySelectorAll('aside [data-issue-row],[role="button"][aria-label]')]
+      const candidates=[...document.querySelectorAll(surface==='web'?'aside [data-issue-row]':'[role="button"][aria-label]')]
       const target=candidates.find(x=>{
         const label=x.getAttribute('aria-label')??'', rect=x.getBoundingClientRect()
         return (x.hasAttribute('data-issue-row') || /^(?:[A-Z]+-\d+|#\d+) /.test(label)) && rect.width>0 && rect.height>0 && rect.y>=0 && rect.bottom<=innerHeight
@@ -273,7 +274,7 @@ async function makePage() {
     }
     const startupObserver=new MutationObserver(observeStartup)
     startupObserver.observe(document,{subtree:true,childList:true,attributes:true,characterData:true})
-  },{now:corpus.fixedNow})
+  },{now:corpus.fixedNow,surface})
   const cdp=await context.newCDPSession(page); await cdp.send('Performance.enable',{timeDomain:'threadTicks'})
   return {page,context,cdp}
 }

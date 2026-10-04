@@ -12,6 +12,7 @@ afterEach(() => directories.splice(0).forEach(path => rmSync(path, { recursive: 
 function run(ms: number, patch: Record<string, unknown> = {}) {
   return {
     status: 'complete', host: 'flatblock', surface: 'web', scale: 1,
+    startupBoundary: 'sidebar-issue-row',
     semanticSha256: 'same-semantic-corpus', browser: '153.0.8010.12',
     httpCache: 'disabled by bootstrap request routing', lease: { name: 'bench:flatblock', cohort: 'paired-fixture' },
     paired: true, harnessSha256: 'same-collector', sha: '0123456789abcdef',
@@ -66,6 +67,7 @@ describe('cold startup admission', () => {
       { paired: false }, { lease: { name: 'bench:flatblock', cohort: 'other-run' } },
       { harnessSha256: 'different-collector' }, { build: { sourceSha: '7654321', bundleVersion: 'stale' } },
       { actions: run(2_400).actions.map(row => ({ ...row, population: {} })) },
+      { startupBoundary: 'header-label' },
     ]) expect(compare(run(2_500), run(2_400, patch)).status).not.toBe(0)
   })
 
