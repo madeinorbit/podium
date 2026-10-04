@@ -7,11 +7,13 @@ const option = (name: string, fallback: string) =>
 const root = resolve(option('source', '.'))
 const out = resolve(option('out', '.artifacts/live-sidebar/candidate-build'))
 const off = option('off', '')
+const census = !process.argv.includes('--no-census')
+if (!census && off) throw new Error('Cost-off controls require the matched census build')
 await build({
   root: resolve(root, 'apps/web'),
   configFile: resolve(root, 'apps/web/vite.config.ts'),
   build: { outDir: out, emptyOutDir: true },
-  plugins: [
+  plugins: census ? [
     {
       name: 'live-sidebar-census',
       enforce: 'pre',
@@ -130,11 +132,16 @@ await build({
         if (!id.endsWith('/packages/client-graph/src/command-launch-views.ts')) return
         if (!code.includes('catalogBuilds: 0,') || !code.includes('launch: () => launch.get(),'))
           throw new Error('Launch census boundary changed')
-        return code
+        return `const liveLaunchReaders: Record<string, number>[] = []
+;(globalThis as any).__liveLaunchCensus = () => liveLaunchReaders.reduce((sum: Record<string, number>, reader) => {
+  for (const key of Object.keys(reader)) sum[key] = (sum[key] ?? 0) + reader[key]!
+  return sum
+}, {})
+` + code
           .replace('catalogBuilds: 0,', 'catalogBuilds: 0, launchReads: 0,')
           .replace(
             '  type Window =',
-            '  ;(globalThis as any).__liveLaunchCensus = () => ({ ...counts })\n  type Window =',
+            '  liveLaunchReaders.push(counts)\n  type Window =',
           )
           .replace(
             'launch: () => launch.get(),',
@@ -142,5 +149,5 @@ await build({
           )
       },
     },
-  ],
+  ] : [],
 })

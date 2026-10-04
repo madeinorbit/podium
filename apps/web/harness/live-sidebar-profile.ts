@@ -184,6 +184,8 @@ try {
       events: [] as unknown[],
       mutations: [] as number[],
       lastContentDom: 0,
+      deckPending: false,
+      deckReadyAt: 0,
     }
     Object.assign(window, { __speedCapture: state })
     new PerformanceObserver((list) =>
@@ -223,6 +225,9 @@ try {
     }).observe(document, { subtree: true, attributes: true, childList: true, characterData: true })
     new MutationObserver((records) => {
       if (state.input === null) return
+      const deckPending = Boolean(document.querySelector('[data-testid="flight-settling"]'))
+      if (state.deckPending && !deckPending) state.deckReadyAt = performance.now()
+      state.deckPending = deckPending
       if (
         records.some((r) =>
           (r.target instanceof Element ? r.target : r.target.parentElement)?.closest(
@@ -440,6 +445,8 @@ try {
             rowSelectionRecovery: false,
             events: [],
             mutations: [],
+            deckPending: Boolean(document.querySelector('[data-testid="flight-settling"]')),
+            deckReadyAt: 0,
           })
           state.lastContentDom = 0
           state.previousTrace = (window as any).__podiumSwitchTraces?.recent().at(-1)?.switchId
@@ -558,6 +565,9 @@ try {
             state.readyAt = matching
               ? traceInput + (nativeOnly ? nativeMark.atMs : trace.totalMs)
               : state.twoRafAt
+            // Pane readiness can precede the mission data. Include the actual
+            // settling-shell removal, and never precede selection's paint fence.
+            state.readyAt = Math.max(state.readyAt, state.twoRafAt, state.deckReadyAt)
             const mutations = state.mutations.filter((at: number) => at <= state.readyAt)
             performance.mark('speed:content-dom', {
               startTime: Math.max(state.dom, mutations.at(-1) ?? 0),
@@ -617,6 +627,7 @@ try {
         )
         .sort((a, b) => a.ts - b.ts)[0]
       const content = events.find((e) => e.name === 'speed:content-dom')
+      const ready = events.find((e) => e.name === 'speed:ready')
       const contentPaints = events
         .filter(
           (e) =>
@@ -632,11 +643,12 @@ try {
           e.name === 'Layerize' &&
           e.ph === 'X' &&
           e.pid === input?.pid &&
-          e.ts >= contentPaints[0]?.ts,
+          e.tid === input?.tid &&
+          e.ts >= Math.max(ready?.ts ?? 0, contentPaints[0]?.ts ?? 0),
       )
       const finishedPaint = layer
         ? contentPaints.filter((e) => e.ts <= layer.ts).at(-1)
-        : contentPaints[0]
+        : (contentPaints.filter((e) => e.ts <= (ready?.ts ?? 0)).at(-1) ?? contentPaints[0])
       if (!input || !dom || !paint) throw new Error('Missing input, selected DOM or actual Paint')
       const click = state.boundary.events
         .filter((e: any) => e.name === 'click' && Math.abs(e.startTime - state.boundary.input) < 1)
@@ -651,7 +663,11 @@ try {
           : state.boundary.processingStart - state.boundary.input,
         presentationMs: click?.duration ?? null,
         finishedPaintMs: finishedPaint
-          ? (finishedPaint.ts + finishedPaint.dur - input.ts) / 1000
+          ? Math.max(finishedPaint.ts + finishedPaint.dur, ready?.ts ?? 0) / 1000 - input.ts / 1000
+          : null,
+        readyBoundaryMs: state.boundary.readyAt - state.boundary.input,
+        deckReadyMs: state.boundary.deckReadyAt
+          ? state.boundary.deckReadyAt - state.boundary.input
           : null,
         confirmed: state.boundary.confirmed,
         nativeOnlyRecovery: Boolean(state.boundary.nativeOnlyRecovery),
