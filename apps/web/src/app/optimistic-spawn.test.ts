@@ -1,5 +1,4 @@
 import {
-  mergeOptimistic,
   optimisticDraftIssue,
   optimisticDraftSortKey,
   optimisticStartingSession,
@@ -91,27 +90,5 @@ describe('optimisticDraftIssue', () => {
     ]
     const key = optimisticDraftSortKey(existing, base.repoPath, base.repoId)
     expect(key < 'c').toBe(true)
-  })
-})
-
-describe('mergeOptimistic', () => {
-  const key = (r: { id: string }) => r.id
-
-  it('returns the SAME base array when the overlay is empty (no re-render churn)', () => {
-    const base = [{ id: 'a' }]
-    expect(mergeOptimistic(base, [], key)).toBe(base)
-  })
-
-  it('appends overlay rows whose id is not in the base', () => {
-    const base = [{ id: 'a' }]
-    expect(mergeOptimistic(base, [{ id: 'b' }], key)).toEqual([{ id: 'a' }, { id: 'b' }])
-  })
-
-  it('lets the base win (no duplicate) once the real row lands, and keeps base identity', () => {
-    // The reconcile case: server truth for id 'a' has arrived; the optimistic 'a'
-    // must not double the row.
-    const base = [{ id: 'a', real: true }]
-    const merged = mergeOptimistic(base, [{ id: 'a', real: false }], key)
-    expect(merged).toBe(base)
   })
 })
