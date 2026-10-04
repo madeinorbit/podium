@@ -4,10 +4,11 @@
  *
  * TABLES. `createObservableTables()` makes one shallow `ObservableMap` per
  * schema entity (`Object.keys(SCHEMA)`: issue, session, worktree, repo); no
- * entity is named here. A table maps the entity key to the BORROWED row
- * object the feed handed out: values are never converted, copied or edited
- * (`deep: false` is `observable.ref` per entry), so a derivation reading
- * `table.get(id)` subscribes to exactly that row's slot. Models are not built
+ * entity is named here. Core issue/session/worktree slots hold the BORROWED
+ * row object (`deep: false` is `observable.ref` per entry). Repo slots expose
+ * a stable facade of the declared repo fields, each with its own demand atom;
+ * the lane that owns those values stays in nonreactive ingest bookkeeping.
+ * A derivation subscribes to the slot and the fields it reads. Models are not built
  * here: `pool.ts` wraps a row in a model on first access (Linear's
  * "observable on first access"; audit §7).
  *
@@ -61,7 +62,7 @@ import { ingestWorktreeRecord, repoFieldOf } from './shared/repo-from-lane'
 import { type EntityName, SCHEMA } from './shared/schema'
 import type { RowRecord } from './shared/source'
 
-/** A stored row: the borrowed object the feed handed out, untouched. */
+/** A borrowed feed row, or the stable facade of declared repo metadata. */
 export type StoredRow = object
 
 type RepoInputs = { id: unknown; prefix: unknown; repoPath: unknown }

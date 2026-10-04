@@ -609,12 +609,13 @@ export function createRoutedUiState(init: {
   replicated: ReplicatedUiStatePort
 }): RoutedUiState {
   const { local, replicated } = init
-  const legacyKeys = new Map<string, string>(
-    Object.keys(LAYOUT_KEY_FROM_LEGACY).map((key) => [requireReplicatedLayoutKey(key), key]),
-  )
-  for (const key of Object.values(UI_STATE_KEYS)) {
+  const legacyKeys = new Map<string, Set<string>>()
+  for (const key of [...Object.keys(LAYOUT_KEY_FROM_LEGACY), ...Object.values(UI_STATE_KEYS)]) {
     const canonical = layoutKeyFromLegacy(key)
-    if (canonical !== null) legacyKeys.set(canonical, key)
+    if (canonical === null) continue
+    const aliases = legacyKeys.get(canonical) ?? new Set<string>()
+    aliases.add(key)
+    legacyKeys.set(canonical, aliases)
   }
   const refuseCommandHome = (key: string, route: UiStateRoute): void => {
     if (route.home !== 'per-user-command') return
@@ -658,12 +659,9 @@ export function createRoutedUiState(init: {
       const offReplicated = replicated.subscribe((keys) => {
         const changed = new Set(keys)
         for (const key of keys) {
-          const legacy =
-            legacyKeys.get(key) ??
-            (key.startsWith('sidebar.section.')
-              ? `podium:sidebar:${key.slice('sidebar.section.'.length)}`
-              : undefined)
-          if (legacy !== undefined) changed.add(legacy)
+          for (const legacy of legacyKeys.get(key) ?? []) changed.add(legacy)
+          if (key.startsWith('sidebar.section.'))
+            changed.add(`podium:sidebar:${key.slice('sidebar.section.'.length)}`)
         }
         cb(changed)
       })

@@ -39,7 +39,7 @@ function fixture() {
   return { ui, get, pool, replicated }
 }
 
-it('re-reads only the changed key synchronously, routes both homes, and drops unobserved keys', async () => {
+it('re-reads only the changed key in the owner batch, routes both homes, and drops unobserved keys', async () => {
   const f = fixture()
   const keys = [
     'podium:sidebar:project-fold:a',
@@ -63,6 +63,7 @@ it('re-reads only the changed key synchronously, routes both homes, and drops un
       f.get.mockClear()
       for (const field of keys) runs[field] = 0
       f.ui.set(key, '1')
+      await flush()
       expect(seen[key]).toBe('1')
       expect(f.get.mock.calls).toEqual([[key]])
       expect(runs).toEqual(Object.fromEntries(keys.map((field) => [field, field === key ? 1 : 0])))
@@ -71,12 +72,14 @@ it('re-reads only the changed key synchronously, routes both homes, and drops un
     // the same legacy-spelled reader without scanning other routed keys.
     f.get.mockClear()
     f.replicated.clear('sidebar.section.project-fold:a')
+    await flush()
     expect(seen[keys[0]!]).toBeNull()
     expect(f.get.mock.calls).toEqual([[keys[0]]])
     stops[1]!()
     expect(f.pool.preferenceKeys()).not.toContain(keys[1])
     f.get.mockClear()
     f.ui.set(keys[1]!, '2')
+    await flush()
     expect(f.get).not.toHaveBeenCalled()
   } finally {
     for (const stop of stops) stop()
@@ -91,6 +94,7 @@ it('preserves exact preference values and rejects a planted stale value in the p
   try {
     await flush()
     f.ui.set(key, '1')
+    await flush()
     expect(checkPreferences(f.pool, f.ui, [key])).toMatchObject({ differences: 0, pending: 0 })
     const get = f.get.mockImplementation(() => 'planted-stale-value')
     expect(checkPreferences(f.pool, f.ui, [key]).differences).toBe(1)

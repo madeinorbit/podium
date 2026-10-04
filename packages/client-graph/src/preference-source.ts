@@ -20,15 +20,10 @@ export class PreferenceSource {
     this.unsubscribe = ui.subscribe((keys) => {
       if (this.disposed) return
       this.counts.notifications++
-      const loaded: PreferenceRow[] = []
       for (const key of keys) {
         if (!this.homes.has(key) || this.refreshing.has(key)) continue
-        if (this.rows.has(key)) {
-          const row = this.load(key)
-          if (row) loaded.push(row)
-        } else this.pending.add(key)
+        this.pending.add(key)
       }
-      this.publish(loaded)
       this.schedule()
     })
   }

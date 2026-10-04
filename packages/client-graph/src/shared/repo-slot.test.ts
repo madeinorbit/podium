@@ -50,7 +50,7 @@ it('keeps the repo row across lane-only changes and moves it with the repo’s f
     expect(prefix).toBe('NEW')
     // The holding lane leaves: another lane of the repo takes over.
     put(undefined, '/r/b')
-    expect(pool.tables.repo.get('repo-1')).toMatchObject({ path: '/r' })
+    expect(pool.tables.repo.get('repo-1')).toMatchObject({ repoPath: '/r', prefix: 'POD' })
     put(undefined, '/r')
     expect(pool.tables.repo.has('repo-1')).toBe(false)
     expect(prefix).toBeUndefined()
