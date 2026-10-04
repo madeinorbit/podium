@@ -1,7 +1,7 @@
 /** Foreground production app comparison. One implementation per invocation. */
 import { spawn, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, statfsSync, existsSync } from 'node:fs'
 import { hostname, cpus, loadavg } from 'node:os'
 import { resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'
@@ -57,7 +57,13 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
   loadStart:loadavg(), actions:[], unavailable:[], background:[], errors:[], pids:[{role:'collector',pid:process.pid}], bootstraps:[], status:'running' }
-const save = () => writeFileSync(resolve(out, 'run.json'), JSON.stringify(result, null, 2)+'\n')
+let evidenceWriteFailure
+const save = () => {
+  if(evidenceWriteFailure)throw evidenceWriteFailure
+  // Preserve the previous complete ledger if the shared disk fills mid-write.
+  writeFileSync(resolve(out,'run.pending'),JSON.stringify(result,null,2)+'\n')
+  renameSync(resolve(out,'run.pending'),resolve(out,'run.json'))
+}
 save()
 const port = surface === 'web' ? 19551 : 19552
 const base = `http://127.0.0.1:${port}`, relay = base.replace('http','ws')
@@ -65,8 +71,15 @@ const env = { ...process.env, PORT:String(port), PODIUM_NO_RELAY:'1' }
 for (const key of Object.keys(env)) if (/^PODIUM_(SESSION|AGENT|CODEX_HOOK|ISSUE_RELAY|INSTANCE|HOME|STATE_DIR|AGENT_HOME|SERVER|PORT)/.test(key)) delete env[key]
 const server = spawn(process.execPath, ['--conditions=@podium/source','tests/e2e/serve-harness.ts'], { cwd:process.cwd(), env, stdio:['ignore','pipe','pipe'] })
 result.pids.push({ role:'harness', pid:server.pid })
-const serverLog = []
-for (const stream of [server.stdout, server.stderr]) stream.on('data', data => { serverLog.push(data); writeFileSync(resolve(out,'server.log'), Buffer.concat(serverLog)) })
+let serverLog=Buffer.alloc(0),serverLogBytes=0
+for(const stream of [server.stdout,server.stderr])stream.on('data',data=>{
+  serverLog=Buffer.concat([serverLog,data]).subarray(-1048576)
+  if(serverLogBytes>=1048576){result.serverLogTruncated=true;return}
+  try {
+    const retained=data.subarray(0,1048576-serverLogBytes)
+    appendFileSync(resolve(out,'server.log'),retained);serverLogBytes+=retained.length
+  } catch(error) { evidenceWriteFailure=error }
+})
 let browser, fixture
 const cpuTicks = () => readFileSync('/proc/stat','utf8').split('\n')[0].trim().split(/\s+/).slice(1).map(Number)
 const pause = ms => new Promise(done => setTimeout(done, ms))
@@ -799,7 +812,7 @@ async function background(f) {
   save()
 }
 try {
-  for(let i=0;i<180;i++) { if(server.exitCode!==null) throw Error(`Harness exited ${server.exitCode}: ${Buffer.concat(serverLog).toString().slice(-2000)}`);try{if((await fetch(`${base}/health`)).ok)break}catch{};await pause(500) }
+  for(let i=0;i<180;i++) { if(server.exitCode!==null) throw Error(`Harness exited ${server.exitCode}: ${serverLog.toString().slice(-2000)}`);try{if((await fetch(`${base}/health`)).ok)break}catch{};await pause(500) }
   const auth=await (await fetch(`${base}/auth/status`)).json();memberId=auth.memberId
   prepareExtras()
   const repos=await rpc('repos.list'),repoPath=repos.find(x=>x.includes('zz-podium-e2e-repo-'))??repos[0]
@@ -846,6 +859,9 @@ try {
   if(mode==='timing')await prepareObservedReplay()
   browser=await chromium.launch({headless:true,executablePath:`${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,env:{...process.env,LD_LIBRARY_PATH:resolve('.toolchain/lib')},args:['--no-sandbox','--disable-dev-shm-usage']})
   result.browser=browser.version()
+  const disk=statfsSync(out)
+  result.diskCaptureStart={availableBytes:disk.bavail*disk.bsize}
+  if(result.diskCaptureStart.availableBytes<512*1048576)throw Error('Less than 512 MiB available for capture evidence; no timing lease requested')
   if(process.argv.includes('--external-lease')) {
     console.log('CAPTURE_READY '+out)
     const file=resolve(out,'lease.json')
@@ -954,9 +970,10 @@ try {
   result.status='failed';result.failure=String(error);console.error(error)
   if(fixture)await inspect(fixture.page,'failure').catch(()=>{})
 } finally {
-  result.endedAt=new Date().toISOString();result.loadEnd=loadavg();result.hostCpuEnd=cpuTicks();result.traffic=traffic;save()
+  result.endedAt=new Date().toISOString();result.loadEnd=loadavg();result.hostCpuEnd=cpuTicks();result.traffic=traffic
+  try { save() } catch(error) { result.status='failed';result.failure=String(error);console.error('Evidence save failed',error) }
   console.log('CAPTURE_FINISHED '+result.status)
-  await browser?.close()
+  await browser?.close().catch(error=>console.error('Browser cleanup failed',error))
   if(server.exitCode===null) {
     server.kill('SIGTERM')
     await Promise.race([new Promise(done=>server.once('exit',done)),pause(10000)])
@@ -964,7 +981,7 @@ try {
   }
   // The standard server boot regenerates this tracked declaration; it is type-only.
   if(declarationTracked)execFileSync('git',['restore','--source=HEAD','--','packages/api-types/src/index.d.ts'])
-  save()
+  try { save() } catch(error) { console.error('Final evidence save failed',error) }
 }
   console.log(JSON.stringify({status:result.status,out,actions:result.actions.length,unavailable:result.unavailable.length,failure:result.failure}))
 if(result.status==='failed')process.exitCode=1
