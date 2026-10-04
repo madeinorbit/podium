@@ -2,7 +2,6 @@
  * A present companion wins even when its cell is null, empty or absent. */
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
-import { JoinMemo } from './join-memo'
 import { activityAfterRead } from './values/unread'
 
 export interface SessionValues {
@@ -73,7 +72,11 @@ export function sessionValues(session: SessionValueInput, homes: SessionHomes = 
   }
 }
 
-const views = new JoinMemo<object>()
+interface Memo {
+  next: WeakMap<object, Memo>
+  value?: object
+}
+const views: Memo = { next: new WeakMap() }
 const MISSING = Object.freeze({})
 const LOADING = Object.freeze({})
 const viewInputs = new WeakMap<object, { session: SessionValueInput; homes: SessionHomes }>()
@@ -98,13 +101,22 @@ export function sessionView<T extends SessionValueInput>(
   if (borrowed && borrowed.session !== session)
     return sessionView(borrowed.session, { ...borrowed.homes, ...homes }) as T & SessionValues
   homes = { ...borrowed?.homes, ...homes }
-  const memo = views.cell(session, [
+  let memo = views
+  for (const key of [
+    session,
     !homes.userState && homes.userStatesLoaded === false ? LOADING : MISSING,
     homes.userState ?? MISSING,
     homes.repo ?? MISSING,
     homes.machine ?? MISSING,
     homes.handoffMachine ?? MISSING,
-  ])
+  ]) {
+    let next = memo.next.get(key)
+    if (!next) {
+      next = { next: new WeakMap() }
+      memo.next.set(key, next)
+    }
+    memo = next
+  }
   if (memo.value) return memo.value as T & SessionValues
   const values = sessionValues(session, homes)
   // Reads stay ordinary data-property reads; unchanged inputs reuse this copy.

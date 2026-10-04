@@ -89,8 +89,6 @@ export interface RowSourceStats {
   enumerations: number
   flushes: number
   events: number
-  /** Member visits while folding issue session facts, including the seed. */
-  sessionFactVisits: number
   reset(): void
 }
 
@@ -381,13 +379,11 @@ export function createRowSource(
     enumerations: 0,
     flushes: 0,
     events: 0,
-    sessionFactVisits: 0,
     reset() {
       stats.rowsVisited = 0
       stats.enumerations = 0
       stats.flushes = 0
       stats.events = 0
-      stats.sessionFactVisits = 0
     },
   }
 
@@ -481,7 +477,7 @@ export function createRowSource(
   const issueSessionFacts = new Map<string, NonNullable<SliceIssue['sessionFacts']>>()
   let sessionFactsReady = false
 
-  function installSessionFacts(id: string, row: AnyRow | undefined, bulk = false): string[] {
+  function installSessionFacts(id: string, row: AnyRow | undefined): string[] {
     const owners = new Set<string>()
     const before = rawSessionFacts.get(id)
     if (before) {
@@ -506,17 +502,12 @@ export function createRowSource(
       }
       members.set(id, facts)
     }
-    return bulk ? [] : foldSessionFacts(owners)
-  }
-
-  function foldSessionFacts(owners: Iterable<string>): string[] {
     const moved: string[] = []
     for (const owner of owners) {
       let replicaActivityAt: string | undefined, tipActivityAt: string | undefined
       let headlessStaffed = false,
         headlessOccupied = false
       for (const facts of sessionsByOwner.get(owner)?.values() ?? EMPTY) {
-        stats.sessionFactVisits += 1
         if (facts.replica && (!replicaActivityAt || facts.replica > replicaActivityAt))
           replicaActivityAt = facts.replica
         if (facts.tip && (!tipActivityAt || facts.tip > tipActivityAt)) tipActivityAt = facts.tip
@@ -549,9 +540,8 @@ export function createRowSource(
     sessionFactsReady = true
     for (const row of replica.rows('sessions')) {
       const id = sessionIdOf(row)
-      if (id !== null) installSessionFacts(id, row, true)
+      if (id !== null) installSessionFacts(id, row)
     }
-    foldSessionFacts(sessionsByOwner.keys())
   }
 
   function installEdge(id: string, raw: AnyRow | undefined): string[] {

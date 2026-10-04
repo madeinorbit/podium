@@ -11,15 +11,18 @@ import time
 import uuid
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--candidate', default='candidate', choices=['candidate', 'candidate2', 'candidate3', 'new'])
+parser.add_argument('--candidate', default='candidate', choices=['candidate', 'candidate2', 'candidate3', 'candidate4', 'new'])
 parser.add_argument('--baseline', default='', choices=['', 'current'])
+parser.add_argument('--alternative', default='', choices=['', 'candidate3'])
 parser.add_argument('--samples', type=int, default=8)
 parser.add_argument('--round', type=int, default=2)
 args = parser.parse_args()
 if args.samples < 1:
     raise ValueError('At least one paired sample is required')
 cohort = str(uuid.uuid4())
-arms = ['old', *([args.baseline] if args.baseline else []), args.candidate]
+arms = ['old', *([args.baseline] if args.baseline else []), *([args.alternative] if args.alternative else []), args.candidate]
+if len(set(arms)) != len(arms):
+    raise ValueError('Each checkout must be measured once per round')
 messages = queue.Queue()
 children = {}
 outputs = {}

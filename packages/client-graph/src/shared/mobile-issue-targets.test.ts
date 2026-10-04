@@ -33,30 +33,6 @@ const issue = (id: string, seq: number, extra: object = {}): RowRecord => ({
 })
 
 describe('mobile target identity question', () => {
-  it('bulk-sorts only a demanded path, then maintains its order incrementally', () => {
-    const index = createReaderIndex()
-    const splices = vi.spyOn(Array.prototype, 'splice')
-    try {
-      index.apply({ type: 'replace', rows: Array.from({ length: 1_000 }, (_, at) => issue(`i${at}`, at)) })
-      expect(splices).not.toHaveBeenCalled()
-      expect(index.targetCounts.builds).toBe(0)
-      index.ids({ kind: 'commandIssues' })
-      expect(index.targetCounts.builds).toBe(0)
-      expect(index.ids(question('', 3))).toEqual(['i999', 'i998', 'i997'])
-      expect(index.targetCounts.builds).toBe(1)
-      index.apply({ type: 'update', rows: [issue('i0', 1_001)] })
-      expect(index.ids(question('', 3))).toEqual(['i0', 'i999', 'i998'])
-      expect(index.targetCounts.builds).toBe(1)
-      expect(splices).toHaveBeenCalled()
-      index.apply({ type: 'replace', rows: [issue('other', 10)] })
-      expect(index.targetCounts.builds).toBe(1)
-      expect(index.ids(question())).toEqual(['other'])
-      expect(index.targetCounts.builds).toBe(2)
-    } finally {
-      splices.mockRestore()
-    }
-  })
-
   it('never builds title, gram or sequence-prefix facets, buckets or postings', () => {
     const index = createReaderIndex()
     // Exhaustive so a new reader must join this check. Map keys expose both

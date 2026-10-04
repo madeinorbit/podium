@@ -83,7 +83,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   const targetDetails = new Map<string, { seq: number; title: string; repoId: string; ref: string }>()
   const targetPostings = new Map<string, string[]>()
   const targetRepos = new Map<string, Map<string, number>>()
-  const targetCounts = { visits: 0, builds: 0 }
+  const targetCounts = { visits: 0 }
   let replacement = 0
   let repoRevision = 0
   let version = 0
@@ -105,10 +105,11 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     if (!ids.length) targetPostings.delete(key)
   }
   function addTarget(key: string, id: string) {
-    const ids = targetPostings.get(key)
-    // Web startup never asks for phone target order. Keep the membership and
-    // text scalars, then bulk-sort a path only when its first window is read.
-    if (!ids) return
+    let ids = targetPostings.get(key)
+    if (!ids) {
+      ids = []
+      targetPostings.set(key, ids)
+    }
     let lo = 0,
       hi = ids.length
     while (lo < hi) {
@@ -449,13 +450,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     ids(question: ReaderQuestion): string[] {
       switch (question.kind) {
         case 'mobileIssueTargets': {
-          const key = `issue:path:${question.repoPath}`
-          let ids = targetPostings.get(key)
-          if (!ids) {
-            ids = [...bucket(key)].filter((id) => targetDetails.has(id)).sort(compareTargets)
-            targetPostings.set(key, ids)
-            targetCounts.builds++
-          }
+          const ids = targetPostings.get(`issue:path:${question.repoPath}`) ?? []
           const needle = question.query.trim().toLocaleLowerCase()
           const refNeedle = referenceText(needle)
           // The old reference lanes were admitted only by a digit. Preserve

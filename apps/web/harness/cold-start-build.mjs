@@ -38,7 +38,7 @@ function coldStartComposeIssue(projection, userState, gitState, repo, deps, bloc
   return value
 }
 `
-const joinMemoSource = readFileSync(resolve(arg('join-memo','packages/client-core/src/join-memo.ts')),'utf8')
+const joinMemoSource = readFileSync(resolve(arg('join-memo','apps/web/harness/cold-start-join-memo.ts')),'utf8')
 const writeBatchSource = readFileSync(resolve(arg('idb-helper','packages/sync/src/adapters/indexeddb/write-batch.ts')),'utf8')
 const writeBatch = writeBatchSource.replace(/^import type[^\n]*\n/, '')
   .replace('        const end = Math.min(at + 256, ops.length)', `        const coldStartBatchBegan = performance.now(), coldStartBatchAt = at

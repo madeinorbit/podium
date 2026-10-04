@@ -58,34 +58,6 @@ function build(cache = new FakeCache()) {
 const session = (sessionId: string) => ({ sessionId, name: sessionId }) as never
 const issue = (id: string) => ({ id, title: id }) as never
 
-it('does not sort unused kinds or build issue references for a session membership read', () => {
-  const { cache, replica } = build()
-  let referenceReads = 0
-  cache.records = Array.from({ length: 200 }, (_, at) => ({
-    entity: 'issueProjection', entityId: `i${at}`, provenance: { seq: 1 },
-    value: { id: `i${at}`, get seq() { referenceReads++; return at + 1 }, repoId: 'r' },
-  }))
-  cache.put('repo', 'r', { id: 'r', prefix: 'POD' })
-  cache.put('session', 's', session('s'))
-  const sort = vi.spyOn(Array.prototype, 'sort')
-  try {
-    expect(replica.rowCount!('sessions')).toBe(1)
-    expect(sort).not.toHaveBeenCalled()
-    expect(referenceReads).toBe(0)
-    expect(replica.rows('sessions').map(row => row.sessionId)).toEqual(['s'])
-    expect(sort).toHaveBeenCalledTimes(1)
-    expect(referenceReads).toBe(0)
-    expect(replica.issueIdByRef('POD-101')).toBe('i100')
-    expect(referenceReads).toBeGreaterThan(0)
-    expect(cache.readEntitiesCalls).toBe(1)
-    const reads = referenceReads
-    expect(replica.issueIdByRef('POD-101')).toBe('i100')
-    expect(referenceReads).toBe(reads)
-  } finally {
-    sort.mockRestore()
-  }
-})
-
 it('counts keyed membership through eviction, readmission and replacement without reading row arrays', () => {
   const { cache, replica } = build()
   cache.put('session', 's1', session('s1'))
