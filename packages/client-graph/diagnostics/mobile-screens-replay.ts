@@ -6,9 +6,11 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type Store } from '@podium/client-core/engine'
+import { storeStats } from '@podium/client-core/perf'
 import {
   createKernelReplica,
   createSideCache,
+  issueViewModelProjectionStats,
   memoryStorage,
 } from '@podium/client-core/replica'
 import { NdjsonLineReader, readSyncStream, SyncStreamFailed } from '@podium/client-core/sync-stream'
@@ -31,6 +33,8 @@ const MAX_CHECKS_PER_POOL = 100
 let phase = 0
 async function main() {
   if (hostname() !== 'ludovico') throw new Error('Replay is restricted to ludovico')
+  storeStats.enable()
+  storeStats.reset()
   const { poolMobileScreensSnapshot } = await import('./mobile-screens-snapshot')
   const { mostRelevantSession } = await import('../../../apps/mobile/src/lib/mission-session')
   const origin =
@@ -188,6 +192,7 @@ async function main() {
         stop()
       }
     }
+    const legacyRows = issueViewModelProjectionStats(replica).rowBuilds
     console.log(
       JSON.stringify({
         issues: issues.length,
@@ -200,9 +205,10 @@ async function main() {
         maxChecksPerPool: MAX_CHECKS_PER_POOL,
         positions,
         pending,
+        legacyIssueRowBuilds: legacyRows,
       }),
     )
-    if (pending || !positions || checks !== inputs.length) process.exitCode = 1
+    if (pending || legacyRows || !positions || checks !== inputs.length) process.exitCode = 1
   } finally {
     handle.dispose()
   }

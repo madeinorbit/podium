@@ -196,14 +196,13 @@ new exceptions without direct operator authorization. The strict manifest
 therefore remains unchanged for heartbeat; those failures stay visible. This
 report does not relabel the old red structural run as green.
 
-The current branch is rebased onto integration `b890298e4d`, including landed
-POD-5438, POD-5437's optional host screen fields and the other lane's transaction
-ownership changes. The shared host and write files are untouched by this issue.
-POD-5081 has not landed; its
-session context/conversation files, generic hooks and final mobile switch and
-setting remain held. This removal still has no own write-path changes. The
-structural result above remains attached to its measured source; the rebased
-candidate has not yet run its final gate.
+The final removal is rebased onto POD-5081's actual landing
+`b4d0134f17964f212d7e941ae84a30c53fe4c023`. Its release mail frees the session
+consumers, generic hooks, mobile switch/latch and setting. The app declarations
+omit the optional `initialize` and `enabled` fields; no shared host edits or
+write-path edits are made. The shared phone profile helper and warm-start OFF
+control remain held for POD-5407; the action profile now measures only the pool
+against the saved accepted ON capture.
 
 At `7a299940a4`, all fourteen mobile/dependency compiler tasks passed on the
 rebased candidate. Focused Biome across fourteen files reports no errors;
@@ -238,3 +237,36 @@ eleven unrelated cases were filtered. The strict gate exits 2 on the heartbeat
 comparisons and remains red. No new exceptions or output values were added,
 and this count-only run collected no timings. The full matrix is attached in
 `mobile-structural-after-menu.json`.
+
+## Released final cutover
+
+At `30a1ba41f6`, production mobile has no legacy reader, dispatcher, pilot-key
+reader, startup latch or pilot setting. Generic issue/session/draft/spawn reads
+use the already attached session reader. The shared clock comes from the pool.
+The mission deck uses its existing pool presentation directly; its old fallback
+builders and worktree-path adapter props are removed. Its menu's delete count
+uses the maintained pageSessions bucket size; action APIs and callbacks stay
+with their existing owner.
+
+POD-5081's 9,714 corpus expectations and 30 native rendered hashes are
+byte-identical to `b4d0134f17`. The corpus snapshot file was renamed with its
+pool-only regression. Settings has the requested output removal only: 2,091
+HTML characters containing the Experimental header and MobX pilot panel were
+removed mechanically from its stored expectation, with no snapshot update
+command. The rest of that stored screen remains unchanged.
+
+The newly released conversation control was rerun at accepted source
+`b4d0134f17`, instrumented WIP `9c87574560`. One focused check passed (seven
+filtered), including the original OFF/ON equality, zero closed-sheet catalog
+reads and the open-sheet reads. Its exact issue/title and ordered catalogs were
+recorded in the issue before removing its legacy mount. The pool-only test uses
+those literal values.
+
+The final compiler attempt first refused a duplicate `type` import keyword in
+a converted test before compiling. That typo was corrected. Its retry was
+stopped after discovering POD-5407's benchmark lease: exit 143, zero successful
+compiler tasks, no green result claimed. Final tests, compiler, focused lint,
+production phone screenshots/counters and accepted-ON timing comparison remain
+pending. The tracking baseline is byte-identical to the accepted integration;
+its SHA-256 is
+`5fedd4013ec75586abb07118146e9cf327744a091dfb4ecee4c9d00d3c3194e7`.

@@ -1,18 +1,8 @@
-/** POD-5391: the phone pilot's steady-state costs after a warm start, on the
- * production phone export with the operator-sized synthetic corpus.
- *
- * Each sample is one warm launch of /mobile/work with the pilot latched OFF or
- * ON, settled for 3 s, then:
- *  - updates: 20 live server-side title updates of one visible started issue,
- *    each awaited until its row label shows the new title. Main-thread task
- *    time comes from CDP Performance.TaskDuration (POD-5172's measure).
- *  - row tap: a trusted press on another started issue's row; input → the end
- *    of the first main-renderer Paint after the mission screen's DOM appears
- *    (POD-4977's measure).
- * Traced samples carry V8 CPU samples for tests/e2e/phone-profile-analyze.ts.
- *
- * Opt-in only: PODIUM_PHONE_PROFILE=1, run while holding bench:flatblock. */
-import { mkdirSync, writeFileSync } from 'node:fs'
+/** Pool-only steady-state regression against the last accepted pilot-ON phone
+ * capture: the same production export, operator-sized synthetic corpus, warm
+ * launches, 20 visible title updates and trusted mission/deck/Tasks gestures.
+ * Timing is opt-in and runs only while holding bench:flatblock. */
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { loadavg } from 'node:os'
 import { resolve } from 'node:path'
 import { type CDPSession, expect, type Page, test } from '@playwright/test'
@@ -25,7 +15,6 @@ import {
   SIZED_CORPUS,
   saveTrace,
   seedSession,
-  setPilot,
   sizedBootstrap,
   traceStart,
 } from './_phone-profile'
@@ -36,11 +25,7 @@ test.skip(
 )
 test.use({ serviceWorkers: 'block' })
 const screens = process.env.PODIUM_PHONE_SCREENS === '1'
-const artifacts = resolve(
-  import.meta.dirname,
-  '../../../.artifacts',
-  screens ? 'POD-5081' : 'POD-5391',
-)
+const artifacts = resolve('.artifacts/POD-5439/phone-actions')
 const samples = Number(process.env.PODIUM_PHONE_PROFILE_SAMPLES ?? 3)
 const UPDATES = 20
 const stamp = Date.now().toString(36)
@@ -49,7 +34,7 @@ const updateTitle = `Phone update target ${stamp}`
 const prefix = '(?:[A-Z]+-\\d+|#\\d+)'
 
 interface Sample {
-  pool: boolean
+  pool: true
   traced: boolean
   startedAtUtc: string
   endedAtUtc: string
@@ -115,15 +100,12 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
   await firstLaunch(page)
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Performance.enable')
-  let current = false,
-    updateLabel = updateTitle,
+  let updateLabel = updateTitle,
     tapLabel = tapTitle,
     detailLabel = detailTitle,
     revision = 0
 
-  async function launchWork(pool: boolean) {
-    await setPilot(page, pool, current)
-    current = pool
+  async function launchWork() {
     await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
     await expect(rowNamed(page, tapLabel)).toBeVisible({ timeout: 60_000 })
     await expect(rowNamed(page, updateLabel)).toBeVisible({ timeout: 60_000 })
@@ -284,8 +266,8 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
     return paintOf(events, 'phone:input', 'phone:dom')
   }
 
-  async function screenActions(pool: boolean): Promise<NonNullable<Sample['screens']>> {
-    console.info('[phone screen]', pool ? 'ON' : 'OFF', 'mission updates')
+  async function screenActions(): Promise<NonNullable<Sample['screens']>> {
+    console.info('[phone screen]', 'ON', 'mission updates')
     const missionUpdate = await measureUpdates(tapIssue.id, tapTitle, async (next) => {
       await expect(
         page.getByText(next, { exact: true }).filter({ visible: true }).first(),
@@ -306,9 +288,8 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
     await expect(
       page.getByText(detailLabel, { exact: true }).filter({ visible: true }).first(),
     ).toBeVisible()
-    // A new Work document preserves the first-visit Tasks cost, including the
-    // legacy cache that the OFF work list warms and the ON work list bypasses.
-    await launchWork(pool)
+    // A new Work document preserves the accepted first-visit Tasks cost.
+    await launchWork()
     const tasksOpen = await openScreen(
       'Tasks',
       '/issues',
@@ -323,18 +304,14 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
     return { missionUpdate, detailsOpen, detailsUpdate, tasksOpen, tasksUpdate }
   }
 
-  // Warm both pilot paths once.
-  await launchWork(false)
-  await launchWork(true)
-  const order = Array.from({ length: samples }, (_, index) =>
-    index % 2 === 0 ? [false, true] : [true, false],
-  ).flat()
+  await launchWork()
+  const order = Array.from({ length: samples }, () => true as const)
   const timed: Sample[] = [],
     traced: Sample[] = []
   for (const pool of order) {
     const startedAtUtc = new Date().toISOString()
-    console.info('[phone arm]', pool ? 'ON' : 'OFF', 'timed', timed.length, loadavg())
-    await launchWork(pool)
+    console.info('[phone arm]', 'ON', 'timed', timed.length, loadavg())
+    await launchWork()
     timed.push({
       pool,
       traced: false,
@@ -342,15 +319,15 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
       load: loadavg(),
       updates: await updates(),
       tap: await tap(),
-      ...(screens ? { screens: await screenActions(pool) } : {}),
+      ...(screens ? { screens: await screenActions() } : {}),
       endedAtUtc: new Date().toISOString(),
     })
   }
   for (const [index, pool] of order.entries()) {
     const startedAtUtc = new Date().toISOString()
-    console.info('[phone arm]', pool ? 'ON' : 'OFF', 'traced', index, loadavg())
-    const name = `${pool ? 'on' : 'off'}-${index}.trace.json.gz`
-    await launchWork(pool)
+    console.info('[phone arm]', 'ON', 'traced', index, loadavg())
+    const name = `on-${index}.trace.json.gz`
+    await launchWork()
     traced.push({
       pool,
       traced: true,
@@ -359,14 +336,13 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
       updates: await updates(`updates-${name}`),
       tap: await tap(`tap-${name}`),
       traces: { updates: `updates-${name}`, tap: `tap-${name}` },
-      ...(screens ? { screens: await screenActions(pool) } : {}),
+      ...(screens ? { screens: await screenActions() } : {}),
       endedAtUtc: new Date().toISOString(),
     })
   }
   expect(observed.errors, observed.errors.join('\n')).toEqual([])
-  const median = (pool: boolean, list: Sample[], pick: (sample: Sample) => number) => {
+  const median = (list: Sample[], pick: (sample: Sample) => number) => {
     const values = list
-      .filter((sample) => sample.pool === pool)
       .map(pick)
       .sort((a, b) => a - b)
     return values[Math.floor(values.length / 2)]
@@ -385,23 +361,15 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
     corpus: SIZED_CORPUS,
     browser: page.context().browser()?.version(),
     method:
-      'One warm /mobile/work launch per sample (pilot latched by the previous launch, zero bootstrap fetches asserted), settled 3 s. updates: 20 server title updates of one visible started issue, each awaited to its row label; task ms = CDP Performance.TaskDuration delta over the loop, including the harness evaluate calls (equal in both arms). tap: trusted press on another started row → end of the first main-renderer Paint after the mission DOM (paintOf).',
+      'One warm pool-only /mobile/work launch per sample (zero bootstrap fetches asserted), settled 3 s. updates: 20 server title updates of one visible started issue, each awaited to its row label; task ms = CDP Performance.TaskDuration delta over the loop, including the same harness evaluate calls as the accepted ON capture. tap: trusted press on another started row → end of the first main-renderer Paint after the mission DOM (paintOf).',
     order,
     medians: {
-      perUpdateTaskOff: median(false, timed, perUpdate),
-      perUpdateTaskOn: median(true, timed, perUpdate),
-      tapPaintOff: median(false, timed, paint),
-      tapPaintOn: median(true, timed, paint),
-      tracedTapPaintOff: median(false, traced, paint),
-      tracedTapPaintOn: median(true, traced, paint),
+      perUpdateTaskOn: median(timed, perUpdate),
+      tapPaintOn: median(timed, paint),
+      tracedTapPaintOn: median(traced, paint),
       ...(screens
         ? Object.fromEntries(
-            [false, true].flatMap((pool) =>
-              screenMetrics.map(([key, pick]) => [
-                `${key}${pool ? 'On' : 'Off'}`,
-                median(pool, timed, pick),
-              ]),
-            ),
+            screenMetrics.map(([key, pick]) => [`${key}On`, median(timed, pick)]),
           )
         : {}),
     },
@@ -412,4 +380,19 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
   }
   writeFileSync(resolve(artifacts, 'actions.json'), `${JSON.stringify(report, null, 2)}\n`)
   console.info('[phone actions]', JSON.stringify(report.medians))
+  if (process.env.PODIUM_PHONE_BASELINE) {
+    const baseline = JSON.parse(readFileSync(process.env.PODIUM_PHONE_BASELINE, 'utf8')) as {
+      browser: string
+      corpus: typeof SIZED_CORPUS
+      medians: Record<string, number>
+    }
+    expect(report.browser).toBe(baseline.browser)
+    expect(report.corpus).toEqual(baseline.corpus)
+    // Match the speed gate's 10% median noise allowance; traced arms diagnose.
+    for (const [name, value] of Object.entries(report.medians)) {
+      if (name.startsWith('traced')) continue
+      expect(baseline.medians[name], name).toBeGreaterThan(0)
+      expect(value, name).toBeLessThanOrEqual(baseline.medians[name]! * 1.1)
+    }
+  }
 })
