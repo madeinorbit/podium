@@ -369,7 +369,7 @@ describe('mobile target identity question', () => {
         .filter((row) => row.repoPath === search.repoPath && !row.deletedAt && row.id !== search.excludeId)
         .sort((a, b) => b.seq - a.seq || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
         .filter((row) => !needle || row.title.toLocaleLowerCase().includes(needle) || (
-          reference && `${search.prefixes[row.repoId] ?? ''}${row.seq}`
+          reference && `${search.prefixes[row.repoId ?? ''] ?? ''}${row.seq}`
             .toLocaleLowerCase().replace(/[^a-z0-9]/g, '').includes(refNeedle)
         ))
         .slice(0, limit).map((row) => row.id)
