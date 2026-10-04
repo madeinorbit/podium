@@ -37,13 +37,15 @@ export type DeliveryOutcome = Extract<RuntimeEventBody, { t: 'delivery' }>
 
 /** The daemon's existing runtime-event journal, scoped to this session. A
  * missing record proves this owner has never started writing the row. Outcomes
- * are recorded by the ordinary durable event sink and pruned on server ack. */
+ * are recorded before the event sink (some families consume it asynchronously)
+ * and pruned by the ordinary runtime-event server acknowledgement. */
 export interface DeliveryJournal {
   read(rowId: string): { typingStarted: true; outcome?: DeliveryOutcome } | undefined
   /** Must be durable before returning, before the driver's first byte. */
   start(rowId: string): void
   /** A driver refusal proved that this attempt wrote nothing. */
   clear(rowId: string): void
+  record(outcome: DeliveryOutcome): void
 }
 
 /** Disposable daemon delivery state. Admission belongs to the server; when to
@@ -134,13 +136,15 @@ export function withDeliveryQueue(
   function hold(id: string, kind: 'memory' | 'durable'): void {
     held.set(id, { kind })
     const ids = idsOf.get(id)
-    emit({
+    const event: Outcome = {
       t: 'delivery',
       rowId: id,
       outcome: 'accepted',
       held: kind,
       ...(ids ? { harnessRef: ids } : {}),
-    })
+    }
+    journal?.record(event)
+    emit(event)
   }
   /** Rows the driver said it will not record before their receipt came back,
    *  and the program's proof of it when it had one (POD-4887). */
@@ -176,6 +180,7 @@ export function withDeliveryQueue(
       ...(named ? { transcriptItem: named } : {}),
       ...(ids ? { harnessRef: ids } : {}),
     }
+    journal?.record(event)
     finished.set(id, event)
     rows.delete(id)
     emit(event)
@@ -204,6 +209,7 @@ export function withDeliveryQueue(
     if (prior.outcome !== 'delivered' || prior.transcriptItem) return
     const ids = mergeHarnessRefs(prior.harnessRef, harnessRef)
     const event: Outcome = { ...prior, transcriptItem, ...(ids ? { harnessRef: ids } : {}) }
+    journal?.record(event)
     finished.set(id, event)
     emit(event)
   }
@@ -232,6 +238,7 @@ export function withDeliveryQueue(
     if (prior) {
       if (proof && prior.outcome === 'failed' && prior.cause === 'unconfirmed') {
         const event: Outcome = { ...prior, reason, cause: proof }
+        journal?.record(event)
         finished.set(id, event)
         emit(event)
       }
@@ -265,6 +272,7 @@ export function withDeliveryQueue(
       ...(transcriptItem ? { transcriptItem } : {}),
       ...(ids ? { harnessRef: ids } : {}),
     }
+    journal?.record(event)
     finished.set(id, event)
     emit(event)
   }
@@ -391,8 +399,21 @@ export function withDeliveryQueue(
             at: new Date().toISOString(),
           }
         }
-        if (row.abort.signal.aborted) continue
         if (receipt.outcome === 'refused') journal?.clear(id)
+        if (row.abort.signal.aborted) {
+          // Teardown can win the wait after the driver already learned an
+          // outcome. Keep that knowledge even when its live emitter is gone.
+          if (receipt.outcome === 'accepted') {
+            const transcriptItem = receipt.transcriptItem ?? namedEarly.get(id)
+            const harnessRef = mergeHarnessRefs(idsOf.get(id), receipt.harnessRef)
+            journal?.record({ t: 'delivery', rowId: id,
+              outcome: receipt.held && !transcriptItem ? 'accepted' : 'delivered',
+              ...(receipt.held && !transcriptItem ? { held: receipt.held } : {}),
+              ...(transcriptItem ? { transcriptItem } : {}), ...(harnessRef ? { harnessRef } : {}),
+            })
+          }
+          continue
+        }
         if (receipt.outcome !== 'refused' || receipt.refusal.reason !== 'not_running') {
           delete row.notRunningSince
         }

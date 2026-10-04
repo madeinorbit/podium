@@ -185,6 +185,42 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     reopened.close()
   })
 
+  it('retains an outcome before an asynchronous event sink has forwarded it', () => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    first.deliveryJournal(sessionId).start('row-1')
+    first.deliveryJournal(sessionId).record({ t: 'delivery', rowId: 'row-1', outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    first.close()
+    const after = createRuntimeEventOutbox(dir)
+    expect(after.pending()).toEqual([])
+    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toEqual({ t: 'delivery', rowId: 'row-1', outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    after.close()
+  })
+
+  it('keeps the final failed outcome when the event stream reports a contradiction', () => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    first.deliveryJournal(sessionId).record({ t: 'delivery', rowId: 'row-1', outcome: 'failed', cause: 'agent-exited' })
+    first.enqueue(event('contradiction'))
+    first.close()
+    const after = createRuntimeEventOutbox(dir)
+    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toMatchObject({ outcome: 'failed', cause: 'agent-exited' })
+    after.close()
+  })
+
+  it('does not prune a later confirmed outcome on an earlier unconfirmed acknowledgement', () => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    const unconfirmed: DurableRuntimeEvent = { ...event('unknown'), event: { ...event('unknown').event, t: 'delivery', rowId: 'row-1', outcome: 'failed', cause: 'unconfirmed' } }
+    first.enqueue(unconfirmed)
+    first.deliveryJournal(sessionId).record({ t: 'delivery', rowId: 'row-1', outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    first.acknowledge('unknown')
+    first.close()
+    const after = createRuntimeEventOutbox(dir)
+    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toMatchObject({ outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    after.close()
+  })
+
   it.each(['accepted-first', 'final-first'] as const)('prunes settled rows with %s acknowledgements', (order) => {
     const dir = makeDir()
     const outbox = createRuntimeEventOutbox(dir)
@@ -214,7 +250,7 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     }
     first.close()
     const after = createRuntimeEventOutbox(dir)
-    expect(after.deliveryJournal(sessionId).read('row-1')).toEqual({ typingStarted: true })
+    expect(after.deliveryJournal(sessionId).read('row-1')).toEqual({ typingStarted: true, outcome: { t: 'delivery', rowId: 'row-1', outcome: 'accepted', held: 'durable' } })
     expect(after.pending()).toEqual([])
     after.close()
   })

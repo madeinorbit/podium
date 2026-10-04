@@ -694,7 +694,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
             // travels up through `onPartialText`.
             emit: () => {},
           },
-          { userMessageUuid: input.userMessageUuid },
+          { userMessageUuid: input.userMessageUuid, onTypingStarted: input.onTypingStarted },
         )
       } catch (error) {
         failBeforeLine(error instanceof Error ? error : new Error(String(error)))

@@ -31,6 +31,7 @@ describe('daemon restart before typing (POD-5556)', () => {
       read: (id: string) => started.has(id) ? { typingStarted: true as const } : undefined,
       start: (id: string) => { started.add(id) },
       clear: (id: string) => { started.delete(id) },
+      record: vi.fn(),
     }
     const before = owner(journal)
     await before.handle.send(input, options)
@@ -56,7 +57,7 @@ describe('daemon restart before typing (POD-5556)', () => {
 
   it('keeps a started write on the confirm-or-unconfirmed path after restart', async () => {
     vi.useFakeTimers()
-    const after = owner({ read: () => ({ typingStarted: true }), start: vi.fn(), clear: vi.fn() })
+    const after = owner({ read: () => ({ typingStarted: true }), start: vi.fn(), clear: vi.fn(), record: vi.fn() })
     after.idle()
     await after.handle.send({ ...input, deliveryRecovery: true }, options)
     await vi.advanceTimersByTimeAsync(200)

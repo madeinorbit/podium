@@ -562,6 +562,35 @@ describe('the user line acknowledgement', () => {
     await expect(turn.done).resolves.toMatchObject({ harnessSessionId: 'sess-a', output: 'w1' })
   })
 
+  it('journals immediately before the user line, after the handshake', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-journal' })
+    const fence = vi.fn(() => {
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(false)
+    })
+    const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid, onTypingStarted: fence })
+    expect(fence).not.toHaveBeenCalled()
+    answerInitialize(fake)
+    await written(fake)
+    expect(fence).toHaveBeenCalledTimes(1)
+    fake.emitLine(frame(ack.lifecycleQueued))
+    fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'done' }))
+    await turn.done
+    client.close()
+  })
+
+  it('writes no user line when its journal fence fails', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-journal-failure' })
+    const failure = new Error('fsync refused')
+    const turn = client.turn('one', noCallbacks, { onTypingStarted: () => { throw failure } })
+    answerInitialize(fake)
+    await expect(turn.accepted).rejects.toBe(failure)
+    await expect(turn.done).rejects.toBe(failure)
+    expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(false)
+    client.close()
+  })
+
   it('is accepted on the echo when the CLI sends no lifecycle ack', async () => {
     const fake = fakeTransport()
     const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-b' })
