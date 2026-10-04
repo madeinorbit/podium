@@ -471,6 +471,7 @@ try {
       await page.waitForFunction(
         () => {
           const state = (window as any).__speedCapture
+          if (document.querySelector('[data-testid="flight-settling"]')) return false
           if (state.pageAction) {
             state.confirmed = true
             state.readyAt = state.twoRafAt
@@ -592,6 +593,7 @@ try {
         .filter((e: any) => e.name === 'click' && Math.abs(e.startTime - state.boundary.input) < 1)
         .at(-1)
       const numbers = {
+        sourceSha,
         iteration,
         target: item.index,
         visit: item.visit,
@@ -623,6 +625,11 @@ try {
         sidebarTargetType: trigger.startsWith('[data-speed-issue') ? 'folded' : 'open',
         proxyErrors: proxyErrors - errorsBefore,
         loadavg: loadavg(),
+        instrumented: {
+          launch: state.boundary.launchInitializedBefore,
+          chat: Object.keys(state.boundary.chatBefore).length > 0,
+          shell: Object.keys(state.boundary.shellBefore).length > 0,
+        },
       }
       Object.assign(numbers, {
         action: issuePageAction ? 'issue-page-open' : 'sidebar-issue',
