@@ -27,8 +27,8 @@ import {
   type ConversationBubbleState,
   ConversationController,
   type ConversationPendingTurn,
+  type ConversationRecords,
   type ConversationState,
-  storeConversationRecords,
 } from '@podium/client-core/conversation'
 import {
   discardChatThroughOutbox,
@@ -129,20 +129,30 @@ interface FeedRow {
 /**
  * The `message` records this device's feed carries (POD-4764), folded from
  * the pushed `feedDelta` frames after one
- * catch-up read — the store half the apps read through
- * `storeConversationRecords`.
+ * catch-up read. Each session's controller borrows its records directly
+ * from this fixture's pushed-feed owner.
  */
-class RecordsView {
+export class RecordsView {
   private byRowId = new Map<string, MessageRecordWire>()
   private snapshot: { messageRecords: readonly MessageRecordWire[] } = { messageRecords: [] }
   private readonly listeners = new Set<() => void>()
   cursor = 0
-  readonly store = {
-    getSnapshot: () => this.snapshot,
-    subscribe: (listener: () => void): (() => void) => {
-      this.listeners.add(listener)
-      return () => this.listeners.delete(listener)
-    },
+  forSession(sessionId: SessionId): ConversationRecords {
+    let source = this.snapshot
+    let mine = source.messageRecords.filter(record => record.sessionId === sessionId)
+    return {
+      getSnapshot: () => {
+        if (source !== this.snapshot) {
+          source = this.snapshot
+          mine = source.messageRecords.filter(record => record.sessionId === sessionId)
+        }
+        return mine
+      },
+      subscribe: (listener) => {
+        this.listeners.add(listener)
+        return () => { this.listeners.delete(listener) }
+      },
+    }
   }
 
   apply(changes: readonly (FeedRow | MetadataChangeLenient)[], through: number): void {
@@ -301,7 +311,7 @@ export class Device {
               asMutationId(turn.deliveryId),
             ),
           ),
-        records: storeConversationRecords(this.records.store, sessionId),
+        records: this.records.forSession(sessionId),
         lookupRecords: (ids) =>
           this.api.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
         connection: {

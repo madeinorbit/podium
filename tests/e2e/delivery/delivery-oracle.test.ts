@@ -8,8 +8,8 @@
  */
 
 import type { ConversationBubble, ConversationState } from '@podium/client-core/conversation'
-import type { TranscriptItem } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { asSessionId, type MessageRecordWire, type TranscriptItem } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
 import {
   kindsOf,
   type Observation,
@@ -18,7 +18,7 @@ import {
   type TrackedMessage,
   violations,
 } from './delivery-oracle'
-import { bubblesOf, type MessageOnScreen } from './device'
+import { bubblesOf, type MessageOnScreen, RecordsView } from './device'
 import type { LinkFrame } from './link-proxy'
 
 const S = 'session-1'
@@ -284,5 +284,42 @@ describe('bubblesOf — what a chat surface draws', () => {
     )
     expect(drawn.get(ID)).toEqual({ bubbles: 1, shownAs: 'in-transcript' })
     expect(drawn.get(OTHER)).toEqual({ bubbles: 1, shownAs: 'pending:failed', error: 'not sent' })
+  })
+})
+
+describe('pushed device conversation records', () => {
+  const session = asSessionId('records-session')
+  const record = (id: string, sessionId = session): MessageRecordWire => ({
+    id, sessionId, senderUserId: 'sender', body: 'hello', status: 'confirmed',
+    createdAt: '2026-10-04T12:00:00Z',
+  })
+
+  it('keeps conversations separate, follows v1 and v2 feed keys, and releases subscriptions', () => {
+    const view = new RecordsView(), port = view.forSession(session), wake = vi.fn()
+    const off = port.subscribe(wake)
+    const mine = record('mine'), other = record('other', asSessionId('other-session'))
+    view.apply([
+      { seq: 1, entity: 'message', id: mine.id, op: 'upsert', value: mine },
+      { seq: 2, entity: 'message', entityId: other.id, op: 'upsert', value: other },
+    ], 2)
+    expect(port.getSnapshot()).toEqual([mine])
+    expect(port.getSnapshot()).toBe(port.getSnapshot())
+    expect(view.all()).toEqual([mine, other])
+    expect(wake).toHaveBeenCalledTimes(1)
+    off()
+    view.apply([{ seq: 3, entity: 'message', id: mine.id, op: 'delete' }], 3)
+    expect(port.getSnapshot()).toEqual([])
+    expect(wake).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops evicted records, permits fresh readmission, and ignores an older replay', () => {
+    const view = new RecordsView(), port = view.forSession(session), mine = record('mine')
+    view.apply([{ seq: 1, entity: 'message', entityId: mine.id, op: 'upsert', value: mine }], 1)
+    view.apply([{ seq: 2, entity: 'message', entityId: mine.id, op: 'evict' }], 2)
+    expect(port.getSnapshot()).toEqual([])
+    view.apply([{ seq: 1, entity: 'message', entityId: mine.id, op: 'upsert', value: mine }], 2)
+    expect(port.getSnapshot()).toEqual([])
+    view.apply([{ seq: 3, entity: 'message', entityId: mine.id, op: 'upsert', value: mine }], 3)
+    expect(port.getSnapshot()).toEqual([mine])
   })
 })
