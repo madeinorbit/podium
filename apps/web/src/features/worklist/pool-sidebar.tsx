@@ -643,9 +643,9 @@ const PoolMotionRow = observer(function PoolMotionRow({
       ),
     [pool, id, kind, folded, lane],
   )
-  // A visited group keeps its DOM across folds, while this projection releases
-  // tracking when hidden. Reuse equal paint on reveal so the leaf does not
-  // rebuild unchanged rows after MobX suspends its computed values.
+  // A visited group keeps its DOM and lazy projection across folds. Hidden
+  // changes only invalidate the projection; equal paint on reveal preserves
+  // the leaf's props without rebuilding unchanged rows.
   const lastDraw = useMemo(
     () => ({ value: undefined as ReturnType<typeof draw.get> | undefined }),
     [draw],
@@ -653,12 +653,12 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const readDraw = useCallback(() => {
     const next = draw.get()
     const previous = lastDraw.value
-    if (previous && previous.now === next.now && compareStructural(previous.paint, next.paint))
-      return previous
+    // Folded clock words are in paint; open-row timers own their visible clock.
+    if (previous && compareStructural(previous.paint, next.paint)) return previous
     lastDraw.value = next
     return next
   }, [draw, lastDraw])
-  const paint = useWorklistPoolProjection(readDraw, undefined, visible) ?? {
+  const paint = useWorklistPoolProjection(readDraw, undefined, visible, true) ?? {
     value: LOADING,
     now: 0,
     paint: LOADING,
@@ -864,7 +864,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
     [pool, path, state],
   )
   const read = useCallback(() => projection.get(), [projection])
-  const value = useWorklistPoolProjection(read, undefined, visible)
+  const value = useWorklistPoolProjection(read, undefined, visible, true)
   const now = useRef(0)
   if (visible) now.current = pool.clock.current
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
@@ -930,7 +930,7 @@ const PoolPanelRow = observer(function PoolPanelRow({
     [pool, id],
   )
   const read = useCallback(() => projection.get(), [projection])
-  const value = useWorklistPoolProjection(read, undefined, visible)
+  const value = useWorklistPoolProjection(read, undefined, visible, true)
   const select = useCallback(() => actions.selectPanel(path, id as SessionId), [actions, path, id])
   const snoozeProjection = useMemo(
     () =>
@@ -951,7 +951,7 @@ const PoolPanelRow = observer(function PoolPanelRow({
     [pool, value],
   )
   const readSnooze = useCallback(() => snoozeProjection.get(), [snoozeProjection])
-  const snoozeState = useWorklistPoolProjection(readSnooze, undefined, visible)
+  const snoozeState = useWorklistPoolProjection(readSnooze, undefined, visible, true)
   return value === LOADING ? (
     <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" />
   ) : value === undefined ? null : (

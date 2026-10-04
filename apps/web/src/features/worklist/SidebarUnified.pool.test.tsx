@@ -172,7 +172,7 @@ afterEach(() => {
 })
 
 describe('real sidebar pool cutover', () => {
-  it('reuses visited group rows and releases hidden readers until their current paint is revealed', async () => {
+  it('reuses visited group rows without reading hidden changes or rebuilding an unchanged reveal', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
@@ -218,10 +218,14 @@ describe('real sidebar pool cutover', () => {
         fireEvent.click(button)
       })
       await waitFor(() => expect(panel.style.display).toBe('none'))
+      reads.mockClear()
+      mode.commits.clear()
       await act(async () => {
         fireEvent.click(button)
       })
       expect(group.querySelector('[data-issue-row="synthetic-11"]')).toBe(row)
+      expect(reads.mock.calls.filter(([id]) => id === 'synthetic-11')).toEqual([])
+      expect(mode.commits.get('synthetic-11')).toBeUndefined()
     } finally {
       reads.mockRestore()
       trees.mockRestore()

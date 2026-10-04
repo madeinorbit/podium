@@ -1,4 +1,4 @@
-import { compareStructural, getObserverTree } from 'mobx'
+import { compareStructural, computed, getObserverTree } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { projectionComparisonMechanism } from '../diagnostics/projection-comparison-mechanism'
@@ -69,6 +69,45 @@ it('does no reads or equality work for a hidden projection, then pulls the lates
   expect(read).toHaveBeenCalledTimes(1)
   expect(equals).toHaveBeenCalledTimes(1)
   expect(f.observers()).toBe(1)
+})
+
+it('retains a visited fold lazily, refreshes hidden changes once, and releases its graph on disposal', () => {
+  const f = fixture()
+  const derive = vi.fn(() => f.pool.selection.has('target'))
+  const row = computed(derive)
+  const read = vi.fn(() => row.get())
+  const view = createPoolProjection(f.pool, read, { retainWhileInactive: true })
+  cleanups.push(() => view.dispose())
+  expect(view.getSnapshot()).toBe(false)
+  const wake = vi.fn()
+  let stop = view.subscribe(wake)
+  for (let i = 0; i < 3; i++) {
+    view.setActive(false)
+    stop()
+    view.setActive(true)
+    expect(view.getSnapshot()).toBe(false)
+    stop = view.subscribe(wake)
+  }
+  expect(derive).toHaveBeenCalledTimes(1)
+  view.setActive(false)
+  stop()
+  read.mockClear()
+  for (const id of ['one', 'two', 'target']) f.change(id)
+  expect(view.getSnapshot()).toBe(false)
+  expect(read).not.toHaveBeenCalled()
+  expect(derive).toHaveBeenCalledTimes(1)
+  expect(wake).not.toHaveBeenCalled()
+  view.setActive(true)
+  expect(view.getSnapshot()).toBe(true)
+  expect(read).toHaveBeenCalledTimes(1)
+  expect(derive).toHaveBeenCalledTimes(2)
+  stop = view.subscribe(wake)
+  view.setActive(false)
+  stop()
+  view.dispose()
+  expect(f.observers()).toBe(0)
+  f.change(null)
+  expect(derive).toHaveBeenCalledTimes(2)
 })
 
 it('tracks the first snapshot once and shares one observer among all subscriptions', () => {

@@ -35,17 +35,22 @@ export const samePoolProjection = Object.is
 export function createPoolProjection<T>(
   pool: MobxPool,
   read: (pool: MobxPool) => T,
-  options: { name?: string; equals?: (before: T, next: T) => boolean } = {},
+  options: {
+    name?: string
+    equals?: (before: T, next: T) => boolean
+    /** Visited folds retain lazy dependencies, without reading hidden changes. */
+    retainWhileInactive?: boolean
+  } = {},
 ) {
   const state = projectionState(pool, read, options)
   const view = {
-    /** Hidden owners retain their last paint but release every dependency.
-     * The owner pulls one current snapshot when it becomes visible again. */
+    /** Hidden owners retain their last paint. A visited fold can also retain
+     * its lazy graph: invalidation only marks it dirty until it is revealed. */
     setActive(active: boolean): void {
       if (state.active === active) return
       state.active = active
       state.dirty = true
-      if (!active) {
+      if (!active && !state.retainWhileInactive) {
         state.reaction?.dispose()
         state.reaction = null
         _observerFinalizationRegistry.unregister(state)
@@ -91,7 +96,16 @@ export function createPoolProjection<T>(
       return () => {
         state.listeners.delete(listener)
         releaseProjection(state)
+        if (state.reaction !== null && !state.listeners.size)
+          _observerFinalizationRegistry.register(view, state, state)
       }
+    },
+    /** The hook's owner releases retained dependencies when it unmounts. */
+    dispose(): void {
+      state.reaction?.dispose()
+      state.reaction = null
+      state.dirty = true
+      _observerFinalizationRegistry.unregister(state)
     },
   }
   return view
@@ -101,6 +115,7 @@ interface ProjectionState<T> {
   readonly pool: MobxPool
   readonly name: string
   readonly equals: (before: T, next: T) => boolean
+  readonly retainWhileInactive: boolean
   read: (pool: MobxPool) => T
   snapshot: { value: T } | null
   error: { cause: unknown } | null
@@ -116,12 +131,17 @@ interface ProjectionState<T> {
 function projectionState<T>(
   pool: MobxPool,
   read: (pool: MobxPool) => T,
-  options: { name?: string; equals?: (before: T, next: T) => boolean },
+  options: {
+    name?: string
+    equals?: (before: T, next: T) => boolean
+    retainWhileInactive?: boolean
+  },
 ): ProjectionState<T> {
   return {
     pool,
     name: options.name ?? 'pool projection',
     equals: options.equals ?? samePoolProjection,
+    retainWhileInactive: options.retainWhileInactive ?? false,
     read,
     snapshot: null,
     error: null,
@@ -141,7 +161,7 @@ function observeProjection<T>(state: ProjectionState<T>): boolean {
     state.version++
     // Filter before notifying React or imperative consumers: equal projections
     // must not trigger owner renders, even when an observed input changes.
-    if (state.listeners.size) {
+    if (state.active && state.listeners.size) {
       const before = state.snapshot,
         error = state.error
       refreshProjection(state)
@@ -173,6 +193,7 @@ function refreshProjection<T>(state: ProjectionState<T>): void {
 
 function releaseProjection<T>(state: ProjectionState<T>): void {
   if (state.listeners.size) return
+  if (!state.active && state.retainWhileInactive) return
   state.reaction?.dispose()
   state.reaction = null
 }

@@ -2,7 +2,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
-import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { WorklistPoolHandle } from '../create'
 import type { MobxPool } from '../pool'
 import type { createPoolProjection } from '../runtime-pool'
@@ -47,7 +47,12 @@ export interface PoolHost {
   /** null while the graph loads; a rebuild wakes existing readers. */
   usePool(): MobxPool | null
   /** A scalar reader over the pool for components outside observer trees. */
-  usePoolProjection<T>(read: (pool: MobxPool) => T, empty: T, active?: boolean): T
+  usePoolProjection<T>(
+    read: (pool: MobxPool) => T,
+    empty: T,
+    active?: boolean,
+    retainWhileInactive?: boolean,
+  ): T
   /** Force GC between turns first; names retired pool parts still reachable. */
   survivors(): string[]
 }
@@ -178,21 +183,27 @@ export function createPoolHost({
 
   /** Keeps one projection per hook. Mount and each observed change read once;
    * readers borrow memoized identities, compared by reference. A new closure
-   * adopts changed captures in render. Hidden owners keep their last paint and
-   * release tracking until focus returns.
+   * adopts changed captures in render. Hidden owners keep their last paint;
+   * visited folds may also retain lazy tracking until the owner unmounts.
    * The MobX implementation arrives with the startup attachment. */
-  function usePoolProjection<T>(read: (pool: MobxPool) => T, empty: T, active = true): T {
+  function usePoolProjection<T>(
+    read: (pool: MobxPool) => T,
+    empty: T,
+    active = true,
+    retainWhileInactive = false,
+  ): T {
     const runtime = useStoreHandle()
     const pool = usePool()
     const project = slotFor(runtime).project
     const reader = useRef(read)
     reader.current = read
     const view = useMemo(
-      () => (pool && project ? project(pool, reader.current) : null),
+      () => (pool && project ? project(pool, reader.current, { retainWhileInactive }) : null),
       // Reader closures change with props. The view adopts the latest reader
       // below without replacing its observer or React subscription.
-      [pool, project],
+      [pool, project, retainWhileInactive],
     )
+    useEffect(() => () => view?.dispose(), [view])
     // A principal/pool change discards any previous principal's last paint.
     const last = useMemo(
       () => ({ pool, project, paint: null as { value: T } | null }),
