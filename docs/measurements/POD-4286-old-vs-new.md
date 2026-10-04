@@ -1,6 +1,6 @@
 # OLD versus NEW whole-app measurements
 
-CURRENT at 96f705cd4e makes frequent session work far cheaper. At 4x, session switching drops 6.08→0.63 s, mark-read 9.77→0.24 s, and busy live-update CPU 92%→23% of one renderer core. Startup costs more: cold 7.65→11.88 s and retained-data reload 4.43→8.44 s. Project expansion, palette opening and Tasks board/search are slower at both scales. Header opening shows no clear median gain; 4x sidebar expansion has a similar median and a worse tail. This is a mixed web result with two matched pairs per scale. The whole-app verdict awaits CURRENT phone, heaps and sampled CPU attribution. OLD phone cannot start through Work with the shared corpus.
+CURRENT at 96f705cd4e makes frequent session work far cheaper. At 4x, session switching drops 6.08→0.63 s, mark-read 9.77→0.24 s, and busy live-update CPU 92%→23% of one renderer core. Startup costs more: cold 7.65→11.88 s and retained-data reload 4.43→8.44 s. Project expansion, palette opening and Tasks board/search are slower at both scales. Header opening shows no clear median gain; 4x sidebar expansion has a similar median and a worse tail. This is a mixed web result with two matched pairs per scale. The first CURRENT phone 1x capture is complete; OLD has no matched phone result. The whole-app verdict still awaits the remaining phone captures, heaps and sampled CPU attribution. OLD phone cannot start through Work with the shared corpus.
 
 ## Compared applications
 
@@ -10,9 +10,11 @@ CURRENT at 96f705cd4e makes frequent session work far cheaper. At 4x, session sw
 
 OLD corpus seed 4443: 4,867 issues and 4,304 sessions at 1x; 19,468 issues and 17,216 sessions at 4x. Two real isolated control issues and their live agents exercise mutations. OLD controls are matched to their contemporary NEW build using comparisonArm; later OLD controls are not pooled into the earlier NEW comparison. Both arms consume the same serialized semantic corpus; the per-run digest proves the match. OLD receives its legacy issue and issue-projection rows; NEW receives normalized issue/session personal state and git/machine facts. Optional null strings are omitted to satisfy the production wire schema.
 
-Performance evidence: 18 completed measurement runs and 4 failed measurement runs. 1 failed run(s) retain a separately completed action phase; their failed background preparation contributes no CPU windows. 43 calibration, superseded or diagnostic runs are retained separately and excluded from comparisons.
+Performance evidence: 19 completed measurement runs and 5 failed measurement runs. 1 failed run(s) retain a separately completed action phase; their failed background preparation contributes no CPU windows. 43 calibration, superseded or diagnostic runs are retained separately and excluded from comparisons.
 
 This is a comparison of shipped application revisions, including their other changes and different data representations. It does not isolate MobX as the sole cause. The operator requested NEW be repinned from 22b676a741 to 1aa0ec71f6 during collection, and later requested the current dev/mw operator build be compared first; it is pinned at build time to 96f705cd4e. The deletion revision e22a8b6bd9 remains a separate named snapshot. The earlier 22b676 captures are retained as superseded evidence and do not enter the verdict.
+
+Phone uses Pixel 7 Chromium emulation on the same flatblock CPU. Ordinary phone controls are activated with Playwright click; long-press dispatches CDP touch input. Typing and picker-search samples insert a short complete draft or query with fill(), rather than replaying a particular human keystroke cadence.
 
 ## Latency, milliseconds
 
@@ -20,6 +22,19 @@ Lower is better. Percent change is `(NEW / OLD − 1) × 100`. Percentiles use n
 
 | Surface | Scale | Action | NEW arm | OLD n | NEW n | OLD median | NEW median | OLD p95 | NEW p95 | Median change | p95 change | OLD max | NEW max | NEW boundary | Verdict |
 |---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| phone | 1 | app-cold-start | new-current | 0 | 4 | — | 3,675.8 | — | 4,840.2 | — | — | — | 4,840.2 | Paint | not comparable |
+| phone | 1 | app-warm-start | new-current | 0 | 4 | — | 2,485.0 | — | 3,477.1 | — | — | — | 3,477.1 | Paint | not comparable |
+| phone | 1 | phone-composer-typing | new-current | 0 | 8 | — | 14.0 | — | 22.2 | — | — | — | 22.2 | Paint | not comparable |
+| phone | 1 | phone-inbox | new-current | 0 | 0 | — | — | — | — | — | — | — | — |  | not measured |
+| phone | 1 | phone-issue-open | new-current | 0 | 8 | — | 59.4 | — | 92.5 | — | — | — | 92.5 | Paint | not comparable |
+| phone | 1 | phone-issue-picker-search | new-current | 0 | 8 | — | 17.5 | — | 19.7 | — | — | — | 19.7 | Paint | not comparable |
+| phone | 1 | phone-issue-rename | new-current | 0 | 8 | — | 21.8 | — | 29.4 | — | — | — | 29.4 | Paint | not comparable |
+| phone | 1 | phone-issue-screen | new-current | 0 | 8 | — | 395.0 | — | 725.9 | — | — | — | 725.9 | Paint | not comparable |
+| phone | 1 | phone-long-press | new-current | 0 | 8 | — | 434.0 | — | 442.3 | — | — | — | 442.3 | Paint | not comparable |
+| phone | 1 | phone-mission-details | new-current | 0 | 8 | — | 97.9 | — | 203.5 | — | — | — | 203.5 | Paint | not comparable |
+| phone | 1 | phone-mission-open | new-current | 0 | 8 | — | 97.2 | — | 131.6 | — | — | — | 131.6 | Paint | not comparable |
+| phone | 1 | phone-work-screen | new-current | 0 | 8 | — | 330.9 | — | 464.8 | — | — | — | 464.8 | DrawFrame (compositor, no new raster Paint), Paint | not comparable |
+| phone | 1 | phone-work-search | new-current | 0 | 8 | — | 14.7 | — | 17.9 | — | — | — | 17.9 | Paint | not comparable |
 | web | 1 | app-cold-start | new-current | 8 | 8 | 2,449.4 | 3,456.1 | 2,786.9 | 4,246.5 | 41.1% | 52.4% | 2,786.9 | 4,246.5 | Paint | slower |
 | web | 1 | app-warm-start | new-current | 8 | 8 | 1,121.5 | 2,260.4 | 1,432.9 | 2,716.0 | 101.6% | 89.5% | 1,432.9 | 2,716.0 | Paint | slower |
 | web | 1 | board-open | new-current | 16 | 16 | 291.6 | 383.1 | 322.3 | 597.8 | 31.3% | 85.5% | 322.3 | 597.8 | Paint | slower |
@@ -157,6 +172,19 @@ Main-thread CPU uses Chromium trace thread timestamps (tts/tdur), from the trust
 
 | Surface | Scale | Action | NEW arm | OLD CPU median | NEW CPU median | Median change | OLD CPU p95 | NEW CPU p95 | OLD CPU max | NEW CPU max | OLD layout CPU | NEW layout CPU |
 |---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| phone | 1 | app-cold-start | new-current | — | 2,889.1 | — | — | 3,092.6 | — | 3,092.6 | — | 36.1 |
+| phone | 1 | app-warm-start | new-current | — | 1,839.2 | — | — | 2,260.1 | — | 2,260.1 | — | 36.0 |
+| phone | 1 | phone-composer-typing | new-current | — | 12.7 | — | — | 17.9 | — | 17.9 | — | 1.3 |
+| phone | 1 | phone-inbox | new-current | — | — | — | — | — | — | — | — | — |
+| phone | 1 | phone-issue-open | new-current | — | 54.3 | — | — | 85.9 | — | 85.9 | — | 6.7 |
+| phone | 1 | phone-issue-picker-search | new-current | — | 16.7 | — | — | 19.4 | — | 19.4 | — | 1.0 |
+| phone | 1 | phone-issue-rename | new-current | — | 19.1 | — | — | 21.5 | — | 21.5 | — | 1.3 |
+| phone | 1 | phone-issue-screen | new-current | — | 368.1 | — | — | 417.3 | — | 417.3 | — | 0.3 |
+| phone | 1 | phone-long-press | new-current | — | 172.6 | — | — | 195.8 | — | 195.8 | — | 5.8 |
+| phone | 1 | phone-mission-details | new-current | — | 95.5 | — | — | 166.2 | — | 166.2 | — | 43.2 |
+| phone | 1 | phone-mission-open | new-current | — | 88.0 | — | — | 125.8 | — | 125.8 | — | 7.5 |
+| phone | 1 | phone-work-screen | new-current | — | 374.9 | — | — | 374.9 | — | 374.9 | — | 4.3 |
+| phone | 1 | phone-work-search | new-current | — | 12.6 | — | — | 14.1 | — | 14.1 | — | 1.6 |
 | web | 1 | app-cold-start | new-current | 1,671.8 | 2,780.7 | 66.3% | 1,957.0 | 3,005.3 | 1,957.0 | 3,005.3 | 81.8 | 82.4 |
 | web | 1 | app-warm-start | new-current | 776.4 | 1,720.6 | 121.6% | 915.9 | 1,932.5 | 915.9 | 1,932.5 | 62.6 | 55.5 |
 | web | 1 | board-open | new-current | 246.5 | 316.6 | 28.4% | 268.6 | 350.5 | 268.6 | 350.5 | 60.2 | 64.0 |
@@ -371,6 +399,17 @@ Profiling sensitivity: the source estimates above use **profiled** thread CPU. T
 | new | web | 4 | sidebar-group-expand | 16/4 | 542.1 | 497.1 | 0.92x |
 | new | web | 4 | sidebar-select | 16/4 | 396.1 | 443.1 | 1.12x |
 | new | web | 4 | superagent-composer-typing | 16/4 | 28.8 | 31.5 | 1.09x |
+| new-current | phone | 1 | app-cold-start | 4/1 | 2,889.1 | 3,145.4 | 1.09x |
+| new-current | phone | 1 | app-warm-start | 4/1 | 1,839.2 | 2,179.5 | 1.19x |
+| new-current | phone | 1 | phone-composer-typing | 8/2 | 12.7 | 13.2 | 1.03x |
+| new-current | phone | 1 | phone-issue-open | 8/2 | 54.3 | 47.1 | 0.87x |
+| new-current | phone | 1 | phone-issue-picker-search | 8/2 | 16.7 | 16.9 | 1.02x |
+| new-current | phone | 1 | phone-issue-rename | 8/2 | 19.1 | 18.1 | 0.95x |
+| new-current | phone | 1 | phone-issue-screen | 8/2 | 368.1 | 371.6 | 1.01x |
+| new-current | phone | 1 | phone-long-press | 8/2 | 172.6 | 205.0 | 1.19x |
+| new-current | phone | 1 | phone-mission-details | 8/2 | 95.5 | 102.0 | 1.07x |
+| new-current | phone | 1 | phone-mission-open | 8/2 | 88.0 | 89.6 | 1.02x |
+| new-current | phone | 1 | phone-work-search | 8/2 | 12.6 | 11.9 | 0.94x |
 | new-current | web | 1 | app-cold-start | 8/2 | 2,780.7 | 3,105.4 | 1.12x |
 | new-current | web | 1 | app-warm-start | 8/2 | 1,720.6 | 1,919.5 | 1.12x |
 | new-current | web | 1 | board-open | 16/4 | 316.6 | 352.4 | 1.11x |
@@ -540,6 +579,10 @@ Update CPU is the CDP main-thread TaskDuration delta with Performance.enable(tim
 | new | web | 4 | issue-change | 10 | 276.2 | 296.0 |
 | new | web | 4 | quiet | 8 | 29.4 | 97.7 |
 | new | web | 4 | session-output | 10 | 59.5 | 104.2 |
+| new-current | phone | 1 | heartbeat | 10 | 45.7 | 61.9 |
+| new-current | phone | 1 | issue-change | 10 | 37.2 | 43.4 |
+| new-current | phone | 1 | quiet | 8 | 2.9 | 5.7 |
+| new-current | phone | 1 | session-output | 10 | 11.0 | 12.8 |
 | new-current | web | 1 | heartbeat | 20 | 50.0 | 69.8 |
 | new-current | web | 1 | issue-change | 20 | 27.9 | 49.6 |
 | new-current | web | 1 | quiet | 16 | 16.9 | 30.5 |
@@ -565,6 +608,10 @@ Matched update-window comparisons, without subtracting quiet-window CPU:
 
 | Surface | Scale | NEW arm | Update | n OLD/NEW | OLD CPU median ms | NEW CPU median ms | Change | OLD p95 | NEW p95 | OLD window ms | NEW window ms |
 |---|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| phone | 1 | new-current | quiet | 0/8 | — | 2.9 | — | — | 5.7 | — | 224.0 |
+| phone | 1 | new-current | heartbeat | 0/10 | — | 45.7 | — | — | 61.9 | — | 229.2 |
+| phone | 1 | new-current | session-output | 0/10 | — | 11.0 | — | — | 12.8 | — | 221.1 |
+| phone | 1 | new-current | issue-change | 0/10 | — | 37.2 | — | — | 43.4 | — | 220.1 |
 | web | 1 | new-current | quiet | 16/16 | 7.3 | 16.9 | 132.2% | 288.6 | 30.5 | 229.6 | 223.9 |
 | web | 1 | new-current | heartbeat | 20/20 | 188.4 | 50.0 | -73.4% | 209.3 | 69.8 | 253.7 | 227.1 |
 | web | 1 | new-current | session-output | 20/20 | 21.5 | 24.0 | 11.8% | 34.7 | 36.8 | 232.1 | 224.8 |
@@ -590,6 +637,8 @@ The **observed** profile approximates the [September 18 operator publication cen
 
 | Arm | Surface | Scale | Profile | Seconds | Updates delivered | Main-thread task ms | One-core CPU % |
 |---|---|---:|---|---:|---|---:|---:|
+| new-current | phone | 1 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 1,615.8 | 2.7 |
+| new-current | phone | 1 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 3,460.9 | 5.8 |
 | new-current | web | 1 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 4,409.3 | 7.3 |
 | new-current | web | 1 | busy | 60.0 | {"heartbeat": 30, "issueChange": 10, "sessionOutput": 120} | 5,248.3 | 8.7 |
 | new-current | web | 1 | observed | 60.0 | {"heartbeat": 12, "issueChange": 6, "machine": 16, "conversation": 28, "hostMetrics": 36, "draft": 2, "sessionOutput": 0} | 4,270.3 | 7.1 |
@@ -621,6 +670,8 @@ Median of the separate 60-second windows:
 
 | Surface | Scale | NEW arm | Profile | n OLD/NEW | OLD one-core CPU % | NEW one-core CPU % | Change |
 |---|---:|---|---|---|---:|---:|---:|
+| phone | 1 | new-current | observed | 0/1 | — | 2.7 | — |
+| phone | 1 | new-current | busy | 0/1 | — | 5.8 | — |
 | web | 1 | new-current | observed | 2/2 | 8.7 | 7.2 | -17.1% |
 | web | 1 | new-current | busy | 2/2 | 17.8 | 8.6 | -51.5% |
 | web | 4 | new-current | observed | 2/2 | 43.5 | 17.9 | -58.9% |
@@ -659,6 +710,7 @@ Performance regressions are recorded separately from this measurement work: POD-
 - NEW web 1x: **large-mission-switch** — TimeoutError: waitForFunction: Timeout 20000ms exceeded.
 - NEW web 1x: **session-composer-typing** — TimeoutError: click: Timeout 10000ms exceeded.
 - NEW web 4x: **session-composer-typing** — TimeoutError: click: Timeout 10000ms exceeded.
+- NEW-CURRENT phone 1x: **phone-inbox** — Error: No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement
 - NEW-CURRENT web 1x: **session-composer-typing** — TimeoutError: click: Timeout 10000ms exceeded.
 - NEW-CURRENT web 4x: **session-composer-typing** — TimeoutError: click: Timeout 10000ms exceeded.
 - OLD web 1x: **large-mission-switch** — TimeoutError: waitForFunction: Timeout 20000ms exceeded.
@@ -783,11 +835,14 @@ Runs execute sequentially on flatblock, one implementation per process. Leases a
 | 2026-10-04T20:02:34.638Z | timing | new-current | web | 4 | 30 | complete | measurement | 2.2, 2.9, 5.2 | 8.5, 6.8, 6.4 | 153.0.8010.12 |
 | 2026-10-04T20:30:40.529Z | timing | old | web | 4 | 31 | complete | measurement | 8.2, 8.5, 7.6 | 7.1, 10.5, 9.9 | 153.0.8010.12 |
 | 2026-10-04T21:10:22.041Z | timing | new-current | web | 4 | 31 | complete | measurement | 15.4, 12.7, 10.6 | 8.7, 9.2, 9.6 | 153.0.8010.12 |
+| 2026-10-04T21:47:17.342Z | timing | old | phone | 1 | 30 | failed | measurement | 5.1, 6.0, 6.8 | 5.1, 6.0, 6.8 | 153.0.8010.12 |
+| 2026-10-04T22:20:52.121Z | timing | new-current | phone | 1 | 30 | complete | measurement | 5.9, 5.2, 4.8 | 5.4, 6.5, 5.6 | 153.0.8010.12 |
 
 Host CPU utilization below is the /proc/stat delta across capture, all logical cores; it includes other processes. It is separate from measured renderer CPU.
 
 | Arm | Surface | Scale | Round | CPU model | Logical cores | Host CPU busy % | Harness digest |
 |---|---|---:|---:|---|---:|---:|---|
+| new-current | phone | 1 | 30 | AMD EPYC Processor (with IBPB) | 8 | 46.9 | 9e4b4b25a464122d |
 | new-current | web | 1 | 30 | AMD EPYC Processor (with IBPB) | 8 | 54.5 | ae1b27a87439e436 |
 | new-current | web | 1 | 31 | AMD EPYC Processor (with IBPB) | 8 | 66.9 | ae1b27a87439e436 |
 | new-current | web | 4 | 30 | AMD EPYC Processor (with IBPB) | 8 | 48.4 | ae1b27a87439e436 |
@@ -801,6 +856,7 @@ Host CPU utilization below is the /proc/stat delta across capture, all logical c
 | new | web | 4 | 11 | AMD EPYC Processor (with IBPB) | 8 | 67.5 | 2220f5ddbd4f6b5b |
 | old | phone | 1 | 14 | AMD EPYC Processor (with IBPB) | 8 | 52.4 | eab4434cbf3b465d |
 | old | phone | 1 | 15 | AMD EPYC Processor (with IBPB) | 8 | 68.1 | eab4434cbf3b465d |
+| old | phone | 1 | 30 | AMD EPYC Processor (with IBPB) | 8 | 50.6 | 9e4b4b25a464122d |
 | old | phone | 4 | 14 | AMD EPYC Processor (with IBPB) | 8 | 93.4 | eab4434cbf3b465d |
 | old | web | 1 | 10 | AMD EPYC Processor (with IBPB) | 8 | 49.9 | 4b4ad7b2ad639fd5 |
 | old | web | 1 | 11 | AMD EPYC Processor (with IBPB) | 8 | 49.0 | 5a00f752eca2f258 |
@@ -817,7 +873,7 @@ Run and per-sample timestamps, SHAs, semantic/product digests, exact bootstrap c
 
 Preparation uses each arm’s own .toolchain/bun and checkout-local dependencies: bun run setup:worktree, then the revision’s supported production build. Earlier web arms use bun scripts/browser-lane.ts --build-only; CURRENT uses bun run build, whose configuration also builds the mobile web assets. old-vs-new-corpus.mjs serializes the OLD seed once and adapts that same JSON to NEW’s schema; old-vs-new.mjs validates the augmented stream through the production decoder before capture. Run old-vs-new-remote.py from ludovico with --arm, --surface, --scale, --mode and --round; it runs one foreground SSH process, acquires bench:flatblock for timing or meter:flatblock for heap/diagnostic captures, delivers the lease grant to the arm, and releases at CAPTURE_FINISHED. Timing rounds alternate OLD/NEW. All browser contexts and the recorded server PID are torn down before the next arm. Four cold/warm pairs per round are unprofiled; one additional pair and the last two repetitions of each action are profiled separately. Cold means fresh app storage against an already-running isolated server; warm means reload with retained durable rows and preferences. HTTP cache is disabled by the bootstrap route in both arms, so these are warm-data reloads, not measurements of production HTTP-cache savings. [Playwright routing documentation](https://playwright.dev/docs/api/class-browsercontext#browser-context-route). Neither measures desktop sidecar spawn, a physical phone, network conditions or real agent startup. No test suite or product-code edits are part of these captures.
 
-Startup ends at the first qualifying Paint after an unobscured task row appears inside the viewport and the boot splash is absent. It measures first task content, not completion of every asynchronous child or agent startup. The final action context additionally proves the complete requested corpus reached durable client storage. Warm reload retains storage and preferences, with HTTP cache disabled by routing. The fixture augments snapshot-mode bootstrap responses and passes delta/cursor-resume responses through unchanged. Saved bootstrap timestamps show one augmented snapshot for each cold sample and zero during all 40 CURRENT-comparison warm samples across both arms (including separate profiled samples). An earlier method description and the warmStartup label in older raw ledgers incorrectly called this a full augmented replay; that label is corrected here, while original ledgers and timing values remain preserved. Future captures also record every bootstrap response mode. The baseline NEW 4x phone round 15 lost the early navigation trace mark during its separately profiled fifth cold start. That run and its matched OLD attempt are excluded. The round-17 replacement hit shared-host ENOSPC and is also excluded; the coordinator then prioritized CURRENT web before further baseline phone repeats; eight completed unprofiled startup values remain raw. A failed neutral health-response preparation in round 16 never navigated to the app. Later collectors prime the renderer with routed blank HTML at the same origin before tracing; no app assets or data are loaded by that step. The qualifying paint definition stays unchanged. Preparation waits may be longer than measured paint times: ordinary actionability permits 60 seconds after the first 4x OLD preparation exceeded the initial 10-second allowance, while semantic capture waits are 20 seconds after dispatch returns. Every failed attempt is retained.
+Startup ends at the first qualifying Paint after an unobscured task row appears inside the viewport and the boot splash is absent. It measures first task content, not completion of every asynchronous child or agent startup. The final action context additionally proves the complete requested corpus reached durable client storage. Warm reload retains storage and preferences, with HTTP cache disabled by routing. The fixture augments snapshot-mode bootstrap responses and passes delta/cursor-resume responses through unchanged. Saved bootstrap timestamps show one augmented snapshot for each cold sample and zero during all 40 CURRENT web-comparison warm samples across both arms (including separate profiled samples). An earlier method description and the warmStartup label in older raw ledgers incorrectly called this a full augmented replay; that label is corrected here, while original ledgers and timing values remain preserved. Future captures also record every bootstrap response mode. The baseline NEW 4x phone round 15 lost the early navigation trace mark during its separately profiled fifth cold start. That run and its matched OLD attempt are excluded. The round-17 replacement hit shared-host ENOSPC and is also excluded; the coordinator then prioritized CURRENT web before further baseline phone repeats; eight completed unprofiled startup values remain raw. A failed neutral health-response preparation in round 16 never navigated to the app. Later collectors prime the renderer with routed blank HTML at the same origin before tracing; no app assets or data are loaded by that step. The qualifying paint definition stays unchanged. Preparation waits may be longer than measured paint times: ordinary actionability permits 60 seconds after the first 4x OLD preparation exceeded the initial 10-second allowance, while semantic capture waits are 20 seconds after dispatch returns. Every failed attempt is retained.
 
 
 ### Attached raw archives

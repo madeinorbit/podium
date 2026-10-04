@@ -1,10 +1,322 @@
 {
-  "runs": 65,
-  "completeRuns": 18,
+  "runs": 67,
+  "completeRuns": 19,
   "partialActionRuns": 1,
-  "failedRuns": 4,
+  "failedRuns": 5,
   "calibrationOrDiagnosticRuns": 43,
   "comparisons": [
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "app-cold-start",
+      "old": null,
+      "new": {
+        "n": 4,
+        "median": 3675.759,
+        "p95": 4840.178,
+        "max": 4840.178,
+        "cpuN": 4,
+        "cpuMedian": 2889.0964999999997,
+        "cpuP95": 3092.588,
+        "cpuMax": 3092.588,
+        "layoutCpuMedian": 36.0515,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 3763.1795
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "app-warm-start",
+      "old": null,
+      "new": {
+        "n": 4,
+        "median": 2485.011,
+        "p95": 3477.09,
+        "max": 3477.09,
+        "cpuN": 4,
+        "cpuMedian": 1839.2185,
+        "cpuP95": 2260.073,
+        "cpuMax": 2260.073,
+        "layoutCpuMedian": 36.049,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 2672.147
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-composer-typing",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 14.021,
+        "p95": 22.187,
+        "max": 22.187,
+        "cpuN": 8,
+        "cpuMedian": 12.744,
+        "cpuP95": 17.909,
+        "cpuMax": 17.909,
+        "layoutCpuMedian": 1.3065,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 24.90799999999993
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-inbox",
+      "old": null,
+      "new": null,
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not measured"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-issue-open",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 59.4345,
+        "p95": 92.461,
+        "max": 92.461,
+        "cpuN": 8,
+        "cpuMedian": 54.289500000000004,
+        "cpuP95": 85.883,
+        "cpuMax": 85.883,
+        "layoutCpuMedian": 6.742,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 143.14899999999753
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-issue-picker-search",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 17.5255,
+        "p95": 19.709,
+        "max": 19.709,
+        "cpuN": 8,
+        "cpuMedian": 16.663,
+        "cpuP95": 19.35,
+        "cpuMax": 19.35,
+        "layoutCpuMedian": 1.0465,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 31.769999999998078
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-issue-rename",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 21.7965,
+        "p95": 29.384,
+        "max": 29.384,
+        "cpuN": 8,
+        "cpuMedian": 19.09,
+        "cpuP95": 21.507,
+        "cpuMax": 21.507,
+        "layoutCpuMedian": 1.3445,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 88.94249999999815
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-issue-screen",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 394.981,
+        "p95": 725.879,
+        "max": 725.879,
+        "cpuN": 8,
+        "cpuMedian": 368.096,
+        "cpuP95": 417.326,
+        "cpuMax": 417.326,
+        "layoutCpuMedian": 0.33699999999999997,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 412.08299999999997
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-long-press",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 434.045,
+        "p95": 442.328,
+        "max": 442.328,
+        "cpuN": 8,
+        "cpuMedian": 172.62849999999997,
+        "cpuP95": 195.841,
+        "cpuMax": 195.841,
+        "layoutCpuMedian": 5.8095,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 235.24849999999907
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-mission-details",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 97.8695,
+        "p95": 203.53,
+        "max": 203.53,
+        "cpuN": 8,
+        "cpuMedian": 95.5215,
+        "cpuP95": 166.248,
+        "cpuMax": 166.248,
+        "layoutCpuMedian": 43.182,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 356.978999999999
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-mission-open",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 97.239,
+        "p95": 131.614,
+        "max": 131.614,
+        "cpuN": 8,
+        "cpuMedian": 88.0195,
+        "cpuP95": 125.798,
+        "cpuMax": 125.798,
+        "layoutCpuMedian": 7.5495,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 191.91350000000006
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-work-screen",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 330.94050000000004,
+        "p95": 464.752,
+        "max": 464.752,
+        "cpuN": 1,
+        "cpuMedian": 374.895,
+        "cpuP95": 374.895,
+        "cpuMax": 374.895,
+        "layoutCpuMedian": 4.255,
+        "boundary": [
+          "DrawFrame (compositor, no new raster Paint)",
+          "Paint"
+        ],
+        "taskWindowMedian": 341.58299999999997
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "action": "phone-work-search",
+      "old": null,
+      "new": {
+        "n": 8,
+        "median": 14.661999999999999,
+        "p95": 17.94,
+        "max": 17.94,
+        "cpuN": 8,
+        "cpuMedian": 12.5855,
+        "cpuP95": 14.076,
+        "cpuMax": 14.076,
+        "layoutCpuMedian": 1.587,
+        "boundary": [
+          "Paint"
+        ],
+        "taskWindowMedian": 21.582499999997395
+      },
+      "changePercent": null,
+      "p95ChangePercent": null,
+      "verdict": "not comparable"
+    },
     {
       "newArm": "new-current",
       "surface": "web",
@@ -4577,6 +4889,28 @@
   "idleComparisons": [
     {
       "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "profile": "observed",
+      "oldN": 0,
+      "newN": 1,
+      "oldPercentOneCore": null,
+      "newPercentOneCore": 2.6927139405049583,
+      "changePercent": null
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "profile": "busy",
+      "oldN": 0,
+      "newN": 1,
+      "oldPercentOneCore": null,
+      "newPercentOneCore": 5.767633236676334,
+      "changePercent": null
+    },
+    {
+      "newArm": "new-current",
       "surface": "web",
       "scale": 1,
       "profile": "observed",
@@ -4688,6 +5022,66 @@
   ],
   "heapComparisons": [],
   "backgroundComparisons": [
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "kind": "quiet",
+      "oldN": 0,
+      "newN": 8,
+      "oldMedianMs": null,
+      "newMedianMs": 2.9494999999997162,
+      "changePercent": null,
+      "oldP95Ms": null,
+      "newP95Ms": 5.7349999999996015,
+      "oldWindowMedianMs": null,
+      "newWindowMedianMs": 224.0335000678897
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "kind": "heartbeat",
+      "oldN": 0,
+      "newN": 10,
+      "oldMedianMs": null,
+      "newMedianMs": 45.68900000000031,
+      "changePercent": null,
+      "oldP95Ms": null,
+      "newP95Ms": 61.89,
+      "oldWindowMedianMs": null,
+      "newWindowMedianMs": 229.23100017942488
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "kind": "session-output",
+      "oldN": 0,
+      "newN": 10,
+      "oldMedianMs": null,
+      "newMedianMs": 10.98800000000022,
+      "changePercent": null,
+      "oldP95Ms": null,
+      "newP95Ms": 12.800000000000367,
+      "oldWindowMedianMs": null,
+      "newWindowMedianMs": 221.0815001744777
+    },
+    {
+      "newArm": "new-current",
+      "surface": "phone",
+      "scale": 1,
+      "kind": "issue-change",
+      "oldN": 0,
+      "newN": 10,
+      "oldMedianMs": null,
+      "newMedianMs": 37.24799999999995,
+      "changePercent": null,
+      "oldP95Ms": null,
+      "newP95Ms": 43.4480000000006,
+      "oldWindowMedianMs": null,
+      "newWindowMedianMs": 220.0835000257939
+    },
     {
       "newArm": "new-current",
       "surface": "web",

@@ -1,8 +1,8 @@
 {
-  "summary": "CURRENT at 96f705cd4e makes frequent session work far cheaper. At 4x, session switching drops 6.08\u21920.63 s, mark-read 9.77\u21920.24 s, and busy live-update CPU 92%\u219223% of one renderer core. Startup costs more: cold 7.65\u219211.88 s and retained-data reload 4.43\u21928.44 s. Project expansion, palette opening and Tasks board/search are slower at both scales. Header opening shows no clear median gain; 4x sidebar expansion has a similar median and a worse tail. This is a mixed web result with two matched pairs per scale. The whole-app verdict awaits CURRENT phone, heaps and sampled CPU attribution. OLD phone cannot start through Work with the shared corpus.",
+  "summary": "CURRENT at 96f705cd4e makes frequent session work far cheaper. At 4x, session switching drops 6.08\u21920.63 s, mark-read 9.77\u21920.24 s, and busy live-update CPU 92%\u219223% of one renderer core. Startup costs more: cold 7.65\u219211.88 s and retained-data reload 4.43\u21928.44 s. Project expansion, palette opening and Tasks board/search are slower at both scales. Header opening shows no clear median gain; 4x sidebar expansion has a similar median and a worse tail. This is a mixed web result with two matched pairs per scale. The first CURRENT phone 1x capture is complete; OLD has no matched phone result. The whole-app verdict still awaits the remaining phone captures, heaps and sampled CPU attribution. OLD phone cannot start through Work with the shared corpus.",
   "currentArm": {
     "sha": "96f705cd4ee836646d1d4539f411c307b5d6eab5",
-    "status": "Two matched web pairs at both scales complete; CURRENT phone, heap and sampled CPU attribution next",
+    "status": "Two matched web pairs at both scales complete; first CURRENT phone 1x complete; remaining phone matrix, heap and sampled CPU attribution pending",
     "priority": "Fresh OLD/CURRENT 1x pair and immediate table, then 4x; morning follow-up deferred.",
     "workspaceBuildSeconds": 181.073
   },

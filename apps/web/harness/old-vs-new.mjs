@@ -17,9 +17,11 @@ const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(
 const controlOnly=process.argv.includes('--control-only')
 const backgroundOnly=process.argv.includes('--background-only')
 const terminalProbe=process.argv.includes('--terminal-probe')
+const tasksProbe=process.argv.includes('--tasks-probe')
 if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
 if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || !arm) throw Error('Invalid capture arguments')
 if(terminalProbe && (surface!=='phone' || mode!=='probe'))throw Error('Direct phone terminal is a structural probe, never a Work-screen timing capture')
+if(tasksProbe && (surface!=='phone' || mode!=='probe' || terminalProbe))throw Error('Direct Tasks entry is a separate phone structural probe')
 const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${scale}x-r${round}`))
 mkdirSync(out, { recursive: true })
 const corpusBytes = readFileSync(`.artifacts/old-vs-new/corpus-${scale}x.json`)
@@ -54,7 +56,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   httpCache:'disabled by bootstrap request routing',
   warmStartup:'Reload with retained durable data and preferences; snapshot responses augmented, delta/cursor-resume responses passed through',
   sameOriginTracePriming:true,
-  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,terminalProbe,
+  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,terminalProbe,tasksProbe,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
@@ -280,15 +282,21 @@ async function makePage() {
   const cdp=await context.newCDPSession(page); await cdp.send('Performance.enable',{timeDomain:'threadTicks'})
   return {page,context,cdp}
 }
-const url=()=>surface==='phone'?`${base}/mobile/${terminalProbe?`session/${controls[0].secondSession.sessionId}/terminal`:'work'}?server=${encodeURIComponent(relay)}&e2e=1`:`${base}/?server=${encodeURIComponent(relay)}&e2e=1`
+const url=()=>surface==='phone'?`${base}/mobile/${terminalProbe?`session/${controls[0].secondSession.sessionId}/terminal`:tasksProbe?'issues':'work'}?server=${encodeURIComponent(relay)}&e2e=1`:`${base}/?server=${encodeURIComponent(relay)}&e2e=1`
 async function ready(page,{controlById=false}={}) {
   if(surface==='phone') {
-    await page.waitForFunction(selector=>!!document.querySelector(selector) || document.body.innerText.includes('CANNOT START'),terminalProbe?'.xterm':'[aria-label="Search work"]',{timeout:120000})
+    await page.waitForFunction(selector=>!!document.querySelector(selector) || document.body.innerText.includes('CANNOT START'),terminalProbe?'.xterm':tasksProbe?'[aria-label="Search tasks"]':'[aria-label="Search work"]',{timeout:120000})
     const failure=await page.evaluate(()=>document.body.innerText.includes('CANNOT START')?document.body.innerText.slice(0,700):null)
     if(failure)throw Error('Phone startup refused: '+failure)
   }
   else await page.locator('aside').first().waitFor({timeout:120000})
   if(terminalProbe)await page.locator('.xterm').waitFor({timeout:120000})
+  else if(tasksProbe) {
+    const toggle=page.getByRole('button',{name:'Search tasks',exact:true})
+    if(await toggle.isVisible().catch(()=>false))await toggle.click()
+    await page.getByRole('textbox',{name:'Search tasks',exact:true}).fill('Comparison target A')
+    await page.getByRole('button',{name:/^Task .*Comparison target A/}).first().waitFor({timeout:120000})
+  }
   else if(controlById && surface==='web')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
   else if(controlById)await page.getByText(/Comparison target A/).first().waitFor({timeout:120000})
   else await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
@@ -901,6 +909,12 @@ try {
       await f.page.waitForFunction(()=>window.__podium?.screenText?.().includes('comparison direct-terminal witness'),undefined,{timeout:15000})
       result.directTerminalWitness={sessionId:targetSession,subscription:true,renderedOutput:true};save()
       await inspect(f.page,'phone-terminal')
+    }
+    else if(tasksProbe) {
+      await f.page.getByRole('button',{name:/^Task .*Comparison target A/}).first().click()
+      await f.page.getByTestId('issue-keyboard-avoider').waitFor({timeout:60000})
+      result.directTasksWitness={taskRow:true,issueScreen:true};save()
+      await inspect(f.page,'phone-direct-issue')
     }
     else {await f.page.getByRole('button',{name:'Search work',exact:true}).click();await inspect(f.page,'phone-search')}
   }
