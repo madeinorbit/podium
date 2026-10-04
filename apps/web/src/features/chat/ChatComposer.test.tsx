@@ -203,6 +203,18 @@ describe.each([false, true])('draft selection, compact=%s', (compact) => {
   })
 })
 
+it('sizes the compact field after adopting an external draft and after clearing', async () => {
+  const { ta } = await mount({ compact: true, draft: '' })
+  Object.defineProperty(ta, 'scrollHeight', {
+    configurable: true,
+    get: () => (ta.value ? 96 : 24),
+  })
+  await mount({ compact: true, draft: 'external draft' })
+  expect(ta.style.height).toBe('96px')
+  await mount({ compact: true, draft: '' })
+  expect(ta.style.height).toBe('24px')
+})
+
 describe('ChatComposer, compact (the Superagent box)', () => {
   it('renders no meta strip under the box', async () => {
     await mount({ compact: true })

@@ -41,6 +41,42 @@ function PromptAutoGrow({
   return null
 }
 
+/** Run before the compact sizing child's layout effect and the mention caret. */
+function SyncComposerDraft({
+  taRef,
+  draft,
+  owner,
+}: {
+  taRef: RefObject<HTMLTextAreaElement | null>
+  draft: string
+  owner: string
+}): null {
+  const draftOwner = useRef(owner)
+  // Native input already contains the synchronous draft. A controlled textarea
+  // also mirrors every edit into defaultValue (its child text), which can move
+  // the caret. Adopt only actual external changes, preserving a focused
+  // selection within the same session. The action remains the text's sole owner.
+  useLayoutEffect(() => {
+    const ownerChanged = draftOwner.current !== owner
+    draftOwner.current = owner
+    const ta = taRef.current
+    if (!ta || ta.value === draft) return
+    const selection =
+      !ownerChanged && document.activeElement === ta
+        ? { start: ta.selectionStart, end: ta.selectionEnd, direction: ta.selectionDirection }
+        : null
+    ta.value = draft
+    if (selection) {
+      ta.setSelectionRange(
+        Math.min(selection.start, draft.length),
+        Math.min(selection.end, draft.length),
+        selection.direction,
+      )
+    }
+  }, [draft, owner, taRef])
+  return null
+}
+
 /**
  * THE COMPOSER (POD-405) — one auto-growing box with the attach / voice / send
  * actions inside it, Claude-iOS style, plus the four notice lines that belong to
@@ -186,32 +222,8 @@ export function ChatComposer({
   onBackendEffortChange?: (effort: string) => void
 }): JSX.Element {
   const lastInterruptEscapeAt = useRef<number | null>(null)
+  // The reset default is a mount seed, never a mirror of the live draft.
   const initialDraft = useRef(draft)
-  const draftOwner = useRef(autoFocusKey)
-
-  // Native input already contains the synchronous draft. A controlled textarea
-  // also mirrors every edit into defaultValue (its child text), which can move
-  // the caret. Seed it once; adopt only actual external changes, preserving a
-  // focused selection within the same session. The draft action remains the
-  // sole owner of the text; this is a DOM bridge, not another draft store.
-  useLayoutEffect(() => {
-    const ownerChanged = draftOwner.current !== autoFocusKey
-    draftOwner.current = autoFocusKey
-    const ta = taRef.current
-    if (!ta || ta.value === draft) return
-    const selection =
-      !ownerChanged && document.activeElement === ta
-        ? { start: ta.selectionStart, end: ta.selectionEnd, direction: ta.selectionDirection }
-        : null
-    ta.value = draft
-    if (selection) {
-      ta.setSelectionRange(
-        Math.min(selection.start, draft.length),
-        Math.min(selection.end, draft.length),
-        selection.direction,
-      )
-    }
-  }, [draft, autoFocusKey, taRef])
   // THE FOCUS CHORD (POD-993). ⌘/ puts the caret here from anywhere in the pane,
   // and the box says so in its corner while it is unfocused and empty — the one
   // thing about a prompt box a reader cannot discover by looking at it. What the
@@ -510,7 +522,6 @@ export function ChatComposer({
       // and where the file ends up are different questions, and this is the
       // answer to the second one.
     >
-      {compact && <PromptAutoGrow taRef={taRef} value={draft} />}
       {/* Agent action offer [spec:SP-c7f1]: the agent's suggested next
           actions, shown only while an offer exists for this session. The
           message sits above compact buttons; a click sends the button's
@@ -769,6 +780,11 @@ export function ChatComposer({
           {!compact && <div className="composer-row">{actionCluster}</div>}
         </div>
       </div>
+      {/* The field's ref must attach before sync, then sizing reads the adopted
+          value. These children render no DOM. The mention caret runs last in
+          this component's layout effect. */}
+      <SyncComposerDraft taRef={taRef} draft={draft} owner={autoFocusKey} />
+      {compact && <PromptAutoGrow taRef={taRef} value={draft} />}
       {backend && onBackendModelChange && onBackendEffortChange && (
         <BackendRail
           backend={backend}
