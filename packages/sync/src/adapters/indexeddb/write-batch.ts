@@ -11,6 +11,12 @@ export function enqueueWrites(tx: IdbTransactionLike, ops: readonly Write[]): Pr
   const stores = new Map<string, IdbObjectStoreLike>()
   let at = 0
   return new Promise<void>((resolve, reject) => {
+    const failed = (error: unknown): void => {
+      const cause = tx.error
+      // Keep the initiating exception when available. Later requests can carry
+      // AbortError after an earlier quota request aborted the transaction.
+      reject(cause && (error as { name?: unknown } | null)?.name !== cause.name ? cause : error)
+    }
     const next = (): void => {
       try {
         const end = Math.min(at + 256, ops.length)
@@ -32,9 +38,9 @@ export function enqueueWrites(tx: IdbTransactionLike, ops: readonly Write[]): Pr
         // a large eager cache write continues. Completion still belongs to tx.
         const request = last!
         request.onsuccess = next
-        request.onerror = () => reject(tx.error ?? request.error ?? new Error('IndexedDB write failed'))
+        request.onerror = () => failed(request.error ?? new Error('IndexedDB write failed'))
       } catch (error) {
-        reject(tx.error ?? error)
+        failed(error)
       }
     }
     next()
