@@ -264,13 +264,15 @@ describe('MissionDeck session homes', () => {
     expect(replica.rows('sessions')[0]).toBe(stored)
   })
 
-  it('keeps the legacy ref before the repo arrives, then respects a cleared prefix', async () => {
+  it('uses the title before the birth repo arrives, then respects a cleared prefix', async () => {
+    // The old STALE-42-B assertion was already red on b4d0134f17. The accepted
+    // pool uses joined birth facts and does not read the retired raw ref cell.
     const { replica } = await renderWithMobileStore(<LiveDeck />, {
       sessions: [raw],
       issues: [root, proposal],
     })
-    expect(screen.getByText('STALE-42-B')).toBeTruthy()
-    expect(screen.getByText('by STALE-42-B')).toBeTruthy()
+    expect(screen.getByText('Author agent')).toBeTruthy()
+    expect(screen.queryByText(/STALE-42-B/)).toBeNull()
     await act(async () => {
       replica.applyChanges('repos', [{ id: asRepoId('repo-birth'), prefix: '' }], [])
     })
