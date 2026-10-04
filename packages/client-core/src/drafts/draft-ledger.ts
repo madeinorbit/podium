@@ -68,7 +68,7 @@ import type { SessionId } from '@podium/model/browser'
 export interface LocalDraft {
   /** The composer text this device believes in. */
   text: string
-  /** Highest server rev seen for this session (0 = the server never spoke).
+  /** Current server rev for this session (0 = the server never spoke).
    *  Sent as `baseRev` on the next edit. */
   serverRev: number
   /** True while a local edit has not been confirmed echoed by the server. */
@@ -85,7 +85,7 @@ export interface AdoptOutcome {
   resend: boolean
 }
 
-/** The persisted form: a plain JSON object, one entry per session with text. */
+/** The persisted form includes empty drafts: a deletion is a local edit too. */
 export type DraftLedgerSnapshot = Record<
   string,
   { text: string; serverRev: number; editedAt: number }
@@ -106,7 +106,7 @@ export interface DraftLedger {
   get(sessionId: SessionId): LocalDraft | undefined
   /** Sessions holding unsent text — the reconnect flush set. */
   dirtySessions(): SessionId[]
-  /** Persistable snapshot. Empty drafts are omitted: there is nothing to lose. */
+  /** Persistable snapshot, including clears so an offline reload cannot undo them. */
   snapshot(): DraftLedgerSnapshot
   /**
    * Rehydrate from {@link snapshot}. Restored text is marked DIRTY: a draft
@@ -164,8 +164,21 @@ export function createDraftLedger(): DraftLedger {
       // costs the session.
       const nextRev = incoming.rev ?? local?.serverRev ?? 0
 
-      // Nothing local, or nothing unsent: the server is simply the better
-      // informed party and we take what it says.
+      // A replay can follow the acknowledgement of a clear. Taking its base
+      // revision is necessary for recovery (POD-1204); taking its old text would
+      // resurrect the deleted message. Re-offer our text on that base instead.
+      // Once a versioned document has arrived, an unversioned replay likewise
+      // cannot establish that its different text is newer.
+      const stale = local && (incoming.rev === undefined
+        ? local.serverRev > 0
+        : incoming.rev <= local.serverRev)
+      if (local && stale && local.text !== incoming.text) {
+        entries.set(sessionId, { ...local, serverRev: nextRev, dirty: true })
+        return { acceptText: false, resend: true }
+      }
+
+      // Nothing local, or a newer document while nothing is unsent: accept an
+      // edit from another surface. Focus and session adoption never re-offer it.
       if (!local || !local.dirty) {
         const acceptText = local?.text !== incoming.text
         entries.set(sessionId, {
@@ -180,6 +193,13 @@ export function createDraftLedger(): DraftLedger {
       // Our own edit came back. The document now says what we say, so the entry
       // is settled — nothing to repaint, nothing left to send.
       if (local.text === incoming.text) {
+        // An older matching document is not an acknowledgement of this edit
+        // (for example: clear, type, clear). Keep the local edit pending while
+        // rebasing; the current server's answer can then settle it.
+        if (incoming.rev !== undefined && incoming.rev < local.serverRev) {
+          entries.set(sessionId, { ...local, serverRev: nextRev })
+          return { acceptText: false, resend: true }
+        }
         entries.set(sessionId, { ...local, serverRev: nextRev, dirty: false })
         return { acceptText: false, resend: false }
       }
@@ -198,7 +218,6 @@ export function createDraftLedger(): DraftLedger {
     snapshot() {
       const out: DraftLedgerSnapshot = {}
       for (const [sessionId, draft] of entries) {
-        if (!draft.text) continue
         out[sessionId] = {
           text: draft.text,
           serverRev: draft.serverRev,
@@ -213,7 +232,7 @@ export function createDraftLedger(): DraftLedger {
         // A persisted blob is device state that survived a reload, a version
         // change and possibly a crash mid-write. One unreadable entry must cost
         // that one draft, never the others.
-        if (!isRestorable(stored) || !stored.text) continue
+        if (!isRestorable(stored)) continue
         entries.set(sessionId as SessionId, {
           text: stored.text,
           serverRev: stored.serverRev,

@@ -589,7 +589,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const drafts = { ...this.state.drafts }
     for (const sessionId of this.draftLedger.dirtySessions()) {
       const local = this.draftLedger.get(sessionId)
-      if (local?.text) drafts[sessionId] = local.text
+      if (local) drafts[sessionId] = local.text
     }
     return drafts
   }
@@ -716,12 +716,19 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // anything the socket says (POD-2045).
     offs.push(
       this.hub.on('sessionDraft', (sessionId, text, meta) => {
+        const previous = this.draftLedger.get(sessionId)
         const outcome = this.draftLedger.adoptRemote(sessionId, {
           text,
           ...(meta?.rev !== undefined ? { rev: meta.rev } : {}),
         })
         if (outcome.acceptText) {
           this.applyDraftToStore(sessionId, text)
+        }
+        const current = this.draftLedger.get(sessionId)
+        if (outcome.acceptText || previous?.serverRev !== current?.serverRev ||
+          previous?.dirty !== current?.dirty) {
+          // Acknowledgements also move the durable revision, even though no
+          // visible text changed. Retain a cleared document across reload.
           this.scheduleDraftPersist()
         }
         if (outcome.resend) this.scheduleDraftSend(sessionId, { immediate: false })

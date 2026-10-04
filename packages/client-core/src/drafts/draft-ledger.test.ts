@@ -108,6 +108,53 @@ describe('a stale replay against local typing', () => {
 // that had just been refused — forever — and the composer's clear-on-submit was
 // one of the edits that could never land.
 describe('a server whose rev rolled back', () => {
+  it('keeps an acknowledged deletion when two older messages replay', () => {
+    const ledger = createDraftLedger()
+    ledger.adoptRemote(S, { text: 'older message', rev: 10 })
+    ledger.localEdit(S, '', T0)
+    ledger.adoptRemote(S, { text: '', rev: 12 })
+    expect(ledger.get(S)?.dirty).toBe(false)
+
+    for (const incoming of [
+      { text: 'older message', rev: 10 },
+      { text: 'another older message', rev: 11 },
+    ]) {
+      expect(ledger.adoptRemote(S, incoming)).toEqual({ acceptText: false, resend: true })
+      expect(ledger.get(S)?.text).toBe('')
+    }
+    expect(ledger.get(S)?.serverRev).toBe(11)
+    expect(ledger.get(S)?.dirty).toBe(true)
+    ledger.adoptRemote(S, { text: '', rev: 12 })
+    expect(ledger.get(S)?.dirty).toBe(false)
+    // A genuinely newer edit from another device must still arrive.
+    expect(ledger.adoptRemote(S, { text: 'new phone draft', rev: 13 }).acceptText).toBe(true)
+  })
+
+  it('keeps a confirmed draft against conflicting same-revision or unversioned replays', () => {
+    for (const incoming of [{ text: 'stale', rev: 4 }, { text: 'stale' }]) {
+      const ledger = createDraftLedger()
+      ledger.localEdit(S, 'current draft', T0)
+      ledger.adoptRemote(S, { text: 'current draft', rev: 4 })
+      expect(ledger.adoptRemote(S, incoming)).toEqual({ acceptText: false, resend: true })
+      expect(ledger.get(S)?.text).toBe('current draft')
+      expect(ledger.get(S)?.serverRev).toBe(4)
+    }
+  })
+
+  it('does not acknowledge a new deletion from an older matching empty document', () => {
+    const ledger = createDraftLedger()
+    ledger.adoptRemote(S, { text: '', rev: 2 })
+    ledger.localEdit(S, 'temporary', T0)
+    ledger.adoptRemote(S, { text: 'temporary', rev: 5 })
+    ledger.localEdit(S, '', T0 + 1)
+    expect(ledger.adoptRemote(S, { text: '', rev: 2 })).toEqual({ acceptText: false, resend: true })
+    expect(ledger.get(S)?.dirty).toBe(true)
+    expect(ledger.adoptRemote(S, { text: 'temporary', rev: 3 }).acceptText).toBe(false)
+    expect(ledger.get(S)?.text).toBe('')
+    ledger.adoptRemote(S, { text: '', rev: 4 })
+    expect(ledger.get(S)?.dirty).toBe(false)
+  })
+
   it('converges: the rejected clear is re-sent on the base the server named', () => {
     const ledger = createDraftLedger()
     // Typing, echoed and confirmed up to rev 3.
@@ -210,10 +257,18 @@ describe('persistence across a reload', () => {
     expect(restored.dirtySessions()).toEqual([S])
   })
 
-  it('does not carry empty drafts across', () => {
+  it('round-trips a deletion so a stale replay cannot resurrect it after reload', () => {
     const ledger = createDraftLedger()
+    ledger.adoptRemote(S, { text: 'deleted message', rev: 3 })
     ledger.localEdit(S, '', T0)
-    expect(ledger.snapshot()).toEqual({})
+    const restored = createDraftLedger()
+    restored.restore(ledger.snapshot())
+    expect(restored.get(S)).toEqual({ text: '', serverRev: 3, dirty: true, editedAt: T0 })
+    expect(restored.adoptRemote(S, { text: 'deleted message', rev: 3 })).toEqual({
+      acceptText: false, resend: true,
+    })
+    expect(restored.get(S)?.text).toBe('')
+    expect(restored.dirtySessions()).toEqual([S])
   })
 
   it('survives a snapshot with junk in it', () => {

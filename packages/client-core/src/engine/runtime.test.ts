@@ -1194,11 +1194,13 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
   })
 
-  it('forgets a draft that was cleared', async () => {
+  it('keeps an offline deletion through reload, stale sync and acknowledgement', async () => {
     const storage = memoryStorage()
     const first = makeEngine({ storage, draftSendDebounceMs: 5, draftPersistDebounceMs: 5 })
     first.engine.start()
     await settle()
+    first.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
+    first.hub.connected = false
     const actions = first.engine.access
     actions.setSessionDraft(SID, 'temporary')
     await settle(40)
@@ -1207,9 +1209,66 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.dispose()
     await settle()
 
-    const second = makeEngine({ storage })
-    expect(second.engine.access.drafts[SID]).toBeUndefined()
+    const second = makeEngine({ storage, draftSendDebounceMs: 5 })
+    expect(second.engine.access.drafts[SID]).toBe('')
+    second.engine.start()
+    await settle()
+    second.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
+    expect(second.engine.access.drafts[SID]).toBe('')
+    await settle()
+    expect(second.hub.draftEdits.at(-1)).toEqual({ sessionId: SID, baseRev: 7, text: '' })
+    second.hub.emit('sessionDraft', SID, '', { rev: 8 })
+    second.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
+    expect(second.engine.access.drafts[SID]).toBe('')
     second.engine.dispose()
+    await settle()
+  })
+
+  it('persists the acknowledgement revision without a text repaint, including a clear', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage, draftPersistDebounceMs: 5 })
+    first.engine.start()
+    await settle()
+    first.engine.access.setSessionDraft(SID, 'temporary')
+    await settle(30)
+    first.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
+    await settle(30)
+    first.engine.access.setSessionDraft(SID, '')
+    await settle(30)
+    first.hub.emit('sessionDraft', SID, '', { rev: 8 })
+    await settle(30)
+    first.engine.dispose()
+
+    const second = makeEngine({ storage, draftSendDebounceMs: 5 })
+    expect(second.engine.access.drafts[SID]).toBe('')
+    second.engine.start()
+    await settle()
+    second.hub.health = { status: 'ok', rttMs: 1, since: 0 }
+    second.hub.emit('connectionHealth', second.hub.health)
+    await settle()
+    expect(second.hub.draftEdits.at(-1)).toEqual({ sessionId: SID, baseRev: 8, text: '' })
+    second.engine.dispose()
+    await settle()
+  })
+
+  it('publishes a clear synchronously once, and older echoes cannot publish text again', async () => {
+    const { engine, hub } = makeEngine()
+    engine.start()
+    await settle()
+    hub.emit('sessionDraft', SID, 'old text', { rev: 5 })
+    const published: string[] = []
+    const off = engine.onDraft((id) => {
+      if (id === SID) published.push(engine.readLocal('drafts')[SID]!)
+    })
+    engine.access.setSessionDraft(SID, '')
+    expect(published).toEqual([''])
+    expect(engine.readLocal('drafts')[SID]).toBe('')
+    hub.emit('sessionDraft', SID, '', { rev: 6 })
+    hub.emit('sessionDraft', SID, 'old text', { rev: 5 })
+    hub.emit('sessionDraft', SID, 'other old text', { rev: 4 })
+    expect(published).toEqual([''])
+    off()
+    engine.dispose()
     await settle()
   })
 })
