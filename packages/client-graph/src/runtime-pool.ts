@@ -126,6 +126,25 @@ interface ProjectionState<T> {
   readonly listeners: Set<() => void>
 }
 
+/** MobX checks computed staleness before calling a Reaction's invalidator.
+ * A hidden retained fold must pause before that check, otherwise marking the
+ * snapshot dirty would already have recomputed its entire row graph. */
+class ProjectionReaction<T> extends Reaction {
+  constructor(private readonly state: ProjectionState<T>, invalidate: () => void) {
+    super(state.name, invalidate)
+  }
+
+  override runReaction_(): void {
+    if (!this.state.active && this.state.retainWhileInactive) {
+      this.isScheduled = false
+      this.state.dirty = true
+      this.state.version++
+      return
+    }
+    super.runReaction_()
+  }
+}
+
 // These helpers stay outside createPoolProjection: reaction closures must not
 // share a context with the view, or they would retain the finalization target.
 function projectionState<T>(
@@ -156,7 +175,7 @@ function projectionState<T>(
 function observeProjection<T>(state: ProjectionState<T>): boolean {
   if (state.reaction !== null) return false
   state.dirty = true
-  state.reaction = new Reaction(state.name, () => {
+  state.reaction = new ProjectionReaction(state, () => {
     state.dirty = true
     state.version++
     // Filter before notifying React or imperative consumers: equal projections
