@@ -1,10 +1,8 @@
 import {
-  canonicalIssueRef,
   type IssueReferenceSource,
   issueReferenceModel,
 } from '@podium/client-core/values'
 import { LOADING, MobxPool } from '@podium/client-graph'
-import { checkIssueChips } from '@podium/client-graph/diagnostics/chip-check'
 import { IssueReferences } from '@podium/client-graph/issue-reference'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asIssueId } from '@podium/model/browser'
@@ -181,43 +179,6 @@ describe('per-issue pool references', () => {
     stop()
     refs.dispose()
     pool.dispose()
-  })
-
-  it('checks every displayed chip value and reports only positions, fields and opaque ids', () => {
-    const f = setup(20)
-    const legacy = f.rows as IssueReferenceSource[]
-    const tokens = legacy.map((row) => canonicalIssueRef(row))
-    expect(checkIssueChips(f.refs, legacy, tokens)).toEqual({
-      chips: 20,
-      pending: 0,
-      differences: 0,
-      first: null,
-    })
-    for (const patch of [
-      { title: 'PRIVATE title' },
-      { stage: 'review' },
-      { archived: true },
-      { deletedAt: 'PRIVATE date' },
-      { displayRef: 'NEW-1', prefix: 'NEW' },
-    ]) {
-      f.pool.apply({
-        type: 'update',
-        rows: [{ kind: 'issue', id: 'iss_1', value: issue(1, patch) as never }],
-      })
-      const changed = checkIssueChips(f.refs, legacy, tokens)
-      if (patch.prefix) {
-        expect(changed.pending).toBe(1)
-        f.refs.resolved('POD-1', 'iss_1')
-        expect(f.refs.id('POD-1')).toBeNull()
-        expect(f.refs.read('POD-1')).toBeNull()
-        f.refs.resolved('POD-1', null)
-      }
-      const result = checkIssueChips(f.refs, legacy, tokens)
-      expect(result.differences).toBeGreaterThan(0)
-      expect(result.first?.chipIndex).toBe(0)
-      expect(JSON.stringify(result)).not.toContain('PRIVATE')
-    }
-    f.dispose()
   })
 
   it('resolves and loads 50 cold references in one local window, coalescing repeated chips', () => {

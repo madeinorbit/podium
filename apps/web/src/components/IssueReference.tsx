@@ -21,8 +21,7 @@ function unavailable(ref: string, loading = false): IssueReferenceView {
 
 type ChipProps = Omit<Parameters<typeof IssueReference>[0], 'model'> & { token: string }
 
-/** The same UI with a leaf subscription to its one issue. Startup dispatch
- * keeps the legacy list hook completely outside the switched render path. */
+/** Each chip subscribes only to its issue's displayed fields in the pool. */
 export const LiveIssueReference = memo(function LiveIssueReference(props: ChipProps): JSX.Element {
   return <PoolIssueReference {...props} />
 })

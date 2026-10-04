@@ -173,7 +173,6 @@ describe('pool chip DOM boundary', () => {
       )
       expect(anchors[0]!.getAttribute('aria-label')).toBe(removed)
       expect(anchors[1]!.getAttribute('aria-label')).toContain('Retargeted')
-      expect(chipPerf.read(fixture.owner).legacyScans).toBe(0)
       scans.mockRestore()
     } finally {
       act(() => react.unmount())

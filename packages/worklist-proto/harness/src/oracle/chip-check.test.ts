@@ -1,9 +1,6 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
-
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
-import { canonicalIssueRef } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import { createWorklistPool } from '@podium/client-graph/create'
+import { knownIds } from '@podium/client-graph/enumerate'
 import { describe, expect, it } from 'vitest'
 import {
   startScenarioEngine,
@@ -13,24 +10,19 @@ import {
 import { FENCE_SCENARIOS, openFenceFeeds } from '../fence-scenarios'
 import { expectPoolOutput } from './pool-output'
 
-describe('chip differential replay', () => {
+describe('pool chip replay', () => {
   for (const scale of [1, 4] as const)
     it(`all chip values across corpus and methodology changes at ${scale}x`, async () => {
       const ctx = await startScenarioEngine(scale)
       const feeds = openFenceFeeds(ctx, 'pooled')
-      const fixtureIssues = () => {
-        const state = referenceState(ctx.engine)
-        return allIssueViewModels(ctx.replica, state.issueProjections, state.issueUserStates)
-      }
       const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
       const check = async (phase: string) => {
         feeds.flush()
-        const issues = fixtureIssues()
-        const tokens = issues.map(canonicalIssueRef)
+        const ids = knownIds(handle.pool, 'issue')
         for (let round = 0; round < 128; round++) {
-          const values = tokens.map((token) => handle.pool.references.read(token))
+          const values = ids.map((id) => handle.pool.references.readById(id))
           if (!values.some((value) => value === LOADING)) {
-            expect(values.length).toBe(tokens.length)
+            expect(values.length).toBe(ids.length)
             expectPoolOutput(values, phase)
             return
           }

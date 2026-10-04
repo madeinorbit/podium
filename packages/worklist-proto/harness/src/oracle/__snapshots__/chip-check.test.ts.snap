@@ -1,265 +1,265 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > archiveIssue 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > archiveIssue 1`] = `
 {
   "bytes": 838632,
   "sha256": "c8d98d12bf23a34d424aefea927888f3263c8694a01cef60ffc1f48d09fac8e4",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > bootstrap 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > bootstrap 1`] = `
 {
   "bytes": 838445,
   "sha256": "1003ddc10d54d549bc005ab0f30e1356c6949d43ff7592f378b146529b0544e2",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > burst50 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > burst50 1`] = `
 {
   "bytes": 838307,
   "sha256": "eee5130661552ade893af16b0dd533b70b96a124430653bff54550a1416839d5",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > clockGraceCrossing 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > clockGraceCrossing 1`] = `
 {
   "bytes": 838307,
   "sha256": "eee5130661552ade893af16b0dd533b70b96a124430653bff54550a1416839d5",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > clockTick 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > clockTick 1`] = `
 {
   "bytes": 838307,
   "sha256": "eee5130661552ade893af16b0dd533b70b96a124430653bff54550a1416839d5",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > evictKeeperWithoutRevision 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > evictKeeperWithoutRevision 1`] = `
 {
   "bytes": 838307,
   "sha256": "eee5130661552ade893af16b0dd533b70b96a124430653bff54550a1416839d5",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > evictWithoutRevision 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > evictWithoutRevision 1`] = `
 {
   "bytes": 838469,
   "sha256": "21f013a219701e394762e790e17a755d447c305ea1a19c4b47fdd100ebc82b06",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > newIssue 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > newIssue 1`] = `
 {
   "bytes": 838622,
   "sha256": "7bb7798634c08f898f690ff64f27c563000682c55f96db285f192d1b430b6cc8",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > optimisticEcho 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > optimisticEcho 1`] = `
 {
   "bytes": 838307,
   "sha256": "eee5130661552ade893af16b0dd533b70b96a124430653bff54550a1416839d5",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > optimisticPress 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > optimisticPress 1`] = `
 {
   "bytes": 838307,
   "sha256": "eee5130661552ade893af16b0dd533b70b96a124430653bff54550a1416839d5",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > optimisticPressRejected 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > optimisticPressRejected 1`] = `
 {
   "bytes": 838307,
   "sha256": "eee5130661552ade893af16b0dd533b70b96a124430653bff54550a1416839d5",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > parentReassignment 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > parentReassignment 1`] = `
 {
   "bytes": 838307,
   "sha256": "eee5130661552ade893af16b0dd533b70b96a124430653bff54550a1416839d5",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > rescopeBack 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > rescopeBack 1`] = `
 {
   "bytes": 838445,
   "sha256": "1003ddc10d54d549bc005ab0f30e1356c6949d43ff7592f378b146529b0544e2",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > rescopeGrowth 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > rescopeGrowth 1`] = `
 {
   "bytes": 840045,
   "sha256": "e9b1367431d51554d97530857b5c9b8dd2db0f7f033eacda01afa3670d2b81b5",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > selectionClick 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > selectionClick 1`] = `
 {
   "bytes": 838445,
   "sha256": "1003ddc10d54d549bc005ab0f30e1356c6949d43ff7592f378b146529b0544e2",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > stageMoveAcrossGroups 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > stageMoveAcrossGroups 1`] = `
 {
   "bytes": 838449,
   "sha256": "91f3e8b63cdfa192ca5516379f9a997baf067495e32a7b5237a3119fd6cc2468",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > unrelatedHeartbeat 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > unrelatedHeartbeat 1`] = `
 {
   "bytes": 838445,
   "sha256": "1003ddc10d54d549bc005ab0f30e1356c6949d43ff7592f378b146529b0544e2",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > visibleSessionPhaseChange 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > visibleSessionPhaseChange 1`] = `
 {
   "bytes": 838445,
   "sha256": "1003ddc10d54d549bc005ab0f30e1356c6949d43ff7592f378b146529b0544e2",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 1x > visibleTitleRename 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 1x > visibleTitleRename 1`] = `
 {
   "bytes": 838453,
   "sha256": "6c83753dd76928c9c0a733c4f775dfd813ae47ce5904b8dfde61017fbb4ce5da",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > archiveIssue 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > archiveIssue 1`] = `
 {
   "bytes": 3416918,
   "sha256": "f8f44792b533a1232a1e1c35350efcd3981b13ebe4ed62df055528259365985c",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > bootstrap 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > bootstrap 1`] = `
 {
   "bytes": 3416743,
   "sha256": "fef00a6994214a7212895dc707531657f46f2c4b8ae925348a4a4d440c73167c",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > burst50 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > burst50 1`] = `
 {
   "bytes": 3416587,
   "sha256": "e74446192ab776b405f5fba5894db6bed23ae88e670f0accc94e9b434cc7b230",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > clockGraceCrossing 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > clockGraceCrossing 1`] = `
 {
   "bytes": 3416587,
   "sha256": "e74446192ab776b405f5fba5894db6bed23ae88e670f0accc94e9b434cc7b230",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > clockTick 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > clockTick 1`] = `
 {
   "bytes": 3416587,
   "sha256": "e74446192ab776b405f5fba5894db6bed23ae88e670f0accc94e9b434cc7b230",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > evictKeeperWithoutRevision 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > evictKeeperWithoutRevision 1`] = `
 {
   "bytes": 3416587,
   "sha256": "e74446192ab776b405f5fba5894db6bed23ae88e670f0accc94e9b434cc7b230",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > evictWithoutRevision 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > evictWithoutRevision 1`] = `
 {
   "bytes": 3416757,
   "sha256": "268dff291541c41f6e10c3bea2d3ad028edae0e4430a74ad4a79650523079871",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > newIssue 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > newIssue 1`] = `
 {
   "bytes": 3416908,
   "sha256": "0d8d575d5b66b8ff57318054186448755a558a8be848d9a3b1b9e8121a98a434",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > optimisticEcho 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > optimisticEcho 1`] = `
 {
   "bytes": 3416587,
   "sha256": "e74446192ab776b405f5fba5894db6bed23ae88e670f0accc94e9b434cc7b230",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > optimisticPress 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > optimisticPress 1`] = `
 {
   "bytes": 3416587,
   "sha256": "e74446192ab776b405f5fba5894db6bed23ae88e670f0accc94e9b434cc7b230",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > optimisticPressRejected 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > optimisticPressRejected 1`] = `
 {
   "bytes": 3416587,
   "sha256": "e74446192ab776b405f5fba5894db6bed23ae88e670f0accc94e9b434cc7b230",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > parentReassignment 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > parentReassignment 1`] = `
 {
   "bytes": 3416587,
   "sha256": "e74446192ab776b405f5fba5894db6bed23ae88e670f0accc94e9b434cc7b230",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > rescopeBack 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > rescopeBack 1`] = `
 {
   "bytes": 3416743,
   "sha256": "fef00a6994214a7212895dc707531657f46f2c4b8ae925348a4a4d440c73167c",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > rescopeGrowth 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > rescopeGrowth 1`] = `
 {
   "bytes": 3418363,
   "sha256": "cf50ceb2a04d0ea180544af7994078fc29ac9e37a8d73739fbf36d122f46968f",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > selectionClick 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > selectionClick 1`] = `
 {
   "bytes": 3416743,
   "sha256": "fef00a6994214a7212895dc707531657f46f2c4b8ae925348a4a4d440c73167c",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > stageMoveAcrossGroups 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > stageMoveAcrossGroups 1`] = `
 {
   "bytes": 3416733,
   "sha256": "2441c619cdfab6cd6649971b0a63a744925b2113fa391ad0bc944436e552a029",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > unrelatedHeartbeat 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > unrelatedHeartbeat 1`] = `
 {
   "bytes": 3416743,
   "sha256": "fef00a6994214a7212895dc707531657f46f2c4b8ae925348a4a4d440c73167c",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > visibleSessionPhaseChange 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > visibleSessionPhaseChange 1`] = `
 {
   "bytes": 3416743,
   "sha256": "fef00a6994214a7212895dc707531657f46f2c4b8ae925348a4a4d440c73167c",
 }
 `;
 
-exports[`chip differential replay > all chip values across corpus and methodology changes at 4x > visibleTitleRename 1`] = `
+exports[`pool chip replay > all chip values across corpus and methodology changes at 4x > visibleTitleRename 1`] = `
 {
   "bytes": 3416741,
   "sha256": "3d4b9bcf923ae378698b78297c6e60f1bec84ad2e126dc4655ad28c4ad126462",

@@ -1,10 +1,6 @@
-import type { IssueReferenceSource } from '@podium/client-core/values'
-import { describe, expect, it } from 'vitest'
-import {
-  decorateIssueRefAnchors,
-  issueReferenceLookup,
-  issueReferenceSignature,
-} from './issue-chip-liveness'
+import { issueReferenceModel, type IssueReferenceSource } from '@podium/client-core/values'
+import { describe, expect, it, vi } from 'vitest'
+import { bindIssueRefAnchors, paintIssueRefAnchor } from './issue-chip-liveness'
 
 function issue(overrides: Partial<IssueReferenceSource> = {}): IssueReferenceSource {
   return {
@@ -37,8 +33,8 @@ describe('live transcript issue references', () => {
     const text = anchor.firstChild
     const paragraph = anchor.parentNode
 
-    decorateIssueRefAnchors(row, issueReferenceLookup([issue()]))
-    decorateIssueRefAnchors(row, issueReferenceLookup([issue({ stage: 'done', archived: true })]))
+    paintIssueRefAnchor(anchor, issueReferenceModel(issue()))
+    paintIssueRefAnchor(anchor, issueReferenceModel(issue({ stage: 'done', archived: true })))
 
     expect(root.firstChild).toBe(originalRow)
     expect(root.querySelector('.transcript-row')).toBe(row)
@@ -68,8 +64,8 @@ describe('live transcript issue references', () => {
     })
     observer.observe(row, { childList: true, subtree: true, attributes: true })
 
-    decorateIssueRefAnchors(row, issueReferenceLookup([issue()]))
-    decorateIssueRefAnchors(row, issueReferenceLookup([issue({ stage: 'review' })]))
+    paintIssueRefAnchor(anchor, issueReferenceModel(issue()))
+    paintIssueRefAnchor(anchor, issueReferenceModel(issue({ stage: 'review' })))
     await Promise.resolve()
 
     expect(anchor.firstChild).toBe(text)
@@ -80,12 +76,12 @@ describe('live transcript issue references', () => {
     row.remove()
   })
 
-  it('decorates a newly inserted anchor root and clears stale visible state', () => {
+  it('clears stale visible state when a reference becomes unavailable', () => {
     const { anchor } = rowWithRef()
-    decorateIssueRefAnchors(anchor, issueReferenceLookup([issue({ stage: 'review' })]))
+    paintIssueRefAnchor(anchor, issueReferenceModel(issue({ stage: 'review' })))
     expect(anchor.getAttribute('data-issue-stage')).toBe('review')
 
-    decorateIssueRefAnchors(anchor, issueReferenceLookup([]))
+    paintIssueRefAnchor(anchor, null)
     expect(anchor.hasAttribute('data-issue-stage')).toBe(false)
     expect(anchor.getAttribute('data-issue-availability')).toBe('unavailable')
     expect(anchor.getAttribute('aria-label')).toBe('Task POD-13 is unavailable')
@@ -96,86 +92,13 @@ describe('live transcript issue references', () => {
     root.innerHTML =
       '<a class="ref-link ref-link--session" data-ref="POD-13-A">POD-13-A</a>' +
       '<a href="https://example.com">Example</a>'
-    decorateIssueRefAnchors(root, issueReferenceLookup([issue()]))
+    const watch = vi.fn(() => () => {})
+    const stop = bindIssueRefAnchors(root, { watch })
+    expect(watch).not.toHaveBeenCalled()
+    stop()
     for (const anchor of root.querySelectorAll('a')) {
       expect(anchor.hasAttribute('data-issue-stage')).toBe(false)
       expect(anchor.hasAttribute('data-issue-availability')).toBe(false)
     }
-  })
-})
-
-describe('the key a chip is looked up under', () => {
-  it('resolves a zero-padded ref, so the chip agrees with the popup it opens', () => {
-    // `resolveIssueReference` and the miniview both match on parsed prefix+seq,
-    // so clicking POD-013 opens POD-13. A raw-string lookup left that same chip
-    // painted unavailable — one token, two answers.
-    const { anchor } = rowWithRef('POD-013')
-    decorateIssueRefAnchors(anchor, issueReferenceLookup([issue({ stage: 'review' })]))
-
-    expect(anchor.getAttribute('data-issue-stage')).toBe('review')
-    expect(anchor.getAttribute('data-issue-availability')).toBe('present')
-  })
-
-  it('resolves a row that carries a prefix but no displayRef', () => {
-    // `issueDisplayRef` is `displayRef ?? '#seq'` and never consults `prefix`,
-    // so this row used to key itself `#13` while its anchor keyed `POD-13` —
-    // unavailable for an issue `resolveIssueReference` matches on prefix+seq.
-    const { anchor } = rowWithRef('POD-13')
-    const legacy = issue({ stage: 'review' })
-    delete (legacy as { displayRef?: string }).displayRef
-    decorateIssueRefAnchors(anchor, issueReferenceLookup([legacy]))
-
-    expect(anchor.getAttribute('data-issue-stage')).toBe('review')
-    expect(anchor.getAttribute('aria-label')).toBe('Review task POD-13: Stable chips')
-  })
-
-  it('announces the canonical ref for a fallback-displayRef row (POD-4731)', () => {
-    // Merged replica row in a prefix-less harness world: legacy `POD` beside
-    // view-derived `#13`. Stage matched; the label fell back to `#13`.
-    const { anchor } = rowWithRef('POD-13')
-    decorateIssueRefAnchors(
-      anchor,
-      issueReferenceLookup([issue({ stage: 'review', displayRef: '#13' })]),
-    )
-
-    expect(anchor.getAttribute('data-issue-stage')).toBe('review')
-    expect(anchor.getAttribute('data-issue-availability')).toBe('present')
-    expect(anchor.getAttribute('aria-label')).toBe('Review task POD-13: Stable chips')
-  })
-
-  it('still refuses a token naming a different issue', () => {
-    const { anchor } = rowWithRef('POD-14')
-    decorateIssueRefAnchors(anchor, issueReferenceLookup([issue()]))
-
-    expect(anchor.hasAttribute('data-issue-stage')).toBe(false)
-    expect(anchor.getAttribute('data-issue-availability')).toBe('unavailable')
-  })
-})
-
-describe('the signature that decides whether a sweep is worth running', () => {
-  it('ignores an issue list rebuilt with the same values', () => {
-    expect(issueReferenceSignature([issue()])).toBe(issueReferenceSignature([issue()]))
-  })
-
-  it('notices every field a chip renders', () => {
-    const base = issueReferenceSignature([issue()])
-    for (const changed of [
-      issue({ stage: 'done' }),
-      issue({ archived: true }),
-      issue({ deletedAt: '2026-08-25T00:00:00Z' }),
-      issue({ title: 'Renamed' }),
-      issue({ displayRef: 'POD-14', seq: 14 }),
-      // Same key (prefix+seq unchanged), different label — the map must rebuild.
-      issue({ displayRef: 'POD-0013' }),
-    ]) {
-      expect(issueReferenceSignature([changed])).not.toBe(base)
-    }
-  })
-
-  it('cannot be forged by a title that reads like a field boundary', () => {
-    const other = { seq: 14, displayRef: 'POD-14' } as const
-    const a = [issue({ title: 'a' }), issue({ ...other, title: 'b' })]
-    const b = [issue({ title: 'a b' }), issue({ ...other, title: '' })]
-    expect(issueReferenceSignature(a)).not.toBe(issueReferenceSignature(b))
   })
 })

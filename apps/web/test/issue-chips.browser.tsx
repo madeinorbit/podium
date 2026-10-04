@@ -6,7 +6,6 @@ import { chipPerf } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { asIssueId, asSessionId, asUserId, type TranscriptItem } from '@podium/model/browser'
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -26,8 +25,7 @@ document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 const count = Number(new URLSearchParams(location.search).get('issues') ?? 4887)
 const synthetic = createSidebarFixture(count, Date.now(), true)
-// The current miniview's legacy resolver reads the wire prefix. Real rows
-// carry it; the sidebar fixture needs it added for a chip/card comparison.
+// This fixture uses synthetic prefixed references on every chip surface.
 for (let i = 0; i < count; i++) synthetic.patch('issue', `synthetic-${i}`, { prefix: 'SYN' })
 for (let i = 674; i < count; i++) synthetic.records.delete(`session:synthetic-session-${i}`)
 // Test authority resolves requested keys by their synthetic identity, without
@@ -139,7 +137,7 @@ const proof = {
     runtime: !!runtime,
     pool: !!pool,
     repos: runtime?.access.repos.length,
-    issues: runtime?.replica.rows('issueProjections').length,
+    issues: count,
     sessions: runtime?.replica.rows('sessions').length,
   }),
   failures: () => failures,
@@ -167,23 +165,6 @@ const proof = {
     items = append ? [...items, next] : [...items.slice(0, -1), next]
     for (const listener of transcriptListeners) listener([next], { reset: false })
     return next.id
-  },
-  async check() {
-    if (!runtime || !pool) throw new Error('Pool absent')
-    const { checkIssueChips } = await import('@podium/client-graph/diagnostics/chip-check')
-    const state = referenceState(runtime)
-    const legacy = allIssueViewModels(
-      runtime.replica,
-      state.issueProjections,
-      state.issueUserStates,
-    )
-    return checkIssueChips(
-      pool.references,
-      legacy,
-      [...document.querySelectorAll('a.ref-link--issue[data-ref], [data-issue-reference]')].map(
-        (a) => a.getAttribute('data-ref') ?? a.getAttribute('data-issue-reference')!,
-      ),
-    )
   },
 }
 Object.assign(window, { __issueChips: proof })

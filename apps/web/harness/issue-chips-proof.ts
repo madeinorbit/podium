@@ -6,9 +6,7 @@ const origin = 'http://127.0.0.1:41678'
 const out = '.artifacts/issue-chips'
 const tailProof = process.argv.includes('--tail-proof')
 const correctnessOnly = process.argv.includes('--correctness-only') || tailProof
-const modes = process.argv.includes('--pool-only')
-  ? (['pool'] as const)
-  : (['legacy', 'pool'] as const)
+const modes = ['pool'] as const
 await mkdir(out, { recursive: true })
 const server = Bun.spawn(
   [
@@ -49,7 +47,6 @@ try {
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
   const results: Array<Record<string, unknown>> = []
-  const snapshots: unknown[] = []
   for (const mode of modes) {
     const page = await browser.newPage({
       viewport: { width: 1200, height: 900 },
@@ -63,7 +60,7 @@ try {
         ? route.continue()
         : route.abort()
     })
-    const fixtureUrl = `${origin}/test/issue-chips.browser.html?issues=4887&mobxSidebar=0&mobxChips=${mode === 'pool' ? 1 : 0}`
+    const fixtureUrl = `${origin}/test/issue-chips.browser.html?issues=4887`
     const waitReady = async (phase: string) => {
       try {
         await page.waitForFunction(() => window.__issueChips?.ready(), null, { timeout: 30000 })
@@ -203,7 +200,6 @@ try {
         trafficDom,
         reads: traffic.reads - before.reads,
         paints: traffic.redraws - before.redraws,
-        legacyScans: traffic.legacyScans,
       }
       await writeFile(`${out}/tail-${mode}.json`, JSON.stringify(evidence, null, 2))
       if (
@@ -213,19 +209,17 @@ try {
         trafficDom.retainedRows !== 120 ||
         !trafficDom.pinnedPresent ||
         !trafficDom.pinnedRetained ||
-        (mode === 'pool' && (evidence.reads !== 0 || evidence.paints !== 0))
+        evidence.reads !== 0 || evidence.paints !== 0
       )
         throw new Error(`Unchanged conversation DOM replaced: ${JSON.stringify(evidence)}`)
     }
     if (
-      mode === 'pool' &&
-      (traffic.legacyScans !== 0 ||
-        trafficMounts.changed !== 0 ||
+      trafficMounts.changed !== 0 ||
         traffic.redraws - before.redraws !== trafficMounts.added ||
-        traffic.reads - before.reads > trafficMounts.added * 4)
+        traffic.reads - before.reads > trafficMounts.added * 4
     )
       throw new Error(
-        `Session traffic woke pool chips or scanned legacy issues: ${JSON.stringify({ before, traffic, trafficMounts })}`,
+        `Session traffic woke unchanged pool chips: ${JSON.stringify({ before, traffic, trafficMounts })}`,
       )
     const paint = () =>
       page.evaluate(() =>
@@ -269,23 +263,13 @@ try {
       (row, i) => JSON.stringify(row) !== JSON.stringify(initial[i]),
     ).length
     if (changedChips < 2 || changedChips > 12) throw new Error(`Wrong chip fanout: ${changedChips}`)
-    let check: unknown = null
-    if (mode === 'pool') {
-      if (
+    if (
         after.redraws - traffic.redraws !== issueMounts.added + issueMounts.changed ||
         after.reads - traffic.reads > issueMounts.added * 4 + issueMounts.changed * 2
       )
         throw new Error(
           `Chip census exceeded the changed-chip fanout: ${JSON.stringify({ changedChips, issueMounts, traffic, after })}`,
         )
-      check = await page.evaluate(() => window.__issueChips.check())
-      if (
-        (check as { differences: number; pending: number }).differences !== 0 ||
-        (check as { pending: number }).pending !== 0
-      )
-        throw new Error(`Chip side-by-side differs: ${JSON.stringify(check)}`)
-    } else if (before.legacyScans === 0 || before.legacyRows < 4887)
-      throw new Error('Legacy scan positive control inactive')
     if (errors.length || (await page.evaluate(() => window.__issueChips.failures())).length)
       throw new Error(`Browser errors: ${errors.join('; ')}`)
     // The full conversation owns the existing Markdown click router. Drive
@@ -300,11 +284,6 @@ try {
       label: el.getAttribute('aria-label'),
       text: el.textContent,
     }))
-    if (
-      mode === 'pool' &&
-      (await page.evaluate(() => window.__issueChips.stats())).legacyScans !== 0
-    )
-      throw new Error('The pool miniview called a legacy issue derivation')
     await page.screenshot({ path: `${out}/${mode}-miniview.png`, fullPage: false })
     let streaming: unknown = null
     if (tailProof) {
@@ -373,18 +352,14 @@ try {
       after,
       changedChips,
       issueMounts,
-      check,
       miniview,
     })
-    snapshots.push({ initial, changed, miniview })
     await page.close()
   }
-  if (snapshots.length === 2 && JSON.stringify(snapshots[0]) !== JSON.stringify(snapshots[1]))
-    throw new Error('Legacy/pool chip values differ')
   await writeFile(
     `${out}/result.json`,
     JSON.stringify(
-      { results, ...(snapshots.length === 2 ? { identicalChipValues: true } : {}) },
+      { results },
       null,
       2,
     ),

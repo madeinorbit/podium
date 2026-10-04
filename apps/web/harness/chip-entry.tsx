@@ -1,26 +1,12 @@
 /**
- * ISSUE CHIPS, REAL, IN A BROWSER (POD-1624).
- *
- * The defect is visual and the fix is an attribute pass, so neither end can be
- * checked where there is no CSS: happy-dom will happily report
- * `data-issue-stage="review"` on an anchor that paints identically to an unknown
- * one. This renders the REAL markdown pipeline's output against the REAL
- * `styles.css` and runs the REAL `decorateIssueRefAnchors` over one of two
- * otherwise identical columns.
- *
- * The undecorated column is the control, and it is the whole point: it is what
- * main ships today, so the screenshot carries its own before/after. A rig that
- * only showed the fixed column could not tell "the pass works" from "these chips
- * were never grey to begin with".
- *
- * No React here on purpose. Both the pass and the markdown are plain DOM, and a
- * React host re-rendered `dangerouslySetInnerHTML` out from under the decorated
- * anchors — measuring the harness's own churn rather than the subject. The
- * component wrapper (`IssueChipLiveness`, its mount race and its
- * MutationObserver) is covered where it belongs, in its own vitest file.
+ * Issue chip styles over the real Markdown output and per-reference pool
+ * subscriptions. The left column shows undecorated Markdown; the right shows
+ * live pool values. React mount and mutation routing have focused unit coverage.
  */
+import { MobxPool } from '@podium/client-graph'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { IssueStage } from '@podium/model'
-import { decorateIssueRefAnchors, issueReferenceLookup } from '@/lib/issue-chip-liveness'
+import { bindIssueRefAnchors } from '@/lib/issue-chip-liveness'
 import { renderMarkdown } from '@/lib/markdown'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
 import { makeIssue } from '@/lib/test-issue'
@@ -36,9 +22,7 @@ setKnownRefPrefixes(['POD'])
 document.documentElement.setAttribute('data-theme', 'podium')
 document.documentElement.classList.add('dark')
 
-/** One fixture issue, built through the shared `makeIssue` so these chips read
- *  the same fully-populated view model the app hands the pass — and so a field
- *  added to that model reaches this harness rather than silently missing it. */
+/** Synthetic payloads; displayed values are always projected by the pool. */
 type Issue = ReturnType<typeof makeIssue>
 
 const issue = (seq: number, stage: IssueStage, title: string, over: Partial<Issue> = {}): Issue =>
@@ -66,6 +50,17 @@ const ISSUES: Issue[] = [
   issue(109, 'review', 'Deleted mid-review', { deletedAt: '2026-08-24T00:00:00Z' }),
 ]
 
+const rows = new Map(ISSUES.map((row) => [row.id, row]))
+const ids = new Map(ISSUES.map((row) => [row.displayRef!, row.id]))
+const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
+  load: (_entity, id) => rows.get(id as Issue['id']),
+  issueIdByRef: (ref) => ids.get(ref),
+})
+pool.apply({
+  type: 'replace',
+  rows: ISSUES.map((row) => ({ kind: 'issue', id: row.id, value: row as never })),
+})
+
 const PROSE = [
   'The composer minted a draft on `POD-104` and the deck has always covered for it.',
   '',
@@ -80,8 +75,7 @@ const PROSE = [
 declare global {
   interface Window {
     chips: {
-      /** Move one issue to a new stage and re-run the pass, the way a fleet
-       *  delta does. Reports whether the anchor and its text node survived. */
+      /** Publish one stage update and report anchor/text identity. */
       restage: (seq: number, stage: IssueStage) => { sameAnchor: boolean; sameText: boolean }
     }
   }
@@ -106,9 +100,20 @@ const root = document.getElementById('root')!
 root.className = 'desktop-shell'
 root.innerHTML = '<div class="row flex gap-6 p-8"></div>'
 
-column('before — main today, no pass', 'before')
-const after = column('after — liveness pass', 'after')
-decorateIssueRefAnchors(after, issueReferenceLookup(ISSUES))
+column('Undecorated Markdown', 'before')
+const after = column('Live pool references', 'after')
+const stop = bindIssueRefAnchors(after, {
+  watch(ref, paint) {
+    const view = createPoolProjection(pool, () => pool.references.read(ref))
+    const update = () => {
+      const model = view.getSnapshot()
+      paint(typeof model === 'symbol' ? 'loading' : (model ?? null))
+    }
+    update()
+    return view.subscribe(update)
+  },
+})
+window.addEventListener('pagehide', () => { stop(); pool.dispose() }, { once: true })
 
 window.chips = {
   restage(seq, stage) {
@@ -118,10 +123,11 @@ window.chips = {
     // Without this, a selector that matches NOTHING reports sameAnchor: true —
     // `null === null` — and the identity check passes by finding no chip at all.
     if (!anchorWas || !textWas) throw new Error(`no chip to restage: ${selector}`)
-    const target = ISSUES.find((i) => i.seq === seq)
+    const target = rows.get(`iss_${seq}` as Issue['id'])
     if (!target) throw new Error(`no fixture issue POD-${seq}`)
-    target.stage = stage
-    decorateIssueRefAnchors(after, issueReferenceLookup(ISSUES))
+    const changed = { ...target, stage }
+    rows.set(target.id, changed)
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: target.id, value: changed as never }] })
     const anchorNow = after.querySelector<HTMLAnchorElement>(selector)
     return { sameAnchor: anchorNow === anchorWas, sameText: anchorNow?.firstChild === textWas }
   },
