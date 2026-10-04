@@ -1,9 +1,9 @@
-import type { SessionView } from '@podium/client-core/session-values'
-import { useStoreHandle } from '@podium/client-core/react'
 import {
   headlessConversationCanInterrupt,
   nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
+import { useStoreHandle } from '@podium/client-core/react'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   type AskAnswerChoice,
@@ -19,10 +19,10 @@ import {
   isOperatorPromptRow as isOperatorPromptRowOf,
   lastAnswer as lastAnswerOf,
   livePendingAskIndex as livePendingAskIndexOf,
+  matchesQuestionInteraction,
   type OperatorPromptOptions,
   parseEnvelopeBatch,
   pendingAskFromState,
-  matchesQuestionInteraction,
   type RenderableRow,
   renderableRows,
   type SuperThreadRef,
@@ -32,7 +32,11 @@ import {
   transcriptAttributionTable,
   transcriptPhase,
 } from '@podium/client-core/values'
-import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId} from '@podium/model/browser'
+import {
+  isAgentComputing,
+  isMachineOfflineForLiveTerminal,
+  type SessionId,
+} from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
@@ -40,13 +44,21 @@ import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem } from './chat'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
+import {
+  useChatContextWindow,
+  useChatInteractions,
+  useChatIssueSeq,
+  useChatMachines,
+  useChatSession,
+  useChatSessionExitKind,
+  useChatThreads,
+} from './use-chat-context'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
-import { type TurnPreview, useTurnPreview } from './use-turn-preview'
-import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
 import { useTranscriptReveal } from './use-transcript-reveal'
+import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
+import { type TurnPreview, useTurnPreview } from './use-turn-preview'
 import { RENDER_WINDOW, type TranscriptFreshness, useTranscriptWindow } from './useTranscriptWindow'
-import { useChatContextWindow, useChatInteractions, useChatIssueSeq, useChatThreads, useChatSession, useChatSessionExitKind, useChatMachines } from './use-chat-context'
 
 /**
  * THE CHAT SOURCE (POD-405) — the one place the chat surface's data is
@@ -286,9 +298,10 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     if (!id) return undefined
     return (machines ?? []).find((m) => m.id === id)
   }, [machines, session?.machineId])
-  const presenceOfflineMachineName = machineWire && isMachineOfflineForLiveTerminal(machineWire)
-    ? (session?.machineName ?? machineWire.name ?? session?.machineId ?? null)
-    : null
+  const presenceOfflineMachineName =
+    machineWire && isMachineOfflineForLiveTerminal(machineWire)
+      ? (session?.machineName ?? machineWire.name ?? session?.machineId ?? null)
+      : null
   const machineOnline = machineWire ? !isMachineOfflineForLiveTerminal(machineWire) : undefined
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
@@ -648,8 +661,12 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const { question: currentQuestion } = useChatInteractions(sessionId)
   const answerAsk = useMemo(
     () => async (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => {
-      if (currentQuestion && (answer.interactionId !== currentQuestion.id ||
-          !answer.question || !matchesQuestionInteraction(currentQuestion, answer.question))) {
+      if (
+        currentQuestion &&
+        (answer.interactionId !== currentQuestion.id ||
+          !answer.question ||
+          !matchesQuestionInteraction(currentQuestion, answer.question))
+      ) {
         throw new Error('The question changed; wait for the current menu.')
       }
       // A refused answer must reach the card. The server types nothing when it
@@ -657,7 +674,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       // would show the operator "sent" over a question still on screen — the
       // silent substitution POD-770 was about, one layer up.
       const sent = (await trpc.sessions.answerAskUserQuestion.mutate(
-        'skip' in answer ? { sessionId, interactionId: answer.interactionId, skip: true } : { sessionId, interactionId: answer.interactionId, choices: answer.choices },
+        'skip' in answer
+          ? { sessionId, interactionId: answer.interactionId, skip: true }
+          : { sessionId, interactionId: answer.interactionId, choices: answer.choices },
       )) as { ok?: boolean; reason?: string } | undefined
       if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
     },

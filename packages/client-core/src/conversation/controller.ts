@@ -1,4 +1,3 @@
-import { formatAgentError } from '@podium/model'
 import type {
   MessageRecordWire,
   SessionId,
@@ -6,6 +5,7 @@ import type {
   TranscriptItem,
   TranscriptTag,
 } from '@podium/model'
+import { formatAgentError } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { OutboxChatSend } from '../engine/chat-send'
 import {
@@ -843,7 +843,8 @@ export class ConversationController {
     )
     // Forget what can no longer matter: an id neither carried nor held here.
     const held = new Set(pending.map((turn) => turn.deliveryId))
-    for (const id of this.seenRecord) if (!present.has(id) && !held.has(id)) this.seenRecord.delete(id)
+    for (const id of this.seenRecord)
+      if (!present.has(id) && !held.has(id)) this.seenRecord.delete(id)
     for (const id of this.seenOpen) if (!present.has(id) && !held.has(id)) this.seenOpen.delete(id)
     for (const id of this.looked.keys()) if (!held.has(id)) this.looked.delete(id)
     if (!notify) {

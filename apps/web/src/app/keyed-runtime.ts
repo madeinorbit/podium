@@ -1,4 +1,3 @@
-import { useWorklistPoolProjection } from './store-worklist-pool'
 import type {
   EngineState,
   KeyedInputs,
@@ -10,6 +9,7 @@ import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionId } from '@podium/model/browser'
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from 'react'
 import type { Store } from './store'
+import { useWorklistPoolProjection } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 
 /** The provider's existing runtime, with its keyed publication surface. */
@@ -58,7 +58,10 @@ export function useRuntimeActions<K extends keyof Store>(keys: readonly K[]): Pi
 }
 
 export function usePendingSpawnPrompt(id: SessionId): string | undefined {
-  return useWorklistPoolProjection(pool => pool.spawnPlaceholders()?.get(id) ?? undefined, undefined)
+  return useWorklistPoolProjection(
+    (pool) => pool.spawnPlaceholders()?.get(id) ?? undefined,
+    undefined,
+  )
 }
 
 export function useRuntimeDraft(id: SessionId | undefined): string {
@@ -89,8 +92,12 @@ export function useRuntimeUiValue(key: string): string | null {
 export function useRuntimeDraftRef(id: SessionId, valueRef: { current: string }): void {
   const inputs = useInputs()
   useLayoutEffect(() => {
-    const update = () => { valueRef.current = inputs.readLocal('drafts')?.[id] ?? '' }
+    const update = () => {
+      valueRef.current = inputs.readLocal('drafts')?.[id] ?? ''
+    }
     update()
-    return inputs.onDraft(changed => { if (changed === id) update() })
+    return inputs.onDraft((changed) => {
+      if (changed === id) update()
+    })
   }, [inputs, id, valueRef])
 }

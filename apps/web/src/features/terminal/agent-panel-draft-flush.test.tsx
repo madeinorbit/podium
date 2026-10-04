@@ -3,6 +3,7 @@ import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/mo
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetFakeStore, setFakeStore } from '../chat/test-support/fake-store-handle'
 
 // ---------------------------------------------------------------------------
 // Regression cover for the chat→native draft flush re-arm (#17/#62 over Task 6).
@@ -75,7 +76,8 @@ let storePanelMode: Record<string, 'chat' | 'native'> = {}
 let storeDrafts: Record<string, string> = {}
 
 vi.mock('./use-session-pane-inputs', () => ({
-  usePaneSession: (id: string | undefined) => storeSessions.find(session => session.sessionId === id),
+  usePaneSession: (id: string | undefined) =>
+    storeSessions.find((session) => session.sessionId === id),
   usePaneMachines: () => [],
   usePanePanelModes: () => storePanelMode,
   usePaneSpawnConfirmed: () => true,
@@ -172,6 +174,7 @@ beforeEach(() => {
   storeSessions = [meta({})]
   storePanelMode = { s1: 'native' }
   storeDrafts = {}
+  resetFakeStore()
   sendInput.mockClear()
   setActive.mockClear()
   dispose.mockClear()
@@ -224,7 +227,11 @@ describe('AgentPanel chat→native draft flush re-arm (warm toggle)', () => {
     await settle()
 
     // Author a draft in chat, then toggle back to native.
-    storeDrafts = { s1: 'hello from chat' }
+    act(() => {
+      storeDrafts = { s1: 'hello from chat' }
+      // Authoring publishes the keyed draft while the panel remains mounted.
+      setFakeStore({})
+    })
     storePanelMode = { s1: 'native' }
     await act(async () => {
       root.render(<AgentPanel sessionId={asSessionId('s1')} active />)

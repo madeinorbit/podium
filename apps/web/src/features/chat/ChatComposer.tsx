@@ -16,10 +16,10 @@ import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
 import { OfferBar } from './OfferBar'
 import type { UseAttachmentsResult } from './use-attachments'
+import { useChatMentions } from './use-chat-context'
 import { chordLabel, useComposerChord } from './use-composer-chord'
 import type { TranscriptFreshness } from './useTranscriptWindow'
 import { VoiceButton } from './VoiceButton'
-import { useChatMentions } from './use-chat-context'
 
 /**
  * The shared auto-grow, as a renderless child instead of a call in the body.

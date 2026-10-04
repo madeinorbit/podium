@@ -1,6 +1,6 @@
-import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { MessageRecordWire } from '@podium/model'
+import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
 
 /**
  * THE STORE HANDLE provider-free ChatView suites render against. Real enough

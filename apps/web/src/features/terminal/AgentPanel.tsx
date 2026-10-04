@@ -4,12 +4,7 @@ import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
 import { attentionGroup } from '@podium/client-core/focus'
-import {
-  formatClock,
-  panelLabel,
-  resumeCommand,
-  sessionWaking,
-} from '@podium/client-core/values'
+import { formatClock, panelLabel, resumeCommand, sessionWaking } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { isSnoozed } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'

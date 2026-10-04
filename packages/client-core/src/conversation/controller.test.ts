@@ -1,4 +1,9 @@
-import { asSessionId, type MessageRecordWire, type SessionOffer, type TranscriptItem } from '@podium/model'
+import {
+  asSessionId,
+  type MessageRecordWire,
+  type SessionOffer,
+  type TranscriptItem,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxChatSend } from '../engine/chat-send'
 import { createConversationController } from './controller'
@@ -63,8 +68,9 @@ function offer(createdAt = '2026-08-30T12:00:00.000Z'): SessionOffer {
   return { message: 'Choose', actions: [{ label: 'Do it', prompt: 'do it' }], createdAt }
 }
 
-const states = (controller: { getSnapshot(): { bubbles: { deliveryId: string; state: string }[] } }) =>
-  controller.getSnapshot().bubbles.map((bubble) => `${bubble.deliveryId}:${bubble.state}`)
+const states = (controller: {
+  getSnapshot(): { bubbles: { deliveryId: string; state: string }[] }
+}) => controller.getSnapshot().bubbles.map((bubble) => `${bubble.deliveryId}:${bubble.state}`)
 
 /**
  * A MESSAGE'S BUBBLE FOLLOWS ITS SYNCED RECORD, BY ID (POD-4764). This device's
@@ -476,9 +482,11 @@ describe('conversation controller over synced records', () => {
     const sends = source<readonly OutboxChatSend[]>([])
     const deliver = vi
       .fn()
-      .mockRejectedValueOnce(Object.assign(new Error("not sent — couldn't reach the server"), {
-        retryable: true,
-      }))
+      .mockRejectedValueOnce(
+        Object.assign(new Error("not sent — couldn't reach the server"), {
+          retryable: true,
+        }),
+      )
       .mockResolvedValueOnce({ state: 'sent' })
     const controller = createConversationController({
       sessionId: asSessionId('s1'),
@@ -713,7 +721,6 @@ describe('conversation controller contract', () => {
     expect(controller.getSnapshot().justSent).toBe(true)
     controller.dispose()
   })
-
 })
 
 /**
@@ -1144,10 +1151,12 @@ describe('composer draft work', () => {
     controller.start()
     const readTranscript = vi.spyOn(feed.port, 'getSnapshot')
     const readRecords = vi.spyOn(synced.port, 'getSnapshot')
-    const surfaceChanged = vi.fn(), draftChanged = vi.fn()
+    const surfaceChanged = vi.fn(),
+      draftChanged = vi.fn()
     const stopSurface = controller.subscribeSurface(surfaceChanged)
     const stopDraft = controller.subscribe(draftChanged)
-    const surface = controller.getSurfaceSnapshot(), bubbles = controller.getSnapshot().bubbles
+    const surface = controller.getSurfaceSnapshot(),
+      bubbles = controller.getSnapshot().bubbles
     for (let i = 1; i <= 60; i++) {
       controller.setDraft('x'.repeat(i))
       expect(controller.getSnapshot().draft).toBe('x'.repeat(i))
@@ -1164,6 +1173,8 @@ describe('composer draft work', () => {
     synced.set([record('held', { status: 'typed' })])
     expect(surfaceChanged).toHaveBeenCalledTimes(1)
     expect(controller.getSurfaceSnapshot()).not.toBe(surface)
-    stopSurface(); stopDraft(); controller.dispose()
+    stopSurface()
+    stopDraft()
+    controller.dispose()
   })
 })

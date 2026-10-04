@@ -3727,7 +3727,9 @@ export function FlightDeckContent({
 
   return (
     <aside
-      className={cn('engraved-column relative', root && 'overflow-y-auto')}
+      // Keep native composer edits from repainting the mission's unchanged rows.
+      // The root already scrolls and clips its children; menus use portals.
+      className={cn('engraved-column relative', root && 'overflow-y-auto [contain:layout_paint]')}
       data-testid={root ? 'flight-deck-scroller' : undefined}
       aria-label="Flight Deck"
       ref={deckScrollerRef}

@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
 import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
+
 import { bindStoreStatsOwner, readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import type { MobxPool } from '@podium/client-graph'
 import {
@@ -57,9 +59,12 @@ const snapshot = () => {
     : state
 }
 const handle = {
-  get access() { return snapshot() },
+  get access() {
+    return snapshot()
+  },
   subscribe: (_listener: () => void) => () => {},
-  readLocal: (key: import('@podium/client-core/engine').LocalKey) => f.fixture!.owner.readLocal(key),
+  readLocal: (key: import('@podium/client-core/engine').LocalKey) =>
+    f.fixture!.owner.readLocal(key),
   onDraft: (listener: (id: string) => void) => f.fixture!.owner.onDraft(listener),
 }
 vi.mock('@/app/store', () => ({
@@ -109,6 +114,7 @@ vi.mock('@/lib/ModelEffortPicker', () => ({
   EffortPicker: () => null,
 }))
 
+import { useRuntimeDraft } from '@/app/keyed-runtime'
 import { ChatComposer } from './ChatComposer'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 import {
@@ -128,7 +134,6 @@ import {
   useChatThreads,
 } from './use-chat-context'
 import { useChatSend } from './use-chat-send'
-import { useRuntimeDraft } from '@/app/keyed-runtime'
 
 beforeEach(async () => {
   f.guard = true
@@ -578,42 +583,92 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
   let send!: ReturnType<typeof useChatSend>
   const blocks: [] = []
   const options = {
-    sessionId: id, observeDraft: false,
+    sessionId: id,
+    observeDraft: false,
     trpc: { messages: { records: { query: async () => ({ records: [] }) } } } as never,
     sendChat: vi.fn(async () => ({ state: 'sent' as const })),
-    discardChat: vi.fn(async () => {}), dismissOffer: vi.fn(async () => {}),
-    setPanelMode: vi.fn(), setSessionDraft: (id: import('@podium/model').SessionId, text: string) => corpus.state().setSessionDraft(id, text),
-    getUserFocus: () => ({}) as never, attachedSessionId: null, clearAttachedSession: vi.fn(),
-    getIssueSeq: () => null, headless: false, superThread: undefined, compact: false,
-    composer: { sendable: true, canResume: false }, ownThreadIds: undefined, blocks, session: undefined,
+    discardChat: vi.fn(async () => {}),
+    dismissOffer: vi.fn(async () => {}),
+    setPanelMode: vi.fn(),
+    setSessionDraft: (id: import('@podium/model').SessionId, text: string) =>
+      corpus.state().setSessionDraft(id, text),
+    getUserFocus: () => ({}) as never,
+    attachedSessionId: null,
+    clearAttachedSession: vi.fn(),
+    getIssueSeq: () => null,
+    headless: false,
+    superThread: undefined,
+    compact: false,
+    composer: { sendable: true, canResume: false },
+    ownThreadIds: undefined,
+    blocks,
+    session: undefined,
     headlessTurn: { sendTurn: vi.fn(), interrupt: vi.fn() } as never,
-    canInterrupt: false, latestOperatorPrompt: null, pinToBottom: vi.fn(), initialPendingText: undefined,
+    canInterrupt: false,
+    latestOperatorPrompt: null,
+    pinToBottom: vi.fn(),
+    initialPendingText: undefined,
   }
-  function Transcript() { outside.transcript++; return <div>Transcript</div> }
+  function Transcript() {
+    outside.transcript++
+    return <div>Transcript</div>
+  }
+  const composerRef = createRef<HTMLTextAreaElement>()
   function Composer() {
     const draft = useRuntimeDraft(id)
-    return <ChatComposer taRef={createRef()} draft={draft} onDraftChange={text => send.setDraft(text)}
-      deliverable placeholder="Message agent" compact={false} isMobile={false} onSend={() => {}}
-      voice={{ supported: false, listening: false, toggle: () => {} } as never} attachments={attachments as never}
-      turnRunning={false} canInterrupt={false} onInterrupt={() => {}} offer={null}
-      onOfferAction={async () => {}} onOfferDismiss={async () => {}} session={undefined}
-      turnError={null} transcriptFreshness={null} offlineAsOf={null} autoFocusKey={id} transcriptSettled />
+    return (
+      <ChatComposer
+        taRef={composerRef}
+        draft={draft}
+        onDraftChange={(text) => send.setDraft(text)}
+        deliverable
+        placeholder="Message agent"
+        compact={false}
+        isMobile={false}
+        onSend={() => {}}
+        voice={{ supported: false, listening: false, toggle: () => {} } as never}
+        attachments={attachments as never}
+        turnRunning={false}
+        canInterrupt={false}
+        onInterrupt={() => {}}
+        offer={null}
+        onOfferAction={async () => {}}
+        onOfferDismiss={async () => {}}
+        session={undefined}
+        turnError={null}
+        transcriptFreshness={null}
+        offlineAsOf={null}
+        autoFocusKey={id}
+        transcriptSettled
+      />
+    )
   }
   function Shell() {
     outside.shell++
     send = useChatSend(options)
-    return <><Transcript /><Composer /></>
+    return (
+      <>
+        <Transcript />
+        <Composer />
+      </>
+    )
   }
   const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
   const valueWrites = vi.spyOn(HTMLTextAreaElement.prototype, 'value', 'set')
   const mounted = render(<Shell />)
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    await Promise.resolve()
+  })
   outside.shell = outside.transcript = 0
   valueWrites.mockClear()
   const work = { ...corpus.source.counts }
   const textarea = mounted.container.querySelector('textarea')!
   for (let i = 1; i <= 60; i++) {
-    await act(async () => { nativeSet.call(textarea, 'x'.repeat(i)); fireEvent.input(textarea); await Promise.resolve() })
+    await act(async () => {
+      nativeSet.call(textarea, 'x'.repeat(i))
+      fireEvent.input(textarea)
+      await Promise.resolve()
+    })
     expect(textarea.value).toBe('x'.repeat(i))
     expect(outside).toEqual({ shell: 0, transcript: 0 })
     expect(valueWrites).not.toHaveBeenCalled()

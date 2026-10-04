@@ -21,6 +21,8 @@ import type { UseAttachmentsResult } from './use-attachments'
 // because it is shared and must not fork.
 // ---------------------------------------------------------------------------
 
+vi.mock('./use-chat-context', () => ({ useChatMentions: () => [] }))
+
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => [],
   useRuntimeSelector: () => undefined,
@@ -125,6 +127,7 @@ afterEach(() => {
   container.remove()
   sizingStyles.remove()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('ChatComposer, compact (the Superagent box)', () => {
@@ -490,6 +493,7 @@ describe('ChatComposer height across warm-panel visibility', () => {
   let contentHeight: number
 
   beforeEach(() => {
+    vi.stubGlobal('CSS', Object.create(CSS, { supports: { value: () => false } }))
     contentHeight = 48
     vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(() => contentHeight)
   })
@@ -542,7 +546,15 @@ describe('ChatComposer height across warm-panel visibility', () => {
 
 describe('native composer sizing', () => {
   it('keeps height measurement off the keystroke path when field-sizing is supported', async () => {
-    vi.spyOn(CSS, 'supports').mockImplementation((property, value) => property === 'field-sizing' && value === 'content')
+    vi.stubGlobal(
+      'CSS',
+      Object.create(CSS, {
+        supports: {
+          value: (property: string, value?: string) =>
+            property === 'field-sizing' && value === 'content',
+        },
+      }),
+    )
     const measure = vi.spyOn(Element.prototype, 'scrollHeight', 'get')
     await mount({ compact: false, draft: 'x' })
     measure.mockClear()

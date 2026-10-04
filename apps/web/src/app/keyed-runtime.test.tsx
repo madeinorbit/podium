@@ -1,20 +1,25 @@
-import { setFixtureSpawnPrompt } from '@podium/client-graph/diagnostics/session-pane-fixture'
-import { useSyncExternalStore } from 'react'
-import { MobxPool } from '@podium/client-graph'
-import { createPoolTransactions } from '@podium/client-graph/write/transactions'
-import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 // @vitest-environment happy-dom
 import {
   createKeyedInputs,
   type EngineState,
   type KeyedInputsChannel,
 } from '@podium/client-core/engine'
+import { MobxPool } from '@podium/client-graph'
+import { setFixtureSpawnPrompt } from '@podium/client-graph/diagnostics/session-pane-fixture'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import { asMachineId, asSessionId } from '@podium/model/browser'
 import { act, cleanup, render, screen } from '@testing-library/react'
+import { useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAgentFleetOptions } from '@/features/issues/use-agent-fleet-options'
 import { useFocusedHandoffSessionId } from '@/features/mobile-handoff/mobile-handoff'
-import { usePendingSpawnPrompt, useRuntimeDraft, useRuntimeDraftRef, useRuntimeList } from './keyed-runtime'
+import {
+  usePendingSpawnPrompt,
+  useRuntimeDraft,
+  useRuntimeDraftRef,
+  useRuntimeList,
+} from './keyed-runtime'
 
 const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => f.owner }))
@@ -27,7 +32,8 @@ vi.mock('./store-worklist-pool', () => ({
 let state: EngineState
 let inputs: KeyedInputsChannel
 let transactions: ReturnType<typeof createPoolTransactions>
-const prompt = (id: string, text: string | null | undefined) => setFixtureSpawnPrompt(transactions, id, text)
+const prompt = (id: string, text: string | null | undefined) =>
+  setFixtureSpawnPrompt(transactions, id, text)
 const sid = asSessionId('first'),
   other = asSessionId('other')
 
@@ -39,8 +45,16 @@ beforeEach(() => {
     machines: [],
   } as unknown as EngineState
   transactions = createPoolTransactions({
-    userId: 'operator', outbox: { pending: () => [], awaiting: () => [], deadLetters: () => [], subscribe: () => () => {} },
-    outcomes: () => () => {}, addressed: () => () => {}, enqueue: async () => {},
+    userId: 'operator',
+    outbox: {
+      pending: () => [],
+      awaiting: () => [],
+      deadLetters: () => [],
+      subscribe: () => () => {},
+    },
+    outcomes: () => () => {},
+    addressed: () => () => {},
+    enqueue: async () => {},
   })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   pool.attachTransactions(transactions)
@@ -236,16 +250,15 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
   inputs.emit(new Set(['workspaces', 'paneA', 'paneB', 'split', 'focusedPane']), new Set())
   f.owner = {
     ...inputs,
-    access:
-      new Proxy(
-        { workspaceKey: () => 'none' },
-        {
-          get: (target, key) => {
-            if (key !== 'workspaceKey') throw new Error(`Handoff read legacy ${String(key)}`)
-            return target.workspaceKey
-          },
+    access: new Proxy(
+      { workspaceKey: () => 'none' },
+      {
+        get: (target, key) => {
+          if (key !== 'workspaceKey') throw new Error(`Handoff read legacy ${String(key)}`)
+          return target.workspaceKey
         },
-      ),
+      },
+    ),
     subscribe: () => {
       throw new Error('Handoff subscribed to the old store')
     },
@@ -273,7 +286,6 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
   expect(screen.getByTestId('focus').textContent).toBe(sid)
 })
 
-
 it('updates the native draft ref without renders, follows switches and releases its subscription', () => {
   const valueRef = { current: '' }
   let renders = 0
@@ -285,10 +297,11 @@ it('updates the native draft ref without renders, follows switches and releases 
   const view = render(<Bridge id={sid} />)
   expect(valueRef.current).toBe('Saved draft')
   const before = renders
-  for (let i = 1; i <= 60; i++) act(() => {
-    state.drafts = { ...state.drafts, [sid]: 'x'.repeat(i) }
-    inputs.emit(new Set(['drafts']), new Set([sid]))
-  })
+  for (let i = 1; i <= 60; i++)
+    act(() => {
+      state.drafts = { ...state.drafts, [sid]: 'x'.repeat(i) }
+      inputs.emit(new Set(['drafts']), new Set([sid]))
+    })
   expect(renders).toBe(before)
   expect(valueRef.current).toBe('x'.repeat(60))
   act(() => {

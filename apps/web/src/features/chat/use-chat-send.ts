@@ -1,8 +1,8 @@
 import {
-  createConversationController,
   type ConversationController,
   type ConversationPendingTurn,
   type ConversationTranscript,
+  createConversationController,
   hubConnection,
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
@@ -19,8 +19,8 @@ import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { Store } from '@/app/store'
 import type { PendingItem } from './chat'
-import type { UseHeadlessTurnResult } from './use-headless-turn'
 import { useChatConversationPorts } from './use-chat-context'
+import type { UseHeadlessTurnResult } from './use-headless-turn'
 
 interface TranscriptBridge {
   port: ConversationTranscript
