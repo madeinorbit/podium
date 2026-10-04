@@ -23,8 +23,17 @@ if (existsSync('packages/client-graph')) {
   rows = seedAcceptanceCache(corpus, 'operator').readEntities().map(({ entity, entityId, value }) => ({ entity, entityId, value }))
 } else {
   for (const [field, entity, id] of [['issues', 'issue', 'id'], ['issueProjections', 'issueProjection', 'id'], ['sessions', 'session', 'sessionId'], ['repoProjections', 'repo', 'id'], ['issueDeps', 'issueDep', 'id']]) {
-    for (const value of corpus[field]) rows.push({ entity, entityId: value[id], value })
+    for (const raw of corpus[field]) {
+      const value = entity === 'issue' ? { defaultAgent: 'auto', defaultModel: 'auto', defaultEffort: 'auto', ...raw } : raw
+      rows.push({ entity, entityId: value[id], value })
+    }
   }
+}
+// The historical git fixture specifies ahead/shared/merged only. Preserve those facts
+// and supply the new record's required identity/timestamp and absent dirty count.
+for (const row of rows) if (row.entity === 'issueGitState') {
+  const issue = corpus.issues.find(issue => issue.id === row.entityId)
+  row.value = { updatedAt: issue.updatedAt, branch: issue.branch ?? issue.parentBranch, dirtyFiles: 0, ...row.value }
 }
 const failures = []
 rows = rows.map((row, index) => {
