@@ -18,6 +18,7 @@ import { corpusFromLive } from '../fixture/live-snapshot'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
 import { sidebarReplayStore } from './sidebar-replay'
 import { checkMobile, legacyMobileSnapshot, poolMobileSnapshot } from './mobile'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 async function main(): Promise<void> {
   if (hostname() !== 'ludovico' || !process.argv.includes('--live')) throw new Error('Local live replay only')
@@ -41,8 +42,8 @@ async function main(): Promise<void> {
     userId: sessionHomes.userId, userStatesLoaded: true, userStates: replica.rows('sessionUserStates'),
     repos: replica.rows('repos'), machines: replica.rows('machines'),
   }))
-  const runtime = { principal: { userId: sessionHomes.userId }, getSnapshot: () => store,
-    subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
+  const runtime = withKeyedInputs({ principal: { userId: sessionHomes.userId }, getSnapshot: () => store,
+    subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() })
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source)

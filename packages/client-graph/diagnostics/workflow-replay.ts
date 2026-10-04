@@ -11,6 +11,7 @@ import { createRowSource } from '../src/shared/row-source'
 import { WORKFLOW_SUMMARIES } from '../src/workflow-schema'
 import type { SliceIssue } from '../src/shared/slice-types'
 import { checkWorkflows } from './workflow-check'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 interface ReadonlyDatabase {
   exec(sql: string): void
@@ -53,9 +54,9 @@ async function main() {
   }
   const replica = createKernelReplica({ cache: { readCursor: () => null, readEntities: () => [...records.values()], read: (entity, id) => records.get(`${entity}:${id}`), durability: () => 'durable' },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-  const sessionReader = createRowSource({ principal: { userId: 'workflow-replay' },
+  const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: 'workflow-replay' },
     getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
-  }, { ...replica, sessionUserStatesLoaded: () => true }, { mode: 'truth' })
+  }), { ...replica, sessionUserStatesLoaded: () => true }, { mode: 'truth' })
   let normalizedSessions: Store['sessions']
   try {
     normalizedSessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
@@ -75,8 +76,8 @@ async function main() {
   const runs: WorkflowRunWire[] = subjects.map(row => ({ id: String(row.id), subjectKind: row.subjectKind as 'issue' | 'session', subjectId: String(row.subjectId),
     coordinatorSessionId: asSessionId('replay-placeholder'), revision: { id: 'replay-placeholder', workflowId: 'replay-placeholder', version: 1, instructions: '', steps: [], createdAt: '', publishedAt: null },
     status: 'active', supersedesRunId: null, steps: [], history: [], startedAt: '', completedAt: null }))
-  const runtime = { replica, getSnapshot: () => state, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
-    ui: { get: () => null, subscribe: () => () => {} } }
+  const runtime = withKeyedInputs({ replica, getSnapshot: () => state, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+    ui: { get: () => null, subscribe: () => () => {} } })
   const handle = createRuntimeWorklistPool(runtime as never, { settings: true, summaries: WORKFLOW_SUMMARIES })
   try {
     if (process.argv.includes('--red-control')) {

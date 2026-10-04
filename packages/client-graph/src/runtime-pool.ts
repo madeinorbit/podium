@@ -219,8 +219,8 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
       handle.pool.attachPreferences(runtime.ui)
     }
     if (options.settings) {
-      const state = runtime.getSnapshot()
-      if (!Array.isArray(Reflect.get(state, 'machines')) || !Object.hasOwn(state, 'settingsTab')) {
+      const owner = runtime as unknown as Partial<SettingsOwner> & Pick<SettingsOwner, 'readLocal'>
+      if (typeof owner.onList !== 'function' || !Array.isArray(owner.readLocal('machines')) || owner.readLocal('settingsTab') === undefined) {
         throw new Error('Settings require the existing runtime catalog and window owner')
       }
       // The shared row-source seam exposes only its repo inputs. The provider

@@ -319,6 +319,10 @@ export interface Replica {
    *  publish an atomic bootstrap/rescope as one changed-kind set; callers fall
    *  back to the collection-scoped seam when it is absent. */
   subscribeRowBatch?(cb: (changed: ReadonlySet<ReplicaKind>) => void): () => void
+  /** The cursor-moved signal (POD-5426 §4.10): `cb` runs when `getCursor()`
+   *  may have moved, watermark-only frames included. It names nothing and
+   *  touches no rows; a reader re-reads the cursor. */
+  subscribeCursor?(cb: () => void): () => void
   /** Coalesce `subscribeRows` notifications across every write issued inside
    *  `fn` (#262 review, nestable): listeners fire at most once per touched kind,
    *  AFTER the outermost batch completed — i.e. against the FINAL state. */

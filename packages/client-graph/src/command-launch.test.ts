@@ -2,7 +2,7 @@
 
 import { storeStats } from '@podium/client-core/perf'
 import { repoUsageAt } from '@podium/client-core/viewmodels'
-import { sessionUserStateRowId } from '@podium/model'
+import { type GitRepositoryWire, sessionUserStateRowId } from '@podium/model'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -110,6 +110,32 @@ describe('declared command and launch targets', () => {
         await Promise.resolve()
         f.parity(write.name)
       }
+    } finally {
+      stop()
+      f.close()
+    }
+  }, 180_000)
+
+  it('matches discovery changes and re-links only the sessions under a moved path (POD-5433)', async () => {
+    const f = await fixture(),
+      stop = autorun(() => poolCommandLaunchSnapshot(f.pool))
+    const discover = async (repos: GitRepositoryWire[]) => {
+      f.ctx.discovery.repos = repos
+      f.ctx.hub.emit('worktreesChanged')
+      await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
+    }
+    try {
+      f.parity()
+      const repos = f.ctx.discovery.repos as GitRepositoryWire[]
+      const before = f.source.counts.sessionLinks
+      await discover(repos.map((repo, at) => (at === 0 ? { ...repo, branch: 'renamed' } : repo)))
+      f.parity('branch rename')
+      expect(f.source.counts.sessionLinks).toBe(before)
+      const at = repos.findIndex((repo) => repo.worktrees.length > 0)
+      await discover(repos.map((repo, i) => (i === at ? { ...repo, worktrees: repo.worktrees.slice(1) } : repo)))
+      f.parity('worktree removed')
+      await discover(repos)
+      f.parity('worktree restored')
     } finally {
       stop()
       f.close()

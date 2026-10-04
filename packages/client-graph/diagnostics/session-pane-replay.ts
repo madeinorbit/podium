@@ -13,6 +13,7 @@ import { SessionPaneSource } from '../src/session-pane-source'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from '../src/session-pane-schema'
 import { checkSessionPanes } from './session-pane-check'
 import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 let phase = 0
 let httpStatus: number | undefined
@@ -40,9 +41,9 @@ async function main() {
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const users = replica.rows('sessionUserStates')
   if (new Set(users.map(row => row.userId)).size > 1) throw new Error('Ambiguous replay principal')
-  const sessionReader = createRowSource({ principal: { userId: users[0]?.userId ?? '' },
+  const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: users[0]?.userId ?? '' },
     getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
-  }, replica, { mode: 'truth' })
+  }), replica, { mode: 'truth' })
   let sessions: Store['sessions']
   try {
     sessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
@@ -68,7 +69,7 @@ async function main() {
     issueUserStates: replica.rows('issueUserStates'), coarseNow: Date.now(), selectedIssueId: null,
     panelMode: {}, dockShells: {}, reposLoaded: true, pendingSpawnIds: new Set(),
   } as unknown as Store
-  const runtime = { replica, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(), subscribe: () => () => {} }
+  const runtime = withKeyedInputs({ replica, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(), subscribe: () => () => {} })
   const handle = createRuntimeWorklistPool(runtime as Parameters<typeof createRuntimeWorklistPool>[0], { summaries: SESSION_PANE_SUMMARIES })
   const pool = handle.pool
   pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime as never))

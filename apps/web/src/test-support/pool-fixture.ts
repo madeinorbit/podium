@@ -1,6 +1,7 @@
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
 import type { Store } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/engine'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { reposToViews } from '@podium/client-core/viewmodels'
@@ -198,7 +199,7 @@ export function syncPoolFixture(input: Store, sidebarGesture = false) {
         headerListeners.delete(listener)
       }
     }
-    const owner = {
+    const owner = withKeyedInputs({
       getSnapshot: () => fixtureState,
       subscribe,
       replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
@@ -210,7 +211,7 @@ export function syncPoolFixture(input: Store, sidebarGesture = false) {
         connectionHealth: () => ({ status: 'ok', rttMs: null, since: Date.now() }),
         onConnectionHealth: () => () => {},
       },
-    }
+    })
     stopHeader = attachHeaderSource(pool, owner as never)
   }
   return pool

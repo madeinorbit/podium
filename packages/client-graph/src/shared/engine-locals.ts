@@ -2,20 +2,27 @@ import type { LocalsSourceHandle } from './locals-source'
 import { createLocalsSource } from './locals-source'
 import type { SliceLocals } from './slice-types'
 
-/** The runtime's selection and coarse clock, without a second clock or store. */
+/** The runtime's selection and coarse clock, read by key (POD-5433): a batch
+ *  that moves neither does not wake this source. */
 export interface LocalsEngine {
-  subscribe(listener: () => void): () => void
-  getSnapshot(): { selectedIssueId?: string | null; coarseNow: number }
+  onLocals(keys: readonly ('selectedIssueId' | 'coarseNow')[], listener: () => void): () => void
+  readLocal<K extends keyof EngineLocalValues>(key: K): EngineLocalValues[K]
 }
 
-export function localsOfEngine(engine: LocalsEngine): SliceLocals {
-  const store = engine.getSnapshot()
-  return { selectedIssueId: store.selectedIssueId ?? null, coarseNow: store.coarseNow }
+interface EngineLocalValues {
+  selectedIssueId: string | null
+  coarseNow: number
+}
+
+const KEYS = ['selectedIssueId', 'coarseNow'] as const
+
+export function localsOfEngine(engine: Pick<LocalsEngine, 'readLocal'>): SliceLocals {
+  return { selectedIssueId: engine.readLocal('selectedIssueId') ?? null, coarseNow: engine.readLocal('coarseNow') }
 }
 
 export function createEngineLocals(engine: LocalsEngine): LocalsSourceHandle {
   return createLocalsSource(
     () => localsOfEngine(engine),
-    (wake) => engine.subscribe(wake),
+    (wake) => engine.onLocals(KEYS, wake),
   )
 }

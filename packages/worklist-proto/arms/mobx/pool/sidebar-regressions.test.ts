@@ -43,6 +43,7 @@ import { stripSessionLegacy } from '../../../harness/src/fixture/session-homes'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { sidebarReplayStore } from '../../../harness/src/oracle/sidebar-replay'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 const mobxTrap = installMobxWarnTrap({ errors: true })
 const NOW = Date.parse('2026-09-30T12:00:00.000Z')
@@ -177,7 +178,7 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
   ))
   let store = { ...sidebarReplayStore(corpus, replica), sessions: legacySessions() }
   const subscribers = new Set<() => void>()
-  const runtime = {
+  const runtime = withKeyedInputs({
     principal: asClientPrincipal(USER_ID),
     getSnapshot: () => store,
     subscribe: (listener: () => void) => {
@@ -187,7 +188,7 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
       }
     },
     pendingOverlaysByRow: () => new Map(),
-  }
+  })
   const publish = () => {
     for (const listener of subscribers) listener()
   }

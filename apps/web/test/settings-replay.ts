@@ -10,6 +10,7 @@ import { createRoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
 import { checkSettings } from '@podium/client-graph/diagnostics/settings-check'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 if (hostname() !== 'ludovico') throw new Error('Settings operator replay is ludovico-only')
 const { token, expiresAt } = JSON.parse(readFileSync(join(homedir(), '.podium', 'cli-session.json'), 'utf8')) as { token: string; expiresAt?: string }
@@ -39,7 +40,7 @@ const ui = createRoutedUiState({
   replicated: { hydrate: async () => {}, get: (key) => layout[key], set: readonly, clear: readonly, subscribe: none },
 })
 const state = { sessions: dedupeSessionsByResume(sessions), machines, repos, settingsTab: 'accounts' }
-const owner = { getSnapshot: () => state, subscribe: none, ui }
+const owner = withKeyedInputs({ getSnapshot: () => state, subscribe: none, ui })
 const sessionRows = new Map(sessions.map((row) => [row.sessionId as string, row]))
 const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined,
   { settings: true, load: (_entity, id) => sessionRows.get(id), schedule: () => () => {} })

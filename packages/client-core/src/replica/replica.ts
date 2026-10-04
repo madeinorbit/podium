@@ -90,6 +90,7 @@ import type {
   PersistedCollectionPersistence,
   persistedCollectionOptions,
 } from '@tanstack/db-sqlite-persistence-core'
+import { jsonRowsEqual } from '../json-equal'
 import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage, parseOutboxEntries } from '../outbox'
 import { COLD_CURSOR, type FeedCursor, REPLICA_SCHEMA_VERSION } from './feed'
 
@@ -240,38 +241,6 @@ function maxSeq(rows: OutboxRow[]): number {
   let max = -1
   for (const r of rows) if (typeof r.seq === 'number' && r.seq > max) max = r.seq
   return max
-}
-
-/**
- * Equality for protocol rows, which are JSON values. Unlike stringify, this
- * avoids allocating two complete strings per existing row and stops as soon as
- * a changed field is found. Undefined object fields are ignored to preserve
- * JSON serialization semantics used by persistence.
- */
-function jsonRowsEqual(left: unknown, right: unknown): boolean {
-  if (left === right) return true
-  if (left === null || right === null) return false
-  if (typeof left !== 'object' || typeof right !== 'object') return false
-  const leftArray = Array.isArray(left)
-  if (leftArray !== Array.isArray(right)) return false
-  if (leftArray) {
-    const a = left as unknown[]
-    const b = right as unknown[]
-    if (a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) {
-      if (!jsonRowsEqual(a[i], b[i])) return false
-    }
-    return true
-  }
-  const a = left as Record<string, unknown>
-  const b = right as Record<string, unknown>
-  const aKeys = Object.keys(a).filter((key) => a[key] !== undefined)
-  const bKeys = Object.keys(b).filter((key) => b[key] !== undefined)
-  if (aKeys.length !== bKeys.length) return false
-  for (const key of aKeys) {
-    if (!Object.hasOwn(b, key) || !jsonRowsEqual(a[key], b[key])) return false
-  }
-  return true
 }
 
 /** In-place full replace of a draft's contents with `value`.
@@ -773,6 +742,7 @@ class TanstackReplica implements Replica {
     // In-memory FIRST and synchronously — see getFeedCursor. The persist is
     // what waits; the truth does not.
     this.cursorState = cursor
+    this.cursorMoved()
     // Persist-after-data: wait for every entity write issued before this call.
     const fence = this.lastWrite
     void fence.then(() => {
@@ -831,6 +801,7 @@ class TanstackReplica implements Replica {
     // between the two halves must leave data-without-cursor (re-pull recovers
     // it), never cursor-without-data (a permanent silent hole).
     this.cursorState = COLD_CURSOR
+    this.cursorMoved()
     //
     // "One transaction" is the CONTRACT of this seam, not a property this
     // engine can supply: a localStorage-backed replica has no transaction to
@@ -962,6 +933,23 @@ class TanstackReplica implements Replica {
    * There is no work item hiding behind this. POD-378 retires this class; the
    * distinction arrives with the kernel feed, not with a better guess here.
    */
+
+  private readonly cursorListeners = new Set<() => void>()
+
+  private cursorMoved(): void {
+    for (const cb of [...this.cursorListeners]) {
+      try {
+        cb()
+      } catch {
+        // One cursor observer must not stop the others.
+      }
+    }
+  }
+
+  subscribeCursor(cb: () => void): () => void {
+    this.cursorListeners.add(cb)
+    return () => this.cursorListeners.delete(cb)
+  }
 
   subscribeRows(kind: ReplicaKind, cb: () => void): () => void {
     try {

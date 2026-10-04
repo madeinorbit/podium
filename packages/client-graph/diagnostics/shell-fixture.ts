@@ -8,6 +8,7 @@ import { shipLaneId, type ShipOrderProjection, type ShipLaneProjection } from '@
 import { MobxPool } from '../src/pool'
 import { SHELL_ENTITIES, SHELL_SUMMARIES } from '../src/shell-schema'
 import { ShellSource } from '../src/shell-source'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 export const SHELL_NOW = Date.parse('2026-10-01T14:00:00Z')
 export function shellFixture(count = 40) {
@@ -45,10 +46,10 @@ export function shellFixture(count = 40) {
     workspaceKey: () => { const selected = issues.find(issue => issue.id === state.selectedIssueId && !issue.archived && !issue.deletedAt); return workspaceKeyFor({ missionRootId: selected ? missionRootFor(issues, selected.id)?.id : null, issueId: state.selectedIssueId, worktreePath: state.selectedWorktree }) },
   } as unknown as Store
   const listeners = new Set<() => void>(), addressed = new Set<(batch: { type: 'update' | 'replace'; rows: { kind: 'shipLanes'; id: string }[] }) => void>()
-  const runtime = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+  const runtime = withKeyedInputs({ getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     replica: { rows: () => state.shipLanes, row: (_kind: string, id: string) => state.shipLanes.find(lane => lane.id === id),
       subscribeAddressedBatch: (listener: typeof addressed extends Set<infer T> ? T : never) => { addressed.add(listener); return () => { addressed.delete(listener) } } },
-  } as unknown as ClientRuntime
+  }) as unknown as ClientRuntime
   const loads: string[] = []
   const pool = new MobxPool({ coarseNow: SHELL_NOW, selectedIssueId: state.selectedIssueId }, undefined, { summaries: SHELL_SUMMARIES, schedule: () => () => {},
     load: (entity, id) => { loads.push(`${entity}:${id}`); return entity === 'issue' ? issues.find(row => row.id === id) : entity === 'session' ? sessions.find(row => row.sessionId === id) : undefined } })

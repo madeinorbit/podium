@@ -468,13 +468,15 @@ it('coalesces readiness loads and releases the existing cursor subscription on d
     stopped = 0
   const source = new MobileInboxSource(
     {
-      replica: { getCursor: () => cursor } as never,
-      subscribe: (callback) => {
-        publish = callback
-        return () => {
-          stopped++
-        }
-      },
+      replica: {
+        getCursor: () => cursor,
+        subscribeCursor: (callback: () => void) => {
+          publish = callback
+          return () => {
+            stopped++
+          }
+        },
+      } as never,
     },
     app.pool,
   )

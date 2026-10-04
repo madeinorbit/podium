@@ -18,6 +18,7 @@ import { corpusFromLive, type LiveCollections } from '../fixture/live-snapshot'
 import { fixtureSessionHomes, stripSessionLegacy } from '../fixture/session-homes'
 import { sidebarReplayStore } from './sidebar-replay'
 import { snapshotFromStore } from './oracle'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 async function main() {
   if (hostname() !== 'ludovico') throw new Error('Restricted host')
@@ -126,12 +127,12 @@ async function main() {
       ...sidebarReplayStore(corpus, replica),
       sessions: sessionViews(replica.rows('sessions'), { ...upgraded, userId }),
     }
-    const runtime = {
+    const runtime = withKeyedInputs({
       principal: { userId },
       getSnapshot: () => store,
       subscribe: () => () => {},
       pendingOverlaysByRow: () => new Map(),
-    }
+    })
     const feed = createRowSource(runtime, replica, { mode: 'overlaid' })
     const locals = createEngineLocals(runtime)
     const handle = createWorklistPool(feed.source, locals.source)

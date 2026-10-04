@@ -13,6 +13,7 @@ import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from '@podium/client
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import { checkChatContext } from './chat-context-check'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 /** Synthetic corpus shared by the focused reader/UI checks. No external app,
  * database, socket or additional mutation owner is constructed. */
@@ -47,7 +48,7 @@ export async function createChatContextFixture(resumeTwins = false) {
   const raw = (kind: string): readonly object[] => kind === 'sessions' ? rawSessions : kind === 'issueProjections' ? issues
     : kind === 'messageRecords' ? messages : kind === 'pendingInteractions' ? interactions : []
   let state: Store
-  const owner = {
+  const owner = withKeyedInputs({
     getSnapshot: () => state,
     subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
     readPosition: { get: () => ({ lastEventId: 0, seenAt: null }), subscribe: () => () => {} },
@@ -56,7 +57,7 @@ export async function createChatContextFixture(resumeTwins = false) {
       row: (kind: string, id: string) => { counts.addresses++; return raw(kind).find(row => Reflect.get(row, kind === 'sessions' ? 'sessionId' : 'id') === id) },
       subscribeAddressedBatch: (fn: (batch: ReplicaAddressedBatch) => void) => { addressed.add(fn); return () => { addressed.delete(fn) } } },
     outbox: { pending: () => queued, deadLetters: () => parked, subscribe: (fn: () => void) => { outboxListeners.add(fn); return () => { outboxListeners.delete(fn) } } },
-  } as unknown as ClientRuntime
+  }) as unknown as ClientRuntime
   state = { sessions, messageRecords: messages, pendingInteractions: interactions, issueProjections: issues,
     drafts: { [sessions[0]!.sessionId]: 'Saved draft' }, attachedSessionId: sessions[1]!.sessionId, transcriptReveal: null,
     superThreads: [{ id: 'own-thread', kind: 'global', title: 'Synthetic thread', podiumSessionId: sessions[0]!.sessionId }],

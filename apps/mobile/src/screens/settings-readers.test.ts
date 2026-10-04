@@ -11,7 +11,8 @@ afterEach(() => {
 })
 
 async function fixture() {
-  const runtimeListeners = new Set<() => void>()
+  const runtimeListeners = new Set<() => void>(),
+    cursorListeners = new Set<() => void>()
   // A huge array-like inventory catches accidental payload iteration without
   // allocating it; the production seam only needs its maintained length.
   const inventory = (length: number) =>
@@ -26,17 +27,22 @@ async function fixture() {
     )
   let state = { issueProjections: inventory(100_000), conversations: inventory(5) }
   let cursor: ReturnType<ClientRuntime['replica']['getCursor']> = null
-  const read = vi.fn(() => state as unknown as Pick<Store, 'issueProjections' | 'conversations'>)
+  const read = vi.fn(
+    (key: 'issueProjections' | 'conversations') =>
+      (state as unknown as Pick<Store, 'issueProjections' | 'conversations'>)[key],
+  )
+  const listen = (listeners: Set<() => void>) => (wake: () => void) => {
+    listeners.add(wake)
+    return () => {
+      listeners.delete(wake)
+    }
+  }
   const source = await createMobileSettingsSource({
-    getSnapshot: read,
-    subscribe: (wake) => {
-      runtimeListeners.add(wake)
-      return () => {
-        runtimeListeners.delete(wake)
-      }
-    },
+    readLocal: read as unknown as ClientRuntime['readLocal'],
+    onLocals: (_keys, wake) => listen(runtimeListeners)(wake as () => void),
     replica: {
       getCursor: () => cursor,
+      subscribeCursor: listen(cursorListeners),
     } as unknown as ClientRuntime['replica'],
   })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
@@ -47,15 +53,16 @@ async function fixture() {
     source,
     read,
     runtimeListeners,
+    cursorListeners,
     publish(issues: number, conversations: number) {
       state = { issueProjections: inventory(issues), conversations: inventory(conversations) }
       for (const wake of runtimeListeners) wake()
     },
     cursor(next: typeof cursor) {
       cursor = next
-      // The real facade intentionally ignores cursor-only events. The existing
-      // runtime clock/publication refreshes diagnostic scalars without row churn.
-      for (const wake of runtimeListeners) wake()
+      // The facade's cursor signal (POD-5433): cursor-only frames still touch
+      // no replica rows, but they refresh the diagnostic scalar.
+      for (const wake of cursorListeners) wake()
     },
   }
 }
@@ -67,7 +74,8 @@ it('batches declared diagnostics and maintains counts without iterating payloads
   expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toBe(LOADING)
   expect(f.read).not.toHaveBeenCalled()
   await Promise.resolve()
-  expect(f.read).toHaveBeenCalledTimes(1)
+  // One batch reads the two counts, by key.
+  expect(f.read).toHaveBeenCalledTimes(2)
   expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toEqual({
     issueCount: 100_000,
     conversationCount: 5,
@@ -83,7 +91,7 @@ it('batches declared diagnostics and maintains counts without iterating payloads
   })
 })
 
-it('refreshes the cursor on runtime publications and suppresses equal diagnostics', async () => {
+it('refreshes the cursor on its signal and suppresses equal diagnostics', async () => {
   const f = await fixture()
   const view = createPoolProjection(f.pool, (pool) =>
     pool.row('mobileSettingsDiagnostics', 'diagnostics'),
@@ -106,6 +114,7 @@ it('unsubscribes at disposal and cancels a pending diagnostic batch', async () =
   expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toBe(LOADING)
   f.pool.dispose()
   expect(f.runtimeListeners.size).toBe(0)
+  expect(f.cursorListeners.size).toBe(0)
   await Promise.resolve()
   expect(f.read).not.toHaveBeenCalled()
   expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toBe(LOADING)

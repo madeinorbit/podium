@@ -92,6 +92,16 @@ import { createEngineActions, type EngineActionRuntime, type EngineActions } fro
 import { BootFetches } from './boot'
 import { OutboxSettlements } from './chat-send'
 import { createHostMetricsStore } from './host-metrics'
+import {
+  createKeyedInputs,
+  type KeyedInputStats,
+  type KeyedInputsChannel,
+  type KeyedListChange,
+  type KeyedListName,
+  type KeyedListRow,
+  type LocalKey,
+  type LocalsListener,
+} from './keyed-inputs'
 import { machinesMaterialSignature } from './machines-material'
 import { type NavigationIntent, planNavigation } from './navigation'
 import { dedupeSessions, OptimismLedger, type SpawnPlaceholderEvent } from './optimism'
@@ -405,6 +415,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** > 0 while {@link batch} is coalescing applies into one snapshot. */
   private batchDepth = 0
   private pendingChanges = new Set<keyof EngineState>()
+  /** Sessions whose draft this batch painted, for {@link onDraft}. */
+  private pendingDrafts = new Set<string>()
+  /** The keyed inputs (POD-5426 §4.10): locals by key, lists by id, drafts per session. */
+  private readonly inputs: KeyedInputsChannel
   private pendingReactions = new Set<keyof EngineState>()
   private poolRuntimeWork = false
   private sessionTopologyChanged = false
@@ -633,6 +647,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.state.drafts = this.hydrateDrafts()
     this.statics = this.buildStatics(actions)
     this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot(), undefined, this)
+    this.inputs = createKeyedInputs(() => this.state)
   }
 
   /** Read this device's persisted drafts into the ledger, and return the map the
@@ -665,6 +680,27 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** useSyncExternalStore-shaped subscription. Bound so it can be passed bare. */
   readonly subscribe = (listener: () => void): (() => void) => this.subStore.subscribe(listener)
   readonly getSnapshot = (): Store<TApi> => this.subStore.getSnapshot()
+  /** Keyed locals (POD-5426 §4.10): `listener` runs after a batch that changed
+   *  one of `keys`, with that subset. Bound so it can be passed bare. */
+  readonly onLocals = (keys: readonly LocalKey[], listener: LocalsListener): (() => void) =>
+    this.inputs.onLocals(keys, listener)
+  /** The value of one local as the last batch published it. */
+  readonly readLocal = <K extends LocalKey>(key: K): EngineState[K] => this.inputs.readLocal(key)
+  /** Discovery and window lists by id: the ids whose row changed per batch. */
+  readonly onList = <N extends KeyedListName>(
+    name: N,
+    listener: (change: KeyedListChange) => void,
+  ): (() => void) => this.inputs.onList(name, listener)
+  readonly listIds = (name: KeyedListName): readonly string[] => this.inputs.listIds(name)
+  readonly listRow = <N extends KeyedListName>(name: N, id: string): KeyedListRow<N> | undefined =>
+    this.inputs.listRow(name, id)
+  /** The one session whose draft a batch painted. */
+  readonly onDraft = (listener: (sessionId: string) => void): (() => void) =>
+    this.inputs.onDraft(listener)
+  /** Wake and diff counters of the keyed inputs (adapter meters). */
+  get keyedInputStats(): KeyedInputStats {
+    return this.inputs.stats
+  }
   /** The optimism ledger's pending overlays by row id (POD-4553), read-only:
    *  lets a per-row reader fold one row over `replica.row()` instead of
    *  diffing the snapshot's folded arrays. Derived at call time; retirement
@@ -1042,6 +1078,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.pendingSessionNavigation = undefined
     this.pendingNavigationTopology = false
     this.destroyed = true
+    this.inputs.dispose()
     this.hostMetricsStore.destroy()
   }
 
@@ -1211,10 +1248,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         if (this.batchDepth === 0) {
           const changed = this.pendingChanges
           this.pendingChanges = new Set()
+          const drafts = this.pendingDrafts
+          this.pendingDrafts = new Set()
           this.sessionTopologyChanged = false
           // Clear bookkeeping before notifying: listeners may write again.
-          if (changed.size > 0 && !this.destroyed)
+          if (changed.size > 0 && !this.destroyed) {
             this.subStore.publish(this.buildSnapshot(), changed)
+            this.inputs.emit(changed, drafts)
+          }
         }
       }
     }
@@ -1712,6 +1753,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private applyDraftToStore(sessionId: SessionId, text: string): void {
     const d = this.state.drafts
     if (d[sessionId] === text) return
+    this.pendingDrafts.add(sessionId)
     this.apply({ drafts: { ...d, [sessionId]: text } })
   }
 

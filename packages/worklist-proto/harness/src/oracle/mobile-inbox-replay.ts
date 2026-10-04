@@ -1,7 +1,7 @@
 /** Read-only ludovico replay. The export stays in memory. Only counts and
  * numeric field positions are emitted, including on failure. */
 import { hostname } from 'node:os'
-import { dedupeSessions } from '@podium/client-core/engine'
+import { dedupeSessions, withKeyedInputs } from '@podium/client-core/engine'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -85,13 +85,13 @@ async function main() {
       machines: replica.rows('machines'),
     }),
   )
-  const runtime = {
+  const runtime = withKeyedInputs({
     principal: { userId: sessionHomes.userId },
     replica,
     getSnapshot: () => store,
     subscribe: () => () => {},
     pendingOverlaysByRow: () => new Map(),
-  }
+  })
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' }),
     locals = createEngineLocals(runtime)
   const handle = createWorklistPool(

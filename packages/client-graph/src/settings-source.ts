@@ -1,28 +1,44 @@
 import { compareStructural, observable, runInAction } from 'mobx'
-import type { Store } from '@podium/client-core/engine'
-import { settingsRepositoryId, type SettingsEntity, type SettingsRows } from './settings-schema'
+import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
+import type { SettingsEntity, SettingsRows } from './settings-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-export interface SettingsOwner {
-  getSnapshot(): Pick<Store, 'machines' | 'repos' | 'settingsTab'>
-  subscribe(wake: () => void): () => void
-}
+export type SettingsOwner = Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'onList' | 'listIds' | 'listRow'>
+
+type Discovery = 'machines' | 'repos'
+const ENTITY = { machines: 'settingsMachine', repos: 'settingsRepository' } as const
 
 /** A read-only source on the existing engine. The first demand batches the
- * catalog and window together. Publications borrow engine rows only when that
- * engine array moved; session history is supplied by the pool, not this port. */
+ * catalog and window together. Keyed (POD-5433): machines and repos arrive by
+ * id, so a publication rewrites only the rows that changed; the window wakes
+ * on `settingsTab` alone. Session history is supplied by the pool, not here. */
 export class SettingsSource {
   private readonly rows = observable.map<string, object>(undefined, { deep: false })
   private scheduled = false
   private demanded = false
   private disposed = false
-  private readonly unsubscribe: () => void
-  private machines: Store['machines'] | undefined
-  private repos: Store['repos'] | undefined
+  private readonly stops: (() => void)[]
+  /** Ids per list to rewrite at the next drain; null = the whole list. */
+  private readonly dirty: Record<Discovery, Set<string> | null> = { machines: null, repos: null }
+  private orderDirty = true
+  private windowDirty = true
   private readonly loaded = observable.box(false)
 
   constructor(private readonly owner: SettingsOwner) {
-    this.unsubscribe = owner.subscribe(() => { if (this.demanded) this.schedule() })
+    const list = (name: Discovery) => (change: KeyedListChange) => {
+      const ids = this.dirty[name]
+      if (ids !== null) for (const id of change.ids) ids.add(id)
+      if (change.order) this.orderDirty = true
+      if (this.demanded) this.schedule()
+    }
+    this.stops = [
+      owner.onList('machines', list('machines')),
+      owner.onList('repos', list('repos')),
+      owner.onLocals(['settingsTab'], () => {
+        this.windowDirty = true
+        if (this.demanded) this.schedule()
+      }),
+    ]
   }
 
   read(entity: SettingsEntity, id: string): Loaded<SettingsRows[SettingsEntity]> {
@@ -38,23 +54,29 @@ export class SettingsSource {
     queueMicrotask(() => {
       this.scheduled = false
       if (this.disposed) return
-      const state = this.owner.getSnapshot()
       runInAction(() => {
-        if (this.machines !== state.machines || this.repos !== state.repos) {
-          this.machines = state.machines
-          this.repos = state.repos
-          const next = new Map<string, object>()
-          for (const machine of state.machines) next.set(`settingsMachine:${machine.id}`, machine)
-          for (const repo of state.repos) next.set(`settingsRepository:${settingsRepositoryId(repo)}`, repo)
-          next.set('settingsCatalog:catalog', {
-            machines: state.machines.map((machine) => machine.id),
-            repositories: state.repos.map(settingsRepositoryId),
-          })
-          for (const key of this.rows.keys()) if (key !== 'settingsWindow:window' && !next.has(key)) this.rows.delete(key)
-          for (const [key, value] of next) if (!compareStructural(this.rows.get(key), value)) this.rows.set(key, value)
+        for (const name of ['machines', 'repos'] as const) {
+          const pending = this.dirty[name]
+          this.dirty[name] = new Set()
+          if (pending === null) this.orderDirty = true
+          const ids = pending ?? this.owner.listIds(name)
+          const known = new Set(this.owner.listIds(name))
+          for (const id of ids) {
+            const key = `${ENTITY[name]}:${id}`, value = known.has(id) ? this.owner.listRow(name, id) : undefined
+            if (value === undefined) this.rows.delete(key)
+            else if (!compareStructural(this.rows.get(key), value)) this.rows.set(key, value)
+          }
         }
-        const window = { settingsTab: state.settingsTab }
-        if (!compareStructural(this.rows.get('settingsWindow:window'), window)) this.rows.set('settingsWindow:window', window)
+        if (this.orderDirty) {
+          this.orderDirty = false
+          const catalog = { machines: [...this.owner.listIds('machines')], repositories: [...this.owner.listIds('repos')] }
+          if (!compareStructural(this.rows.get('settingsCatalog:catalog'), catalog)) this.rows.set('settingsCatalog:catalog', catalog)
+        }
+        if (this.windowDirty) {
+          this.windowDirty = false
+          const window = { settingsTab: this.owner.readLocal('settingsTab') }
+          if (!compareStructural(this.rows.get('settingsWindow:window'), window)) this.rows.set('settingsWindow:window', window)
+        }
         this.loaded.set(true)
       })
     })
@@ -63,9 +85,7 @@ export class SettingsSource {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.unsubscribe()
-    this.machines = undefined
-    this.repos = undefined
+    for (const stop of this.stops) stop()
     // Detach during provider render; release observable rows after render.
     queueMicrotask(() => runInAction(() => { this.rows.clear(); this.loaded.set(false) }))
   }

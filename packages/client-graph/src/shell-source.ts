@@ -1,4 +1,4 @@
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime, KeyedListChange, KeyedListName } from '@podium/client-core/engine'
 import { compareStructural, observable, runInAction } from 'mobx'
 import { SHELL_RELATIONS, type ShellEntity, type ShellRows } from './shell-schema'
 import type { PoolSource } from './source-registry'
@@ -15,31 +15,42 @@ export class ShellSource implements PoolSource<ShellEntity> {
   private disposed = false
   readonly counts = { locals: 0, laneCollections: 0, laneRows: 0 }
 
-  constructor(runtime: Pick<ClientRuntime, 'getSnapshot' | 'subscribe' | 'replica'>) {
-    let previous: Pick<Store, 'approvals' | 'fileTabs' | 'workspaces'> | undefined
-    const locals = () => {
+  constructor(runtime: Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'onList' | 'listIds' | 'listRow' | 'replica'>) {
+    // Keyed (POD-5433): the window wakes on its own locals; each list hands
+    // over only the rows that changed, by id.
+    const windowKeys = ['view', 'paneA', 'selectedIssueId', 'selectedWorktree', 'reposLoaded', 'superOpen', 'paletteOpen', 'autoContinuePromptSessionId', 'coarseNow'] as const
+    const window = () => {
       if (this.disposed) return
-      const state = runtime.getSnapshot()
       runInAction(() => {
-        const { view, paneA, selectedIssueId, selectedWorktree, reposLoaded, superOpen, paletteOpen, autoContinuePromptSessionId, coarseNow } = state
-        this.change('shellWindow', 'window', { view, paneA, selectedIssueId, selectedWorktree, reposLoaded, superOpen, paletteOpen, autoContinuePromptSessionId, coarseNow })
-        if (state.approvals !== previous?.approvals) this.replace('shellApproval', state.approvals.map(row => [row.id, row]))
-        if (state.fileTabs !== previous?.fileTabs) this.replace('shellFile', state.fileTabs.map(row => [row.id, row]))
-        if (state.workspaces !== previous?.workspaces) this.replace('shellWorkspace', Object.entries(state.workspaces))
-        previous = { approvals: state.approvals, fileTabs: state.fileTabs, workspaces: state.workspaces }
-        this.catalog()
+        this.change('shellWindow', 'window', Object.fromEntries(windowKeys.map(key => [key, runtime.readLocal(key)])))
         this.counts.locals++
       })
     }
+    const lists = [['shellApproval', 'approvals'], ['shellFile', 'fileTabs'], ['shellWorkspace', 'workspaces']] as const
+    const list = (entity: ShellEntity, name: KeyedListName, change?: KeyedListChange) => {
+      if (this.disposed) return
+      runInAction(() => {
+        if (change === undefined) this.replace(entity, runtime.listIds(name).map(id => [id, runtime.listRow(name, id) as object]))
+        else {
+          for (const id of change.ids) this.change(entity, id, runtime.listRow(name, id) as object | undefined)
+          const ids = runtime.listIds(name)
+          if (change.order && !compareStructural(this.orders.get(entity), ids)) this.orders.set(entity, [...ids])
+        }
+        this.catalog()
+      })
+    }
+    window()
+    for (const [entity, name] of lists) list(entity, name)
     const lanes = () => {
       this.counts.laneCollections++
       this.replace('shellShipLane', runtime.replica.rows('shipLanes').map(row => [row.id, row]))
       this.catalog()
     }
-    locals()
     runInAction(lanes)
     if (!runtime.replica.row || !runtime.replica.subscribeAddressedBatch) throw new Error('Shell controls require the existing addressed replica')
-    this.stops = [runtime.subscribe(locals), runtime.replica.subscribeAddressedBatch(batch => {
+    this.stops = [runtime.onLocals(windowKeys, window),
+      ...lists.map(([entity, name]) => runtime.onList(name, change => list(entity, name, change))),
+      runtime.replica.subscribeAddressedBatch(batch => {
       if (this.disposed) return
       runInAction(() => {
         if (batch.type === 'replace') { lanes(); return }

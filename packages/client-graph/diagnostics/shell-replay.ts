@@ -20,6 +20,7 @@ import { ShellSource } from '../src/shell-source'
 import { SHELL_ENTITIES, SHELL_SOURCE_KEY, SHELL_SUMMARIES } from '../src/shell-schema'
 import { MISSION_VIEW_SUMMARIES } from '../src/mission-view-schema'
 import { checkShell, poolShellSnapshot } from './shell-check'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 let phase = 0
 async function main() {
@@ -60,9 +61,9 @@ async function main() {
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const users = replica.rows('sessionUserStates')
   if (new Set(users.map(row => row.userId)).size > 1) throw new Error('Ambiguous principal')
-  const sessionReader = createRowSource({ principal: { userId: users[0]?.userId ?? '' },
+  const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: users[0]?.userId ?? '' },
     getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
-  }, replica, { mode: 'truth' })
+  }), replica, { mode: 'truth' })
   let sessions: Store['sessions']
   try {
     sessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
@@ -80,9 +81,9 @@ async function main() {
     },
   } as unknown as Store
   const listeners = new Set<() => void>()
-  const runtime = { replica, principal: { userId: users[0]?.userId ?? '' }, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(),
+  const runtime = withKeyedInputs({ replica, principal: { userId: users[0]?.userId ?? '' }, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(),
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
-    hostMetrics: { getSnapshot: () => [], subscribe: () => () => {} }, hub: { connectionHealth: () => ({}), onConnectionHealth: () => () => {} } }
+    hostMetrics: { getSnapshot: () => [], subscribe: () => () => {} }, hub: { connectionHealth: () => ({}), onConnectionHealth: () => () => {} } })
   const handle = createRuntimeWorklistPool(runtime as never, { header: true, summaries: {
     issue: [...SHELL_SUMMARIES.issue, ...MISSION_VIEW_SUMMARIES.issue], session: [...SHELL_SUMMARIES.session, ...MISSION_VIEW_SUMMARIES.session],
   } })

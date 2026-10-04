@@ -16,6 +16,7 @@ import { fixtureSessionHomes, stripSessionLegacy } from '../fixture/session-home
 import { readLive } from '../fixture/export-snapshot'
 import { corpusFromLive } from '../fixture/live-snapshot'
 import { sidebarReplayStore } from './sidebar-replay'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 let step = 0
 function phase(next: number) {
@@ -41,7 +42,7 @@ export function replayIssuePages(corpus: FixtureCorpus) {
     return value
   })
   store.sessions = dedupeSessions(ordered)
-  const runtime = { getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
+  const runtime = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() })
   phase(3)
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' }), locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: ISSUE_PAGE_SUMMARIES })

@@ -113,7 +113,7 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
     queueMicrotask(() => {
       scheduled = false
       if (disposed) return
-      const pendingSpawnPrompts = owner.getSnapshot().pendingSpawnPrompts
+      const pendingSpawnPrompts = owner.readLocal('pendingSpawnPrompts')
       const cursor = owner.replica.getCursor()
       const previous = window.get()
       runInAction(() => {
@@ -126,7 +126,9 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
       })
     })
   }
-  const stops = [owner.subscribe(schedule), owner.replica.subscribeAddressedBatch!(schedule)]
+  // Keyed (POD-5433): the spawn prompts local and the cursor signal.
+  if (!owner.replica.subscribeCursor) throw new Error('Phone session context requires the replica cursor signal')
+  const stops = [owner.onLocals(['pendingSpawnPrompts'], schedule), owner.replica.subscribeCursor(schedule)]
   return {
     read(entity: keyof MobileSessionRows): Loaded<MobileSessionRows[keyof MobileSessionRows]> {
       if (disposed) return LOADING

@@ -42,9 +42,7 @@ export const SUPERAGENT_RELATIONS = [
 ] as const
 export const SUPERAGENT_SUMMARIES = { session: SUPERAGENT_SCHEMA.session.summary }
 
-type SuperagentOwner = Pick<ClientRuntime, 'replica' | 'readPosition' | 'subscribe'> & {
-  getSnapshot(): Pick<Store, 'superThreads' | 'superThreadId' | 'paneA' | 'selectedWorktree'>
-}
+type SuperagentOwner = Pick<ClientRuntime, 'replica' | 'readPosition' | 'readLocal' | 'onLocals' | 'onList' | 'listIds' | 'listRow'>
 
 /** MobX and the loading sentinel arrive only after the app-load switch has
  * latched ON. Initial demands coalesce; incremental events use addressed rows. */
@@ -62,8 +60,12 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
     private readonly edges = observable.map<string, readonly string[]>(undefined, { deep: false })
     private readonly loaded = observable.set<string>()
     private readonly demanded = new Set<string>()
-    private previousThreads: Store['superThreads'] | undefined
     private scheduled = false
+    /** Keyed (POD-5433): what each wake moved. */
+    private threadsDirty = true
+    private localDirty = true
+    private bootingDirty = true
+    private booting = true
     private eventsDirty = true
     private questionsDirty = true
     private disposed = false
@@ -71,15 +73,24 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
     readonly counts = { batches: 0, threadLists: 0, eventCollections: 0, addressedEvents: 0, questionCollections: 0 }
 
     constructor() {
-      this.stops = [owner.subscribe(() => { if (this.demanded.size) this.schedule() }),
+      const local = () => { this.localDirty = true; if (this.demanded.has('threads')) this.schedule() }
+      const boot = () => { this.bootingDirty = true; if (this.demanded.has('threads')) this.schedule() }
+      // A cold cursor with rows present: only a removal can make it boot again.
+      const removed = (rows: readonly { kind: string; id: string }[]) => rows.some(address =>
+        (address.kind === 'sessions' || address.kind === 'issueProjections') && !replica.row?.(address.kind, address.id))
+      this.stops = [owner.onList('superThreads', () => { this.threadsDirty = true; if (this.demanded.has('threads')) this.schedule() }),
+        owner.onLocals(['superThreadId', 'paneA', 'selectedWorktree'], local),
         owner.readPosition.subscribe(() => { if (this.demanded.has('cursor')) this.schedule() }),
+        // `booting` can move only while it holds, or when the cursor is cold.
+        ...(replica.subscribeCursor ? [replica.subscribeCursor(() => { if (this.booting || replica.getCursor() === null) boot() })] : []),
         replica.subscribeAddressedBatch!(batch => {
           if (this.disposed) return
           if (batch.type === 'replace') {
-            this.eventsDirty = true; this.questionsDirty = true
+            this.eventsDirty = true; this.questionsDirty = true; this.localDirty = true; this.bootingDirty = true
             if (this.demanded.size) this.schedule()
             return
           }
+          if (this.booting || (replica.getCursor() === null && removed(batch.rows))) boot()
           runInAction(() => {
             let events = false
             for (const address of batch.rows) {
@@ -120,8 +131,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
     }
 
     private threads(next: Store['superThreads']) {
-      if (next === this.previousThreads) return
-      this.previousThreads = next; this.counts.threadLists++
+      this.counts.threadLists++
       const keep = new Set(next.map(row => row.id))
       for (const key of this.rows.keys()) if (key.startsWith('superThread:') && !keep.has(key.slice(12))) this.rows.delete(key)
       for (const row of next) this.set(`superThread:${row.id}`, row)
@@ -154,11 +164,21 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
         if (this.disposed) return
         runInAction(() => {
           if (this.demanded.has('threads')) {
-            const state = owner.getSnapshot()
-            this.threads(state.superThreads)
-            this.set('superagentLocal:local', { superThreadId: state.superThreadId, paneA: state.paneA,
-              selectedWorktree: state.selectedWorktree, booting: replica.getCursor() === null &&
-                readViewInputs(replica).sessions.length === 0 && replica.rows('issueProjections').length === 0 })
+            if (this.threadsDirty) {
+              this.threadsDirty = false
+              this.threads(owner.listIds('superThreads').flatMap(id => owner.listRow('superThreads', id) ?? []))
+            }
+            const before = this.booting
+            if (this.bootingDirty) {
+              this.bootingDirty = false
+              this.booting = replica.getCursor() === null &&
+                readViewInputs(replica).sessions.length === 0 && replica.rows('issueProjections').length === 0
+            }
+            if (this.localDirty || this.booting !== before) {
+              this.localDirty = false
+              this.set('superagentLocal:local', { superThreadId: owner.readLocal('superThreadId'), paneA: owner.readLocal('paneA'),
+                selectedWorktree: owner.readLocal('selectedWorktree'), booting: this.booting })
+            }
             this.loaded.add('threads')
           }
           if (this.demanded.has('events') && this.eventsDirty) {
@@ -184,7 +204,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
       if (this.disposed) return
       this.disposed = true
       for (const stop of this.stops) stop()
-      this.previousThreads = undefined; this.demanded.clear()
+      this.demanded.clear()
       queueMicrotask(() => runInAction(() => { this.rows.clear(); this.edges.clear(); this.loaded.clear() }))
     }
   }

@@ -13,10 +13,13 @@ export class SessionPaneSource {
   )
   private readonly stop: () => void
   private disposed = false
-  constructor(runtime: Pick<ClientRuntime, 'getSnapshot' | 'subscribe'>) {
+  constructor(runtime: Pick<ClientRuntime, 'readLocal' | 'onLocals'>) {
     const update = () => {
       if (this.disposed) return
-      const { panelMode, dockShells, reposLoaded, pendingSpawnIds } = runtime.getSnapshot()
+      const panelMode = runtime.readLocal('panelMode'),
+        dockShells = runtime.readLocal('dockShells'),
+        reposLoaded = runtime.readLocal('reposLoaded'),
+        pendingSpawnIds = runtime.readLocal('pendingSpawnIds')
       const previous = this.value.get()
       if (
         previous &&
@@ -29,7 +32,8 @@ export class SessionPaneSource {
       runInAction(() => this.value.set({ panelMode, dockShells, reposLoaded, pendingSpawnIds }))
     }
     update()
-    this.stop = runtime.subscribe(update)
+    // Keyed (POD-5433): only these four locals wake the pane window.
+    this.stop = runtime.onLocals(['panelMode', 'dockShells', 'reposLoaded', 'pendingSpawnIds'], update)
   }
   read(_entity: 'sessionPaneWindow', _id: string) {
     return this.value.get()

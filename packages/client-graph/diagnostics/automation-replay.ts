@@ -12,6 +12,7 @@ import { createRowSource } from '../src/shared/row-source'
 import { AutomationSource } from '../src/automation-source'
 import { AUTOMATION_ENTITIES } from '../src/automation-schema'
 import { checkAutomations, type LegacyTargets } from './automation-check'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 interface ReadonlyDatabase {
   exec(sql: string): void
@@ -61,9 +62,9 @@ async function main() {
   }
   const replica = createKernelReplica({ cache: { readCursor: () => null, readEntities: () => [...records.values()], read: (entity, id) => records.get(`${entity}:${id}`), durability: () => 'durable' },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-  const sessionReader = createRowSource({ principal: { userId: '' },
+  const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: '' },
     getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
-  }, { ...replica, sessionUserStatesLoaded: () => true }, { mode: 'truth' })
+  }), { ...replica, sessionUserStatesLoaded: () => true }, { mode: 'truth' })
   let normalizedSessions: Store['sessions']
   try {
     normalizedSessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
@@ -72,9 +73,9 @@ async function main() {
     repos, machines, settingsTab: 'general', coarseNow: Date.now(), selectedIssueId: null, paneA: null,
     pins: { repos: [], worktrees: [] }, sidebarSettings: { repoOrder: [] },
   } as unknown as Store
-  const runtime = { replica, getSnapshot: () => state, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+  const runtime = withKeyedInputs({ replica, getSnapshot: () => state, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
     ui: { get: () => null, subscribe: () => () => {} },
-  }
+  })
   const handle = createRuntimeWorklistPool(runtime as never, { settings: true })
   handle.pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(replica))
   try {

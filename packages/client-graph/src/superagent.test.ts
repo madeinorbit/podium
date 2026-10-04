@@ -9,6 +9,7 @@ import { NOTICE_ENTITIES } from './notice-schema'
 import { NoticeSource, NOTICE_SOURCE_KEY } from './notice-source'
 import { LOADING } from './worklist/rollup'
 import { checkSuperagent } from '../diagnostics/superagent-check'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 const dispose: (() => void)[] = []
 afterEach(() => { for (const stop of dispose.splice(0)) stop() })
@@ -25,9 +26,9 @@ async function fixture() {
   const rows = vi.fn((kind: string) => kind === 'issueEvents' ? state.issueEvents : kind === 'pendingInteractions' ? state.pendingInteractions : [])
   const replica = { rows, row: (kind: string, id: string) => rows(kind).find((r: { id: string }) => r.id === id), getCursor: () => 1,
     subscribeAddressedBatch: (wake: (b: ReplicaAddressedBatch) => void) => { batches.add(wake); return () => batches.delete(wake) } }
-  const owner = { replica, subscribe: (wake: () => void) => { wakes.add(wake); return () => wakes.delete(wake) }, getSnapshot: () => state,
+  const owner = withKeyedInputs({ replica, subscribe: (wake: () => void) => { wakes.add(wake); return () => wakes.delete(wake) }, getSnapshot: () => state,
     readPosition: { get: () => cursor, subscribe: (wake: () => void) => { positions.add(wake); return () => positions.delete(wake) }, advance: vi.fn(), hydrate: async () => {}, replace: vi.fn() },
-    outbox: { subscribe: () => () => {}, deadLetters: () => [] } } as unknown as ClientRuntime
+    outbox: { subscribe: () => () => {}, deadLetters: () => [] } }) as unknown as ClientRuntime
   state = { ...state, readPosition: owner.readPosition }
   const load = vi.fn((_entity: string, id: string) => state.sessions.find(row => row.sessionId === id) as never)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-03T00:00:00Z') }, undefined,
@@ -39,7 +40,7 @@ async function fixture() {
   dispose.push(() => pool.dispose())
   return { pool, source, rows, load, get state() { return state }, owner,
     publish(patch: Partial<Store>) { state = { ...state, ...patch }; for (const wake of wakes) wake() },
-    batch(kind: 'issueEvents' | 'pendingInteractions', id: string) { for (const wake of batches) wake({ type: 'update', rows: [{ kind, id }] } as ReplicaAddressedBatch) },
+    batch(kind: 'issueEvents' | 'pendingInteractions' | 'sessions', id: string) { for (const wake of batches) wake({ type: 'update', rows: [{ kind, id }] } as ReplicaAddressedBatch) },
     cursor(next: typeof cursor) { cursor = next; for (const wake of positions) wake() },
     replace() { for (const wake of batches) wake({ type: 'replace' } as ReplicaAddressedBatch) },
     listeners: () => wakes.size + positions.size + batches.size,
@@ -90,7 +91,8 @@ it('keeps booting tied to server session presence while optimistic store session
   expect(f.state.sessions.length).toBeGreaterThan(0)
   expect(superagentState(f.pool).booting).toBe(true)
   f.rows.mockImplementation(kind => kind === 'sessions' ? f.state.sessions as never : [])
-  f.publish({}); await Promise.resolve()
+  // Server rows arrive with their addresses (POD-5433: no whole publication).
+  f.batch('sessions', f.state.sessions[0]?.sessionId ?? ''); await Promise.resolve()
   expect(superagentState(f.pool).booting).toBe(false)
 })
 it('orders numeric event ids, caps the tail and updates only addressed event rows', async () => {

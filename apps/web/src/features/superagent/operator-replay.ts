@@ -13,6 +13,7 @@ import { createSuperagentSource, SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUP
 import { NoticeSource, NOTICE_SOURCE_KEY } from '@podium/client-graph/notice-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { checkSuperagent } from '@podium/client-graph/diagnostics/superagent-check'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 interface ReplayDatabase {
   exec(sql: string): void
@@ -57,10 +58,10 @@ try {
       const state = { superThreads: threads, superThreadId: threads.find(row => row.kind === 'global')?.id ?? 'global',
         sessions, issueEvents: events, pendingInteractions: interactions, repos: [], paneA: null, selectedWorktree: null,
         readPosition: { get: () => cursor, subscribe: () => () => {} } } as unknown as Store
-      const owner = { getSnapshot: () => state, readPosition: state.readPosition, subscribe: () => () => {},
+      const owner = withKeyedInputs({ getSnapshot: () => state, readPosition: state.readPosition, subscribe: () => () => {},
         replica: { getCursor: () => 1, rows: (kind: string) => kind === 'issueEvents' ? events : kind === 'pendingInteractions' ? interactions : [],
           row: (kind: string, id: string) => (kind === 'issueEvents' ? events : interactions).find(row => row.id === id), subscribeAddressedBatch: () => () => {} },
-        outbox: { deadLetters: () => [], subscribe: () => () => {} } } as unknown as ClientRuntime
+        outbox: { deadLetters: () => [], subscribe: () => () => {} } }) as unknown as ClientRuntime
       const pool = new MobxPool({ coarseNow: Date.now(), selectedIssueId: null }, undefined,
         { summaries: SUPERAGENT_SUMMARIES, load: (_entity, id) => sessions.find(row => row.sessionId === id) as never })
       try {

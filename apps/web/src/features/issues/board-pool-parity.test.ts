@@ -1,4 +1,4 @@
-import { dedupeSessions, type Store } from '@podium/client-core/engine'
+import { dedupeSessions, type Store, withKeyedInputs } from '@podium/client-core/engine'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { sessionViews } from '@podium/client-core/session-values'
 import { LOADING } from '@podium/client-graph'
@@ -66,13 +66,13 @@ it('matches legacy columns, values, nested positions, facets, progress and explo
     pins: { repos: [], worktrees: [] },
     sidebarSettings: { repoOrder: [] },
   } as unknown as Store
-  const runtime = {
+  const runtime = withKeyedInputs({
     replica,
     getSnapshot: () => state,
     subscribe: () => () => {},
     pendingOverlaysByRow: () => new Map(),
     ui: { get: () => null, subscribe: () => () => {} },
-  }
+  })
   const handle = createRuntimeWorklistPool(runtime as never, { summaries: ISSUE_BOARD_SUMMARIES })
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),

@@ -34,8 +34,9 @@ describe('engine-backed locals source', () => {
       locals.flush()
       expect(seen).toEqual([])
       expect(locals.stats.notifications).toBe(0)
-      // Row writes did signal: the drain ran and found no local moved.
-      expect(locals.stats.flushes).toBeGreaterThan(0)
+      // Keyed (POD-5433): row writes move no local, so they do not even wake
+      // the source; before, every engine publication ran a drain.
+      expect(locals.stats.flushes).toBe(0)
 
       locals.stats.reset()
       await writeClockTick(ctx)

@@ -3,6 +3,7 @@ import { autorun, configure, observable, runInAction } from 'mobx'
 import { PoolSources, type PoolSource, type PoolSourceRows } from './source-registry'
 import { SettingsSource } from './settings-source'
 import { LOADING, type Loaded } from './worklist/rollup'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 interface NumericSourceRows { sourceTypeProbe: { count: number } }
 interface TextSourceRows { sourceTextProbe: { label: string } }
@@ -76,7 +77,7 @@ it('independent row declarations preserve a typed public reader', () => {
   const registry = new PoolSources()
   const custom = new SourceProbe<'sourceTypeProbe'>({ sourceTypeProbe: { count: 3 } })
   const independent = new SourceProbe<'sourceTextProbe'>({ sourceTextProbe: { label: 'Second source' } })
-  const settings = new SettingsSource({ getSnapshot: () => ({ machines: [], repos: [], settingsTab: 'general' }), subscribe: () => () => {} })
+  const settings = new SettingsSource(withKeyedInputs({ getSnapshot: () => ({ machines: [], repos: [], settingsTab: 'general' }), subscribe: () => () => {} }))
   registry.register(['sourceTypeProbe'], custom)
   registry.register(['sourceTextProbe'], independent)
   registry.register(['settingsWindow', 'settingsCatalog', 'settingsMachine', 'settingsRepository'], settings)

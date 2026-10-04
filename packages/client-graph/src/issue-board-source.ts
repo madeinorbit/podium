@@ -73,8 +73,8 @@ const tabOf = (row: IssueViewModel): BoardExplorerTab | null => {
 export function createIssueBoardSource(
   pool: MobxPool,
   owner?: {
-    getSnapshot(): { openIssueId: string | null }
-    subscribe(listener: () => void): () => void
+    readLocal(key: 'openIssueId'): string | null
+    onLocals(keys: readonly 'openIssueId'[], listener: () => void): () => void
   },
 ) {
   const cache = new Map<string, IComputedValue<unknown>>()
@@ -84,10 +84,12 @@ export function createIssueBoardSource(
   const stops = new Map<string, () => void>()
   const projections = new Map<string, BoardProjection>()
   let disposed = false
-  const open = observable.box(owner?.getSnapshot().openIssueId ?? null)
+  const open = observable.box(owner?.readLocal('openIssueId') ?? null)
+  // Keyed (POD-5433): only an open-issue change wakes the board.
   const stopOwner =
-    owner?.subscribe(() => runInAction(() => open.set(owner.getSnapshot().openIssueId))) ??
-    (() => {})
+    owner?.onLocals(['openIssueId'], () =>
+      runInAction(() => open.set(owner.readLocal('openIssueId'))),
+    ) ?? (() => {})
   function memo<T>(key: string, read: () => T): T {
     if (disposed) return LOADING as T
     const existing = cache.get(key)

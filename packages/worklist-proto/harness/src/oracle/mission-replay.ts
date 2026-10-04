@@ -19,6 +19,7 @@ import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
 import { readLive } from '../fixture/export-snapshot'
 import { corpusFromLive } from '../fixture/live-snapshot'
 import { sidebarReplayStore } from './sidebar-replay'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 /** Persisted topology is a separate replay mode for a running server on an
  * older transport version. Read only canonical topology columns; no old wire
@@ -94,7 +95,7 @@ async function main() {
   const cache = seedCacheFromCorpus(corpus)
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const store = sidebarReplayStore(corpus, replica)
-  const runtime = { getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
+  const runtime = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() })
   step = 'pool'
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' }), locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: MISSION_SUMMARIES })

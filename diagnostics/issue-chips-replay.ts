@@ -3,6 +3,7 @@
  * timeout 180s bun --conditions=@podium/source diagnostics/issue-chips-replay.ts
  */
 import { hostname } from 'node:os'
+import { withKeyedInputs } from '../packages/client-core/src/engine/keyed-inputs'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -54,11 +55,11 @@ async function main(): Promise<void> {
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   const collisions = [...counts].filter(([, count]) => count > 1)
-  const runtime = {
+  const runtime = withKeyedInputs({
     getSnapshot: () => store,
     subscribe: () => () => {},
     pendingOverlaysByRow: () => new Map(),
-  }
+  })
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source)

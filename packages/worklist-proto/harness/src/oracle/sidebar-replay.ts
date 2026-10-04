@@ -7,7 +7,7 @@
 
 import { hostname } from 'node:os'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { dedupeSessions, type Store } from '@podium/client-core/engine'
+import { dedupeSessions, type Store, withKeyedInputs } from '@podium/client-core/engine'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -60,11 +60,11 @@ function replay(corpus: FixtureCorpus) {
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
   const store = sidebarReplayStore(corpus, replica)
-  const runtime = {
+  const runtime = withKeyedInputs({
     getSnapshot: () => store,
     subscribe: () => () => {},
     pendingOverlaysByRow: () => new Map(),
-  }
+  })
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: MISSION_SUMMARIES })

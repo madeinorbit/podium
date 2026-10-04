@@ -13,6 +13,7 @@ import { buildCorpus } from '../fixture'
 import { fixtureSessionHomes, stripSessionLegacy } from '../fixture/session-homes'
 import { sidebarReplayStore } from './sidebar-replay'
 import { snapshotFromStore } from './oracle'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 function replay(stripped: boolean) {
   const corpus = buildCorpus(1)
@@ -30,12 +31,12 @@ function replay(stripped: boolean) {
     ...sidebarReplayStore(corpus, replica),
     sessions: sessionViews(replica.rows('sessions'), homes),
   }
-  const runtime = {
+  const runtime = withKeyedInputs({
     principal: { userId: homes.userId },
     getSnapshot: () => store,
     subscribe: () => () => {},
     pendingOverlaysByRow: () => new Map(),
-  }
+  })
   const source = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
   const pool = createWorklistPool(source.source, locals.source)

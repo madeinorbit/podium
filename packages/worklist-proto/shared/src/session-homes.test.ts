@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import type { PendingOverlay } from '@podium/client-core/engine'
+import { type OverlayTarget, type PendingOverlay, withKeyedInputs } from '@podium/client-core/engine'
 import { createRowSource, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
 import { asUserId, asSessionId, sessionUserStateRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -56,17 +56,18 @@ function boot(mode: 'truth' | 'overlaid' = 'overlaid') {
   const pendingUsers = new Map<string, PendingOverlay[]>()
   const none = new Map<string, PendingOverlay[]>()
   const listeners = new Set<() => void>()
-  const snapshot = { repos: [] }
-  const runtime: RowSourceRuntime = {
+  // A ledger paint moves a painted list (POD-5433): `notify` stands for one.
+  const snapshot: { repos: never[]; sessions: unknown[] } = { repos: [], sessions: [] }
+  const runtime: RowSourceRuntime = withKeyedInputs({
     principal: { userId: 'b' },
     getSnapshot: () => snapshot,
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    pendingOverlaysByRow: (kind) =>
+    pendingOverlaysByRow: (kind: OverlayTarget) =>
       kind === 'sessions' ? pending : kind === 'sessionUserStates' ? pendingUsers : none,
-  }
+  })
   const handle = createRowSource(runtime, replica, { mode })
   const push = (entity: string, id: string, payload?: unknown, op = 'upsert') => {
     if (op === 'upsert') {
@@ -82,6 +83,7 @@ function boot(mode: 'truth' | 'overlaid' = 'overlaid') {
     }
   }
   const notify = () => {
+    snapshot.sessions = []
     for (const listener of listeners) listener()
   }
   return { cache, replica, handle, push, pending, pendingUsers, notify }

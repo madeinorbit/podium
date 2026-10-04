@@ -280,3 +280,26 @@ it('updates painted changes, parent scope, archive and replacement without a col
     stop()
   }
 })
+
+it('follows the open issue through the keyed locals (POD-5433)', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+  let openIssueId: string | null = null
+  const listeners = new Set<() => void>()
+  const source = createIssueBoardSource(pool, {
+    readLocal: () => openIssueId,
+    onLocals: (keys, listener) => {
+      expect(keys).toEqual(['openIssueId'])
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  })
+  try {
+    expect(source.read('issueBoardWindow', 'window')).toEqual({ openIssueId: null })
+    openIssueId = 'hot'
+    for (const listener of listeners) listener()
+    expect(source.read('issueBoardWindow', 'window')).toEqual({ openIssueId: 'hot' })
+  } finally {
+    source.dispose()
+    pool.dispose()
+  }
+})

@@ -1,4 +1,5 @@
 import type { Store } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/engine'
 import {
   bindStoreStatsOwner,
   readRuntimeStoreStats,
@@ -43,10 +44,10 @@ const f = vi.hoisted(() => ({
   transcript: vi.fn((_session: unknown, _since?: unknown, _listener?: unknown) => () => {}),
   confirm: vi.fn(async () => true),
 }))
-const paneStoreHandle = {
+const paneStoreHandle = withKeyedInputs({
   getSnapshot: () => f.state,
   subscribe: (_listener: () => void) => () => {},
-}
+})
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: Store) => unknown) => {
     recordStoreSelector(f.owner)
@@ -190,7 +191,7 @@ beforeEach(() => {
   )
   f.pool.sources.register(
     SESSION_PANE_ENTITIES,
-    new SessionPaneSource({ getSnapshot: () => state, subscribe: () => () => {} }),
+    new SessionPaneSource(withKeyedInputs({ getSnapshot: () => state, subscribe: () => () => {} })),
   )
   for (const row of sessions) f.pool.row('session', row.sessionId)
   f.pool.hydrate()

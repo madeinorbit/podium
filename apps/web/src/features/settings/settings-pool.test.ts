@@ -4,10 +4,10 @@ import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { checkSettings } from '@podium/client-graph/diagnostics/settings-check'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import type { SettingsOwner } from '@podium/client-graph/settings-source'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 const disposals: (() => void)[] = []
 afterEach(() => { for (const dispose of disposals.splice(0)) dispose() })
@@ -26,8 +26,8 @@ function fixture(sessions: SliceSession[] = []) {
   } as RoutedUiState
   let state = { machines: [{ id: 'host', name: 'Host' }], repos: [{ path: '/project', kind: 'repository', worktrees: [] }], settingsTab: 'accounts',
     sessions: dedupeSessionsByResume(sessions as unknown as SessionView[]) }
-  const read = vi.fn(() => state as unknown as ReturnType<SettingsOwner['getSnapshot']>)
-  const owner = { getSnapshot: read, ui, subscribe: (wake: () => void) => { listeners.add(wake); return () => { listeners.delete(wake) } } }
+  const read = vi.fn(() => state as object)
+  const owner = withKeyedInputs({ getSnapshot: read, ui, subscribe: (wake: () => void) => { listeners.add(wake); return () => { listeners.delete(wake) } } })
   const feed = new Map(sessions.map((row) => [row.sessionId, row]))
   const load = vi.fn((_entity: string, id: string) => feed.get(id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-02') }, undefined,
@@ -89,7 +89,8 @@ describe('declared settings readers', () => {
     expect(pool.row('settingsMachine', 'host')).toBe(LOADING)
     expect(read).not.toHaveBeenCalled()
     await Promise.resolve()
-    expect(read).toHaveBeenCalledTimes(1)
+    // One batch; it reads the catalog and window by key (POD-5433).
+    expect(read).toHaveBeenCalled()
     expect(pool.row('settingsWindow', 'window')).toEqual({ settingsTab: 'accounts' })
     expect(pool.row('settingsMachine', 'missing')).toBeUndefined()
     const view = createPoolProjection(pool, (current) => current.row('settingsMachine', 'host'))

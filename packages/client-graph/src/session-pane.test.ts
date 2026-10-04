@@ -10,6 +10,7 @@ import { paneSession, paneWindow, paneSpawnConfirmed, paneStampIssue, paneIssueC
 import { SessionPaneSource } from './session-pane-source'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from './session-pane-schema'
 import { LOADING } from './worklist/rollup'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 function fixture() {
   const sessions = sessionPaneFixture()
@@ -17,7 +18,7 @@ function fixture() {
   let state = { sessions, machines, panelMode: { 'pane-0': 'chat' }, dockShells: { '/synthetic/w19': 'pane-19' },
     reposLoaded: true, pendingSpawnIds: new Set(['pane-11']), coarseNow: SESSION_PANE_NOW, selectedIssueId: null } as unknown as Store
   const listeners = new Set<() => void>()
-  const runtime = { getSnapshot: () => state, subscribe: (f: () => void) => { listeners.add(f); return () => { listeners.delete(f) } } } as ClientRuntime
+  const runtime = withKeyedInputs({ getSnapshot: () => state, subscribe: (f: () => void) => { listeners.add(f); return () => { listeners.delete(f) } } }) as ClientRuntime
   const load = vi.fn((_entity: string, id: string) => sessions.find(row => row.sessionId === id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined,
     { summaries: SESSION_PANE_SUMMARIES, load: load as never, schedule: () => () => {} })
@@ -30,6 +31,16 @@ function fixture() {
     settle() { checkSessionPanes(pool, state); pool.hydrate(); return checkSessionPanes(pool, state) },
   }
 }
+
+
+it('follows a panel-mode change through the keyed locals (POD-5433)', () => {
+  const f = fixture()
+  try {
+    f.change({ panelMode: { 'pane-0': 'native' } } as never)
+    const window = f.pool.row('sessionPaneWindow', 'window') as { panelMode: Record<string, string> }
+    expect(window.panelMode).toEqual({ 'pane-0': 'native' })
+  } finally { f.pool.dispose() }
+})
 
 it('matches all pane status, urgency, header, recovery and control inputs over the synthetic corpus', () => {
   const f = fixture()

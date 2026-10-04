@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/engine'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -49,11 +50,11 @@ describe('normalized-only corpus acceptance', () => {
   it('the pool sidebar and its six fields need only projections and new kinds', () => {
     const { corpus, replica } = boot()
     const store = sidebarReplayStore(corpus, replica)
-    const runtime = {
+    const runtime = withKeyedInputs({
       getSnapshot: () => store,
       subscribe: () => () => {},
       pendingOverlaysByRow: () => new Map(),
-    }
+    })
     const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
     const locals = createEngineLocals(runtime)
     const handle = createWorklistPool(rows.source, locals.source)

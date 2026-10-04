@@ -226,6 +226,16 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   const pendingAddresses = new Map<ReplicaKind, Set<string>>()
   let replacement: 'bootstrap' | 'rescope' | undefined
   const batchListeners = new Set<(changed: ReadonlySet<ReplicaKind>) => void>()
+  const cursorListeners = new Set<() => void>()
+  const cursorMoved = (): void => {
+    for (const cb of [...cursorListeners]) {
+      try {
+        cb()
+      } catch {
+        // Same isolation contract as the row observers.
+      }
+    }
+  }
   /**
    * The materialised per-kind projections, maintained INCREMENTALLY.
    *
@@ -651,6 +661,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       return () => batchListeners.delete(cb)
     },
 
+    subscribeCursor(cb: () => void): () => void {
+      cursorListeners.add(cb)
+      return () => cursorListeners.delete(cb)
+    },
+
     batch<T>(fn: () => T): T {
       batchDepth += 1
       try {
@@ -700,6 +715,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         case 'bootstrap-installed':
           sessionMarkersLoaded = true
           touchAllKinds(event.cause === 'rescope' ? 'rescope' : 'bootstrap')
+          cursorMoved()
+          return
+        case 'cursor':
+          // Rows stay untouched (see default); only the cursor signal fires.
+          cursorMoved()
           return
         case 'posture':
           if (event.posture === 'bootstrapping') revisitSessionMarkers(false)

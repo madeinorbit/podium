@@ -183,11 +183,18 @@ interface RepoEntry {
  *  and the ledger, by id. Both modes subscribe: `truth` only to see the
  *  `repos` array move (discovery). */
 export interface RowSourceRuntime {
-  subscribe(listener: () => void): () => void
-  getSnapshot(): { repos: readonly RepoEntry[] }
+  /** Keyed locals (POD-5433): the feed wakes on discovery (`repos`) and, while
+   *  the ledger paints a kind, on that kind's painted list. */
+  onLocals(keys: readonly RowSourceLocal[], listener: () => void): () => void
+  readLocal(key: 'repos'): readonly RepoEntry[]
   readonly principal?: { userId: string }
   pendingOverlaysByRow(entity: OverlayTarget): ReadonlyMap<string, readonly PendingOverlay[]>
 }
+
+/** The runtime locals the feed follows: discovery, and the lists the ledger
+ *  paints (a ledger paint always moves one of them). */
+export type RowSourceLocal = 'repos' | 'sessions' | 'issueProjections' | 'issueUserStates'
+const LEDGER_LOCALS: readonly RowSourceLocal[] = ['repos', 'sessions', 'issueProjections', 'issueUserStates']
 
 /** The replica surface the row source reads. `row()` and the addressed seam
  *  are optional on the replica contract; this source refuses to start without
@@ -892,7 +899,7 @@ export function createRowSource(
 
   function currentRepos(): readonly RepoEntry[] {
     try {
-      return runtime.getSnapshot().repos
+      return runtime.readLocal('repos')
     } catch {
       return EMPTY
     }
@@ -1328,7 +1335,7 @@ export function createRowSource(
   // runtime publishes but discovery: kernel addresses and the log's repaint
   // name their rows, so only a moved `repos` array is a signal.
   heldFrom = currentRepos()
-  offs.push(runtime.subscribe(ledgerRead ? onRuntimePublication : onTruthPublication))
+  offs.push(ledgerRead ? runtime.onLocals(LEDGER_LOCALS, onRuntimePublication) : runtime.onLocals(['repos'], onTruthPublication))
 
   function repaint(
     rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,

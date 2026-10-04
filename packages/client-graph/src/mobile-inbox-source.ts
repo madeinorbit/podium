@@ -19,11 +19,13 @@ export class MobileInboxSource {
   private readonly prefixes
 
   constructor(
-    private readonly runtime: Pick<ClientRuntime, 'replica' | 'subscribe'>,
+    private readonly runtime: Pick<ClientRuntime, 'replica'>,
     pool: MobxPool,
   ) {
     pool.references.requireOrderedBareAliases()
-    this.stop = runtime.subscribe(() => {
+    // Keyed (POD-5433): only a cursor move can change `hasCursor`.
+    if (!runtime.replica.subscribeCursor) throw new Error('Mobile inbox requires the replica cursor signal')
+    this.stop = runtime.replica.subscribeCursor(() => {
       if (this.demanded) this.schedule()
     })
     this.prefixes = computed(

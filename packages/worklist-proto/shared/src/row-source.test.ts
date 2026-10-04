@@ -13,7 +13,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   createClientRuntime,
   type OverlayTarget,
-  type PendingOverlay,
+  type PendingOverlay,withKeyedInputs 
 } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
@@ -127,22 +127,25 @@ function fakeRuntime(
     issueProjections: new Map(),
   }
   const listeners = new Set<() => void>()
-  return {
+  // A ledger paint moves a painted list (POD-5433): `publish` stands for one.
+  let painted: unknown[] = []
+  return withKeyedInputs({
     principal: { userId: 'operator' },
     subscribe: (listener: () => void) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    getSnapshot: () => ({ repos }),
-    pendingOverlaysByRow: (entity) => pending[entity],
-    setPending: (entity, id, overlays) => {
+    getSnapshot: () => ({ repos, sessions: painted }),
+    pendingOverlaysByRow: (entity: Entity) => pending[entity],
+    setPending: (entity: Entity, id: string, overlays: PendingOverlay[] | null) => {
       if (overlays === null) pending[entity].delete(id)
       else pending[entity].set(id, overlays)
     },
     publish: () => {
+      painted = []
       for (const listener of [...listeners]) listener()
     },
-  }
+  })
 }
 
 const patch = (entity: Entity, id: string, fields: Record<string, unknown>): PendingOverlay => ({
@@ -1383,7 +1386,6 @@ function countingWrappers(
     arrays.set(arr, proxy)
     return proxy
   }
-  const snapshots = new WeakMap<object, unknown>()
   const ENTITY_ARRAYS = new Set([
     'sessions',
     'issueProjections',
@@ -1391,23 +1393,14 @@ function countingWrappers(
     'issueGitStates',
     'repos',
   ])
+  // The engine's own keyed locals (POD-5433); entity arrays read through them
+  // are counted like every other enumeration.
   const runtime = {
-    subscribe: engine.subscribe,
     pendingOverlaysByRow: engine.pendingOverlaysByRow,
-    getSnapshot: () => {
-      const snap = engine.getSnapshot()
-      const cached = snapshots.get(snap)
-      if (cached !== undefined) return cached
-      const proxy = new Proxy(snap, {
-        get(target, prop, receiver) {
-          const value = Reflect.get(target, prop, receiver)
-          return typeof prop === 'string' && ENTITY_ARRAYS.has(prop) && Array.isArray(value)
-            ? counting(value)
-            : value
-        },
-      })
-      snapshots.set(snap, proxy)
-      return proxy
+    onLocals: engine.onLocals,
+    readLocal: (key: string) => {
+      const value = (engine.readLocal as (key: string) => unknown)(key)
+      return ENTITY_ARRAYS.has(key) && Array.isArray(value) ? counting(value) : value
     },
   } as unknown as RowSourceRuntime
   const { subscribeAddressedBatch, row } = replica

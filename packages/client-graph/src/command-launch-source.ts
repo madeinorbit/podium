@@ -15,13 +15,15 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   private readonly orders = observable.map<CommandEntity, readonly string[]>(undefined, { deep: false })
   private readonly members = observable.map<string, readonly string[]>(undefined, { deep: false })
   private readonly edges = new Map<string, readonly string[]>()
-  private readonly worktreesByPath = new Map<string, string[]>()
-  private readonly repositoriesByRoot = new Map<string, string[]>()
+  private worktreesByPath = new Map<string, string[]>()
+  private repositoriesByRoot = new Map<string, string[]>()
+  /** Resident sessions by their cwd and every '/'-prefix of it: a discovery
+   *  re-links only the sessions under a path whose targets moved. */
+  private readonly sessionsByPath = new Map<string, Set<string>>()
+  private readonly sessionCwd = new Map<string, string>()
   private readonly stops: (() => void)[] = []
-  private previousRepos?: Store['repos']
-  private previousMachines?: Store['machines']
   private disposed = false
-  readonly counts = { publications: 0, windowChanges: 0, repoChanges: 0, sessionChanges: 0 }
+  readonly counts = { publications: 0, windowChanges: 0, repoChanges: 0, sessionChanges: 0, sessionLinks: 0 }
   private readonly catalog
 
   constructor(private readonly pool: MobxPool, runtime: ClientRuntime<PodiumClientApi>) {
@@ -30,33 +32,45 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       worktrees: this.orders.get('commandWorktree') ?? [], machines: this.orders.get('commandMachine') ?? [],
       issues: pool.queries.ids({ kind: 'commandIssues' }).sort(), sessions: this.sessionOrder(),
     }), { equals: compareStructural })
+    // Keyed (POD-5433): the window wakes on its own locals; machines and
+    // repos arrive by id, and a repo change re-links only the sessions under
+    // a path whose targets moved.
+    const windowKeys = ['paletteOpen', 'pins', 'selectedIssueId', 'openIssueId', 'selectedWorktree', 'paneA', 'recentFiles', 'sidebarSettings'] as const
     const locals = () => {
       if (this.disposed) return
-      const state = runtime.getSnapshot()
       this.counts.publications++
       runInAction(() => {
-        if (this.previousRepos !== state.repos) {
-          this.previousRepos = state.repos
-          this.repositories(state.repos)
-          this.counts.repoChanges++
-        }
-        if (this.previousMachines !== state.machines) {
-          this.previousMachines = state.machines
-          this.replace('commandMachine', state.machines.map(machine => [machine.id, machine]))
-        }
-        const window: CommandLaunchRows['commandWindow'] = { paletteOpen: state.paletteOpen, pins: state.pins,
-          selectedIssueId: state.selectedIssueId, openIssueId: state.openIssueId, selectedWorktree: state.selectedWorktree,
-          paneA: state.paneA, recentFiles: state.recentFiles, sidebarSettings: state.sidebarSettings }
+        const window = Object.fromEntries(windowKeys.map(key => [key, runtime.readLocal(key)])) as CommandLaunchRows['commandWindow']
         if (!compareStructural(this.tables.commandWindow.get('window'), window)) this.counts.windowChanges++
         this.replace('commandWindow', [['window', window]])
       })
     }
-    locals()
-    this.stops.push(runtime.subscribe(locals), observe(pool.tables.session, change => {
+    const repos = () => {
       if (this.disposed) return
-      this.counts.sessionChanges++
-      runInAction(() => this.change('session', change.name, change.type === 'delete' ? undefined : pool.row('session', change.name) as object | undefined))
-    }))
+      runInAction(() => {
+        this.repositories(runtime.listIds('repos').flatMap(id => runtime.listRow('repos', id) ?? []))
+        this.counts.repoChanges++
+      })
+    }
+    const machines = () => {
+      if (this.disposed) return
+      runInAction(() => this.replace('commandMachine', runtime.listIds('machines').flatMap(id => {
+        const row = runtime.listRow('machines', id)
+        return row ? [[id, row] as const] : []
+      })))
+    }
+    repos()
+    machines()
+    locals()
+    // Attach links every resident member once; later only addressed rows and
+    // the sessions under a moved discovery path are visited.
+    runInAction(() => { for (const [id, row] of allResidentSessions(pool)) this.change('session', id, row) })
+    this.stops.push(runtime.onLocals(windowKeys, locals), runtime.onList('repos', repos), runtime.onList('machines', machines),
+      observe(pool.tables.session, change => {
+        if (this.disposed) return
+        this.counts.sessionChanges++
+        runInAction(() => this.change('session', change.name, change.type === 'delete' ? undefined : pool.row('session', change.name) as object | undefined))
+      }))
   }
 
   private sessionOrder(): readonly string[] {
@@ -79,31 +93,67 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     if (!compareStructural(this.orders.get(entity), ids)) this.orders.set(entity, ids)
   }
 
-  private repositories(repos: Store['repos']): void {
+  /** Discovery is a small roster: its rows are rebuilt and compared (only a
+   *  moved row is written). Sessions are re-linked only under the paths whose
+   *  worktree or repository targets moved. */
+  private repositories(repos: readonly Store['repos'][number][]): void {
     const linked = new Set(repos.flatMap(repo => repo.worktrees.map(tree => tree.path)))
     const scans: [string, object][] = [], groups: [string, object][] = [], trees: [string, object][] = []
-    this.worktreesByPath.clear(); this.repositoriesByRoot.clear()
+    const groupIds = new Set<string>()
+    const worktreesByPath = new Map<string, string[]>(), repositoriesByRoot = new Map<string, string[]>()
     const add = (index: Map<string, string[]>, key: string, value: string) => index.set(key, [...(index.get(key) ?? []), value])
     for (const discovery of repos) {
       const id = JSON.stringify([discovery.machineId ?? '', discovery.path])
       const origin = normalizeOriginUrl(discovery.originUrl)
       const groupId = discovery.repoId ?? (origin || `__no_remote__:${discovery.machineId ?? ''}:${discovery.path}`)
       scans.push([id, { ...discovery, groupId, linked: linked.has(discovery.path) }])
-      for (const root of [discovery.path, ...discovery.worktrees.map(tree => tree.path)]) add(this.repositoriesByRoot, root, id)
+      for (const root of [discovery.path, ...discovery.worktrees.map(tree => tree.path)]) add(repositoriesByRoot, root, id)
       if (linked.has(discovery.path)) continue
-      if (!groups.some(([key]) => key === groupId)) groups.push([groupId, { id: groupId }])
+      if (!groupIds.has(groupId)) { groupIds.add(groupId); groups.push([groupId, { id: groupId }]) }
       for (const tree of [{ path: discovery.path, branch: discovery.branch, isMain: true }, ...discovery.worktrees.map(tree => ({ ...tree, isMain: false }))]) {
         const treeId = JSON.stringify([id, tree.path])
         trees.push([treeId, { path: tree.path, ...(tree.branch !== undefined ? { branch: tree.branch } : {}),
           repoPath: discovery.path, isMain: tree.isMain, ...(discovery.machineId ? { machineId: discovery.machineId } : {}),
           ...(discovery.repoId ? { repoId: discovery.repoId } : {}), repositoryId: id, groupId }])
-        add(this.worktreesByPath, tree.path, treeId)
+        add(worktreesByPath, tree.path, treeId)
       }
     }
+    const moved = new Set<string>()
+    for (const [before, after] of [[this.worktreesByPath, worktreesByPath], [this.repositoriesByRoot, repositoriesByRoot]] as const) {
+      for (const [path, ids] of after) if (!compareStructural(before.get(path), ids)) moved.add(path)
+      for (const path of before.keys()) if (!after.has(path)) moved.add(path)
+    }
+    this.worktreesByPath = worktreesByPath; this.repositoriesByRoot = repositoriesByRoot
     this.replace('commandRepository', scans); this.replace('commandRepo', groups); this.replace('commandWorktree', trees)
-    // Discovery is a whole small roster change; re-link the resident members
-    // once. Ordinary session publications only visit their addressed member.
-    for (const [id, row] of allResidentSessions(this.pool)) this.change('session', id, row)
+    const affected = new Set<string>()
+    for (const path of moved) for (const id of this.sessionsByPath.get(path) ?? []) affected.add(id)
+    for (const id of affected) {
+      this.counts.sessionLinks++
+      this.change('session', id, this.pool.row('session', id) as object | undefined)
+    }
+  }
+
+  /** Index a resident session under its cwd and each '/'-prefix of it. */
+  private indexSession(id: string, row: Record<string, unknown> | undefined): void {
+    const before = this.sessionCwd.get(id), cwd = typeof row?.cwd === 'string' && row.cwd ? row.cwd : undefined
+    if (before === cwd) return
+    const paths = (key: string) => {
+      const out = [key]
+      for (let at = key.indexOf('/'); at >= 0; at = key.indexOf('/', at + 1)) out.push(key.slice(0, at))
+      return out
+    }
+    if (before !== undefined) for (const path of paths(before)) {
+      const set = this.sessionsByPath.get(path)
+      set?.delete(id)
+      if (set?.size === 0) this.sessionsByPath.delete(path)
+    }
+    if (cwd === undefined) { this.sessionCwd.delete(id); return }
+    this.sessionCwd.set(id, cwd)
+    for (const path of paths(cwd)) {
+      const set = this.sessionsByPath.get(path) ?? new Set<string>()
+      this.sessionsByPath.set(path, set)
+      set.add(id)
+    }
   }
 
   private targets(row: Record<string, unknown> | undefined, relation: typeof COMMAND_RELATIONS[number]): readonly string[] {
@@ -122,6 +172,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   }
 
   private change(entity: string, id: string, row: object | undefined): void {
+    if (entity === 'session') this.indexSession(id, row as Record<string, unknown> | undefined)
     for (const relation of COMMAND_RELATIONS) {
       if (relation.from !== entity) continue
       const address = `${entity}:${id}:${relation.to}:${relation.name}`
@@ -151,6 +202,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     for (const stop of this.stops) stop()
     runInAction(() => { for (const table of Object.values(this.tables)) table.clear(); this.orders.clear(); this.members.clear() })
     this.edges.clear(); this.worktreesByPath.clear(); this.repositoriesByRoot.clear()
+    this.sessionsByPath.clear(); this.sessionCwd.clear()
   }
 }
 

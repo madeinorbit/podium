@@ -1,4 +1,4 @@
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import type { PoolSource } from './source-registry'
 import type { Loaded } from './worklist/rollup'
 
@@ -28,14 +28,12 @@ export const MOBILE_SETTINGS_SCHEMA = {
   },
 } as const
 
-type DiagnosticsOwner = Pick<ClientRuntime, 'subscribe' | 'replica'> & {
-  getSnapshot(): Pick<Store, 'issueProjections' | 'conversations'>
-}
+type DiagnosticsOwner = Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'replica'>
 
 /** Demand batches one O(1) summary from the existing runtime. Array lengths are
  * already maintained by its replica binding; no issue models or table walks
- * are needed. Runtime publications refresh the cursor, including coarse-clock
- * ticks; watermark-only frames deliberately do not invalidate replica rows. */
+ * are needed. The cursor refreshes on the replica's cursor signal, watermark-only
+ * frames included; those frames still never invalidate replica rows. */
 export async function createMobileSettingsSource(
   owner: DiagnosticsOwner,
 ): Promise<PoolSource<keyof MobileSettingsRows> & { counts: { batches: number } }> {
@@ -58,17 +56,19 @@ export async function createMobileSettingsSource(
     queueMicrotask(() => {
       scheduled = false
       if (disposed) return
-      const state = owner.getSnapshot()
       const next = {
-        issueCount: state.issueProjections.length,
-        conversationCount: state.conversations.length,
+        issueCount: owner.readLocal('issueProjections').length,
+        conversationCount: owner.readLocal('conversations').length,
         cursor: owner.replica.getCursor(),
       }
       runInAction(() => value.set(next))
       counts.batches++
     })
   }
-  const stop = owner.subscribe(schedule)
+  // Keyed (POD-5433): the two counts move only with their lists; the cursor
+  // has its own signal.
+  if (!owner.replica.subscribeCursor) throw new Error('Phone diagnostics require the replica cursor signal')
+  const stops = [owner.onLocals(['issueProjections', 'conversations'], schedule), owner.replica.subscribeCursor(schedule)]
   return {
     counts,
     read(_entity, id): Loaded<MobileSettingsDiagnostics> {
@@ -85,7 +85,7 @@ export async function createMobileSettingsSource(
     dispose(): void {
       if (disposed) return
       disposed = true
-      stop()
+      for (const stop of stops) stop()
       queueMicrotask(() => runInAction(() => value.set(undefined)))
     },
   }

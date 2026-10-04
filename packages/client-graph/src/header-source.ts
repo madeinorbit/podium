@@ -1,6 +1,6 @@
 import { observe, reaction, runInAction } from 'mobx'
 import { allResidentSessions } from './enumerate'
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { MobxPool } from './pool'
 import type { HeaderEntity, HeaderRecord } from './header-schema'
@@ -24,21 +24,23 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
       pool.header.order(entity, [...next])
     })
   }
-  let previousMachines: Store<TApi>['machines'] | undefined
-  let previousRepos: Store<TApi>['repos'] | undefined
+  // Keyed (POD-5433): machines and repos arrive by id, with only the rows
+  // that changed; the window wakes on its own four locals.
+  function keyed(entity: 'machine' | 'repository', name: 'machines' | 'repos', change?: KeyedListChange): void {
+    if (disposed) return
+    const ids = runtime.listIds(name)
+    const changed = change === undefined ? ids : [...change.ids]
+    const records = changed.map((id) => ({ kind: entity, id, value: runtime.listRow(name, id) })) as HeaderRecord[]
+    known.set(entity, new Set(ids))
+    runInAction(() => {
+      pool.header.apply(records)
+      pool.header.order(entity, ids)
+    })
+  }
+  const windowKeys = ['view', 'paneA', 'fileTabs', 'outboxSize'] as const
   let previousWindow: object | undefined
   function locals(): void {
-    const state = runtime.getSnapshot()
-    if (state.machines !== previousMachines) {
-      previousMachines = state.machines
-      replace('machine', state.machines.map((machine) => [machine.id, machine]))
-    }
-    if (state.repos !== previousRepos) {
-      previousRepos = state.repos
-      replace('repository', state.repos.map((repo) => [JSON.stringify([repo.machineId ?? '', repo.path]), repo]))
-    }
-    const window = { view: state.view, paneA: state.paneA, fileTabs: state.fileTabs,
-      outboxSize: state.outboxSize }
+    const window = Object.fromEntries(windowKeys.map((key) => [key, runtime.readLocal(key)]))
     if (previousWindow && Object.entries(window).every(([key, value]) => Object.is((previousWindow as Record<string, unknown>)[key], value))) return
     previousWindow = window
     replace('window', [['window', window]])
@@ -68,13 +70,18 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
   const offSessions = observe(pool.tables.session, (change) => {
     pool.header.change('session', change.name, change.type === 'delete' ? undefined : pool.row('session', change.name) as object | undefined)
   })
+  keyed('machine', 'machines')
+  keyed('repository', 'repos')
   locals()
   metrics()
   shipping()
   replace('connection', [['server', runtime.hub.connectionHealth()]])
   const stops = [offSessions, runtime.replica.subscribeAddressedBatch!((batch) => {
     if (batch.type === 'replace' || batch.rows.some((record) => record.kind === 'shipOrders')) shipping()
-  }), runtime.subscribe(locals), runtime.hostMetrics.subscribe(metrics),
+  }), runtime.onLocals(windowKeys, locals),
+    runtime.onList('machines', (change) => keyed('machine', 'machines', change)),
+    runtime.onList('repos', (change) => keyed('repository', 'repos', change)),
+    runtime.hostMetrics.subscribe(metrics),
     runtime.hub.onConnectionHealth((health) => replace('connection', [['server', health]]))]
   void quota()
   void api.settings.get.query().then((settings) => {

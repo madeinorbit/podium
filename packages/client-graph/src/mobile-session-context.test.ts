@@ -1,6 +1,6 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asSessionId } from '@podium/model'
-import { observable } from 'mobx'
+import { autorun, observable } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { createMobileSessionReader, createMobileSessionSource } from './mobile-session-context'
 import { MobxPool } from './pool'
@@ -11,22 +11,15 @@ it('demands only the declared borrowed window, coalesces loading, and tears down
     addressed = new Set<() => void>()
   let prompts = new Map([[asSessionId('pending'), 'First prompt']]),
     cursor: number | null = null
-  const getSnapshot = vi.fn(
-    () =>
-      new Proxy(
-        { pendingSpawnPrompts: prompts },
-        {
-          get(target, key) {
-            if (key !== 'pendingSpawnPrompts') throw new Error(`Legacy field ${String(key)}`)
-            return target.pendingSpawnPrompts
-          },
-        },
-      ),
-  )
+  const readLocal = vi.fn((key: string) => {
+    if (key !== 'pendingSpawnPrompts') throw new Error(`Legacy field ${key}`)
+    return prompts
+  })
   const getCursor = vi.fn(() => cursor)
   const owner = {
-    getSnapshot,
-    subscribe: (fn: () => void) => {
+    readLocal,
+    onLocals: (keys: readonly string[], fn: () => void) => {
+      expect(keys).toEqual(['pendingSpawnPrompts'])
       listeners.add(fn)
       return () => {
         listeners.delete(fn)
@@ -34,7 +27,7 @@ it('demands only the declared borrowed window, coalesces loading, and tears down
     },
     replica: {
       getCursor,
-      subscribeAddressedBatch: (fn: () => void) => {
+      subscribeCursor: (fn: () => void) => {
         addressed.add(fn)
         return () => {
           addressed.delete(fn)
@@ -44,20 +37,30 @@ it('demands only the declared borrowed window, coalesces loading, and tears down
   } as unknown as ClientRuntime
   const pool = new MobxPool({ coarseNow: 0, selectedIssueId: null })
   const source = createMobileSessionSource(owner, pool)
-  expect(getSnapshot).not.toHaveBeenCalled()
+  expect(readLocal).not.toHaveBeenCalled()
   expect(source.read('mobileSessionReader')).toBeTypeOf('object')
   expect(source.read('mobileSessionWindow')).toBe(LOADING)
   expect(source.read('mobileSessionWindow')).toBe(LOADING)
   await Promise.resolve()
-  expect(getSnapshot).toHaveBeenCalledTimes(1)
+  expect(readLocal).toHaveBeenCalledTimes(1)
   expect(getCursor).toHaveBeenCalledTimes(1)
   expect(source.read('mobileSessionWindow')).toEqual({ cursor: null, pendingSpawnPrompts: prompts })
-  prompts = new Map()
+  // The cursor alone moves on its own signal (POD-5433). Watched, not read:
+  // a read schedules its own refresh.
+  let seen: unknown
+  const stopWatch = autorun(() => {
+    seen = source.read('mobileSessionWindow')
+  })
+  await Promise.resolve()
   cursor = 27
-  for (const fn of listeners) fn()
   for (const fn of addressed) fn()
   await Promise.resolve()
-  expect(source.read('mobileSessionWindow')).toEqual({ cursor: 27, pendingSpawnPrompts: prompts })
+  expect(seen).toEqual({ cursor: 27, pendingSpawnPrompts: prompts })
+  prompts = new Map()
+  for (const fn of listeners) fn()
+  await Promise.resolve()
+  expect(seen).toEqual({ cursor: 27, pendingSpawnPrompts: prompts })
+  stopWatch()
   source.dispose()
   source.dispose()
   expect(listeners.size).toBe(0)

@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/engine'
 import { asSessionId } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
@@ -181,7 +182,7 @@ describe('shell pool', () => {
         })
       // The replica remains the authoritative lane read seam.
       f.source.dispose()
-      const runtime = {
+      const runtime = withKeyedInputs({
         getSnapshot: () => state,
         subscribe: () => () => {},
         replica: {
@@ -189,7 +190,7 @@ describe('shell pool', () => {
           row: () => undefined,
           subscribeAddressedBatch: () => () => {},
         },
-      }
+      })
       const source = new ShellSource(runtime as never)
       expect(source.read('shellWindow', 'window')).toMatchObject({ paletteOpen: true })
       source.dispose()

@@ -18,6 +18,7 @@ import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from '@podium/client
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { ScenarioCache } from '../../../packages/worklist-proto/shared/src/scenarios'
 import { checkChatContext } from '../src/features/chat/chat-context-check'
+import { withKeyedInputs } from '@podium/client-core/engine'
 
 let phase = 0, httpStatus: number | undefined
 async function main() {
@@ -52,8 +53,8 @@ async function main() {
     drafts: {}, attachedSessionId: null, transcriptReveal: null, superThreads: [], superThreadId: null,
     selectedWorktree: null, paneA: null, chatSendsFor: () => [],
   } as unknown as Store
-  const runtime = { replica, outbox, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(), subscribe: () => () => {},
-    readPosition: { get: () => ({ lastEventId: 0, seenAt: null }), subscribe: () => () => {} } }
+  const runtime = withKeyedInputs({ replica, outbox, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(), subscribe: () => () => {},
+    readPosition: { get: () => ({ lastEventId: 0, seenAt: null }), subscribe: () => () => {} } })
   phase = 3
   const handle = createRuntimeWorklistPool(runtime as Parameters<typeof createRuntimeWorklistPool>[0], {
     summaries: { issue: CHAT_CONTEXT_SUMMARIES.issue, session: [...CHAT_CONTEXT_SUMMARIES.session, ...SUPERAGENT_SUMMARIES.session] },

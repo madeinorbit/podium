@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+
+import { withKeyedInputs } from '@podium/client-core/engine'
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { compareSidebarSnapshots, type SidebarSnapshot } from '../diagnostics/sidebar-check'
@@ -135,7 +137,7 @@ function fixture(scale = 1, bootOnly = false) {
     { kind: 'hostMetric', id: 'metric', value: { machineId: 'query-host' } } as never,
   ])
   const mobile = new MobileInboxSource(
-    { replica: { getCursor: () => 1 }, subscribe: () => () => {} } as never,
+    { replica: { getCursor: () => 1, subscribeCursor: () => () => {} } } as never,
     pool,
   )
   pool.sources.register(['mobileInboxState', 'mobileReferencePrefixes'], mobile)
@@ -152,10 +154,10 @@ function fixture(scale = 1, bootOnly = false) {
       read: () => ({ cursor: null, pendingSpawnPrompts: new Map() }),
       dispose() {},
     })
-  attachCommandLaunchSource(pool, {
+  attachCommandLaunchSource(pool, withKeyedInputs({
     getSnapshot: () => ({ repos: [], machines: [] }),
     subscribe: () => () => {},
-  } as never)
+  }) as never)
   return { pool, index, load, rows, values }
 }
 
