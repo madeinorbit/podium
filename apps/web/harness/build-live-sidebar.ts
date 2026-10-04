@@ -1,6 +1,7 @@
 /** Temporary counters in a production bundle; never instrument installed files. */
 import { resolve } from 'node:path'
 import { build } from 'vite'
+import { createLiveReadCensus } from './live-read-census'
 
 const option = (name: string, fallback: string) =>
   process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
@@ -8,6 +9,7 @@ const root = resolve(option('source', '.'))
 const out = resolve(option('out', '.artifacts/live-sidebar/candidate-build'))
 const off = option('off', '')
 const census = !process.argv.includes('--no-census')
+const readTimeline = process.argv.includes('--read-timeline')
 if (!census && off) throw new Error('Cost-off controls require the matched census build')
 await build({
   root: resolve(root, 'apps/web'),
@@ -22,6 +24,13 @@ await build({
             if (id.endsWith('/packages/client-graph/src/pool.ts')) {
               const boundary = "    absent: AbsentRead = 'load',\n  ): Loaded<object> {"
               if (!code.includes(boundary)) throw new Error('Pool row census boundary changed')
+              if (readTimeline)
+                return (
+                  `const livePoolReads = (${createLiveReadCensus.toString()})()
+;(globalThis as any).__livePoolCensus = () => livePoolReads.counts()
+;(globalThis as any).__livePoolReadWindow = (start: number, end: number) => livePoolReads.between(start, end)
+` + code.replace(boundary, boundary + '\n    livePoolReads.record(`${entity}:${absent}`)')
+                )
               return (
                 `const livePoolCounts: Record<string, number> = {}
 ;(globalThis as any).__livePoolCensus = () => ({ ...livePoolCounts })

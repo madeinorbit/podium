@@ -719,6 +719,13 @@ try {
         },
       }
       Object.assign(numbers, {
+        poolReadsInClick: await page.evaluate(
+          ({ start, end }) => (window as any).__livePoolReadWindow?.(start, end) ?? null,
+          {
+            start: state.boundary.input,
+            end: state.boundary.input + (numbers.finishedPaintMs ?? 0),
+          },
+        ),
         action: issuePageAction ? 'issue-page-open' : 'sidebar-issue',
         chatWork: Object.fromEntries(
           ['mentionBuilds', 'mentionIssueReads', 'referenceBuilds', 'referenceSessionReads'].map(
