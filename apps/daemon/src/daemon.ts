@@ -90,7 +90,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     underParent: process.env.PODIUM_UNDER_PARENT === '1',
     stateDir: process.env.PODIUM_STATE_DIR,
     installDir,
-    deliveryJournal: (sessionId) => runtimeEventOutbox.deliveryJournal(sessionId),
   })
   /**
    * THE EXIT SEAM, DISARMED WHERE EXITING IS FATAL (POD-2210).
@@ -133,6 +132,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     instance,
     build,
     installDir,
+    deliveryJournal: (sessionId) => runtimeEventOutbox.deliveryJournal(sessionId),
     send: (message) => {
       if (message.type === 'runtimeEvent') {
         const outgoing = prepareRuntimeEventDelivery(runtimeEventOutbox, message)

@@ -261,7 +261,7 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
       if (record.op === 'typing') {
         const entry = parseTyping(record)
         const key = rowKey(entry.sessionId, entry.rowId)
-        typing.set(key, entry)
+        typing.set(key, { ...typing.get(key), ...entry })
         continue
       }
       if (record.op === 'outcome' && typeof record.sessionId === 'string') {
@@ -269,7 +269,10 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
         continue
       }
       if (record.op === 'untyped' && typeof record.sessionId === 'string' && typeof record.rowId === 'string') {
-        typing.delete(rowKey(record.sessionId as SessionId, record.rowId))
+        const key = rowKey(record.sessionId as SessionId, record.rowId)
+        const saved = typing.get(key)
+        if (saved?.outcome) typing.set(key, { sessionId: saved.sessionId, rowId: saved.rowId, outcome: saved.outcome })
+        else typing.delete(key)
         continue
       }
       if (record.op === 'add' && record.event) {

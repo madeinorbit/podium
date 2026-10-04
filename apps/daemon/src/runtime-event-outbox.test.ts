@@ -197,6 +197,21 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     after.close()
   })
 
+  it.each(['typing', 'no-write'] as const)('keeps a known outcome when replaying a later %s record', (mode) => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    const journal = first.deliveryJournal(sessionId)
+    journal.record({ t: 'delivery', rowId: 'row-1', outcome: 'accepted', held: 'durable' })
+    journal.start('row-1')
+    if (mode === 'no-write') journal.clear('row-1')
+    const before = journal.read('row-1')
+    first.close()
+    const after = createRuntimeEventOutbox(dir)
+    expect(after.deliveryJournal(sessionId).read('row-1')).toEqual(before)
+    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toMatchObject({ outcome: 'accepted', held: 'durable' })
+    after.close()
+  })
+
   it('keeps the final failed outcome when the event stream reports a contradiction', () => {
     const dir = makeDir()
     const first = createRuntimeEventOutbox(dir)
