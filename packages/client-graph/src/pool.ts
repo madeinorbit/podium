@@ -748,6 +748,12 @@ export class MobxPool {
     if (isHeaderEntity(entity)) return this.header.get(entity, id)
     if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id)
     const core = entity as EntityName
+    if (core === 'repo') {
+      // The stable repo facade observes fields independently. Row presence
+      // stays addressed; the map value atom belongs to the prefix field.
+      const table = this.tables.repo
+      return table.has(id) ? untracked(() => table.get(id)) : undefined
+    }
     const residency = this.residency
     // The residency key already reports cold-summary changes, hydration and
     // removal. Do not also subscribe to an absent table slot for that row.

@@ -53,7 +53,7 @@
  * with no relations: they resolve from scratch.
  */
 
-import { type ObservableMap, observable } from 'mobx'
+import { getAtom, isObservableMap, type ObservableMap, observable } from 'mobx'
 import { debugName } from './debug-name'
 import type { RelationMaintenance } from './relations'
 import type { Residency } from './residency'
@@ -175,12 +175,10 @@ export function put(
     if (entity === 'issue') target.volatile?.setIssueRead(id, row)
     return
   }
-  if (entity === 'repo') {
+  if (entity === 'repo' && isObservableMap(target.write.repo)) {
+    const table = target.write.repo
     const next: RepoInputs = {
-      id:
-        (row as { id?: unknown; repoId?: unknown }).id ??
-        (row as { repoId?: unknown }).repoId ??
-        id,
+      id,
       prefix: repoFieldOf(row, 'prefix'),
       repoPath: repoFieldOf(row, 'path'),
     }
@@ -188,7 +186,12 @@ export function put(
     if (inputs) {
       for (const key of ['id', 'prefix', 'repoPath'] as const) inputs.set(key, next[key])
     } else {
-      inputs = createFieldInputs<RepoInputs>(['id', 'prefix', 'repoPath'], next, `repo:${id}`)
+      inputs = createFieldInputs<RepoInputs>(
+        ['id', 'prefix', 'repoPath'], next, `repo:${id}`,
+        // row(repo) tracks presence separately. Its existing value atom can
+        // serve the most common field without adding a tracking object.
+        (key) => key === 'prefix' && table.has(id) ? getAtom(table, id) : undefined,
+      )
       repoInputs.set(inputs.row, inputs)
       target.write.repo.set(id, inputs.row)
     }

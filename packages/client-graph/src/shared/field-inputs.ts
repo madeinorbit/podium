@@ -2,11 +2,13 @@ import { _isComputingDerivation, createAtom, type IAtom } from 'mobx'
 
 /** A stable, frozen read facade over keyed inputs. Reading a field subscribes
  * only to that field; publication never compares or traverses another value.
- * Atoms exist only while a derivation observes the field. Owners batch writes. */
+ * Owned atoms exist only while a derivation observes the field. An owner can
+ * lend an existing atom instead of allocating a duplicate. Owners batch writes. */
 export function createFieldInputs<T extends object>(
   fields: readonly (keyof T)[],
   initial: Partial<T> = {},
   name = 'inputs',
+  borrowAtom?: (key: keyof T) => IAtom | undefined,
 ) {
   const values: Partial<T> = { ...initial }
   const atoms = new Map<keyof T, IAtom>()
@@ -22,7 +24,7 @@ export function createFieldInputs<T extends object>(
               if (_isComputingDerivation()) {
                 let atom = atoms.get(key)
                 if (!atom) {
-                  atom = createAtom(`${name}:${String(key)}`, undefined, () => {
+                  atom = borrowAtom?.(key) ?? createAtom(`${name}:${String(key)}`, undefined, () => {
                     atoms.delete(key)
                   })
                   atoms.set(key, atom)
