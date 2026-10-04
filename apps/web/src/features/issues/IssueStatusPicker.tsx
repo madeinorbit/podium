@@ -9,7 +9,16 @@ import {
   issueStatusValueOf,
 } from '@podium/model/browser'
 import { Check } from 'lucide-react'
-import { cloneElement, Fragment, type JSX, useId, useLayoutEffect, useRef, useState } from 'react'
+import {
+  cloneElement,
+  Fragment,
+  type JSX,
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { flushSync } from 'react-dom'
 import {
   DropdownMenu,
@@ -78,6 +87,9 @@ export function IssueStatusPicker({
   const [initiallyOpen, setInitiallyOpen] = useState(false)
   const triggerId = useId()
   const triggerRef = useRef<HTMLSpanElement>(null)
+  const setTriggerRef = useCallback((node: HTMLElement | null) => {
+    triggerRef.current = node
+  }, [])
   const restoreFocus = useRef(false)
   useLayoutEffect(() => {
     if (ready && restoreFocus.current) {
@@ -106,7 +118,7 @@ export function IssueStatusPicker({
   const trigger = (
     // biome-ignore lint/a11y/useSemanticElements: a native button here would nest inside the row's own button (invalid markup) — this is the span-trigger pattern the list's disclosure chevron already uses
     <span
-      ref={triggerRef}
+      ref={setTriggerRef}
       id={triggerId}
       data-pressable
       data-slot="dropdown-menu-trigger"
@@ -205,7 +217,7 @@ export function IssueStatusPicker({
           <DropdownMenuTrigger
             nativeButton={false}
             id={triggerId}
-            ref={triggerRef}
+            ref={setTriggerRef}
             render={(props, state) =>
               cloneElement(trigger, {
                 ...mergeProps(props, trigger.props),

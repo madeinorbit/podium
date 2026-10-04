@@ -2,8 +2,8 @@
 
 exports[`rendered mission pane parity > keeps archived-session reveal names/order and opens the same session > rendered output 1`] = `
 {
-  "bytes": 180410,
-  "sha256": "a2af5f08f499bfc3346e75dbaf4b9233f40de7201b1c2c855be351e584f2e3ad",
+  "bytes": 183013,
+  "sha256": "2012f1d384b35b2d590cf4eea15ea423029d903d16b38e4afbbdb9218d527d7f",
 }
 `;
 
@@ -30,35 +30,35 @@ exports[`rendered mission pane parity > preserves session action labels and orde
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in full > rendered output 1`] = `
 {
-  "bytes": 161774,
-  "sha256": "951679e6c4a619a27362d42325e65de0c78545d007568e52a693e1595dab780f",
+  "bytes": 164377,
+  "sha256": "c7692f1867fa8ae95b8f45028bd05d2618a9211cb4914d1c004a46ae878f63a8",
 }
 `;
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in handoff > rendered output 1`] = `
 {
-  "bytes": 50303,
-  "sha256": "997e93f45e858734f505c291005a1d465175e4a2120344a92e8a6d7b4141a30d",
+  "bytes": 51262,
+  "sha256": "283e93854c26b7a46702970f7e80e87680c91b5307efdde5a82988dd753b8407",
 }
 `;
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in needs-you > rendered output 1`] = `
 {
-  "bytes": 42424,
-  "sha256": "3bf977e01431d47440f55846630d798a005b97c5f626208405ff3e9965fc2808",
+  "bytes": 42698,
+  "sha256": "a11ad0ef676302da9a780e6dfc6d81561212ce863a84a18515b49a0d30981a3d",
 }
 `;
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in waterfall > rendered output 1`] = `
 {
-  "bytes": 77425,
-  "sha256": "60d1535a43dc6766ef4cb2024ec4d6e8da16fefb316fe02363416bb12c8a9e89",
+  "bytes": 80165,
+  "sha256": "9b0b13f692926fce4af619741910d17c83f33ca5cabac495e62ee52f536c7a49",
 }
 `;
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in working > rendered output 1`] = `
 {
-  "bytes": 22918,
-  "sha256": "928162ba3f928ff7bacfba4a7efec6db6d13081a70ab1ed64ad13dcb2d4b8c52",
+  "bytes": 23055,
+  "sha256": "6031d18cb1c2f717ff56a7b8d8a97d17c340cb21e725703c44a972048bff0bc1",
 }
 `;

@@ -9,28 +9,28 @@ exports[`issue page rendered pool parity > preserves the fallback list close dia
 
 exports[`issue page rendered pool parity > preserves the list text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
-  "bytes": 10732,
-  "sha256": "1d3cd6f13faa2c973c13ef62a886155b163d2fa7d981942fca6a48dca803da20",
+  "bytes": 10846,
+  "sha256": "9cb573962893557ea2b1958a1c304e883de4b85c26a0ad7faba07e12b67b8d2e",
 }
 `;
 
 exports[`issue page rendered pool parity > preserves the page text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
-  "bytes": 247632,
-  "sha256": "8b867f59c76d566bcb60b06d697520cc0bb9285f87fb50d67b6da8c5d092a8ba",
+  "bytes": 247860,
+  "sha256": "34d998c513148165be9bcb00738d42039cbdbb2f3243d2aaa0ec95a06ce1445d",
 }
 `;
 
 exports[`issue page rendered pool parity > preserves the panel text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
-  "bytes": 83498,
-  "sha256": "1898790ebd0b5c28be239768c5983fe344b5a169a9ed0206c6c1d7690e949d4b",
+  "bytes": 84125,
+  "sha256": "7ac635c65396754817b845d3f5d2d400b219c6483d7196400d92209084fc1285",
 }
 `;
 
 exports[`issue page rendered pool parity > preserves the rendered continuation after multiple spin-off hops > rendered output 1`] = `
 {
-  "bytes": 53592,
-  "sha256": "d5578bb1224fb49351f3460a83970b2898842efee5e8634736edb9586632c00f",
+  "bytes": 54333,
+  "sha256": "bf236b4abaf71e0ebdb254f2c936c0c5b995c22915365ffe67bf245463ea97c2",
 }
 `;
