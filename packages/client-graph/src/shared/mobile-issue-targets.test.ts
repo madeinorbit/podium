@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createReaderIndex, type ReaderQuestion } from './reader-questions'
 import type { RowRecord } from './source'
+import type { SliceIssue } from './slice-types'
 
 const question = (
   query = '',
@@ -32,10 +33,10 @@ const issue = (id: string, seq: number, extra: object = {}): RowRecord => ({
 })
 
 describe('mobile target identity question', () => {
-  it('keeps text membership and postings without unread title or text revisions', () => {
+  it('never builds title, gram or sequence-prefix facets, buckets or postings', () => {
     const index = createReaderIndex()
     // Exhaustive so a new reader must join this check. Map keys expose both
-    // membership and revision entries; filed retains titles inside Set values.
+    // membership and revision entries; Set.add also catches per-row facets.
     const readers: Record<ReaderQuestion['kind'], ReaderQuestion> = {
       residentIssues: { kind: 'residentIssues' },
       commandIssues: { kind: 'commandIssues' },
@@ -64,6 +65,7 @@ describe('mobile target identity question', () => {
     }
     const writes = vi.spyOn(Map.prototype, 'set')
     const reads = vi.spyOn(Map.prototype, 'get')
+    const facets = vi.spyOn(Set.prototype, 'add')
     const isTitle = ([key]: [unknown, ...unknown[]]) =>
       typeof key === 'string' && key.startsWith('issue:targetTitle:')
     const isText = ([key]: [unknown, ...unknown[]]) =>
@@ -73,6 +75,7 @@ describe('mobile target identity question', () => {
     let textRevisionWrites: unknown[] = [], textRevisionReads: unknown[] = []
     let textMembershipWrites: [unknown, ...unknown[]][] = []
     let textPostingWrites: [unknown, ...unknown[]][] = []
+    let textFacets: unknown[] = []
     let revisionMap: unknown
     try {
       index.apply({ type: 'replace', rows: [issue('a', 17)] })
@@ -106,19 +109,20 @@ describe('mobile target identity question', () => {
       textPostingWrites = writes.mock.calls.filter(
         (call) => isText(call) && Array.isArray(call[1]),
       )
+      textFacets = facets.mock.calls.filter((call) => isTitle(call) || isText(call))
     } finally {
       writes.mockRestore()
       reads.mockRestore()
+      facets.mockRestore()
     }
     expect(titleWrites).toEqual([])
     expect(titleReads).toEqual([])
     expect(revisionMap).toBeInstanceOf(Map)
     expect(textRevisionWrites).toEqual([])
     expect(textRevisionReads).toEqual([])
-    for (const prefix of ['issue:targetGram:title:', 'issue:targetGram:ref:', 'issue:targetSequenceStart:']) {
-      expect(textMembershipWrites.some(([key]) => typeof key === 'string' && key.startsWith(prefix))).toBe(true)
-      expect(textPostingWrites.some(([key]) => typeof key === 'string' && key.startsWith(prefix))).toBe(true)
-    }
+    expect(textMembershipWrites).toEqual([])
+    expect(textPostingWrites).toEqual([])
+    expect(textFacets).toEqual([])
   })
 
   it('preserves the publication clock while text edits invalidate only their target path', () => {
@@ -132,8 +136,8 @@ describe('mobile target identity question', () => {
     const boardRevision = index.revision(board)
     expect(index.ids(search)).toEqual(['a'])
     index.apply({ type: 'update', rows: [issue('a', 7, { title: 'y' })] })
-    // One path publication and the removed/added one-character title grams.
-    expect(index.version).toBe(before + 3)
+    // The path publication is now the only text change; there are no grams.
+    expect(index.version).toBe(before + 1)
     expect(index.revision(search)).toBe(before + 1)
     expect(index.revision(other)).toBe(otherRevision)
     expect(index.revision(board)).toBe(boardRevision)
@@ -142,8 +146,7 @@ describe('mobile target identity question', () => {
 
     const renamed = index.version
     index.apply({ type: 'update', rows: [issue('a', 8, { title: 'y' })] })
-    // A path publication plus removed/added reference grams and prefixes.
-    expect(index.version).toBe(renamed + 5)
+    expect(index.version).toBe(renamed + 1)
     expect(index.revision(search)).toBe(renamed + 1)
     expect(index.revision(other)).toBe(otherRevision)
     expect(index.ids(question('POD-7'))).toEqual([])
@@ -154,7 +157,7 @@ describe('mobile target identity question', () => {
     expect(index.version).toBe(edited)
   })
 
-  it('invalidates title-only renames even when every gram posting stays the same', () => {
+  it('invalidates title-only renames with identical distinct grams', () => {
     const index = createReaderIndex()
     const search = question('aaaaa')
     index.apply({ type: 'replace', rows: [issue('a', 17, { title: 'aaaa' })] })
@@ -230,16 +233,25 @@ describe('mobile target identity question', () => {
     expect(index.ids(question('pod'))).toEqual([])
   })
 
-  it('does not visit the whole catalog for a cold, specific title or reference', () => {
+  it('scans only the queried path for text, without revisiting publication rows', () => {
     const cells: number[] = []
     for (const scale of [1, 4]) {
       const index = createReaderIndex()
+      let reads = 0
+      const source = Array.from({ length: 1_200 * scale }, (_, at) =>
+        issue(`history-${at}`, at, at === 71 ? { title: 'Unique phone target' } : {}),
+      )
       index.apply({
         type: 'replace',
-        rows: Array.from({ length: 1_200 * scale }, (_, at) =>
-          issue(`history-${at}`, at, at === 71 ? { title: 'Unique phone target' } : {}),
-        ),
+        rows: [...source, ...source.map((row) => issue(`other-${row.id}`, 99_999, { repoPath: '/other' }))]
+          .map((row) => ({ ...row, value: new Proxy(row.value!, {
+            get(target, key, receiver) {
+              reads++
+              return Reflect.get(target, key, receiver)
+            },
+          }) })),
       })
+      reads = 0
       const before = index.targetCounts.visits
       expect(index.ids(question('unique phone target'))).toEqual(['history-71'])
       expect(index.ids(question('pod 71'))).toEqual([
@@ -256,9 +268,11 @@ describe('mobile target identity question', () => {
         'history-71',
       ])
       cells.push(index.targetCounts.visits - before)
+      expect(reads).toBe(0)
+      expect(cells.at(-1)).toBe(2 * 1_200 * scale)
     }
     console.info('[source target search visits]', JSON.stringify(cells))
-    expect(cells[1]).toBeLessThanOrEqual(cells[0]!)
+    expect(cells).toEqual([2_400, 9_600])
   })
 
   it('updates order and matching from effective publications, then evicts every facet', () => {
@@ -328,5 +342,82 @@ describe('mobile target identity question', () => {
       index.ids({ ...question('other 17'), prefixes: { phone: 'POD', sibling: 'OTHER' } }),
     ).toEqual(['sibling'])
     expect(index.ids({ ...question('#17'), prefixes: {} })).toEqual(['phone', 'sibling'])
+  })
+
+  it('preserves ordered title, gram and reference matches across prefixes, limits and publications', () => {
+    const index = createReaderIndex()
+    let rows = Array.from({ length: 640 }, (_, at) => issue(`row-${at}`, at % 173, {
+      repoId: ['phone', 'sibling', 'digits', 'missing'][at % 4],
+      repoPath: at % 11 === 0 ? '/other' : '/phone',
+      title: ['abc---bcd', 'abcd', 'AAAAA', 'Résumé 71', 'Title: a-b', '17 endings', ''] [at % 7],
+      deletedAt: at % 19 === 0 ? '2026-10-04' : undefined,
+      archived: at % 3 === 0,
+    }))
+    const queries = [
+      '', ' ', 'a', 'ab', 'abc', 'bcd', 'abcd', 'aaaa', 'aaaaa',
+      'résumé', 'RÉSUMÉ 71', 'title: a-b', 'endings', '#', '17', '#17',
+      'pod', 'POD-17', 'pod 1', 'OD17', 'OTHER17', '3X-1', 'x1', '23', 'no match',
+    ]
+    const prefixes = { phone: 'POD', sibling: 'OTHER', digits: '23X' }
+    const oracle = (search: ReturnType<typeof question>) => {
+      const needle = search.query.trim().toLocaleLowerCase()
+      const refNeedle = needle.replace(/[^a-z0-9]/g, '')
+      const reference = /\d/.test(refNeedle)
+      const limit = Math.max(0, Math.trunc(search.limit))
+      if (!(limit > 0)) return []
+      return rows.map((row) => row.value as SliceIssue)
+        .filter((row) => row.repoPath === search.repoPath && !row.deletedAt && row.id !== search.excludeId)
+        .sort((a, b) => b.seq - a.seq || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .filter((row) => !needle || row.title.toLocaleLowerCase().includes(needle) || (
+          reference && `${search.prefixes[row.repoId] ?? ''}${row.seq}`
+            .toLocaleLowerCase().replace(/[^a-z0-9]/g, '').includes(refNeedle)
+        ))
+        .slice(0, limit).map((row) => row.id)
+    }
+    const compare = () => {
+      for (const repoPath of ['/phone', '/other'])
+        for (const query of queries)
+          for (const limit of [0, -1, 1, 14, 70, 1.9, NaN, Infinity]) {
+            const search = { ...question(query, limit), repoPath, excludeId: 'row-17', prefixes }
+            expect(index.ids(search), `${repoPath} ${query} ${limit}`).toEqual(oracle(search))
+          }
+    }
+    index.apply({ type: 'replace', rows })
+    compare()
+    const edited = issue('row-17', 9_999, { title: 'AAAAAA', repoId: 'digits' })
+    const moved = issue('row-19', 9_998, { title: 'abcd', repoPath: '/other', repoId: 'sibling' })
+    rows = rows.filter((row) => !['row-17', 'row-19', 'row-23'].includes(row.id)).concat(edited, moved)
+    index.apply({ type: 'update', rows: [edited, moved, { kind: 'issue', id: 'row-23', value: undefined }] })
+    compare()
+    rows = [issue('principal-switch', 17, { title: 'abcd' })]
+    index.apply({ type: 'replace', rows })
+    compare()
+  })
+
+  it('preserves command roster insertion order for every archive and shell filter', () => {
+    const index = createReaderIndex()
+    const session = (id: string, extra: object = {}): RowRecord => ({
+      kind: 'session', id,
+      value: { sessionId: id, issueId: 'owner', agentKind: 'codex', archived: false, ...extra } as RowRecord['value'],
+    })
+    index.apply({ type: 'replace', rows: [
+      session('z'), session('a'), session('shell', { agentKind: 'shell' }),
+      session('archived', { archived: true }), session('unrelated', { issueId: 'other' }),
+    ] })
+    const roster = (archived?: boolean, includeShells?: boolean) =>
+      index.ids({ kind: 'commandIssueSessions', issueId: 'owner', archived, includeShells })
+    for (const archived of [undefined, true, false])
+      for (const includeShells of [undefined, true, false])
+        expect(roster(archived, includeShells)).toEqual([
+          'z', 'a', ...(includeShells ? ['shell'] : []), ...(archived !== false ? ['archived'] : []),
+        ])
+    index.apply({ type: 'update', rows: [session('z', { archived: true, agentKind: 'shell' }), session('archived')] })
+    expect(roster()).toEqual(['a', 'archived'])
+    expect(roster(false, true)).toEqual(['a', 'shell', 'archived'])
+    expect(roster(true, true)).toEqual(['z', 'a', 'shell', 'archived'])
+    index.apply({ type: 'update', rows: [{ kind: 'session', id: 'a', value: undefined }] })
+    expect(roster(false, true)).toEqual(['shell', 'archived'])
+    index.apply({ type: 'replace', rows: [session('next-principal')] })
+    expect(roster(false, true)).toEqual(['next-principal'])
   })
 })
