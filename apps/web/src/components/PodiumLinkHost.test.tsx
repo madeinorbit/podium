@@ -15,7 +15,9 @@ const hostStore = vi.hoisted(() => {
   const listeners = new Set<() => void>()
   return {
     allIssues,
-    get issues() { return issues },
+    get issues() {
+      return issues
+    },
     set issues(rows: typeof issues) {
       issues = rows
       revision++
@@ -39,22 +41,22 @@ const hostStore = vi.hoisted(() => {
 vi.mock('@/app/shell-data', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
-  useShellActions: () => ({
-    httpOrigin: 'http://127.0.0.1:18787',
-    setOpenIssueId: hostStore.setOpenIssueId,
-    setView: hostStore.setView,
-    navigateToSession: hostStore.navigateToSession,
-    openArtifact: hostStore.openArtifact,
-    openFileInWorktree: hostStore.openFileInWorktree,
-  }),
-  useShellLinks: () => {
-    useSyncExternalStore(hostStore.subscribe, hostStore.snapshot)
-    return {
-      readIssues: hostStore.readIssues,
-      readSessions: hostStore.readSessions,
-      artifactIssue: () => undefined,
-    }
-  },
+    useShellActions: () => ({
+      httpOrigin: 'http://127.0.0.1:18787',
+      setOpenIssueId: hostStore.setOpenIssueId,
+      setView: hostStore.setView,
+      navigateToSession: hostStore.navigateToSession,
+      openArtifact: hostStore.openArtifact,
+      openFileInWorktree: hostStore.openFileInWorktree,
+    }),
+    useShellLinks: () => {
+      useSyncExternalStore(hostStore.subscribe, hostStore.snapshot)
+      return {
+        readIssues: hostStore.readIssues,
+        readSessions: hostStore.readSessions,
+        artifactIssue: () => undefined,
+      }
+    },
   }
 })
 

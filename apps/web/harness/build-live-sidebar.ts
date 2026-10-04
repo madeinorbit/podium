@@ -16,6 +16,56 @@ await build({
       name: 'live-sidebar-census',
       enforce: 'pre',
       transform(code, id) {
+        if (id.endsWith('/packages/client-graph/src/shell-views.ts')) {
+          if (!code.includes('  const cache =')) throw new Error('Shell census boundary changed')
+          code = code.replace(
+            '  const cache =',
+            `  const liveShellCounts: Record<string, number> = {}
+  ;(globalThis as any).__liveShellCensus = () => ({ ...liveShellCounts })
+  const cache =`,
+          )
+          code = code.replace(
+            / {2}function (issue|sessions|session|issues|chrome|dock)\(([^)]*)\)([^{]*)\{/g,
+            (boundary, name) =>
+              boundary + `\n    liveShellCounts.${name} = (liveShellCounts.${name} ?? 0) + 1`,
+          )
+          if (off === 'shell') {
+            code = code.replace(
+              '  function sessions(): Loaded<SessionView[]> {',
+              '  function sessions(): Loaded<SessionView[]> {\n    return []',
+            )
+            code = code.replace(
+              '  function issues(): Loaded<IssueViewModel[]> {',
+              '  function issues(): Loaded<IssueViewModel[]> {\n    return []',
+            )
+          }
+          return code
+        }
+        if (off === 'board' && id.endsWith('/packages/client-graph/src/issue-board-source.ts'))
+          return code.replace(
+            '  function track(id: string) {',
+            '  function track(id: string) {\n    return',
+          )
+        if (off === 'page-catalog' && id.endsWith('/packages/client-graph/src/issue-page.ts'))
+          return code.replace(
+            '  function issues(): Loaded<IssueViewModel[]> {',
+            '  function issues(): Loaded<IssueViewModel[]> {\n    return []',
+          )
+        if (off === 'motion' && id.endsWith('/worklist-motion-layout.tsx'))
+          return code
+            .replaceAll('projection.root?.didUpdate()', 'void 0')
+            .replaceAll('projection.willUpdate()', 'void 0')
+        if (off === 'deck' && id.endsWith('/apps/web/src/app/FlightDeck.tsx')) {
+          const start = code.indexOf('export function FlightDeckContent(')
+          const boundary = code.indexOf('}): JSX.Element {', start)
+          if (start < 0 || boundary < 0) throw new Error('Deck control boundary changed')
+          const at = boundary + '}): JSX.Element {'.length
+          return (
+            code.slice(0, at) +
+            '\n  return <div data-testid="flight-deck-scroller" />' +
+            code.slice(at)
+          )
+        }
         if (id.endsWith('/packages/client-graph/src/chat-context.ts')) {
           if (!code.includes('  return {\n    counts,'))
             throw new Error('Chat census boundary changed')

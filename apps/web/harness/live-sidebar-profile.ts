@@ -132,6 +132,8 @@ const context = await browser.newContext({
 })
 let capturePage: Awaited<ReturnType<typeof context.newPage>> | undefined
 let captureCdp: Awaited<ReturnType<typeof context.newCDPSession>> | undefined
+const startupErrors: string[] = []
+const responseFailures = new Map<number, number>()
 try {
   const token = execFileSync('podium', ['auth', 'mint-session', '--ttl', '2h', '--print-only'], {
     encoding: 'utf8',
@@ -149,6 +151,13 @@ try {
   ])
   const page = await context.newPage()
   capturePage = page
+  page.on('pageerror', (error) =>
+    startupErrors.push(String(error.stack).replaceAll(token, '[redacted]')),
+  )
+  page.on('response', (response) => {
+    if (response.status() >= 400)
+      responseFailures.set(response.status(), (responseFailures.get(response.status()) ?? 0) + 1)
+  })
   if (timingOnly) {
     await page.addInitScript(() => {
       window.__speedReact = { renderer: null, commits: [] }
@@ -220,7 +229,14 @@ try {
     }).observe(document, { subtree: true, attributes: true, childList: true, characterData: true })
   })
   await page.goto('http://127.0.0.1:55619/?e2e=1&switchTrace=1', { waitUntil: 'domcontentloaded' })
-  await page.locator('[data-issue-row]').first().waitFor({ timeout: 180_000 })
+  await page
+    .locator('[data-issue-row]')
+    .first()
+    .waitFor({
+      timeout: Number(
+        process.argv.find((a) => a.startsWith('--startup-timeout='))?.slice(18) ?? 180_000,
+      ),
+    })
   await page.evaluate(() => document.fonts.ready)
   await page.waitForTimeout(10_000)
   if (closeMeter) await page.getByRole('button', { name: 'Close performance panel' }).click()
@@ -236,6 +252,27 @@ try {
   }
   const cdp = await context.newCDPSession(page)
   captureCdp = cdp
+  const idleMs = Number(process.argv.find((a) => a.startsWith('--idle-ms='))?.slice(10) ?? 0)
+  if (idleMs > 0) {
+    const before = await page.evaluate(() => ({
+      perf: (window as any).__podiumSidebarPerf?.read(),
+      shell: (window as any).__liveShellCensus?.(),
+      launch: (window as any).__liveLaunchCensus?.(),
+      chat: (window as any).__liveChatCensus?.(),
+    }))
+    const stopIdle = await startCpu(cdp)
+    await page.waitForTimeout(idleMs)
+    const profile = await stopIdle()
+    const after = await page.evaluate(() => ({
+      perf: (window as any).__podiumSidebarPerf?.read(),
+      shell: (window as any).__liveShellCensus?.(),
+      launch: (window as any).__liveLaunchCensus?.(),
+      chat: (window as any).__liveChatCensus?.(),
+    }))
+    if (profile) await writeFile(resolve(root, 'idle.cpuprofile'), JSON.stringify(profile))
+    await writeFile(resolve(root, 'idle.json'), JSON.stringify({ idleMs, before, after }))
+    console.log(JSON.stringify({ idleMs, profiled: Boolean(profile) }))
+  }
   const rows = await page.locator('[data-issue-row]').evaluateAll((nodes) =>
     nodes.map((n) => ({
       id: n.getAttribute('data-issue-row')!,
@@ -338,6 +375,16 @@ try {
         ? `[data-issue-id="${item.id}"]`
         : `[data-issue-row="${item.id}"]`
       const row = page.locator(trigger).first()
+      if (!issuePageAction && !(await row.count())) {
+        const closed = page.getByTestId('closed-fold-toggle')
+        if (
+          (await closed.count()) &&
+          (await closed.first().getAttribute('aria-expanded')) === 'false'
+        ) {
+          await closed.first().click()
+          await page.waitForTimeout(1000)
+        }
+      }
       await row.scrollIntoViewIfNeeded()
       let box = await row.boundingBox()
       if (!box) throw new Error('Sidebar target has no bounds')
@@ -375,6 +422,7 @@ try {
           state.launchBefore = (window as any).__liveLaunchCensus?.() ?? {}
           state.launchInitializedBefore = !!(window as any).__liveLaunchCensus
           state.chatBefore = (window as any).__liveChatCensus?.() ?? {}
+          state.shellBefore = (window as any).__liveShellCensus?.() ?? {}
           window.__speedReact.commits = []
           performance.clearMarks()
         },
@@ -470,6 +518,7 @@ try {
       }))
       const launchAfter = await page.evaluate(() => (window as any).__liveLaunchCensus?.() ?? {})
       const chatAfter = await page.evaluate(() => (window as any).__liveChatCensus?.() ?? {})
+      const shellAfter = await page.evaluate(() => (window as any).__liveShellCensus?.() ?? {})
       const input = events.find((e) => e.name === 'speed:input')
       const dom = events.find((e) => e.name === 'speed:dom')
       const paint = events
@@ -556,6 +605,12 @@ try {
             Number(launchAfter[key] ?? 0) - Number(state.boundary.launchBefore[key] ?? 0),
           ]),
         ),
+        shellWork: Object.fromEntries(
+          ['issue', 'session', 'issues', 'sessions', 'chrome', 'dock'].map((key) => [
+            key,
+            Number(shellAfter[key] ?? 0) - Number(state.boundary.shellBefore?.[key] ?? 0),
+          ]),
+        ),
       })
       const file = `click-${iteration.toString().padStart(2, '0')}`
       const traceBytes = JSON.stringify({ traceEvents: events })
@@ -594,6 +649,37 @@ try {
   }
 } catch (error) {
   await writeFile(resolve(root, 'failure.txt'), String((error as Error).stack))
+  await writeFile(resolve(root, 'startup-errors.json'), JSON.stringify(startupErrors))
+  if (capturePage)
+    console.log(
+      JSON.stringify({
+        startup: await capturePage
+          .evaluate(() => ({
+            ready: document.readyState,
+            elements: document.querySelectorAll('*').length,
+            rows: document.querySelectorAll('[data-issue-row]').length,
+            passwordInputs: document.querySelectorAll('input[type="password"]').length,
+            alerts: document.querySelectorAll('[role="alert"]').length,
+            rootChildren: document.getElementById('root')?.children.length ?? 0,
+          }))
+          .catch(() => ({ unavailable: true })),
+        scriptErrors: startupErrors.length,
+        responseFailures: Object.fromEntries(responseFailures),
+        proxyErrors,
+      }),
+    )
+  if (capturePage)
+    await writeFile(
+      resolve(root, 'failure-state.json'),
+      JSON.stringify(
+        await capturePage
+          .evaluate(() => ({
+            boundary: (window as any).__speedCapture,
+            traces: (window as any).__podiumSwitchTraces?.recent().slice(-1),
+          }))
+          .catch(() => null),
+      ),
+    )
   if (capturePage && captureCdp) {
     await saveComponents(capturePage, captureCdp, resolve(root, 'components.json')).catch(() => {})
     console.log(
