@@ -4,6 +4,7 @@ import { type FileTab, type RecentFileEntry, allTabIds, leafPaneIds, openTab } f
 import {
   type EngineState, foregroundIssue, workspaceFor, resolvedWorkspaceKey, NAVIGATION_LOADING,
   workspaceMirrorPatch, workspaceWritePatch, navigationIssueReadAt,
+  overlayState,
 } from './state'
 
 export interface NavigationIntent {
@@ -29,7 +30,7 @@ export function planNavigation(
     ...(intent.selectedIssueId !== undefined ? { selectedIssueId: intent.selectedIssueId } : {}),
     ...(intent.selectedWorktree !== undefined ? { selectedWorktree: intent.selectedWorktree } : {}),
   }
-  const landing = { ...state, ...selection }
+  const landing = overlayState(state, selection)
   const key = resolvedWorkspaceKey(landing)
   if (key === NAVIGATION_LOADING) return {
     pending: true, patch: {} as Partial<EngineState>, route: current, key: 'none' as const, replace: false,
@@ -77,7 +78,7 @@ export function planNavigation(
         ...state.recentFiles.filter((candidate) => !same(candidate))].slice(0, 30)
     }
   }
-  const issue = context.visible ? foregroundIssue({ ...landing, ...patch }) : undefined
+  const issue = context.visible ? foregroundIssue(overlayState(landing, patch)) : undefined
   patch.issueVisitBaseline = !issue ? null : state.issueVisitBaseline?.issueId === issue.id
     ? state.issueVisitBaseline
     : { issueId: issue.id, readAt: navigationIssueReadAt(state, issue.id), openedAt: context.now }

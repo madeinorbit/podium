@@ -189,10 +189,58 @@ export interface OptimismPorts<TApi extends PodiumClientApi> {
    *  unchanged, which is correct but publishes once per recompute. */
   readonly batch?: (fn: () => void) => void
   readonly spawnConfirmGraceMs?: number
+  /** POD-5434: a group's repaint was skipped. The runtime marks the group's
+   *  lists stale if they may have moved and paints them on their first read
+   *  ({@link OptimismLedger.paintNow}). Called only after
+   *  {@link OptimismLedger.enableLazyPaint}. */
+  readonly paintDeferred?: (group: PaintGroup, change: DeferredPaint) => void
+  /** POD-5434: one server-truth row by the ledger's own id, without the
+   *  whole lists (the session as its view). Required by lazy paint. */
+  readonly truth?: (entity: OverlayTarget, id: string) => OverlayRow | undefined
+}
+
+/** What a skipped repaint would have painted differently from the last one. */
+export interface DeferredPaint {
+  /** The entities whose pending overlays changed since the last repaint. */
+  readonly moved: ReadonlySet<OverlayTarget>
+  /** Those entities' overlays, before and after: what the paint may move. */
+  readonly overlays: readonly PendingOverlay[]
+}
+
+/** Two settles saw the same paint: the comparison {@link OptimismLedger}'s
+ *  `foldStable` makes, per entity, in queue order. */
+function sameOverlays(a: readonly PendingOverlay[], b: readonly PendingOverlay[]): boolean {
+  return (
+    a.length === b.length &&
+    b.every((o, i) => {
+      const old = a[i]!
+      return (
+        o.id === old.id &&
+        (o.op === 'patch' && old.op === 'patch'
+          ? shallowEqual(o.patch, old.patch) &&
+            (o.absent === undefined) === (old.absent === undefined)
+          : o.op === 'insert' && old.op === 'insert' && o.insert === old.insert)
+      )
+    })
+  )
+}
+
+/** The lists one repaint publishes: the session list (with its spawn ids and
+ *  first turns), or the two issue lists, which always repaint together. */
+export type PaintGroup = 'sessions' | 'issues'
+
+const GROUP_TARGETS: Record<PaintGroup, readonly OverlayTarget[]> = {
+  sessions: ['sessions', 'sessionUserStates'],
+  issues: ['issueProjections', 'issueUserStates'],
 }
 
 export class OptimismLedger<TApi extends PodiumClientApi> {
+  /** Whole-list repaints (sessions, issue projections, issue user states), for
+   *  the legacy fold meter (POD-5434). */
+  readonly stats = { folds: 0 }
   private keyedFolds = false
+  /** POD-5434: repaints wait for a reader; settlement runs by row. */
+  private lazyPaint = false
   private readonly basePositions = new Map<
     OverlayTarget,
     {
@@ -204,6 +252,92 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
 
   enableKeyedFolds(): void {
     this.keyedFolds = true
+  }
+
+  /**
+   * POD-5434 (plan step 10): settle a group without painting it, and let the
+   * runtime paint its lists on their first read. Everything a repaint does
+   * besides the fold still runs at once, by row: spawn placeholders and
+   * awaiting-truth patches retire against their own truth rows, the spawn ids
+   * and first turns publish, and sends waiting on a spawn are released. The
+   * fold itself, over the whole lists, runs only when a reader asks
+   * ({@link paintNow}). Needs {@link OptimismPorts.truth}.
+   */
+  enableLazyPaint(): void {
+    if (!this.ports.truth || !this.ports.paintDeferred) return
+    this.lazyPaint = true
+    // Settles keep publishing the spawn ids the last repaint published.
+    this.lazySpawnIds = this.folds.get('sessions')?.result.pendingInsertIds ?? this.lazySpawnIds
+    for (const entity of [...GROUP_TARGETS.sessions, ...GROUP_TARGETS.issues])
+      this.settledOverlays.set(entity, this.folds.get(entity)?.overlays ?? [])
+  }
+
+  /** The overlays each group's last settle saw, to tell the runtime what moved. */
+  private readonly settledOverlays = new Map<OverlayTarget, PendingOverlay[]>()
+
+  /** True when the repaint was replaced by a settle. */
+  private deferred(group: PaintGroup): boolean {
+    if (!this.lazyPaint) return false
+    const targets = GROUP_TARGETS[group]
+    if (group === 'sessions') {
+      this.retireCovered('sessions', null, (s: SessionMeta): string => s.sessionId)
+      this.retireCovered('sessionUserStates', null, this.sessionUserStateKey, (id) =>
+        this.absentSessionUserState(id),
+      )
+      const inserts = this.overlaysFor('sessions').filter(
+        (o) => o.op === 'insert' && this.ports.truth?.('sessions', o.id) === undefined,
+      )
+      const ids = new Set(inserts.map((o) => o.id))
+      const pendingInsertIds =
+        this.lazySpawnIds.size === ids.size && [...ids].every((id) => this.lazySpawnIds.has(id))
+          ? this.lazySpawnIds
+          : ids
+      this.lazySpawnIds = pendingInsertIds
+      if ([...this.spawnPrompts.keys()].some((id) => !pendingInsertIds.has(id))) {
+        this.spawnPrompts = new Map(
+          [...this.spawnPrompts].filter(([id]) => pendingInsertIds.has(id)),
+        )
+      }
+      this.ports.publish({
+        pendingSpawnIds: pendingInsertIds,
+        pendingSpawnPrompts: this.spawnPrompts,
+      })
+      this.notifySpawnConfirmWaiters(pendingInsertIds)
+    } else {
+      this.retireCovered('issueProjections', null, (i: IssueProjection): string => i.id)
+      this.retireCovered('issueUserStates', null, this.userStateKey, (id) =>
+        this.absentUserState(asIssueId(id)),
+      )
+    }
+    const moved = new Set<OverlayTarget>()
+    const overlays: PendingOverlay[] = []
+    for (const entity of targets) {
+      const now = this.overlaysFor(entity)
+      const before = this.settledOverlays.get(entity) ?? []
+      this.settledOverlays.set(entity, now)
+      if (sameOverlays(before, now)) continue
+      moved.add(entity)
+      overlays.push(...before, ...now)
+    }
+    this.ports.paintDeferred?.(group, { moved, overlays })
+    return true
+  }
+  /** The spawn ids the last settle published (kept while unchanged). */
+  private lazySpawnIds: ReadonlySet<string> = new Set()
+
+  /** Paint a deferred group now: the runtime's first read of a stale list. */
+  paintNow(group: PaintGroup): void {
+    const lazy = this.lazyPaint
+    this.lazyPaint = false
+    try {
+      if (group === 'sessions') this.recomputeSessions()
+      else {
+        this.recomputeIssueProjections()
+        this.recomputeIssueUserStates()
+      }
+    } finally {
+      this.lazyPaint = lazy
+    }
   }
 
   /** An index of the writer's current base array, not a second row store. */
@@ -459,6 +593,11 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   /** The issue ids of the normalized slice, plus pending spawn placeholders:
    *  the issues whose per-user row may be absent and still mean "nothing set". */
   private inSlice(issueId: IssueId): boolean {
+    if (this.lazyPaint)
+      return (
+        this.ports.truth?.('issueProjections', issueId) !== undefined ||
+        this.spawnOverlays.some((o) => o.entity === 'issueProjections' && o.id === issueId)
+      )
     const base = this.ports.base().issueProjections
     if (this.sliceIds?.base !== base) {
       this.sliceIds = { base, ids: new Set(base.map((row) => row.id)) }
@@ -504,7 +643,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    * Undefined once the session itself has left the slice. */
   private absentSessionUserState(sessionId: string): SessionUserStateWire | undefined {
     const session =
-      sessionById(this.ports.base().sessions).get(sessionId) ??
+      (this.lazyPaint
+        ? (this.ports.truth?.('sessions', sessionId) as SessionView | undefined)
+        : sessionById(this.ports.base().sessions).get(sessionId)) ??
       this.spawnOverlays.find(
         (o): o is Extract<PendingOverlay, { op: 'insert' }> =>
           o.op === 'insert' && o.entity === 'sessions' && o.id === sessionId,
@@ -521,6 +662,13 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
 
   /** The current server-truth row an overlay of record is judged against. */
   private truthRow(entity: OverlayTarget, id: string): OverlayRow | undefined {
+    if (this.lazyPaint) {
+      const row = this.ports.truth?.(entity, id)
+      if (row !== undefined) return row
+      if (entity === 'issueUserStates') return this.absentUserState(asIssueId(id))
+      if (entity === 'sessionUserStates') return this.absentSessionUserState(id)
+      return undefined
+    }
     const base = this.ports.base()
     switch (entity) {
       case 'sessions':
@@ -732,12 +880,16 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    *  once no other overlay of the same entry still awaits. */
   private retireCovered<T extends object>(
     entity: OverlayTarget,
-    base: T[],
+    /** null: lazy paint, each row read by id ({@link OptimismPorts.truth}). */
+    base: T[] | null,
     keyOf: (row: T) => string,
     absentRow?: (id: string) => T | undefined,
   ): void {
     if (this.spawnOverlays.some((o) => o.entity === entity)) {
-      const known = new Set(base.map(keyOf))
+      const known =
+        base === null
+          ? { has: (id: string) => this.ports.truth?.(entity, id) !== undefined }
+          : new Set(base.map(keyOf))
       const keep = this.spawnOverlays.filter((o) => {
         if (o.entity !== entity) return true
         // The per-user placeholder lives exactly as long as its issue's: the
@@ -757,20 +909,31 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       ? this.awaitingTruth.filter((a) => a.overlay.entity === entity)
       : []
     const checkedBase =
-      awaiting.length > 0
-        ? (() => {
-            const index = this.positionsFor(entity, base, keyOf)
-            if (!index.unique) return base
-            return [
-              ...new Set(
-                awaiting.flatMap((a) => {
-                  const position = index.positions.get(a.overlay.id)
-                  return position === undefined ? [] : [position]
-                }),
-              ),
-            ].map((position) => base[position]!)
-          })()
-        : base
+      base === null
+        ? [
+            ...new Set(
+              this.awaitingTruth
+                .filter((a) => a.overlay.entity === entity)
+                .map((a) => a.overlay.id),
+            ),
+          ].flatMap((id) => {
+            const row = this.ports.truth?.(entity, id) as T | undefined
+            return row === undefined ? [] : [row]
+          })
+        : awaiting.length > 0
+          ? (() => {
+              const index = this.positionsFor(entity, base, keyOf)
+              if (!index.unique) return base
+              return [
+                ...new Set(
+                  awaiting.flatMap((a) => {
+                    const position = index.positions.get(a.overlay.id)
+                    return position === undefined ? [] : [position]
+                  }),
+                ),
+              ].map((position) => base[position]!)
+            })()
+          : base
     const pruned = pruneAwaiting(
       this.awaitingTruth,
       entity,
@@ -849,6 +1012,8 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    *  attach to yet (#119). The per-user session overlays retire here too:
    *  their only reader is this list's join. */
   recomputeSessions(): void {
+    if (this.deferred('sessions')) return
+    this.stats.folds++
     const { sessions, sessionUserStates } = this.ports.base()
     // Sessions first: a spawn placeholder's per-user row lives as long as the
     // session placeholder, so both leave in the same recompute.
@@ -869,6 +1034,8 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   }
 
   recomputeIssueProjections(): void {
+    if (this.deferred('issues')) return
+    this.stats.folds++
     const base = this.ports.base().issueProjections
     const keyOf = (i: IssueProjection): string => i.id
     this.retireCovered('issueProjections', base, keyOf)
@@ -877,6 +1044,8 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   }
 
   recomputeIssueUserStates(): void {
+    if (this.deferred('issues')) return
+    this.stats.folds++
     const base = this.ports.base().issueUserStates
     this.retireCovered('issueUserStates', base, this.userStateKey, (id) =>
       this.absentUserState(asIssueId(id)),

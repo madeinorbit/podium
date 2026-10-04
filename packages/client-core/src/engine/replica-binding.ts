@@ -44,6 +44,9 @@ export interface ReplicaPublication {
   readonly snapshot: ReplicaBindingSnapshot
   readonly changed: ReadonlySet<ReplicaKind>
   readonly reason: 'rows' | 'hydrated'
+  /** On-demand mode only (POD-5434): the row ids this batch touched per kind,
+   *  or `'replace'` when it replaced the slice or the ids are unknown. */
+  readonly addressed?: ReadonlyMap<ReplicaKind, ReadonlySet<string>> | 'replace'
 }
 
 export interface ReplicaBindingSubscriber {
@@ -52,11 +55,26 @@ export interface ReplicaBindingSubscriber {
   hydrated?(result: ReplicaHydrateResult): void
 }
 
+/** Whole-kind reads, for the legacy fold meter (POD-5434). */
+export interface ReplicaBindingStats {
+  /** `replica.rows(kind)` calls: each materialises one kind's whole array. */
+  rowReads: number
+}
+
 export interface ReplicaBinding {
+  readonly stats: ReplicaBindingStats
   /** Synchronous durable read used to build the Store's very first snapshot. */
   snapshot(): ReplicaBindingSnapshot
   /** Arm row subscriptions and hydration. The returned teardown is idempotent. */
   start(subscriber: ReplicaBindingSubscriber): () => void
+  /**
+   * POD-5434: stop materialising changed kinds per batch. Each publication's
+   * `snapshot` then reads the replica when a kind is read (`replica.rows` keeps
+   * its own per-kind projection), and carries the batch's `addressed` ids.
+   * Needs the replica's addressed batches; false (and no change) without them.
+   * One way: the binding never goes back.
+   */
+  readOnDemand(): boolean
 }
 
 export interface ReplicaBindingInit {
@@ -65,30 +83,92 @@ export interface ReplicaBindingInit {
 
 export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
   const { replica } = init
-  let current = readSnapshot(replica)
+  const stats: ReplicaBindingStats = { rowReads: 0 }
+  let current = readSnapshot(replica, stats)
   let generation = 0
+  let onDemand = false
+  /** The started generation's switch to on-demand reads, if one is running. */
+  let armOnDemand: (() => void) | null = null
 
   return {
+    stats,
     snapshot: () => current,
+
+    readOnDemand(): boolean {
+      if (onDemand) return true
+      if (replica.subscribeAddressedBatch === undefined || replica.row === undefined) return false
+      onDemand = true
+      current = liveSnapshot(replica, stats)
+      armOnDemand?.()
+      return true
+    },
 
     start(subscriber): () => void {
       const mine = ++generation
       let stopped = false
       const pending = new Set<ReplicaKind>()
       const offs: Array<() => void> = []
+      /** On demand: the kernel names a batch's rows right after its kinds, in
+       *  the same drain. A batch waits for its names; this is the fallback if
+       *  they never come. */
+      let awaitingAddresses = false
 
-      const flush = (reason: ReplicaPublication['reason']): void => {
+      const flush = (
+        reason: ReplicaPublication['reason'],
+        addressed?: ReplicaPublication['addressed'],
+      ): void => {
         if (stopped || generation !== mine || pending.size === 0) return
         const changed = new Set(pending)
         pending.clear()
-        current = readChanged(replica, current, changed)
-        subscriber.publish({ snapshot: current, changed, reason })
+        if (!onDemand) {
+          current = readChanged(replica, current, changed, stats)
+          subscriber.publish({ snapshot: current, changed, reason })
+          return
+        }
+        subscriber.publish({
+          snapshot: current,
+          changed,
+          reason,
+          addressed: addressed ?? 'replace',
+        })
       }
 
       const publishRows = (kinds: ReadonlySet<ReplicaKind>): void => {
         for (const kind of kinds) pending.add(kind)
-        flush('rows')
+        if (!onDemand) {
+          flush('rows')
+          return
+        }
+        if (awaitingAddresses) return
+        awaitingAddresses = true
+        queueMicrotask(() => {
+          if (!awaitingAddresses) return
+          awaitingAddresses = false
+          flush('rows')
+        })
       }
+
+      armOnDemand = () => {
+        if (stopped || generation !== mine || replica.subscribeAddressedBatch === undefined) return
+        offs.push(
+          replica.subscribeAddressedBatch((batch) => {
+            if (!awaitingAddresses) return
+            awaitingAddresses = false
+            if (batch.type === 'replace') {
+              flush('rows', 'replace')
+              return
+            }
+            const ids = new Map<ReplicaKind, Set<string>>()
+            for (const { kind, id } of batch.rows) {
+              const set = ids.get(kind) ?? new Set<string>()
+              ids.set(kind, set)
+              set.add(id)
+            }
+            flush('rows', ids)
+          }),
+        )
+      }
+      if (onDemand) armOnDemand()
 
       // Subscribe first, then re-read every kind. A write in the construction →
       // start gap is either caught by the listener or by this synchronous read.
@@ -115,7 +195,10 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
       return () => {
         if (stopped) return
         stopped = true
-        if (generation === mine) generation += 1
+        if (generation === mine) {
+          generation += 1
+          armOnDemand = null
+        }
         pending.clear()
         for (const off of offs.splice(0)) {
           try {
@@ -129,7 +212,8 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
   }
 }
 
-function readSnapshot(replica: Replica): ReplicaBindingSnapshot {
+function readSnapshot(replica: Replica, stats: ReplicaBindingStats): ReplicaBindingSnapshot {
+  stats.rowReads += REPLICA_BINDING_KINDS.length
   return {
     sessions: replica.rows('sessions'),
     sessionUserStates: replica.rows('sessionUserStates'),
@@ -151,13 +235,31 @@ function readSnapshot(replica: Replica): ReplicaBindingSnapshot {
   }
 }
 
+/** A snapshot that reads each kind from the replica when the kind is read.
+ *  Every read counts: it is a reader asking for a whole kind. */
+function liveSnapshot(replica: Replica, stats: ReplicaBindingStats): ReplicaBindingSnapshot {
+  const live = {} as Record<ReplicaKind, unknown>
+  for (const kind of REPLICA_BINDING_KINDS) {
+    Object.defineProperty(live, kind, {
+      enumerable: true,
+      get: () => {
+        stats.rowReads++
+        return replica.rows(kind)
+      },
+    })
+  }
+  return live as unknown as ReplicaBindingSnapshot
+}
+
 function readChanged(
   replica: Replica,
   previous: ReplicaBindingSnapshot,
   changed: ReadonlySet<ReplicaKind>,
+  stats: ReplicaBindingStats,
 ): ReplicaBindingSnapshot {
   const next = { ...previous } as { [K in ReplicaKind]: ReplicaRows[K][] }
   for (const kind of changed) {
+    stats.rowReads++
     // The indexed access is the same K on both sides; the mapped object retains
     // the correlation that TypeScript loses while iterating a union of keys.
     ;(next as Record<ReplicaKind, unknown>)[kind] = replica.rows(kind)

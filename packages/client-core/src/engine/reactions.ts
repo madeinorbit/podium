@@ -43,6 +43,7 @@ import {
   visibleTabIds,
   workspaceWritePatch,
   workspacesPatch,
+  overlayState,
 } from './state'
 import type { StoreNotices } from './types'
 
@@ -255,7 +256,7 @@ export class Reactions {
       // The origin workspace still drops the tab in pruneWorkspaces.
       return finish()
     }
-    const nextState = { ...st, selectedIssueId: after }
+    const nextState = overlayState(st, { selectedIssueId: after })
     const key = resolvedWorkspaceKey(nextState)
     if (key === NAVIGATION_LOADING) return false
     const nextLayout = openTab(st.workspaces[key] ?? emptyWorkspace(key), focused, {

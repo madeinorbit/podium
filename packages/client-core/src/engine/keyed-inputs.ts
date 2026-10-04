@@ -85,6 +85,10 @@ export interface KeyedInputsChannel extends KeyedInputs {
   readonly stats: KeyedInputStats
   /** The runtime's batch end: `changed` keys and the sessions whose draft moved. */
   emit(changed: ReadonlySet<LocalKey>, drafts: ReadonlySet<string>): void
+  /** POD-5434: these keys are built on read (the lazy legacy lists). `emit`
+   *  no longer copies them, which would build them every batch; `readLocal`
+   *  reads them from the runtime when asked. Listeners still wake by key. */
+  readOnDemand(keys: readonly LocalKey[]): void
   dispose(): void
 }
 
@@ -104,6 +108,7 @@ export function createKeyedInputs(read: () => EngineState, live = false): KeyedI
   const byKey = new Map<LocalKey, Set<{ keys: ReadonlySet<LocalKey>; listener: LocalsListener }>>()
   const lists = new Map<KeyedListName, ListState>()
   const draftListeners = new Set<(sessionId: string) => void>()
+  const onDemand = new Set<LocalKey>()
   const stats: KeyedInputStats = { wakes: 0, listRowsCompared: 0 }
   let disposed = false
 
@@ -165,7 +170,7 @@ export function createKeyedInputs(read: () => EngineState, live = false): KeyedI
         for (const key of entry.keys) byKey.get(key)?.delete(entry)
       }
     },
-    readLocal: (key) => current()[key] as EngineState[typeof key],
+    readLocal: (key) => (onDemand.has(key) ? read()[key] : current()[key]) as EngineState[typeof key],
     onList(name, listener) {
       const list = listState(name, false)
       list.listeners.add(listener)
@@ -184,7 +189,7 @@ export function createKeyedInputs(read: () => EngineState, live = false): KeyedI
     emit(changed, drafts) {
       if (disposed) return
       const state = read()
-      for (const key of changed) (snapshot as Record<string, unknown>)[key] = state[key]
+      for (const key of changed) if (!onDemand.has(key)) (snapshot as Record<string, unknown>)[key] = state[key]
       const published = current()
       const woken = new Map<LocalsListener, Set<LocalKey>>()
       for (const key of changed) {
@@ -201,6 +206,12 @@ export function createKeyedInputs(read: () => EngineState, live = false): KeyedI
       }
       for (const [listener, keys] of woken) call(listener, keys)
       for (const sessionId of drafts) for (const listener of [...draftListeners]) call(listener, sessionId)
+    },
+    readOnDemand(keys) {
+      for (const key of keys) {
+        onDemand.add(key)
+        delete (snapshot as Record<string, unknown>)[key]
+      }
     },
     dispose() {
       disposed = true

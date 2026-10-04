@@ -80,6 +80,7 @@ import {
   workspaceKeyForState,
   workspacesPatch,
   workspaceWritePatch,
+  overlayState,
 } from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
@@ -358,7 +359,7 @@ function workspaceEdit(
   reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
   selection?: Partial<WorkspaceSelection>,
 ): WorkspacePatch {
-  const key = resolvedWorkspaceKey(selection ? { ...st, ...selection } : st)
+  const key = resolvedWorkspaceKey(selection ? overlayState(st, selection) : st)
   if (key === NAVIGATION_LOADING) return {}
   return workspaceWritePatch(st, key, reduce(workspaceFor(st, key)))
 }

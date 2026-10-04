@@ -317,6 +317,18 @@ export function enableWorkspaceKeyCache(st: WorkspaceSelection): void {
   if (!workspaceKeys.has(st)) workspaceKeys.set(st, {})
 }
 
+/**
+ * `st` with `patch` on top, for asking a question of a state that is not the
+ * current one (where a navigation lands, which workspace a selection resolves
+ * to). A prototype overlay, not a spread: a spread reads every key, and the
+ * runtime's replica-derived lists are built on read (POD-5434), so a spread
+ * would build them all to answer a question about two locals. Only reads are
+ * defined on the result; never spread or enumerate it.
+ */
+export function overlayState<T extends object, P extends object>(st: T, patch: P): T & P {
+  return Object.assign(Object.create(st) as T, patch) as T & P
+}
+
 export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
   const key = resolvedWorkspaceKey(st)
   // Existing view readers have a total key API. Loading has no writable

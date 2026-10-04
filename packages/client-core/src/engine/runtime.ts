@@ -62,11 +62,19 @@ import type {
   MutationId,
   ReadPositionWire,
   SessionId,
+  SessionMeta,
 } from '@podium/model'
-import { asUserId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  sessionUserStateRowId,
+} from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
+import type { OverlayRow, OverlayTarget, PendingOverlay } from '../command-reducers'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
@@ -77,7 +85,7 @@ import { initializeIssueViewCache } from '../replica/issue-view-cache'
 import type { Replica } from '../replica/replica'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
-import { createSubscriptionStore, type SubscriptionStore } from '../store'
+import { createSubscriptionStore, type SubscriptionStore, shallowEqual } from '../store'
 import {
   createRouterUiState,
   createUiStateRouter,
@@ -102,10 +110,25 @@ import {
   type LocalKey,
   type LocalsListener,
 } from './keyed-inputs'
+import {
+  IssueMembershipWatch,
+  LAZY_LIST_KEYS,
+  type LazyListKey,
+  LazyLists,
+  MEMBERSHIP_FIELDS,
+  PLAIN_LIST_KINDS,
+  type PlainListKey,
+  SessionTopology,
+} from './legacy-snapshot'
 import { machinesMaterialSignature } from './machines-material'
 import { type NavigationIntent, planNavigation } from './navigation'
-import { dedupeSessions, OptimismLedger, type SpawnPlaceholderEvent } from './optimism'
-import type { OverlayTarget, PendingOverlay } from './overlay'
+import {
+  type DeferredPaint,
+  dedupeSessions,
+  OptimismLedger,
+  type PaintGroup,
+  type SpawnPlaceholderEvent,
+} from './optimism'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
 import {
   createReplicaBinding,
@@ -125,6 +148,7 @@ import {
   NAVIGATION_LOADING,
   type NavigationProvider,
   navigationSession,
+  overlayState,
   resolvedWorkspaceKey,
   userFocus,
   type WorkspacePatch,
@@ -187,6 +211,37 @@ export type OutboxOutcome =
  * enqueue path; its promise is that enqueue's: it settles when the record is
  * durable and rejects when the commit fails, as an unrouted action does.
  */
+const LAZY_KEYS: ReadonlySet<string> = new Set(LAZY_LIST_KEYS)
+/** Session fields the topology reactions follow, and the dedupe that decides
+ *  membership (`SessionTopology`). */
+const SESSION_TOPOLOGY_FIELDS = ['cwd', 'issueId', 'status', 'resume', 'lastActiveAt', 'headless']
+const movesSessionTopology = (o: PendingOverlay): boolean =>
+  o.entity === 'sessions' &&
+  (o.op === 'insert' || SESSION_TOPOLOGY_FIELDS.some((field) => field in o.patch))
+const movesMembership = (o: PendingOverlay): boolean =>
+  o.op === 'insert' || MEMBERSHIP_FIELDS.some((field) => field in o.patch)
+/** Snapshots whose lists are read on demand (POD-5434). */
+const LAZY_SNAPSHOTS = new WeakSet<object>()
+/** The store's keep-the-old-snapshot test. A lazy snapshot is new whenever a
+ *  batch published: comparing it key by key would build every list. */
+function sameSnapshot(a: object, b: object): boolean {
+  if (LAZY_SNAPSHOTS.has(a) || LAZY_SNAPSHOTS.has(b)) return a === b
+  return shallowEqual(a, b)
+}
+
+/**
+ * Whole-array work of the legacy snapshot, cumulative (POD-5434, plan step
+ * 10). Each count is one pass over a whole list: a kind materialised from the
+ * replica, the session views over every session, a ledger repaint of a whole
+ * list, or the pool-mode session topology compare.
+ */
+export interface LegacyFoldStats {
+  readonly replicaRowReads: number
+  readonly sessionViewBuilds: number
+  readonly ledgerFolds: number
+  readonly topologyScans: number
+}
+
 export interface PoolWriter {
   write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
 }
@@ -388,6 +443,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private baseSessionUserStates: ReplicaPublication['snapshot']['sessionUserStates'] = []
   private baseIssueProjections: EngineState['issueProjections'] = []
   private baseIssueUserStates: EngineState['issueUserStates'] = []
+  /** POD-5434: the replica-derived lists built on read, once the pool attaches
+   *  ({@link enablePoolRuntimeWork}); null keeps the eager per-batch rebuild. */
+  private lazyLists: LazyLists | null = null
+  /** On read too: which base lists a batch changed since they were last read. */
+  private readonly staleBase = { sessions: false, issueProjections: false, issueUserStates: false }
+  /** The replica's session rows by id, for the keyed topology check. */
+  private sessionTopology: SessionTopology | null = null
+  /** While a replica batch is published lazily: the base lists it changed. A
+   *  deferred repaint changes a list only if its base moved or it carried a
+   *  live paint; otherwise the list is unchanged and nothing is announced. */
+  private replicaMoved: {
+    sessions: boolean
+    issueProjections: boolean
+    issueUserStates: boolean
+  } | null = null
   private prevRoute: RouteState
   /** Which workspace is on screen (POD-710). A change here is a TASK SWITCH, and
    *  the pane mirrors are re-derived from the workspace being switched to. */
@@ -517,16 +587,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       outbox: this.outbox,
       notices: this.notices,
       userId: this.principal.userId,
-      base: () => ({
-        sessions: this.baseSessions,
-        sessionUserStates: this.baseSessionUserStates,
-        issueProjections: this.baseIssueProjections,
-        issueUserStates: this.baseIssueUserStates,
-      }),
+      base: () => {
+        this.readStaleBase()
+        return {
+          sessions: this.baseSessions,
+          sessionUserStates: this.baseSessionUserStates,
+          issueProjections: this.baseIssueProjections,
+          issueUserStates: this.baseIssueUserStates,
+        }
+      },
       paintedIssues: () =>
         allIssueViewModels(this.replica, this.state.issueProjections, this.state.issueUserStates),
       publish: (patch) => this.apply(patch),
       batch: (fn) => this.batch(fn),
+      paintDeferred: (group, change) => this.paintDeferred(group, change),
+      truth: (entity, id) => this.truthRow(entity, id),
       ...(init.spawnConfirmGraceMs !== undefined
         ? { spawnConfirmGraceMs: init.spawnConfirmGraceMs }
         : {}),
@@ -646,7 +721,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // server there is nothing else that would ever fill it in.
     this.state.drafts = this.hydrateDrafts()
     this.statics = this.buildStatics(actions)
-    this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot(), undefined, this)
+    this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot(), sameSnapshot, this)
     this.inputs = createKeyedInputs(() => this.state)
   }
 
@@ -701,6 +776,16 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   get keyedInputStats(): KeyedInputStats {
     return this.inputs.stats
   }
+  /** Whole-array work of the legacy snapshot (POD-5434), cumulative. */
+  get legacyFoldStats(): LegacyFoldStats {
+    return {
+      replicaRowReads: this.replicaBinding.stats.rowReads,
+      sessionViewBuilds: this.foldStats.sessionViewBuilds,
+      ledgerFolds: this.optimism.stats.folds,
+      topologyScans: this.foldStats.topologyScans,
+    }
+  }
+  private readonly foldStats = { sessionViewBuilds: 0, topologyScans: 0 }
   /** The optimism ledger's pending overlays by row id (POD-4553), read-only:
    *  lets a per-row reader fold one row over `replica.row()` instead of
    *  diffing the snapshot's folded arrays. Derived at call time; retirement
@@ -1090,11 +1175,159 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Startup-only opt-in from the sidebar's existing attachment. The legacy
    * runtime keeps its exact reaction/fold path when the screen is switched off. */
-  enablePoolRuntimeWork(): void {
+  enablePoolRuntimeWork(options: { readonly lazyLegacyLists?: boolean } = {}): void {
     if (this.poolRuntimeWork || this.destroyed) return
     this.poolRuntimeWork = true
     enableWorkspaceKeyCache(this.state)
     this.optimism.enableKeyedFolds()
+    // `lazyLegacyLists: false` is the revert path (and the eager parity arm).
+    if (options.lazyLegacyLists !== false) this.enableLazyLists()
+  }
+
+  /**
+   * POD-5434 (plan step 10): the pool reads none of the legacy lists, so from
+   * here they are built when read (`legacy-snapshot.ts`). A replica batch marks
+   * what it changed; the ledger repaints at once only while a write is in
+   * flight for that group. Needs the replica's addressed batches (the kernel
+   * feed); without them the eager rebuild stays.
+   */
+  private enableLazyLists(): void {
+    if (this.lazyLists !== null || !this.replicaBinding.readOnDemand()) return
+    const live = this.replicaBinding.snapshot()
+    this.sessionTopology = new SessionTopology(() => live.sessions as SessionMeta[])
+    this.lazyLists = new LazyLists(this.state, (key) => this.rebuildList(key))
+    this.inputs.readOnDemand(LAZY_LIST_KEYS)
+    this.optimism.enableLazyPaint()
+  }
+
+  /** Bring the base lists a batch changed up to date, on the ledger's read. */
+  private readStaleBase(): void {
+    const stale = this.staleBase
+    if (!stale.sessions && !stale.issueProjections && !stale.issueUserStates) return
+    const live = this.replicaBinding.snapshot()
+    if (stale.sessions) {
+      stale.sessions = false
+      this.baseSessions = this.readSessionViews(live)
+      this.baseSessionUserStates = live.sessionUserStates
+    }
+    if (stale.issueProjections) {
+      stale.issueProjections = false
+      this.baseIssueProjections = live.issueProjections
+    }
+    if (stale.issueUserStates) {
+      stale.issueUserStates = false
+      this.baseIssueUserStates = live.issueUserStates
+    }
+  }
+
+  /** The first read of a stale list builds it, without publishing: the batch
+   *  that made it stale already announced the change. */
+  private rebuildList(key: LazyListKey): void {
+    if (key in PLAIN_LIST_KINDS) {
+      const kind = PLAIN_LIST_KINDS[key as PlainListKey]
+      this.lazyLists?.fill(key, this.replicaBinding.snapshot()[kind])
+      return
+    }
+    const group: PaintGroup = key === 'sessions' ? 'sessions' : 'issues'
+    this.rebuilding = true
+    try {
+      this.optimism.paintNow(group)
+    } finally {
+      this.rebuilding = false
+    }
+  }
+  /** > 0 while a stale list is rebuilt: the ledger's publish writes silently. */
+  private rebuilding = false
+
+  /** The ledger settled a group instead of repainting it (it never paints
+   *  while lists are built on read). Mark stale, and announce, only the lists
+   *  that may have moved: their base moved in this replica batch, or their
+   *  pending overlays changed. */
+  private paintDeferred(group: PaintGroup, change: DeferredPaint): void {
+    const lists = this.lazyLists
+    if (lists === null) return
+    const replica = this.replicaMoved
+    if (group === 'sessions') {
+      const painted = change.moved.size > 0
+      if (!replica?.sessions && !painted) return
+      // A paint that inserts a row or moves one's topology fields changes what
+      // the session reactions follow; the replica's own moves are tracked by row.
+      if (painted && change.overlays.some(movesSessionTopology)) this.sessionTopologyChanged = true
+      lists.markStale('sessions')
+      this.announce(['sessions'])
+      return
+    }
+    const keys: LazyListKey[] = []
+    if (replica?.issueProjections || change.moved.has('issueProjections'))
+      keys.push('issueProjections')
+    if (replica?.issueUserStates || change.moved.has('issueUserStates'))
+      keys.push('issueUserStates')
+    if (change.moved.has('issueProjections')) {
+      const ids = new Set(
+        change.overlays
+          .filter((o) => o.entity === 'issueProjections' && movesMembership(o))
+          .map((o) => o.id),
+      )
+      if (ids.size > 0 && this.issueMembershipTouched(ids)) this.workspaceMembershipDirty = true
+    }
+    for (const key of keys) lists.markStale(key)
+    if (keys.length > 0) this.announce(keys)
+  }
+
+  /** One server-truth row by the ledger's id, read by id (POD-5434): the
+   *  replica's row, this principal's per-user rows, and a session as its view.
+   *  The lists are never built for it. */
+  private truthRow(entity: OverlayTarget, id: string): OverlayRow | undefined {
+    const replica = this.replica
+    const userId = this.principal.userId
+    switch (entity) {
+      case 'issueProjections':
+        return replica.row?.('issueProjections', id)
+      case 'issueUserStates': {
+        const row = replica.row?.('issueUserStates', issueUserStateRowId(userId, asIssueId(id)))
+        return row?.userId === userId ? row : undefined
+      }
+      case 'sessionUserStates': {
+        const row = replica.row?.(
+          'sessionUserStates',
+          sessionUserStateRowId(userId, asSessionId(id)),
+        )
+        return row?.userId === userId ? row : undefined
+      }
+      case 'sessions': {
+        const raw = replica.row?.('sessions', id)
+        if (raw === undefined) return undefined
+        // The same view the list builds (`readSessionViews`), over this row's homes.
+        const userState = replica.row?.(
+          'sessionUserStates',
+          sessionUserStateRowId(userId, asSessionId(id)),
+        )
+        const repo = raw.refRepoId ? replica.row?.('repos', raw.refRepoId) : undefined
+        const machines = [raw.machineId, raw.handoffTargetMachineId].flatMap((machineId) => {
+          const machine = machineId ? replica.row?.('machines', machineId) : undefined
+          return machine === undefined ? [] : [machine]
+        })
+        return sessionViews([raw], {
+          userId,
+          userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true,
+          userStates: userState === undefined ? [] : [userState],
+          repos: repo === undefined ? [] : [repo],
+          machines,
+        })[0]
+      }
+    }
+  }
+
+  /** {@link apply} for lists whose new value is built on read: the keys count
+   *  as changed without reading either value. Workspace membership is the
+   *  caller's to mark ({@link issueMembershipMoved}). */
+  private announce(keys: readonly (keyof EngineState)[]): void {
+    this.batch(() => {
+      const changed = new Set(keys)
+      for (const k of keys) this.pendingChanges.add(k)
+      if (this.statsReactionDepth > 0) this.runReactions(changed)
+      else for (const key of changed) this.pendingReactions.add(key)
+    })
   }
 
   /** The web startup attachment supplies this read port. No fallback is
@@ -1138,12 +1371,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         session && session !== NAVIGATION_LOADING
           ? [session.sessionId, session.issueId, session.cwd, session.lastActiveAt, session.unread] : session,
         this.pendingNavigationTopology && session && session !== NAVIGATION_LOADING && session.issueId
-          ? resolvedWorkspaceKey({ ...st, selectedIssueId: session.issueId }) : undefined,
+          ? resolvedWorkspaceKey(overlayState(st, { selectedIssueId: session.issueId })) : undefined,
         this.pendingSessionNavigation ? provider.session(this.pendingSessionNavigation) : undefined,
-        pending ? resolvedWorkspaceKey({ ...st,
+        pending ? resolvedWorkspaceKey(overlayState(st, {
           ...(pending.selectedIssueId !== undefined ? { selectedIssueId: pending.selectedIssueId } : {}),
           ...(pending.selectedWorktree !== undefined ? { selectedWorktree: pending.selectedWorktree } : {}),
-        }) : undefined,
+        })) : undefined,
       ]
     }, () => this.queueNavigationWake(provider))
   }
@@ -1185,10 +1418,19 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       const changed = new Set<keyof EngineState>()
       for (const k of Object.keys(patch) as Array<keyof EngineState>) {
         const next = patch[k]
-        if (!Object.is(this.state[k], next)) {
+        if (this.rebuilding) {
+          // A stale list's first read: write what the announcement promised.
+          if (this.lazyLists?.isStale(k as LazyListKey)) this.lazyLists.fill(k as LazyListKey, next)
+          continue
+        }
+        // A stale list's old value is unknown; reading it would build it.
+        const stale = this.lazyLists?.isStale(k as LazyListKey) === true
+        if (stale || !Object.is(this.state[k], next)) {
           if (this.poolRuntimeWork && (k === 'issueProjections' || k === 'issueDeps'))
             this.workspaceMembershipDirty = true
+          if (this.poolRuntimeWork && k === 'sessions' && stale) this.sessionTopologyChanged = true
           if (this.poolRuntimeWork && k === 'sessions' && !this.sessionTopologyChanged) {
+            this.foldStats.topologyScans++
             const sessions = next as EngineState['sessions']
             const previous = this.state.sessions
             this.sessionTopologyChanged =
@@ -1303,6 +1545,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.workspaceMembershipDirty = false
       if (!this.state.navigation || !this.pendingNavigationTopology) this.reactions.pruneWorkspaces()
     }
+    // Lazy lists (POD-5434): the membership watch's "before" for the open
+    // workspaces, recorded before an issue batch can change it.
+    if (this.lazyLists !== null && any('workspaces', 'navigation')) this.watchMembership()?.prime()
     // State→URL mirror — the single URL writer.
     if (any('selectedWorktree', 'paneA'))
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
@@ -1416,7 +1661,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     selection?: { selectedIssueId?: IssueId | null; selectedWorktree?: string | null },
     permanent = true,
   ): WorkspacePatch {
-    const st = { ...this.state, ...selection }
+    const st = overlayState(this.state, selection ?? {})
     const key = resolvedWorkspaceKey(st)
     if (key === NAVIGATION_LOADING) return {}
     const next = openTab(workspaceFor(st, key), tabId, { permanent })
@@ -1425,7 +1670,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   private buildSnapshot(): Store<TApi> {
-    return { ...this.state, ...this.statics }
+    const lists = this.lazyLists
+    if (lists === null) return { ...this.state, ...this.statics }
+    // Lazy lists (POD-5434): copy the plain state, and let each list be read
+    // when a reader asks for it. A spread here would build every stale list.
+    const snapshot = {} as Record<string, unknown>
+    const state = this.state as unknown as Record<string, unknown>
+    for (const key of Object.keys(state)) if (!LAZY_KEYS.has(key)) snapshot[key] = state[key]
+    lists.snapshot(snapshot)
+    Object.assign(snapshot, this.statics)
+    LAZY_SNAPSHOTS.add(snapshot)
+    return snapshot as unknown as Store<TApi>
   }
 
   private syncReplicatedUi(): void {
@@ -1603,7 +1858,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // nothing to move, and a split's focus stays where it was.
     const key = workspaceKeyForState(this.state)
     if (
-      key === workspaceKeyForState({ ...this.state, ...selection }) &&
+      key === workspaceKeyForState(overlayState(this.state, selection)) &&
       workspaceMirrorPatch(workspaceFor(this.state, key)).paneA === sessionId
     )
       return true
@@ -1620,6 +1875,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   // ----------------------------------------------------------- replica ↔ state
 
   private readSessionViews(snapshot: ReplicaPublication['snapshot']): EngineState['sessions'] {
+    this.foldStats.sessionViewBuilds++
     return dedupeSessions(
       sessionViews(snapshot.sessions, {
         userId: this.principal.userId,
@@ -1633,6 +1889,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private publishReplica(publication: ReplicaPublication): void {
     if (this.destroyed) return
+    if (this.lazyLists !== null) {
+      this.publishReplicaLazily(publication)
+      return
+    }
     const { snapshot, changed } = publication
     const endPerfUpdate = beginSidebarUpdate(this, changed)
     // ONE delta, ONE snapshot — see batch(). Without this the three recomputes
@@ -1674,6 +1934,99 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       endPerfUpdate?.()
     }
   }
+
+  /**
+   * {@link publishReplica} once the lists are built on read (POD-5434): the
+   * batch marks what it changed. The ledger repaints a group at once only while
+   * a write is in flight for it (`OptimismLedger.enableLazyPaint`); otherwise
+   * the group goes stale with the plain kinds. The session topology that pool
+   * mode's reactions follow is checked per addressed row.
+   */
+  private publishReplicaLazily(publication: ReplicaPublication): void {
+    const { changed, addressed } = publication
+    const endPerfUpdate = beginSidebarUpdate(this, changed)
+    const sessions = ['sessions', 'sessionUserStates', 'machines', 'repos'].some((kind) =>
+      changed.has(kind as ReplicaKind),
+    )
+    this.replicaMoved = {
+      sessions,
+      issueProjections: changed.has('issueProjections'),
+      issueUserStates: changed.has('issueUserStates'),
+    }
+    try {
+      this.batch(() => {
+        if (sessions) {
+          this.staleBase.sessions = true
+          if (changed.has('sessions')) this.trackSessionTopology(addressed)
+          this.optimism.recomputeSessions()
+        }
+        if (changed.has('issueProjections')) {
+          this.staleBase.issueProjections = true
+          if (this.issueMembershipMoved(addressed)) this.workspaceMembershipDirty = true
+        }
+        if (changed.has('issueDeps')) this.workspaceMembershipDirty = true
+        if (changed.has('issueUserStates')) this.staleBase.issueUserStates = true
+        if (changed.has('issueProjections') || changed.has('issueUserStates')) {
+          this.optimism.recomputeFor(['issueProjections', 'issueUserStates'])
+        }
+        const plain: PlainListKey[] = []
+        for (const key of Object.keys(PLAIN_LIST_KINDS) as PlainListKey[]) {
+          if (!changed.has(PLAIN_LIST_KINDS[key])) continue
+          this.lazyLists?.markStale(key)
+          plain.push(key)
+        }
+        if (plain.length > 0) this.announce(plain)
+      })
+    } finally {
+      this.replicaMoved = null
+      endPerfUpdate?.()
+    }
+  }
+
+  private trackSessionTopology(addressed: ReplicaPublication['addressed']): void {
+    const topology = this.sessionTopology
+    if (topology === null) return
+    if (addressed === undefined || addressed === 'replace') {
+      topology.reseed()
+      this.sessionTopologyChanged = true
+      return
+    }
+    const ids = addressed.get('sessions')
+    if (ids === undefined) return
+    const row = (id: string) => this.replica.row?.('sessions', id) as SessionMeta | undefined
+    if (topology.update(ids, row)) this.sessionTopologyChanged = true
+  }
+
+  /** {@link IssueMembershipWatch} over this batch's addressed issues. */
+  private issueMembershipMoved(addressed: ReplicaPublication['addressed']): boolean {
+    if (addressed === undefined || addressed === 'replace') return true
+    const ids = addressed.get('issueProjections')
+    if (ids === undefined || ids.size === 0) return false
+    const watch = this.watchMembership()
+    return watch === null || watch.moved(ids)
+  }
+
+  /** A paint that moves these issues' membership fields matters only for an
+   *  open workspace they belong to or join. */
+  private issueMembershipTouched(ids: ReadonlySet<string>): boolean {
+    const watch = this.watchMembership()
+    return watch === null || watch.touches(ids)
+  }
+
+  private watchMembership(): IssueMembershipWatch | null {
+    if (!this.state.navigation) return null
+    this.membershipWatch ??= new IssueMembershipWatch({
+      workspaceKeys: () => Object.keys(this.state.workspaces),
+      members: (root) => {
+        const members = this.state.navigation?.missionMembers(root)
+        return members === undefined || members === NAVIGATION_LOADING ? 'loading' : members
+      },
+      issue: (id) => this.replica.row?.('issueProjections', id),
+      sessionIssue: (id) => this.replica.row?.('sessions', id)?.issueId,
+    })
+    return this.membershipWatch
+  }
+  private membershipWatch: IssueMembershipWatch | null = null
 
   // -------------------------------------------------------------- outbox seams
 

@@ -5259,3 +5259,102 @@ describe('pool shared runtime work', () => {
     }
   })
 })
+
+describe('lazy legacy lists (POD-5434): spawns', () => {
+  /** A kernel replica over mutable records, so a server row can arrive. */
+  function kernel() {
+    let records: EntityRecord[] = [
+      { entity: 'session', entityId: 's1', value: session('s1', '/w'), provenance: { seq: 1 } },
+    ]
+    const replica = createKernelReplica({
+      cache: {
+        readCursor: () => ({ seq: 1 }),
+        readEntities: () => records,
+        read: (entity, entityId) => records.find((r) => r.entity === entity && r.entityId === entityId),
+        durability: () => 'durable',
+      },
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const arrive = (id: string) => {
+      const value = session(id, '/w')
+      records = [...records, { entity: 'session', entityId: id, value, provenance: { seq: 2 } }]
+      replica.onKernelEvent({
+        type: 'upserted',
+        record: { entity: 'session', entityId: id, value, provenance: { seq: 2 } },
+        readmitted: false,
+      } as never)
+    }
+    return { replica, arrive }
+  }
+
+  /** What a legacy reader of the session list sees, step by step. */
+  async function run(lazy: boolean, outcome: 'arrives' | 'fails') {
+    const { replica, arrive } = kernel()
+    const api = makeApi()
+    api.sessions.resumeAndSend = { mutate: vi.fn(async () => ({})) }
+    let created: string | undefined
+    api.sessions.create = {
+      mutate: vi.fn(async (input: { sessionId: string }) => {
+        created = input.sessionId
+        if (outcome === 'fails') throw new Error('daemon offline')
+      }),
+    }
+    const { engine, errors } = makeEngine({ api, replica, spawnConfirmGraceMs: 30 })
+    engine.start()
+    await settle(40)
+    engine.enablePoolRuntimeWork({ lazyLegacyLists: lazy })
+    const seen: unknown[] = []
+    const look = (step: string) => {
+      const s = engine.getSnapshot()
+      // Minted ids differ per arm: name the spawned row by its role.
+      const name = (id: string) => (id === spawned ? 'spawned' : id)
+      seen.push({
+        step,
+        sessions: s.sessions.map((row) => name(row.sessionId)).sort(),
+        spawning: [...s.pendingSpawnIds].map(name),
+        prompts: [...s.pendingSpawnPrompts].map(([id, prompt]) => [name(id), prompt]),
+      })
+    }
+    let spawned = ''
+    try {
+      const made = engine.getSnapshot().spawnDraftAgent({
+        target: { path: '/w', repoPath: '/w' },
+        agentKind: 'claude-code',
+        firstPrompt: 'hello',
+      })
+      spawned = made.sessionId
+      look('painted')
+      let confirmed = false
+      // The first send's wait (chat-send) on the ledger's spawn confirmation.
+      const ledger = (engine as unknown as {
+        optimism: { waitForSpawnConfirmed(id: SessionId): Promise<void> }
+      }).optimism
+      void ledger.waitForSpawnConfirmed(made.sessionId).then(() => {
+        confirmed = true
+      })
+      await settle(10)
+      look('created')
+      if (outcome === 'arrives') arrive(created ?? made.sessionId)
+      await settle(80)
+      look('settled')
+      seen.push({ confirmed, errors: errors.length > 0 })
+      return seen
+    } finally {
+      engine.dispose()
+    }
+  }
+
+  it.each(['arrives', 'fails'] as const)(
+    'paints, confirms and rolls back a spawn exactly as the eager rebuild (%s)',
+    async (outcome) => {
+      const eager = await run(false, outcome)
+      const lazy = await run(true, outcome)
+      expect(lazy).toEqual(eager)
+      // The steps moved what they meant to: the placeholder showed.
+      expect(eager[0]).toMatchObject({ spawning: ['spawned'] })
+      expect(eager.at(-1)).toMatchObject(
+        outcome === 'arrives' ? { confirmed: true, errors: false } : { errors: true },
+      )
+    },
+  )
+})
