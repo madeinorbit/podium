@@ -73,21 +73,6 @@ test('the production phone preserves its pool screens with zero legacy derivatio
     id: proposal.id,
     patch: { stage: 'proposed', priority: 0 },
   })
-  const session = await rpc<{ sessionId: string }>(page, 'sessions.create', {
-    cwd: repoPath,
-    issueId: issue.id,
-    agentKind: 'claude-code',
-    title: 'Phone reader retirement task',
-  })
-  await expect
-    .poll(
-      async () =>
-        (await rpc<{ sessionId: string; status: string }[]>(page, 'sessions.list')).find(
-          (row) => row.sessionId === session.sessionId,
-        )?.status,
-      { timeout: 60_000 },
-    )
-    .toBe('live')
   mkdirSync(directory, { recursive: true })
   const cells: { screen: string; counts: Awaited<ReturnType<typeof legacyCounts>> }[] = []
   const save = async (screen: string) => {
@@ -111,8 +96,10 @@ test('the production phone preserves its pool screens with zero legacy derivatio
   await expect(page.getByRole('radio', { name: /^Repository / }).first()).toBeVisible({
     timeout: 60_000,
   })
-  for (const field of ['Agent', 'Model', 'Effort', 'Machine'])
-    await expect(page.getByRole('button', { name: new RegExp(`^${field}, `) })).toBeVisible()
+  for (const field of ['Agent', 'Model', 'Machine'])
+    await expect(page.getByRole('button', { name: `${field}, Auto`, exact: true })).toBeVisible()
+  // The accepted default form has no authoritative effort catalog yet.
+  await expect(page.getByRole('button', { name: /^Effort, / })).toHaveCount(0)
   await expect(page.getByLabel('Task title', { exact: true })).toBeVisible()
   await save('new-task')
   await page.goto(`/mobile/issue/${issue.id}?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
@@ -126,10 +113,28 @@ test('the production phone preserves its pool screens with zero legacy derivatio
   await expect(
     page.getByText('Choose how and where this task starts.', { exact: true }),
   ).toBeVisible()
-  for (const field of ['Agent', 'Model', 'Effort', 'Machine'])
+  for (const field of ['Agent', 'Model', 'Machine'])
     await expect(page.getByRole('button', { name: new RegExp(`^${field}, `) })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Effort, / })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Start agent', exact: true })).toBeVisible()
   await save('configured-launch')
+  // The start sheet belongs to a task without an agent. Add its live session
+  // only after that accepted state is captured, for the Work/mission screens.
+  const session = await rpc<{ sessionId: string }>(page, 'sessions.create', {
+    cwd: repoPath,
+    issueId: issue.id,
+    agentKind: 'claude-code',
+    title: 'Phone reader retirement task',
+  })
+  await expect
+    .poll(
+      async () =>
+        (await rpc<{ sessionId: string; status: string }[]>(page, 'sessions.list')).find(
+          (row) => row.sessionId === session.sessionId,
+        )?.status,
+      { timeout: 60_000 },
+    )
+    .toBe('live')
   await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
   await expect(
     page.getByRole('button', { name: /Phone reader retirement task$/ }).first(),
@@ -145,6 +150,7 @@ test('the production phone preserves its pool screens with zero legacy derivatio
   await inProgress.click()
   await expect(inProgress).toHaveAttribute('aria-expanded', 'false')
   await page.waitForTimeout(2_000)
+  await save('tasks-folded')
   await page.goto(`/mobile/issues?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
   await expect(inProgress).toHaveAttribute('aria-expanded', 'false', { timeout: 60_000 })
   await inProgress.click()
