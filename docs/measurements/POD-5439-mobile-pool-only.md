@@ -8,7 +8,8 @@ phone proof, timing and landing are pending.
 
 Findings 24 and 26 were read in full before the first edit. The branch includes
 POD-5437's optional host declarations, POD-5081's final mobile readers and
-POD-5432's overlay retirement at `1771dbb415`; the latter writer changes are
+POD-5432's overlay retirement at `1771dbb415` and POD-5438's behavior-preserving
+transaction URL latch separation at `cca0cf29cc`; these writer changes are
 inherited, rather than edits in this issue. Shared host files are not edited.
 The phone declarations omit `initialize` and `enabled`.
 
@@ -41,9 +42,13 @@ Two fixture repairs are committed at `a1d9a42490`: the synthetic complete
 bootstrap now marks absent personal markers known, and the complete inbox
 snapshot settles its declared archived/absent reference requests through the
 existing batched loader. Custom replicas still control their own posture.
-Production joins and expected outputs are unchanged. The seven affected
-fixture consumers are in a focused foreground retry; the inbox's complete
-frozen bank is already green in that run.
+Production joins and expected outputs are unchanged. The seven-file focused retry started at load6.00 but reached its20-minute
+limit: UTC01:58:33.888–02:18:39.429Z, exit124, endload17.60, with shared
+load31–34 during the run. Inbox completes14 green assertions, including its
+complete frozen bank; the complete seven-file result is uncollected. WorkScreen
+also logs green menu/click budgets and1xpaint0/1 before timeout. No complete
+green is claimed. A later SSH banner exchange times out before the next
+remote patch can run; further checks wait for host recovery and admission.
 
 The two converted snapshot test keys were mechanically renamed to match their
 new test names. Their expected bodies were checked byte-for-byte. No expected
