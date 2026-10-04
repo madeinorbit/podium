@@ -579,7 +579,6 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
   const blocks: [] = []
   const options = {
     sessionId: id, observeDraft: false,
-    store: handle,
     trpc: { messages: { records: { query: async () => ({ records: [] }) } } } as never,
     sendChat: vi.fn(async () => ({ state: 'sent' as const })),
     discardChat: vi.fn(async () => {}), dismissOffer: vi.fn(async () => {}),

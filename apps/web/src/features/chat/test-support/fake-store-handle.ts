@@ -1,4 +1,5 @@
 import { useRuntimeSelector as selectMockSnapshot } from '@/app/store'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { MessageRecordWire } from '@podium/model'
 
 /**
@@ -22,12 +23,12 @@ let snapshot: FakeSnapshot = {
   chatSendsFor: () => [],
 }
 
-export const fakeStoreHandle = {
+export const fakeStoreHandle = withKeyedInputs({
   getSnapshot: (): FakeSnapshot => {
     // These suites also replace the web store. Keep the stable transports and UI
     // writer on that same owner while preserving this external-store snapshot's
     // identity and independently controlled message/outbox rows.
-    for (const key of ['uiState', 'trpc', 'hub', 'httpOrigin', 'replica'] as const) {
+    for (const key of ['uiState', 'trpc', 'hub', 'httpOrigin', 'replica', 'drafts'] as const) {
       if (!Object.getOwnPropertyDescriptor(snapshot, key)) {
         Object.defineProperty(snapshot, key, {
           enumerable: true,
@@ -41,7 +42,7 @@ export const fakeStoreHandle = {
     listeners.add(listener)
     return () => listeners.delete(listener)
   },
-}
+})
 
 /** Move the fake store; every subscriber hears it. */
 export function setFakeStore(patch: Partial<FakeSnapshot>): void {
