@@ -4,7 +4,9 @@ The phone now reads through its existing shared pool. Its legacy twins,
 WorkScreen arm, three-way dispatchers, diagnostics, mobile pilot setting,
 startup latch and URL switches are removed. Store actions and outbox remain
 with their existing owner. The production phone proof is green. This candidate
-is still in progress: the strict structural gate, timing and landing are pending.
+is still in progress: the strict structural gate and landing are pending.
+Production Pixel7 ON timing is green against the accepted POD-5081 capture;
+all seven acceptance medians improve.
 
 Findings 24 and 26 were read in full before the first edit. The branch includes
 POD-5437's optional host declarations, POD-5081's final mobile readers and
@@ -326,7 +328,48 @@ original bank. SHA256 changes from
 `ea76a019e5048f78ab70acdab1a2b9751927d8ec8185286ff568aac7dcb3e6d5` to
 `97ae6cb5191dc79769fa7c5f16493c5182cf01e3365b2ad97911cdbfe3c6176e`.
 No snapshot generator runs. No production copy or writer changes are made.
-The focused five-case banner regression is next.
+The focused five-case banner regression is green at source `af28c8e7da`,
+flatblock WIP `cf3c7fa919eac7e0f6792c0352916835a7fabe2d`, tree
+`fcdcb680e1bc5dc80a2a72a1ddaeaca1db39c492`,
+UTC04:29:30.678–04:29:40.632Z, load5.25→5.21. All five cases execute;
+no filter, skipped case or snapshot regeneration is used. The original
+control, exact byte-delta proof and green result are attached together.
+
+POD-5433 finishes its meter at04:29:58Z. POD-5407's next meter runs
+04:28:30–04:34:13Z and explicitly releases `meter:flatblock`. This lane's
+phone timing lease starts04:32:42Z, its actual capture starts only after
+that release, and its own structural meter remains staggered. The separate
+clock/census mail from POD-5432 confirms the inherited growth and wall-time
+pending fingerprints already recorded above; neither bank nor baseline is
+changed to hide them.
+
+The pool-only production timing completes green at source`af28c8e7da`,
+flatblock WIP`8b657b98b009b4ae7214878574fb578679ecef9a`, tree
+`fcdcb680e1bc5dc80a2a72a1ddaeaca1db39c492`,
+UTC04:38:27.966–04:42:35.945Z, load3.39→5.92, Bun1.4.2, exit0.
+Exactly one Pixel7 case executes. Chrome148.0.7778.96,6,100 issues,
+5,200 sessions,20 visible title updates, three untraced samples and three
+diagnostic traced samples match the accepted POD-5081 methodology. Every
+measured launch is warm. The actual arm bounds are
+UTC04:41:09.300–04:42:34.606Z; all arm one-minute loads remain below8.
+Tracing is excluded from the seven acceptance medians below.
+
+| Measurement (ms) | Accepted ON | Pool-only | Change |
+| --- | ---: | ---: | ---: |
+| Work CPU per update | 18.667 | 14.581 | -21.9% |
+| Mission tap to paint | 159.593 | 77.151 | -51.7% |
+| Mission CPU per update | 30.647 | 22.911 | -25.2% |
+| Details open to paint | 51.040 | 43.959 | -13.9% |
+| Details CPU per update | 26.191 | 22.651 | -13.5% |
+| Tasks open to paint | 84.646 | 44.652 | -47.2% |
+| Tasks CPU per update | 67.046 | 51.539 | -23.1% |
+
+The diagnostic traced mission tap is200.695→90.185ms and is not used for
+acceptance. All page errors remain zero; one observed401 resource response
+is retained in the raw report. The timing lease is released immediately after
+the run. A fresh process audit finds a new POD-5421 structural meter running;
+its exact overlap bounds are requested for the capture record. This lane holds
+its own required stable1x/4x meter until that run finishes.
 
 DemoProvider's inherited `?demo=1` crash after `b890298e4d` is separately Proposed
 as POD-5473. Automatic review rejected switching its replica constructor despite
@@ -336,5 +379,6 @@ unchanged. The real-server `trpc.repos.list` fallback remains as directed.
 
 The launch descriptor initialization fix was isolated and landed separately as
 POD-5449 at `41e907ef043511bcfa21540ddd114e81b08568cc`, with its meaningful
-old-order red, focused green, compiler and lint evidence. Final production proof,
-ON timing, frozen-copy authorization and fast-forward landing remain outstanding.
+old-order red, focused green, compiler and lint evidence. Production phone proof,
+ON timing and the approved frozen-copy correction are green. Final stable
+structural verification and fast-forward landing remain outstanding.
