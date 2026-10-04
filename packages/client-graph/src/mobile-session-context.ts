@@ -35,6 +35,11 @@ export function createMobileSessionReader(pool: MobxPool) {
   return {
     session: (id: string | undefined) => paneSession(pool, id),
     issue: (id: string | undefined) => mobileSessionIssue(pool, id),
+    issueAgentCount(id: string | undefined): Loaded<number> {
+      if (id === undefined) return 0
+      const seats = issuePages(pool).attachedSessions(id)
+      return seats === LOADING ? LOADING : (seats?.filter((seat) => !seat.archived).length ?? 0)
+    },
     sessions: () => chatReferenceSessions(pool),
     issues: () => chatMentionIssues(pool),
     machines: () => pool.sessionPanes.machines(),

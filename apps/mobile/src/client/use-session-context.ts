@@ -46,6 +46,18 @@ export function useSessionContextIssue(id: string | undefined) {
   )
   return useRead(read, undefined)
 }
+/** Only a visible delete confirmation needs the addressed task's seat count. */
+export function useSessionContextIssueAgentCount(id: string | undefined, active: boolean) {
+  const read = useCallback(
+    (reader: Reader) => {
+      if (!active) return 0
+      const count = reader.issueAgentCount(id)
+      return pending(count) ? 0 : (count ?? 0)
+    },
+    [id, active],
+  )
+  return useRead(read, 0)
+}
 /** A clicked transcript reference uses the existing identity reader/load
  * window. Undefined stays loading; null is a resolved missing reference. */
 export function useSessionContextReferenceIssue(ref: string | undefined) {

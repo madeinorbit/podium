@@ -23,7 +23,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import { lastUsedMachine } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
-import { useMemo, useState } from 'react'
+import { type Dispatch, type SetStateAction, useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions } from '../client/hooks'
 import { useMobileLaunchData, useMobilePoolProjection } from '../client/mobile-pool'
@@ -132,14 +132,40 @@ const writeString = (value: string | null): string | null => value
  * starts an agent.
  */
 export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
+  const [step, setStep] = useState<PickerStep>(null)
+  // The prompt survives dismissal and an optimistic launch settling while the
+  // launcher is unmounted. Persisted choices live in the existing UI state.
+  const [prompt, setPrompt] = useState('')
+  return (
+    <>
+      <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
+        <Icon as={Plus} size={19} color={color.text} />
+      </HeaderButton>
+      {step !== null ? (
+        <NewWorkLauncher step={step} setStep={setStep} prompt={prompt} setPrompt={setPrompt} />
+      ) : null}
+    </>
+  )
+}
+
+/** Catalog and machine demand belongs to the visible sheet, not its trigger. */
+function NewWorkLauncher({
+  step,
+  setStep,
+  prompt,
+  setPrompt,
+}: {
+  step: Exclude<PickerStep, null>
+  setStep: Dispatch<SetStateAction<PickerStep>>
+  prompt: string
+  setPrompt: Dispatch<SetStateAction<string>>
+}) {
   const pathname = usePathname()
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
   const machines = usePoolLaunchMachines()
   const { sessions, sections } = usePoolLaunchInputs()
-  const [step, setStep] = useState<PickerStep>(null)
   const [query, setQuery] = useState('')
-  const [prompt, setPrompt] = useState('')
   const [modelPick, setModelPick] = usePersistedUiState<string | null>(
     NEW_WORK_MODEL_KEY,
     readString,
@@ -393,11 +419,8 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   const canChooseRepo = !onlyOneRepo && visibleRepos.length > 0
   return (
     <>
-      <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
-        <Icon as={Plus} size={19} color={color.text} />
-      </HeaderButton>
       <BottomSheet
-        visible={step !== null}
+        visible
         onClose={close}
         mode="fit"
         scrollable

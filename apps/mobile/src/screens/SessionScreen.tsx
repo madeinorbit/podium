@@ -12,6 +12,7 @@ import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextBooting as useBooting,
   useSessionContextIssue as useIssue,
+  useSessionContextIssueAgentCount,
   useSessionContextSession as useSession,
   useSessionContextExit,
   useSessionContextSessions as useSessions,
@@ -138,10 +139,7 @@ export function SessionScreen() {
   // How many agents the draft-delete confirm names. Task scope, counted live:
   // the vessel can hold more than the one session this sheet opened from, and
   // the sentence must say so before anything is removed.
-  const draftAgentCount = useMemo(
-    () => (issue ? allSessions.filter((s) => s.issueId === issue.id && !s.archived).length : 0),
-    [allSessions, issue],
-  )
+  const draftAgentCount = useSessionContextIssueAgentCount(issue?.id, confirmDeleteOpen)
 
   const menuActions = useMemo<SheetAction[]>(() => {
     if (!session) return []
