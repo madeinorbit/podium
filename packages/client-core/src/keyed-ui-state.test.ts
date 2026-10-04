@@ -6,6 +6,26 @@ import type { EngineOutbox } from './engine/wiring'
 import type { OutboxEntry } from './outbox'
 import { createSideCache, memoryStorage } from './replica'
 import type { StorageEventApi } from './replica/contract'
+import { createRoutedUiState } from './ui-state'
+
+it('notifies the canonical key and every declared alias without unrelated keys', () => {
+  const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
+  const controller = createReplicatedLayoutController({
+    api: {} as PodiumClientApi,
+    outbox: { awaiting: () => [], pending: () => [] } as unknown as EngineOutbox,
+    notices: { error: () => {}, info: () => {} } as StoreNotices,
+  })
+  const ui = createRoutedUiState({ local: side.uiState(), replicated: controller })
+  const changes: string[][] = []
+  const stop = ui.subscribe((keys) => changes.push([...keys].sort()))
+  try {
+    controller.replace({ superOpen: true })
+    expect(changes).toEqual([['podium.superOpen', 'podium.superOpen.v2', 'superOpen']])
+  } finally {
+    stop()
+    side.dispose()
+  }
+})
 
 it('publishes exact keys for local writes and cross-tab additions, changes and removals', () => {
   const storage = memoryStorage()

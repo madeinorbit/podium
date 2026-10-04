@@ -75,6 +75,13 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
     await flush()
     expect(seen[keys[0]!]).toBeNull()
     expect(f.get.mock.calls).toEqual([[keys[0]]])
+    // A burst reads the final owner value once, after the existing batch ends.
+    f.get.mockClear()
+    f.ui.set(keys[0]!, 'first')
+    f.ui.set(keys[0]!, 'final')
+    await flush()
+    expect(seen[keys[0]!]).toBe('final')
+    expect(f.get.mock.calls).toEqual([[keys[0]]])
     stops[1]!()
     expect(f.pool.preferenceKeys()).not.toContain(keys[1])
     f.get.mockClear()
