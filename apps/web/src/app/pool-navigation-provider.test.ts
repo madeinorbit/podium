@@ -82,7 +82,9 @@ describe('web pool navigation', () => {
       expect(changed).toHaveBeenCalledTimes(2)
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: session }] })
       expect(changed).toHaveBeenCalledTimes(3)
-      expect(row).not.toHaveBeenCalled()
+      // apply() reports the changed seat through the pool's mark port; the
+      // topology observer never reads a row or allocates a summary facet.
+      expect(row.mock.calls.every(([, , mode]) => mode === 'mark')).toBe(true)
     } finally { stop(); pool.dispose() }
   })
 
