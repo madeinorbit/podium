@@ -164,6 +164,25 @@ it.each([
   await check('session switch', () =>
     runtime!.getSnapshot().navigateToSession('synthetic-session-2'),
   )
+  await check('worktree selection', () => {
+    runtime!.getSnapshot().setSelectedIssueId(null)
+    runtime!.getSnapshot().setSelectedWorktree('/synthetic/project/guests')
+  })
+  expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
+  await check('worktree fallback', () => runtime!.getSnapshot().setSelectedWorktree('/synthetic/missing'))
+  expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
+  await check('session cwd move', () => data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }))
+  await check('session rehome', () => data.patch('session', 'synthetic-session-2', { issueId: 'synthetic-1' }))
+  const record = { ...data.records.get(`session:${sid}`)!, entityId: 'synthetic-added',
+    value: { ...(data.records.get(`session:${sid}`)!.value as object), sessionId: 'synthetic-added', issueId: undefined } }
+  await check('session arrival', () => {
+    data.records.set('session:synthetic-added', record)
+    data.replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+  })
+  await check('session removal', () => {
+    data.records.delete('session:synthetic-added')
+    data.replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 'synthetic-added' })
+  })
   expect(failures).toEqual([])
 
   // A real legacy subscription is the negative control: the same counter

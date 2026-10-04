@@ -312,13 +312,16 @@ export class Reactions {
    *  silently disappears from the tab strip mid-conversation. A background
    *  session's move never yanks the view; it gets a toast so the user knows
    *  where it now lives in the sidebar. */
-  worktreeFollow(): void {
+  worktreeFollow(): boolean {
     const st = this.ports.state()
+    const sessions = st.navigation?.worktreeSessions ? st.navigation.worktreeSessions() : st.sessions
+    if (sessions === NAVIGATION_LOADING) return false
+    const rows = sessions ?? []
     const prevCwds = this.prevCwds
-    this.prevCwds = Object.fromEntries(st.sessions.map((s) => [s.sessionId, s.cwd]))
+    this.prevCwds = Object.fromEntries(rows.map((s) => [s.sessionId, s.cwd]))
     const plan = planWorktreeMoves({
       prevCwds,
-      sessions: st.sessions,
+      sessions: rows,
       worktreePaths: reposToViews(st.repos).flatMap((r) => r.worktrees.map((w) => w.path)),
       selectedWorktree: st.selectedWorktree,
       // The same "what is on screen" walk the view-state report uses: a session
@@ -327,7 +330,7 @@ export class Reactions {
     })
     if (plan.follow) this.ports.publish({ selectedWorktree: plan.follow })
     for (const move of plan.moved) {
-      const s = navigationSession(st, move.sessionId)
+      const s = rows.find((row) => row.sessionId === move.sessionId)
       const dest = move.to ?? s?.cwd
       // The title said the destination's last segment and the description then
       // said the whole path, so the branch name was read twice in one notice —
@@ -336,6 +339,7 @@ export class Reactions {
       // destination is stated (POD-1159).
       this.ports.notices.info(`${s?.name || s?.title || 'A session'} moved worktree`, dest)
     }
+    return true
   }
 
   /** Keep the selected worktree valid: wait for the first repo load (otherwise a
@@ -344,21 +348,24 @@ export class Reactions {
    *  actually runs there (containment, not equality — a session stamped with a
    *  subdirectory still anchors the selection) or a session link is waiting
    *  for its session there, else fall back to the first known worktree. */
-  worktreeFallback(): void {
+  worktreeFallback(): boolean {
     const st = this.ports.state()
-    if (!st.reposLoaded) return
+    if (!st.reposLoaded) return true
     const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
     if (!st.selectedWorktree) {
       this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })
-      return
+      return true
     }
     const known = worktrees.some((w) => w.path === st.selectedWorktree)
-    const hasSession = st.sessions.some(
+    if (known || st.selectedWorktree === this.ports.linkedWorktree?.()) return true
+    const sessions = st.navigation?.worktreeSessions ? st.navigation.worktreeSessions() : st.sessions
+    if (sessions === NAVIGATION_LOADING) return false
+    const hasSession = (sessions ?? []).some(
       (s) => s.cwd === st.selectedWorktree || s.cwd.startsWith(`${st.selectedWorktree}/`),
     )
-    if (known || hasSession) return
-    if (st.selectedWorktree === this.ports.linkedWorktree?.()) return
+    if (hasSession) return true
     this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })
+    return true
   }
 
   /** Report which sessions this client renders (`visible`) and which one has

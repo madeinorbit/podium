@@ -152,7 +152,7 @@ export interface WorktreeMove {
  */
 export function planWorktreeMoves(opts: {
   prevCwds: Record<string, string>
-  sessions: SessionView[]
+  sessions: readonly Pick<SessionView, 'sessionId' | 'cwd'>[]
   worktreePaths: string[]
   selectedWorktree: string | null
   visiblePanes: string[]

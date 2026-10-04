@@ -65,6 +65,21 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
         ? NAVIGATION_LOADING
         : (row as ReturnType<NonNullable<NavigationProvider['sessionMembership']>>)
     },
+    worktreeSessions() {
+      const rows = []
+      const ids = pool.queries.ids({ kind: 'shellSessions' })
+        .filter((id) => !pool.queries.collapsed(id))
+        .sort((a, b) => {
+          const left = pool.queries.orderKey(a), right = pool.queries.orderKey(b)
+          return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
+        })
+      for (const id of ids) {
+        const row = pool.row('session', id, 'summary-fields')
+        if (row === LOADING) return NAVIGATION_LOADING
+        if (row) rows.push(row)
+      }
+      return rows as ReturnType<NonNullable<NavigationProvider['worktreeSessions']>>
+    },
     activityAt(id) {
       const latest = navigationActivity(pool).activityAt(id)
       return latest === LOADING ? NAVIGATION_LOADING : latest

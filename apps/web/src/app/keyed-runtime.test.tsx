@@ -142,7 +142,7 @@ it('preserves discovery list order and responds to changed, added and removed id
 it('preserves harness availability and discovery changes without legacy list reads', () => {
   const machineId = asMachineId('mine')
   state.repos = [{ path: '/repo', kind: 'repository', worktrees: [], machineId }]
-  const machine = {
+  const machine: EngineState['machines'][number] = {
     id: machineId,
     name: 'mine',
     hostname: 'mine',

@@ -52,7 +52,7 @@ const readParkedCount = (pool: MobxPool): number =>
   pool.queries.ids({ kind: 'shellSessions' }).reduce((count, id) => {
     if (pool.queries.collapsed(id)) return count
     const row = pool.row('session', id, 'summary-fields')
-    return count + (row && typeof row !== 'symbol' && row.status === 'hibernated' ? 1 : 0)
+    return count + (row && typeof row !== 'symbol' && (row as { status?: string }).status === 'hibernated' ? 1 : 0)
   }, 0)
 
 export type HostInfoTab = 'connection' | 'memory' | 'reclaim'

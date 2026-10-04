@@ -429,6 +429,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private pendingSessionNavigation: string | undefined
   private navigationWakeQueued = false
   private pendingNavigationTopology = false
+  private pendingWorktreeFallback = false
   private statsReactionDepth = 0
   private readonly subStore: SubscriptionStore<Store<TApi>>
   /** The action methods + constant handles, spread into every snapshot so their
@@ -1162,6 +1163,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.pendingNavigation = undefined
     this.pendingSessionNavigation = undefined
     this.pendingNavigationTopology = false
+    this.pendingWorktreeFallback = false
     this.destroyed = true
     this.inputs.dispose()
     this.hostMetricsStore.destroy()
@@ -1335,6 +1337,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   setNavigationProvider(provider: NavigationProvider): void {
     if (this.destroyed) return
     this.apply({ navigation: provider })
+    if (this.pendingNavigationTopology || this.pendingWorktreeFallback) this.queueNavigationWake(provider)
     if (this.pendingSessionNavigation) this.statics.navigateToSession(this.pendingSessionNavigation)
     if (this.pendingNavigation) this.navigate(this.pendingNavigation)
   }
@@ -1365,6 +1368,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       const issue = foregroundIssue(st)
       const pending = this.pendingNavigation
       return [
+        this.pendingNavigationTopology || this.pendingWorktreeFallback ? provider.worktreeSessions?.() : undefined,
         resolvedWorkspaceKey(st), issue ? [issue.id, issue.updatedAt,
           provider.activityAt(issue.id), provider.issueReadAt(issue.id)] : undefined,
         // Watch only the pool fields these navigation reactions consume.
@@ -1390,10 +1394,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.navigationWakeQueued = false
       if (this.destroyed || this.state.navigation !== provider) return
       this.batch(() => {
-        if (this.pendingNavigationTopology && this.reactions.sessionIssueFollow()) {
+        if (this.pendingNavigationTopology && this.reactions.worktreeFollow() && this.reactions.worktreeFallback() && this.reactions.sessionIssueFollow()) {
           this.pendingNavigationTopology = false
+          this.pendingWorktreeFallback = false
           this.reactions.pruneWorkspaces()
         }
+        if (!this.pendingNavigationTopology && this.pendingWorktreeFallback && this.reactions.worktreeFallback())
+          this.pendingWorktreeFallback = false
         if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
         if (this.pendingSessionNavigation) this.statics.navigateToSession(this.pendingSessionNavigation)
         if (this.pendingNavigation) this.navigate(this.pendingNavigation)
@@ -1513,18 +1520,24 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const sessionTopology =
       changed.has('sessions') && (!this.poolRuntimeWork || this.sessionTopologyChanged)
     if (sessionTopology) {
-      this.reactions.worktreeFollow()
       if (this.state.navigation) {
         this.pendingNavigationTopology = true
         this.queueNavigationWake(this.state.navigation)
-      } else this.reactions.sessionIssueFollow()
+      } else {
+        this.reactions.worktreeFollow()
+        this.reactions.sessionIssueFollow()
+      }
     }
     // Link arrival is a membership change, but keep its independent guard.
     if (changed.has('sessions') && this.paneLink)
       this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
     // Worktree fallback selection.
-    if (sessionTopology || any('repos', 'reposLoaded', 'selectedWorktree'))
-      this.reactions.worktreeFallback()
+    if ((sessionTopology || any('repos', 'reposLoaded', 'selectedWorktree')) && !this.pendingNavigationTopology) {
+      if (!this.reactions.worktreeFallback() && this.state.navigation) {
+        this.pendingWorktreeFallback = true
+        this.queueNavigationWake(this.state.navigation)
+      }
+    }
     // TASK SWITCH → restore that workspace's panes (POD-710). The layouts are
     // the truth; the pane scalars follow whichever workspace is now on screen.
     // `issueProjections` is in the trigger set because the key resolves through the
