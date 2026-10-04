@@ -63,7 +63,8 @@ export function poolIssueRow(value: SidebarRowValues): UnifiedIssueRow {
     kind: 'issue',
     issue: navigationIssue(value.issue),
     sessions: value.sessions as SessionView[],
-    aggregateSessions: value.aggregateSessions as SessionView[],
+    // No subtree session rows (POD-5423): the row's fleet glyphs come from
+    // the supplied summary (`display.fleet`), so none is drawn from them.
     activityAt: value.timing.sinceMs,
     ...(value.continuation
       ? { continuation: `${value.continuation.kind} · ${value.continuation.ref}` }

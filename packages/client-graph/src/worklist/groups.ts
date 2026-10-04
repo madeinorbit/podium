@@ -185,6 +185,8 @@ export interface GroupsHost {
   selectedId(): string | null
   /** TRACKED: `SliceLocals.selectedIssueWasFolded`. */
   foldLatch(): boolean
+  /** Every lane read: the lanes are filed only while read or held (POD-5423). */
+  demand?(): void
 }
 
 /** What one visible row files: its placement and its rank. */
@@ -346,23 +348,26 @@ export class WorklistGroups {
    * gives is tracked (`clock.ts` lists it).
    */
   private readonly nodes = new Map<string, GroupNode>()
+  /** Reported by every lane read (`GroupsHost.demand`). */
+  private readonly demand = (): void => this.host.demand?.()
   /** The pinned section, by rank. */
-  readonly pinned = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.pinned')
+  readonly pinned = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.pinned', this.demand)
   /** Each group's members (open and closed), by rank: the head labels and places the group. */
-  readonly members = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.members')
+  readonly members = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.members', this.demand)
   /** Each group's open lane, by rank. */
-  readonly open = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.open')
+  readonly open = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.open', this.demand)
   /** Each group's closed fold, newest first. */
-  readonly closed = new SortedLanes<string, FoldSort>(compareFold, 'pool.groups.closed')
-  readonly rootPinned = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootPinned')
-  readonly rootOpen = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootOpen')
-  readonly rootSnoozed = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootSnoozed')
-  readonly rootClosed = new SortedLanes<string, FoldSort>(compareFold, 'pool.groups.rootClosed')
+  readonly closed = new SortedLanes<string, FoldSort>(compareFold, 'pool.groups.closed', this.demand)
+  readonly rootPinned = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootPinned', this.demand)
+  readonly rootOpen = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootOpen', this.demand)
+  readonly rootSnoozed = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootSnoozed', this.demand)
+  readonly rootClosed = new SortedLanes<string, FoldSort>(compareFold, 'pool.groups.rootClosed', this.demand)
 
   constructor(private readonly host: GroupsHost) {
-    makeObservable<WorklistGroups, 'nodes' | 'host'>(this, {
+    makeObservable<WorklistGroups, 'nodes' | 'host' | 'demand'>(this, {
       nodes: false,
       host: false,
+      demand: false,
       pinned: false,
       members: false,
       open: false,

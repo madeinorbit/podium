@@ -321,11 +321,11 @@ describe('session read-state fixtures after S6', () => {
     const seat = session('synthetic-read-seat', task.id)
     const ctx = replay(collections([task], [seat]))
     try {
-      expect(ctx.row(task.id).actual.aggregateSessions[0]?.readAt).toBe(STAMP)
+      expect(ctx.row(task.id).actual.sessions[0]?.readAt).toBe(STAMP)
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
       const readAt = new Date(NOW).toISOString()
       ctx.updateSession({ ...seat, readAt })
-      expect(ctx.row(task.id).actual.aggregateSessions[0]?.readAt).toBe(readAt)
+      expect(ctx.row(task.id).actual.sessions[0]?.readAt).toBe(readAt)
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
     } finally {
       ctx.dispose()
@@ -339,7 +339,7 @@ describe('session read-state fixtures after S6', () => {
       asUserId('another-operator'),
     )
     try {
-      expect(ctx.row(task.id).actual.aggregateSessions[0]?.readAt).toBeNull()
+      expect(ctx.row(task.id).actual.sessions[0]?.readAt).toBeNull()
       const result = ctx.check()
       expect(result.pending).toBe(0)
       expect(result.differences).toBeGreaterThan(0)
@@ -366,11 +366,8 @@ describe('POD-5179 reciprocal provenance in the sidebar check corpus', () => {
       expect(sections.actual.bands[0]?.rowIds).toEqual([b.id])
       const root = ctx.row(b.id)
       expect(runInAction(() => ctx.pool.issue(b.id)?.nested)).toEqual([a.id])
-      expect(root.actual.aggregateSessions).toHaveLength(2)
-      expect(root.actual.aggregateSessions.map((seat) => seat.sessionId)).toEqual([
-        'seat-b',
-        'seat-a',
-      ])
+      // POD-5423: the subtree's seats travel as ids.
+      expect(root.actual.aggregateSessionIds).toEqual(['seat-b', 'seat-a'])
       // The check counts the section root plus both all-visible rows.
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
       // Breaking and restoring the cycle must update the observed rows, too.

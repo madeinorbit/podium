@@ -52,17 +52,26 @@ export function createMobilePool(dev: boolean): MobilePool {
         id: 'mobile-work',
         options: () => ({ summaries: COMMAND_SUMMARIES }),
         async attach(runtime, pool) {
-          const [{ CommandLaunchSource }, { commandLaunchViews }] = await Promise.all([
-            import('@podium/client-graph/command-launch-source'),
-            import('@podium/client-graph/command-launch-views'),
-          ])
-          launchViews = commandLaunchViews
-          commandLaunchViews(pool)
-          await pool.sources.ensure(
-            'commands',
-            COMMAND_ENTITIES,
-            () => new CommandLaunchSource(pool, runtime),
-          )
+          // POD-5423: the Work screen draws the worklist's lanes; hold them
+          // filed from the attachment, before the lazy imports below.
+          const release = pool.worklist.retain()
+          try {
+            const [{ CommandLaunchSource }, { commandLaunchViews }] = await Promise.all([
+              import('@podium/client-graph/command-launch-source'),
+              import('@podium/client-graph/command-launch-views'),
+            ])
+            launchViews = commandLaunchViews
+            commandLaunchViews(pool)
+            await pool.sources.ensure(
+              'commands',
+              COMMAND_ENTITIES,
+              () => new CommandLaunchSource(pool, runtime),
+            )
+          } catch (error) {
+            release()
+            throw error
+          }
+          return release
         },
       },
       {

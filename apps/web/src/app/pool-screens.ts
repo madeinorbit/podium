@@ -30,7 +30,13 @@ export const poolBackedScreens: readonly PoolScreen[] = [
     id: 'preferences',
     options: () => ({ preferences: true }),
   },
-  { id: 'sidebar', options: () => ({ summaries: MISSION_SUMMARIES }) },
+  {
+    id: 'sidebar',
+    options: () => ({ summaries: MISSION_SUMMARIES }),
+    // POD-5423: the sidebar draws the worklist's lanes, so it holds them filed
+    // from the pool's attachment (its first paint finds them filed).
+    attach: async (_runtime, pool) => pool.worklist.retain(),
+  },
   { id: 'header', options: () => ({ header: true }) },
   {
     id: 'automations',

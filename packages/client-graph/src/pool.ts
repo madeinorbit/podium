@@ -124,6 +124,7 @@ import type { RepoRow, ViewInputs } from './views'
 import { WorklistGroups } from './worklist/groups'
 import { MobileWorkIndex } from './worklist/mobile'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
+import { SeatVerdicts } from './worklist/seat-verdicts'
 import { SidebarIndex } from './worklist/sidebar'
 import { SidebarRosterIndex } from './worklist/sidebar-roster'
 import {
@@ -186,6 +187,13 @@ export interface PoolLazyOptions {
   readonly summaries?: PoolSummaryFields
   readonly windowMs?: number
   readonly schedule?: Schedule
+  /**
+   * POD-5423: `held` (the default) keeps the worklist's lanes filed for the
+   * pool's life; `demand` files them only while a screen holds them
+   * (`worklist.retain`) or a reader reads a lane, so a pool with no list on
+   * screen keeps no per-issue filing reaction or visibility graph.
+   */
+  readonly worklist?: 'held' | 'demand'
 }
 
 /** The transaction log as the pool sees it (`write/transactions.ts`). */
@@ -229,6 +237,8 @@ export class MobxPool {
   readonly sidebar: SidebarIndex
   readonly mobileWork: MobileWorkIndex
   readonly sidebarRosters: SidebarRosterIndex
+  /** Each summarised issue's explicit seats, judged per seat change (POD-5423). */
+  private readonly seatVerdicts: SeatVerdicts
   private preferenceSource: PreferenceSource | undefined
   readonly sources = new PoolSources()
   readonly sessionPanes = createSessionPaneReader(this)
@@ -428,6 +438,7 @@ export class MobxPool {
       onBucket: (collection, target, member, added) => {
         if (collection === 'worktree.sessions') this.sidebarRosters.queueSession(member)
         if (collection !== 'issue.sessions') return
+        this.seatVerdicts.queueMember(target, member, added)
         const list = seats.get(target)
         if (list === undefined) return
         const at = sortedIndex(list, member)
@@ -469,6 +480,13 @@ export class MobxPool {
       ...(residency === null ? {} : { residency }),
     }
     this.sidebarRosters = new SidebarRosterIndex(this)
+    // Maintenance reads: untracked, so a summary never depends on a seat's row.
+    this.seatVerdicts = new SeatVerdicts({
+      seats: (id) => untracked(() => this.graph.members('issue', id, 'sessions')),
+      session: (id) => untracked(() => this.row('session', id, 'peek')) as SliceSession | undefined,
+      issue: (id) => untracked(() => this.row('issue', id, 'peek')) as SliceIssue | undefined,
+      now: () => this.clock.current,
+    })
     this.sidebar = new SidebarIndex(this)
     this.mobileWork = new MobileWorkIndex(this)
     this.selectedId = null
@@ -523,6 +541,7 @@ export class MobxPool {
       // membership change yields the new member only. `seatIdsPartOf` reads
       // it, never the relation.
       seatList: (id) => this.seatList(id),
+      seatSummary: (id) => this.seatVerdicts.summary(id),
     }
     this.rollupInputs = rollupInputsOf(this.visibleInputs)
     this.worklist = new VisibleCollection({
@@ -538,6 +557,7 @@ export class MobxPool {
       // At most one entry (`select`): the key walk is the selection itself.
       selectedId: () => this.selection.keys().next().value ?? null,
       foldLatch: () => this.foldLatch.get(),
+      demand: () => this.worklist.need(),
     })
     makeObservable<
       MobxPool,
@@ -549,6 +569,7 @@ export class MobxPool {
       | 'setupOrderVersion'
       | 'firstTaskCount'
       | 'seatList'
+      | 'seatVerdicts'
       | 'reseatAll'
       | 'ownIndex'
       | 'sourceIndex'
@@ -588,6 +609,7 @@ export class MobxPool {
       settingsViews: false,
       firstTaskCount: false,
       seatList: false,
+      seatVerdicts: false,
       reseatAll: false,
       ownIndex: false,
       sourceIndex: false,
@@ -643,14 +665,21 @@ export class MobxPool {
       // Maintenance called inside actions, never observed.
       followTable: false,
     })
-    // Every issue in memory holds its filing reaction: taken when its row
-    // enters the table, released when it leaves (inside the action that
-    // moved it; the reaction first runs when that action ends).
-    observe(this.tables.issue, (change) => this.followTable(change.type, change.name))
-    observe(this.tables.session, (change) => this.sidebarRosters.queueSession(change.name))
+    // Every issue in memory is a filing candidate: taken when its row enters
+    // the table, released when it leaves (inside the action that moved it).
+    // Its filing reaction runs only while the list is live (POD-5423).
+    observe(this.tables.issue, (change) => {
+      this.followTable(change.type, change.name)
+      this.seatVerdicts.queueIssue(change.name)
+    })
+    observe(this.tables.session, (change) => {
+      this.sidebarRosters.queueSession(change.name)
+      this.seatVerdicts.queueSession(change.name)
+    })
     observe(this.tables.worktree, (change) => this.sidebarRosters.fileWorktree(change.name))
     runInAction(() => this.select(locals.selectedIssueId))
     residency?.onDue(() => this.hydrate())
+    if (lazy?.worklist !== 'demand') this.worklist.retain()
   }
 
   /**
@@ -944,8 +973,8 @@ export class MobxPool {
    * harness drains it in a loop before it reads. Returns how many rows the
    * window installed.
    *
-   * A row it installs enters the issue table, which gives it its filing
-   * reaction (`followTable`); the rows it no longer keeps cold are asked for
+   * A row it installs enters the issue table, which makes it a filing
+   * candidate (`followTable`); the rows it no longer keeps cold are asked for
    * in turn, and the lanes it moved are settled (`Residency.install`).
    */
   hydrate(): number {
@@ -967,6 +996,7 @@ export class MobxPool {
       for (const [ref, id] of identities) this.referenceReader?.resolved(ref, id)
       const rows = residency.install(this.target, batch, out)
       this.sidebarRosters.flush()
+      this.seatVerdicts.flush()
       return rows
     })
   }
@@ -993,6 +1023,7 @@ export class MobxPool {
         reseed(this.target, event.rows, out, this.ownIndex === undefined)
         this.graph.reset()
         this.reseatAll()
+        this.seatVerdicts.reset()
       } else {
         if (fresh) {
           // The source rebuilt its index (it holds this publication already):
@@ -1000,6 +1031,7 @@ export class MobxPool {
           this.residency?.attach(this.target, null, out)
           this.graph.reset()
           this.reseatAll()
+          this.seatVerdicts.reset()
         }
         // POD-4753: a row this update carries is installed from it; any
         // other row it warms is asked for (the load window).
@@ -1018,23 +1050,29 @@ export class MobxPool {
       }
       // An attach files its resident sessions as they enter the table
       // (`observe` above); a history row it carries is never visited.
+      // A cold row's update reaches no table slot; the seat verdicts read it
+      // as the members group does (hot or cold).
       for (const record of event.type === 'replace' ? [] : event.rows) {
-        if (record.kind === 'session') this.sidebarRosters.queueSession(record.id)
+        if (record.kind === 'session') {
+          this.sidebarRosters.queueSession(record.id)
+          this.seatVerdicts.queueSession(record.id)
+        }
         if (record.kind === 'issue') {
-          this.sidebarRosters.queueIssue(record.id)
+          this.seatVerdicts.queueIssue(record.id)
           if (record.value && this.residency?.isCold('issue', record.id))
             this.referenceReader?.arrived(record.value as SliceIssue)
         }
       }
       this.sidebarRosters.flush()
+      this.seatVerdicts.flush()
       this.queries.publish(event)
     })
     for (const [entity, id] of out.removed) this.release(entity, id)
   }
 
   /**
-   * Archived/deleted rows release their filing reaction and take it again on
-   * return. Stage exclusions retain theirs: pending edits can change stage
+   * Archived/deleted rows stop being filing candidates and become one again
+   * on return. Stage exclusions retain theirs: pending edits can change stage
    * through the one reader without an authoritative table publication.
    */
   private followTable(type: 'add' | 'update' | 'delete', id: string): void {
@@ -1071,6 +1109,7 @@ export class MobxPool {
       if (clock) {
         this.clock.advance(locals.coarseNow)
         this.sidebarRosters.advanceClock(locals.coarseNow)
+        this.seatVerdicts.advanceClock(locals.coarseNow)
       }
     })
   }
@@ -1094,6 +1133,7 @@ export class MobxPool {
       this.selection.clear()
       this.readStates.clear()
       this.sidebarRosters.clear()
+      this.seatVerdicts.clear()
       this.firstTaskCount.set(0)
     })
     for (const entity of ENTITIES) this.models[entity].clear()

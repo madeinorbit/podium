@@ -60,6 +60,31 @@ export function cachedKey<V>(
   return liveCache((key: string) => `${owner}@${key}.${group}`, compute, equals, false)
 }
 
+/**
+ * The same cache keyed by a string whose body is supplied by the read that
+ * builds it, so it may close over that read's arguments (POD-5423: a layout
+ * keyed by its value). Equal keys must mean equal bodies. Named
+ * `<owner>.<group>`, released when unobserved.
+ */
+export function keyedViews<V>(
+  owner: string,
+  group: string,
+  equals: (previous: V, next: V) => boolean = compareStructural,
+): (key: string, compute: () => V) => V {
+  const live = new Map<string, IComputedValue<V>>()
+  return (key, compute) => {
+    const cached = live.get(key)
+    if (cached !== undefined) return cached.get()
+    if (!_isComputingDerivation()) return compute()
+    const value = computed(compute, { name: debugName(() => `${owner}.${group}`), equals })
+    live.set(key, value)
+    onBecomeUnobserved(value, () => {
+      if (live.get(key) === value) live.delete(key)
+    })
+    return value.get()
+  }
+}
+
 function liveCache<K, V>(
   nameOf: (key: K) => string,
   compute: (key: K) => V,

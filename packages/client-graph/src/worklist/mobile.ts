@@ -88,10 +88,10 @@ class MobileSectionsView {
   readonly value: IComputedValue<MobileWorkSections>
 
   constructor(private readonly pool: MobxPool, private readonly state: MobileWorkState) {
-    const pinnedData = computed(() => pool.groups.pinnedRootIds.map(id => ref(id)), { equals: compareStructural })
-    const pinnedSection = computed(() => band('pinned', 'Pinned', 'pinned', pinnedData.get()), { equals: compareStructural })
+    const pinnedData = computed(() => pool.groups.pinnedRootIds.map(id => ref(id)), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.pinnedData') })
+    const pinnedSection = computed(() => band('pinned', 'Pinned', 'pinned', pinnedData.get()), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.pinnedSection') })
     const pinnedAttention = computed(() => pinnedData.get().filter(row => this.waiting(row).asking)
-      .map(row => ({ ...row, listKey: `needs-you:${row.id}` })), { equals: compareStructural })
+      .map(row => ({ ...row, listKey: `needs-you:${row.id}` })), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.pinnedAttention') })
     this.pinned = computed(() => {
       let pending = 0
       for (const row of pinnedData.get()) pending += this.waiting(row).pending
@@ -110,8 +110,9 @@ class MobileSectionsView {
     })
   }
 
-  private projectKeys(): string[] {
-    return this.pool.sidebar.sections(this.state).bands.map(value => value.key)
+  /** The band keys alone (POD-5423): a lane move inside a band re-runs none of the bands' views. */
+  private projectKeys(): readonly string[] {
+    return this.pool.sidebar.bandKeys(this.state)
   }
 
   private waiting(row: MobileWorkRef): { asking: boolean; pending: number } {
@@ -128,14 +129,14 @@ class MobileSectionsView {
     let view = this.projects.get(key)
     if (view === undefined) {
       const header = computed(() => {
-        const value = this.pool.sidebar.sections(this.state).bands.find(item => item.key === key)
+        const value = this.pool.sidebar.band(this.state, key)
         return { label: value?.label ?? '', worktreeIds: value?.worktreeIds ?? EMPTY_IDS }
-      }, { equals: compareStructural, name: debugName(() => `pool.mobileWork.header:${key}`) })
+      }, { equals: compareStructural, name: debugName(() => `pool.mobileWork.header`) })
       this.headers.set(key, header)
-      const openRows = computed(() => this.pool.groups.rootOpen.lane(key).map(id => ref(id)), { equals: compareStructural })
-      const snoozedRows = computed(() => this.pool.groups.rootSnoozed.lane(key).slice(), { equals: compareStructural })
-      const closedRows = computed(() => this.pool.groups.rootClosed.lane(key).slice(), { equals: compareStructural })
-      const allRows = computed(() => [...openRows.get(), ...header.get().worktreeIds.map(id => ref(id, 'worktree'))], { equals: compareStructural })
+      const openRows = computed(() => this.pool.groups.rootOpen.lane(key).map(id => ref(id)), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.openRows') })
+      const snoozedRows = computed(() => this.pool.groups.rootSnoozed.lane(key).slice(), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.snoozedRows') })
+      const closedRows = computed(() => this.pool.groups.rootClosed.lane(key).slice(), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.closedRows') })
+      const allRows = computed(() => [...openRows.get(), ...header.get().worktreeIds.map(id => ref(id, 'worktree'))], { equals: compareStructural, name: debugName(() => 'pool.mobileWork.allRows') })
       const split = computed(() => {
         const live: MobileWorkRef[] = [], attention: MobileWorkRef[] = []
         let pending = 0
@@ -145,15 +146,15 @@ class MobileSectionsView {
           ;(waiting.asking ? attention : live).push(row)
         }
         return { live, attention, pending }
-      }, { equals: compareStructural })
-      const liveRows = computed(() => split.get().live, { equals: compareStructural })
-      const attentionRows = computed(() => split.get().attention, { equals: compareStructural })
-      const section = computed(() => band(key, header.get().label, 'project', liveRows.get(), snoozedRows.get(), closedRows.get()), { equals: compareStructural })
-      const ordering = computed(() => band(key, header.get().label, 'project', allRows.get(), snoozedRows.get(), closedRows.get()), { equals: compareStructural })
+      }, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.split') })
+      const liveRows = computed(() => split.get().live, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.liveRows') })
+      const attentionRows = computed(() => split.get().attention, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.attentionRows') })
+      const section = computed(() => band(key, header.get().label, 'project', liveRows.get(), snoozedRows.get(), closedRows.get()), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.section') })
+      const ordering = computed(() => band(key, header.get().label, 'project', allRows.get(), snoozedRows.get(), closedRows.get()), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.ordering') })
       view = computed(() => {
         return { section: section.get(), ordering: ordering.get(),
           attention: attentionRows.get(), issueCount: openRows.get().length, pending: split.get().pending }
-      }, { equals: compareStructural, name: debugName(() => `pool.mobileWork.project:${key}`) })
+      }, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.project') })
       this.projects.set(key, view)
     }
     return view
@@ -168,7 +169,7 @@ class MobileSectionsView {
           ? this.attention.get() : this.project(key).get().section
         const collapsed = !this.state.searching && this.state.collapsed?.[source.foldKey] === true
         return collapsed ? { ...source, collapsed, data: EMPTY_REFS, snoozedIds: EMPTY_IDS, closedIds: EMPTY_IDS } : source
-      }, { equals: compareStructural })
+      }, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.display') })
       this.displayed.set(key, view)
     }
     return view.get()

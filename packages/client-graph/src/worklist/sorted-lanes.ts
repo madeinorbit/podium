@@ -42,21 +42,28 @@ export class SortedLanes<K, S> {
   /** Each filed id's key and sort value (maintenance only: read by `file`, never by a derivation). */
   private readonly filed = new Map<string, Filed<K, S>>()
 
-  /** `compare` must be total over the ids of one lane: two ids never compare equal. */
+  /**
+   * `compare` must be total over the ids of one lane: two ids never compare
+   * equal. `demand`, when given, is told about every tracked read: lanes
+   * filed only while someone reads them (POD-5423) start their filing there.
+   */
   constructor(
     private readonly compare: (a: S, b: S) => number,
     private readonly name: string,
+    private readonly demand?: () => void,
   ) {
     this.lanes = observable.map<K, IObservableArray<string>>(undefined, { deep: false, name: debugName(() => name) })
   }
 
   /** TRACKED: the ids filed under `key`, in order (a shared empty list when none). */
   lane(key: K): readonly string[] {
+    this.demand?.()
     return this.lanes.get(key) ?? EMPTY
   }
 
   /** TRACKED: the keys that hold at least one id. */
   keys(): IterableIterator<K> {
+    this.demand?.()
     return this.lanes.keys()
   }
 

@@ -50,7 +50,12 @@ export interface SidebarRowValues {
   /** Own immutable row facts, owned by the feed; never a model or store handle. */
   readonly issue: SliceIssue & { readonly displayRef: string }
   readonly sessions: readonly SliceSession[]
-  readonly aggregateSessions: readonly SliceSession[]
+  /**
+   * The ids of the row's subtree seats (`rowSessions`), in roll-up order.
+   * POD-5423 (review finding 9): ids, not rows, so a heartbeat redraws its own
+   * row and the activity it moves, never every ancestor's payload.
+   */
+  readonly aggregateSessionIds: readonly string[]
   readonly awaitingFirstPrompt: boolean
 }
 
@@ -59,7 +64,7 @@ export const SIDEBAR_ROW_FIELDS = [
   'idNumber', 'color', 'title', 'timing', 'working', 'asking', 'originTick', 'decision', 'mergeCommits', 'progress',
   'fromChildren', 'statusFromChildren', 'gitState', 'unread', 'errorClass', 'internal', 'unsnoozed',
   'deferred', 'awaitsTuck', 'canBringBack', 'draftAgentOnly', 'firstSessionId',
-  'continuation', 'fleet', 'issue', 'sessions', 'aggregateSessions', 'awaitingFirstPrompt',
+  'continuation', 'fleet', 'issue', 'sessions', 'aggregateSessionIds', 'awaitingFirstPrompt',
 ] as const satisfies readonly (keyof SidebarRowValues)[]
 const exhaustive: Exclude<keyof SidebarRowValues, typeof SIDEBAR_ROW_FIELDS[number]> extends never ? true : never = true
 void exhaustive
@@ -115,10 +120,22 @@ export function sortedSidebarSessions(
   sessions: readonly SliceSession[],
   reached: (at: number) => boolean,
   coordinator?: string | null,
-  orderOf: (session: SliceSession) => SidebarSessionOrder = sidebarSessionOrder,
-): SliceSession[] {
-  const orders = new Map<SliceSession, SidebarSessionOrder>()
-  const order = (session: SliceSession): SidebarSessionOrder => {
+): SliceSession[]
+/** The same order over any seat handle (an id, POD-5423) with its order facts. */
+export function sortedSidebarSessions<T>(
+  sessions: readonly T[],
+  reached: (at: number) => boolean,
+  coordinator: string | null | undefined,
+  orderOf: (session: T) => SidebarSessionOrder,
+): T[]
+export function sortedSidebarSessions<T>(
+  sessions: readonly T[],
+  reached: (at: number) => boolean,
+  coordinator?: string | null,
+  orderOf: (session: T) => SidebarSessionOrder = sidebarSessionOrder as unknown as (session: T) => SidebarSessionOrder,
+): T[] {
+  const orders = new Map<T, SidebarSessionOrder>()
+  const order = (session: T): SidebarSessionOrder => {
     let facts = orders.get(session)
     if (facts === undefined) {
       facts = orderOf(session)
@@ -196,13 +213,12 @@ export interface SidebarSessionFacts {
   readonly waitingFinished?: TimerAnchor
   readonly doneSince: number
   readonly totalMs?: number
-  readonly lastActiveMs: number
   readonly errorClass: string | null
   readonly allUnstarted: boolean
 }
 export const NO_SIDEBAR_SESSIONS: SidebarSessionFacts = {
   fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
-  doneSince: 0, lastActiveMs: 0, errorClass: null, allUnstarted: true,
+  doneSince: 0, errorClass: null, allUnstarted: true,
 }
 
 export function sidebarSessionFacts(session: SliceSession): SidebarSessionFacts {
@@ -218,7 +234,6 @@ export function sidebarSessionFacts(session: SliceSession): SidebarSessionFacts 
     ...(motionPhase(session, true) === 'waiting' ? { waitingFinished: waiting } : {}),
     doneSince: stateSince || 0,
     ...(session.agentState?.workingMsTotal !== undefined ? { totalMs: session.agentState.workingMsTotal } : {}),
-    lastActiveMs: Date.parse(session.lastActiveAt) || 0,
     errorClass: !session.archived && session.status !== 'exited' && session.agentState?.phase === 'errored'
       ? session.agentState.error?.class ?? 'unknown' : null,
     allUnstarted: unstarted(session),
@@ -240,7 +255,6 @@ export function combineSidebarSessions(a: SidebarSessionFacts, b: SidebarSession
     waitingFinished: earliest(a.waitingFinished, b.waitingFinished),
     doneSince: Math.max(a.doneSince, b.doneSince),
     ...(a.totalMs !== undefined || b.totalMs !== undefined ? { totalMs: (a.totalMs ?? 0) + (b.totalMs ?? 0) } : {}),
-    lastActiveMs: Math.max(a.lastActiveMs, b.lastActiveMs),
     errorClass: a.errorClass ?? b.errorClass, allUnstarted: a.allUnstarted && b.allUnstarted,
   }
 }

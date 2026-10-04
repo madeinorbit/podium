@@ -3,8 +3,8 @@
  * It is never read from worklistSlice, a selector, or browser storage here.
  */
 
-import { compareStructural, computed, type IComputedValue } from 'mobx'
-import { debugName } from '../debug-name'
+import { compareStructural } from 'mobx'
+import { keyedViews } from '../cached'
 import type { ModelHost } from '../models'
 import type { MobxPool } from '../pool'
 import { overlayRow } from '../shared/overlay-row'
@@ -86,7 +86,15 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
 
 export class SidebarIndex {
   private seenSelected: string | null = null
-  private readonly sectionViews = new WeakMap<SidebarState, IComputedValue<SidebarSections>>()
+  /** Views by layout value (`layoutKey`), each released when unobserved. */
+  private readonly sectionViews = keyedViews<SidebarSections>(
+    'pool.sidebar',
+    'sections',
+    sameSections,
+  )
+  private readonly specViews = keyedViews<BandSpecs>('pool.sidebar', 'bandSpecs')
+  private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band')
+  private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group')
   constructor(private readonly pool: MobxPool) {}
 
   row(id: string): SidebarRowValues | typeof LOADING | undefined {
@@ -176,25 +184,73 @@ export class SidebarIndex {
       issues: [...issues.values()],
       activityAt,
       pending,
-      active: this.pool.selection.size === 0 && state.selectedWorktree === path,
+      // The selection is read only for the selected worktree: a click
+      // elsewhere wakes no other worktree row (POD-5423).
+      active: state.selectedWorktree === path && this.pool.selection.size === 0,
     }
   }
 
+  /**
+   * The sections for a layout. POD-5423 (review finding 10): one view per
+   * pool and layout VALUE (callers holding equal layouts share it, whatever
+   * their objects), built from one cached band per key: a row changing lanes
+   * re-runs its own band and this list of band references, never the other
+   * bands, and the bands keep their identity when equal.
+   */
   sections(state: SidebarState = EMPTY_STATE): SidebarSections {
-    let view = this.sectionViews.get(state)
-    if (!view) {
-      view = computed(() => this.sectionValues(state), {
-        name: debugName(() => 'pool.sidebar.sections'),
-        equals: compareStructural,
-      })
-      this.sectionViews.set(state, view)
-    }
-    return view.get()
+    const key = layoutKey(state)
+    return this.sectionViews(key, () => ({
+      pinnedIds: this.pool.groups.pinnedRootIds,
+      bands: this.specs(key, state).order.map((band) => this.bandOf(key, state, band)),
+      pinnedFoldKey: 'podium:sidebar:pinned-fold',
+      pinnedCollapsed: state.collapsed?.['podium:sidebar:pinned-fold'] === true,
+    }))
   }
 
-  private sectionValues(state: SidebarState): SidebarSections {
-    const pinnedIds = this.pool.groups.pinnedRootIds
-    const bands = new Map<string, SidebarBand>()
+  /** TRACKED: the ordered band keys of a layout (re-run when a band appears, goes or is renamed). */
+  bandKeys(state: SidebarState = EMPTY_STATE): readonly string[] {
+    return this.specs(layoutKey(state), state).order
+  }
+
+  /** TRACKED: one band of a layout, or undefined when the layout shows no such band. */
+  band(state: SidebarState, band: string): SidebarBand | undefined {
+    const key = layoutKey(state)
+    return this.specs(key, state).byKey[band] === undefined
+      ? undefined
+      : this.bandOf(key, state, band)
+  }
+
+  private bandOf(key: string, state: SidebarState, band: string): SidebarBand {
+    return this.bandViews(`${key}\u0000${band}`, () => this.bandValue(key, state, band))
+  }
+
+  /** Which bands a layout shows, their order and their names: no lane contents. */
+  private specs(key: string, state: SidebarState): BandSpecs {
+    return this.specViews(key, () => this.specValues(state))
+  }
+
+  /** One group's facts the band list reads: never its rows (a lane move changes none of these). */
+  private groupFacts(key: string): GroupFacts {
+    return this.groupViews(key, () => {
+      const group = this.pool.groups.group(key)
+      const { rowIds, snoozedIds, closedIds } = group.sidebarRows
+      const firstOpen = rowIds[0]
+      return {
+        shown: rowIds.length > 0 || snoozedIds.length > 0 || closedIds.length > 0,
+        label: group.sidebarMetadata.label,
+        // Legacy uses the first open issue's path, then the key; folded rows
+        // never supply this path.
+        path:
+          firstOpen === undefined
+            ? key
+            : (this.pool.groups.placementOf(firstOpen)?.repoPath ?? key),
+        folded: snoozedIds.length > 0 || closedIds.length > 0,
+        headBand2: group.sidebarMetadata.headBand === 2,
+      }
+    })
+  }
+
+  private specValues(state: SidebarState): BandSpecs {
     const index = this.pool.sidebarRosters
     const repos = [...index.projects]
       .map((path) => this.pool.row('worktree', path))
@@ -210,36 +266,18 @@ export class SidebarIndex {
         if (ap >= 0 || bp >= 0) return ap >= 0 && bp >= 0 ? ap - bp : ap >= 0 ? -1 : 1
         return (a.projectIndex ?? 0) - (b.projectIndex ?? 0)
       })
+    const specs = new Map<string, BandSpec>()
     const add = (
       key: string,
       label: string,
       path: string,
       aliases: readonly string[] = [key],
-    ): SidebarBand => {
-      const previous = bands.get(key)
+    ): BandSpec => {
+      const previous = specs.get(key)
       if (previous) return previous
-      const foldKey = `podium:sidebar:project-fold:${key}`
-      const snoozedFoldKey = `podium:sidebar:snoozed-fold:${key}`
-      const closedFoldKey = `podium:sidebar:closed-fold:${key}`
-      const band: SidebarBand = {
-        key,
-        label,
-        aliases,
-        repoPath: path,
-        rowIds: [],
-        worktreeIds: [],
-        snoozedIds: [],
-        closedIds: [],
-        foldKey,
-        snoozedFoldKey,
-        closedFoldKey,
-        collapsed: state.collapsed?.[foldKey] === true,
-        snoozedCollapsed: state.collapsed?.[snoozedFoldKey] !== false,
-        closedCollapsed: state.collapsed?.[closedFoldKey] !== false,
-        startFirstTask: true,
-      }
-      bands.set(key, band)
-      return band
+      const spec: BandSpec = { key, label, aliases, repoPath: path, group: false, roster: false }
+      specs.set(key, spec)
+      return spec
     }
     for (const repo of repos)
       add(
@@ -249,32 +287,23 @@ export class SidebarIndex {
         repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path],
       )
     for (const key of this.pool.groups.keys) {
-      const group = this.pool.groups.group(key)
-      const { rowIds, snoozedIds, closedIds } = group.sidebarRows
-      if (!rowIds.length && !snoozedIds.length && !closedIds.length) continue
-      const label = group.sidebarMetadata.label
-      // A registered root was seeded above. Otherwise legacy uses the first
-      // open issue's path, then the key; folded rows never supply this path.
-      const firstOpen = rowIds[0]
-      const path =
-        firstOpen === undefined ? key : (this.pool.groups.placementOf(firstOpen)?.repoPath ?? key)
-      const band = add(key, label, path)
-      bands.set(key, { ...band, label, rowIds, snoozedIds, closedIds, startFirstTask: false })
+      const facts = this.groupFacts(key)
+      if (!facts.shown) continue
+      // A registered root was seeded above; its path stays.
+      const spec = add(key, facts.label, facts.path)
+      specs.set(key, { ...spec, label: facts.label, group: true })
     }
     for (const key of index.keys()) {
       const roster = index.band(key)
       if (!roster.ids.length) continue
-      const band = add(key, roster.label, roster.repoPath)
+      const spec = add(key, roster.label, roster.repoPath)
       // The unified head names the section before folds: worktrees (band 1)
       // precede snoozed roots (band 2), even when a root is in the closed fold.
-      const label =
-        (band.snoozedIds.length > 0 || band.closedIds.length > 0) &&
-        this.pool.groups.group(key).sidebarMetadata.headBand === 2
-          ? roster.label
-          : band.label
-      bands.set(key, { ...band, label, worktreeIds: roster.ids, startFirstTask: false })
+      const facts = spec.group ? this.groupFacts(key) : undefined
+      const label = facts?.folded === true && facts.headBand2 ? roster.label : spec.label
+      specs.set(key, { ...spec, label, roster: true })
     }
-    const base = [...bands.values()]
+    const base = [...specs.values()]
     const registered = new Set(repos.map((repo) => repo.repoId ?? repo.repoPath))
     base.sort((a, b) =>
       registered.has(a.key) && registered.has(b.key)
@@ -286,7 +315,7 @@ export class SidebarIndex {
             : a.key.localeCompare(b.key),
     )
     const remaining = new Set(base)
-    const ordered: SidebarBand[] = []
+    const ordered: BandSpec[] = []
     for (const saved of state.projectOrder ?? []) {
       const band = base.find((item) => remaining.has(item) && item.aliases.includes(saved))
       if (band) {
@@ -296,12 +325,82 @@ export class SidebarIndex {
     }
     for (const band of base) if (remaining.has(band)) ordered.push(band)
     return {
-      pinnedIds,
-      bands: ordered,
-      pinnedFoldKey: 'podium:sidebar:pinned-fold',
-      pinnedCollapsed: state.collapsed?.['podium:sidebar:pinned-fold'] === true,
+      order: ordered.map((spec) => spec.key),
+      byKey: Object.fromEntries(ordered.map((spec) => [spec.key, spec])),
     }
   }
+
+  /** One band's lanes and folds: re-run by its own group's or roster's change. */
+  private bandValue(key: string, state: SidebarState, band: string): SidebarBand {
+    const spec = this.specs(key, state).byKey[band] as BandSpec
+    const foldKey = `podium:sidebar:project-fold:${band}`
+    const snoozedFoldKey = `podium:sidebar:snoozed-fold:${band}`
+    const closedFoldKey = `podium:sidebar:closed-fold:${band}`
+    const rows = spec.group ? this.pool.groups.group(band).sidebarRows : undefined
+    const worktreeIds = spec.roster ? this.pool.sidebarRosters.band(band).ids : NO_IDS
+    return {
+      key: band,
+      label: spec.label,
+      aliases: spec.aliases,
+      repoPath: spec.repoPath,
+      rowIds: rows?.rowIds ?? NO_IDS,
+      worktreeIds,
+      snoozedIds: rows?.snoozedIds ?? NO_IDS,
+      closedIds: rows?.closedIds ?? NO_IDS,
+      foldKey,
+      snoozedFoldKey,
+      closedFoldKey,
+      collapsed: state.collapsed?.[foldKey] === true,
+      snoozedCollapsed: state.collapsed?.[snoozedFoldKey] !== false,
+      closedCollapsed: state.collapsed?.[closedFoldKey] !== false,
+      startFirstTask: !spec.group && !spec.roster,
+    }
+  }
+}
+
+interface BandSpec {
+  readonly key: string
+  readonly label: string
+  readonly aliases: readonly string[]
+  readonly repoPath: string
+  /** It holds the group's root rows. */
+  readonly group: boolean
+  /** It holds the roster's worktrees. */
+  readonly roster: boolean
+}
+interface BandSpecs {
+  readonly order: readonly string[]
+  readonly byKey: Readonly<Record<string, BandSpec>>
+}
+interface GroupFacts {
+  readonly shown: boolean
+  readonly label: string
+  readonly path: string
+  readonly folded: boolean
+  readonly headBand2: boolean
+}
+
+const NO_IDS: readonly string[] = Object.freeze([])
+
+/** The layout fields the sections read, as one value: equal layouts, one key. */
+function layoutKey(state: SidebarState): string {
+  return JSON.stringify([
+    state.projectOrder ?? null,
+    state.pinnedRepos ?? null,
+    state.pinnedWorktrees ?? null,
+    state.collapsed ?? null,
+  ])
+}
+
+/** The bands by identity (each band keeps its object while equal), the rest by value. */
+function sameSections(a: SidebarSections, b: SidebarSections): boolean {
+  return (
+    a.pinnedCollapsed === b.pinnedCollapsed &&
+    a.pinnedFoldKey === b.pinnedFoldKey &&
+    compareStructural(a.pinnedIds, b.pinnedIds) &&
+    a.bands.length === b.bands.length &&
+    a.bands.every((band, at) => band === b.bands[at])
+  )
 }
 
 const EMPTY_STATE: SidebarState = Object.freeze({})

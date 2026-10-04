@@ -212,7 +212,9 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
           }),
       },
       locals.source,
-      { header: options.header, settings: options.settings, summaries: options.summaries },
+      // POD-5423: the worklist's lanes are filed only while a screen that
+      // draws them holds them (its pool screen's attachment) or reads them.
+      { header: options.header, settings: options.settings, summaries: options.summaries, worklist: 'demand' },
     )
     if (options.preferences || options.settings) {
       if (!runtime.ui) throw new Error('Preferences require the existing runtime UI owner')

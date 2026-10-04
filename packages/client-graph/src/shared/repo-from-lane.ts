@@ -112,7 +112,12 @@ export interface RepoLaneOps {
  */
 function releaseRepoRow(ops: RepoLaneOps, lane: LaneStoredRow): void {
   const repoId = laneRepoId(lane)
-  if (repoId === null || ops.getRepo(repoId) !== lane) return
+  if (repoId === null) return
+  // Held by this lane's path: the row may be an earlier object of the same
+  // lane, kept while the repo's facts were equal.
+  const held = ops.getRepo(repoId)
+  if (held === undefined || !isLaneRow(held) || (held as LaneLike).path !== (lane as LaneLike).path)
+    return
   const members = ops.repoWorktreeMembers(repoId)
   if (members === undefined) {
     if (ops.requireRelations === true) {
@@ -157,6 +162,23 @@ export function ingestWorktreeRecord(
   }
   ops.putWorktree(id, value)
   const repoId = laneRepoId(value)
-  if (repoId !== null) ops.putRepo(repoId, value)
-  if (previous !== undefined && previous !== value) releaseRepoRow(ops, previous)
+  if (repoId !== null) {
+    // POD-5423 (review finding 12): the repo's row stays while the repo's own
+    // facts are equal, so a lane-only change (a branch, a scan) wakes no
+    // reader of the repo (its prefix and path).
+    const held = ops.getRepo(repoId)
+    if (held === undefined || !isLaneRow(held) || !sameRepoFacts(held, value))
+      ops.putRepo(repoId, value)
+  }
+  if (previous !== undefined && previous !== value && laneRepoId(previous) !== repoId)
+    releaseRepoRow(ops, previous)
+}
+
+/** The repo-level facts a lane carries: what the repo's row answers. */
+const REPO_FACTS = ['repoId', 'repoPath', 'repoName', 'prefix'] as const
+
+function sameRepoFacts(a: LaneStoredRow, b: LaneStoredRow): boolean {
+  const left = a as Readonly<Record<string, unknown>>
+  const right = b as Readonly<Record<string, unknown>>
+  return REPO_FACTS.every((field) => left[field] === right[field])
 }

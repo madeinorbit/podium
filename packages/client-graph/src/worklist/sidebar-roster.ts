@@ -31,7 +31,6 @@ export class SidebarRosterIndex {
   private readonly owners = new Map<string, SidebarOwner>()
   private readonly representedUnowned = new Map<string, number>()
   private readonly dirty = new Set<string>()
-  private readonly dirtyOwners = new Set<string>()
   private readonly lanes = observable.map<string, ObservableSet<string>>(undefined, {
     deep: false, name: debugName(() => 'pool.sidebar.rosterCandidates'),
   })
@@ -48,9 +47,18 @@ export class SidebarRosterIndex {
 
   constructor(private readonly pool: MobxPool) { this.now = pool.clock.current }
 
-  candidates(path: string): Iterable<string> { return this.lanes.get(path) ?? EMPTY }
-  keys(): Iterable<string> { return this.paths.keys() }
+  /** TRACKED. Owner facts come from the worklist's filing, so every read
+   * reports demand for it (POD-5423): without a reader, owners are absent. */
+  candidates(path: string): Iterable<string> {
+    this.pool.worklist.need()
+    return this.lanes.get(path) ?? EMPTY
+  }
+  keys(): Iterable<string> {
+    this.pool.worklist.need()
+    return this.paths.keys()
+  }
   band(key: string) {
+    this.pool.worklist.need()
     let band = this.bands.get(key)
     if (!band) {
       band = computed(() => {
@@ -110,12 +118,10 @@ export class SidebarRosterIndex {
       }
     }
   }
+  /** A session's own row, its table slot or its worktree link moved. These
+   * are the only facts `sync` reads, so an issue publication queues nothing:
+   * its owner facts reach the seats it owns through `fileOwner` (POD-5423). */
   queueSession(id: string): void { this.dirty.add(id) }
-  queueIssue(id: string): void {
-    // Nothing can be re-filed from an empty inverse. Later session deltas
-    // queue themselves; a later owner publication sees its populated bucket.
-    if (this.pool.graph.size('issue', id, 'sessions') > 0) this.dirtyOwners.add(id)
-  }
 
   /** Existing issue filing reaction supplies these narrow facts. A burst on
    * a represented issue never invalidates its worktree's fallback roster. */
@@ -137,25 +143,16 @@ export class SidebarRosterIndex {
     if (next === undefined) this.owners.delete(id)
     else this.owners.set(id, next)
     if (previous?.represented !== next?.represented || previous?.excluded !== next?.excluded || previous?.finishAt !== next?.finishAt) {
+      // Only seats already located under this owner read these facts. A
+      // member with no seat (cold, or with no worktree link) has no lane to
+      // enter until its own row or link moves, which queues it (POD-5423:
+      // never the owner's session history).
       for (const seat of this.owned.get(id) ?? EMPTY) this.fileSeat(seat)
-      this.queueIssue(id)
-      this.flush()
     }
   }
 
   /** After relation upkeep, within the publication's existing action. */
   flush(): void {
-    for (const owner of this.dirtyOwners) {
-      // Resident locations already follow session/table and worktree-relation
-      // changes through queueSession. The tracked owner filing re-files their
-      // candidates when representation, exclusion or finish facts change.
-      // An issue-only marker/title publication needs only cold/absent seats
-      // reconsidered; rereading a resident seat's issueId adds no new fact.
-      for (const id of this.pool.relations.many('issue', owner, 'sessions')) {
-        if (!this.seats.has(id)) this.dirty.add(id)
-      }
-    }
-    this.dirtyOwners.clear()
     for (const id of this.dirty) this.sync(id)
     this.dirty.clear()
   }
@@ -260,7 +257,7 @@ export class SidebarRosterIndex {
   clear(): void {
     this.seats.clear(); this.owned.clear(); this.owners.clear()
     this.representedUnowned.clear()
-    this.dirty.clear(); this.dirtyOwners.clear(); this.lanes.clear()
+    this.dirty.clear(); this.lanes.clear()
     this.projects.clear(); this.projectCounts.clear(); this.worktrees.clear(); this.paths.clear(); this.bands.clear()
     this.expiries.clear(); this.due.clear(); this.deadlines.length = 0
   }

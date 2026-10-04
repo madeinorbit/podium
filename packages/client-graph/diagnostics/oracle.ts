@@ -44,7 +44,7 @@ export const sessionComparable = (session: unknown) => pick(session, SESSION_CON
  * reads. No old record's irrelevant server supplement enters the oracle. */
 export function sidebarComparable(value: SidebarRowValues): Record<string, unknown> {
   return { ...value, issue: pick(value.issue, ISSUE_CONTENT_FIELDS),
-    sessions: value.sessions.map(sessionComparable), aggregateSessions: value.aggregateSessions.map(sessionComparable) }
+    sessions: value.sessions.map(sessionComparable) }
 }
 
 export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivation, now: number): Record<string, unknown> {
@@ -75,7 +75,7 @@ export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivat
     continuation: continuation ? { kind: continuation[0] === 'duplicate' ? 'duplicate' : 'continued', ref: continuation.slice(1).join(' · ') } : null,
     fleet: { total: fleet.present.length, parkedCount: fleet.parkedCount, nativeCount: fleet.nativeCount, tiles: fleet.tiles },
     issue: issue as unknown as SidebarRowValues['issue'], sessions: row.sessions,
-    aggregateSessions: aggregate, awaitingFirstPrompt: issue.isDraftVessel === true && rowMotionPhase(row) === 'queued' && aggregate.length > 0 && aggregate.every(isUnstartedSession),
+    aggregateSessionIds: aggregate.map(s => s.sessionId), awaitingFirstPrompt: issue.isDraftVessel === true && rowMotionPhase(row) === 'queued' && aggregate.length > 0 && aggregate.every(isUnstartedSession),
   })
 }
 
@@ -139,10 +139,10 @@ export function worktreeDiff(pool: MobxPool, derivation: LegacyDerivation, state
 
 /** Pure legacy formatter on the pool's compatibility payload. This pins the
  * actual status line while leaving copy/formatting in current presentation. */
-export function poolStatusLine(value: SidebarRowValues, activityAt: number, now: number): string {
+export function poolStatusLine(value: SidebarRowValues, activityAt: number, now: number, seat: (id: string) => unknown): string {
   const continuation = value.continuation ? `${value.continuation.kind} · ${value.continuation.ref}` : undefined
   const row = { kind: 'issue', issue: value.issue, sessions: value.sessions,
-    aggregateSessions: value.aggregateSessions, missionRollup: { progress: value.progress, fromChildren: value.statusFromChildren }, activityAt, continuation } as unknown as UnifiedIssueRow
+    aggregateSessions: value.aggregateSessionIds.map(seat).filter(Boolean), missionRollup: { progress: value.progress, fromChildren: value.statusFromChildren }, activityAt, continuation } as unknown as UnifiedIssueRow
   return continuation ?? rowStatusLine(row, now, 0)
 }
 
@@ -165,7 +165,8 @@ export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: 
       }
     }
     const line = row.continuation ?? rowStatusLine(row, now, 0)
-    if (poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now) !== line) differences.push(`${row.issue.id}.statusLine: ${poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now)} expected ${line}`)
+    const seat = (id: string) => pool.row('session', id)
+    if (poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now, seat) !== line) differences.push(`${row.issue.id}.statusLine: ${poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now, seat)} expected ${line}`)
   }
   return differences
 }

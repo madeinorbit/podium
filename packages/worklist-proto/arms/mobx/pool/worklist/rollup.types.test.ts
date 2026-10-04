@@ -141,8 +141,12 @@ const question = seatVerdictOf(
 )
 const ended = seatVerdictOf(session({ agentState: { phase: 'ended' } } as Partial<SliceSession>))
 
+// The own part places its seats' ids (POD-5423); `withSeat` folds flags and facts.
 const one = (...seats: ReturnType<typeof seatVerdictOf>[]): Aggregate =>
-  aggregate({ own: seats.reduce(withSeat, EMPTY_OWN), children: [] })
+  aggregate({
+    own: { ...seats.reduce(withSeat, EMPTY_OWN), sessionIds: seats.map((seat) => seat.id as string) },
+    children: [],
+  })
 
 describe('the roll-up combine', () => {
   it('borrows composed sidebar facts through a sessionless branch', () => {
@@ -182,15 +186,15 @@ describe('the roll-up combine', () => {
     })
     // Attention and recency compose independently of order; the UI payload
     // retains the caller's sibling order, as buildUnifiedRows does.
-    const { sessions: flatSeats, sidebarFacts: flatSidebar, ...flatFacts } = flat
-    const { sessions: nestedSeats, sidebarFacts: _nestedSidebar, ...nestedFacts } = nested
+    const { sessionIds: flatSeats, sidebarFacts: flatSidebar, ...flatFacts } = flat
+    const { sessionIds: nestedSeats, sidebarFacts: _nestedSidebar, ...nestedFacts } = nested
     expect(nestedFacts).toEqual(flatFacts)
     const reversed = aggregate({ own: EMPTY_OWN, children: [...leaves].reverse() })
-    const { sessions: reversedSeats, sidebarFacts: _reversedSidebar, ...reversedFacts } = reversed
+    const { sessionIds: reversedSeats, sidebarFacts: _reversedSidebar, ...reversedFacts } = reversed
     expect(reversedFacts).toEqual(flatFacts)
-    expect(flatSeats).toEqual([working, offerOnly, ended, question].map(seat => seat.sidebarSession))
-    expect(nestedSeats).toEqual([question, working, ended, offerOnly].map(seat => seat.sidebarSession))
-    expect(reversedSeats).toEqual([question, ended, offerOnly, working].map(seat => seat.sidebarSession))
+    expect(flatSeats).toEqual([working, offerOnly, ended, question].map(seat => seat.id))
+    expect(nestedSeats).toEqual([question, working, ended, offerOnly].map(seat => seat.id))
+    expect(reversedSeats).toEqual([question, ended, offerOnly, working].map(seat => seat.id))
     const ordered = aggregate({ own: EMPTY_OWN, children: [
       aggregate({ own: EMPTY_OWN, children: leaves.slice(0, 2) }),
       aggregate({ own: EMPTY_OWN, children: leaves.slice(2) }),

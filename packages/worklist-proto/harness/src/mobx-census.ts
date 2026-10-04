@@ -114,7 +114,8 @@ export interface CensusEntry {
    */
   readonly sub: string
   readonly owner: Owner | null
-  /** Container attribution for the history probe; read from the same objects as held totals. */
+  /** Container attribution for the history probe; read from the same objects as held totals.
+   * A reaction's debug name (no size). */
   readonly name?: string
   readonly size?: number
 }
@@ -390,6 +391,7 @@ function classify(
         phase,
         sub: internal.isDisposed === true ? 'disposed' : 'live',
         owner: shared ? null : describe(single),
+        ...(internal.name_ === undefined ? {} : { name: internal.name_ }),
       })
     } else {
       const size = kind === 'map' || kind === 'set' ? internal.data_?.size :

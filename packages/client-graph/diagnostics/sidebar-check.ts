@@ -162,7 +162,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
       const row = pool.sidebar.row(id)
       if (row === LOADING) pending += 1
       value = { id, pending: row === LOADING, fields: row === LOADING ? { loading: true } : row === undefined ? { absent: true } : {
-        ...sidebarComparable(row), statusLine: poolStatusLine(row, pool.issue(id)?.activityAt ?? 0, pool.clock.current),
+        ...sidebarComparable(row), statusLine: poolStatusLine(row, pool.issue(id)?.activityAt ?? 0, pool.clock.current, (seat) => pool.row('session', seat)),
       } }
       issues.set(id, value)
     }

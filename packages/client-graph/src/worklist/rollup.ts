@@ -217,8 +217,11 @@ export interface SeatVerdict {
    * `workingSinceOf`): `agentState.since ?? lastActiveAt` while working.
    */
   readonly workingSinceMs: number | null
-  /** Borrowed resident seat; no second row read or per-seat cache. */
-  readonly sidebarSession?: SliceSession
+  /**
+   * The seat's id. POD-5423 (review finding 9): roll-ups carry ids, never the
+   * row object, so a heartbeat (a new row object) does not travel up the nest.
+   */
+  readonly id?: string
   readonly sidebarFacts?: SidebarSessionFacts
   readonly sidebarOrder?: SidebarSessionOrder
 }
@@ -231,7 +234,7 @@ export function seatVerdictOf(session: SliceSession): SeatVerdict {
     finished: motionPhase(session, true),
     working,
     workingSinceMs: Number.isFinite(at) ? at : null,
-    sidebarSession: session,
+    id: session.sessionId,
     sidebarFacts: sidebarSessionFacts(session),
     sidebarOrder: sidebarSessionOrder(session),
   }
@@ -260,8 +263,11 @@ export interface Aggregate {
     readonly finished: number
     readonly decisions: number
   }
-  /** Some seat anywhere in it (`rowSessions(row).length > 0`). */
-  readonly sessions?: readonly SliceSession[]
+  /**
+   * Its seats' ids (`rowSessions(row)`, by id): own seats in sidebar order,
+   * then each nest child's. A row reads the rows it draws by id.
+   */
+  readonly sessionIds?: readonly string[]
   readonly sidebarFacts?: SidebarSessionFacts
   readonly updatedAt?: string
   readonly order?: { sortKey?: string | null; createdAt: string; seq: number; id: string }
@@ -314,20 +320,17 @@ function flagsWith(flags: PhaseFlags, phase: SlicePhase): PhaseFlags {
   }
 }
 
-/** Fold one seat into a row's own part. */
+/** Fold one seat's flags and facts into a row's own part. */
 export function withSeat(own: OwnAttention, seat: SeatVerdict): OwnAttention {
   const since =
     seat.workingSinceMs !== null &&
     (own.workingSince === null || seat.workingSinceMs < own.workingSince)
       ? seat.workingSinceMs
       : own.workingSince
+  // The seat's id is the caller's to place (`ownAttentionPartOf` sorts them once).
   return {
     ...own,
     seated: true,
-    sessions:
-      seat.sidebarSession === undefined
-        ? own.sessions
-        : [...(own.sessions ?? []), seat.sidebarSession],
     sidebarFacts: combineSidebarSessions(
       own.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
       seat.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
@@ -358,13 +361,13 @@ export function aggregate(input: {
   readonly children: readonly Aggregate[]
 }): Aggregate {
   let { seated, working, deciding, open, finished, pending } = input.own
-  const sessions = [...(input.own.sessions ?? [])]
+  const sessionIds = [...(input.own.sessionIds ?? [])]
   let sidebarFacts = input.own.sidebarFacts ?? NO_SIDEBAR_SESSIONS
   let updatedAt = input.own.updatedAt ?? ''
   let decidingAt = input.own.decidingAt
   let railWaiting = input.own.railWaiting ?? { open: 0, finished: 0, decisions: 0 }
   for (const child of input.children) {
-    sessions.push(...(child.sessions ?? []))
+    sessionIds.push(...(child.sessionIds ?? []))
     sidebarFacts = combineSidebarSessions(sidebarFacts, child.sidebarFacts ?? NO_SIDEBAR_SESSIONS)
     if ((child.updatedAt ?? '') > updatedAt) updatedAt = child.updatedAt ?? ''
     if (
@@ -392,7 +395,7 @@ export function aggregate(input: {
     open,
     finished,
     pending,
-    sessions,
+    sessionIds,
     sidebarFacts,
     updatedAt,
     decidingAt,
@@ -775,13 +778,18 @@ export function ownAttentionPartOf(
   if (facts.state === 'unknown') return EMPTY_OWN
   let own = EMPTY_OWN
   let pending = 0
-  const seats = new Map<SliceSession, SeatVerdict>()
+  // One pass over the roster; the own part is assembled once, never copied per seat.
+  const seats = new Map<string, SeatVerdict>()
+  const ids: string[] = []
   for (const sessionId of self.rosterIds) {
     const seat = input.seat(sessionId)
     if (seat === LOADING) pending += 1
     else if (seat !== undefined) {
       own = withSeat(own, seat)
-      if (seat.sidebarSession !== undefined) seats.set(seat.sidebarSession, seat)
+      if (seat.id !== undefined) {
+        seats.set(seat.id, seat)
+        ids.push(seat.id)
+      }
     }
   }
   let deciding = false
@@ -797,26 +805,23 @@ export function ownAttentionPartOf(
       }
     }
   }
-  const orderFor = (session: SliceSession): SidebarSessionOrder =>
-    seats.get(session)?.sidebarOrder ?? sidebarSessionOrder(session)
-  const sessions = sortedSidebarSessions(
-    own.sessions ?? [],
+  const orderFor = (id: string): SidebarSessionOrder =>
+    (seats.get(id) as SeatVerdict).sidebarOrder as SidebarSessionOrder
+  const sessionIds = sortedSidebarSessions(
+    ids,
     input.reached ?? (() => false),
     facts.coordinatorSessionId,
     orderFor,
   )
-  const sidebarFacts = sessions.reduce(
-    (combined, session) =>
-      combineSidebarSessions(
-        combined,
-        seats.get(session)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
-      ),
+  const sidebarFacts = sessionIds.reduce(
+    (combined, id) =>
+      combineSidebarSessions(combined, seats.get(id)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS),
     NO_SIDEBAR_SESSIONS,
   )
   const railWaiting = { open: 0, finished: 0, decisions: deciding ? 1 : 0 }
-  for (const session of sessions) {
-    const verdict = seats.get(session)
-    if (deciding && orderFor(session).offerOnly) continue
+  for (const id of sessionIds) {
+    const verdict = seats.get(id)
+    if (deciding && orderFor(id).offerOnly) continue
     if (verdict?.open === 'waiting') railWaiting.open += 1
     if (verdict?.finished === 'waiting') railWaiting.finished += 1
   }
@@ -824,8 +829,8 @@ export function ownAttentionPartOf(
     ...own,
     deciding,
     pending: own.pending + pending,
-    sessions,
-    firstSessionId: sessions[0] === undefined ? null : orderFor(sessions[0]).id,
+    sessionIds,
+    firstSessionId: sessionIds[0] ?? null,
     sidebarFacts,
     railWaiting,
     updatedAt: facts.updatedAt,
@@ -1040,11 +1045,14 @@ export function waitingPartOf(self: Pick<RollupSelf, 'finished' | 'aggregate'>):
 
 // ------------------------------------------------------------ the groups
 
-/** The attention group: the row's own part, its visible subtree's aggregate and latest seat. */
+/**
+ * The attention group: the row's own part and its visible subtree's
+ * aggregate. The latest seat activity is its own group (`seatActivityPartOf`,
+ * POD-5423): a heartbeat moves that number up the nest, never this.
+ */
 export interface Attention {
   readonly ownAttention: OwnAttention
   readonly aggregate: Aggregate
-  readonly seatActivity: number | null
 }
 
 /**
@@ -1058,11 +1066,7 @@ export function attentionOf(
   self: Pick<RollupSelf, 'present' | 'ownFacts' | 'rosterIds' | 'openOwn' | 'tip'>,
 ): Attention {
   const ownAttention = ownAttentionPartOf(input, self)
-  return {
-    ownAttention,
-    aggregate: aggregatePartOf(input, id, { ownAttention }),
-    seatActivity: seatActivityPartOf(input, id, self),
-  }
+  return { ownAttention, aggregate: aggregatePartOf(input, id, { ownAttention }) }
 }
 
 /** The progress group: this issue's own unit and its formal closure's counts. */

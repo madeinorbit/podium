@@ -132,6 +132,7 @@ import {
   type RollupInputs,
   rollupPartOf,
   type SeatVerdict,
+  seatActivityPartOf,
   tipPartOf,
   type UnitOwn,
   type Units,
@@ -154,8 +155,10 @@ import {
   type IssueFacts,
   issueFactsPartOf,
   keptBelowPartOf,
-  type Members,
-  membersOf,
+  laneMemberIdsPartOf,
+  type MemberVerdicts,
+  memberIdsPartOf,
+  memberVerdictsOf,
   type Nesting,
   nestBelowPartOf,
   nestCandidatePartOf,
@@ -427,48 +430,31 @@ function rowField<V>(
 /**
  * THE issue: its row, its visibility, its roll-ups and its edits. The groups
  * (cached values) are `facts`, `rank`, `members`, `presence`, `nesting`,
- * `nestBelow`, `nested`, `tip`, `attention`, `unitOwn`, `unitsBelow`,
+ * `nestBelow`, `nested`, `tip`, `attention`, `activity`, `unitOwn`, `unitsBelow`,
  * `loaded`, `inMemory` and `rowRollup`, and
  * one per field of the row (`fields`); each is a cached group
  * (`cachedGroup`), built on first reactive read.
  */
-/** Borrowed immutable records compare by identity. Walking their fields in a
- * structural comparator would charge an unrelated rename for its whole family. */
-function sameAggregate(a: Aggregate, b: Aggregate): boolean {
-  const { sessions: left = [], ...leftFacts } = a
-  const { sessions: right = [], ...rightFacts } = b
-  return (
-    left.length === right.length &&
-    left.every((row, index) => row === right[index]) &&
-    compareStructural(leftFacts, rightFacts)
-  )
-}
-
+/** Roll-ups carry seat ids and plain facts (POD-5423): compared by value. */
 function sameAttention(a: Attention, b: Attention): boolean {
-  return (
-    a.seatActivity === b.seatActivity &&
-    sameAggregate(a.ownAttention, b.ownAttention) &&
-    sameAggregate(a.aggregate, b.aggregate)
-  )
+  return compareStructural(a.ownAttention, b.ownAttention) && compareStructural(a.aggregate, b.aggregate)
 }
 
 function sameVerdict(a: LoadedRow<SeatVerdict>, b: LoadedRow<SeatVerdict>): boolean {
   if (a === b) return true
   if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
-  const { sidebarSession: left, ...leftFacts } = a
-  const { sidebarSession: right, ...rightFacts } = b
-  return left === right && compareStructural(leftFacts, rightFacts)
+  return compareStructural(a, b)
 }
 
+/** The own seats are borrowed rows (by identity); everything else by value. */
 function sameSidebar(a: LoadedRow<SidebarRowValues>, b: LoadedRow<SidebarRowValues>): boolean {
   if (a === b) return true
   if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
-  const { sessions: ownA, aggregateSessions: allA, ...factsA } = a
-  const { sessions: ownB, aggregateSessions: allB, ...factsB } = b
-  const sameSeats = (left: readonly SliceSession[], right: readonly SliceSession[]): boolean =>
-    left === right ||
-    (left.length === right.length && left.every((seat, index) => seat === right[index]))
-  return sameSeats(ownA, ownB) && sameSeats(allA, allB) && compareStructural(factsA, factsB)
+  const { sessions: ownA, ...factsA } = a
+  const { sessions: ownB, ...factsB } = b
+  const sameSeats =
+    ownA === ownB || (ownA.length === ownB.length && ownA.every((seat, index) => seat === ownB[index]))
+  return sameSeats && compareStructural(factsA, factsB)
 }
 
 /** Feed summaries stay inside derivation; the legacy navigation record never
@@ -508,8 +494,13 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       const part = issue.facts?.part
       return part === undefined ? undefined : rankOfPart(issue.id, part)
     }),
+    /**
+     * The members' verdicts at the clock. The explicit seats come judged per
+     * seat change (`seat-verdicts.ts`, POD-5423), so a re-run (a heartbeat
+     * moving the standing, one seat's mark-read) never walks the seat history.
+     */
     members: cachedGroup('members', (issue: IssueModel) =>
-      membersOf(issue.host.visibleInputs, issue.id, issue.standing),
+      memberVerdictsOf(issue.host.visibleInputs, issue.id, issue.standing, issue),
     ),
     /** A hidden issue's from its summary (POD-4753): its row and its sessions are not read. */
     presence: cachedGroup('presence', (issue: IssueModel) => {
@@ -552,6 +543,14 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       'attention',
       (issue: IssueModel) => attentionOf(issue.host.rollupInputs, issue.id, issue),
       sameAttention,
+    ),
+    /**
+     * The latest seat activity of the visible subtree (POD-5423, review
+     * finding 9): a number composed over the nest children's, apart from the
+     * attention group, so a heartbeat re-runs this chain and nothing else.
+     */
+    activity: cachedGroup('activity', (issue: IssueModel) =>
+      seatActivityPartOf(issue.host.rollupInputs, issue.id, issue),
     ),
     /** Its own contribution to its formal ancestors' progress (its own row, and whether it is vacated). */
     unitOwn: cachedGroup('unitOwn', (issue: IssueModel) =>
@@ -667,8 +666,14 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     )
     const agg = this.aggregate
     const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
-    const sessions = this.ownAttention.sessions ?? []
-    const aggregateSessions = agg.sessions ?? []
+    // The own seats' rows, by id: a heartbeat redraws this row only when the
+    // seat is its own (an ancestor's payload carries ids, POD-5423).
+    const sessions: SliceSession[] = []
+    for (const id of this.ownAttention.sessionIds ?? []) {
+      const seat = this.host.row('session', id)
+      if (seat !== undefined && seat !== LOADING) sessions.push(seat as SliceSession)
+    }
+    const aggregateSessionIds = agg.sessionIds ?? []
     const targetId = own.supersededBy ?? own.duplicateOf
     const origin =
       this.originRef === null ? undefined : this.host.rollupInputs.loadedIssue(this.originRef)
@@ -734,7 +739,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       this.nested.length > 0 &&
       issue.readAt &&
       Number.isFinite(readMs) &&
-      ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || sessionFacts.lastActiveMs > readMs)
+      ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || (this.seatActivity ?? 0) > readMs)
     return {
       idNumber: this.seq,
       color: own.color ?? null,
@@ -765,11 +770,11 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       fleet: sessionFacts.fleet,
       issue,
       sessions,
-      aggregateSessions,
+      aggregateSessionIds,
       awaitingFirstPrompt:
         own.isDraftVessel === true &&
         this.phase === 'queued' &&
-        aggregateSessions.length > 0 &&
+        aggregateSessionIds.length > 0 &&
         sessionFacts.allUnstarted,
     }
   }
@@ -784,7 +789,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return IssueModel.groups.rank(this)
   }
 
-  get members(): Members {
+  get members(): MemberVerdicts {
     return IssueModel.groups.members(this)
   }
 
@@ -936,16 +941,21 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return summary === LOADING ? null : summary?.parentId || null
   }
 
+  /**
+   * R2's seats: the maintained sorted list itself (tracked, never copied; a
+   * membership change yields one element). POD-5423: no cached copy, so a
+   * heartbeat or one seat's change walks no history to rebuild it.
+   */
   get seatIds(): readonly string[] {
-    return this.members.seatIds
+    return this.host.visibleInputs.seatList(this.id)
   }
 
   get laneMemberIds(): readonly string[] {
-    return this.members.laneMemberIds
+    return laneMemberIdsPartOf(this.host.visibleInputs, this.id)
   }
 
   get memberIds(): readonly string[] {
-    return this.members.memberIds
+    return memberIdsPartOf(this.seatIds, this.laneMemberIds)
   }
 
   get retainedSeatIds(): readonly string[] {
@@ -1023,7 +1033,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get seatActivity(): number | null {
-    return this.attention.seatActivity
+    return IssueModel.groups.activity(this)
   }
 
   get unitOwn(): UnitOwn {

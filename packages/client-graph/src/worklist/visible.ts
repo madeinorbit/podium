@@ -65,9 +65,10 @@
  * relation engine's own `issue.children` bucket.
  *
  * THE COLLECTION IS MAINTAINED, ONE ROW AT A TIME. Every eligible issue in memory
- * holds ONE reaction (`VisibleCollection.track`, taken when its row enters
- * the table and released when it leaves), on what it files: its placement
- * and rank while it is visible, nothing while it is not. The effect moves
+ * is a filing candidate (`VisibleCollection.track`, taken when its row enters
+ * the table and released when it leaves) and, while a list is on screen
+ * (POD-5423), holds ONE reaction on what it files: its placement and rank
+ * while it is visible, nothing while it is not. The effect moves
  * that row alone in the visible order and in the groups' lanes
  * (`sorted-lanes.ts`, `groups.ts`). A row not in memory is hidden by the
  * cold rule, so it files nothing and holds no reaction; its object is still
@@ -85,7 +86,7 @@
  * snapshot and the tests do.
  */
 
-import { compareStructural, makeObservable, reaction } from 'mobx'
+import { compareStructural, createAtom, makeObservable, reaction, runInAction } from 'mobx'
 import { debugName } from '../debug-name'
 import { type RelationLinks, refs } from '../shared/links'
 import { compareRank, type RowRank } from '../shared/row-view'
@@ -112,10 +113,12 @@ import {
   type RollupParts,
   rollupPartOf,
   type SeatVerdict,
+  seatActivityPartOf,
   seatVerdictOf,
   tipPartOf,
   waitingPartOf,
 } from './rollup'
+import { NO_SEATS, type SeatSummary } from './seat-verdicts'
 import { SortedLanes } from './sorted-lanes'
 
 /** `SIDEBAR_FINISHED_UNREAD_WINDOW_MS` (`visibility.ts:22`). */
@@ -155,6 +158,12 @@ export interface VisibleInputs {
   formalChildren(id: string): Iterable<string>
   /** The maintained SORTED seat list itself, returned without iterating it. */
   seatList(id: string): readonly string[]
+  /**
+   * TRACKED, live pool only (POD-5423): the explicit seats' verdicts, judged
+   * per seat change (`seat-verdicts.ts`). Absent in the plain rebuild, which
+   * judges every seat directly.
+   */
+  seatSummary?(id: string): SeatSummary
 }
 
 // ------------------------------------------------------------ own-row facts
@@ -642,29 +651,94 @@ export function rosterIdsPartOf(
   return roster.length === retainedSeatIds.length ? retainedSeatIds : roster
 }
 
-/** The members group of issue `id`, over its standing. */
+/** Who the members are: R2's seats and R3's lane, without judging any of them. */
+export type MemberSeats = Pick<Members, 'seatIds' | 'laneMemberIds' | 'memberIds'>
+
+/** What the members' verdicts give, at the clock. */
+export type MemberVerdicts = Omit<Members, keyof MemberSeats>
+
+/** The membership part of issue `id`: re-runs only when a seat or lane member joins or leaves. */
+export function memberSeatsOf(input: VisibleInputs, id: string): MemberSeats {
+  // A copy: the maintained list mutates in place, and a cached group must
+  // hold a value (a membership change re-runs this through the list's reads).
+  const seatIds = input.seatList(id).slice()
+  const laneMemberIds = laneMemberIdsPartOf(input, id)
+  return { seatIds, laneMemberIds, memberIds: memberIdsPartOf(seatIds, laneMemberIds) }
+}
+
+/** Whether `id` is in the sorted `list` (binary search: reads log n elements). */
+function sortedHas(list: readonly string[], id: string): boolean {
+  let lo = 0
+  let hi = list.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if ((list[mid] as string) < id) lo = mid + 1
+    else hi = mid
+  }
+  return list[lo] === id
+}
+
+/** Two id-ordered lists as one, in id order. */
+function mergeIds(a: readonly string[], b: readonly string[]): readonly string[] {
+  if (b.length === 0) return a
+  if (a.length === 0) return b
+  return [...a, ...b].sort()
+}
+
+/**
+ * The verdicts part of issue `id` over its standing and members. With the
+ * live pool's seat summary the explicit seats are already judged (one seat
+ * per change), so a re-run costs the retained seats and the lane, never the
+ * seat history; the plain rebuild judges every member here.
+ */
+export function memberVerdictsOf(
+  input: VisibleInputs,
+  id: string,
+  standing: Standing | undefined,
+  seats: MemberSeats,
+): MemberVerdicts {
+  // An issue with no explicit seat needs no summary: its (tracked) empty
+  // list re-runs this when one joins, and only then is a summary made.
+  const seatList = input.seatList(id)
+  const summary =
+    input.seatSummary === undefined
+      ? undefined
+      : seatList.length === 0
+        ? NO_SEATS
+        : input.seatSummary(id)
+  let retainedSeatIds: readonly string[]
+  let rosterIds: readonly string[]
+  let openOwn: boolean
+  if (summary === undefined) {
+    retainedSeatIds = retainedSeatIdsPartOf(input, id, standing, seats.memberIds)
+    rosterIds = rosterIdsPartOf(input, retainedSeatIds)
+    openOwn = openOwnPartOf(input, id, seats.seatIds, standing)
+  } else {
+    // R3 members that are not R2 seats: judged here, as the rebuild does.
+    const laneOnly = seats.laneMemberIds.filter((sessionId) => !sortedHas(seatList, sessionId))
+    const laneRetained = retainedSeatIdsPartOf(input, id, standing, laneOnly)
+    retainedSeatIds = standing === undefined ? [] : mergeIds(summary.retained, laneRetained)
+    rosterIds =
+      standing === undefined ? [] : mergeIds(summary.roster, rosterIdsPartOf(input, laneRetained))
+    openOwn = summary.present > 0 || standing?.headlessStaffed === true
+  }
+  return {
+    retainedSeatIds,
+    rosterIds,
+    retained: standing !== undefined && !standing.excluded && retainedSeatIds.length > 0,
+    liveRoster: rosterIds.length > 0,
+    openOwn,
+  }
+}
+
+/** The members group of issue `id`, over its standing (both parts, one pass). */
 export function membersOf(
   input: VisibleInputs,
   id: string,
   standing: Standing | undefined,
 ): Members {
-  // A copy: the maintained list mutates in place, and a cached group must
-  // hold a value (a membership change re-runs this through the list's reads).
-  const seatIds = input.seatList(id).slice()
-  const laneMemberIds = laneMemberIdsPartOf(input, id)
-  const memberIds = memberIdsPartOf(seatIds, laneMemberIds)
-  const retainedSeatIds = retainedSeatIdsPartOf(input, id, standing, memberIds)
-  const rosterIds = rosterIdsPartOf(input, retainedSeatIds)
-  return {
-    seatIds,
-    laneMemberIds,
-    memberIds,
-    retainedSeatIds,
-    rosterIds,
-    retained: standing !== undefined && !standing.excluded && retainedSeatIds.length > 0,
-    liveRoster: rosterIds.length > 0,
-    openOwn: openOwnPartOf(input, id, seatIds, standing),
-  }
+  const seats = memberSeatsOf(input, id)
+  return { ...seats, ...memberVerdictsOf(input, id, standing, seats) }
 }
 
 /**
@@ -683,6 +757,12 @@ export function unreadPartOf(
   if (readMs === null) return true
   if (standing.updatedMs !== null && standing.updatedMs > readMs) return true
   if (standing.replicaActivityMs != null && standing.replicaActivityMs > readMs) return true
+  // The live pool keeps the seats' latest activity in the issue's seat
+  // summary (POD-5423): one number, never a walk of the seat history.
+  if (input.seatSummary !== undefined) {
+    const activity = seatIds.length === 0 ? null : input.seatSummary(id).activity
+    return activity !== null && activity > readMs
+  }
   for (const sessionId of seatIds) {
     const session = input.session(sessionId)
     if (session.retention === null || session.retention.shell) continue
@@ -1183,7 +1263,7 @@ export function directVisibility(
       return attention().aggregate
     },
     get seatActivity() {
-      return attention().seatActivity
+      return once('seatActivity', () => seatActivityPartOf(rollupInputs, id, parts))
     },
     get unitOwn() {
       return progress().unitOwn
@@ -1265,21 +1345,77 @@ function filingOf(issue: HeldIssue): Filing | undefined {
 }
 
 /**
- * The visible collection: one filing reaction per tracked issue, the visible
- * order it maintains, and (through the host) the groups' lanes.
+ * The visible collection: one filing reaction per tracked issue WHILE THE
+ * LIST IS ON SCREEN, the visible order it maintains, and (through the host)
+ * the groups' lanes.
+ *
+ * POD-5423 (review finding 8): the work follows the screen, not memory. An
+ * issue in memory is a CANDIDATE (`track`, plain bookkeeping); its filing
+ * reaction exists only while the lanes are wanted: held by a screen that
+ * draws them (`retain`, taken when the screen attaches, so its first paint
+ * finds them filed), or observed by any reader of a lane (`need`, the
+ * fallback: the reactions then start when that read's batch ends). With
+ * neither, no candidate holds a reaction, so no visibility graph (facts,
+ * members, presence, nesting, rank) is kept alive for a header-only,
+ * settings-only or detached pool. When the last hold and the last reader go,
+ * every reaction stops and every row leaves the lanes, which nobody reads.
  */
 export class VisibleCollection {
   /** The visible ids in rank order, one row moved per filing. */
-  private readonly visible = new SortedLanes<string, RowRank>(compareRank, 'pool.visible')
-  /** Each tracked issue's filing reaction, by id (maintenance only, never read by a derivation). */
-  private readonly stops = new Map<string, () => void>()
+  private readonly visible = new SortedLanes<string, RowRank>(compareRank, 'pool.visible', () => this.need())
+  /**
+   * Every issue in memory that may file a row, with its filing reaction's
+   * stop while the list is live, else null (maintenance only, never read by a
+   * derivation).
+   */
+  private readonly stops = new Map<string, (() => void) | null>()
+  /** Holds taken by screens that draw the list (`retain`). */
+  private holds = 0
+  /** Whether some derivation reads a lane (the demand atom is observed). */
+  private observed = false
+  /** Whether the candidates' reactions run. */
+  private live = false
+  /** Reported by every lane read: observed means a list is drawn. */
+  private readonly demand = createAtom(
+    'pool.worklist.demand',
+    () => {
+      this.observed = true
+      this.activate()
+    },
+    () => {
+      this.observed = false
+      this.settleIdle()
+    },
+  )
 
   constructor(private readonly host: VisibleHost) {
-    makeObservable<VisibleCollection, 'visible' | 'stops' | 'host' | 'file'>(this, {
+    makeObservable<
+      VisibleCollection,
+      | 'visible'
+      | 'stops'
+      | 'holds'
+      | 'observed'
+      | 'live'
+      | 'demand'
+      | 'host'
+      | 'file'
+      | 'start'
+      | 'activate'
+      | 'settleIdle'
+    >(this, {
       visible: false,
       stops: false,
+      holds: false,
+      observed: false,
+      live: false,
+      demand: false,
       host: false,
       file: false,
+      start: false,
+      activate: false,
+      settleIdle: false,
+      need: false,
+      retain: false,
       track: false,
       untrack: false,
       tracks: false,
@@ -1287,63 +1423,121 @@ export class VisibleCollection {
     })
   }
 
+  /** TRACKED: report a read of the filed lanes (every lane read calls this). */
+  need(): void {
+    this.demand.reportObserved()
+  }
+
   /**
-   * Take issue `id`'s filing reaction (call inside an action; a tracked
-   * issue is left as it is). It runs when the action ends and files the row
-   * wherever it belongs; afterwards it re-files the row when its filing
-   * changes, and only then.
+   * Hold the lanes filed until the returned release runs (a screen that
+   * draws the list, from its attachment). Outside any derivation: the
+   * reactions start and file every candidate before this returns.
+   */
+  retain(): () => void {
+    this.holds += 1
+    runInAction(() => this.activate())
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.holds -= 1
+      this.settleIdle()
+    }
+  }
+
+  /**
+   * Issue `id` may file a row (call inside an action; a candidate is left as
+   * it is). While the list is live its reaction runs when the action ends
+   * and files the row wherever it belongs; afterwards it re-files the row
+   * when its filing changes, and only then.
    */
   track(id: string): void {
     if (this.stops.has(id)) return
-    const issue = this.host.issue(id)
-    this.stops.set(
-      id,
-      reaction(
-        () => {
-          const filing = filingOf(issue)
-          if (this.host.fileSidebarOwner === undefined) return { filing }
-          const represented = issue.placed
-          const lane = represented ? issue.laneMemberIds : NONE
-          const retained = lane.length ? new Set(issue.retainedSeatIds) : undefined
-          const standing = issue.standing
-          return { filing, owner: { represented, excluded: standing?.excluded === true,
-            finishAt: standing?.finished ? standing.finishedMs : undefined,
-            unownedIds: retained === undefined ? NONE : lane.filter(seat => retained.has(seat)) } }
-        },
-        ({ filing, owner }) => {
-          this.file(id, filing)
-          this.host.fileSidebarOwner?.(id, owner)
-        },
-        { fireImmediately: true, equals: compareStructural, name: debugName(() => `pool.file.${id}`) },
-      ),
-    )
+    this.stops.set(id, this.live ? this.start(id) : null)
   }
 
-  /** Release issue `id`'s reaction and take its row out of every list (inside an action). */
+  /** Issue `id` files nothing any more: release its reaction and take its row out of every list (inside an action). */
   untrack(id: string): void {
     const stop = this.stops.get(id)
     if (stop === undefined) return
-    stop()
     this.stops.delete(id)
+    if (stop === null) return
+    stop()
     this.file(id, undefined)
     this.host.fileSidebarOwner?.(id, undefined)
   }
 
-  /** Move row `id` to where `filing` puts it (inside an action). */
-  private file(id: string, filing: Filing | undefined): void {
-    this.visible.file(id, filing === undefined ? undefined : VISIBLE, filing?.rank)
-    this.host.fileGroups(id, filing)
-  }
-
-  /** Whether issue `id` holds a filing reaction (maintenance: plain). */
+  /** Whether issue `id` is a filing candidate (maintenance: plain). */
   tracks(id: string): boolean {
     return this.stops.has(id)
   }
 
   /** Stop every reaction and empty the order (the pool's dispose; call inside an action). */
   clear(): void {
-    for (const stop of this.stops.values()) stop()
+    for (const stop of this.stops.values()) stop?.()
     this.stops.clear()
+    this.live = false
     this.visible.clear()
+  }
+
+  /** Start every candidate's reaction (they first run when the current batch ends). */
+  private activate(): void {
+    if (this.live) return
+    this.live = true
+    for (const id of this.stops.keys()) this.stops.set(id, this.start(id))
+  }
+
+  /** With no hold and no reader left, stop every reaction and empty the lanes. */
+  private settleIdle(): void {
+    if (!this.live || this.holds > 0 || this.observed) return
+    this.live = false
+    runInAction(() => {
+      for (const [id, stop] of this.stops) {
+        if (stop === null) continue
+        stop()
+        this.stops.set(id, null)
+        this.file(id, undefined)
+        this.host.fileSidebarOwner?.(id, undefined)
+      }
+    })
+  }
+
+  /** Issue `id`'s filing reaction (a candidate, while the list is live); returns its stop. */
+  private start(id: string): () => void {
+    const issue = this.host.issue(id)
+    return reaction(
+      () => {
+        const filing = filingOf(issue)
+        if (this.host.fileSidebarOwner === undefined) return { filing }
+        const represented = issue.placed
+        const lane = represented ? issue.laneMemberIds : NONE
+        const retained = lane.length ? new Set(issue.retainedSeatIds) : undefined
+        const standing = issue.standing
+        return {
+          filing,
+          owner: {
+            represented,
+            excluded: standing?.excluded === true,
+            finishAt: standing?.finished ? standing.finishedMs : undefined,
+            unownedIds: retained === undefined ? NONE : lane.filter((seat) => retained.has(seat)),
+          },
+        }
+      },
+      ({ filing, owner }) => {
+        this.file(id, filing)
+        this.host.fileSidebarOwner?.(id, owner)
+      },
+      {
+        fireImmediately: true,
+        equals: compareStructural,
+        name: debugName(() => `pool.file.${id}`),
+      },
+    )
+  }
+
+  /** Move row `id` to where `filing` puts it (inside an action). */
+  private file(id: string, filing: Filing | undefined): void {
+    this.visible.file(id, filing === undefined ? undefined : VISIBLE, filing?.rank)
+    this.host.fileGroups(id, filing)
   }
 }
