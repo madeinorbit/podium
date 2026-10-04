@@ -1,6 +1,6 @@
 # WebKit chat typing — POD-5508
 
-Safari reproduces the reported multi-second stalls on `1aa0ec71f6`. Native WebKit sampling identifies repeated compositing-tree work as the largest named cost. Disabling permanent animations and replacing the working mark's external SVG mask both reduce it. The fixed-size animated raster candidate preserves the travelling wave without a translated 4500%-height layer. **Final acceptance is pending; the under-50 ms p95 target is not yet claimed.**
+Safari reproduces the reported multi-second stalls on `1aa0ec71f6`. Native WebKit sampling identifies repeated compositing-tree work as the largest named cost. Disabling permanent animations and replacing the working mark's external SVG mask both reduce it. Following the operator's static-mark direction, the product removes the animated mask and retains the still, fully lit cell. **Final acceptance is pending; the under-50 ms p95 target is not yet claimed.**
 
 ## Reproduction and data boundary
 
@@ -31,11 +31,11 @@ Each row contains 60 characters at 1×. Values are median / p95 / maximum in mil
 | --- | ---: | ---: | --- |
 | Original `1aa0ec71f6` | 285 / 2,416 / 35,325 | 142 / 30,368 | actions |
 | Original, all CSS animations/transitions stopped | 162 / 329 / 813 | 69 / 744 | actions |
-| Original, only mark animation stopped | 233 / 947 / 1,853 | recorded in raw JSON | actions |
+| Original, only mark animation stopped | 233 / 947 / 1,853 | 148 / 1,667 | actions |
 | Composer fixes `92b3b5fe35`, original SVG masks | 46 / 471 / 1,815 | 40 / 3,698 | actions |
 | Same composer, identical moving mask changed to PNG | 46 / 195 / 471 | 38 / 565 | actions |
 | Same composer, all CSS animations/transitions stopped | 20 / 61 / 288 | 9 / 472 | actions |
-| Same composer, bounded PNG cell, animated mask position | 28 / 78 / 794 | recorded in raw JSON | send-keys |
+| Same composer, bounded PNG cell, animated mask position | 28 / 78 / 794 | 43 / 508 | send-keys |
 | Same composer, static marks and stopped status spinner | 28 / 58 / 213 | 31 / 331 | send-keys |
 
 SVG → PNG alone cuts p95 **58.6%** with the same mask geometry, transform, DOM and keyboard method. Stopping all animation after the composer fixes cuts p95 **87.0%**. These changes overlap; savings must not be added. The composer fix accounts for separate React and textarea amplifiers, described in [POD-5506's report](POD-5506-chat-composer.md).
@@ -58,16 +58,18 @@ Removing composer shadows/filters did not establish an additional cause (static 
 | Idle / wait | 107 ms | 0.58% |
 
 1. **Animated external SVG mask invalidation.** `LegacyRenderSVGModelObject::styleDidChange` and SVG resource invalidation run inside repeated rendering updates. The exact replacement of the external SVG with a raster PNG cuts the Safari tail while preserving animation. This is a WebKit-specific amplification of a shared CSS design.
-2. **Compositing traversal from the tall transformed frame layers.** `RenderLayerCompositor::computeCompositingRequirements` accounts for 5,512 inclusive sampled ms; `traverseUnchangedSubtree` 2,773 ms and `updateCompositingLayers` 7,437 ms. The hierarchy is revisited while 23 masked layers, each 45 cells tall with `will-change: transform`, move every frame. Stopping the animation reduces the tail substantially; the bounded animated-image candidate removes this CSS transform path while retaining the visual wave.
+2. **Compositing traversal from the tall transformed frame layers.** `RenderLayerCompositor::computeCompositingRequirements` accounts for 5,512 inclusive sampled ms; `traverseUnchangedSubtree` 2,773 ms and `updateCompositingLayers` 7,437 ms. The hierarchy is revisited while 23 masked layers, each 45 cells tall with `will-change: transform`, move every frame. Stopping the animation reduces the tail substantially. Removing the animated mask and shell status-strip transform removes this permanent update source entirely.
 3. **Layout and paint over the surrounding tree.** `Page::layoutIfNeeded`, `LocalFrameViewLayoutContext::updateCompositingLayersAfterStyleChange`, style tree resolution and paint participate in the same render cycles. They are secondary measured costs, not proof that a particular shadow, backdrop filter or flex ancestor should be removed. The transcript remains 200 rows throughout the animation ablations.
 
 Inclusive function weights overlap and must not be summed. Identified-script attribution is a lower bound because some JIT frames are unsymbolized. The startup-only trace and all-process tracing experiment are excluded from the typing attribution. An additional sampled WebContent stack dump agrees with the compositing/overlap-map path but is supporting evidence, not a timeline duration.
 
-## Product candidate and regression
+## Product change and regression
 
-The generator retains the existing eight-dot geometry, density variants, opacity/scale wave, 45 samples and 1.5-second cycle. It rasterizes the existing SVG geometry and encodes APNG frames into a **66 × 100**, full-cell alpha mask. PNG frame controls use source blending so transparent pixels replace the prior frame instead of accumulating alpha. CSS keeps the colour token and static underlying dots but removes the 4500% height, permanent transform animation and `will-change` allocation. Reduced motion keeps the existing still, fully lit SVG cell.
+`WorkingMark` keeps the eight-dot SVG geometry, size-dependent radii, colour token, decorative accessibility role and phase gating. Its dots are fully lit and still at every motion preference. The additional frame span, mask CSS, transform animation, `will-change` allocation, generator and unused strip assets are removed. The shell's braille status indicator also uses one still cell. Labels and the existing once-per-second timer continue to communicate the working state.
 
-The three masks together add about 100 KB of compressed assets. No frame timer, component render loop or new dependency is introduced. Native Safari element screenshots taken 350 ms apart show different wave states. The focused asset regression decodes all 45 frames and checks fixed bounds, alpha margins, distinct wave frames, source blending, infinite looping and the total 1.5-second duration. Existing motion tests retain the decorative/accessibility and density guarantees.
+The motion regression checks that the mark has eight circles and no animated mask, SVG animation or image layer; its existing cases retain decorative/accessibility, density and phase guarantees. Native acceptance additionally records the page's animation count. No frame timer, component render loop, new dependency or raster asset is introduced by the final change.
+
+The fixed-size **66 × 100 APNG** prototype retained the 45-frame, 1.5-second travelling wave and eliminated the oversized CSS transform layer. Native Safari element screenshots taken 350 ms apart prove that animated image masks advance. It was not selected for shipping after the operator requested static marks; its timing during runner overload is excluded. Its generated assets and screenshots remain in the raw evidence rather than product imports.
 
 ## Acceptance and runner exclusions
 
@@ -75,4 +77,6 @@ Final 1× repeats, 4× measurements, matched Chrome comparison, focused flatbloc
 
 At 16:43 UTC the shared runner reported load averages 294.77 / 228.72 / 123.55 during a concurrent simulator first-boot migration. The fixed-size APNG exploratory arm recorded 35 / 108 / 162 ms in that period, with foreground/focus verified; it is **excluded** from target acceptance. A newer composer capture made after Chrome gained focus is also excluded from drift attribution because its timer samples show background throttling. The urgent iPhone investigation received the runner lease; both this issue's browsers were parked at `about:blank` and its trace recorder was stopped.
 
-Only recorded, verified owned process IDs are stopped. Operator server and daemon processes, existing simulator state, system installations and live data are outside the fixture. Tests, scoped typecheck and lint run foreground only in `flatblock:~/podium-test-5508` with its copied `.toolchain`. Landing is restricted to `integrate/4286-pilot` under its merge mutex.
+Only recorded, verified owned process IDs are stopped. After the coordinator requested full runner cleanup, the Safari/WebContent/GPU/networking cohort, safaridriver, previews, evidence server, Chrome and its helpers were stopped; no simulator was booted by this issue. A follow-up owned-process scan recorded the remaining Chrome PIDs before terminating them. The runner's current load was 5.25 at 17:00 UTC. Stalled local SSH connections were stopped only after their commands, worktree paths and parent chains were recorded and verified. Operator server and daemon processes, existing simulator state, system installations and live data are outside the fixture.
+
+Tests, scoped typecheck and lint run foreground only in `flatblock:~/podium-test-5508` with its copied `.toolchain`. Landing is restricted to `integrate/4286-pilot` under its merge mutex.

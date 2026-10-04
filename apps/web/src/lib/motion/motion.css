@@ -1,6 +1,6 @@
 /* Motion grammar (redesign handoff option 1d, .design/specs/motion.md).
-   The working mark + the calm-blue counting timer are the ONLY permanent
-   motion, running only while an agent computes; every phase change is a single
+   The working mark stays still; the calm-blue counting timer updates only
+   while an agent computes. Every phase change is a single
    one-shot morph, then total stillness — stillness means "needs you". No
    pulses, no glows, no breathing rings. Keyframe values are verbatim from the
    handoff. */
