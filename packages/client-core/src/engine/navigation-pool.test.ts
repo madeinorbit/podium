@@ -215,30 +215,44 @@ describe('addressed worktree reactions', () => {
     { ...seat, sessionId: asSessionId('subdir'), name: 'Subdirectory' },
   ]
   const make = (sessions: SessionView[], navigation?: NavigationProvider) => ({
-    ...state(navigation), sessions, pendingSpawnIds: new Set<ReturnType<typeof asSessionId>>(),
-    reposLoaded: true, view: 'workspace' as const,
+    ...state(navigation),
+    sessions,
+    pendingSpawnIds: new Set<ReturnType<typeof asSessionId>>(),
+    reposLoaded: true,
+    view: 'workspace' as const,
     repos: [{ path: '/repo', kind: 'repository' as const, worktrees: [{ path: '/dest' }] }],
   })
-  const owner = (st: EngineState, info = vi.fn()) => new Reactions({
-    state: () => st, publish: (patch) => Object.assign(st, patch), hub: {} as never,
-    notices: { info } as never, isVisible: () => true,
-    markSessionRead: vi.fn(), markIssueRead: vi.fn(),
-  })
-  const forbidSessions = (st: EngineState) => Object.defineProperty(st, 'sessions', {
-    get() { throw new Error('Legacy worktree list read') },
-  })
+  const owner = (st: EngineState, info = vi.fn()) =>
+    new Reactions({
+      state: () => st,
+      publish: (patch) => Object.assign(st, patch),
+      hub: {} as never,
+      notices: { info } as never,
+      isVisible: () => true,
+      markSessionRead: vi.fn(),
+      markIssueRead: vi.fn(),
+    })
+  const forbidSessions = (st: EngineState) =>
+    Object.defineProperty(st, 'sessions', {
+      get() {
+        throw new Error('Legacy worktree list read')
+      },
+    })
 
   it('keeps third-pane following and background notices equal using only pool summaries', () => {
     const moved = rows.map((row, at) => ({ ...row, cwd: at === 2 ? '/repo/nested' : '/dest' }))
-    const legacy = make(moved), addressed = make(moved, { ...provider, worktreeSessions: () => moved })
+    const legacy = make(moved),
+      addressed = make(moved, { ...provider, worktreeSessions: () => moved })
     let ws = openTab(emptyWorkspace(workspaceKeyForState(legacy)), 'first', { permanent: true })
     ws = splitPane(ws, ws.focusedPaneId, 'row')
     ws = openTab(ws, 'second', { permanent: true })
     ws = splitPane(ws, ws.focusedPaneId, 'row')
     ws = openTab(ws, seat.sessionId, { permanent: true })
     legacy.workspaces = addressed.workspaces = { [ws.key]: ws }
-    const eagerNotices = vi.fn(), poolNotices = vi.fn()
-    const eager = owner(legacy, eagerNotices), pool = owner(addressed, poolNotices)
+    const eagerNotices = vi.fn(),
+      poolNotices = vi.fn()
+    const eager = owner(legacy, eagerNotices),
+      pool = owner(addressed, poolNotices)
     eager.seedCwds(rows)
     pool.seedCwds(rows)
     forbidSessions(addressed)
@@ -249,28 +263,41 @@ describe('addressed worktree reactions', () => {
       expect(addressed.selectedWorktree).toBe('/dest')
       expect(poolNotices.mock.calls).toEqual(eagerNotices.mock.calls)
       expect(poolNotices).toHaveBeenCalledExactlyOnceWith('Background moved worktree', '/dest')
-    } finally { eager.dispose(); pool.dispose() }
+    } finally {
+      eager.dispose()
+      pool.dispose()
+    }
   })
 
   it('preserves fallback containment, registered worktrees and absent selections without legacy reads', () => {
     for (const selectedWorktree of ['/repo', '/dest', '/unlisted', '/gone']) {
       const anchored = [{ ...seat, cwd: '/unlisted/nested' }]
       const legacy = { ...make(anchored), selectedWorktree }
-      const addressed = { ...make(anchored, { ...provider, worktreeSessions: () => anchored }), selectedWorktree }
-      const eager = owner(legacy), pool = owner(addressed)
+      const addressed = {
+        ...make(anchored, { ...provider, worktreeSessions: () => anchored }),
+        selectedWorktree,
+      }
+      const eager = owner(legacy),
+        pool = owner(addressed)
       forbidSessions(addressed)
       try {
         expect(eager.worktreeFallback()).toBe(true)
         expect(pool.worktreeFallback()).toBe(true)
         expect(addressed.selectedWorktree).toBe(legacy.selectedWorktree)
-      } finally { eager.dispose(); pool.dispose() }
+      } finally {
+        eager.dispose()
+        pool.dispose()
+      }
     }
   })
 
   it('waits for cold summaries without losing a move or falling back while loading', () => {
     let ready = false
     const moved = [{ ...seat, cwd: '/dest', name: 'Foreground' }]
-    const st = make(moved, { ...provider, worktreeSessions: () => ready ? moved : NAVIGATION_LOADING })
+    const st = make(moved, {
+      ...provider,
+      worktreeSessions: () => (ready ? moved : NAVIGATION_LOADING),
+    })
     st.paneA = seat.sessionId
     const pool = owner(st)
     pool.seedCwds(rows)
@@ -285,7 +312,9 @@ describe('addressed worktree reactions', () => {
       ready = true
       expect(pool.worktreeFollow()).toBe(true)
       expect(st.selectedWorktree).toBe('/dest')
-    } finally { pool.dispose() }
+    } finally {
+      pool.dispose()
+    }
   })
 })
 

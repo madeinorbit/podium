@@ -169,12 +169,25 @@ it.each([
     runtime!.getSnapshot().setSelectedWorktree('/synthetic/project/guests')
   })
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
-  await check('worktree fallback', () => runtime!.getSnapshot().setSelectedWorktree('/synthetic/missing'))
+  await check('worktree fallback', () =>
+    runtime!.getSnapshot().setSelectedWorktree('/synthetic/missing'),
+  )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
-  await check('session cwd move', () => data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }))
-  await check('session rehome', () => data.patch('session', 'synthetic-session-2', { issueId: 'synthetic-1' }))
-  const record = { ...data.records.get(`session:${sid}`)!, entityId: 'synthetic-added',
-    value: { ...(data.records.get(`session:${sid}`)!.value as object), sessionId: 'synthetic-added', issueId: undefined } }
+  await check('session cwd move', () =>
+    data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),
+  )
+  await check('session rehome', () =>
+    data.patch('session', 'synthetic-session-2', { issueId: 'synthetic-1' }),
+  )
+  const record = {
+    ...data.records.get(`session:${sid}`)!,
+    entityId: 'synthetic-added',
+    value: {
+      ...(data.records.get(`session:${sid}`)!.value as object),
+      sessionId: 'synthetic-added',
+      issueId: undefined,
+    },
+  }
   await check('session arrival', () => {
     data.records.set('session:synthetic-added', record)
     data.replica.onKernelEvent({ type: 'upserted', record, readmitted: false })

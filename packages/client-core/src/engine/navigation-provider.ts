@@ -6,7 +6,10 @@ import type { SessionView } from '../session-values'
 export const NAVIGATION_LOADING = Symbol('navigation loading')
 export type NavigationRead<T> = T | undefined | typeof NAVIGATION_LOADING
 export type NavigationWorktreeSession = Pick<SessionView, 'sessionId' | 'cwd' | 'name' | 'title'>
-export type NavigationIssue = Pick<IssueProjection, 'id' | 'updatedAt' | 'archived' | 'deletedAt' | 'worktreePath'>
+export type NavigationIssue = Pick<
+  IssueProjection,
+  'id' | 'updatedAt' | 'archived' | 'deletedAt' | 'worktreePath'
+>
 
 /** Supplied by each client's pool composition root. The engine knows no graph,
  * replica, index, or second mutation owner. */
@@ -42,10 +45,18 @@ const emptyCounts = () => ({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
 let enabled = false
 let counts = emptyCounts()
 export const navigationStats = {
-  enable() { enabled = true },
-  disable() { enabled = false },
-  reset() { counts = emptyCounts() },
-  read() { return { ...counts } },
+  enable() {
+    enabled = true
+  },
+  disable() {
+    enabled = false
+  },
+  reset() {
+    counts = emptyCounts()
+  },
+  read() {
+    return { ...counts }
+  },
 }
 export function countLegacyNavigation(key: keyof typeof counts): void {
   if (enabled) counts[key]++

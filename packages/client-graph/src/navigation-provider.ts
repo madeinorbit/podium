@@ -67,10 +67,12 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     },
     worktreeSessions() {
       const rows = []
-      const ids = pool.queries.ids({ kind: 'shellSessions' })
+      const ids = pool.queries
+        .ids({ kind: 'shellSessions' })
         .filter((id) => !pool.queries.collapsed(id))
         .sort((a, b) => {
-          const left = pool.queries.orderKey(a), right = pool.queries.orderKey(b)
+          const left = pool.queries.orderKey(a),
+            right = pool.queries.orderKey(b)
           return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
         })
       for (const id of ids) {

@@ -106,25 +106,46 @@ it.each([
     ),
   )
   await check('parked session', () => data.patch('session', sid, { status: 'hibernated' }))
-  await check('worktree selection', () => runtime!.getSnapshot().setSelectedWorktree('/synthetic/project/guests'))
+  await check('worktree selection', () =>
+    runtime!.getSnapshot().setSelectedWorktree('/synthetic/project/guests'),
+  )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
-  await check('worktree fallback', () => runtime!.getSnapshot().setSelectedWorktree('/synthetic/missing'))
+  await check('worktree fallback', () =>
+    runtime!.getSnapshot().setSelectedWorktree('/synthetic/missing'),
+  )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
-  await check('session switch', () => runtime!.getSnapshot().navigateToSession('synthetic-session-2'))
-  await check('session cwd move', () => data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }))
-  await check('session rehome', () => data.patch('session', 'synthetic-session-2', { issueId: 'synthetic-1' }))
-  const record = { ...data.records.get(`session:${sid}`)!, entityId: 'synthetic-added',
-    value: { ...(data.records.get(`session:${sid}`)!.value as object), sessionId: 'synthetic-added', issueId: undefined } }
+  await check('session switch', () =>
+    runtime!.getSnapshot().navigateToSession('synthetic-session-2'),
+  )
+  await check('session cwd move', () =>
+    data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),
+  )
+  await check('session rehome', () =>
+    data.patch('session', 'synthetic-session-2', { issueId: 'synthetic-1' }),
+  )
+  const record = {
+    ...data.records.get(`session:${sid}`)!,
+    entityId: 'synthetic-added',
+    value: {
+      ...(data.records.get(`session:${sid}`)!.value as object),
+      sessionId: 'synthetic-added',
+      issueId: undefined,
+    },
+  }
   await check('session arrival', () => {
     data.records.set('session:synthetic-added', record)
     data.replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
   })
-  expect(view.getByTestId('phone').textContent).toBe(`Phone pool name|Phone draft|${12 * scale + 3}`)
+  expect(view.getByTestId('phone').textContent).toBe(
+    `Phone pool name|Phone draft|${12 * scale + 3}`,
+  )
   await check('session removal', () => {
     data.records.delete('session:synthetic-added')
     data.replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 'synthetic-added' })
   })
-  expect(view.getByTestId('phone').textContent).toBe(`Phone pool name|Phone draft|${12 * scale + 2}`)
+  expect(view.getByTestId('phone').textContent).toBe(
+    `Phone pool name|Phone draft|${12 * scale + 2}`,
+  )
   expect(failures).toEqual([])
 
   const before = runtime!.legacyFoldStats

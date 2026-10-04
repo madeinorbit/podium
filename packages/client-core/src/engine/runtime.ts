@@ -1337,7 +1337,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   setNavigationProvider(provider: NavigationProvider): void {
     if (this.destroyed) return
     this.apply({ navigation: provider })
-    if (this.pendingNavigationTopology || this.pendingWorktreeFallback) this.queueNavigationWake(provider)
+    if (this.pendingNavigationTopology || this.pendingWorktreeFallback)
+      this.queueNavigationWake(provider)
     if (this.pendingSessionNavigation) this.statics.navigateToSession(this.pendingSessionNavigation)
     if (this.pendingNavigation) this.navigate(this.pendingNavigation)
   }
@@ -1368,7 +1369,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       const issue = foregroundIssue(st)
       const pending = this.pendingNavigation
       return [
-        this.pendingNavigationTopology || this.pendingWorktreeFallback ? provider.worktreeSessions?.() : undefined,
+        this.pendingNavigationTopology || this.pendingWorktreeFallback
+          ? provider.worktreeSessions?.()
+          : undefined,
         resolvedWorkspaceKey(st), issue ? [issue.id, issue.updatedAt,
           provider.activityAt(issue.id), provider.issueReadAt(issue.id)] : undefined,
         // Watch only the pool fields these navigation reactions consume.
@@ -1394,12 +1397,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.navigationWakeQueued = false
       if (this.destroyed || this.state.navigation !== provider) return
       this.batch(() => {
-        if (this.pendingNavigationTopology && this.reactions.worktreeFollow() && this.reactions.worktreeFallback() && this.reactions.sessionIssueFollow()) {
+        if (
+          this.pendingNavigationTopology &&
+          this.reactions.worktreeFollow() &&
+          this.reactions.worktreeFallback() &&
+          this.reactions.sessionIssueFollow()
+        ) {
           this.pendingNavigationTopology = false
           this.pendingWorktreeFallback = false
           this.reactions.pruneWorkspaces()
         }
-        if (!this.pendingNavigationTopology && this.pendingWorktreeFallback && this.reactions.worktreeFallback())
+        if (
+          !this.pendingNavigationTopology &&
+          this.pendingWorktreeFallback &&
+          this.reactions.worktreeFallback()
+        )
           this.pendingWorktreeFallback = false
         if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
         if (this.pendingSessionNavigation) this.statics.navigateToSession(this.pendingSessionNavigation)
@@ -1532,7 +1544,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (changed.has('sessions') && this.paneLink)
       this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
     // Worktree fallback selection.
-    if ((sessionTopology || any('repos', 'reposLoaded', 'selectedWorktree')) && !this.pendingNavigationTopology) {
+    if (
+      (sessionTopology || any('repos', 'reposLoaded', 'selectedWorktree')) &&
+      !this.pendingNavigationTopology
+    ) {
       if (!this.reactions.worktreeFallback() && this.state.navigation) {
         this.pendingWorktreeFallback = true
         this.queueNavigationWake(this.state.navigation)

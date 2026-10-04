@@ -314,7 +314,9 @@ export class Reactions {
    *  where it now lives in the sidebar. */
   worktreeFollow(): boolean {
     const st = this.ports.state()
-    const sessions = st.navigation?.worktreeSessions ? st.navigation.worktreeSessions() : st.sessions
+    const sessions = st.navigation?.worktreeSessions
+      ? st.navigation.worktreeSessions()
+      : st.sessions
     if (sessions === NAVIGATION_LOADING) return false
     const rows = sessions ?? []
     const prevCwds = this.prevCwds
@@ -358,7 +360,9 @@ export class Reactions {
     }
     const known = worktrees.some((w) => w.path === st.selectedWorktree)
     if (known || st.selectedWorktree === this.ports.linkedWorktree?.()) return true
-    const sessions = st.navigation?.worktreeSessions ? st.navigation.worktreeSessions() : st.sessions
+    const sessions = st.navigation?.worktreeSessions
+      ? st.navigation.worktreeSessions()
+      : st.sessions
     if (sessions === NAVIGATION_LOADING) return false
     const hasSession = (sessions ?? []).some(
       (s) => s.cwd === st.selectedWorktree || s.cwd.startsWith(`${st.selectedWorktree}/`),
