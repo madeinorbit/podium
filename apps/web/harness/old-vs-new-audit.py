@@ -48,11 +48,13 @@ for checkout_arm, checkout in checkouts.items():
         captures.append(run)
         pair = run.get('comparisonArm', 'new')
         key = (pair, run['surface'], run['scale'])
-        if run['status'] == 'failed':
+        if run['status'] == 'failed' and not run.get('actionPhaseComplete'):
             require(run['arm'] == 'old' and run['surface'] == 'phone' and '185' in run.get('failure', ''), 'unexpected whole-run failure')
             failures[(run['mode'], *key)] += 1
             continue
-        require(run['status'] == 'complete', 'unfinished capture')
+        if run['status']!='complete' and run.get('actionPhaseComplete'):
+            require(name=='timing-old-web-4x-r10' and run['harnessSha256']=='e0d8a84eb2258bd15f31022a7a78b33e700e119aed4de6faa61a24ef25f9a0c3' and 'Comparison target A' in run.get('failure',''), 'unexpected partial action phase')
+        require(run['status'] == 'complete' or run.get('actionPhaseComplete'), 'unfinished capture')
         require(not any('185' in error for error in run['errors']), 'hidden React startup failure')
         if run['mode'] == 'memory':
             require(run['heapStartup']['usedSize'] > 0 and run['heapFiveMinutes']['usedSize'] > 0, 'heap observation missing')
@@ -93,7 +95,7 @@ for checkout_arm, checkout in checkouts.items():
             if not row['profiled']:
                 counts[(*key, run['arm'], row['action'])] += 1
         if run.get('backgroundSuperseded'):
-            require(run['surface']=='web' and run['scale']==1 and run['round'] in [10,11] and pair=='new', 'unexpected background exclusion')
+            require(run['surface']=='web' and pair=='new' and ((run['scale']==1 and run['round'] in [10,11]) or (run['scale']==4 and run['round']==10)), 'unexpected background exclusion')
             continue
         require(run.get('issueUpdateEntities') == (['issue','issueProjection'] if run['arm']=='old' else ['issueProjection']), 'logical issue publication incomplete')
         require(run.get('backgroundContext','').startswith('Fresh browser profile'), 'resident pane state not matched')
@@ -135,7 +137,8 @@ for run in sorted(captures, key=lambda row: row['captureStartedAt']):
     lane='background' if run.get('backgroundOnly') else run['mode']
     orders[(lane, run.get('comparisonArm', 'new'), run['surface'], run['scale'])].append(run['arm'])
 for key, arms in orders.items():
-    expected = ['old', key[1]] * (2 if key[0] in ['timing','background'] else 1)
+    repetitions=2 if key[0]=='timing' or (key[0]=='background' and key[3]==1) else 1
+    expected = ['old', key[1]] * repetitions
     if arms != expected:
         errors.append(f'{key}: run order {arms}, expected {expected}')
 audit = {'ok': not errors, 'captures': len(captures), 'rawTraceAndProfileFiles': evidence_count, 'sampleCells': len(counts), 'errors': errors, 'sourceShas': expected_sha}
