@@ -1,54 +1,14 @@
 import { PoolSpawns, type PoolSpawnPorts } from './spawns'
-/**
- * POD-5431 — `PoolTransactions`: the pool owns optimism, Linear's shape
- * (`docs/plans/pod-4286-optimism-and-refusals.md` §4, migration step 4).
- * Built by `createRuntimeWorklistPool(runtime, { owns })`; the pool host owns
- * `POOL_OWNED_KINDS` by default (POD-5432, steps 5 and 6), and the runtime's
- * queued actions reach `write` through `attachPoolWriter`.
+/** PoolTransactions owns client optimism and spawn placeholders over one outbox.
+ * A press reduces and paints inside one MobX action before the durable enqueue.
+ * Refusal rebases from truth and the remaining commands; no previous visible
+ * row is saved. The log adopts other tabs' queue edits and restores queued and
+ * awaiting writes on boot, including offline hydration.
  *
- * A CHANGE (`pool.mutate(kind, input)`, and the model setters through it) runs
- * ONE MobX action: the command's pure reducer (`overlaysForOutboxEntry`, shared
- * with the ledger through `@podium/client-core/command-reducers`) turns the
- * input into row changes, the transaction joins the log, and every touched
- * model's visible row is re-read and written into the pool's table. Then the
- * outbox's single enqueue path takes it, as for every other write. Paint runs
- * ahead of the durable commit, as in the ledger; a failed commit takes the
- * transaction out and the touched models rebase.
- *
- * ONE QUEUE. The outbox is the only queue and the only durable record. This
- * log is an index over it: by outbox mutation id, and by the row each change
- * lands on. It ADOPTS every outbox record it did not author (legacy screens,
- * a recovery-surface edit, another tab through the outbox's own rebase), and it
- * is rebuilt from the outbox when the pool is built (queued, then awaiting
- * truth), so a reload repaints from durable records.
- *
- * REBASE is the one rollback: a model's visible row is its server row with its
- * remaining transactions folded over it in queue order (`foldRowOverlays`).
- * The row source does the reading (`pooled` mode reads this log where
- * `overlaid` reads the ledger), so arriving truth rebases through the ordinary
- * feed, and a refusal, expiry, supersede or edit rebases through `repaint`, in
- * the action that changed the log. No prior value is stored anywhere.
- *
- * SETTLEMENT follows the ledger, which is the reference because it ships
- * (§4.4). An applied transaction waits for covering truth under the ledger's
- * rules, ported here verbatim: covered by value or stamp (`coveredBy`), a
- * patched cell moving past the enqueue baseline (oldest per row only, never
- * for a chained entry), the row leaving the slice, or `AWAITING_TRUTH_TTL_MS`.
- * Spawn placeholders are adopted from the runtime, which still runs the create
- * (pool-authored spawns are step 6), and retire when their server row lands.
- *
- * KNOWN DIFFERENCES FROM THE LEDGER, each bounded and listed so the
- * differential test can name them:
- * - Retirement of an awaiting change runs on each kernel batch and outbox
- *   change rather than on each legacy recompute. Only a time predicate can tell
- *   the two apart (the TTL; `issueUndefer`'s deferral clock).
- * - A restored awaiting change takes its TTL clock from when this log was
- *   built, not when the runtime was (the kernel keeps no resolution time).
- * - A personal session row hidden as a resume twin is painted here: the pool
- *   applies that collapse itself, so the row never shows.
- * - This log releases no durable awaiting hold while the ledger lives: the
- *   ledger retires the same records by the same rules, and a second release is
- *   a second durable write. `retire` is for the owned kinds of step 5.
+ * Applied writes hold their durable entry until covering truth, a competing
+ * patched-cell change, deletion, or TTL. Eviction and rescope preserve pending
+ * work for readmission. Each log belongs to one principal and releases its
+ * timers, spawn waiters and row indexes on disposal.
  */
 
 import type {
@@ -133,13 +93,13 @@ export interface PoolTransactionsPorts {
   ) => Promise<void>
   /** Kernel batches by row: when truth lands, settlement runs. */
   readonly addressed: (listener: (batch: ReplicaAddressedBatch) => void) => () => void
-  /** Release an awaiting record's durable hold. Absent while the ledger does. */
+  /** Release an awaiting record's durable hold. Optional in isolated test logs. */
   readonly retire?: (mutationId: MutationId) => void
   readonly now?: () => number
   readonly schedule?: (run: () => void, ms: number) => () => void
   readonly mintId?: () => MutationId
   /** The shared command reducer. Only a test replaces it, to plant a wrong
-   *  one and prove the differential check against the ledger fails. */
+   *  one and prove the differential check against an independent log fails. */
   readonly reduce?: typeof overlaysForOutboxEntry
 }
 
@@ -215,7 +175,7 @@ const keyOfTruth: Record<OverlayTarget, (row: Record<string, unknown>) => string
 }
 
 export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransactions {
-  // Wall-clock liveness, as the ledger's TTL is: it fires a timer and stamps
+  // Wall-clock liveness, as the log's TTL is: it fires a timer and stamps
   // a press, and no derivation reads it.
   const now = ports.now ?? wallClockNow
   const schedule = ports.schedule ?? realSchedule
@@ -336,7 +296,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   }
 
   /** What an absent per-user row means while its entity is in the slice: the
-   *  null markers the server deletes the row for (the ledger's rule). */
+   *  null markers the server deletes the row for (the log's rule). */
   function absentRow(entity: OverlayTarget, id: string): object | undefined {
     if (entity === 'issueUserStates') {
       const known =
@@ -366,7 +326,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     return absent === undefined ? o : { ...o, absent }
   }
 
-  /** One row's changes in the ledger's fold order: spawn inserts, awaiting
+  /** One row's changes in the log's fold order: spawn inserts, awaiting
    *  truth, queued in queue order, then painted ahead of the queue. */
   function listFor(entity: OverlayTarget, id: string): PendingOverlay[] {
     const out: PendingOverlay[] = []
@@ -430,7 +390,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   // ---------------------------------------------------------------- settlement
 
   /** Retire awaiting changes whose truth covers them, moved past them, left,
-   *  or outlived the TTL (the ledger's `pruneAwaiting`, row by row); and spawn
+   *  or outlived the TTL (the log's `pruneAwaiting`, row by row); and spawn
    *  placeholders whose server row landed. Returns the rows that moved. */
   function settle(): Map<string, PoolRow> {
     const touched = new Map<string, PoolRow>()
@@ -665,7 +625,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
 
   // ---------------------------------------------------------------- boot
 
-  // Awaiting truth first, as the ledger restores it; then the queue.
+  // Awaiting truth first, in outbox queue order; then the queue.
   for (const entry of ports.outbox.awaiting()) {
     settled.add(entry.mutationId)
     for (const overlay of reduce(entry).filter(isPatch)) {

@@ -232,16 +232,8 @@ export function attachRuntimeWriter(
   return (runtime as TransactionsRuntime).attachPoolWriter(transactions)
 }
 
-/**
- * The pool over the app's runtime. Without `owns` a read-only attachment:
- * optimism and every write still belong to the runtime's ledger (`overlaid`
- * feed). With `owns` (POD-5432; the pool host's default) the pool owns the
- * optimism of those row kinds: its transaction log (POD-5431) paints them
- * (`pooled` feed), the ledger paints the rest, and every queued action of the
- * runtime routes through the log (`attachPoolWriter`), as `pool.mutate` and
- * the model setters do. The ledger keeps painting legacy screens from the
- * same outbox records.
- */
+/** The principal's pool owns all client optimism and routes queued runtime
+ * actions through its transaction log. The outbox is the single durable queue. */
 export function createRuntimeWorklistPool(
   runtime: WorklistRuntime,
   options: {
@@ -257,7 +249,7 @@ export function createRuntimeWorklistPool(
   let rows: ReturnType<typeof createRowSource>
   try {
     rows = createRowSource(runtime, runtime.replica,
-      transactions === null ? { mode: 'truth' } : { mode: 'pooled', pending: transactions.pending, owned })
+      transactions === null ? { mode: 'truth' } : { mode: 'pooled', pending: transactions.pending })
   } catch (error) {
     transactions?.dispose()
     throw error

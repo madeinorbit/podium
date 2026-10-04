@@ -546,7 +546,6 @@ describe.each([
     const rows = createRowSource(engine, engine.replica, {
       mode: 'pooled',
       pending: transactions.pending,
-      owned: new Set(['issue', 'session']),
     })
     const locals = createEngineLocals(engine)
     const planted: WorklistPoolHandle = createWorklistPool(rows.source, locals.source)
@@ -681,7 +680,6 @@ describe.each([
     const rows = createRowSource(engine, engine.replica, {
       mode: 'pooled',
       pending: transactions.pending,
-      owned: new Set(['issue', 'session']),
     })
     const locals = createEngineLocals(engine)
     const planted = createWorklistPool(rows.source, locals.source)

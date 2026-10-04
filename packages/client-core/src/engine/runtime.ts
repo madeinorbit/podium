@@ -1,6 +1,4 @@
-import { beginSidebarUpdate } from '../perf/sidebar-perf'
 import { bindStoreStatsOwner } from '../perf/store-stats'
-import type { ReplicaKind } from '../replica/contract'
 
 /**
  * THE CLIENT RUNTIME — the principal-scoped coordinator (POD-404).
@@ -11,10 +9,9 @@ import type { ReplicaKind } from '../replica/contract'
  * single state choke point they all write through.
  *
  *   TRANSPORT        socket-transport/  (POD-400) — socket, planes, PTY epoch/seq
- *   REPLICA-BINDING  replica-binding.ts (POD-401) — hydration + slice publication
  *   ACTIONS          actions.ts         (POD-402) — command dispatch + outbox
  *   ROUTER/UI-STATE  ui-state.ts        (POD-403) — the ONLY UI persistence
- *   OPTIMISM         optimism.ts        — the overlay ledger (#263)
+ *   POOL WRITER      client-graph/write  — optimism, spawns and outbox settlement
  *   REACTIONS        reactions.ts       — the old useEffect table
  *   BOOT             boot.ts            — the tRPC enrichments
  *   STATE            state.ts           — the shape + its pure derivations
@@ -60,19 +57,13 @@ import type {
   MutationId,
   ReadPositionWire,
   SessionId,
-  SessionMeta,
 } from '@podium/model'
 import {
-  asIssueId,
-  asSessionId,
   asUserId,
-  issueUserStateRowId,
-  sessionUserStateRowId,
 } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
-import { overlaysForOutboxEntry } from '../command-reducers'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
@@ -157,7 +148,7 @@ import {
  * round-three receipts stream, keyed by mutation id). Observation only: it
  * fires AFTER the runtime's own handling of the same event, a throwing
  * listener is logged and skipped, and nothing a listener does reaches the
- * queue or the optimism ledger.
+ * queue or the pool transaction log.
  *
  * - `applied`: the Authority applied the mutation (the drain's success). It
  *   says nothing about the echo: the wire row carries no mutation id.
@@ -181,9 +172,9 @@ export type OutboxOutcome =
 
 /**
  * The pool's transaction log as the runtime's actions reach it (POD-5432).
- * `write` paints the pool's rows in the caller's tick, then takes the ledger's
- * enqueue path; its promise is that enqueue's: it settles when the record is
- * durable and rejects when the commit fails, as an unrouted action does.
+ * `write` paints the pool's rows in the caller's tick, then enqueues once into
+ * the outbox. Its promise settles when the record is durable and rejects when
+ * that commit fails.
  */
 export interface PoolWriter {
   spawnDraftAgent?: Store['spawnDraftAgent']
@@ -407,7 +398,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   } | null = null
   private readonly paneLinkGraceMs: number
   private applyingHydratedUi = false
-  /** > 0 while {@link batch} is coalescing applies into one snapshot. */
+  /** > 0 while {@link batch} is coalescing local changes into one keyed publication. */
   private batchDepth = 0
   private pendingChanges = new Set<keyof EngineState>()
   /** Sessions whose draft this batch painted, for {@link onDraft}. */
@@ -624,14 +615,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  (POD-5432); null otherwise. */
   private poolWriter: PoolWriter | null = null
 
-  /**
-   * Route every queued action through the pool's transaction log (POD-5432,
-   * plan step 5): the log paints the pool's rows in the press's action, then
-   * enqueues through {@link write}, so the ledger still paints the
-   * legacy screens from the same record. One writer per runtime; the returned
-   * stop detaches it. Direct callers of `write` (the log itself, a
-   * harness) are not routed.
-   */
+  /** One writer per principal runtime. Queued actions paint through the pool
+   * transaction log before the outbox commit; the teardown detaches that owner. */
   readonly attachPoolWriter = (writer: PoolWriter): (() => void) => {
     if (this.poolWriter !== null) throw new Error('A pool writer is already attached to this runtime')
     this.poolWriter = writer
@@ -659,19 +644,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (cur !== this.prevRoute) this.onRouteChanged(cur)
     offs.push(this.replicatedLayout.subscribe(() => this.syncReplicatedUi()))
 
-    // THE COARSE CLOCK (POD-331). See EngineState.coarseNow: published slices
-    // that are functions of time as well as of rows need the clock to be part
-    // of the snapshot, or the publisher memoizes them against a clock that has
-    // moved and a snooze never lapses on a quiet system.
-    //
-    // It goes through apply() like every other state change, so it publishes
-    // exactly one fresh snapshot per tick and runs the reaction table — where
-    // no reaction is keyed on `coarseNow`, so a tick fires none of them.
+    // One coarse clock per runtime; the pool follows this keyed local.
     offs.push(this.coarseClock.subscribe((now) => this.apply({ coarseNow: now })))
 
-    // Outbox → snapshot; attach re-arms drain triggers after a dispose. Queue
-    // membership IS overlay membership (#263), so any enqueue/drop repaints
-    // the entity lists too (a no-op publish when nothing visible changed).
+    // The outbox publishes local recovery state; PoolTransactions owns paint.
     offs.push(
       this.outbox.subscribe((size) => {
         this.batch(() => {
@@ -690,7 +666,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }))
 
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
-    // (host metrics, machines, drafts) mirrors hub events into the snapshot.
+    // (host metrics, machines, drafts) follows hub events through keyed channels.
     offs.push(this.hub.on('hostMetrics', (m) => this.hostMetricsStore.publish(m)))
     offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
     // Apply the scoped machine snapshot immediately so a SEE revocation hides
@@ -1094,10 +1070,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
   }
 
-  /** One snapshot for one event. Explicit batches defer reactions until all
-   *  writes land; reaction applies stay inside that same publication boundary.
-   *  Internal reads see writes immediately, while getSnapshot stays stable.
-   *  Finally blocks restore the boundary even if a reaction throws. */
+  /** Explicit batches defer reactions until all writes land, then publish the
+   * changed local keys once. Finally restores the boundary if a reaction throws. */
   private batch(fn: () => void): void {
     if (this.destroyed) return
     this.batchDepth++
@@ -1498,7 +1472,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Kinds whose truth is a tRPC read rather than a replicated row: the drain
    *  outcome re-fetches instead of holding an overlay. Returns null for the
-   *  kinds the overlay ledger owns. */
+   *  kinds whose truth and optimism the pool owns. */
   private reconcileActionState(entry: OutboxEntry, outcome: 'applied' | 'dropped'): boolean | null {
     if (entry.kind === 'layoutSet' || entry.kind === 'layoutClear') {
       if (outcome === 'dropped') {
@@ -1706,8 +1680,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * `api.layout.get.query()` is the only truth this device ever sees and this is
    * the one place it can be kept.
    *
-   * Same `onFeed` split, and for the same reason, as the wire-v1 hub seeding in
-   * `start()`.
    */
   private persistLayoutBase(snapshot: LayoutSnapshot): void {
     if (this.onFeed) return

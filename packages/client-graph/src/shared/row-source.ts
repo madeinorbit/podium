@@ -5,141 +5,15 @@ import {
 } from '@podium/client-core/session-values'
 import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
 import { ISSUE_SESSION_FACTS_SUMMARY, SCHEMA } from './schema'
-/**
- * POD-4444, rewritten per-row by POD-4553 — the kernel's effective per-row
- * change stream, as the arms see it.
- *
- * MODES. `overlaid` (ledger overlays folded in, as the app paints), `truth`
- * (server rows only, for pools that own their optimism) or `pooled` (server
- * rows with the pool's own transactions folded in, POD-5431). Every consumer
- * names one; see {@link RowSourceMode}. The rest of this header describes
- * `overlaid`; `truth` is the same feed with the ledger read as empty, and
- * `pooled` is the same feed with the pool's log read in the ledger's place.
- *
- * One publication from the runtime is one {@link RowSourceEvent}. Each row in
- * it is read BY ID: the authority row from the kernel replica
- * (`replica.row(kind, id)`), with that row's own pending optimistic overlays
- * from the runtime's ledger (`runtime.pendingOverlaysByRow(entity)`) folded
- * over it by `foldRowOverlays` — the ledger's own fold rules, applied to one
- * row. Nothing here indexes a collection per publication: the work of one
- * flush is the rows it names, never the corpus. Arms never diff collections
- * and never read the kernel themselves (methodology §3: round one measured the
- * port, not the approach).
- *
- * WHICH ROWS A FLUSH VISITS (the fence `row-source.test.ts` asserts at 1x and
- * 4x): the distinct slice rows named by the kernel's addressed batch, plus the
- * rows with pending overlays now or at the previous flush, and the owners
- * whose declared small dependency/session summaries moved. The
- * pending set is O(pending writes) — a handful — and it is the only way an
- * optimistic-only publication (a press, an echo retirement, a rejection) can
- * name its rows without diffing arrays.
- *
- * WHAT A FLUSH EMITS. Every kernel-addressed row, always (a heartbeat emits
- * its row even when the fold hides the change). A row visited only because of
- * the ledger is emitted only when its value identity moved from what the arms
- * last received, so a durable commit that repaints the press's own overlay
- * emits nothing (POD-1053).
- *
- * IDENTITY. Sessions without overlays borrow the replica's row object. Issue
- * composition is memoized by projection, user markers, git observation, repo and declared summary
- * identities, so a rejection restores the previous composed issue itself.
- * A folded value that is shallow-equal to the one last emitted
- * for that row keeps the earlier object, as the ledger's whole-list fold does.
- *
- * SPEC CITATIONS (frozen slice `docs/plans/pod-4441-round-two-slice.md`).
- * - §2 maintenance rule: evict carries no tombstone — a row with `value:
- *   undefined` deletes the row and every index bucket holding it. Removed and
- *   evicted look the same to the arm, and that is intended.
- * - §8 measurement interface: `RowRecord` / `RowSourceEvent` in
- *   `shared/src/stats.ts`; `RowSource` in `shared/src/arm.ts`.
- * - Methodology §5.8: scenarios 1–13 drive this stream; §1a budgets judge it.
- *
- * ORDERING. The facade drains row listeners, then kind-batch listeners (which
- * is where the replica binding publishes the runtime snapshot and the ledger
- * recomputes), then addressed listeners. A kernel batch therefore lands as:
- * runtime publication FIRST, addressed batch SECOND, in the same synchronous
- * drain. This source coalesces both signals into one microtask flush:
- * whatever arrived synchronously since the last flush — kernel addresses, a
- * runtime publication, or both — becomes exactly one event, read after the
- * ledger has retired whatever the batch covered. "One publication, one event"
- * holds when the runtime nests `apply()` calls inside a batch, and a
- * `replica.batch()` of 50 upserts yields one update with 50 rows. Tests that
- * need determinism call `flush()` synchronously; both go through one drain.
- *
- * ONE ROW BY ID (POD-4567, shared contract: `RowSource.row`, `arm.ts`).
- * `row(kind, id)` serves one issue or session row exactly as `snapshot(kind)`
- * would carry it — the replica's row by id (`replica.row`), with that row's
- * own overlays folded in `overlaid` mode and the ledger never read in
- * `truth` mode, the previously emitted object kept when the fold recomposed
- * an equal one — and enumerates nothing. It is how a lazy pool loads a cold
- * row it holds only the id of (both round-three pools use it); the reads
- * fence counts it as one keyed read of that row (`reads.ts` `wrapSource`).
- * It leaves the emit memo alone, so the next flush still emits whatever
- * moved. A disposed source throws on reads.
- *
- * REPLACE. A bootstrap or rescope is the one place a flush enumerates the
- * slice (`replica.rows()` per kind, plus pending inserts); `snapshot()` is the
- * other row enumeration. Small edge/session summaries are seeded at source
- * creation and replaced on rescope, never lazily by the first update.
- * Row enumerations count in `stats.enumerations`, which the scenarios
- * assert is 0 on every non-replace publication.
- *
- * LOCALS-ONLY PUBLICATIONS (selection, drafts, host metrics, a coarse tick
- * that moved no band) carry no kernel address and move no overlaid row, so
- * they emit NO event. Arms receive locals through the `LocalsSource` channel
- * (`arm.ts`, POD-4608), which names the keys that moved.
- *
- * OUT-OF-SLICE KINDS (`issueEvents`, `pendingInteractions`, `shipOrders`,
- * `conversations`, `automations`, `automationRuns`, `userLayouts`) never
- * produce rows. A publication touching only those kinds emits no event.
- *
- * ISSUE INPUT. Durable facts come from issueProjections; user markers,
- * git observations and repo paths come from their normalized kinds. Address
- * summaries retain only keys so each update resolves just its affected rows.
- *
- * SESSION RESUME TWINS (a known divergence, not a silent one). The runtime
- * hides all-parked legacy sessions that share a resume ref
- * (`dedupeSessionsByResume`), a whole-kind rule. A per-row feed cannot apply
- * it without a resume-ref index, which is a relation for the declared pool
- * (POD-4546), not for the feed: the feed passes `resume` through on every
- * session row and the pool applies the collapse. The corpus carries one
- * twin group per branch of the rule per scale unit (`corpus.resumeTwins`,
- * POD-4551) and the oracle collapses them as the runtime does, so a pool
- * that forgets the rule fails parity.
- *
- * DEP EDGES. An `issueDeps` address resolves through the dep row's `fromId`
- * to the owning issue and emits that issue's row. A plain edge index remembers
- * the owner through removal. A target's completion boolean is a declared small
- * summary: only a changed server completion fans out to its incoming blocking
- * edges. Pending target stages do not change replica blocking. No worklist
- * selector is read.
- *
- * WORKTREE LANES. One `SliceWorktree` per repo root plus one per scanned
- * worktree, from `EngineState.repos` (`GitRepositoryWire`, engine-local, not a
- * replica kind) joined with the replica `repos` row's prefix, read by id. A
- * top-level entry whose path is another entry's linked worktree is dropped,
- * as legacy `reposToViews` does: a real scan reports each linked worktree
- * twice, and the lane belongs to its parent root. A `repos` address emits
- * only that repo's lanes. Before discovery has reported a repo, snapshots
- * and replaces carry its borrowed replica row (the same raw-row signal as
- * a `repos` address), so persisted prefixes are available offline too.
- *
- * DISCOVERY LANES (POD-4606). Discovery is not a kernel row: `refreshRepos`
- * publishes a whole new `repos` array, with no address. A flush that sees the
- * array's identity move (O(1), in both modes: truth mode subscribes to the
- * runtime for this check alone) diffs the lanes of the new answer against the
- * lanes the arms hold, by path, and emits each lane that appeared or changed
- * value, and `value: undefined` for each that left. Lane objects are memoized
- * by value signature, so a routine refresh that moves nothing visible emits
- * nothing. The discovery answer is the batch: the flush visits every lane it
- * names plus every lane that left, and counts one `enumerations` pass. That
- * pass happens only when the array moves, never on an ordinary publication.
- * Lanes carry no optimism, so `overlaid` and `truth` emit the same rows.
- *
- * DISPOSAL. `dispose()` unsubscribes from both the runtime and the replica; a
- * disposed source never emits again (principal switch, methodology #11), and
- * its `snapshot()` and `row()` throw instead of serving whatever they last
- * held (POD-4574: silent stale reads once looked like a 54-row rollup bug).
+/** Addressed replica rows, optionally painted by PoolTransactions.
+ * `truth` reads server rows; `pooled` folds the supplied per-row transaction
+ * lists. There is no runtime record snapshot or whole-list optimism fold.
+ * Kernel addresses and transaction repaint calls name exactly the touched
+ * rows; ordinary locals are followed only for discovery worktree lanes.
+ * Bootstrap/rescope and explicit snapshots enumerate identities. All other
+ * updates use keyed reads, and evictions carry no tombstone. Pending changes
+ * survive outside the slice and repaint on readmission. Resume-twin collapse
+ * belongs to the pool's existing relation index.
  */
 
 import {
@@ -177,21 +51,17 @@ interface RepoEntry {
   worktrees?: readonly { path: string; branch?: string; isMain?: boolean }[]
 }
 
-/** The runtime surface the row source reads. Structural so tests can drive it
- *  with a fake; the real `ClientRuntime` satisfies it by shape. The snapshot is
- *  read for `repos` (worktree lanes) only — entity rows come from the replica
- *  and the ledger, by id. Both modes subscribe: `truth` only to see the
- *  `repos` array move (discovery). */
+/** The runtime discovery surface. Entity rows come from the replica and
+ *  PoolTransactions, by id; both modes follow the keyed `repos` local. */
 export interface RowSourceRuntime {
   /** Keyed locals (POD-5433): the feed wakes on discovery (`repos`) and, while
-   *  the ledger paints a kind, on that kind's painted list. */
+   *  discovery reports a changed scan. */
   onLocals(keys: readonly RowSourceLocal[], listener: () => void): () => void
   readLocal(key: 'repos'): readonly RepoEntry[]
   readonly principal?: { userId: string }
 }
 
-/** The runtime locals the feed follows: discovery, and the lists the ledger
- *  paints (a ledger paint always moves one of them). */
+/** The runtime locals the feed follows: discovery, only. Replicated records use the kernel address channel. */
 export type RowSourceLocal = 'repos'
 
 /** The replica surface the row source reads. `row()` and the addressed seam
@@ -291,40 +161,23 @@ function idOf(row: AnyRow): string | null {
 
 /**
  * The pool's transaction log as the feed reads it (POD-5431): the same
- * per-row overlay lists, in the same fold order, as the ledger's
+ * per-row overlay lists, in the same fold order, as the transaction log's
  * `pendingByRow`. O(1) to ask for: the log keeps them per row.
  */
 export interface PooledPending {
   byRow(entity: OverlayTarget): PendingRows
 }
 
-/** One target's pending overlays by row, as the feed reads them: the ledger's
- *  `pendingByRow` map, or the pool log's view of the same lists. */
+/** One target's pending overlays by row, as the feed reads the pool log. */
 export interface PendingRows {
   get(id: string): readonly PendingOverlay[] | undefined
   has(id: string): boolean
   keys(): Iterable<string>
 }
 
-/**
- * Which rows the feed hands out — chosen by every consumer, no default
- * (coordinator ruling on POD-4553 after the L1c write contract):
- *
- * - `overlaid`: server truth with the runtime ledger's pending overlays folded
- *   over it — what the app paints today. For phase a/b pools, which do not own
- *   optimism, and for parity with the legacy derivation.
- * - `truth`: server truth only; the ledger is never read and a runtime
- *   publication alone never produces a row. For phase c pools, which apply
- *   their own optimistic edits (`write-contract.ts`): an overlay here would
- *   hide a remote value for a locally pending field and rewind a rejection
- *   twice.
- * - `pooled`: server truth with the pool's own transactions folded over it
- *   (`write/transactions.ts`, POD-5431) for the row kinds the pool OWNS, and
- *   the ledger's overlays for the rest (POD-5432: issues own first, then
- *   sessions; one painter per kind). For an owned kind the ledger is never
- *   read and the log names its rows through `repaint`. With every kind owned
- *   a runtime publication alone is a signal only for discovery, as in `truth`.
- */
+/** Consumers explicitly choose server truth or server truth painted by the
+ * pool's transaction log. Transaction changes name rows through `repaint`;
+ * runtime local changes signal discovery only. */
 export type RowSourceMode = 'truth' | 'pooled'
 
 /** The row kinds the pool's transaction log can own (POD-5432). */
@@ -335,8 +188,6 @@ export type RowSourceOptions =
   | {
       readonly mode: 'pooled'
       readonly pending: PooledPending
-      /** The kinds the log paints; the ledger paints the others. Default: both. */
-      readonly owned?: ReadonlySet<PoolOwnedKind>
     }
 
 export function createRowSource(
@@ -347,11 +198,10 @@ export function createRowSource(
   const { mode } = options
   if (mode !== 'truth' && mode !== 'pooled') {
     throw new Error(
-      `createRowSource: mode must be 'overlaid', 'truth' or 'pooled', got ${String(mode)}`,
+      `createRowSource: mode must be 'truth' or 'pooled', got ${String(mode)}`,
     )
   }
   const pooled = options.mode === 'pooled' ? options.pending : null
-  /** Some kind still reads the ledger: every runtime publication may move it. */
   const rowOf = replica.row?.bind(replica)
   const addressedOf = replica.subscribeAddressedBatch?.bind(replica)
   if (rowOf === undefined || addressedOf === undefined) {
@@ -1171,26 +1021,26 @@ export function createRowSource(
       byKey.set(key, { kind, id, value })
     }
 
-    // 2. Rows the ledger names — overlaid now, or overlaid at the last flush —
+    // 2. Rows the pool log names — overlaid now, or overlaid at the last flush —
     //    emitted only when their value moved from what the arms hold.
-    const ledgerRows = new Map<string, { kind: 'session' | 'issue'; id: string }>()
+    const pendingRows = new Map<string, { kind: 'session' | 'issue'; id: string }>()
     for (const id of pending.sessions.keys())
-      ledgerRows.set(`session:${id}`, { kind: 'session', id })
+      pendingRows.set(`session:${id}`, { kind: 'session', id })
     for (const id of pending.sessionUserStates.keys())
-      ledgerRows.set(`session:${id}`, { kind: 'session', id })
+      pendingRows.set(`session:${id}`, { kind: 'session', id })
     for (const id of pending.issueUserStates.keys())
-      ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
+      pendingRows.set(`issue:${id}`, { kind: 'issue', id })
     for (const id of pending.issueProjections.keys())
-      ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
+      pendingRows.set(`issue:${id}`, { kind: 'issue', id })
     for (const key of overlaid.keys()) {
-      if (ledgerRows.has(key)) continue
+      if (pendingRows.has(key)) continue
       const colon = key.indexOf(':')
-      ledgerRows.set(key, {
+      pendingRows.set(key, {
         kind: key.slice(0, colon) as 'session' | 'issue',
         id: key.slice(colon + 1),
       })
     }
-    for (const [key, { kind, id }] of ledgerRows) {
+    for (const [key, { kind, id }] of pendingRows) {
       if (addressed.has(key)) continue
       stats.rowsVisited += 1
       const held = overlaid.has(key) ? overlaid.get(key) : resolve(kind, id, null)

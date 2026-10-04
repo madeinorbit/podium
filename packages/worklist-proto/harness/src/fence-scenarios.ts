@@ -180,7 +180,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     ctx.replica,
     transactions === null
       ? { mode: mode as RowSourceMode }
-      : { mode: 'pooled', pending: transactions.pending, owned: new Set(POOL_OWNED_KINDS) },
+      : { mode: 'pooled', pending: transactions.pending },
   )
   let stopWriter = (): void => {}
   if (transactions !== null) {

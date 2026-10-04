@@ -2,26 +2,9 @@
  * THE PURE COMMAND REDUCERS (POD-5431, plan step 3 of
  * `docs/plans/pod-4286-optimism-and-refusals.md`): what a queued command paints,
  * and the fold and settlement rules over those paints. Pure functions of an
- * entry and a row. Two owners import them: the legacy ledger
- * (`engine/optimism.ts`) and the pool's transaction layer
- * (`@podium/client-graph` `write/transactions.ts`). Nothing here reads an engine
- * object, so the pool reaches these rules without the engine; `engine/overlay.ts`
- * re-exports this module for the engine's own callers.
- *
- * ONE optimistic mechanism (#263 [spec:SP-3fe2]): the outbox IS the overlay.
- *
- * Until #263 the engine ran three separate optimism mechanisms — an
- * optimistic-spawn row overlay, an optimistic-issues row overlay, and direct
- * replica patching (patchSession/patchIssue) for the curation mutations. This
- * module collapses them into one: a PENDING MUTATION is the overlay. When the
- * engine computes its snapshot lists it folds
- *
- *     replica rows (server truth, never optimistically patched)
- *   + pending overlays (queued outbox entries' patches, resolved-but-uncovered
- *     patches, and spawn placeholder inserts)
- *
- * so the replica stays server-truth only and optimism lives exactly as long as
- * the mutation that caused it is unaccounted for.
+ * entry and a row, imported by the pool's transaction layer. Nothing here reads
+ * a runtime or a full list. Server truth stays in the replica; pending patches
+ * and spawn inserts are folded over one addressed row.
  *
  * RETIREMENT RULE (#263) — an overlay retires EXACTLY ONCE, on the first of:
  *
@@ -76,7 +59,7 @@ import { inheritSessionHomes } from './session-values'
 
 const log = createLogger('client-core:overlay')
 
-/** The entities a per-row reader may ask the ledger about (the pool's row
+/** The entities a per-row reader may paint from transactions (the pool's row
  *  source reads exactly these). Conversations carry no optimistic writes. */
 export type OverlayEntity = 'sessions' | 'issueProjections'
 
@@ -115,7 +98,7 @@ export type PendingOverlay =
        * mark-read on a never-touched issue must still paint. An absent
        * `(user, session)` row means "not loaded": the session row's own legacy
        * cells still speak for it (POD-4974 S2's fallback), and the patch folds
-       * over those. The ledger sets it, because only the ledger knows the
+       * over those. The transaction log sets it using the
        * principal and whether the entity is in the slice; an overlay built from
        * an entry alone never carries it.
        */
@@ -433,7 +416,7 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
       // SERVER's clock: a client clock running behind it would paint a cursor
       // older than the activity it is acknowledging, and the session would stay
       // unread under the press. The enqueue baseline carries the session row's
-      // `lastActiveAt` (the ledger merges it in), so this stays a function of
+      // `lastActiveAt` (the transaction log merges it in), so this stays a function of
       // the entry; without one (a reloaded kernel entry) the press time stands.
       //
       // COVERED like `issueMarkRead`: the server stamps its own clock, so the
@@ -506,7 +489,7 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
     }
     case 'issueMarkUnread': {
       // Covered by an ABSENT row too: the server deletes a row whose three
-      // markers are all null, and the ledger folds absence as that null row.
+      // markers are all null, and the row source folds absence as that null row.
       const i = entry.input as OutboxKinds['issueMarkUnread']
       return patchOverlay(
         'issueUserStates',

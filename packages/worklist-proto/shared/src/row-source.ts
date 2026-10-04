@@ -1,5 +1,5 @@
 /** Standalone harness feeds attach the same transaction writer as the pool host. */
-import { createRowSource as createSource, type PooledPending, type PoolOwnedKind,
+import { createRowSource as createSource, type PooledPending,
   type RowSourceHandle, type RowSourceMode, type RowSourceRepaint,
   type RowSourceReplica, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
 import { createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
@@ -30,7 +30,7 @@ function followPending(rows: RowSourceRepaint, pending: PooledPending, follow: (
 }
 
 export function createRowSource(runtime: RowSourceRuntime, replica: RowSourceReplica,
-  options: { mode: RowSourceMode; pending?: PooledPending; owned?: ReadonlySet<PoolOwnedKind> } = { mode: 'truth' },
+  options: { mode: RowSourceMode; pending?: PooledPending } = { mode: 'truth' },
 ): RowSourceHandle & RowSourceRepaint {
   const fixture = runtime as FixtureInputs
   if (options.pending) return createSource(runtime, replica, options as Parameters<typeof createSource>[2])

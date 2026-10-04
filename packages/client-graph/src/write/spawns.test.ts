@@ -108,7 +108,21 @@ it('retires principal-owned timers and waiters on disposal', async () => {
   await Promise.resolve()
   f.owner.dispose()
   await waiter
+  expect(await result.settled).toBe(false)
   await vi.advanceTimersByTimeAsync(3000)
+  expect(f.events).toHaveLength(1)
+  expect(f.error).not.toHaveBeenCalled()
+})
+
+it('ignores a create response arriving after the principal was disposed', async () => {
+  const f = fixture()
+  let finish!: () => void
+  f.create.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  const result = f.owner.spawnDraftAgent(f.args)
+  f.owner.dispose()
+  expect(await result.settled).toBe(false)
+  finish()
+  await Promise.resolve()
   expect(f.events).toHaveLength(1)
   expect(f.error).not.toHaveBeenCalled()
 })

@@ -877,7 +877,7 @@ export class MobxPool {
   }
 
   /** Attach the transaction log (POD-5431); one per pool, before any change.
-   * `ownsSessions` (POD-5432, plan step 6): the log, not the ledger, paints
+   * `ownsSessions`: the transaction log paints
    * session rows, so the spawn placeholders are read from it too. */
   attachTransactions(transactions: PoolMutator, ownsSessions = true): void {
     if (this.transactions !== null) {
@@ -890,7 +890,7 @@ export class MobxPool {
   /**
    * TRACKED: the sessions painted as spawn placeholders and their first turns
    * (null when none), while the pool owns session optimism (POD-5432); null
-   * otherwise, and readers keep the ledger's `pendingSpawnIds`.
+   * otherwise, for a read-only fixture pool.
    */
   spawnPlaceholders(): ReadonlyMap<string, string | null> | null {
     return this.spawnLog?.spawnPrompts ?? null

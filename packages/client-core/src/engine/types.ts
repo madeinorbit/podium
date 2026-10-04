@@ -1,8 +1,7 @@
-import type { SessionView } from '../session-values'
 import type { NavigationIntent } from './navigation'
 /**
  * Engine-facing shared types (#262 [spec:SP-3fe2]): the server-config, notice,
- * user-focus, and store-snapshot seams the non-React engine and the thin React
+ * user-focus, and runtime access seams the non-React engine and the thin React
  * binding both speak. Plain TypeScript — no React imports (that's the point of
  * the engine split: everything here must be consumable by a native/headless
  * client).
@@ -12,14 +11,9 @@ import type { IssueUpdatePatch } from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
-  AutomationRunWire,
-  AutomationWire,
-  ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
-  IssueEventWire,
   IssueId,
-  IssueProjection,
   MachineId,
   MachineWire,
   MutationId,
@@ -27,7 +21,9 @@ import type {
   ThreadId,
   WorkState,
 } from '@podium/model'
-import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
+import type {
+  ApprovalWire,
+} from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
@@ -127,18 +123,14 @@ export interface UserFocus {
 
 /**
  * The engine snapshot the UI consumes (#262): data slices plus imperative
- * actions, published through the engine's subscribe/getSnapshot seam (designed
- * for React's useSyncExternalStore, but React-free). Field identities are
- * stable until the underlying slice actually changes.
+ * actions and handles. Local values are read and followed through keyed runtime
+ * channels; replicated records belong to the pool.
  */
 export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   navigation: import('./state').NavigationProvider
   hub: SocketHub
   trpc: TApi
-  /** A coarse (minute-granularity) clock, republished as part of the snapshot
-   *  so PUBLISHED SLICES that are functions of time re-derive when time moves.
-   *  See {@link EngineState.coarseNow} for why it must live here rather than in
-   *  a component-local interval. */
+  /** One minute-granularity clock per runtime, followed by the pool. */
   coarseNow: number
   /** Local replica (docs/spec/thin-client-replica.md): the ONE entity read
    *  path (sessions/issues/conversations) + offline transcript windows. When
@@ -146,32 +138,11 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  memory — `replica.persistent` is false and a reload cold-starts. */
   replica: Replica
   repos: GitRepositoryWire[]
-  /** Normalized replica repo facts, including path and issue prefix. */
   reposLoading: boolean
   /** True once the first repo refresh has resolved — lets the UI distinguish
    *  "still loading" from "registry is genuinely empty" (first-run onboarding). */
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
-  /** Normalized durable issue rows. Per-user markers live on `issueUserStates`. */
-  /** This principal's per-user issue markers (`readAt`, `tuckedAt`, `pinned`):
-   *  one row per issue they touched, absent = none set. Optimistic edits are
-   *  folded in (POD-4969). */
-  /** The cross-project issue-event window, replicated (POD-1772). A bounded,
-   *  server-curated tail — the superagent feed reads THESE rows rather than
-   *  re-asking `issues.events` on a timer. */
-  /** People's chat messages and their delivery status (POD-4764) — replicated
-   *  rows keyed by the message id the sender minted. The chat reads these, not
-   *  the ledger. */
-  /** Compact order rows; Shipping views join these to issues by issueId. */
-  /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
-  /** Scheduled definitions and honest run history mirrored live from the replica. */
-  /** Session ids painted optimistically that the server hasn't confirmed yet (#119).
-   *  AgentPanel gates its terminal attach on this — attaching to a not-yet-created
-   *  session is dropped and never retried, so it must wait for reconciliation. */
-  /** First prompts for optimistic sessions whose server row has not landed yet.
-   * Chat surfaces seed their pending bubble from this and keep it through the
-   * later transcript reconciliation. */
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests. */

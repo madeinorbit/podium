@@ -40,7 +40,7 @@ vi.mock('@/app/store-worklist-pool', async () => {
       )
       return useSyncExternalStore(
         projection?.subscribe ?? subscribe,
-        () => projection?.access ?? empty,
+        () => projection?.getSnapshot() ?? empty,
       )
     },
   }

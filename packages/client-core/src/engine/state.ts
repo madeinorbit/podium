@@ -20,27 +20,17 @@ export * from './navigation-provider'
  */
 
 import type {
-  AutomationRunWire,
-  AutomationWire,
-  ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
-  IssueDepProjection,
-  IssueEventWire,
-  IssueGitStateProjection,
   IssueId,
-  IssueProjection,
-  IssueUserStateWire,
   MachineWire,
-  MessageRecordWire,
-  RepoProjection,
   SessionId,
-  ShipLaneProjection,
-  ShipOrderProjection,
   ThreadId,
 } from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
-import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
+import type {
+  ApprovalWire,
+} from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
@@ -52,8 +42,6 @@ import {
   emptyWorkspace,
   type FileTab,
   leafPaneIds,
-  missionIssueIds,
-  missionRootFor,
   type PinState,
   type RecentFileEntry,
   type WorkspaceKey,
@@ -67,17 +55,12 @@ import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } fr
 /** The runtime's mutable data slices — exactly the non-function fields of Store
  *  that change over time (constants like hub/trpc/replica live outside it). */
 export interface EngineState {
-  /** Startup-only read provider; absent on legacy web and mobile. */
+  /** Pool navigation port, loading until the principal's pool attaches. */
   navigation: NavigationProvider
   repos: GitRepositoryWire[]
   reposLoading: boolean
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  /** This principal's per-user issue markers (`readAt`, `tuckedAt`, `pinned`),
-   *  one row per issue they touched, optimistic edits folded in (POD-4969). */
-  /** The curated cross-project issue-event window (POD-1772) — replicated rows,
-   *  not a timer's answer. Newest last, as the feed renders them. */
-  /** People's chat message records (POD-4764), replicated by id. */
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests (popup). */
   approvals: ApprovalWire[]
@@ -131,31 +114,13 @@ export interface EngineState {
   recentFiles: RecentFileEntry[]
   outboxSize: number
   outboxDeadLetters: OutboxDeadLetterEntry[]
-  /**
-   * A COARSE CLOCK, in the snapshot on purpose (POD-331).
-   *
-   * Some published derivations are functions of time as well as of rows: a
-   * snooze lapses, a session goes stale, recency reorders. `sidebarSections`
-   * takes `now` for exactly that reason and feeds it to `isSnoozed` and
-   * `compareRecency`.
-   *
-   * The slice publisher keys on SNAPSHOT IDENTITY and nothing else, which is
-   * the property that makes it correct across evict and rescope
-   * (`slices/publish.ts`). A derivation that read the clock out of band would
-   * therefore be memoized against a clock that had moved: on a quiet system
-   * with no publishes, an overnight snooze would never lapse on screen. The
-   * fix is not to weaken the cache key — it is to admit that the clock is part
-   * of the world these views render, so a new minute is a new snapshot.
-   *
-   * Minute granularity, one interval per RUNTIME. It replaces N per-component
-   * `useNow` intervals that each ticked on their own phase, so two surfaces
-   * could disagree about what time it was; now they cannot.
-   */
+  /** One minute-granularity clock, published as a keyed local. The pool uses
+   * it for snoozes, grace periods and recency without component timers. */
   coarseNow: number
 }
 
 /** The store fields that are NOT state: action methods and constant handles,
- *  spread into every snapshot so their identities never change. */
+ *  retained once per runtime so their identities never change. */
 export type EngineStatics<TApi extends PodiumClientApi> = Omit<Store<TApi>, keyof EngineState>
 
 /** Narrow a raw route/persisted value into the issue id space (POD-363). The URL
@@ -381,8 +346,7 @@ export function workspaceWritePatch(
 
 /**
  * Every tab id that names something which EXISTS right now: a session in this
- * principal's slice (optimistic spawns included — `sessions` is already folded
- * through the ledger), a spawn still in flight, or an open file buffer.
+ * pool (including optimistic spawns), a loading session, or an open file buffer.
  *
  * The input to pruning, and the reason pruning cannot be a one-liner: an id
  * missing from here is not necessarily dead. It may be early (a deep-linked
@@ -459,29 +423,6 @@ export function knownTabIdsForWorkspace(
   return ids
 }
 
-/**
- * The issue slice indexed by id, built once per slice and shared by every caller
- * holding the same array.
- *
- * This replaces a `st.issueProjections.find(...)` that ran once per SESSION per WORKSPACE
- * per publish. A Chrome profile of a live client holding 1,027 issues and 827
- * sessions put `sessionBelongsToWorkspace` at 47% of all busy main-thread CPU,
- * essentially all of it that one linear scan.
- *
- * KEYED ON THE ARRAY'S IDENTITY, which is a guarantee the replica already
- * makes rather than one this memo invents: the kernel facade documents that a
- * kind whose contents did not change keeps the identical `rows` reference, and
- * its incremental reconcile mints a NEW array for any change instead of
- * mutating in place (replica/kernel/facade.ts); `foldOverlays` preserves that
- * identity only when the optimistic ledger folded nothing. The web app's
- * `useMemo([issues])` calls already bet on the same property. A stale index
- * here would silently mis-assign sessions to workspaces, so it is worth saying
- * plainly: a changed issue slice is always a different array.
- *
- * FIRST WINS, matching the `find` this replaces. Two rows sharing an id should
- * be impossible; if it ever happens this must not quietly start answering with
- * the other one.
- */
 /**
  * The workspace-membership rule, resolved for ONE key and then asked per session.
  *

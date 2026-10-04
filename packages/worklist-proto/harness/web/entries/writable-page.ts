@@ -52,7 +52,7 @@ function ownedFeed(over: ScenarioEngine): OwnedFeed {
   const transactions = createRuntimeTransactions(over.engine)
   let stopWriter = (): void => {}
   return {
-    options: { mode: 'pooled', pending: transactions.pending, owned: new Set(POOL_OWNED_KINDS) },
+    options: { mode: 'pooled', pending: transactions.pending },
     bind(source) {
       transactions.bind(source)
       stopWriter = attachRuntimeWriter(over.engine, transactions)
