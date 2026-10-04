@@ -1,6 +1,6 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import type { ReadPositionValue } from '@podium/client-core'
-import type { SuperagentSliceValue, SuperThreadView } from '@podium/client-core/viewmodels'
+import type { SuperagentSliceValue, SuperThreadView } from '@podium/client-core/values'
 import type { GitRepositoryWire, IssueEventWire, SessionId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import type { MobxPool } from './pool'

@@ -2,7 +2,7 @@
  * values exist only in this process; reports retain counts and positions. */
 import type { Store } from '@podium/client-core/engine'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/viewmodels'
+import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/values'
 import type { MobxPool } from '../src/pool'
 import { settingsRepositoryId } from '../src/settings-schema'
 import { LOADING } from '../src/worklist/rollup'
@@ -15,7 +15,7 @@ export interface SettingsCheckOwner {
 }
 
 export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
-  const state = owner.getSnapshot()
+  const state = owner.access
   const catalog = pool.row('settingsCatalog', 'catalog')
   const window = pool.row('settingsWindow', 'window')
   const setup = pool.settingsViews.setup()

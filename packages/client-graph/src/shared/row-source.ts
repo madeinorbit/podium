@@ -188,13 +188,11 @@ export interface RowSourceRuntime {
   onLocals(keys: readonly RowSourceLocal[], listener: () => void): () => void
   readLocal(key: 'repos'): readonly RepoEntry[]
   readonly principal?: { userId: string }
-  pendingOverlaysByRow(entity: OverlayTarget): ReadonlyMap<string, readonly PendingOverlay[]>
 }
 
 /** The runtime locals the feed follows: discovery, and the lists the ledger
  *  paints (a ledger paint always moves one of them). */
-export type RowSourceLocal = 'repos' | 'sessions' | 'issueProjections' | 'issueUserStates'
-const LEDGER_LOCALS: readonly RowSourceLocal[] = ['repos', 'sessions', 'issueProjections', 'issueUserStates']
+export type RowSourceLocal = 'repos'
 
 /** The replica surface the row source reads. `row()` and the addressed seam
  *  are optional on the replica contract; this source refuses to start without
@@ -327,7 +325,7 @@ export interface PendingRows {
  *   read and the log names its rows through `repaint`. With every kind owned
  *   a runtime publication alone is a signal only for discovery, as in `truth`.
  */
-export type RowSourceMode = 'overlaid' | 'truth'
+export type RowSourceMode = 'truth'
 
 /** The row kinds the pool's transaction log can own (POD-5432). */
 export type PoolOwnedKind = 'issue' | 'session'
@@ -354,16 +352,13 @@ export function createRowSource(
   options: RowSourceOptions,
 ): RowSourceHandle & RowSourceRepaint {
   const { mode } = options
-  if (mode !== 'overlaid' && mode !== 'truth' && mode !== 'pooled') {
+  if (mode !== 'truth' && mode !== 'pooled') {
     throw new Error(
       `createRowSource: mode must be 'overlaid', 'truth' or 'pooled', got ${String(mode)}`,
     )
   }
   const pooled = options.mode === 'pooled' ? options.pending : null
-  const owned: ReadonlySet<PoolOwnedKind> =
-    options.mode === 'pooled' ? (options.owned ?? new Set(['issue', 'session'])) : new Set()
   /** Some kind still reads the ledger: every runtime publication may move it. */
-  const ledgerRead = mode === 'overlaid' || (pooled !== null && owned.size < 2)
   const rowOf = replica.row?.bind(replica)
   const addressedOf = replica.subscribeAddressedBatch?.bind(replica)
   if (rowOf === undefined || addressedOf === undefined) {
@@ -518,8 +513,7 @@ export function createRowSource(
   // Pending signals since the last flush.
   const pendingAddresses = new Map<string, { kind: ReplicaKind; id: string }>()
   let pendingReplace: 'bootstrap' | 'rescope' | null = null
-  let runtimeDirty = false
-  let discoveryDirty = false
+    let discoveryDirty = false
   let scheduled = false
 
   /** The value last emitted for each slice row that had overlays at the last
@@ -574,12 +568,6 @@ export function createRowSource(
     schedule()
   }
 
-  function onRuntimePublication(): void {
-    if (disposed) return
-    runtimeDirty = true
-    schedule()
-  }
-
   /** Truth mode reads nothing else the runtime publishes: only a discovery
    *  (the `repos` array moved) is a signal. */
   function onTruthPublication(): void {
@@ -589,24 +577,12 @@ export function createRowSource(
   }
 
   function readPending(): PendingByRow {
-    if (mode === 'truth') return NO_PENDING
-    if (pooled !== null) {
-      const from = (target: OverlayTarget): PendingRows =>
-        owned.has(KIND_OF_TARGET[target])
-          ? pooled.byRow(target)
-          : runtime.pendingOverlaysByRow(target)
-      return {
-        sessions: from('sessions'),
-        sessionUserStates: from('sessionUserStates'),
-        issueUserStates: from('issueUserStates'),
-        issueProjections: from('issueProjections'),
-      }
-    }
+    if (pooled === null) return NO_PENDING
     return {
-      sessions: runtime.pendingOverlaysByRow('sessions'),
-      sessionUserStates: runtime.pendingOverlaysByRow('sessionUserStates'),
-      issueUserStates: runtime.pendingOverlaysByRow('issueUserStates'),
-      issueProjections: runtime.pendingOverlaysByRow('issueProjections'),
+      sessions: pooled.byRow('sessions'),
+      sessionUserStates: pooled.byRow('sessionUserStates'),
+      issueUserStates: pooled.byRow('issueUserStates'),
+      issueProjections: pooled.byRow('issueProjections'),
     }
   }
 
@@ -1094,10 +1070,9 @@ export function createRowSource(
     if (disposed) return null
     const hadReplace = pendingReplace
     const addresses = [...pendingAddresses.values()]
-    const hadRuntime = runtimeDirty || discoveryDirty
+    const hadRuntime = discoveryDirty
     pendingAddresses.clear()
     pendingReplace = null
-    runtimeDirty = false
     discoveryDirty = false
     if (!hadReplace && addresses.length === 0 && !hadRuntime) return null
 
@@ -1348,7 +1323,7 @@ export function createRowSource(
   // runtime publishes but discovery: kernel addresses and the log's repaint
   // name their rows, so only a moved `repos` array is a signal.
   heldFrom = currentRepos()
-  offs.push(ledgerRead ? runtime.onLocals(LEDGER_LOCALS, onRuntimePublication) : runtime.onLocals(['repos'], onTruthPublication))
+  offs.push(runtime.onLocals(['repos'], onTruthPublication))
 
   function repaint(
     rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,

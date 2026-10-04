@@ -1,5 +1,5 @@
 import type { Store } from '@podium/client-core/engine'
-import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/viewmodels'
+import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/values'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
 import { getObserverTree, Reaction, runInAction } from 'mobx'
 import type { MobxPool } from '../src/pool'

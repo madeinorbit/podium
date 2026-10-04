@@ -12,7 +12,42 @@ import { LOADING } from './worklist/rollup'
 /** An addressed read port over the existing principal's pool. Row reads use
  * its single loading reader; mission invalidation belongs to the pool cache. */
 export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider {
+  const signatures = new Map<string, string>()
+  const signature = (id: string): string | undefined => {
+    const row = pool.row('session', id, 'summary-fields') as SessionView | typeof LOADING | undefined
+    if (!row || row === LOADING) return undefined
+    return JSON.stringify([row.cwd, row.issueId, pool.queries.collapsed(id),
+      row.resume && (row.status === 'hibernated' || row.status === 'exited')
+        ? [row.resume, row.lastActiveAt] : undefined])
+  }
+  for (const id of pool.queries.indexed({ kind: 'shellSessions' })) {
+    const value = signature(id)
+    if (value !== undefined) signatures.set(id, value)
+  }
   return {
+    onTopology(changed) {
+      return pool.queries.onChange(event => {
+        let moved = event.type === 'replace'
+        if (moved) signatures.clear()
+        for (const row of event.rows) {
+          if (row.kind !== 'session') continue
+          const value = signature(row.id)
+          if (signatures.get(row.id) !== value) moved = true
+          if (value === undefined) signatures.delete(row.id)
+          else signatures.set(row.id, value)
+        }
+        if (moved) changed()
+      })
+    },
+    issueSessions(id) {
+      const rows: SessionView[] = []
+      for (const key of pool.queries.indexed({ kind: 'commandIssueSessions', issueId: id, archived: false })) {
+        const row = pool.row('session', key)
+        if (row === LOADING) return NAVIGATION_LOADING
+        if (row) rows.push(row as SessionView)
+      }
+      return rows
+    },
     issue(id) {
       let row = pool.row('issue', id, 'summary') as SliceIssue | typeof LOADING | undefined
       if (

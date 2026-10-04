@@ -17,7 +17,7 @@ export function startHeaderCheck(runtime: ClientRuntime<PodiumClientApi>, pool: 
     if (disposed) return
     const finish = beginSidebarCheck(runtime)
     try {
-      const result = runInAction(() => checkHeader(pool, runtime.getSnapshot(), {
+      const result = runInAction(() => checkHeader(pool, runtime.access, {
         metrics: runtime.hostMetrics.getSnapshot(), quotas: pool.header.received.quotas,
         history: pool.header.received.history, lifecycle: pool.header.received.lifecycle,
         connection: runtime.hub.connectionHealth(), afterDays: pool.headerViews.row('lifecycle', 'hosts')?.worktreeGc?.afterDays ?? 14,

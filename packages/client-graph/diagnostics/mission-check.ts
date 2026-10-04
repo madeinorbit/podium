@@ -1,7 +1,7 @@
 /** Diagnostic only. Legacy and pool see one publication; only IDs, counts and
  * comparison positions leave this module. Never hydrate or observe here. */
-import { missionIssueIds, missionRootFor } from '@podium/client-core/viewmodels'
-import type { MissionIssueTopology } from '@podium/client-core/viewmodels'
+import { missionIssueIds, missionRootFor } from '@podium/client-core/values'
+import type { MissionIssueTopology } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
 import type { MobxPool } from '../src/pool'

@@ -1,4 +1,4 @@
-import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/viewmodels'
+import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model'
 import type { MobxPool } from './pool'
 import { pendingInteractionCard } from './notice-card'

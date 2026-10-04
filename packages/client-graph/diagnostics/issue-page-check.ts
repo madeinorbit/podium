@@ -5,7 +5,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSidebarCheck } from '@podium/client-core/perf'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { groupRelations } from '@podium/client-core/viewmodels'
+import { groupRelations } from '@podium/client-core/values'
 import { runInAction } from 'mobx'
 import { knownIds } from '../src/enumerate'
 import { issuePages } from '../src/issue-page'
@@ -157,7 +157,7 @@ export function startIssuePageCheck(runtime: ClientRuntime<PodiumClientApi>, poo
     if (disposed) return
     const finish = beginSidebarCheck(runtime)
     try {
-      const store = runtime.getSnapshot()
+      const store = runtime.access
       const result = runInAction(() => checkIssuePages(pool,
         allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions))
       report({ ...result, state: result.pending ? 'waiting' : result.differences ? 'different' : 'match', checks: ++checks })

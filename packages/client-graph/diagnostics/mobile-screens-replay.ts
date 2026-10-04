@@ -14,7 +14,7 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import { NdjsonLineReader, readSyncStream, SyncStreamFailed } from '@podium/client-core/sync-stream'
-import { missionRootFor } from '@podium/client-core/viewmodels'
+import { missionRootFor } from '@podium/client-core/values'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { reaction, runInAction } from 'mobx'
 import {

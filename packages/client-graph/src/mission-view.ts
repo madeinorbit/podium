@@ -6,7 +6,7 @@ import {
   sessionSettled, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
   type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
   type PresenceNote, type HandoffNowEntry, type HandoffNextEntry,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE } from '@podium/model/browser'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'

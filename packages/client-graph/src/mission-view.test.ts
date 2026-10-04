@@ -1,6 +1,6 @@
 import { autorun, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from './pool'
 import { missionView, readMissionHandoff, readMissionView } from './mission-view'

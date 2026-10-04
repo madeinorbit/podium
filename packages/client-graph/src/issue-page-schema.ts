@@ -1,5 +1,5 @@
 import type { FieldSpec } from './shared/schema'
-import type { ReferentExit } from '@podium/client-core/viewmodels'
+import type { ReferentExit } from '@podium/client-core/values'
 
 export interface IssuePageSourceRows { issueExit: { kind: ReferentExit | undefined } }
 declare module './source-registry' { interface PoolSourceRows extends IssuePageSourceRows {} }

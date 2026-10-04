@@ -49,9 +49,7 @@ export function createMobileSessionReader(pool: MobxPool) {
       if (!row || row === LOADING) return LOADING
       // POD-5432: the pool's log holds the placeholders while it owns sessions.
       const placeholders = pool.spawnPlaceholders()
-      return placeholders !== null
-        ? (placeholders.get(id) ?? undefined)
-        : row.pendingSpawnPrompts.get(id as never)
+      return placeholders?.get(id) ?? undefined
     },
     exit(id: string | undefined) {
       if (id === undefined) return undefined
@@ -103,7 +101,7 @@ export function createMobileSessionReader(pool: MobxPool) {
 export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) {
   const reader = createMobileSessionReader(pool)
   const inputs = createFieldInputs<MobileSessionRows['mobileSessionWindow']>(
-    ['cursor', 'pendingSpawnPrompts'],
+    ['cursor'],
     {},
     'mobileSessionWindow',
   )
@@ -127,17 +125,15 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
       runInAction(() => {
         for (const key of keys) {
           if (key === 'cursor') inputs.set(key, owner.replica.getCursor())
-          else inputs.set(key, owner.readLocal(key))
         }
         if (window.get() === undefined) window.set(inputs.row)
       })
     })
   }
-  // Keyed (POD-5433): the spawn prompts local and the cursor signal.
+  // The cursor keeps its addressed field; spawn prompts belong to the pool log.
   if (!owner.replica.subscribeCursor)
     throw new Error('Phone session context requires the replica cursor signal')
   const stops = [
-    owner.onLocals(['pendingSpawnPrompts'], () => schedule('pendingSpawnPrompts')),
     owner.replica.subscribeCursor(() => schedule('cursor')),
   ]
   return {
@@ -147,7 +143,6 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
       if (!demanded) {
         demanded = true
         schedule('cursor')
-        schedule('pendingSpawnPrompts')
       }
       return window.get() ?? LOADING
     },

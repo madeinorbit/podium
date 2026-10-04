@@ -10,7 +10,7 @@ import {
   type IssueReferenceModel,
   type IssueReferenceSource,
   issueReferenceModel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { compareStructural, runInAction } from 'mobx'
 import { type IssueReferenceReader, issueRefKey } from '../src/issue-reference'
 import { LOADING } from '../src/worklist/rollup'
@@ -76,7 +76,7 @@ export function startChipCheck(
   const tick = (): void => {
     if (disposed) return
     try {
-      const store = runtime.getSnapshot()
+      const store = runtime.access
       const result = checkIssueChips(
         reader,
         allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates),

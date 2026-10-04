@@ -12,7 +12,7 @@ import {
   resolveActiveWorktree,
   selectedMissionRoot,
   shippingPanelModel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MobxPool } from '../src/pool'
 import { SHELL_SCHEMA, SHELL_SUMMARIES } from '../src/shell-schema'
 import { shellViews } from '../src/shell-views'

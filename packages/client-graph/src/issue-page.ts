@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { groupRelations, isEmptyDraftVessel, issueDisplayTitle, presenceNote, type ReferentExit } from '@podium/client-core/viewmodels'
+import { groupRelations, isEmptyDraftVessel, issueDisplayTitle, presenceNote, type ReferentExit } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { compareStructural, computed, onBecomeUnobserved, _isComputingDerivation, type IComputedValue } from 'mobx'
 import { residentWorktreeIds } from './enumerate'

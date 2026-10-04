@@ -4,12 +4,12 @@ import type { Store } from '@podium/client-core/engine'
  * the core session reader and its normalized companions; machines use the
  * declared header source. Conversation rows are outside this schema. */
 export interface SessionPaneRows {
-  sessionPaneWindow: Pick<Store, 'panelMode' | 'dockShells' | 'reposLoaded' | 'pendingSpawnIds'>
+  sessionPaneWindow: Pick<Store, 'panelMode' | 'dockShells' | 'reposLoaded'>
 }
 declare module './source-registry' { interface PoolSourceRows extends SessionPaneRows {} }
 export const SESSION_PANE_ENTITIES = ['sessionPaneWindow'] as const
 export const SESSION_PANE_SCHEMA = {
-  sessionPaneWindow: { key: 'window', source: 'engine:locals', fields: ['panelMode', 'dockShells', 'reposLoaded', 'pendingSpawnIds'], cold: 'never' },
+  sessionPaneWindow: { key: 'window', source: 'engine:locals', fields: ['panelMode', 'dockShells', 'reposLoaded'], cold: 'never' },
   selection: { source: 'engine:locals', fields: ['selectedIssueId'], reader: 'pool.selection' },
   session: { source: 'pool:session', reader: 'load', fields: [
     'sessionId', 'status', 'agentState', 'offer', 'issueId', 'cwd', 'machineId', 'machineName',

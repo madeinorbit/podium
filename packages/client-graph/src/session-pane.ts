@@ -26,7 +26,7 @@ export function paneSpawnConfirmed(pool: MobxPool, id: string): boolean {
   // POD-5432: while the pool owns session optimism its log holds the spawn
   // placeholders; the window's ledger copy is for the ledger's feed only.
   const placeholders = pool.spawnPlaceholders()
-  return placeholders !== null ? !placeholders.has(id) : !window.pendingSpawnIds.has(id as SessionView['sessionId'])
+  return placeholders !== null && !placeholders.has(id)
 }
 
 export interface PaneIssue {
@@ -85,7 +85,7 @@ export function paneIssueColor(pool: MobxPool, id: string | null, hex: (color: s
   return row === LOADING ? LOADING : undefined
 }
 
-const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = { panelMode: {}, dockShells: {}, reposLoaded: false, pendingSpawnIds: new Set() }
+const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = { panelMode: {}, dockShells: {}, reposLoaded: false }
 /** Runtime implementations stay in the lazily imported pool. Web hooks import
  * only this API's types, so a legacy startup loads no graph/MobX implementation. */
 export function createSessionPaneReader(pool: MobxPool) {

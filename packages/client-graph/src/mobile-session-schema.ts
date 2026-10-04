@@ -14,7 +14,6 @@ export interface MobileSessionRows {
   >
   mobileSessionWindow: {
     cursor: number | null
-    pendingSpawnPrompts: Store['pendingSpawnPrompts']
   }
 }
 declare module './source-registry' {
@@ -27,7 +26,7 @@ export const MOBILE_SESSION_SCHEMA = {
   mobileSessionWindow: {
     key: 'window',
     source: 'runtime:locals and replica:getCursor',
-    fields: ['cursor', 'pendingSpawnPrompts'],
+    fields: ['cursor'],
   },
   session: {
     source: 'pool:session',
@@ -69,7 +68,7 @@ export const MOBILE_SESSION_SCHEMA = {
     source: 'normalized sessionUserState and replica cursor',
     fields: ['readAt', 'unread', 'cursor'],
   },
-  spawnPending: { source: 'sessionPaneWindow', field: 'pendingSpawnIds' },
+  spawnPending: { source: 'PoolTransactions', field: 'spawnPrompts' },
   conversation: {
     source: 'chat context and notices',
     fields: ['messageRecord', 'chatHeld', 'pendingInteraction'],

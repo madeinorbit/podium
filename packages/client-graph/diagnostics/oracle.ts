@@ -7,7 +7,7 @@ import {
   rowAwaitsTuck, rowCanBringBack, rowErrorLine, rowMotionPhase, rowMotionTiming,
   rowPendingDecision, rowUnreadEmphasized, rowStatusLine, rowHasWorkingSession, rowWaitingCount,
   type UnifiedIssueRow,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { issueReturnedFromDefer, isIssueDeferred, asIssueId } from '@podium/model'
 import { compareStructural as isDeepStrictEqual } from 'mobx'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'

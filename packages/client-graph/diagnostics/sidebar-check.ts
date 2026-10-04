@@ -4,7 +4,7 @@
  */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
-import { partitionStaleSessions, rowStatusLine } from '@podium/client-core/viewmodels'
+import { partitionStaleSessions, rowStatusLine } from '@podium/client-core/values'
 import { compareStructural } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import type { SliceLocals } from '../src/shared/slice-types'

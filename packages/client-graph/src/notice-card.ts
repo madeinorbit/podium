@@ -1,6 +1,6 @@
 /** Per-row pool projection. Collection selection/order belongs to declared
  * resident indexes; answerability uses the canonical protocol predicates. */
-import type { PendingInteractionCard } from '@podium/client-core/viewmodels'
+import type { PendingInteractionCard } from '@podium/client-core/values'
 import type { InteractionAnswer, PendingInteractionWire, QuestionPrompt } from '@podium/protocol'
 import { hasTranscriptCard, isResumeTimeRecovery } from '@podium/protocol'
 

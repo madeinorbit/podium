@@ -2,7 +2,7 @@
  * Legacy input is diagnostic-only; it never enters the switched read path. */
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { attentionGroup } from '@podium/client-core/focus'
-import { sessionWaking, resumeCommand, sessionUrgencyRank, exitedRecovery, deriveGitStamp, sessionTerminalOutlook, defaultChatCapable } from '@podium/client-core/viewmodels'
+import { sessionWaking, resumeCommand, sessionUrgencyRank, exitedRecovery, deriveGitStamp, sessionTerminalOutlook, defaultChatCapable } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
@@ -97,7 +97,7 @@ export function installSessionPaneCheck(pool: MobxPool, runtime: ClientRuntime,
   hex?: (color: string | null | undefined) => string | undefined): () => void {
   if (typeof window === 'undefined') return () => {}
   const check = () => {
-    const state = runtime.getSnapshot()
+    const state = runtime.access
     return checkSessionPanes(pool, state, undefined, allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates), hex)
   }
   Object.assign(window, { __sessionPaneCheck: check })

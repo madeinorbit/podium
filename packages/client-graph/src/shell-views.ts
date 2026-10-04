@@ -1,7 +1,7 @@
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { ActiveWorktree, WorktreeView } from '@podium/client-core/viewmodels'
+import type { ActiveWorktree, WorktreeView } from '@podium/client-core/values'
 import { normalizeOriginUrl, type RepoId } from '@podium/model/browser'
 import { compareStructural, computed } from 'mobx'
 import { headerIds } from './enumerate'

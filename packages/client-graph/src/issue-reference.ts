@@ -3,7 +3,7 @@ import {
   type IssueReferenceModel,
   type IssueReferenceSource,
   issueReferenceModel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { parseAnyRef } from '@podium/protocol'
 import {
   compareStructural,

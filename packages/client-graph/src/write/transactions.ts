@@ -133,14 +133,6 @@ export interface PoolTransactionsPorts {
   ) => Promise<void>
   /** Kernel batches by row: when truth lands, settlement runs. */
   readonly addressed: (listener: (batch: ReplicaAddressedBatch) => void) => () => void
-  /** The runtime's spawn placeholders, adopted while it runs the create. */
-  readonly spawns?: {
-    current(): {
-      readonly overlays: readonly PendingOverlay[]
-      readonly prompts: ReadonlyMap<string, string>
-    }
-    subscribe(listener: (event: SpawnPlaceholderEvent) => void): () => void
-  }
   /** Release an awaiting record's durable hold. Absent while the ledger does. */
   readonly retire?: (mutationId: MutationId) => void
   readonly now?: () => number
@@ -686,14 +678,6 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   }
   reconcile()
   runInAction(reconcileParked)
-  if (ports.spawns !== undefined) {
-    const current = ports.spawns.current()
-    spawns = current.overlays.filter((o): o is InsertOverlay => o.op === 'insert')
-    for (const o of spawns) {
-      if (o.entity === 'sessions') spawnPrompts.set(o.id, current.prompts.get(o.id) ?? null)
-    }
-  }
-
   offs.push(
     ports.outbox.subscribe(() => {
       if (!disposed) runInAction(() => {
@@ -731,14 +715,6 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       })
     }),
   )
-  if (ports.spawns !== undefined) {
-    offs.push(
-      ports.spawns.subscribe((event) => {
-        if (!disposed) runInAction(() => onSpawn(event))
-      }),
-    )
-  }
-
   /** One change: reduce, record, repaint, enqueue (§4.2). */
   function begin<K extends AnyKind>(
     kind: K,

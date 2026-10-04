@@ -1,4 +1,4 @@
-import { machineViewsFromWire, runSubjectReference, type RunSubjectReference } from '@podium/client-core/viewmodels'
+import { machineViewsFromWire, runSubjectReference, type RunSubjectReference } from '@podium/client-core/values'
 import type { WorkflowRunWire } from '@podium/protocol'
 import type { MobxPool } from './pool'
 import type { SettingsRows } from './settings-schema'

@@ -6,7 +6,7 @@ import {
   isSessionWorking,
   sessionNeedsHuman,
   taskStateWord,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { autorun, reaction } from 'mobx'
 import type { MissionViewValues } from '../src/mission-view'
 import type {

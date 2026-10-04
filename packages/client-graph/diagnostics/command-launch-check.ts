@@ -9,7 +9,7 @@ import {
   reposToViews,
   repoUsageAt,
   spawnTargetForRepo,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { COMMAND_SUMMARIES } from '../src/command-launch-schema'
 import { type CommandLaunchData, commandLaunchViews } from '../src/command-launch-views'
 import type { MobxPool } from '../src/pool'

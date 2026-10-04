@@ -6,7 +6,7 @@ import type {
   IssuesOrdering,
   MissionProgress,
   TaskProgress,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { IssueBoardStage } from '@podium/model/browser'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { MISSION_SUMMARIES } from './mission-schema'

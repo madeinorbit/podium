@@ -1,7 +1,7 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
+import type { IssueReferenceModel } from '@podium/client-core/values'
 import type { PodiumTarget } from '@podium/protocol'
 import { parseSessionRef } from '@podium/protocol'
 import { compareStructural, computed, reaction } from 'mobx'

@@ -9,7 +9,7 @@ import {
   issueAbandoned,
   orderIssues,
   type TaskProgress,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import {
   _isComputingDerivation,

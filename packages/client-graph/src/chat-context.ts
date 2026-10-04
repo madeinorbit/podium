@@ -132,7 +132,7 @@ export function createChatContextReader(pool: MobxPool) {
     repositoryKey: () => chatRepositoryKey(pool),
     threads() {
       const catalog = pool.row('superThreadCatalog', 'catalog')
-      const threads: import('@podium/client-core/viewmodels').SuperThreadView[] = []
+      const threads: import('@podium/client-core/values').SuperThreadView[] = []
       let pending = loading(catalog) ? 1 : 0
       if (catalog && !loading(catalog)) for (const id of catalog.ids) {
         const row = pool.row('superThread', id)

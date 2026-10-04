@@ -10,7 +10,7 @@ import {
   deriveHandoffNow, issueContinuation, issueDisplayTitle, issueNote, missionDepartures,
   missionIssueIds, missionProgress, missionRootFor, missionSessions, presenceNote, reposToViews,
   selectedMissionRoot, selectLatestPromptSession, type FlightDeckMode, type FlightDeckRow, type IssueNavigationModel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { MobxPool } from '../src/pool'
 import { EMPTY_MISSION_HANDOFF, missionView, readMissionView, readMissionHandoff, readWorkspaceMission, type MissionViewValues, type MissionHandoffValues } from '../src/mission-view'
 import { LOADING } from '../src/worklist/rollup'

@@ -1,6 +1,6 @@
 /** Values stay in the check process; reports contain counts/positions only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { operationalState } from '@podium/client-core/viewmodels'
+import { operationalState } from '@podium/client-core/values'
 import { runInAction } from 'mobx'
 import type { PoolBoardData, PoolExplorerData } from '../src/issue-board-schema'
 import { issuePageFirstDifference } from './issue-page-check'

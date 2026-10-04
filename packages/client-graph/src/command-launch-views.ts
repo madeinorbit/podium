@@ -2,7 +2,7 @@ import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { RepoView } from '@podium/client-core/viewmodels'
+import type { RepoView } from '@podium/client-core/values'
 import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
   compareStructural,

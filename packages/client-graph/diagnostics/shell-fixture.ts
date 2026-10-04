@@ -2,7 +2,7 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { emptyWorkspace, openTab, missionRootFor, workspaceKeyFor } from '@podium/client-core/viewmodels'
+import { emptyWorkspace, openTab, missionRootFor, workspaceKeyFor } from '@podium/client-core/values'
 import { asIssueId, asMachineId, asRepoId, asSessionId } from '@podium/model/browser'
 import { shipLaneId, type ShipOrderProjection, type ShipLaneProjection } from '@podium/model'
 import { MobxPool } from '../src/pool'

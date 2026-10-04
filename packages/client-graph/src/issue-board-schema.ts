@@ -5,7 +5,7 @@ import type {
   IssueRow,
   IssuesOrdering,
   TaskProgress,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import type { IssueId, IssueStage } from '@podium/model/browser'
 import type { BoardProjection } from './issue-board-projection'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'

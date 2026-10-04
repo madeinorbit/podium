@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { createHostSessionAggregatesSelector } from '@podium/client-core/viewmodels'
+import { createHostSessionAggregatesSelector } from '@podium/client-core/values'
 import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, isAgentConfirmedComputing, type MachineId } from '@podium/model/browser'
 import { autorun, observe, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'

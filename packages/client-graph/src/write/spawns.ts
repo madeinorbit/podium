@@ -12,7 +12,7 @@ import { insertOverlay, type OverlayTarget, type PendingOverlay } from '@podium/
 import type { StoreNotices, SpawnPlaceholderEvent } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { optimisticDraftIssue, optimisticSessionUserState, optimisticStartedIssue,
-  optimisticStartingSession, type StartingSessionRow } from '@podium/client-core/viewmodels'
+  optimisticStartingSession, type StartingSessionRow } from '@podium/client-core/values'
 const log = createLogger('client-graph:spawns')
 const PROJECTION_KEYS = Object.keys(IssueProjection.shape)
 function placeholderProjection(issue: IssueViewModel): IssueProjection {

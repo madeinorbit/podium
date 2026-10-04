@@ -1,4 +1,4 @@
-import { optimisticDraftSortKey } from '@podium/client-core/viewmodels'
+import { optimisticDraftSortKey } from '@podium/client-core/values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
@@ -186,11 +186,8 @@ const spawnPools = new WeakMap<object, MobxPool>()
 /** What the transaction log needs from the runtime beyond the row feed. */
 type TransactionsRuntime = WorklistRuntime & {
   readonly principal: { userId: string }
-  readonly outbox: PoolTransactionsPorts['outbox']
   readonly subscribeOutboxOutcomes: PoolTransactionsPorts['outcomes']
-  readonly enqueueOverlayed: PoolTransactionsPorts['enqueue']
-  readonly spawnPlaceholders: NonNullable<PoolTransactionsPorts['spawns']>['current']
-  readonly subscribeSpawnPlaceholders: NonNullable<PoolTransactionsPorts['spawns']>['subscribe']
+  readonly outbox: PoolTransactionsPorts['outbox'] & { enqueue: import('@podium/client-core/engine').EngineOutbox['enqueue']; retireAwaiting(id: import('@podium/model').MutationId): void }
   /** Routes the runtime's queued actions through the log (POD-5432). */
   readonly attachPoolWriter: (writer: PoolTransactions) => () => void
 }
@@ -200,28 +197,19 @@ type TransactionsRuntime = WorklistRuntime & {
 export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransactions {
   const rt = runtime as Partial<TransactionsRuntime>
   const subscribeAddressed = runtime.replica.subscribeAddressedBatch?.bind(runtime.replica)
-  if (
-    !rt.principal ||
-    !rt.outbox ||
-    !rt.subscribeOutboxOutcomes ||
-    !rt.enqueueOverlayed ||
-    !rt.spawnPlaceholders ||
-    !rt.subscribeSpawnPlaceholders ||
-    !rt.attachPoolWriter ||
-    !subscribeAddressed
-  ) {
-    throw new Error(
-      'Pool transactions require the runtime outbox, outcome, enqueue, spawn and writer seams',
-    )
+  if (!rt.principal || !rt.outbox || !rt.subscribeOutboxOutcomes ||
+    !rt.attachPoolWriter || !subscribeAddressed) {
+    throw new Error('Pool transactions require the runtime outbox, outcome, enqueue, spawn and writer seams')
   }
   return createPoolTransactions({
     userId: rt.principal.userId,
     outbox: rt.outbox,
     outcomes: rt.subscribeOutboxOutcomes,
-    enqueue: rt.enqueueOverlayed,
+    enqueue: async (kind, input, opts) => { await rt.outbox!.enqueue(kind, input, opts) },
+    retire: id => rt.outbox!.retireAwaiting(id),
     addressed: subscribeAddressed,
     spawn: {
-      api: (runtime as unknown as { getSnapshot(): { trpc: import('@podium/client-core').PodiumClientApi } }).getSnapshot().trpc,
+      api: (runtime as unknown as { access: { trpc: import('@podium/client-core').PodiumClientApi } }).access.trpc,
       userId: asUserId(rt.principal.userId),
       notices: (runtime as unknown as { spawnNotices: import('@podium/client-core/engine').StoreNotices }).spawnNotices,
       graceMs: (runtime as unknown as { spawnGraceMs?: number }).spawnGraceMs,
@@ -268,13 +256,8 @@ export function createRuntimeWorklistPool(
   const transactions = owned.size > 0 ? createRuntimeTransactions(runtime) : null
   let rows: ReturnType<typeof createRowSource>
   try {
-    rows = createRowSource(
-      runtime,
-      runtime.replica,
-      transactions === null
-        ? { mode: 'overlaid' }
-        : { mode: 'pooled', pending: transactions.pending, owned },
-    )
+    rows = createRowSource(runtime, runtime.replica,
+      transactions === null ? { mode: 'truth' } : { mode: 'pooled', pending: transactions.pending, owned })
   } catch (error) {
     transactions?.dispose()
     throw error

@@ -7,7 +7,7 @@ import {
   buildFlightDeckRows, createHostSessionAggregatesSelector, cwdInWorktree, issueForCwd,
   listReclaimableWorktreesClient, missionProgress, occupiedRootsFromKey, placeReclaimable,
   reposToViews, resolveActiveWorktree, selectedMissionRoot, shippingPanelModel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { isAgentConfirmedComputing, isMachineOfflineForLiveTerminal, type HostMetricsWire, type MachineQuotaWire } from '@podium/model/browser'
 import type { MobxPool } from '../src/pool'
 import type { HeaderRows } from '../src/header-schema'

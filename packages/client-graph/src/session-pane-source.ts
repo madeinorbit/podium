@@ -18,22 +18,20 @@ export class SessionPaneSource {
       if (this.disposed) return
       const panelMode = runtime.readLocal('panelMode'),
         dockShells = runtime.readLocal('dockShells'),
-        reposLoaded = runtime.readLocal('reposLoaded'),
-        pendingSpawnIds = runtime.readLocal('pendingSpawnIds')
+        reposLoaded = runtime.readLocal('reposLoaded')
       const previous = this.value.get()
       if (
         previous &&
         previous.panelMode === panelMode &&
         previous.dockShells === dockShells &&
-        previous.reposLoaded === reposLoaded &&
-        previous.pendingSpawnIds === pendingSpawnIds
+        previous.reposLoaded === reposLoaded
       )
         return
-      runInAction(() => this.value.set({ panelMode, dockShells, reposLoaded, pendingSpawnIds }))
+      runInAction(() => this.value.set({ panelMode, dockShells, reposLoaded }))
     }
     update()
     // Keyed (POD-5433): only these four locals wake the pane window.
-    this.stop = runtime.onLocals(['panelMode', 'dockShells', 'reposLoaded', 'pendingSpawnIds'], update)
+    this.stop = runtime.onLocals(['panelMode', 'dockShells', 'reposLoaded'], update)
   }
   read(_entity: 'sessionPaneWindow', _id: string) {
     return this.value.get()

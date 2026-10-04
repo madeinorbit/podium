@@ -173,8 +173,8 @@ describe('keyed adapter inputs (POD-5433)', () => {
       try {
         // Focus is local-only (a dock tab replicates through the outbox, which
         // moves the header's outbox count).
-        const next = f.rt.getSnapshot().focusedPane === 'A' ? 'B' : 'A'
-        const cost = await costOf(f, () => runInAction(() => f.rt.getSnapshot().setFocusedPane(next)))
+        const next = f.rt.access.focusedPane === 'A' ? 'B' : 'A'
+        const cost = await costOf(f, () => runInAction(() => f.rt.access.setFocusedPane(next)))
         expect(cost).toEqual(zero(cost))
       } finally {
         f.dispose()
@@ -185,7 +185,7 @@ describe('keyed adapter inputs (POD-5433)', () => {
       const f = await fixture(scale)
       try {
         const cost = await costOf(f, () =>
-          f.rt.getSnapshot().setSessionDraft(asSessionId(f.session), "hello"),
+          f.rt.access.setSessionDraft(asSessionId(f.session), "hello"),
         )
         expect(cost).toEqual({ ...zero(cost), chatContext: cost.chatContext })
         expect(cost.chatContext).toBeGreaterThan(0)

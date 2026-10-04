@@ -76,7 +76,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       runtime.replica.rows('shipOrders').map((order) => [order.id, order]),
     )
   }
-  const api = runtime.getSnapshot().trpc
+  const api = runtime.access.trpc
   let quotaPending = false
   async function quota(): Promise<void> {
     if (quotaPending || disposed) return

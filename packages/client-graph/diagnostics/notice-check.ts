@@ -1,7 +1,7 @@
 /** Fixture and private-replay comparison. Values stay in memory;
  * reports contain only counts and positions. Recovery compares parked author input. */
 import type { Store } from '@podium/client-core/engine'
-import { messageNotices, pendingInteractionCards } from '@podium/client-core/viewmodels'
+import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
 import {
   noticeContinuity,
   noticeInteractions,

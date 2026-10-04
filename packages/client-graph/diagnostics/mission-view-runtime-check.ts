@@ -20,7 +20,7 @@ export function installMissionViewCheck(runtime: ClientRuntime, pool: MobxPool):
     const delay = quietUntil - performance.now()
     if (delay > 0) { timer = setTimeout(check, delay); return }
     const end = beginSidebarCheck(runtime)
-    try { result = runInAction(() => checkMissionViewFromStore(pool, runtime.getSnapshot())) }
+    try { result = runInAction(() => checkMissionViewFromStore(pool, runtime.access)) }
     finally { end() }
   }
   const api = { request: () => { if (!timer && !disposed) timer = setTimeout(check, 250) }, read: () => result }

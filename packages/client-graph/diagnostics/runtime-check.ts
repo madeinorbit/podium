@@ -54,7 +54,7 @@ export function startSidebarCheck(
     let result: SidebarCheckResult | undefined
     try {
       result = runInAction(() => {
-        const store = runtime.getSnapshot()
+        const store = runtime.access
         return checkSidebar(pool, store, options.state?.(store))
       })
       checks += 1

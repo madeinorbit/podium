@@ -12,7 +12,7 @@ import {
   sessionNeedsHuman,
   issueRowsByStage,
   partitionIssueTree,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { asIssueId, asSessionId, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
 import {
   _isComputingDerivation,

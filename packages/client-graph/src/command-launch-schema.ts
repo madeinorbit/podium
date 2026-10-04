@@ -1,7 +1,7 @@
 import type { Store } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SliceIssue } from './shared/slice-types'
-import type { WorktreeView } from '@podium/client-core/viewmodels'
+import type { WorktreeView } from '@podium/client-core/values'
 
 /** Read-side declarations; the existing runtime still owns every write. */
 export interface CommandLaunchRows {
