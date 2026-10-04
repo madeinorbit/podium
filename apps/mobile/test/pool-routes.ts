@@ -38,7 +38,9 @@ export function poolRouteFixture(input: {
       ...input.sessions.map((row) => ({
         kind: 'session' as const,
         id: row.sessionId,
-        value: row as never,
+        // Address fixtures declare identity only. A full SessionView may carry
+        // resume-chain membership which belongs to a separate reader question.
+        value: { sessionId: row.sessionId, displayRef: row.displayRef } as never,
       })),
     ],
   })

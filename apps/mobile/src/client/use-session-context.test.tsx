@@ -547,10 +547,22 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
     'privateBody',
   )
   const state = enabled.runtime.getSnapshot()
+  const ids = [SID, 'synthetic-session-11', 'missing-session']
+  // The mounted probe asks only for SID. The complete frozen output also asks
+  // for the archived and absent addresses, so settle their batched loads first.
+  for (let turn = 0; turn < 64; turn++) {
+    mobileSessionSnapshot(enabled.pool(), ids, state.coarseNow)
+    let loaded = 0
+    await act(async () => {
+      loaded = enabled.pool().hydrate()
+    })
+    if (loaded === 0) break
+    if (turn === 63) throw new Error('Complete session fixture did not settle')
+  }
   expect(
     mobileSessionSnapshot(
       enabled.pool(),
-      [SID, 'synthetic-session-11', 'missing-session'],
+      ids,
       state.coarseNow,
     ),
   ).toMatchSnapshot('last green pilot-ON complete session output')

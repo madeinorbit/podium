@@ -62,9 +62,14 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
     ...real,
-    useMobilePool: () => state.host!.host.usePool(),
-    useMobilePoolProjection: (read: never, empty: never) =>
-      state.host!.host.usePoolProjection(read, empty),
+    useMobilePool: () => {
+      state.pool = state.host!.host.usePool()
+      return state.pool
+    },
+    useMobilePoolProjection: (read: never, empty: never) => {
+      state.pool = state.host!.host.usePool()
+      return state.host!.host.usePoolProjection(read, empty)
+    },
     useMobileLaunchData: () => state.host!.host.usePoolProjection(readLaunch, null),
   }
 })

@@ -99,13 +99,13 @@ describe('MissionDeck view bar', () => {
     expect(full).toBeGreaterThan(0)
     // `Needs you` drops the quiet subtask, so the deck's own arithmetic must
     // come back smaller — this is the wire the panel's dynamic height rides on.
-    fireEvent.click(screen.getByText('Needs you'))
+    await act(async () => fireEvent.click(screen.getByText('Needs you')))
     expect(heights.at(-1)).toBeLessThan(full as number)
   })
 
   it('drops the tasks that are not asking when Needs you is chosen', async () => {
     await mount()
-    fireEvent.click(screen.getByText('Needs you'))
+    await act(async () => fireEvent.click(screen.getByText('Needs you')))
     expect(screen.getByText('Asking subtask')).toBeTruthy()
     expect(screen.queryByText('Quiet subtask')).toBeNull()
   })
@@ -173,7 +173,7 @@ describe('MissionDeck view bar', () => {
 
     it('drops the agent in Needs you and says which view emptied the deck', async () => {
       await mountSolo()
-      fireEvent.click(screen.getByText('Needs you'))
+      await act(async () => fireEvent.click(screen.getByText('Needs you')))
       expect(screen.queryByText('Agent menu entry semantics')).toBeNull()
       expect(screen.getByText('No agent in this mission is asking for you.')).toBeTruthy()
     })
@@ -187,14 +187,14 @@ describe('MissionDeck view bar', () => {
      */
     it('drops a standing-by agent in Working and says which view emptied the deck', async () => {
       await mountSolo()
-      fireEvent.click(screen.getByText('Working'))
+      await act(async () => fireEvent.click(screen.getByText('Working')))
       expect(screen.queryByText('Agent menu entry semantics')).toBeNull()
       expect(screen.getByText('No agent in this mission is working right now.')).toBeTruthy()
     })
 
     it('keeps the same agent in Working once it is mid-turn', async () => {
       await mountSolo(busy)
-      fireEvent.click(screen.getByText('Working'))
+      await act(async () => fireEvent.click(screen.getByText('Working')))
       expect(screen.getByText('Agent menu entry semantics')).toBeTruthy()
     })
   })

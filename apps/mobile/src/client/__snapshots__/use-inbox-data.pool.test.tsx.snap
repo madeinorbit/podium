@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`compares every card, triage bucket, screening ancestor and addressed route using the sidebar pattern > last green pilot-ON complete inbox output 1`] = `
+exports[`compares every card, triage bucket, screening ancestor and addressed route against the last green pilot outputs > last green pilot-ON complete inbox output 1`] = `
 {
   "cards": [
     {
