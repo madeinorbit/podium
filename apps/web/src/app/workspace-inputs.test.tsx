@@ -140,6 +140,9 @@ it('preserves source resume collapse for addressed tabs and foreign warm session
     f.session('a', { resume, status: 'exited' }),
     f.session('b', { resume, status: 'live' }),
   ])
+  // A group with an active process stays whole; only a parked group collapses.
+  expect(workspaceSessions(f.pool, new Set(['a', 'b'])).map((row) => row.sessionId)).toEqual(['a', 'b'])
+  f.publish([f.session('b', { resume, status: 'hibernated' })])
   expect(f.pool.queries.collapsed('a')).toBe(true)
   expect(workspaceSessions(f.pool, new Set(['a', 'b']), ['a']).map((row) => row.sessionId)).toEqual(
     ['b'],
