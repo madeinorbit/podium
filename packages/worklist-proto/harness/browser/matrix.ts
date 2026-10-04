@@ -32,7 +32,7 @@
  * at the commit being timed, with `harness/web/dist` built there.
  *
  *   bun --conditions=@podium/source packages/worklist-proto/harness/browser/matrix.ts \
- *     --arms noop,control --scales 1,2,4 --rounds 4 --samples 5 --tag floor [--host flatblock]
+ *     --arms noop,hand --scales 1,2,4 --rounds 4 --samples 5 --tag floor [--host flatblock]
  *   bun packages/worklist-proto/harness/browser/summarize.ts \
  *     packages/worklist-proto/harness/browser/results/floor
  *
@@ -56,7 +56,7 @@ import {
   matrixRunFile,
 } from './complete'
 import {
-  ARMS,
+  CAPTURE_ARMS,
   type ArmName,
   type RunOutput,
   SCENARIOS,
@@ -72,10 +72,10 @@ function arg(argv: string[], flag: string, fallback: string): string {
 const argv = process.argv.slice(2)
 // An arm, or `noop+<plant>` for a planted no-op page (the timer's and the
 // budgets' can-say-NO runs), interleaved with the rest like any arm.
-const arms = arg(argv, '--arms', 'noop,control').split(',')
+const arms = arg(argv, '--arms', 'noop,hand').split(',')
 for (const arm of arms) {
   const [name, plant] = arm.split('+')
-  if (!(ARMS as readonly string[]).includes(name ?? '')) throw new Error(`unknown arm ${arm}`)
+  if (!(CAPTURE_ARMS as readonly string[]).includes(name ?? '')) throw new Error(`unknown arm ${arm}`)
   if (plant !== undefined && name !== 'noop') throw new Error(`plants are for noop only (${arm})`)
 }
 const cells = arg(argv, '--cells', '')

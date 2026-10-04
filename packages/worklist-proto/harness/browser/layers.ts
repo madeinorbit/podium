@@ -29,7 +29,7 @@
  * Heap is not timing: this runs on any machine, never under the bench lease.
  *
  *   bun scripts/test-heavy.ts -- bun --conditions=@podium/source packages/worklist-proto/harness/browser/layers.ts \
- *     --arms noop,control,mobx --cells h1a1,h10a1,h1a4 --out packages/worklist-proto/harness/browser/results/layers.json
+ *     --arms noop,hand,mobx --cells h1a1,h10a1,h1a4 --out packages/worklist-proto/harness/browser/results/layers.json
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -39,7 +39,7 @@ import { dirname, extname, join } from 'node:path'
 import { type CDPSession, chromium, type Page } from '@playwright/test'
 import { cellLabel, parseCell } from '../src/fixture/index'
 import { type ConstructorTotal, HeapSnapshotReader } from './heap-snapshot'
-import { ARMS } from './records'
+import { CAPTURE_ARMS } from './records'
 
 export const STAGES = ['script', 'fixture', 'cache', 'engine', 'arm'] as const
 export type Stage = (typeof STAGES)[number]
@@ -239,9 +239,9 @@ async function main(): Promise<number> {
       console.log(line)
     return 0
   }
-  const arms = arg(argv, '--arms', 'noop,control,mobx').split(',')
+  const arms = arg(argv, '--arms', 'noop,hand,mobx').split(',')
   for (const arm of arms)
-    if (!(ARMS as readonly string[]).includes(arm.split('+')[0] ?? ''))
+    if (!(CAPTURE_ARMS as readonly string[]).includes(arm.split('+')[0] ?? ''))
       throw new Error(`unknown arm ${arm}`)
   const cells = arg(argv, '--cells', 'h1a1,h10a1,h1a4')
     .split(',')

@@ -1,6 +1,6 @@
 /**
  * POD-4445 — production build for the round-two browser pages. One entry per
- * arm plus the legacy control, each mounting over a kernel seeded at the
+ * arm, each mounting over a kernel seeded at the
  * `?scale=` corpus (1/2/4) and exposing `window.__proto` for the driver
  * (`harness/browser/run.ts`).
  *
@@ -25,7 +25,7 @@ export default defineConfig({
     // Workspace sources, never dist (the proto package has no dist).
     conditions: ['@podium/source'],
     alias: [
-      // The control's native list imports `react-native`, whose Flow source
+      // The prototype native lists import `react-native`, whose Flow source
       // no bundler here parses. The dynamic chunk Rollup builds for it must
       // resolve the same `react-native-web` mapping the unit renderer and
       // `expo export -p web` use; the chunk is never loaded by these pages.

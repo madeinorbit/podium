@@ -5,7 +5,9 @@
  */
 import type { ProtoParity, ProtoScenarioResult } from '../web/entrylib'
 
-export const ARMS = ['control', 'hand', 'mobx', 'mobx-write', 'mobx-pending', 'noop'] as const
+export const CAPTURE_ARMS = ['hand', 'mobx', 'mobx-write', 'mobx-pending', 'noop'] as const
+/** Historical reports retain the retired control's tag. New captures cannot run it. */
+export const ARMS = ['control', ...CAPTURE_ARMS] as const
 export type ArmName = (typeof ARMS)[number]
 export type Scale = 1 | 2 | 4
 /** The hot-path changes: one page load per run, the default scenario set. */

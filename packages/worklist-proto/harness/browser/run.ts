@@ -93,7 +93,7 @@ import {
 import { truthRows } from './grown-truth'
 import {
   ALL_SCENARIOS,
-  ARMS,
+  CAPTURE_ARMS,
   type ArmName,
   type HeapUsage,
   type HotPathScenario,
@@ -119,7 +119,7 @@ const CELL_VIEWPORT = { width: 1600, height: 7400 }
 
 /** The arms held to the oracle in check mode; the control (whole-list redraw)
  *  and the no-op page (draws nothing) exist to fail it and are reported only. */
-const CANDIDATE_ARMS = new Set<ArmName>(['hand', 'mobx', 'mobx-write', 'mobx-pending'])
+const CANDIDATE_CAPTURE_ARMS = new Set<ArmName>(['hand', 'mobx', 'mobx-write', 'mobx-pending'])
 
 /** The floor draws its boot snapshot forever: parity is reported, not enforced, unless `--strict-parity`. */
 const PARITY_EXEMPT = new Set<ArmName>(['noop'])
@@ -187,11 +187,11 @@ function parseArgs(argv: string[]): Args {
     if (index < 0 || index + 1 >= argv.length) return fallback
     return argv[index + 1]
   }
-  const arm = (get('--arm', 'control') ?? 'control') as string
+  const arm = (get('--arm', 'mobx') ?? 'mobx') as string
   if (get('--plant') !== undefined && arm !== 'noop')
     throw new Error('--plant is for --arm noop only')
-  if (!(ARMS as readonly string[]).includes(arm)) {
-    throw new Error(`--arm must be one of ${ARMS.join(', ')} (got ${arm})`)
+  if (!(CAPTURE_ARMS as readonly string[]).includes(arm)) {
+    throw new Error(`--arm must be one of ${CAPTURE_ARMS.join(', ')} (got ${arm})`)
   }
   const rawCell = get('--cell')
   const cell = rawCell === undefined ? null : parseCell(rawCell)
@@ -266,7 +266,7 @@ const MIME: Record<string, string> = {
 function serveDist(dir: string, port: number): Promise<Server> {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x')
-    let file = join(dir, url.pathname === '/' ? 'control.html' : url.pathname.slice(1))
+    let file = join(dir, url.pathname === '/' ? 'mobx.html' : url.pathname.slice(1))
     // POD-4446: vite emits entries under `entries/` (multi-page input), so
     // `/hand.html` lives at `<serve>/entries/hand.html`. Fall back there.
     if (!existsSync(file) && file.endsWith('.html')) {
@@ -413,7 +413,7 @@ async function main(): Promise<number> {
         const type = message.type()
         if (type !== 'warning' && type !== 'error') return
         const text = `console ${type}: ${message.text().slice(0, 300)}`
-        if (CANDIDATE_ARMS.has(args.arm)) fail(text)
+        if (CANDIDATE_CAPTURE_ARMS.has(args.arm)) fail(text)
         else console.log(`[browser] ${args.arm} ${text}`)
       })
       await page.goto(hold ? `${url}&hold=1` : url, { waitUntil: 'domcontentloaded' })
@@ -593,7 +593,7 @@ async function main(): Promise<number> {
         if (
           args.check &&
           check !== null &&
-          CANDIDATE_ARMS.has(args.arm) &&
+          CANDIDATE_CAPTURE_ARMS.has(args.arm) &&
           (check.over.length > 0 || check.under.length > 0)
         ) {
           fail(

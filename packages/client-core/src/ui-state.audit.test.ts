@@ -77,19 +77,6 @@ const DECLARED_STORAGE_EXCEPTIONS: ReadonlyMap<string, string> = new Map([
   ],
 ])
 
-/**
- * Synthetic-lane resets, separate from product owners and temporary debt.
- * This is an exact file and operation allowance, never a perf-directory exclusion.
- */
-const SYNTHETIC_STORAGE_RESETS: ReadonlyMap<string, string> = new Map([
-  [
-    'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx',
-    'POD-4311 owns this synthetic frontend-perf lane. Each cold sample resets its ' +
-      'test environment before mounting the shipped runtime; only the browser clear ' +
-      'operation is allowed, with no product reads or writes exempted.',
-  ],
-])
-
 function sources(dir: string): string[] {
   const out: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -135,9 +122,7 @@ function rawStorageAccesses(source: string): string[] {
 
 function unownedStorageAccesses(rel: string, source: string): string[] {
   if (SANCTIONED_STORAGE_FILES.has(rel) || DECLARED_STORAGE_EXCEPTIONS.has(rel)) return []
-  return rawStorageAccesses(source).filter(
-    (access) => !(SYNTHETIC_STORAGE_RESETS.has(rel) && access === 'localStorage.clear'),
-  )
+  return rawStorageAccesses(source)
 }
 
 describe('UI persistence ownership lint', () => {
@@ -275,29 +260,11 @@ describe('UI persistence ownership lint', () => {
     ).toEqual(['localStorage.getItem', 'localStorage.setItem'])
   })
 
-  it('the named synthetic reset still owns exactly one browser clear', () => {
-    expect([...SYNTHETIC_STORAGE_RESETS.keys()]).toEqual([
-      'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx',
-    ])
-    for (const [rel, reason] of SYNTHETIC_STORAGE_RESETS) {
-      const source = readFileSync(join(ROOT, rel), 'utf8')
-      expect(rawStorageAccesses(source), rel).toEqual(['localStorage.clear'])
-      expect(unownedStorageAccesses(rel, source), rel).toEqual([])
-      expect(reason).toContain('POD-4311')
-    }
-  })
-
   it.each([
     ['apps/mobile/src/client/browser-accounts.ts', "localStorage.setItem('unrelated', value)"],
     ['apps/web/src/lib/accounts.ts', "localStorage.getItem('unrelated')"],
     ['apps/web/src/features/other.ts', 'window.localStorage.clear()'],
     ['apps/web/src/perf/other.frontend-perf.tsx', 'localStorage.clear()'],
-    [
-      'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx',
-      "localStorage.setItem('unrelated', value)",
-    ],
-    ['apps/web/src/perf/kernel-scenarios.frontend-perf.tsx', "localStorage.getItem('unrelated')"],
-    ['apps/web/src/perf/kernel-scenarios.frontend-perf.tsx', 'AsyncStorage.clear()'],
   ])('rejects an unrelated storage access in %s: %s', (rel, source) => {
     expect(unownedStorageAccesses(rel, source)).toHaveLength(1)
   })
