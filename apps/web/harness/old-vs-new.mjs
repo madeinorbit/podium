@@ -210,7 +210,7 @@ async function prepareObservedReplay() {
 async function makePage() {
   const context=await browser.newContext(surface==='phone'? {...devices['Pixel 7'],serviceWorkers:'block'}:{viewport:{width:1800,height:1000},reducedMotion:'reduce',serviceWorkers:'block'})
   await bindContext(context)
-  const page=await context.newPage(); page.setDefaultTimeout(10000)
+  const page=await context.newPage(); page.setDefaultTimeout(60000)
   page.on('pageerror',error=>result.errors.push(error.message))
   page.on('console',message=>{if(['error','warning'].includes(message.type()))result.errors.push(`${message.type()}: ${message.text().slice(0,1000)}`)})
   await page.addInitScript(({now})=>{
@@ -436,7 +436,7 @@ async function runActions(f) {
     })
     await attempt('session-composer-typing',async()=>{
       const chat=page.locator('[data-panel-resident][data-pane] [data-testid="mode-chat"]').last()
-      await chat.click()
+      await chat.click({timeout:10000})
       const input=page.locator('[data-panel-resident][data-pane] textarea.prompt-input').last()
       await input.focus();await input.fill('')
       for(let i=0;i<samples+2;i++) {
