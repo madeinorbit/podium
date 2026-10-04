@@ -186,7 +186,6 @@ const spawnPools = new WeakMap<object, MobxPool>()
 /** What the transaction log needs from the runtime beyond the row feed. */
 type TransactionsRuntime = WorklistRuntime & {
   readonly principal: { userId: string }
-  readonly transactionNow?: () => number
   readonly subscribeOutboxOutcomes: PoolTransactionsPorts['outcomes']
   readonly outbox: PoolTransactionsPorts['outbox'] & { enqueue: import('@podium/client-core/engine').EngineOutbox['enqueue']; retireAwaiting(id: import('@podium/model').MutationId): void }
   /** Routes the runtime's queued actions through the log (POD-5432). */
@@ -204,7 +203,6 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
   }
   return createPoolTransactions({
     userId: rt.principal.userId,
-    ...(rt.transactionNow ? { now: rt.transactionNow } : {}),
     outbox: rt.outbox,
     outcomes: rt.subscribeOutboxOutcomes,
     enqueue: async (kind, input, opts) => { await rt.outbox!.enqueue(kind, input, opts) },

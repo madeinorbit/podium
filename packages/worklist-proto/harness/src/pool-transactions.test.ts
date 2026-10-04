@@ -38,7 +38,7 @@ import {
   sessionUserStateRowId,
 } from '@podium/model'
 import { autorun } from 'mobx'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   evict,
   remove,
@@ -98,7 +98,6 @@ function pair(ctx: ScenarioEngine, _owns: readonly PoolOwnedKind[]) {
   // durable retirement. Only the product pool retires applied records.
   const transactions = createPoolTransactions({
     userId: ctx.engine.principal.userId,
-    now: ctx.engine.transactionNow,
     outbox: ctx.engine.outbox,
     outcomes: ctx.engine.subscribeOutboxOutcomes,
     enqueue: async (kind, input, opts) => { await ctx.engine.outbox.enqueue(kind, input, opts) },
@@ -203,6 +202,24 @@ function sessionsOf(ctx: ScenarioEngine): string[] {
 describe.each([
   ['issues and sessions owned', ['issue', 'session']],
 ] as const)('pool transactions against the ledger (POD-5431), %s', (_step, owns) => {
+  it('keeps offline read cursors on the press clock when the sidebar clock advances', async () => {
+    const wallNow = Date.parse('2026-09-20T12:00:00.000Z')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(wallNow)
+    try {
+      const { ctx } = await boot(1, { online: false })
+      const handle = createRuntimeWorklistPool(ctx.engine)
+      cleanups.push(() => handle.dispose())
+      ctx.advanceClock(24 * 60 * 60 * 1000)
+      const id = ctx.targets.markReadId
+      handle.pool.mutate('issueMarkRead', { id: asIssueId(id) })
+      await settle(ctx)
+      const entry = ctx.engine.outbox.pending().find(row => row.kind === 'issueMarkRead')
+      expect(entry).toBeDefined()
+      expect(tracked(() => handle.pool.readCursor(id))).toBe(new Date(wallNow).toISOString())
+    } finally { vi.useRealTimers() }
+  })
+
   it('paints every painting command kind exactly as the ledger does, queued offline', async () => {
     const { ctx } = await boot(1, { online: false })
     const { ledger, pooled } = pair(ctx, owns)
