@@ -1,5 +1,4 @@
 import type { SessionView } from '../session-values'
-import { sessionById } from '../session-index'
 import { loadingNavigationProvider, NAVIGATION_LOADING, type NavigationIssue, type NavigationProvider } from './navigation-provider'
 export * from './navigation-provider'
 /**
@@ -63,7 +62,6 @@ import {
   workspaceKeyFor,
 } from '../values'
 import type { SuperThreadView } from '../values/compose/superagent'
-import { EMPTY_ID_SET } from './overlay'
 import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } from './types'
 
 /** The runtime's mutable data slices — exactly the non-function fields of Store
