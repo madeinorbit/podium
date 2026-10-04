@@ -2,7 +2,7 @@ import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
 import { parseSessionRef } from '@podium/protocol'
-import { _isComputingDerivation, runInAction } from 'mobx'
+import { _isComputingDerivation, compareStructural, runInAction } from 'mobx'
 import { missions } from './mission'
 import { navigationActivity } from './navigation-activity'
 import type { MobxPool } from './pool'
@@ -129,7 +129,8 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       return latest === LOADING ? NAVIGATION_LOADING : latest
     },
     issueReadAt: (id) => pool.readCursor(id),
-    watch: (read, changed) => createPoolProjection(pool, read).subscribe(changed),
+    // This port returns small scalar tuples, not memoized row identities.
+    watch: (read, changed) => createPoolProjection(pool, read, { equals: compareStructural }).subscribe(changed),
   }
   // Runtime actions also use this port outside a reactive read. Permit those
   // addressed reads without detaching the same methods from watched projections.
