@@ -21,10 +21,15 @@ for surface, directory in [('web', 'apps/web/dist'), ('phone', 'apps/mobile/dist
     if not source.is_dir():
         raise RuntimeError('Missing measured production build: ' + directory)
     shutil.copytree(source, target / surface)
-    for file in sorted((target / surface).rglob('*')):
-        if file.is_file():
-            files.append({'path': str(file.relative_to(target)), 'bytes': file.stat().st_size,
-                          'sha256': hashlib.sha256(file.read_bytes()).hexdigest()})
+(target / 'inputs').mkdir()
+for scale in [1, 4]:
+    for kind in ['corpus', 'rows', 'validation']:
+        name = f'{kind}-{scale}x.json'
+        shutil.copy2(checkout / '.artifacts/old-vs-new' / name, target / 'inputs' / name)
+for file in sorted(target.rglob('*')):
+    if file.is_file():
+        files.append({'path': str(file.relative_to(target)), 'bytes': file.stat().st_size,
+                      'sha256': hashlib.sha256(file.read_bytes()).hexdigest()})
 manifest = {'sha': sha, 'capturedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'host': socket.gethostname(), 'files': files}
 (target / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
