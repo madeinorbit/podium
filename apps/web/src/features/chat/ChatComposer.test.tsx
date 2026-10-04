@@ -132,11 +132,25 @@ afterEach(() => {
 })
 
 describe.each([false, true])('draft selection, compact=%s', (compact) => {
-  it('keeps the caret after typing in the middle across synchronous draft renders', async () => {
+  it('keeps the caret when a draft render follows native mid-text input', async () => {
     const onDraftChange = vi.fn()
     const { ta } = await mount({ compact, draft: 'abcdef', onDraftChange })
     const initialDefault = ta.defaultValue
     const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    const nativeDefault = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'defaultValue',
+    )!.set!
+    vi.spyOn(HTMLTextAreaElement.prototype, 'defaultValue', 'set').mockImplementation(function (
+      this: HTMLTextAreaElement,
+      value: string,
+    ) {
+      const changed = this.defaultValue !== value
+      nativeDefault.call(this, value)
+      // Reproduce the WebKit order: native input positions the caret, then
+      // React's changed default-text write moves it to the end on draft sync.
+      if (changed) this.setSelectionRange(this.value.length, this.value.length)
+    })
     const valueWrites = vi.spyOn(HTMLTextAreaElement.prototype, 'value', 'set')
     ta.focus()
     ta.setSelectionRange(3, 3)
