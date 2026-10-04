@@ -54,7 +54,8 @@ try {
     for(let fiber=ta[key];fiber;fiber=fiber.return){
         const owner=fiber.memoizedProps?.value;
         if(typeof owner?.readLocal==='function' && typeof owner?.onDraft==='function') {
-            environment.corpus={issues:owner.replica.rows('issueProjections').length,sessions:owner.replica.rows('sessions').length};break;
+            const replica=owner.replica??owner.access?.replica;
+            environment.corpus={issues:replica.rows('issueProjections').length,sessions:replica.rows('sessions').length};break;
         }
     }
 } catch(error) {environment.corpusReadError=String(error)}

@@ -68,6 +68,19 @@ const server = Bun.serve({
         busyControl: true,
       })
     }
+    if (offline && url.pathname === '/__emit' && request.method === 'POST') {
+      const frame = await request.json()
+      if (
+        frame.type !== 'sessionDraftChanged' ||
+        frame.sessionId !== manifest.control ||
+        typeof frame.text !== 'string' ||
+        !Number.isInteger(frame.rev) ||
+        frame.rev < 0
+      )
+        return new Response('Synthetic control draft frame required', { status: 400 })
+      const bytes = server.publish('synthetic-control', JSON.stringify(frame))
+      return Response.json({ bytes })
+    }
     if (url.pathname === '/sync/bootstrap') {
       const scaleFile = Bun.file(`${root}/scale.txt`)
       const scale = (await scaleFile.exists()) ? (await scaleFile.text()).trim() : '1'
@@ -149,7 +162,10 @@ const server = Bun.serve({
   },
   websocket: {
     open(client) {
-      if (offline) return
+      if (offline) {
+        client.subscribe('synthetic-control')
+        return
+      }
       const socket = new WebSocket(`ws://127.0.0.1:19688${client.data.path}`)
       client.data.socket = socket
       socket.onopen = () => {
