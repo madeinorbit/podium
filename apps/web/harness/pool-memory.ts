@@ -34,7 +34,7 @@ const devLocal = process.argv.includes('--dev-local')
 const base = resolve(process.cwd(), '.artifacts/pool-memory')
 const build = resolve(base, 'build')
 const out = resolve(base, arg('out', 'capture'))
-const port = 41671
+const port = Number(arg('port', '41671'))
 const url = `http://127.0.0.1:${port}/test/pool-memory.browser.html`
 
 if (phase === 'build') {
