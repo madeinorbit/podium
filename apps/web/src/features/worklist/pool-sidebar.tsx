@@ -653,7 +653,8 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const readDraw = useCallback(() => {
     const next = draw.get()
     const previous = lastDraw.value
-    if (previous && compareStructural(previous.paint, next.paint)) return previous
+    if (previous && previous.now === next.now && compareStructural(previous.paint, next.paint))
+      return previous
     lastDraw.value = next
     return next
   }, [draw, lastDraw])
