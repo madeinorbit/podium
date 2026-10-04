@@ -280,8 +280,8 @@ const waterfallDeck = async (): Promise<ReturnType<typeof render>> => {
 }
 
 /** The single-click action is deferred by the double-click window. */
-const settle = (): void => {
-  act(() => {
+const settle = async (): Promise<void> => {
+  await act(async () => {
     vi.advanceTimersByTime(400)
   })
 }
@@ -1463,7 +1463,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
     fireEvent.click(sessionRow('s2'))
     expect(harness.openSessionTab).not.toHaveBeenCalled()
-    settle()
+    await settle()
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
   })
 
@@ -1471,7 +1471,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     harness.display = 'expanded'
     await deck()
     fireEvent.click(sessionRow('s2'))
-    settle()
+    await settle()
     expect(harness.onDisplayChange).toHaveBeenCalledWith('compact')
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
   })
@@ -1481,7 +1481,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
     expect(sessionRow('s2').getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(sessionRow('s2'))
-    settle()
+    await settle()
     expect(harness.onDisplayChange).toHaveBeenCalledWith('expanded')
   })
 
@@ -1489,7 +1489,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     harness.paneA = 's2'
     await deck()
     fireEvent.click(sessionRow('s3'))
-    settle()
+    await settle()
     expect(harness.onDisplayChange).not.toHaveBeenCalled()
     expect(harness.openSessionTab.mock.calls).toEqual([['s3', { permanent: false }]])
   })
@@ -1571,7 +1571,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     const control = screen.getByRole('slider', { name: 'Timeline row height' })
     expect(control.getAttribute('aria-valuenow')).toBe('100')
 
-    fireEvent.keyDown(control, { key: 'ArrowUp' })
+    await act(async () => fireEvent.keyDown(control, { key: 'ArrowUp' }))
 
     expect(control.getAttribute('aria-valuenow')).toBe('108')
     expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.08')
@@ -1585,10 +1585,10 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(control.getAttribute('aria-valuenow')).toBe('128')
     expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.08')
 
-    fireEvent.pointerUp(control, { clientY: 76, pointerId: 7 })
+    await act(async () => fireEvent.pointerUp(control, { clientY: 76, pointerId: 7 }))
     expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.28')
 
-    fireEvent.keyDown(control, { key: '0' })
+    await act(async () => fireEvent.keyDown(control, { key: '0' }))
     expect(harness.ui.has(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe(false)
     expect(control.getAttribute('aria-valuetext')).toContain('automatic')
   })
@@ -1600,11 +1600,11 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(initial).toBeGreaterThan(148)
     expect(divider.getAttribute('aria-valuetext')).toContain('automatic')
 
-    fireEvent.keyDown(divider, { key: 'ArrowRight' })
+    await act(async () => fireEvent.keyDown(divider, { key: 'ArrowRight' }))
     expect(harness.ui.get(FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY)).toBe(String(initial + 12))
     expect(divider.getAttribute('aria-valuetext')).toContain('saved')
 
-    fireEvent.keyDown(divider, { key: 'Escape' })
+    await act(async () => fireEvent.keyDown(divider, { key: 'Escape' }))
     expect(harness.ui.has(FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY)).toBe(false)
     expect(divider.getAttribute('aria-valuetext')).toContain('automatic')
   })
@@ -1648,7 +1648,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
 
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
 
     expect(openPanel).toHaveBeenCalledTimes(1)
     expect((openPanel.mock.calls[0]?.[0] as CustomEvent).detail).toBe('issue')
@@ -1672,9 +1672,9 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
 
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
 
     expect(details).toEqual(['issue', 'close'])
   })
@@ -1685,9 +1685,9 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
 
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
     fireEvent.click(taskRow('t3'))
-    settle()
+    await settle()
 
     expect(details).toEqual(['issue', 'issue'])
   })
@@ -1698,10 +1698,10 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
 
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
     fireEvent.click(taskRow('t2'))
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
 
     expect(details).toEqual(['issue', 'issue'])
   })
@@ -1711,9 +1711,9 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
 
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
 
     expect(details).toEqual(['issue', 'issue'])
   })
@@ -1722,14 +1722,14 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
     fireEvent.click(sessionRow('s2'))
     fireEvent.click(sessionRow('s2'))
-    settle()
+    await settle()
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: true }]])
   })
 
   it('treats Enter as the double click', async () => {
     await deck()
     fireEvent.keyDown(sessionRow('s3'), { key: 'Enter' })
-    settle()
+    await settle()
     expect(harness.openSessionTab.mock.calls).toEqual([['s3', { permanent: true }]])
   })
 
@@ -1737,7 +1737,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
     expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('true')
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
     expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('false')
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
   })
@@ -1746,7 +1746,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     await deck()
     fireEvent.click(taskRow('t2'))
     fireEvent.click(taskRow('t2'))
-    settle()
+    await settle()
     expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('true')
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: true }]])
   })
@@ -2944,7 +2944,8 @@ describe('flight deck view filters (POD-1245)', () => {
     expect(document.querySelector('[data-flight-session="asker"]')).toBeNull()
     expect(screen.getByText('No agent is working — 1 is waiting on you.')).toBeTruthy()
     cleanup()
-    harness.ui.set('podium.flightDeck.mode', 'needs-you')
+    // A warm pool receives preference edits through the routed owner port.
+    uiState.set('podium.flightDeck.mode', 'needs-you')
     await deck()
     expect(document.querySelector('[data-flight-session="asker"]')).not.toBeNull()
   })
