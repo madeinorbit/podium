@@ -98,6 +98,11 @@ interface MemberFacts {
   /** Latest finite member activity, ms (-Infinity when none). */
   readonly latest: number
 }
+interface IssueMemberFacts {
+  readonly ids: ReturnType<typeof pageMemberIds>
+  readonly latest: number
+  readonly summary: { total: number; byPhase: Record<string, number> }
+}
 function memberFacts(sessions: readonly Pick<SessionFacts, 'sessionId' | 'lastActiveAt' | 'phase'>[]): MemberFacts {
   const phases = new Map<string, { count: number; first: string }>()
   let latest = -Infinity
@@ -196,6 +201,9 @@ export class MissionViewReader {
   }
   handoff(id: string): MissionHandoffValues | typeof LOADING { return handoffValue(this.node(id)) }
   issue(id: string): Loaded<IssueNavigationModel> { return issueValue(this.node(id)) }
+  /** Shared raw-member facts: read cursors and machine display changes do not
+   * rebuild the archived contribution or the ordered membership IDs. */
+  issueMembers(id: string): IssueMemberFacts | typeof LOADING { return this.readIssueMembers(id) }
   /** Menu catalogs use authored labels and references, not other tasks' crew. */
   catalogIssue(id: string): Loaded<IssueNavigationModel> {
     const raw = this.pool.row('issue', id)
@@ -306,6 +314,17 @@ export class MissionViewReader {
     const facts = this.factsOfIds(ids)
     return facts === LOADING ? LOADING : memberFacts(facts.filter(session => session.archived))
   }
+  readIssueMembers(id: string): IssueMemberFacts | typeof LOADING {
+    const plain = this.hasHistory('pageSessions', id) === false
+    const ids = plain ? pageMemberIds(this.pool, id) : memberIdsValue(this.node(id))
+    const present = this.seatRows('pageSessions', id, false)
+    const archived = plain ? NO_MEMBERS : memberHistoryValue(this.node(id))
+    if (present === LOADING || archived === LOADING) return LOADING
+    const facts = mergeMemberFacts(memberFacts(present.map(factsOf)), archived)
+    const byPhase: Record<string, number> = {}
+    for (const [phase, { count }] of [...facts.phases].sort((a, b) => a[1].first < b[1].first ? -1 : 1)) byPhase[phase] = count
+    return { ids, latest: facts.latest, summary: { total: facts.count, byPhase } }
+  }
   /** The present and archived seats are both settled (history rows loaded). */
   settled(id: string): boolean {
     return this.present(id) !== LOADING && this.history(id) !== LOADING
@@ -361,11 +380,9 @@ export class MissionViewReader {
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
     // Archived members contribute through their own cached facts.
-    // Without archived members a heartbeat walks only seated ones: no caches.
-    const plain = this.hasHistory('pageSessions', id) === false
-    const memberIds = plain ? pageMemberIds(this.pool, id) : memberIdsValue(this.node(id))
-    const present = this.seatRows('pageSessions', id, false), archived = plain ? NO_MEMBERS : memberHistoryValue(this.node(id))
-    let pending = present === LOADING || archived === LOADING
+    // Without archived members a heartbeat walks only seated ones.
+    const members = this.issueMembers(id)
+    let pending = members === LOADING
     const childIds = [...this.pool.graph.many('issue', id, 'treeChildren')]
     let childDoneCount = 0
     for (const childId of childIds) {
@@ -383,12 +400,9 @@ export class MissionViewReader {
         if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
       }
     }
-    if (pending || present === LOADING || archived === LOADING) return LOADING
+    if (pending || members === LOADING) return LOADING
     const repoId = this.pool.graph.one('issue', id, 'repo')
     const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
-    const members = mergeMemberFacts(memberFacts(present.map(factsOf)), archived)
-    const byPhase: Record<string, number> = {}
-    for (const [phase, { count }] of [...members.phases].sort((a, b) => a[1].first < b[1].first ? -1 : 1)) byPhase[phase] = count
     const readAt = this.pool.readCursor(id) ?? null
     let unread = !readAt || !Number.isFinite(Date.parse(readAt)) || Date.parse(row.updatedAt) > Date.parse(readAt)
     unread ||= members.latest > Date.parse(readAt ?? '')
@@ -399,10 +413,10 @@ export class MissionViewReader {
       notes: typeof row.notes === 'string' ? row.notes : row.notes?.value,
       worktreePath: row.worktreePath ?? null, branch: row.branch ?? null,
       prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
-      readAt, memberSessionIds: memberIds,
+      readAt, memberSessionIds: members.ids,
       childIds: [...childIds].sort().map(asIssueId), childCount: childIds.length, childDoneCount,
       deferred, ready: !row.blocked && !deferred && row.stage !== 'done', dependents,
-      unread: row.deletedAt ? false : unread, sessionSummary: { total: members.count, byPhase },
+      unread: row.deletedAt ? false : unread, sessionSummary: members.summary,
     }) as IssueNavigationModel
   }
   roster(id: string, archived = false): readonly SessionView[] | typeof LOADING {

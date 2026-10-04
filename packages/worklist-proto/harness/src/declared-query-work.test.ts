@@ -317,7 +317,7 @@ describe('pool screens work ratios: declared query incrementality', () => {
 
 describe('pool screens work ratios: declared query screen counters', () => {
   it('keeps the original summary, roster and count mechanisms green under the scripted clicks', async () => {
-    const only = new Set(['issue-page.detail', 'issue-page.catalog', 'session-pane', 'board.card'])
+    const only = new Set(['issue-page.detail', 'issue-page.panel', 'issue-page.catalog', 'session-pane', 'board.card'])
     let pool: MobxPool | undefined
     const original = runtimePool.createRuntimeWorklistPool
     const spy = vi.spyOn(runtimePool, 'createRuntimeWorklistPool').mockImplementation((...args) => {
@@ -369,7 +369,9 @@ describe('pool screens work ratios: declared query screen counters', () => {
         value.reader,
       ) ||
       (value.reader === 'consumer:issue-page.detail/IssuePage@page:guard-root' && value.action === 'select') ||
-      (value.reader === 'consumer:issue-page.detail/IssuePage@page:guard-child' && value.action === 'navigate-by-ref'),
+      (value.reader === 'consumer:issue-page.detail/IssuePage@page:guard-child' && value.action === 'navigate-by-ref') ||
+      ((value.reader === 'consumer:issue-page.detail' || value.reader === 'consumer:issue-page.panel') && value.action === 'navigate-by-ref') ||
+      (value.reader === 'consumer:issue-page.detail/IssuePage@issue:guard-root' && value.action === 'machine-flip'),
     )
     for (const pattern of [
       /IssuePage@summaries/,

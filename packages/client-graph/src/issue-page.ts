@@ -1,11 +1,12 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { groupRelations, isEmptyDraftVessel, issueDisplayTitle, presenceNote, type ReferentExit } from '@podium/client-core/values'
+import { groupRelations, isEmptyDraftVessel, issueDisplayTitle, presenceNote, sessionPresentOnTask, type MissionSessionIndex, type ReferentExit } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { compareStructural, computed, onBecomeUnobserved, _isComputingDerivation, type IComputedValue } from 'mobx'
 import { residentWorktreeIds } from './enumerate'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
+import { missionView } from './mission-view'
 import type { MobxPool } from './pool'
 import { createQueryResult, joinQueryResults } from './query-result'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -35,15 +36,14 @@ export function createIssuePageViews(pool: MobxPool) {
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
   const stats = { issues: 0, pages: 0, panels: 0 }
   let disposed = false
-  function memo<T>(key: string, read: () => T): T {
+  function memo<T>(key: string, read: () => T, equals: (before: T, next: T) => boolean = compareStructural): T {
     if (disposed) return LOADING as T
+    const existing = cache.get(key)
+    if (existing) return existing.get() as T
     if (!_isComputingDerivation()) return read()
-    let value = cache.get(key)
-    if (!value) {
-      value = computed(read, { equals: compareStructural, name: `IssuePage@${key}` })
-      cache.set(key, value)
-      onBecomeUnobserved(value, () => cache.delete(key))
-    }
+    const value = computed(read, { equals, name: `IssuePage@${key}` })
+    cache.set(key, value)
+    onBecomeUnobserved(value, () => cache.delete(key))
     return value.get() as T
   }
   function session(id: string): Loaded<SessionView> {
@@ -88,13 +88,43 @@ export function createIssuePageViews(pool: MobxPool) {
         ...owners.map(owner => attachedSessions(owner))]
       if (groups.some(group => group === LOADING)) return LOADING
       return joinQueryResults(groups as SessionView[][])
-    })
+    }, Object.is)
   }
   function worktreePaths(): string[] {
     return memo('worktree-paths', () => residentWorktreeIds(pool).flatMap(path => {
       const lane = pool.row('worktree', path) as { path?: string; projectRoot?: boolean } | undefined
       return lane?.path && !lane.projectRoot ? [lane.path] : []
     }))
+  }
+  function pagePresence(id: string, neighbours: ReadonlySet<string>): IssuePageData['presence'] | typeof LOADING {
+    const owners = [...neighbours].sort(byId)
+    return memo(`presence:${id}:${JSON.stringify(owners)}`, () => {
+      const value = summary(id)
+      if (!value || value === LOADING) return LOADING
+      const reader = missionView(pool)
+      const own = reader.present(id), history = reader.history(id)
+      if (own === LOADING || history === LOADING) return LOADING
+      const byId = new Map<string, IssueViewModel>()
+      const index: MissionSessionIndex = { byIssue: new Map(), openIssues: new Set(), lastActive: new Map() }
+      for (const owner of owners) {
+        const target = summary(owner), present = reader.present(owner), all = attachedSessions(owner)
+        if (target === LOADING || present === LOADING || all === LOADING) return LOADING
+        if (target) byId.set(owner, target)
+        index.byIssue.set(owner, all ?? [])
+        if (present.some(sessionPresentOnTask)) index.openIssues.add(owner)
+        for (const seat of present) {
+          const last = index.lastActive.get(owner)
+          if (last === undefined || seat.lastActiveAt > last) index.lastActive.set(owner, seat.lastActiveAt)
+        }
+      }
+      // The same first open/moved sender, with archived winners maintained by
+      // the existing mission reader. Continuations use neighbourhood witnesses.
+      const open = own.find(sessionPresentOnTask)
+      try {
+        const witness = open ?? reader.moved(id)
+        return presenceNote(value, witness ? [witness] : [], byId, [], index)
+      } catch (error) { if (error === LOADING) return LOADING; throw error }
+    })
   }
   function bySessionOrder(a: string, b: string): number {
     return byId(pool.queries.orderKey(a), pool.queries.orderKey(b)) || byId(a, b)
@@ -157,8 +187,8 @@ export function createIssuePageViews(pool: MobxPool) {
       const row = pool.row('issue', id)
       if (!row) return row
       const members = memberSessions(id)
-      let pending = members === LOADING
-      const rawMemberIds = [...pool.graph.many('issue', id, 'pageSessions')].sort(byId)
+      const facts = memo(`members:${id}`, () => missionView(pool).issueMembers(id))
+      let pending = members === LOADING || facts === LOADING
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
       let childDoneCount = 0
       for (const childId of childIds) {
@@ -169,7 +199,7 @@ export function createIssuePageViews(pool: MobxPool) {
       const inverse = dependents(id)
       // Read every known requirement before returning LOADING so this issue's
       // payload, members and summaries share the existing load window.
-      if (pending || row === LOADING || inverse === LOADING) return LOADING
+      if (pending || row === LOADING || inverse === LOADING || facts === LOADING) return LOADING
       const value = row as IssueViewModel
       const p = prefix(id)
       const isDeferred = deferred(value.deferUntil)
@@ -177,29 +207,17 @@ export function createIssuePageViews(pool: MobxPool) {
       // a mark does not replace the payload or wake every world projection.
       const cursor = pool.readCursor(id) ?? null
       const readAt = Date.parse(cursor ?? '')
-      let unread = !Number.isFinite(readAt) || Date.parse(value.updatedAt) > readAt
-      const byPhase: Record<string, number> = {}
-      let total = 0
-      for (const sid of rawMemberIds) {
-        const seat = pool.row('session', sid, 'summary') as Loaded<{ lastActiveAt: string; agentState?: { phase?: string | null } }>
-        if (seat === LOADING) return LOADING
-        if (seat) {
-          total++
-          const phase = seat.agentState?.phase ?? 'unknown'
-          byPhase[phase] = (byPhase[phase] ?? 0) + 1
-          if (Date.parse(seat.lastActiveAt) > readAt) unread = true
-        }
-      }
+      const unread = !Number.isFinite(readAt) || Date.parse(value.updatedAt) > readAt || facts.latest > readAt
       return { ...value, id: asIssueId(id),
         description: text(value.description as DocumentValue), notes: value.notes === undefined ? undefined : text(value.notes as DocumentValue),
         branch: value.branch ?? null, worktreePath: value.worktreePath ?? null,
         readAt: cursor, tuckedAt: value.tuckedAt ?? null, pinned: value.pinned ?? false,
         prefix: p, displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
         deps: (value.deps ?? []).map(dep => ({ ...dep, id: asIssueId(dep.id) })), dependents: inverse ?? [],
-        memberSessionIds: rawMemberIds.map(asSessionId),
+        memberSessionIds: facts.ids,
         childIds: childIds.map(asIssueId), childCount: childIds.length, childDoneCount,
         blocked: value.blocked ?? false, deferred: isDeferred, ready: !value.blocked && !isDeferred && value.stage !== 'done', unread: !value.deletedAt && unread,
-        sessionSummary: { total, byPhase },
+        sessionSummary: facts.summary,
       }
     })
   }
@@ -259,24 +277,24 @@ export function createIssuePageViews(pool: MobxPool) {
       if (pending || value === LOADING || members === LOADING || own === LOADING || sessions === LOADING) return LOADING
       const world = issues()
       if (!world || world === LOADING) return world
-      const worldById = new Map<string, IssueViewModel>()
       const exits: Record<string, ReferentExit | undefined> = {}
       for (const neighbour of neighbours) {
         const target = summary(neighbour)
         if (target === LOADING) return LOADING
-        if (target) worldById.set(neighbour, target)
-        else {
+        if (!target) {
           const exit = pool.row('issueExit', neighbour)
           if (exit === LOADING) return LOADING
           exits[neighbour] = exit?.kind
         }
       }
       const paths = worktreePaths()
+      const presence = pagePresence(id, neighbours)
+      if (presence === LOADING) return LOADING
       return { issue: value, issues: world, children, memberSessions: members ?? [], sessions,
         relations: groupRelations(value), title: issueDisplayTitle(value, sessions, paths),
-        presence: presenceNote(value, own ?? [], worldById, sessions), worktreePaths: paths, exits,
+        presence, worktreePaths: paths, exits,
       }
-    })
+    }, Object.is)
   }
   function panel(args: { issueId?: string; sessionId?: string; cwd: string }): Loaded<IssuePageData> {
     return memo(`panel:${JSON.stringify(args)}`, () => {
@@ -307,7 +325,7 @@ export function createIssuePageViews(pool: MobxPool) {
         if (!best || root.length > best.worktreePath!.length || root.length === best.worktreePath!.length && row.seq < best.seq) best = row
       }
       return pending ? LOADING : best ? data(best.id) : undefined
-    })
+    }, Object.is)
   }
   function destination(id: string): Loaded<IssueViewModel> {
     const target = issue(id)
