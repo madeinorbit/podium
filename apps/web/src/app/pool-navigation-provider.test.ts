@@ -574,7 +574,9 @@ describe('web pool navigation', () => {
     }
   })
 
-  it('keeps local birth refs canonical, including a cold ref through its declared summary', () => {
+  it.each([
+    1, 4,
+  ])('keeps local birth refs canonical, including a cold ref through its declared summary (%ix history)', (scale) => {
     const seat = {
       sessionId: 'seat',
       displayRef: 'POD-529-A',
@@ -586,17 +588,35 @@ describe('web pool navigation', () => {
       stoppedAt: stamp,
       agentKind: 'codex',
     }
-    const load = vi.fn(() => seat)
+    const load = vi.fn((_kind: string, id: string) => (id === seat.sessionId ? seat : undefined))
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
       load,
       summaries: { session: ['displayRef'] },
       schedule: () => () => {},
     })
-    pool.apply({ type: 'replace', rows: [{ kind: 'session', id: seat.sessionId, value: seat }] })
+    pool.apply({
+      type: 'replace',
+      rows: [
+        { kind: 'session', id: seat.sessionId, value: seat },
+        ...Array.from({ length: 128 * scale }, (_, n) => ({
+          kind: 'session' as const,
+          id: `unrelated-${n}`,
+          value: { ...seat, sessionId: `unrelated-${n}`, displayRef: `POD-${1000 + n}-A` },
+        })),
+      ],
+    })
     const provider = createPoolNavigationProvider(pool)
+    const questions = vi.spyOn(pool.coldIndex(), 'readerIds')
+    const residentKeys = vi.spyOn(pool.tables.session, 'keys')
     try {
       expect(tracked(() => provider.session(seat.displayRef))).toBe(NAVIGATION_LOADING)
+      expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toBe(NAVIGATION_LOADING)
       expect(load).not.toHaveBeenCalled()
+      expect(questions).toHaveBeenCalledWith({ kind: 'sessionReference', ref: seat.displayRef })
+      expect(questions.mock.calls.every(([question]) => question.kind === 'sessionReference')).toBe(
+        true,
+      )
+      expect(residentKeys).not.toHaveBeenCalled()
       pool.hydrate()
       expect(load).toHaveBeenCalledTimes(1)
       expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toMatchObject({
