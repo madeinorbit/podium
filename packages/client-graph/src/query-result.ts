@@ -73,10 +73,10 @@ function remove<T>(root: Node<T> | undefined, item: Item<T>): Node<T> | undefine
   while (next.left) next = next.left
   return balance(next.item, root.left, remove(root.right, next.item))
 }
-function at<T>(root: Node<T> | undefined, index: number): T | undefined {
+function itemAt<T>(root: Node<T> | undefined, index: number): Item<T> | undefined {
   while (root) {
     const left = size(root.left)
-    if (index === left) return root.item.value
+    if (index === left) return root.item
     if (index < left) root = root.left
     else {
       index -= left + 1
@@ -85,11 +85,14 @@ function at<T>(root: Node<T> | undefined, index: number): T | undefined {
   }
   return undefined
 }
-function* values<T>(root?: Node<T>): Generator<T> {
+function at<T>(root: Node<T> | undefined, index: number): T | undefined {
+  return itemAt(root, index)?.value
+}
+function* orderedItems<T>(root: Node<T> | undefined): Generator<Item<T>> {
   if (!root) return
-  yield* values(root.left)
-  yield root.item.value
-  yield* values(root.right)
+  yield* orderedItems(root.left)
+  yield root.item
+  yield* orderedItems(root.right)
 }
 function* valuesFrom<T>(root: Node<T> | undefined, index: number): Generator<T> {
   if (!root) return
@@ -103,16 +106,49 @@ function* valuesFrom<T>(root: Node<T> | undefined, index: number): Generator<T> 
  * shares the other branches, rather than copying every output slot. Iteration
  * is linear in the requested output; publication never materializes that output.
  * A caller's array mutation detaches its snapshot from the shared tree. */
+const snapshotRoots = new WeakMap<object, Node<unknown> | undefined>()
 function snapshot<T>(root?: Node<T>): T[] {
+  const result = arraySnapshot(size(root), index => valuesFrom(root, index), () => snapshotRoots.delete(result))
+  snapshotRoots.set(result, root)
+  return result
+}
+
+/** Join disjoint, ordered query snapshots without materializing their rows.
+ * Each input's persistent root keeps the joined snapshot stable after updates. */
+export function joinQueryResults<T>(results: readonly T[][]): T[] {
+  const roots = results.map(result => {
+    if (!snapshotRoots.has(result)) throw new Error('Expected an ordered query snapshot')
+    return snapshotRoots.get(result) as Node<T> | undefined
+  })
+  const length = roots.reduce((count, root) => count + size(root), 0)
+  function* joined(start: number): Generator<T> {
+    const cursors = roots.map(root => orderedItems(root))
+    const heads = cursors.map(cursor => cursor.next().value)
+    let position = 0
+    while (true) {
+      let next = -1
+      for (let group = 0; group < heads.length; group++) {
+        const head = heads[group]
+        if (head && (next < 0 || compare(head, heads[next]!) < 0)) next = group
+      }
+      if (next < 0) return
+      const value = heads[next]!.value
+      heads[next] = cursors[next]!.next().value
+      if (position++ >= start) yield value
+    }
+  }
+  return arraySnapshot(length, joined)
+}
+
+function arraySnapshot<T>(length: number, iterate: (start: number) => Generator<T>, onDetach?: () => void): T[] {
   let detached: T[] | undefined
-  const length = size(root)
-  let cursor = valuesFrom(root, 0),
+  let cursor = iterate(0),
     lastIndex = -1,
     lastValue: T | undefined
   const read = (index: number) => {
     if (index >= length) return undefined
     if (index === lastIndex) return lastValue
-    if (index !== lastIndex + 1) cursor = valuesFrom(root, index)
+    if (index !== lastIndex + 1) cursor = iterate(index)
     lastIndex = index
     lastValue = cursor.next().value
     return lastValue
@@ -120,7 +156,10 @@ function snapshot<T>(root?: Node<T>): T[] {
   const indexOf = (key: PropertyKey) =>
     typeof key === 'string' && /^(0|[1-9]\d*)$/.test(key) ? Number(key) : undefined
   const detach = () => {
-    if (!detached) detached = [...values(root)]
+    if (!detached) {
+      detached = [...iterate(0)]
+      onDetach?.()
+    }
     return detached
   }
   return new Proxy<T[]>([], {

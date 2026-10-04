@@ -1,13 +1,13 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { createQueryResult } from './query-result'
+import { createQueryResult, joinQueryResults } from './query-result'
 import { LOADING } from './worklist/rollup'
 
-function fixture() {
+function fixture(prefix = '') {
   const rows = observable.map<string, { title: string; order: string; privateBody?: string }>(
     [
-      ['a', { title: 'A', order: '2' }],
-      ['b', { title: 'B', order: '1' }],
+      [`${prefix}a`, { title: 'A', order: '2' }],
+      [`${prefix}b`, { title: 'B', order: '1' }],
     ],
     { deep: false },
   )
@@ -52,6 +52,58 @@ function fixture() {
 }
 
 describe('maintained query answers', () => {
+  it('joins disjoint rosters in global order and preserves captured answers and native array behavior', () => {
+    const left = fixture(), right = fixture('x')
+    const seen: { id: string; title: string }[][] = []
+    let inputs: { id: string; title: string }[][] = []
+    const stop = autorun(() => {
+      const a = left.result.get(), b = right.result.get()
+      if (!a || a === LOADING || !b || b === LOADING) return
+      inputs = [a, b]
+      seen.push(joinQueryResults(inputs))
+    })
+    const parity = () => {
+      const expected = [...left.rows, ...right.rows]
+        .sort(([a, av], [b, bv]) => av.order.localeCompare(bv.order) || a.localeCompare(b))
+        .map(([id, row]) => ({ id, title: row.title }))
+      expect(seen.at(-1)).toEqual(expected)
+    }
+    try {
+      expect(seen[0]?.map(row => row.id)).toEqual(['b', 'xb', 'a', 'xa'])
+      expect(Array.isArray(seen[0])).toBe(true)
+      expect(Object.keys(seen[0]!)).toEqual(['0', '1', '2', '3'])
+      expect(seen[0]?.at(-1)?.id).toBe('xa')
+      expect(seen[0]?.findIndex(row => row.id === 'a')).toBe(2)
+      expect(JSON.parse(JSON.stringify(seen[0]))).toEqual([...seen[0]!])
+      left.read.mockClear(); right.read.mockClear()
+      joinQueryResults(inputs)
+      expect(left.read).not.toHaveBeenCalled()
+      expect(right.read).not.toHaveBeenCalled()
+      left.set('a', { title: 'Changed', order: '0' })
+      right.set('xb', undefined)
+      right.set('xc', { title: 'New', order: '1' })
+      parity()
+      expect(seen[0]?.map(row => [row.id, row.title])).toEqual([
+        ['b', 'B'], ['xb', 'B'], ['a', 'A'], ['xa', 'A'],
+      ])
+      left.set('b', undefined)
+      right.set('xa', undefined)
+      parity()
+      const before = inputs.map(input => [...input])
+      const current = seen.at(-1)!
+      current.sort((a, b) => b.id.localeCompare(a.id))
+      current.splice(0, 1, { id: 'local', title: 'Detached edit' })
+      expect(current.map(row => row.id)).toEqual(['local', 'a'])
+      expect(inputs.map(input => [...input])).toEqual(before)
+      expect(seen[0]).toHaveLength(4)
+      // A caller-mutated array is no longer an ordered tree snapshot.
+      inputs[0]!.push({ id: 'local', title: 'Detached edit' })
+      expect(() => joinQueryResults(inputs)).toThrow('Expected an ordered query snapshot')
+    } finally { stop() }
+    expect(left.released).toHaveBeenCalledTimes(1)
+    expect(right.released).toHaveBeenCalledTimes(1)
+  })
+
   it('updates only the changed answer, preserves old snapshots and ignores undeclared fields', () => {
     const f = fixture()
     const seen: { id: string; title: string }[][] = []

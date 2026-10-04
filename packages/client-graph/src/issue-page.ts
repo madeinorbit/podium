@@ -7,7 +7,7 @@ import { residentWorktreeIds } from './enumerate'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
-import { createQueryResult } from './query-result'
+import { createQueryResult, joinQueryResults } from './query-result'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export interface IssuePageData {
@@ -51,32 +51,44 @@ export function createIssuePageViews(pool: MobxPool) {
     return pool.row('session', id) as Loaded<SessionView>
   }
   function attachedSessions(id: string): Loaded<SessionView[]> {
-    return memo(`members:${id}`, () => {
-      const result: SessionView[] = []
-      let pending = false
-      for (const sid of [...pool.graph.many('issue', id, 'missionSessions')].sort(bySessionOrder)) {
-        const value = session(sid)
-        if (value === LOADING) pending = true
-        else if (value) result.push(value)
-      }
-      return pending ? LOADING : result
-    })
+    if (disposed) return LOADING
+    return roster(id, 'missionSessions').get()
   }
   function memberSessions(id: string): Loaded<SessionView[]> {
     if (disposed) return LOADING
-    let result = rosters.get(id)
+    return roster(id, 'pageSessions').get()
+  }
+  function roster(id: string, relation: 'pageSessions' | 'missionSessions' | 'bornSessions', excluded: readonly string[] = []) {
+    const key = `${relation}:${id}:${JSON.stringify(excluded)}`
+    let result = rosters.get(key)
     if (!result) {
       result = createQueryResult<SessionView>({
-        name: `IssuePage@page-members:${id}`,
-        ids: () => pool.graph.many('issue', id, 'pageSessions'),
-        has: sid => pool.queries.hasMember('issue', id, 'pageSessions', sid),
-        read: session,
-        subscribe: changed => pool.queries.onMembers('issue', id, 'pageSessions', changed),
-        released: () => rosters.delete(id),
+        name: `IssuePage@${relation}:${id}`,
+        ids: () => pool.graph.many('issue', id, relation),
+        has: sid => pool.queries.hasMember('issue', id, relation, sid),
+        ...(relation === 'pageSessions' ? {} : { order: (sid: string) => pool.queries.orderKey(sid) }),
+        read: sid => {
+          const value = session(sid)
+          if (!value || value === LOADING) return value
+          // Keep born/current membership disjoint as sessions move owners.
+          return excluded.some(owner => pool.graph.many('issue', owner, 'missionSessions').has(sid))
+            ? undefined : value
+        },
+        subscribe: changed => pool.queries.onMembers('issue', id, relation, changed),
+        released: () => rosters.delete(key),
       })
-      rosters.set(id, result)
+      rosters.set(key, result)
     }
-    return result.get()
+    return result
+  }
+  function relatedSessions(id: string, neighbours: ReadonlySet<string>): Loaded<SessionView[]> {
+    const owners = [...neighbours].sort(byId)
+    return memo(`sessions:${id}:${JSON.stringify(owners)}`, () => {
+      const groups = [roster(id, 'bornSessions', owners).get(),
+        ...owners.map(owner => attachedSessions(owner))]
+      if (groups.some(group => group === LOADING)) return LOADING
+      return joinQueryResults(groups as SessionView[][])
+    })
   }
   function worktreePaths(): string[] {
     return memo('worktree-paths', () => residentWorktreeIds(pool).flatMap(path => {
@@ -239,19 +251,12 @@ export function createIssuePageViews(pool: MobxPool) {
           origins.push(next)
         }
       }
-      const sessionIds = new Set<string>(pool.graph.many('issue', id, 'bornSessions'))
-      for (const neighbour of neighbours) for (const sid of pool.graph.many('issue', neighbour, 'missionSessions')) sessionIds.add(sid)
-      const sessions: SessionView[] = []
-      for (const sid of [...sessionIds].sort(bySessionOrder)) {
-        const seat = session(sid)
-        if (seat === LOADING) pending = true
-        else if (seat) sessions.push(seat)
-      }
+      const sessions = relatedSessions(id, neighbours)
       const members = memberSessions(id)
       const own = attachedSessions(id)
       // Collect all addressed rows in one batch; do not render partial values
       // or build the menu world while this neighbourhood is still loading.
-      if (pending || value === LOADING || members === LOADING || own === LOADING) return LOADING
+      if (pending || value === LOADING || members === LOADING || own === LOADING || sessions === LOADING) return LOADING
       const world = issues()
       if (!world || world === LOADING) return world
       const worldById = new Map<string, IssueViewModel>()

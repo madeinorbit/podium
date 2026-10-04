@@ -25,11 +25,13 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
   const worktrees = Array.from({ length: 64 }, (_, n) => ({ kind: 'worktree', id: `/repo/w${n}`, value: {
     path: `/repo/w${n}`, projectRoot: false,
   } } as RowRecord))
-  const rows = [root, hop, tip, ...history, ...worktrees,
+  const rows = [root, hop, tip, issue('outside', { stage: 'planning' }), ...history, ...worktrees,
     { kind: 'worktree', id: '/repo', value: {
       path: '/repo', repoId: 'repo', repoPath: '/repo', repoName: 'Repo', prefix: 'P', projectRoot: true,
     } } as RowRecord,
-    seat('tip-agent', { issueId: 'tip', archived: false, status: 'running' })]
+    seat('tip-agent', { issueId: 'tip', archived: false, status: 'running' }),
+    seat('born-away', { issueId: 'outside' }),
+    seat('born-shell', { issueId: undefined, agentKind: 'shell', archived: false })]
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) })
   pool.apply({ type: 'replace', rows })
   const views = createIssuePageViews(pool)
@@ -53,11 +55,15 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
     const first = parity()
     expect(first.presence?.text).toBe('Work continued in P-3')
     expect(first.memberSessions.map(row => row.sessionId)).toEqual(history.map(row => row.id))
+    const expectedSessions = [...history.map(row => row.id), 'tip-agent', 'born-away', 'born-shell']
+      .sort((a, b) => pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)) || a.localeCompare(b))
+    expect(first.sessions.map(row => row.sessionId)).toEqual(expectedSessions)
     expect(first.worktreePaths).toEqual(worktrees.map(row => row.id))
     const reads = vi.spyOn(pool, 'row')
     pool.apply({ type: 'update', rows: [issue('root', { readAt: '2026-10-04T12:00:00Z' })] })
     expect(page().issue.readAt).toBe('2026-10-04T12:00:00Z')
     expect(page().memberSessions).toBe(first.memberSessions)
+    expect(page().sessions).toBe(first.sessions)
     expect(page().worktreePaths).toBe(first.worktreePaths)
     expect(reads.mock.calls.filter(([kind]) => kind === 'worktree')).toEqual([])
     parity()
@@ -66,6 +72,7 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
     expect(parity().memberSessions[0]?.title).toBe('Renamed')
     pool.apply({ type: 'update', rows: [seat('history-000', { issueId: 'tip' })] })
     expect(parity().memberSessions.map(row => row.sessionId)).toEqual(history.slice(1).map(row => row.id))
+    expect(page().sessions.map(row => row.sessionId)).toEqual(expectedSessions)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'history-001', value: undefined }] })
     expect(parity().memberSessions).toHaveLength(46)
     pool.apply({ type: 'update', rows: [seat('history-001')] })
@@ -86,6 +93,7 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
 
     pool.apply({ type: 'replace', rows: [root, history[0]!, worktrees[0]!] })
     expect(parity().memberSessions.map(row => row.sessionId)).toEqual(['history-000'])
+    expect(page().sessions.map(row => row.sessionId)).toEqual(['history-000'])
     expect(page().worktreePaths).toEqual(['/repo/w0'])
     reads.mockClear()
     stop()
@@ -96,5 +104,6 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
     )).toEqual([])
     views.dispose()
     expect(views.memberSessions('root')).toBe(LOADING)
+    expect(views.attachedSessions('root')).toBe(LOADING)
   } finally { stop(); views.dispose(); pool.dispose(); vi.restoreAllMocks() }
 })
