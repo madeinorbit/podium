@@ -91,6 +91,7 @@ export function IssueStatusPicker({
     triggerRef.current = node
   }, [])
   const restoreFocus = useRef(false)
+  const openingPointerClick = useRef(false)
   useLayoutEffect(() => {
     if (ready && restoreFocus.current) {
       restoreFocus.current = false
@@ -153,18 +154,23 @@ export function IssueStatusPicker({
       }
       onPointerDown={(event) => {
         event.stopPropagation()
-        if (ready) return
+        if (ready) {
+          openingPointerClick.current = false
+          return
+        }
         setReady(true)
         if (event.button === 0) {
           // The cold node is replaced during this gesture. Suppress its
           // compatibility mousedown so it cannot toggle the new menu.
           event.preventDefault()
+          openingPointerClick.current = true
           setInitiallyOpen(true)
         }
       }}
       onKeyDown={(event) => {
         if (!['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) return
         event.stopPropagation()
+        openingPointerClick.current = false
         if (ready) return
         event.preventDefault()
         // Focus normally warms the menu before a key arrives. Assistive
@@ -198,6 +204,17 @@ export function IssueStatusPicker({
     // biome-ignore lint/a11y/noStaticElementInteractions: this is the event boundary around the single accessible child trigger, not an additional control
     <span
       className="contents"
+      onClickCapture={(event) => {
+        if (!openingPointerClick.current) return
+        // The new Base UI trigger did not see the opening pointerdown. Its
+        // compatibility click would otherwise toggle the menu closed.
+        openingPointerClick.current = false
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+      onPointerCancel={() => {
+        openingPointerClick.current = false
+      }}
       onClick={(event) => {
         event.stopPropagation()
         if (!ready) {

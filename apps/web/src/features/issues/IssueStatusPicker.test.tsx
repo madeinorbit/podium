@@ -91,7 +91,10 @@ describe('IssueStatusPicker', () => {
     expect(onRowClick).not.toHaveBeenCalled()
   })
 
-  it('opens on a first pointerdown without hover or row activation', async () => {
+  it.each([
+    'owner',
+    'trigger',
+  ])('keeps the first pointer menu open when its click lands on the %s', async (target) => {
     const onRowClick = vi.fn()
     render(<Row stage="backlog" onPick={vi.fn()} onRowClick={onRowClick} />)
     const cold = screen.getByLabelText('Status: Backlog')
@@ -99,10 +102,11 @@ describe('IssueStatusPicker', () => {
     if (!owner) throw new Error('Missing status event owner')
     fireEvent.pointerDown(cold, { button: 0, pointerType: 'touch' })
     expect(await screen.findByRole('menu')).toBeTruthy()
-    // Down and up straddle the trigger replacement, so the browser's click
-    // lands on their stable common ancestor rather than the old span.
-    fireEvent.click(owner)
+    // Browsers can deliver the compatibility click to the replacement trigger
+    // or the stable common ancestor of the down/up targets.
+    fireEvent.click(target === 'owner' ? owner : screen.getByLabelText('Status: Backlog'))
     expect(screen.getByRole('menu')).toBeTruthy()
+    expect(screen.getByLabelText('Status: Backlog').getAttribute('aria-expanded')).toBe('true')
     expect(roots.mounts).toBe(1)
     expect(onRowClick).not.toHaveBeenCalled()
   })
