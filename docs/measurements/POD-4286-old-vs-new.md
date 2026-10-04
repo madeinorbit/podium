@@ -633,6 +633,9 @@ Matched update-window comparisons, without subtracting quiet-window CPU:
 | web | 4 | new | session-output | 10/10 | 39.6 | 59.5 | 50.3% | 370.1 | 104.2 | 232.7 | 230.7 |
 | web | 4 | new | issue-change | 10/10 | 1,456.3 | 276.2 | -81.0% | 1,594.7 | 296.0 | 1,550.4 | 310.1 |
 
+CURRENT does not improve every background window. Session-output CPU is 21.5 → 24.0 ms at 1x and 37.8 → 41.2 ms at 4x. The 1x quiet-window median rises 7.3 → 16.9 ms even though the separate 60-second replay average falls. These observations cover different windows; neither cancels the other.
+
+
 The **observed** profile approximates the [September 18 operator publication census](POD-4286-baseline-summary.json): 12 session, 6 issue, 16 machine, 28 conversation, 36 host-metric and 2 draft changes per minute. The minute clock advances normally. These are historical publication rates replayed with validated synthetic payloads, not a capture of historical network frames or today’s traffic. OLD issue/projection rows are sent together as one logical issue update. The **busy** profile adds the stated 30 heartbeat/10 issue/120 output cadence. Both windows use the same selected control terminal: web keeps the mission visible, while phone uses the standalone session terminal. Phone idle is not a Work-screen idle measurement.
 
 | Arm | Surface | Scale | Profile | Seconds | Updates delivered | Main-thread task ms | One-core CPU % |
