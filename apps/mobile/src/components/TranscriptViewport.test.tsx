@@ -33,6 +33,7 @@ beforeEach(() => {
       })
     }
     observe(element: Element) { this.targets.add(element) }
+    unobserve(element: Element) { this.targets.delete(element) }
     disconnect() { this.targets.clear() }
   })
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (
