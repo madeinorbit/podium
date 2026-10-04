@@ -36,7 +36,9 @@ try:
             if not re.match(r'^[a-z-]+: [0-9]+\.[0-9]+ ms',line):print(line,end='',flush=True)
             output.write(line);output.flush()
             if line.startswith('CAPTURE_READY '):
-                acquired=subprocess.run(['podium','lock','acquire',name,'--ttl','20m','--wait','--json'],capture_output=True,text=True,check=True)
+                # OLD 4x can spend more than twenty minutes in its foreground
+                # action matrix. The lease still ends at CAPTURE_FINISHED.
+                acquired=subprocess.run(['podium','lock','acquire',name,'--ttl','45m','--wait','--json'],capture_output=True,text=True,check=True)
                 grant=json.loads(acquired.stdout)
                 if not grant.get('data',{}).get('granted'):raise RuntimeError('Capture lease not granted')
                 held=True

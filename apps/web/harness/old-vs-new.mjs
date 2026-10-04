@@ -800,13 +800,15 @@ try {
       await page.getByRole('button',{name:'Back',exact:true}).click()
       return 'task search and issue page'
     }
-    for(let i=0;i<60;i++) {
+    // Keep the observation at five minutes even if OLD cannot keep up with
+    // the five-second cadence. Finish an in-flight group; report its overrun.
+    for(let i=0;i<60 && Date.now()<began+300000;i++) {
       loads.push(loadavg());const started=Date.now()
       steps.push({step:i,kind:await step(i),durationMs:Date.now()-started})
       await frames(page)
-      await pause(Math.max(0,began+(i+1)*5000-Date.now()))
+      await pause(Math.max(0,Math.min(began+300000,began+(i+1)*5000)-Date.now()))
     }
-    await f.cdp.send('HeapProfiler.collectGarbage');result.heapFiveMinutes=await f.cdp.send('Runtime.getHeapUsage');result.heapUse={durationSeconds:(Date.now()-began)/1000,steps:60,actions:60,workload:'60 action groups at five-second cadence; see steps for actual interactions',loads,stepsCompleted:steps};save()
+    await f.cdp.send('HeapProfiler.collectGarbage');result.heapFiveMinutes=await f.cdp.send('Runtime.getHeapUsage');result.heapUse={durationSeconds:(Date.now()-began)/1000,steps:steps.length,actions:steps.length,workload:'Five-minute wall-clock workload, at most 60 action groups at five-second cadence; an in-flight group can overrun the deadline. See actual duration and steps.',loads,stepsCompleted:steps};save()
   }
   result.status='complete'
 } catch(error) {
