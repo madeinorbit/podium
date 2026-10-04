@@ -37,6 +37,27 @@ def summary(values):
 PROBE = r"""
 const ta = document.querySelector('.chat-composer-well textarea');
 if (!ta) throw Error('Chat composer is not mounted');
+ta.focus();
+const environment = {userAgent: navigator.userAgent, viewport: [innerWidth, innerHeight],
+    devicePixelRatio, timeOrigin: performance.timeOrigin, theme: document.documentElement.dataset.theme,
+    rootClass: document.documentElement.className, animations: document.getAnimations().length,
+    markAnimations: document.getAnimations().filter(a=>a.effect?.target?.closest?.('.pod-mark')).length,
+    workingMarks: document.querySelectorAll('.feed-column .pod-mark').length,
+    tailMode: document.querySelector('[data-testid="feed-tail"]')?.dataset.tail,
+    visibility: document.visibilityState, focused: document.hasFocus(),
+    domNodes: document.querySelectorAll('*').length,
+    transcriptNodes: document.querySelectorAll('.feed-column *').length,
+    transcriptRows: document.querySelectorAll('.transcript-row').length,
+    fieldSizing: CSS.supports('field-sizing', 'content'), length: ta.value.length};
+try {
+    const key=Object.keys(ta).find(k=>k.startsWith('__reactFiber$'));
+    for(let fiber=ta[key];fiber;fiber=fiber.return){
+        const owner=fiber.memoizedProps?.value;
+        if(typeof owner?.readLocal==='function' && typeof owner?.onDraft==='function') {
+            environment.corpus={issues:owner.replica.rows('issueProjections').length,sessions:owner.replica.rows('sessions').length};break;
+        }
+    }
+} catch(error) {environment.corpusReadError=String(error)}
 const probe = window.__webkitTyping = {samples: [], drift: [], start: performance.now(), active: true};
 const listen = event => {
     if (event.target !== ta || !event.isTrusted) return;
@@ -62,15 +83,7 @@ const drift = () => {
 };
 probe.timer = setTimeout(drift, 4);
 probe.stop = () => {probe.active = false; clearTimeout(probe.timer); document.removeEventListener('input', listen, true)};
-ta.focus();
-return {userAgent: navigator.userAgent, viewport: [innerWidth, innerHeight],
-    devicePixelRatio, timeOrigin: performance.timeOrigin, theme: document.documentElement.dataset.theme,
-    rootClass: document.documentElement.className, animations: document.getAnimations().length,
-    visibility: document.visibilityState, focused: document.hasFocus(),
-    domNodes: document.querySelectorAll('*').length,
-    transcriptNodes: document.querySelectorAll('.feed-column *').length,
-    transcriptRows: document.querySelectorAll('.transcript-row').length,
-    fieldSizing: CSS.supports('field-sizing', 'content'), length: ta.value.length};
+return environment;
 """
 
 
@@ -91,6 +104,8 @@ def main():
     parser.add_argument("--reset", action="store_true", help="Clear the fixture draft before timing")
     parser.add_argument("--keys", choices=["actions", "send-keys"], default="actions")
     parser.add_argument("--viewport", default="", help="Target content viewport, e.g. 800x600")
+    parser.add_argument("--expect-working", action="store_true")
+    parser.add_argument("--expect-static", action="store_true")
     args = parser.parse_args()
     if args.css_file:
         args.css = Path(args.css_file).read_text()
@@ -134,6 +149,12 @@ def main():
         if result["environment"]["visibility"] != "visible" or not result["environment"]["focused"]:
             execute("window.__webkitTyping.stop()")
             raise RuntimeError("Foreground, focused page required; background timers are not blocking evidence")
+        if args.expect_working and result["environment"].get("tailMode") != "working":
+            execute("window.__webkitTyping.stop()")
+            raise RuntimeError("Synthetic control must show its working transcript tail")
+        if args.expect_static and result["environment"]["markAnimations"] != 0:
+            execute("window.__webkitTyping.stop()")
+            raise RuntimeError("Working marks still own browser animations")
         print(json.dumps({"stage": "typing", "environment": result["environment"]}), flush=True)
         actions = []
         text = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefgh"

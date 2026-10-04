@@ -8,9 +8,16 @@ const upstream = 'http://127.0.0.1:19688'
 const manifest = await Bun.file(`${root}/manifest.json`).json()
 const offline = process.env.WEBKIT_OFFLINE === '1'
 const api = offline ? await Bun.file(`${root}/fixture-api.json`).json() : {}
-const transcript = offline ? await Bun.file(`${root}/transcript.json`).json() : []
+const transcript = offline
+  ? (await Bun.file(`${root}/transcript.json`).json()).map((item, index, items) => ({
+      ...item,
+      ts: new Date(
+        (manifest.fixedNow ?? 1789905600000) - (items.length - index) * 1000,
+      ).toISOString(),
+    }))
+  : []
 const frames = offline ? await Bun.file(`${root}/socket-frames.json`).json() : []
-const workingSince = new Date((manifest.fixedNow ?? 1789905600000) - 15000).toISOString()
+const workingSince = new Date(manifest.fixedNow ?? 1789905600000).toISOString()
 const busy = (value) => ({
   ...value,
   status: 'live',
@@ -164,20 +171,20 @@ const server = Bun.serve({
           client.data.tick = 0
           client.data.timer = setInterval(() => {
             const tick = ++client.data.tick
-              // Update an existing tool result: keep the measured DOM window
-              // stable rather than growing a second, unbounded workload.
-              const existing = transcript.findLast(item => item.role === 'tool')
-              if (!existing) return
-              const item = {
-                ...existing,
-                toolResult: `${existing.toolResult}\nGenerated output tick ${tick}.`,
+            // Update an existing tool result: keep the measured DOM window
+            // stable rather than growing a second, unbounded workload.
+            const existing = transcript.findLast((item) => item.role === 'tool')
+            if (!existing) return
+            const item = {
+              ...existing,
+              toolResult: `${existing.toolResult}\nGenerated output tick ${tick}.`,
             }
             client.send(
               JSON.stringify({
                 type: 'transcriptDelta',
                 sessionId: manifest.control,
                 items: [item],
-                  tail: transcript.at(-1)?.cursor,
+                tail: transcript.at(-1)?.cursor,
               }),
             )
           }, 1000)
