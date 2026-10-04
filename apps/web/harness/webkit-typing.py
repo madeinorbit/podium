@@ -39,7 +39,7 @@ const ta = document.querySelector('.chat-composer-well textarea');
 if (!ta) throw Error('Chat composer is not mounted');
 ta.focus();
 const environment = {userAgent: navigator.userAgent, viewport: [innerWidth, innerHeight],
-    devicePixelRatio, timeOrigin: performance.timeOrigin, theme: document.documentElement.dataset.theme,
+    reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches, devicePixelRatio, timeOrigin: performance.timeOrigin, theme: document.documentElement.dataset.theme,
     rootClass: document.documentElement.className, animations: document.getAnimations().length,
     markAnimations: document.getAnimations().filter(a=>a.effect?.target?.closest?.('.pod-mark')).length,
     workingMarks: document.querySelectorAll('.feed-column .pod-mark').length,
@@ -170,7 +170,9 @@ def main():
             next_key = time.monotonic()
             for char in text:
                 request(base, "POST", "/element/" + element_id + "/value", {"text": char, "value": [char]})
-                next_key += .1
+                # Keep a steady pace after a delayed driver reply; do not burst
+                # missed characters into the next rendering frame.
+                next_key = max(next_key + .1, time.monotonic())
                 time.sleep(max(0, next_key - time.monotonic()))
         time.sleep(.3)
         result["raw"] = execute("const p=window.__webkitTyping;p.stop();return {samples:p.samples,drift:p.drift,elapsed:performance.now()-p.start,value:document.querySelector('.chat-composer-well textarea').value}")
