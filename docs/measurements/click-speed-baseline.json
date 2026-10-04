@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sourceSha": "0f77a997ed217117cf284f9fa142080c453efae6",
+  "sourceSha": "1d38c418a2ed9180778fdc6a730f7d47c61f99e8",
   "landedRef": "integrate/4286-pilot",
   "machine": {
     "host": "flatblock",
@@ -31,24 +31,24 @@
   },
   "actions": {
     "sidebar-issue": {
-      "medianMs": 159.506,
-      "worstMs": 171.797
+      "medianMs": 135.834,
+      "worstMs": 163.092
     },
     "mission-switch": {
-      "medianMs": 4020.656,
-      "worstMs": 5449.769
+      "medianMs": 846.189,
+      "worstMs": 901.827
     },
     "session-pane": {
-      "medianMs": 3405.917,
-      "worstMs": 3508.903
+      "medianMs": 721.686,
+      "worstMs": 825.84
     },
     "issue-rename": {
-      "medianMs": 2972.887,
-      "worstMs": 3193.263
+      "medianMs": 655.561,
+      "worstMs": 793.167
     },
     "background-update": {
-      "medianMs": 3257.451,
-      "worstMs": 3454.444
+      "medianMs": 555.475,
+      "worstMs": 603.485
     },
     "issue-page-open": {
       "medianMs": 538.107,
