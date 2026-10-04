@@ -68,13 +68,10 @@ async function rename(page: Page, cdp: CDPSession, label: string, next: string) 
   await page.getByRole('button', { name: 'Rename', exact: true }).tap({ timeout: 15_000 })
 }
 
-async function launchWork(page: Page, on: boolean) {
+async function launchWork(page: Page) {
   await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
-  const toggle = page.getByLabel('MobX pilot', { exact: true })
-  if ((await toggle.isChecked()) !== on) await toggle.click()
-  await expect(toggle).toBeChecked({ checked: on })
-  await page.waitForTimeout(2_000)
+  await expect(page.getByLabel('MobX pilot', { exact: true })).toHaveCount(0)
   await replicaDurable(page)
   await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
 }
@@ -92,7 +89,7 @@ test('a refused rename holds neither the read receipt nor the next rename on one
   const repoPath = repos[0]
   if (!repoPath) throw new Error('Isolated harness has no repo')
   const arms: unknown[] = []
-  for (const on of [false, true]) {
+  for (const on of [true]) {
     const title = `Refusal queue ${on ? 'on' : 'off'} ${Date.now().toString(36)}`
     const issue = await rpc<{ id: string }>(request, 'issues.create', {
       repoPath,
@@ -129,7 +126,7 @@ test('a refused rename holds neither the read receipt nor the next rename on one
           sent.push({ path, at: Date.now(), body: req.postData() ?? '' })
         }
       })
-      await launchWork(page, on)
+      await launchWork(page)
       const row = () =>
         page.getByRole('button', { name: new RegExp(`^(?:[A-Z]+-\\d+|#\\d+) ${title}$`) })
       await expect(row()).toBeVisible({ timeout: 60_000 })

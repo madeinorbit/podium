@@ -5,17 +5,14 @@ import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { dedupeSessions, type Store } from '@podium/client-core/engine'
+import { type Store } from '@podium/client-core/engine'
 import {
-  allIssueViewModels,
   createKernelReplica,
   createSideCache,
   memoryStorage,
 } from '@podium/client-core/replica'
-import { sessionViews } from '@podium/client-core/session-values'
 import { NdjsonLineReader, readSyncStream, SyncStreamFailed } from '@podium/client-core/sync-stream'
 import { missionRootFor } from '@podium/client-core/viewmodels'
-import { ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { reaction, runInAction } from 'mobx'
 import {
@@ -27,45 +24,15 @@ import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
 import { attachMobileScreens } from '../src/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '../src/mobile-screens-schema'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
-import type { MobileLegacyReads, MobileScreenCheck } from './mobile-screens-check'
-
-interface ReplayLoader {
-  onLoad(options: { filter: RegExp }, load: () => { contents: string; loader: 'js' }): void
-}
-const { plugin } = (
-  globalThis as unknown as {
-    Bun: { plugin(options: { name: string; setup(build: ReplayLoader): void }): void }
-  }
-).Bun
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { MobileScreenInput } from './mobile-screens-snapshot'
 
 const MAX_CHECKS_PER_POOL = 100
 let phase = 0
 async function main() {
   if (hostname() !== 'ludovico') throw new Error('Replay is restricted to ludovico')
-  // The actual legacy phone board imports its label through a native palette.
-  // Supply that palette's identical model labels in this CLI process only;
-  // the board, filtering, proposal and session-selection code stays actual.
-  plugin({
-    name: 'phone-labels-without-native-renderer',
-    setup(build) {
-      build.onLoad({ filter: /apps\/mobile\/src\/theme\/stage\.ts$/ }, () => ({
-        contents: `export const STAGE_LABEL = ${JSON.stringify(ISSUE_STATUS_LABELS)}`,
-        loader: 'js',
-      }))
-    },
-  })
-  const { checkMobileScreens, poolMobileScreensSnapshot } = await import('./mobile-screens-check')
-  const [selection, screening, board] = await Promise.all(
-    ['mission-session', 'screening', 'task-board'].map(
-      (name) => import(new URL(`../../../apps/mobile/src/lib/${name}.ts`, import.meta.url).href),
-    ),
-  )
-  const legacy: MobileLegacyReads = {
-    mostRelevantSession: selection.mostRelevantSession,
-    buildScreeningQueue: screening.buildScreeningQueue,
-    taskBoardSections: board.taskBoardSections,
-    taskBoardProgress: board.taskBoardProgress,
-  }
+  const { poolMobileScreensSnapshot } = await import('./mobile-screens-snapshot')
+  const { mostRelevantSession } = await import('../../../apps/mobile/src/lib/mission-session')
   const origin =
     process.argv.find((arg) => arg.startsWith('--origin='))?.slice(9) ?? 'http://127.0.0.1:18787'
   phase = 1
@@ -126,18 +93,9 @@ async function main() {
   const userStates = replica.rows('sessionUserStates')
   if (new Set(userStates.map((row) => row.userId)).size > 1)
     throw new Error('Ambiguous replay principal')
-  const sessions = dedupeSessions(
-    sessionViews(replica.rows('sessions'), {
-      userId: userStates[0]?.userId ?? '',
-      userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true,
-      userStates,
-      repos: replica.rows('repos'),
-      machines: replica.rows('machines'),
-    }),
-  )
   const store = {
     ...sidebarReplayStore(corpus, replica),
-    sessions,
+    sessions: [],
     openIssueId: null,
   } as unknown as Store<PodiumClientApi>
   const runtime = {
@@ -167,7 +125,7 @@ async function main() {
   let handle = await openPool()
   try {
     phase = 3
-    const issues = allIssueViewModels(replica, store.issueProjections, store.issueUserStates)
+    const issues = store.issueProjections as IssueViewModel[]
     const roots = [
       ...new Set(
         issues.flatMap((issue) => {
@@ -178,24 +136,17 @@ async function main() {
     ]
     let checks = 0,
       positions = 0,
-      differences = 0,
       pending = 0
-    let first: {
-      check: number
-      sectionIndex: number
-      rowIndex: number | null
-      field: string
-    } | null = null
-    const tasks: NonNullable<MobileScreenCheck['tasks']> = {
+    const tasks: NonNullable<MobileScreenInput['tasks']> = {
       showDone: false,
       expanded: [],
       filter: {},
       ordering: 'priority',
       showAgentTasks: false,
     }
-    const inputs: MobileScreenCheck[] = [null, ...roots].flatMap((selectedId) =>
+    const inputs: MobileScreenInput[] = [null, ...roots].flatMap((selectedId) =>
       (['full', 'working', 'needs-you'] as const).map((mode) => ({
-        legacy,
+        selectSession: mostRelevantSession,
         tasks: selectedId === null ? tasks : null,
         selectedId,
         mode,
@@ -206,7 +157,7 @@ async function main() {
       { ...tasks, filter: { stage: 'review' as const }, ordering: 'updated' as const },
       { ...tasks, filter: { archived: true }, showDone: true },
     ])
-      inputs.push({ legacy, tasks: option, selectedId: roots[0] ?? null, mode: 'full' })
+      inputs.push({ selectSession: mostRelevantSession, tasks: option, selectedId: roots[0] ?? null, mode: 'full' })
     for (const input of inputs) {
       // The offline walk opens every mission. Release its diagnostic pool
       // periodically while preserving the captured replica and mutation owner.
@@ -224,45 +175,15 @@ async function main() {
           runInAction(() => poolMobileScreensSnapshot(handle.pool, input))
           if (!handle.pool.hydrate()) break
         }
-        const result = runInAction(() => checkMobileScreens(handle.pool, issues, sessions, input))
+        const output = runInAction(() => poolMobileScreensSnapshot(handle.pool, input))
         checks++
-        positions += result.rows
-        differences += result.differences
-        pending += result.pending
-        if (!first && result.first)
-          first = {
-            check: checks,
-            sectionIndex: result.first.sectionIndex,
-            rowIndex: result.first.rowIndex,
-            field: result.first.field,
-          }
-        if (result.first?.field === 'author' && result.first.rowIndex !== null) {
-          const reader = handle.pool.row('mobileScreenReader', 'reader')
-          if (reader && typeof reader !== 'symbol') {
-            const mission = reader.mission(input.selectedId)
-            const deck = reader.deck(input.selectedId, input.mode)
-            if (typeof mission !== 'symbol' && typeof deck !== 'symbol') {
-              const id = deck.rows[result.first.rowIndex]?.issue.startedBySession
-              const expected = sessions.find((session) => session.sessionId === id)
-              const actual = mission.sessions.find((session) => session.sessionId === id)
-              console.log(
-                JSON.stringify({
-                  phase,
-                  checks,
-                  authorInputs: {
-                    expected: Number(Boolean(expected)),
-                    actual: Number(Boolean(actual)),
-                    expectedRef: Number(Boolean(expected?.displayRef)),
-                    actualRef: Number(Boolean(actual?.displayRef)),
-                  },
-                }),
-              )
-            }
-          }
+        if (typeof output === 'symbol') pending++
+        else {
+          pending += output.pending
+          positions += output.sections.reduce((count, section) => count + section.rows.length, 0)
         }
-        if (checks % 100 === 0)
-          console.log(JSON.stringify({ phase, checks, positions, differences, pending, first }))
-        if (result.differences || result.pending) break
+        if (checks % 100 === 0) console.log(JSON.stringify({ phase, checks, positions, pending }))
+        if (pending) break
       } finally {
         stop()
       }
@@ -270,7 +191,7 @@ async function main() {
     console.log(
       JSON.stringify({
         issues: issues.length,
-        sessions: sessions.length,
+        sessions: replica.rows('sessions').length,
         roots: roots.length,
         operatorWireVersion,
         checks,
@@ -278,12 +199,10 @@ async function main() {
         poolBatches,
         maxChecksPerPool: MAX_CHECKS_PER_POOL,
         positions,
-        differences,
         pending,
-        first,
       }),
     )
-    if (differences || pending || !positions || checks !== inputs.length) process.exitCode = 1
+    if (pending || !positions || checks !== inputs.length) process.exitCode = 1
   } finally {
     handle.dispose()
   }

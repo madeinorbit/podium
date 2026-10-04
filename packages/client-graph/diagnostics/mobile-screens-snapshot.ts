@@ -1,25 +1,12 @@
-/** Diagnostic only. Both phone paths spend one publication and clock; reports
- * contain counts, positions and opaque IDs, never the compared row values. */
-import type { IssueViewModel } from '@podium/client-core/replica'
+/** Pool-only regression output frozen by the accepted phone parity controls. */
 import type { SessionView } from '@podium/client-core/session-values'
 import {
-  buildFlightDeckRows,
-  confirmedWorkingAgentCountsByIssue,
-  deckIssueState,
   type FlightDeckMode,
   type FlightDeckRow,
   isSessionWorking,
-  issueContinuation,
-  issueNote,
-  missionDepartures,
-  missionProgress,
-  missionRootFor,
-  missionSessions,
-  presenceNote,
   sessionNeedsHuman,
   taskStateWord,
 } from '@podium/client-core/viewmodels'
-import { asIssueId } from '@podium/model/browser'
 import { autorun, reaction } from 'mobx'
 import type { MissionViewValues } from '../src/mission-view'
 import type {
@@ -32,33 +19,16 @@ import type { MobxPool } from '../src/pool'
 import { LOADING } from '../src/worklist/rollup'
 import { sessionComparable } from './oracle'
 import {
-  compareSidebarSnapshots,
-  type SidebarCheckResult,
   type SidebarSnapshot,
 } from './sidebar-check'
 
-export interface MobileScreenCheck {
-  /** Supplied by the actual phone modules, never a copied legacy oracle. */
-  legacy: MobileLegacyReads
+export interface MobileScreenInput {
+  selectSession(sessions: readonly SessionView[]): SessionView | undefined
   /** Tasks do not depend on mission selection; null skips a repeated check. */
   tasks: MobileTasksOptions | null
   selectedId: string | null
   mode: FlightDeckMode
   requestedSessionId?: string
-  worktreePaths?: string[]
-}
-export interface MobileLegacyReads {
-  taskBoardSections(
-    issues: IssueViewModel[],
-    options: Omit<MobileTasksOptions, 'expanded'> & { expanded: ReadonlySet<string> },
-  ): MobileTasksData['board']
-  taskBoardProgress(
-    issues: readonly IssueViewModel[],
-    sections: MobileTasksData['board'],
-    working: ReadonlyMap<string, number>,
-  ): MobileTasksData['progressByIssue']
-  buildScreeningQueue(issues: IssueViewModel[]): IssueViewModel[]
-  mostRelevantSession(sessions: readonly SessionView[]): SessionView | undefined
 }
 /** Keep MobX and the pool test arm's native list out of the phone test package. */
 export function trackMobileScreenRead<T>(read: () => T): T {
@@ -75,7 +45,7 @@ export function trackMobileScreenRead<T>(read: () => T): T {
   if (failure) throw failure.error
   return value
 }
-export function observeMobileScreens(pool: MobxPool, input: MobileScreenCheck): () => void {
+export function observeMobileScreens(pool: MobxPool, input: MobileScreenInput): () => void {
   return reaction(
     () => poolMobileScreensSnapshot(pool, input),
     () => {},
@@ -162,10 +132,10 @@ function snapshot(
   tasks: MobileTasksData,
   mission: MobileMissionData,
   deck: MissionViewValues,
-  legacy: MobileLegacyReads,
+  selectSession: MobileScreenInput['selectSession'],
   requested?: string,
 ): SidebarSnapshot {
-  const automatic = legacy.mostRelevantSession(mission.missionSessions)
+  const automatic = selectSession(mission.missionSessions)
   const current =
     mission.missionSessions.find((session) => session.sessionId === requested) ?? automatic
   const header = mission.issues.find((issue) => issue.id === current?.issueId) ?? mission.root
@@ -253,94 +223,9 @@ function snapshot(
     ],
   }
 }
-/** The accepted deadline refresh from the existing mission check applies here
- * too: only the two cached flags refresh when a finite deferral expires. */
-const deadlines = new WeakMap<IssueViewModel[], { now: number; issues: IssueViewModel[] }>()
-function deadlineIssues(issues: IssueViewModel[], now: number) {
-  const previous = deadlines.get(issues)
-  if (previous?.now === now) return previous.issues
-  let changed = false
-  const values = issues.map((issue) => {
-    const deadline = issue.deferUntil ? Date.parse(issue.deferUntil) : NaN
-    if (!Number.isFinite(deadline)) return issue
-    const deferred = deadline > now,
-      ready = !issue.blocked && !deferred && issue.stage !== 'done'
-    if (issue.deferred === deferred && issue.ready === ready) return issue
-    changed = true
-    return { ...issue, deferred, ready }
-  })
-  const expected = changed ? values : issues
-  deadlines.set(issues, { now, issues: expected })
-  return expected
-}
-export function legacyMobileScreensSnapshot(
-  issues: IssueViewModel[],
-  sessions: SessionView[],
-  input: MobileScreenCheck,
-  now: number,
-): SidebarSnapshot {
-  const { taskBoardSections, taskBoardProgress, buildScreeningQueue } = input.legacy
-  issues = deadlineIssues(issues, now)
-  const board = input.tasks
-    ? taskBoardSections(issues, {
-        ...input.tasks,
-        expanded: new Set(input.tasks.expanded),
-      })
-    : []
-  const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
-  const root = input.selectedId ? missionRootFor(issues, asIssueId(input.selectedId)) : undefined
-  const paths = input.worktreePaths ?? []
-  const rows = root ? buildFlightDeckRows(issues, sessions, root.id, input.mode, paths) : []
-  const byId = new Map(issues.map((issue) => [issue.id, issue]))
-  const progress = missionProgress(issues, sessions, root?.id)
-  const rootRow = rows.find((row) => row.issue.id === root?.id)
-  return snapshot(
-    {
-      issues,
-      sessions,
-      board,
-      workingByIssue,
-      progressByIssue: taskBoardProgress(issues, board, workingByIssue),
-      proposals: input.tasks ? buildScreeningQueue(issues).length : 0,
-    },
-    {
-      root,
-      issues,
-      sessions,
-      missionSessions: root ? missionSessions(issues, sessions, root.id) : [],
-      progress,
-    },
-    {
-      root,
-      rows,
-      byId,
-      sessions,
-      progress,
-      members: new Set(),
-      titles: new Map(),
-      archivedCount: 0,
-      continuation: root ? issueContinuation(root, byId, sessions) : null,
-      note: null,
-      presence: rootRow ? presenceNote(rootRow.issue, rootRow.sessions, byId, sessions) : null,
-      departures: root ? missionDepartures(issues, sessions, root.id, paths) : [],
-      rowPresentation: new Map(
-        rows.map((row) => [
-          row.issue.id,
-          {
-            state: deckIssueState(row.issue, row.sessions, byId),
-            note: issueNote(row.issue, byId, row.sessions),
-            presence: presenceNote(row.issue, row.sessions, byId),
-          },
-        ]),
-      ),
-    },
-    input.legacy,
-    input.requestedSessionId,
-  )
-}
 export function poolMobileScreensSnapshot(
   pool: MobxPool,
-  input: MobileScreenCheck,
+  input: MobileScreenInput,
 ): SidebarSnapshot | typeof LOADING {
   const reader = pool.row('mobileScreenReader', 'reader')
   if (!reader || reader === LOADING) return LOADING
@@ -348,18 +233,5 @@ export function poolMobileScreensSnapshot(
     mission = reader.mission(input.selectedId),
     deck = reader.deck(input.selectedId, input.mode)
   if (tasks === LOADING || mission === LOADING || deck === LOADING) return LOADING
-  return snapshot(tasks, mission, deck, input.legacy, input.requestedSessionId)
-}
-export function checkMobileScreens(
-  pool: MobxPool,
-  issues: IssueViewModel[],
-  sessions: SessionView[],
-  input: MobileScreenCheck,
-): SidebarCheckResult {
-  const actual = poolMobileScreensSnapshot(pool, input)
-  if (actual === LOADING) return { differences: 0, first: null, pending: 1, sections: 0, rows: 0 }
-  return compareSidebarSnapshots(
-    legacyMobileScreensSnapshot(issues, sessions, input, pool.clock.current),
-    actual,
-  )
+  return snapshot(tasks, mission, deck, input.selectSession, input.requestedSessionId)
 }

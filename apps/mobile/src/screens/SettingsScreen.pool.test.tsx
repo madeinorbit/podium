@@ -27,7 +27,6 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
     ...real,
-    mobileDataLayer: () => seams.host?.layer() ?? 'legacy',
     useMobilePool: () => seams.host!.host.usePool(),
     useMobilePoolProjection: <T,>(...args: Parameters<MobilePool['host']['usePoolProjection']>) =>
       seams.host!.host.usePoolProjection(...args) as T,
@@ -99,8 +98,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount(on: boolean) {
-  seams.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
+async function mount() {
+  seams.host = createMobilePool(false)
   const data = createHeaderFixture(8, 8),
     errors: string[] = [],
     seen: unknown[] = []
@@ -137,7 +136,7 @@ async function mount(on: boolean) {
   let runtime!: ClientRuntime
   function Surface() {
     runtime = useStoreHandle() as ClientRuntime
-    seams.host!.initialize(runtime.ui)
+
     seen.push(useMobilePool())
     return <SettingsScreen />
   }
@@ -183,21 +182,17 @@ function rowValue(container: HTMLElement, label: string): string | undefined {
     )?.children[1]?.textContent ?? undefined
   )
 }
-function comparableHtml(container: HTMLElement): string {
-  // The Experimental hint intentionally reports the launch's chosen data layer.
-  return container.innerHTML.replaceAll(/This launch: (?:on|off)\./g, 'This launch: <choice>.')
-}
-
 it('renders the same Settings through the real no-pool to attached-pool transition', async () => {
-  const enabled = await mount(true)
-  expect(comparableHtml(enabled.view.container)).toMatchSnapshot('last green pilot-ON Settings')
+  const enabled = await mount()
+  // The only edited expectation is the explicitly retired pilot row.
+  expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON Settings')
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
   expect(enabled.errors).toEqual([])
 })
 
 it('uses zero legacy selectors and issue models while relevant updates still paint', async () => {
-  const enabled = await mount(true)
+  const enabled = await mount()
   expect(readRuntimeStoreStats(enabled.runtime)).toBeDefined()
   expect(readRuntimeStoreStats(enabled.runtime)?.selectorRuns).toBe(0)
   expect(readRuntimeStoreStats(enabled.runtime)?.rowBuilds).toBe(0)
@@ -226,7 +221,7 @@ it('keeps server controls and logout on their existing owners', async () => {
     buttons?.find((button) => button.style === 'destructive')?.onPress?.()
   })
   {
-    const current = await mount(true)
+    const current = await mount()
     fireEvent.click(current.view.getByText('Done'))
     fireEvent.click(current.view.getByLabelText('Add server'))
     fireEvent.click(current.view.getByLabelText('Switch to Other server'))

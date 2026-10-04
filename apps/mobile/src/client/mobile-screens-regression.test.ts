@@ -1,18 +1,17 @@
-/** Actual phone derivations against the shared pool, over the same feed and
- * focused change gates used by POD-4954. Synthetic values stay in this test. */
+/** Exact pool-only phone outputs frozen after the accepted parity controls.
+ * Synthetic fixture roots select the same questions and publication gates. */
 
 import { createHash } from 'node:crypto'
 import type { Store } from '@podium/client-core/engine'
-import { allIssueViewModels } from '@podium/client-core/replica'
-import { missionRootFor, reposToViews } from '@podium/client-core/viewmodels'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { missionRootFor } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
-  checkMobileScreens,
-  type MobileScreenCheck,
+  type MobileScreenInput,
   observeMobileScreens,
   poolMobileScreensSnapshot,
   trackMobileScreenRead as tracked,
-} from '@podium/client-graph/diagnostics/mobile-screens-check'
+} from '@podium/client-graph/diagnostics/mobile-screens-snapshot'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -28,10 +27,7 @@ import {
   writeRescopeGrow,
 } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { mostRelevantSession } from '../lib/mission-session'
-import { buildScreeningQueue } from '../lib/screening'
-import { taskBoardProgress, taskBoardSections } from '../lib/task-board'
 
-const legacy = { mostRelevantSession, buildScreeningQueue, taskBoardProgress, taskBoardSections }
 
 function fingerprint(value: unknown) {
   const normalized = JSON.stringify(value, (_key, item) =>
@@ -52,14 +48,14 @@ beforeEach(() => {
   vi.setSystemTime(FIXED_NOW)
 })
 afterEach(() => vi.useRealTimers())
-const tasks: NonNullable<MobileScreenCheck['tasks']> = {
+const tasks: NonNullable<MobileScreenInput['tasks']> = {
   showDone: false,
   expanded: [],
   filter: {},
   ordering: 'priority',
   showAgentTasks: false,
 }
-function settle(pool: MobxPool, input: MobileScreenCheck) {
+function settle(pool: MobxPool, input: MobileScreenInput) {
   for (let round = 0; round < 64; round++) {
     tracked(() => poolMobileScreensSnapshot(pool, input))
     if (!pool.hydrate()) return
@@ -67,7 +63,7 @@ function settle(pool: MobxPool, input: MobileScreenCheck) {
   throw new Error('Phone batched loads did not settle')
 }
 function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
-  const issues = allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)
+  const issues = store.issueProjections as IssueViewModel[]
   const roots = [
     ...new Set(
       issues.flatMap((issue) => {
@@ -79,32 +75,25 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
   const ids = all
     ? [null, ...roots]
     : [...new Set([store.selectedIssueId, ...roots.slice(0, 3), ...roots.slice(-3)])]
-  const paths = reposToViews(store.repos).flatMap((repo) => repo.worktrees.map((tree) => tree.path))
   let positions = 0
   for (const selectedId of ids) {
     for (const mode of ['full', 'working', 'needs-you'] as const) {
-      const input: MobileScreenCheck = {
-        legacy,
+      const input: MobileScreenInput = {
+        selectSession: mostRelevantSession,
         tasks: selectedId === null ? tasks : null,
         selectedId: selectedId ?? null,
         mode,
-        worktreePaths: paths,
       }
       const stop = observeMobileScreens(pool, input)
       try {
         settle(pool, input)
-        const result = tracked(() => checkMobileScreens(pool, issues, store.sessions, input))
-        expect(result, `${label} ${selectedId} ${mode}`).toMatchObject({
-          differences: 0,
-          first: null,
-          pending: 0,
-        })
-        // Freeze normalized pool output after the differential is green, so
-        // retiring its legacy arm cannot silently change accepted values.
+        const output = tracked(() => poolMobileScreensSnapshot(pool, input))
+        if (typeof output === 'symbol') throw new Error('Phone output is still loading')
+        expect(output.pending).toBe(0)
         expect(fingerprint(tracked(() => poolMobileScreensSnapshot(pool, input)))).toMatchSnapshot(
           `${label} ${selectedId} ${mode}`,
         )
-        positions += result.rows
+        positions += output.sections.reduce((count, section) => count + section.rows.length, 0)
       } finally {
         stop()
       }
@@ -120,18 +109,13 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
     },
     { ...tasks, filter: { archived: true }, showDone: true },
   ].entries()) {
-    const input: MobileScreenCheck = {
-      legacy,
+    const input: MobileScreenInput = {
+      selectSession: mostRelevantSession,
       tasks: options,
       selectedId: ids[0] ?? null,
       mode: 'full',
-      worktreePaths: paths,
     }
     settle(pool, input)
-    expect(
-      tracked(() => checkMobileScreens(pool, issues, store.sessions, input)),
-      `${label} board options`,
-    ).toMatchObject({ differences: 0, first: null, pending: 0 })
     expect(fingerprint(tracked(() => poolMobileScreensSnapshot(pool, input)))).toMatchSnapshot(
       `${label} board options ${optionIndex}`,
     )
@@ -161,8 +145,8 @@ for (const scale of [1, 4] as const)
       positions += compare(handle.pool, ctx.engine.getSnapshot(), 'scope back', false)
       expect(positions).toBeGreaterThan(0)
       console.info(
-        '[phone screen parity]',
-        JSON.stringify({ scale, gates: FENCE_SCENARIOS.length + 2, positions, differences: 0 }),
+        '[phone screen regression]',
+        JSON.stringify({ scale, gates: FENCE_SCENARIOS.length + 2, positions }),
       )
     } finally {
       handle.dispose()

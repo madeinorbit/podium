@@ -14,7 +14,7 @@ const state = vi.hoisted(() => ({ host: undefined as MobilePool | undefined,
   transcripts: [] as { answerInteractionId?: string; assetContext?: { sessionId: string; cwd: string }; onAnswer: (a: unknown) => Promise<void> }[] }))
 vi.mock('../client/mobile-pool', async importOriginal => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
-  return { ...real, mobileDataLayer: () => state.host?.layer() ?? 'legacy',
+  return { ...real,
     useMobilePool: () => state.host!.host.usePool(),
     useMobilePoolProjection: <T,>(...args: Parameters<MobilePool['host']['usePoolProjection']>) => state.host!.host.usePoolProjection(...args) as T }
 })
@@ -37,13 +37,13 @@ const { SuperagentScreen } = await import('./SuperagentScreen')
 const { createMobilePool, useMobilePool } = await import('../client/mobile-pool')
 afterEach(() => { cleanup(); storeStats.enable(false); state.transcripts.length = 0 })
 
-async function mount(on: boolean) {
-  state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
+async function mount() {
+  state.host = createMobilePool(false)
   const data = createSuperagentFixture(), errors: string[] = [], seen: unknown[] = []
   let runtime!: ClientRuntime
   function Surface() {
     runtime = useStoreHandle() as ClientRuntime; seen.push(useMobilePool())
-    state.host!.initialize(runtime.getSnapshot().uiState)
+
     return <SuperagentScreen />
   }
   storeStats.enable(); storeStats.reset()
@@ -62,14 +62,14 @@ async function mount(on: boolean) {
   return { data, view, runtime, errors, seen }
 }
 it('renders the same phone session and question through the real no-pool to attached-pool transition', async () => {
-  const enabled = await mount(true)
+  const enabled = await mount()
   expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON superagent')
   expect(enabled.errors).toEqual([])
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some(pool => pool !== null)).toBe(true)
 })
 it('has zero legacy thread, session, boot and question selectors before and after a relevant update', async () => {
-  const enabled = await mount(true)
+  const enabled = await mount()
   expect(Object.entries(readRuntimeStoreStats(enabled.runtime)?.slices ?? {}).filter(([name]) => name === 'superagent' || name.startsWith('superagent.'))).toEqual([])
   expect(readRuntimeStoreStats(enabled.runtime)?.selectorRuns ?? 0).toBe(0)
   await act(async () => { enabled.data.activity(1); await enabled.data.updateThread(enabled.runtime, true) })
@@ -78,7 +78,7 @@ it('has zero legacy thread, session, boot and question selectors before and afte
 
 })
 it('keeps sending and clearing on the original owner and uses the declared session asset context', async () => {
-  const enabled = await mount(true)
+  const enabled = await mount()
   expect(state.transcripts.at(-1)?.assetContext).toMatchObject({ sessionId: 'synthetic-session-0', cwd: '/synthetic/project' })
   await act(async () => fireEvent.click(enabled.view.getByText('Send')))
   expect(enabled.data.actions.sent).toBe(1)

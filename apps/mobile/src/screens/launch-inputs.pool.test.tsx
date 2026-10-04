@@ -25,13 +25,13 @@ const { NewIssueScreen } = await import('./NewIssueScreen')
 afterEach(() => { cleanup(); storeStats.enable(false); vi.restoreAllMocks() })
 
 async function mount(element: import('react').ReactNode) {
-  state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
+  state.host = createMobilePool(false)
   const fixture = createHeaderFixture(3, 3)
   let runtime!: ClientRuntime
   const view = await renderWithMobileStore(element, { replica: fixture.replica, api: fixture.api,
     attachRuntime(owner) {
       runtime = owner
-      state.host!.initialize(owner.ui)
+
       fixture.bindHub(owner.hub)
       return state.host!.host.attach(owner, error => { throw error })
     },

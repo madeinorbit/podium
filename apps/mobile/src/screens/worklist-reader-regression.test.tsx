@@ -16,11 +16,10 @@ import {
 import {
   reposToViews,
   reposVisibleOnMachines,
-  sidebarSections,
 } from '@podium/client-core/viewmodels'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import type { ComponentProps, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import type { MobilePool } from '../client/mobile-pool'
@@ -30,7 +29,6 @@ import type { MobileTrpc } from '../client/trpc'
 const state = vi.hoisted(() => ({
   host: null as MobilePool | null,
   missionId: '',
-  paths: [] as string[][],
   runtime: null as ClientRuntime<MobileTrpc> | null,
   errors: [] as string[],
 }))
@@ -49,7 +47,6 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
     ...real,
-    mobileDataLayer: () => state.host!.layer(),
     useMobilePool: () => state.host!.host.usePool(),
     useMobilePoolProjection: (read: never, empty: never) =>
       state.host!.host.usePoolProjection(read, empty),
@@ -63,16 +60,6 @@ function readLaunch(pool: Parameters<typeof commandLaunchViews>[0]) {
 
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 
-// Observe the real deck's inputs and keep its actual row rendering.
-vi.mock('../components/MissionDeck', async (importOriginal) => {
-  const real = await importOriginal<typeof import('../components/MissionDeck')>()
-  return {
-    MissionDeck: (props: ComponentProps<typeof real.MissionDeck>) => {
-      state.paths.push(props.allWorktreePaths)
-      return <real.MissionDeck {...props} />
-    },
-  }
-})
 // Native sheet/navigator containers are boundaries, not worklist readers.
 vi.mock('../components/PressableScale', () => ({
   PressableScale: ({
@@ -247,17 +234,13 @@ afterEach(() => {
   vi.restoreAllMocks()
   storeStats.enable(false)
   storeStats.reset()
-  state.paths.length = 0
   state.errors.length = 0
 })
 
 afterAll(() => vi.unstubAllEnvs())
 
-describe('mobile never derives the legacy worklist in pilot mode', () => {
-  it.each([
-    false,
-    true,
-  ])('cumulative startup, gestures, feed, optimistic echo, idle and rebuild (pilot=%s)', async (on) => {
+describe('mobile pool-only worklist regressions', () => {
+  it('cumulative startup, gestures, feed, optimistic echo, idle and rebuild', async () => {
     storeStats.reset()
     storeStats.enable()
     const corpus = buildCorpus(1)
@@ -269,9 +252,8 @@ describe('mobile never derives the legacy worklist in pilot mode', () => {
     }
     const root = corpus.issueProjections.find((issue) => !issue.parentId)!
     state.missionId = root.id
-    let setting = on
-    state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => setting }))
-    state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+    state.host = createMobilePool(false)
+
     const now = vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
     const ticks: (() => void)[] = []
     const realInterval = globalThis.setInterval
@@ -289,21 +271,10 @@ describe('mobile never derives the legacy worklist in pilot mode', () => {
         (sum, runtime) => sum + (runtime.slices.worklist ?? 0),
         0,
       )
-      if (on) expect(worklist, phase).toBe(0)
-      else expect(worklist, phase).toBeGreaterThan(0)
+      expect(worklist, phase).toBe(0)
       phases.push({ phase, worklist })
       expect(state.errors).toEqual([])
     }
-    const sections = sidebarSections(
-      reposVisibleOnMachines(corpus.repos, corpus.machines),
-      [],
-      corpus.pins,
-      corpus.fixedNow,
-    )
-    const expectedPaths = [...sections.pinnedRepos, ...sections.repos].flatMap((repo) =>
-      repo.worktrees.map((tree) => tree.path),
-    )
-    expect(expectedPaths.length).toBeGreaterThan(0)
     let release!: () => void
     const receipt = new Promise<void>((resolve) => {
       release = resolve
@@ -336,7 +307,6 @@ describe('mobile never derives the legacy worklist in pilot mode', () => {
         () => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull(),
         { timeout: 30_000 },
       )
-      await waitFor(() => expect(state.paths.at(-1)).toEqual(expectedPaths), { timeout: 30_000 })
       return { view, feed }
     }
     const { view, feed } = await mount('u-bench')
@@ -404,13 +374,11 @@ describe('mobile never derives the legacy worklist in pilot mode', () => {
 
     const before = state.runtime
     view.unmount()
-    setting = !on
-    state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
-    expect(state.host.layer()).toBe(on ? 'pool' : 'legacy')
+
     await mount('u-next')
     expect(state.runtime).not.toBe(before)
     expect(storeStats.snapshot().runtimes.length).toBeGreaterThanOrEqual(2)
-    checkpoint('principal/provider rebuild with latched switch')
-    console.info('[mobile worklist derivations]', JSON.stringify({ on, phases }))
+    checkpoint('principal/provider rebuild')
+    console.info('[mobile worklist derivations]', JSON.stringify({ phases }))
   }, 120_000)
 })

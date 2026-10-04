@@ -317,8 +317,8 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
     selectors: number
   }[] = []
   for (const scale of [1, 4]) {
-    state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
-    state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+    state.host = createMobilePool(false)
+
     state.pool = null
     state.errors = []
     state.reads = 0
@@ -397,8 +397,8 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
 it('keeps parent target order literal and row reads bounded by its visible choices', async () => {
   const cells: { scale: number; rowReads: number; derivations: number; neighbours: number }[] = []
   for (const scale of [1, 4]) {
-    state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
-    state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+    state.host = createMobilePool(false)
+
     state.pool = null
     state.errors = []
     state.reads = 0

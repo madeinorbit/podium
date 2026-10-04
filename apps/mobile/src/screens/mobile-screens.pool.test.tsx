@@ -23,7 +23,7 @@ import { asIssueId, asSessionId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { type ComponentProps, type ReactNode, useCallback } from 'react'
+import { type type ReactNode, useCallback } from 'react'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import type { MobilePool } from '../client/mobile-pool'
@@ -38,7 +38,6 @@ const state = vi.hoisted(() => ({
   host: null as MobilePool | null,
   pool: null as MobxPool | null,
   missionId: '',
-  paths: [] as string[][],
   runtime: null as ClientRuntime<MobileTrpc> | null,
   errors: [] as string[],
 }))
@@ -58,12 +57,11 @@ vi.mock('expo-router', async () => {
     useFocusEffect: (effect: () => void) => useEffect(effect, [effect]),
   }
 })
-// One real host/latch per app load. The provider supplies its own runtime.
+// One real pool host per app load. The provider supplies its own runtime.
 vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
     ...real,
-    mobileDataLayer: () => state.host!.layer(),
     useMobilePool: () => state.host!.host.usePool(),
     useMobilePoolProjection: (read: never, empty: never) =>
       state.host!.host.usePoolProjection(read, empty),
@@ -78,16 +76,6 @@ function readLaunch(pool: Parameters<typeof commandLaunchViews>[0]) {
 
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 
-// Observe the real deck's inputs and keep its actual row rendering.
-vi.mock('../components/MissionDeck', async (importOriginal) => {
-  const real = await importOriginal<typeof import('../components/MissionDeck')>()
-  return {
-    MissionDeck: (props: ComponentProps<typeof real.MissionDeck>) => {
-      state.paths.push(props.allWorktreePaths)
-      return <real.MissionDeck {...props} />
-    },
-  }
-})
 // Native sheet/navigator containers are boundaries, not worklist readers.
 vi.mock('../components/PressableScale', () => ({
   PressableScale: ({
@@ -295,7 +283,6 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
   }
 }
 
-const off = new Map<string, (string | null)[]>()
 const profile: ServerProfileContextValue = {
   profile: {
     id: 'fixture',
@@ -331,15 +318,11 @@ afterEach(() => {
   storeStats.reset()
   missionLegacyStats.disable()
   missionLegacyStats.reset()
-  state.paths.length = 0
   state.errors.length = 0
   state.pool = null
 })
 afterAll(() => vi.unstubAllEnvs())
-it.each([
-  false,
-  true,
-])('three mounted phone screens keep cumulative legacy derivations at zero (ON=%s)', async (on) => {
+it('three mounted phone screens keep cumulative legacy derivations at zero (ON=true)', async () => {
   storeStats.enable()
   storeStats.reset()
   missionLegacyStats.enable()
@@ -404,9 +387,8 @@ it.each([
     refDraft: undefined,
   })
   state.missionId = root.id
-  let setting = on
-  state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => setting }))
-  state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+  state.host = createMobilePool(false)
+
   const now = vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
   const ticks: (() => void)[] = [],
     interval = globalThis.setInterval
@@ -468,8 +450,7 @@ it.each([
         (n, value) => n + (value.slices[`mobileScreens.${name}`] ?? 0),
         0,
       )
-      if (on) expect(count, `${phase} ${name}`).toBe(0)
-      else expect(count, `${phase} ${name}`).toBeGreaterThan(0)
+      expect(count, `${phase} ${name}`).toBe(0)
       legacy += count
     }
     const rows = replicas.reduce(
@@ -477,7 +458,7 @@ it.each([
       0,
     )
     const missions = missionLegacyStats.read()
-    if (on) {
+    {
       expect(chatContextReadStats(state.pool!), phase).toEqual({
         mentionBuilds: 0,
         mentionIssueReads: 0,
@@ -487,18 +468,13 @@ it.each([
       expect(rows, phase).toBe(0)
       expect(missions.indexMissionSessions, phase).toBe(0)
       expect(missions.missionIssueIds, phase).toBe(0)
-    } else {
-      expect(rows, phase).toBeGreaterThan(0)
-      expect(missions.missionIssueIds, phase).toBeGreaterThan(0)
     }
     expect(state.errors).toEqual([])
     if (parity) {
       const ids = ['tasks', 'mission', 'details']
       const text = ids.map((id) => screen.getByTestId(id).textContent)
-      if (on) {
-        expect(text, phase).toEqual(off.get(phase))
-        // Capture only after the actual OFF/ON output comparison passes. The
-        // pool-only regression keeps these values without updating snapshots.
+      {
+        // Exact outputs frozen after the accepted OFF/ON comparison passed.
         for (const [index, id] of ids.entries()) {
           expect(
             createHash('sha256')
@@ -506,13 +482,13 @@ it.each([
               .digest('hex'),
           ).toMatchSnapshot(`${phase} ${id}`)
         }
-      } else off.set(phase, text)
+      }
     }
     phases.push({ phase, legacy, rows })
   }
   const { view, feed } = await mount('u-bench')
   expect(screen.getByTestId('details').textContent).toContain(`by ${authorRef}`)
-  if (on) expect(state.pool!.tables.session.has(authorId)).toBe(false)
+  expect(state.pool!.tables.session.has(authorId)).toBe(false)
   checkpoint('startup')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Show done tasks'))
@@ -588,14 +564,12 @@ it.each([
   checkpoint('clear search')
   const before = state.runtime
   view.unmount()
-  setting = !on
-  state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
-  expect(state.host.layer()).toBe(on ? 'pool' : 'legacy')
+
   await mount('u-next')
   expect(state.runtime).not.toBe(before)
   expect(storeStats.snapshot().runtimes.length).toBeGreaterThanOrEqual(2)
   checkpoint('provider rebuild', false)
-  console.info('[phone legacy derivations]', JSON.stringify({ on, phases }))
+  console.info('[phone legacy derivations]', JSON.stringify({ phases }))
 }, 120_000)
 
 function ColdConversation({ id }: { id: string }) {
@@ -648,8 +622,8 @@ it('a cold conversation renders its declared joined machine name without loading
       resume: undefined,
     },
   ]
-  state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
-  state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+  state.host = createMobilePool(false)
+
   vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
   const feed = kernelFixture(corpus)
   await renderWithMobileStore(

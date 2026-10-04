@@ -34,7 +34,7 @@ import { renderWithMobileStore } from '../client/test-support'
 const state = vi.hoisted(() => ({
   host: null as MobilePool | null,
   pool: null as MobxPool | null,
-  on: false,
+
   sections: [] as readonly MobileWorkSection[],
   runtime: null as ClientRuntime<MobileTrpc> | null,
   counts: new Map<string, number>(),
@@ -56,7 +56,6 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
     ...real,
-    mobileDataLayer: () => state.host!.layer(),
     useMobilePool: () => {
       const pool = state.host!.host.usePool()
       state.pool = pool
@@ -317,14 +316,14 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
 function Capture() {
   return <WorkScreen />
 }
-async function mount(on: boolean, scale: 1 | 4, corpus = buildCorpus(scale)) {
-  state.on = on
+async function mount(scale: 1 | 4, corpus = buildCorpus(scale)) {
+
   state.sliceReads = 0
   state.rowDerivations = 0
   state.counts.clear()
   state.errors.length = 0
-  state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
-  state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+  state.host = createMobilePool(false)
+
   const feed = kernelFixture(corpus)
   vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
   const view = await renderWithMobileStore(<Capture />, {
@@ -485,7 +484,7 @@ describe('mobile WorkScreen pool consumer', () => {
         stoppedAt: '2020-01-01T00:00:00Z',
         lastActiveAt: '2020-01-01T00:00:00Z',
       }))
-      const { view } = await mount(true, scale, {
+      const { view } = await mount(scale, {
         ...corpus,
         sessions: [...corpus.sessions, ...history],
       })
@@ -558,7 +557,7 @@ describe('mobile WorkScreen pool consumer', () => {
     for (const scale of [1, 4] as const) {
       let rowReads = 0
       const census = startCensus({ sample: () => ({ rowReads }) })
-      const { view } = await mount(true, scale, clickCorpus(scale))
+      const { view } = await mount(scale, clickCorpus(scale))
       await drainNativeLoads()
       const pool = state.pool!
       const original = pool.row.bind(pool)
@@ -654,11 +653,11 @@ describe('mobile WorkScreen pool consumer', () => {
   }, 240_000)
 
   it('a hidden navigation target stays cold and a press reads the current session', async () => {
-    state.on = true
+
     state.counts.clear()
     state.errors.length = 0
-    state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
-    state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+    state.host = createMobilePool(false)
+
     const seed = buildCorpus(1)
     const path = seed.repos[0]!.path
     const session = {
@@ -731,7 +730,7 @@ describe('mobile WorkScreen pool consumer', () => {
 
   for (const scale of [1, 4] as const)
     it(`same native rows, bands and look at ${scale}x with no legacy reader`, async () => {
-      const pool = await mount(true, scale)
+      const pool = await mount(scale)
       await drainNativeLoads()
       expect(output(pool.view.container)).toMatchSnapshot('last green pilot-ON rows and styles')
       expect(state.sliceReads).toBe(0)
@@ -744,7 +743,7 @@ describe('mobile WorkScreen pool consumer', () => {
   for (const scale of [1, 4] as const)
     it(`only commits changed paint, keeps native lane identity, and matches the accepted paint counts at ${scale}x`, async () => {
       const cells: unknown[] = []
-      const { view, corpus, feed } = await mount(true, scale)
+      const { view, corpus, feed } = await mount(scale)
       const initial = output(view.container)
       const label = view.container
         .querySelector('[data-label^="POD-"]')!
@@ -783,7 +782,7 @@ describe('mobile WorkScreen pool consumer', () => {
 
   for (const scale of [1, 4] as const)
     it(`active search preserves untouched native bands at ${scale}x`, async () => {
-      const { view, corpus, feed } = await mount(true, scale)
+      const { view, corpus, feed } = await mount(scale)
       fireEvent.click(screen.getByLabelText('Search work'))
       fireEvent.change(screen.getByLabelText('Search work', { selector: 'input' }), {
         target: { value: 'reconcile' },
@@ -835,7 +834,7 @@ describe('mobile WorkScreen pool consumer', () => {
     }, 120_000)
 
   it('search overrides folds, uses native match counts, and the pool menu resolves on long press', async () => {
-    const { view, corpus } = await mount(true, 1)
+    const { view, corpus } = await mount(1)
     // The initial native window contains Pinned; later project headers are
     // intentionally not mounted until that window reaches them.
     const project = state.sections[0]!
@@ -879,7 +878,7 @@ describe('mobile WorkScreen pool consumer', () => {
   }, 120_000)
 
   it('launch choices come from the existing pool without worklistSlice', async () => {
-    await mount(true, 1)
+    await mount(1)
     fireEvent.click(screen.getByLabelText('New work'))
     await waitFor(() => expect(screen.getAllByLabelText(/^Start in /).length).toBe(1))
     expect(state.sliceReads).toBe(0)

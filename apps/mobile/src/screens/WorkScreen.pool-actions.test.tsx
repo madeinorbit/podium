@@ -45,7 +45,6 @@ vi.mock('../client/mobile-pool', async (original) => {
   const real = await original<typeof import('../client/mobile-pool')>()
   return {
     ...real,
-    mobileDataLayer: () => state.host!.layer(),
     useMobilePool: () => {
       state.pool = state.host!.host.usePool()
       return state.pool
@@ -271,8 +270,8 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
   outcomes = []
   state.errors = []
   router.push.mockClear()
-  state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => true }))
-  state.host.initialize({} as Parameters<MobilePool['initialize']>[0])
+  state.host = createMobilePool(false)
+
   const fixture = createSidebarActionsFixture(6, NOW, true)
   prepare?.(fixture)
   vi.spyOn(Date, 'now').mockReturnValue(NOW)

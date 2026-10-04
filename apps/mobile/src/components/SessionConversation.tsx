@@ -32,7 +32,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import { useHub } from '../client/hooks'
-import { mobileDataLayer } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextIssues as useIssues,
@@ -721,17 +720,7 @@ export function SessionConversation({
               moreAbove={transcript.hasMoreOlder}
               loadingOlder={transcript.loadingOlder}
               onFollowChange={followTranscript}
-              onRefPress={(ref) => {
-                if (mobileDataLayer() === 'pool') {
-                  setRequestedRef(ref)
-                  return
-                }
-                const seq = Number(ref.slice(4))
-                const target = issues.find((i) => i.seq === seq)
-                if (!target) return
-                if (onOpenTerminalRef) onOpenTerminalRef(target)
-                else setPeekIssue(target)
-              }}
+              onRefPress={setRequestedRef}
               footer={
                 offer ? (
                   <SessionActionCard

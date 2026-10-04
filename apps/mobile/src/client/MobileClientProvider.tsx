@@ -99,7 +99,7 @@ import { LaunchReadyView } from './launch-ready'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { openMobileEntityStore } from './mobile-entity-store'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
-import { attachMobilePool, initializeMobileDataLayer } from './mobile-pool'
+import { attachMobilePool } from './mobile-pool'
 import { createMobileSyncFetch } from './mobile-sync-fetch'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
@@ -773,7 +773,6 @@ function LiveProvider({ children }: { children: ReactNode }) {
       </LaunchReadyView>
     )
   }
-  initializeMobileDataLayer(openedReplica.replica.uiState())
   return (
     <StoreProvider
       config={config}

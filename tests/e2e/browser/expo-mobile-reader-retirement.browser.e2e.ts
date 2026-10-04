@@ -8,7 +8,7 @@ test.skip(
   'Pixel 7 production phone proof',
 )
 test.use({ serviceWorkers: 'block' })
-test.setTimeout(240_000)
+test.setTimeout(360_000)
 const directory = resolve('.artifacts/POD-5439/production-phone')
 const http = RELAY.replace(/^ws/, 'http')
 async function rpc<T>(page: Page, procedure: string, data?: object): Promise<T> {
@@ -35,7 +35,7 @@ async function legacyCounts(page: Page) {
     return result
   })
 }
-test('the production phone opens both launch forms and task details with zero legacy derivations', async ({
+test('the production phone preserves its pool screens with zero legacy derivations from startup', async ({
   page,
 }) => {
   const errors: string[] = []
@@ -62,6 +62,17 @@ test('the production phone opens both launch forms and task details with zero le
     description: 'Accepted phone task details.',
     startNow: false,
   })
+  const session = await rpc<{ sessionId: string }>(page, 'sessions.create', {
+    cwd: repoPath,
+    issueId: issue.id,
+    agentKind: 'claude-code',
+    title: 'Phone reader retirement task',
+  })
+  await expect.poll(async () =>
+    (await rpc<{ sessionId: string; status: string }[]>(page, 'sessions.list'))
+      .find(row => row.sessionId === session.sessionId)?.status,
+    { timeout: 60_000 },
+  ).toBe('live')
   mkdirSync(directory, { recursive: true })
   const cells: { screen: string; counts: Awaited<ReturnType<typeof legacyCounts>> }[] = []
   const save = async (screen: string) => {
@@ -99,6 +110,36 @@ test('the production phone opens both launch forms and task details with zero le
     await expect(page.getByRole('button', { name: new RegExp(`^${field}, `) })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Start agent', exact: true })).toBeVisible()
   await save('configured-launch')
+  await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('button', { name: /Phone reader retirement task$/ }).first())
+    .toBeVisible({ timeout: 60_000 })
+  await save('work')
+  await page.goto(`/mobile/issues?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Phone reader retirement task', { exact: true }).first())
+    .toBeVisible({ timeout: 60_000 })
+  await save('tasks')
+  await page.goto(`/mobile/mission/${issue.id}?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByLabel('Mission actions', { exact: true }))
+    .toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText('Phone reader retirement task', { exact: true }).first()).toBeVisible()
+  await save('mission')
+  await page.goto(`/mobile/mission/${issue.id}/details?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Mission details', { exact: true })).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText('Phone reader retirement task', { exact: true }).first()).toBeVisible()
+  await save('mission-details')
+  await page.goto(`/mobile/session/${session.sessionId}?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByLabel('Session actions', { exact: true })).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByRole('textbox').last()).toBeVisible()
+  await save('session')
+  await page.goto(`/mobile/pulse?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('E2E Identity', { exact: true })).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText('Memory', { exact: true }).first()).toBeVisible()
+  await save('pulse')
+  await page.goto(`/mobile/settings?server=${RELAY}&mobxMobile=0&mobxSidebar=0`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByLabel('MobX pilot', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Experimental', { exact: true })).toHaveCount(0)
+  await save('settings-obsolete-off')
   expect(errors).toEqual([])
   writeFileSync(
     resolve(directory, 'reader-counts.json'),

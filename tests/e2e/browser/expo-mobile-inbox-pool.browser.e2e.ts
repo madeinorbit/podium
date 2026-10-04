@@ -115,11 +115,7 @@ test('seeded proposals, live health and addressed references survive the pool-on
   await expect(page.getByText('No visible machines', { exact: true })).toHaveCount(0)
   await page.screenshot({ path: resolve(artifacts, 'pulse.png') })
   await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('Applies at the next app start. This launch: on.')).toBeVisible({
-    timeout: 60_000,
-  })
-  await toggle(page).click()
-  await expect(toggle(page)).not.toBeChecked()
-  await page.waitForTimeout(2_000)
+  await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByLabel('MobX pilot', { exact: true })).toHaveCount(0)
   expect(errors).toEqual([])
 })

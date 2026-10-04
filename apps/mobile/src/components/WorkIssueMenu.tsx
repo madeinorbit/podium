@@ -72,13 +72,7 @@ export function WorkIssueMenu({
     () => discoveredPlacement(issue, new Map(issues.map((candidate) => [candidate.id, candidate]))),
     [issue, issues],
   )
-  const agentSessions = useMemo(
-    () => sessions.filter((session) => session.issueId === issue.id && !session.archived),
-    [issue.id, sessions],
-  )
-  const sessionCount =
-    target.sessionCount ??
-    new Set(issue.memberSessionIds ?? agentSessions.map((s) => s.sessionId)).size
+  const sessionCount = target.sessionCount
   const actionIds = workMenuActionIds(issue, target.lane, {
     placement: placement?.originId != null,
   })

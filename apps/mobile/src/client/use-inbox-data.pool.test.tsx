@@ -48,7 +48,6 @@ vi.mock('./mobile-pool', async (original) => {
   const real = await original<typeof import('./mobile-pool')>()
   return {
     ...real,
-    mobileDataLayer: () => state.host?.layer() ?? 'legacy',
     useMobilePool: () => state.host!.host.usePool(),
     useMobilePoolProjection: <T,>(...args: Parameters<MobilePool['host']['usePoolProjection']>) =>
       state.host!.host.usePoolProjection(...args) as T,
@@ -199,7 +198,6 @@ afterEach(() => {
 })
 
 async function mount(
-  on: boolean,
   children: ReactNode = <Screens />,
   prepare?: (data: ReturnType<typeof createInboxFixture>) => void,
 ) {
@@ -207,12 +205,12 @@ async function mount(
     seen: (MobxPool | null)[] = [],
     errors: string[] = []
   prepare?.(data)
-  state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
+  state.host = createMobilePool(false)
   let runtime!: ClientRuntime,
     pool: MobxPool | null = null
   function Surface() {
     runtime = useStoreHandle() as ClientRuntime
-    state.host!.initialize(runtime.ui)
+
     pool = useMobilePool()
     seen.push(pool)
     return <>{children}</>
@@ -239,8 +237,7 @@ async function mount(
     </AuthStatusContext.Provider>,
   )
   await waitFor(() => expect(runtime).toBeTruthy())
-  if (on)
-    await waitFor(() => expect(pool && mobileInboxViews(pool)).toBeTruthy(), { timeout: 10000 })
+  await waitFor(() => expect(pool && mobileInboxViews(pool)).toBeTruthy(), { timeout: 10000 })
   await act(async () => {
     data.publishMachines()
     data.publishMetrics(0)
@@ -269,7 +266,7 @@ async function painted(app: Awaited<ReturnType<typeof mount>>) {
   )
 }
 it('preserves rendered phone inbox, proposal, pulse and reference values through real pool attachment', async () => {
-  const on = await mount(true)
+  const on = await mount()
   await painted(on)
   expect(on.view.container.innerHTML).toMatchSnapshot('last green pilot-ON inbox, screening, pulse and references')
   expect(on.seen[0]).toBeNull()
@@ -278,7 +275,7 @@ it('preserves rendered phone inbox, proposal, pulse and reference values through
 })
 
 it('has zero legacy selectors and issue derivations at mount and on relevant updates', async () => {
-  const on = await mount(true)
+  const on = await mount()
   await painted(on)
   expect(readRuntimeStoreStats(on.runtime)?.selectorRuns ?? 0).toBe(0)
   expect(readRuntimeStoreStats(on.runtime)?.rowBuilds ?? 0).toBe(0)
@@ -296,7 +293,7 @@ it('has zero legacy selectors and issue derivations at mount and on relevant upd
 })
 
 it('compares every card, triage bucket, screening ancestor and addressed route against the last green pilot outputs', async () => {
-  const app = await mount(true)
+  const app = await mount()
   await painted(app)
   const input = {
     now: NOW,
@@ -311,7 +308,7 @@ it('compares every card, triage bucket, screening ancestor and addressed route a
 })
 
 it('keeps decided deck order and retry lookup when proposals are promoted or arrive', async () => {
-  const app = await mount(true)
+  const app = await mount()
   await painted(app)
   await act(async () => fireEvent.click(app.view.getByLabelText('Skip')))
   await waitFor(() =>
@@ -371,7 +368,7 @@ it('reads cold refs through one batched reader and shares prefix work across ret
 })
 
 it('routes issue and permanent session references and preserves scoped handoff decisions', async () => {
-  const app = await mount(true, <PodiumLinkHost />)
+  const app = await mount(<PodiumLinkHost />)
   followPodiumLink('podium://issues/SYN-1018')
   await waitFor(() => expect(state.router.push).toHaveBeenCalledWith('/issue/synthetic-18'))
   followPodiumLink('podium://sessions/SYN-1000-A')
@@ -391,7 +388,7 @@ it('routes issue and permanent session references and preserves scoped handoff d
 })
 
 it('updates pulse machines and streamed health without rebuilding quota polling for unrelated rows', async () => {
-  const app = await mount(true, <PulseProbe />)
+  const app = await mount(<PulseProbe />)
   const reading = () => JSON.parse(app.view.getByTestId('pulse').textContent!)
   await waitFor(() => {
     expect(reading().machines).toHaveLength(3)
@@ -416,7 +413,7 @@ it('updates pulse machines and streamed health without rebuilding quota polling 
 })
 
 it('coalesces readiness loads and releases the existing cursor subscription on disposal', async () => {
-  const app = await mount(true, null)
+  const app = await mount(null)
   let cursor: number | null = null,
     publish = () => {},
     stopped = 0
@@ -459,7 +456,7 @@ it('coalesces readiness loads and releases the existing cursor subscription on d
 })
 
 it('shows the original outbox pending count and optimistically renamed card', async () => {
-  const app = await mount(true)
+  const app = await mount()
   await painted(app)
   let finish = () => {}
   vi.spyOn(
@@ -498,7 +495,7 @@ it('keeps the link activator synchronous with the same single OS fallback', () =
 })
 
 it('defers the cold not-found OS fallback until the addressed lookup settles and opens it once', async () => {
-  const app = await mount(true, <PodiumLinkHost />)
+  const app = await mount(<PodiumLinkHost />)
   const open = vi.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
   followPodiumLink('podium://issues/SYN-9999')
   expect(open).not.toHaveBeenCalled()
@@ -518,7 +515,7 @@ it('holds an early reference tap through null-to-pool attachment without opening
     }, [])
     return <PodiumLinkHost />
   }
-  const app = await mount(true, <FirstTap />)
+  const app = await mount(<FirstTap />)
   expect(app.seen[0]).toBeNull()
   await waitFor(() => expect(state.router.push).toHaveBeenCalledWith('/issue/synthetic-18'))
   expect(open).not.toHaveBeenCalled()
@@ -553,7 +550,7 @@ it('keeps the first replica owner in the resident alias index and hands it to th
 })
 
 it('resolves an earlier cold alias owner before a later resident claimant and follows its eviction', async () => {
-  const app = await mount(true, null, (data) => {
+  const app = await mount(null, (data) => {
     for (const [id, repoId] of [
       ['synthetic-18', 'missing-a'],
       ['synthetic-7', 'missing-b'],

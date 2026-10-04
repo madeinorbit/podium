@@ -46,7 +46,6 @@ vi.mock('./mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('./mobile-pool')>()
   return {
     ...real,
-    mobileDataLayer: () => seams.host?.layer() ?? 'legacy',
     useMobilePool: () => seams.host!.host.usePool(),
     useMobilePoolProjection: <T,>(...args: Parameters<MobilePool['host']['usePoolProjection']>) =>
       seams.host!.host.usePoolProjection(...args) as T,
@@ -252,12 +251,11 @@ function rendered(node: Node): unknown {
 }
 
 async function mount(
-  on: boolean,
   screen: 'all' | 'probe' | 'conversation' = 'all',
   cold = false,
   onOpenTerminalRef?: (issue: IssueViewModel) => void,
 ) {
-  const host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
+  const host = createMobilePool(false)
   seams.host = host
   const data = createHeaderFixture(12),
     errors: (Error | string)[] = [],
@@ -368,7 +366,7 @@ async function mount(
   }
   function Surface() {
     runtime = useStoreHandle() as ClientRuntime
-    host.initialize(runtime.ui)
+
     seen.push(useMobilePool())
     return screen === 'probe' ? (
       <Probe />
@@ -409,8 +407,7 @@ async function mount(
     </StrictMode>,
   )
   await waitFor(() => expect(runtime).toBeDefined())
-  if (on)
-    await waitFor(
+  await waitFor(
       () => expect(seen.at(-1)?.row('mobileSessionReader', 'reader')).toBeTypeOf('object'),
       { timeout: 10000 },
     )
@@ -436,17 +433,24 @@ async function mount(
   }
 }
 
-it('opens a conversation with zero mention reads, then matches the legacy reference and open-sheet catalogs', async () => {
-  const legacy = await mount(false, 'conversation')
-  await act(async () => seams.transcriptInputs.at(-1)!.onRefPress!('SYN-1001'))
-  await waitFor(() => expect(seams.sheet?.issue?.id).toBe('synthetic-1'))
+it('opens a conversation with zero mention reads, then matches the accepted reference and open-sheet catalogs', async () => {
+  // Recorded after the accepted OFF/ON control passed at b4d0134f17.
   const expected = {
-    issue: { id: seams.sheet!.issue!.id, title: seams.sheet!.issue!.title },
-    issues: seams.sheet!.issues.map((row) => row.id),
-    sessions: seams.sheet!.sessions.map((row) => row.sessionId),
+    issue: { id: 'synthetic-1', title: 'Synthetic task 1' },
+    issues: [
+      'synthetic-0', 'synthetic-1', 'synthetic-10', 'synthetic-11',
+      'synthetic-2', 'synthetic-3', 'synthetic-4', 'synthetic-5',
+      'synthetic-6', 'synthetic-7', 'synthetic-8', 'synthetic-9',
+    ],
+    sessions: [
+      'synthetic-guest-0', 'synthetic-guest-1',
+      'synthetic-session-0', 'synthetic-session-1', 'synthetic-session-10',
+      'synthetic-session-11', 'synthetic-session-2', 'synthetic-session-3',
+      'synthetic-session-4', 'synthetic-session-5', 'synthetic-session-6',
+      'synthetic-session-7', 'synthetic-session-8', 'synthetic-session-9',
+    ],
   }
-  legacy.view.unmount()
-  const enabled = await mount(true, 'conversation')
+  const enabled = await mount('conversation')
   const counts = chatContextReadStats(enabled.pool())
   expect(counts).toEqual({
     mentionBuilds: 0,
@@ -475,7 +479,7 @@ it('opens a conversation with zero mention reads, then matches the legacy refere
 
 it('resolves a cold terminal reference without building either conversation catalog', async () => {
   const onOpen = vi.fn()
-  const enabled = await mount(true, 'conversation', false, onOpen)
+  const enabled = await mount('conversation', false, onOpen)
   const counts = chatContextReadStats(enabled.pool())
   await act(async () => seams.transcriptInputs.at(-1)!.onRefPress!('SYN-1001'))
   await waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1))
@@ -491,7 +495,7 @@ it('resolves a cold terminal reference without building either conversation cata
 }, 30_000)
 
 it('renders the same six phone readers through real late attachment with no React errors', async () => {
-  const enabled = await mount(true)
+  const enabled = await mount()
   expect(rendered(enabled.view.container)).toMatchSnapshot('last green pilot-ON session readers')
   expect(enabled.errors).toEqual([])
   expect(enabled.seen[0]).toBeNull()
@@ -504,8 +508,8 @@ it('renders the same six phone readers through real late attachment with no Reac
   expect(seams.nativeInputs.at(-1)).toMatchObject({ spawnPending: false, cols: 80, rows: 24 })
 })
 
-it('has zero legacy selectors and conversation-port reads on relevant updates; legacy is the red control', async () => {
-  const enabled = await mount(true)
+it('has zero legacy selectors and conversation-port reads on relevant updates', async () => {
+  const enabled = await mount()
   const stats = () => readRuntimeStoreStats(enabled.runtime)!
   expect(stats().selectorRuns).toBe(0)
   expect(Object.keys(stats().slices).filter((key) => key.startsWith('mobileSession.'))).toEqual([])
@@ -522,7 +526,7 @@ it('has zero legacy selectors and conversation-port reads on relevant updates; l
 })
 
 it('compares roster, addressed context, read state, geometry and ports with a planted mismatch', async () => {
-  const enabled = await mount(true, 'probe')
+  const enabled = await mount('probe')
   expect(enabled.pool().row('session', 'synthetic-session-11', 'summary')).not.toHaveProperty(
     'privateBody',
   )
@@ -555,7 +559,7 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
 })
 
 it('borrows each shared source once and keeps the conversation bridge across draft and held-send updates', async () => {
-  const enabled = await mount(true, 'probe'),
+  const enabled = await mount('probe'),
     pool = enabled.pool()
   for (const [key, entities] of [
     [SESSION_PANE_SOURCE_KEY, SESSION_PANE_ENTITIES],
@@ -601,7 +605,7 @@ it('borrows each shared source once and keeps the conversation bridge across dra
 })
 
 it('keeps the original mutation owner when the pool conversation edits its draft and sends', async () => {
-  const enabled = await mount(true)
+  const enabled = await mount()
   fireEvent.change(enabled.view.getByLabelText('Draft'), { target: { value: 'Draft by operator' } })
   await waitFor(() => expect(enabled.runtime.getSnapshot().drafts[SID]).toBe('Draft by operator'))
   fireEvent.click(enabled.view.getByText('Send'))
@@ -616,7 +620,7 @@ it('keeps the original mutation owner when the pool conversation edits its draft
 })
 
 it('retains loading on an empty cold replica instead of claiming the roster is empty', async () => {
-  const enabled = await mount(true, 'probe', true)
+  const enabled = await mount('probe', true)
   expect(enabled.latest().booting).toBe(true)
   expect(enabled.latest().session).toBeUndefined()
   expect(enabled.latest().pending).toBe(false)

@@ -1,11 +1,8 @@
 /**
  * A REAL STORE FOR MOBILE COMPONENT TESTS (POD-332).
  *
- * The point of this issue is that mobile screens read the SAME store and the
- * SAME published slices as the web. A test that mocked the store — or worse,
- * mocked `useSlice` — would pass identically against a screen that still
- * derived everything locally, which is the one thing these tests exist to
- * disprove. So this mounts the actual `StoreProvider` over a memory-backed
+ * The provider builds the same runtime, replica, outbox and pool as the app.
+ * Tests publish into that replica and drive the production pool readers. So this mounts the actual `StoreProvider` over a memory-backed
  * replica and drives the three entry points a real client has:
  *
  *   entities  → seeded into the replica (`applySnapshot`), the same collection a
@@ -18,7 +15,7 @@
  *               other way would not be testing the path the product uses.
  */
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
+import { type StoreNotices, StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { type IssueViewModel, type Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import {
@@ -187,8 +184,8 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   function Capture({ inner }: { inner: ReactNode }) {
     // Reaching the hub through the store snapshot, not through a module import:
     // the hub under test must be the one the provider built.
-    const store = useStore<MobileTrpc>()
-    hub = store.hub as unknown as { emit(event: string, ...payload: unknown[]): void }
+    const store = useStoreHandle<MobileTrpc>()
+    hub = store.getSnapshot().hub as unknown as { emit(event: string, ...payload: unknown[]): void }
     return (
       <>
         {!fixture.attachRuntime && <PoolReady />}

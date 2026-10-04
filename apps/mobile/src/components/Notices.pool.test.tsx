@@ -19,7 +19,6 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
     ...real,
-    mobileDataLayer: () => state.host?.layer() ?? 'legacy',
     useMobilePoolProjection: <T,>(read: Parameters<MobilePool['host']['usePoolProjection']>[0], empty: T) =>
       state.host!.host.usePoolProjection(read, empty) as T,
   }
@@ -54,8 +53,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount(on: boolean) {
-  state.host = createMobilePool(false, () => ({ get: () => undefined, device: () => on }))
+async function mount() {
+  state.host = createMobilePool(false)
   const fixture = createHeaderFixture(3, 3), data = noticeFixture(), errors: string[] = []
   for (const [entity, rows] of [
     ['message', data.messages],
@@ -103,7 +102,7 @@ async function mount(on: boolean) {
       Object.defineProperty(runtime.hub, 'connected', { configurable: true, get: () => connected })
       configured.add(runtime)
     }
-    state.host!.initialize(runtime.getSnapshot().uiState)
+
     seen.push(state.host!.host.usePool())
     return <>
       <MessageNoticeBanner />
@@ -155,7 +154,7 @@ function expectPoolReadersOnly(runtime: ClientRuntime) {
 
 it('preserves the accepted banners through pool attachment', async () => {
   const reactErrors = vi.spyOn(console, 'error')
-  const enabled = await mount(true)
+  const enabled = await mount()
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
   expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON banners')
@@ -165,7 +164,7 @@ it('preserves the accepted banners through pool attachment', async () => {
 })
 
 it('reacts to message, session-label and ask updates without legacy work', async () => {
-  const enabled = await mount(true)
+  const enabled = await mount()
   await act(async () => {
     enabled.fixture.patch('message', 'notice-message-2', { body: 'Updated synthetic message' })
     enabled.fixture.patch('pendingInteraction', 'notice-ask-7', { payload: { v: 1, plan: 'Updated synthetic plan' } })
@@ -187,7 +186,7 @@ it('reacts to message, session-label and ask updates without legacy work', async
 })
 
 it('keeps chat, settings, dismiss and typed-answer actions on the existing owner', async () => {
-  const enabled = await mount(true)
+  const enabled = await mount()
   fireEvent.click(enabled.view.getByRole('button', { name: 'Open the chat with a closed session' }))
   expect(state.push).toHaveBeenCalledWith('/session/missing-session')
   fireEvent.click(enabled.view.getByTestId('workspace-continuity-notice'))
@@ -215,7 +214,7 @@ it('keeps chat, settings, dismiss and typed-answer actions on the existing owner
 })
 
 it('updates recovery and continuity through the original outbox retry, edit and discard actions', async () => {
-  const enabled = await mount(true), recovery = enabled.runtime.getSnapshot().recoverOutbox
+  const enabled = await mount(), recovery = enabled.runtime.getSnapshot().recoverOutbox
   const retry = vi.spyOn(recovery, 'retry'), edit = vi.spyOn(recovery, 'edit'), discard = vi.spyOn(recovery, 'discard')
   const cards = () => enabled.view.getAllByTestId('outbox-recovery-card')
   await act(async () => fireEvent.click(within(cards()[2]!).getByTestId('outbox-retry')))
@@ -244,7 +243,7 @@ it('updates recovery and continuity through the original outbox retry, edit and 
 })
 
 it('removes empty notices and retains the live offline status without snapshot selectors', async () => {
-  const enabled = await mount(true)
+  const enabled = await mount()
   await act(async () => {
     for (const row of enabled.data.messages) enabled.evict('message', row.id)
     for (const row of enabled.data.interactions) enabled.evict('pendingInteraction', row.id)
