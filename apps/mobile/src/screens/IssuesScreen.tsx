@@ -57,10 +57,9 @@ const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded']
 /**
  * THE TASKS TAB — high-level work, plus proposals that need a call [POD-947].
  *
- * The rows themselves come from the shared pool mobile screen reader. The
- * derivation the desktop board reads and then applies the phone's one extra
- * rule: a screenable proposal is promoted even when it has a parent. See that
- * module for why the list is not a tree, and for the section-order decision.
+ * The shared pool derives the rows with the board's membership rules and the
+ * phone's proposal promotion: a screenable proposal is a root decision even
+ * when it has an approved parent. The mobile reader owns section order.
  *
  * This file owns the two things that are genuinely the phone's: what a row looks
  * like at 390pt, and the sticky collapsible section header.
