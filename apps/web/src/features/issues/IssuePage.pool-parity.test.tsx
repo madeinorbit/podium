@@ -563,7 +563,7 @@ describe('issue page rendered pool parity', () => {
       back = vi.fn(),
       initial = vi.fn()
     startupHost = createPoolHost({
-      screens: [{ initialize: () => {}, enabled: () => true }],
+      screens: [{}],
       dev: false,
     })
     const issue = legacyIssues.find((row) => row.id === 'root')!
@@ -587,7 +587,6 @@ describe('issue page rendered pool parity', () => {
     }
     const view = render(wrap(<AttachAfterRender />))
     // Mount the actual pool page body before the host's asynchronous attach.
-    // The startup choice itself is covered by the page and latch comparisons.
     await waitFor(() => expect(poolReads).toHaveBeenCalledWith(null))
     expect(view.container.textContent).toBe('')
     expect(initial).toHaveBeenCalledExactlyOnceWith(null)

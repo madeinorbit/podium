@@ -501,8 +501,6 @@ describe('web pool navigation', () => {
       stop = vi.fn()
     const screens = [
       {
-        initialize() {},
-        enabled: () => true,
         options: () => ({ settings: true }),
         prepare: () => {
           prepare()

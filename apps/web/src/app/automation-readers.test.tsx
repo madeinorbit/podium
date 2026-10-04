@@ -57,8 +57,6 @@ it('screen registry releases late attachments after principal teardown', async (
   const stop = vi.fn(),
     error = vi.fn()
   const screen: PoolScreen = {
-    initialize() {},
-    enabled: () => true,
     attach: () =>
       new Promise((resolve) => {
         finish = resolve
@@ -74,19 +72,10 @@ it('screen registry releases late attachments after principal teardown', async (
     screenOptions(
       [
         {
-          initialize() {},
-          enabled: () => true,
           options: () => ({ summaries: { session: ['title'] } }),
         },
         {
-          initialize() {},
-          enabled: () => true,
           options: () => ({ summaries: { session: ['title', 'name'] } }),
-        },
-        {
-          initialize() {},
-          enabled: () => false,
-          options: () => ({ summaries: { session: ['privateBody'] } }),
         },
       ],
       {} as never,
