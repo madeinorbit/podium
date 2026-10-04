@@ -12,7 +12,7 @@ import type { HeaderRecord, HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
 
 const stamp = '2026-10-04T12:00:00Z'
-installMobxWarnTrap()
+installMobxWarnTrap({ errors: true })
 function fixture(scale: 1 | 4) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
     header: true,
@@ -107,8 +107,8 @@ function fixture(scale: 1 | 4) {
     ...repos.map((value, index) => ({ kind: 'repository', id: ids[index]!, value })),
     ...orders.map((value) => ({ kind: 'shipOrder', id: value.id, value })),
   ] as HeaderRecord[])
-  pool.header.order('repository', ids)
-  let painted = pool.headerViews.shipping()
+  runInAction(() => pool.header.order('repository', ids))
+  let painted = { unfinishedCount: 0, decisionCount: 0 }
   const stop = autorun(() => {
     painted = pool.headerViews.shipping()
   })
