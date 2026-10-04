@@ -1,9 +1,10 @@
-/** POD-5391: where does the phone's pilot-on warm start spend its time?
+/** Where does the pool-only phone's warm start spend its time?
  *
  * Production phone export, Pixel Chromium, operator-sized synthetic corpus
  * (6,100 issues, 5,200 sessions). Warm = the IndexedDB replica retained from
  * the previous launch. Each sample is a fresh document launch of the session
- * screen with the device pilot latched OFF or ON by the previous launch.
+ * screen through the permanent pool reader. The last OFF control is recorded
+ * in POD-5407's landed evidence at01e22dd14d, before its removal here.
  * Timing samples run without tracing; traced samples carry V8 CPU samples for
  * offline attribution by tests/e2e/phone-profile-analyze.ts.
  *
@@ -18,7 +19,6 @@ import {
   SIZED_CORPUS,
   saveTrace,
   seedSession,
-  setPilot,
   sizedBootstrap,
   traceStart,
 } from './_phone-profile'
@@ -34,7 +34,7 @@ const samples = Number(process.env.PODIUM_PHONE_PROFILE_SAMPLES ?? 3)
 const POST_SETTLE_MS = 5_000
 
 interface Sample {
-  pool: boolean
+  pool: true
   traced: boolean
   /** Document navigation start → session screen DOM complete + two frames. */
   settledMs: number
@@ -54,7 +54,6 @@ interface Sample {
 async function openSession(
   page: Page,
   sessionId: string,
-  pool: boolean,
   cdp: CDPSession,
   bootstraps: () => number,
   trace?: string,
@@ -98,7 +97,7 @@ async function openSession(
     .filter((end) => end <= observed.settledMs + POST_SETTLE_MS)
     .reduce((latest, end) => Math.max(latest, end), observed.settledMs)
   return {
-    pool,
+    pool: true,
     traced: trace !== undefined,
     ...observed,
     busyUntilMs,
@@ -109,7 +108,7 @@ async function openSession(
   }
 }
 
-test('phone pilot warm start into a session, timed and profiled', async ({ page }) => {
+test('pool-only phone warm start into a session, timed and profiled', async ({ page }) => {
   test.skip(
     process.env.PODIUM_PHONE_PROFILE !== '1',
     'Run only while holding bench:flatblock, with PODIUM_PHONE_PROFILE=1',
@@ -204,32 +203,24 @@ test('phone pilot warm start into a session, timed and profiled', async ({ page 
       console.log(`[sync ${new Date().toISOString()}] ${response.status()} ${url.pathname}${url.search} ${body}`)
     })
   await firstLaunch(page)
-  // Warm both replica paths once; retained IndexedDB is what "warm" means.
-  let current = false
-  const run = async (pool: boolean, trace?: string) => {
-    await setPilot(page, pool, current)
-    current = pool
-    return openSession(page, seed.sessionId, pool, cdp, corpus.installations, trace)
-  }
-  await run(false)
-  await run(true)
+  // Warm the pool reader once; retained IndexedDB is what "warm" means.
+  const run = (trace?: string) =>
+    openSession(page, seed.sessionId, cdp, corpus.installations, trace)
+  await run()
   const timed: Sample[] = [],
     traced: Sample[] = []
-  // Balanced ABBA-style order: neither arm always runs first or second.
-  const order = Array.from({ length: samples }, (_, index) =>
-    index % 2 === 0 ? [false, true] : [true, false],
-  ).flat()
-  for (const pool of order) timed.push(await run(pool))
-  for (const [index, pool] of order.entries())
-    traced.push(await run(pool, `warm-${pool ? 'on' : 'off'}-${index}.trace.json.gz`))
+  const order = Array.from({ length: samples }, () => true)
+  for (const _pool of order) timed.push(await run())
+  for (const [index] of order.entries())
+    traced.push(await run(`warm-on-${index}.trace.json.gz`))
   expect(corpus.installations()).toBeGreaterThan(0)
   // Every measured launch is warm: it resumed from the saved cursor.
   expect([...timed, ...traced].map((sample) => sample.bootstraps)).toEqual(
     [...timed, ...traced].map(() => 0),
   )
   expect(observed.errors, observed.errors.join('\n')).toEqual([])
-  const median = (pool: boolean, list: Sample[], pick: (s: Sample) => number = (s) => s.settledMs) => {
-    const values = list.filter((s) => s.pool === pool).map(pick)
+  const median = (list: Sample[], pick: (s: Sample) => number = (s) => s.settledMs) => {
+    const values = list.map(pick)
     return values.sort((a, b) => a - b)[Math.floor(values.length / 2)]
   }
   const busy = (s: Sample) => s.busyUntilMs
@@ -237,15 +228,12 @@ test('phone pilot warm start into a session, timed and profiled', async ({ page 
     corpus: SIZED_CORPUS,
     browser: page.context().browser()?.version(),
     method:
-      'Fresh document launch of /mobile/session/:id with the IndexedDB replica retained and its cursor saved by the previous launch (warm: zero bootstrap fetches, asserted); pilot latched by the previous launch. settledMs = navigation start → Session actions, a textbox and the session title in the DOM + two animation frames (in-page MutationObserver). busyUntilMs = end of the last >50 ms long task up to 5 s after settling. Timed samples carry no tracing; traced samples carry a Chromium trace with V8 CPU samples.',
+      'Fresh pool-only document launch of /mobile/session/:id with the IndexedDB replica retained and its cursor saved by the previous launch (warm: zero bootstrap fetches, asserted). settledMs = navigation start → Session actions, a textbox and the session title in the DOM + two animation frames (in-page MutationObserver). busyUntilMs = end of the last >50 ms long task up to 5 s after settling. Timed samples carry no tracing; traced samples carry a Chromium trace with V8 CPU samples.',
     order,
     medians: {
-      timedOff: median(false, timed),
-      timedOn: median(true, timed),
-      tracedOff: median(false, traced),
-      tracedOn: median(true, traced),
-      busyTimedOff: median(false, timed, busy),
-      busyTimedOn: median(true, timed, busy),
+      timedOn: median(timed),
+      tracedOn: median(traced),
+      busyTimedOn: median(timed, busy),
     },
     timed,
     traced,

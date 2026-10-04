@@ -1,5 +1,5 @@
-/** Phone pool start attribution (POD-5391): the operator-sized synthetic corpus,
- * the device pilot switch and a navigation-surviving Chromium trace with V8 CPU
+/** Phone pool start attribution: the operator-sized synthetic corpus,
+ * saved replica barrier and a navigation-surviving Chromium trace with V8 CPU
  * samples. Measurement only; never imported by a product file or default lane. */
 import { writeFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
@@ -168,23 +168,6 @@ export async function sizedBootstrap(page: Page, seed: { issueId: string; sessio
     await route.fulfill({ status: reply.status(), body, headers })
   })
   return { installations: () => installations }
-}
-
-/** Set the device pilot for the NEXT app start. Pilot-on preferences arrive
- * with the lazy pool, so wait for the last saved value before clicking. Also
- * proves the current launch latched `current`. */
-export async function setPilot(page: Page, next: boolean, current: boolean) {
-  await page.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
-  await expect(
-    page.getByText(`Applies at the next app start. This launch: ${current ? 'on' : 'off'}.`),
-  ).toBeVisible({ timeout: 60_000 })
-  const toggle = page.getByLabel('MobX pilot', { exact: true })
-  await expect(toggle).toBeChecked({ checked: current, timeout: 60_000 })
-  if (next !== current) await toggle.click()
-  await expect(toggle).toBeChecked({ checked: next })
-  await page.waitForTimeout(2_000) // The production device storage write-behind.
-  await replicaDurable(page)
 }
 
 /** The unmeasured first launch: bootstrap the sized corpus and wait for its

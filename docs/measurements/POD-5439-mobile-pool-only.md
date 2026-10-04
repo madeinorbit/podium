@@ -24,6 +24,33 @@ and the lazy web menu repair at `db95c578dd` (POD-5476). These rebases leave
 all mobile and graph source bytes unchanged. The shared mission-oracle bank
 change belongs to that inherited correction; the phone banks stay fixed.
 
+The later rebase onto`01e22dd14d` includes POD-5433's keyed runtime inputs at
+`1b15382107` and POD-5407's resident-only attach. Modified legacy mobile replays
+stay deleted. The cold-index conflict keeps the canonical relation owner and
+adds only this issue's optional repository-path question. The issue-page exit
+source is byte-identical to the keyed POD-5433 source; the earlier epoch adapter
+is superseded by that incoming change.
+
+The inherited census baseline now matches`01e22dd14d` byte-for-byte, SHA256
+`e24d1734dcc41086a70c3f9b0305c00aa2181bee7382940444f7c0dc3e64d6d8`.
+POD-5407 owns its explained shrink: attach reads416,921/1,632,267 become
+13,900/55,727; held map entries33,246/134,784 become6,747/27,124;
+set members18,221/73,915 become15/27. Its relation atoms move from upkeep
+to the first observed slot. This issue makes no baseline edit. The older
+POD-5432 baseline and inherited-growth measurements below retain their
+original source context.
+
+POD-5407's last green phone OFF control is recorded on this issue before
+removal. Its landed design report retains all12 OFF samples across base/change
+and both rounds, the zero-bootstrap assertions and the accepted ON samples.
+With that hold released, `_phone-profile.ts` loses `setPilot`, the session
+warm-start profile retains its ON samples, visible assertions and median
+method but drops its OFF arm, and the completeness consumer drops the obsolete
+setting toggle. No shared protocol, web setting or host switch is changed.
+Frozen regression, compiler, production phone and timing checks are refreshed
+after this dependency rebase before landing; earlier green captures below
+remain evidence for their recorded source, rather than claims about this tip.
+
 ## Accepted outputs and retained controls
 
 Each legacy arm was removed after its green control was recorded on the issue.

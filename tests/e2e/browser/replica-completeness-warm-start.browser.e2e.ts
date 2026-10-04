@@ -19,7 +19,6 @@ import {
   SIZED_CORPUS,
   saveTrace,
   seedSession,
-  setPilot,
   sizedBootstrap,
   traceStart,
 } from './_phone-profile'
@@ -234,7 +233,6 @@ test('certified warm attach removes the second delivery and preserves live value
       }
       if (isMobile) {
         await firstLaunch(page)
-        await setPilot(page, true, false)
       } else {
         await page.goto(route, { waitUntil: 'domcontentloaded' })
         await page.locator('aside').first().waitFor({ state: 'visible', timeout: 60_000 })
