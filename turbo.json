@@ -155,6 +155,7 @@
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/**",
         "$TURBO_ROOT$/packages/worklist-proto/shared/src/**",
         "$TURBO_ROOT$/apps/web/harness/header-scan-control.ts",
+        "$TURBO_ROOT$/apps/mobile/src/lib/mission-session.ts",
         "$TURBO_ROOT$/apps/web/node_modules/vite/dist/node/index.js"
       ],
       "outputs": ["*.tsbuildinfo"]
@@ -248,8 +249,12 @@
         "$TURBO_ROOT$/apps/web/test/sidebar-actions-fixture.ts",
         "$TURBO_ROOT$/apps/web/src/features/setup/**",
         "$TURBO_ROOT$/apps/web/src/features/superagent/fixture.ts",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/fence-scenarios.ts",
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/oracle/mobile.ts"
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/mobx-census.ts",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/oracle/mobile.ts",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/oracle/mobile-snapshot.ts",
+        "$TURBO_ROOT$/packages/worklist-proto/shared/src/scenarios.ts"
       ],
       "outputs": ["*.tsbuildinfo"]
     },
